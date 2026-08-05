@@ -7,23 +7,23 @@ local lunette = require 'lunette'   -- native mechanism.
 local mullion = require 'mullion'   -- the Lua standard library, optional.
 ```
 
-Two names because they carry different promises. `lunette` is surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture — implemented in Rust, and the whole of what the system can do. `mullion` is panels, layouts, rules, signals, keybindings, and chrome — implemented in Lua, installed as readable files, and replaceable.
+The two names carry different contracts. `lunette` covers surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. It is implemented in Rust and represents the full capability of the system. `mullion` covers panels, layouts, rules, signals, keybindings, and chrome. It is implemented in Lua, installed as readable files, and can be replaced.
 
-awesome makes the same split by name (`awesome`/`client`/`screen` versus `awful`), and it's why "write your own `awful`" is an obviously available move there. Nesting the standard library under `lunette.*` would read like one API where half of it happens to be Lua.
+awesome makes the same split by name, distinguishing `awesome`, `client`, and `screen` from `awful`. This is why writing a replacement for `awful` is a recognised option in that project. Nesting the standard library under `lunette.*` would present a single API in which part happens to be implemented in Lua, obscuring the distinction.
 
-They're usable independently. `mullion` is written against the same public `lunette` API a downstream user has. If it ever needs something private, the API is wrong.
+The two roots are usable independently. `mullion` is written against the same public `lunette` API available to any other caller. If `mullion` ever requires something private, this indicates a defect in the `lunette` API.
 
 ## The config
 
-`~/.config/lunette/main.lua` is a LÖVR project. It defines `lovr.draw`, `lovr.update`, and the rest; it `require`s our libraries like any other. Nothing is hidden, and no loop is owned on your behalf.
+`~/.config/lunette/main.lua` is a LÖVR project. It defines `lovr.draw`, `lovr.update`, and the other LÖVR callbacks, and it `require`s lunette's libraries like any other module. Nothing is hidden, and no loop runs on the user's behalf without being defined in this file.
 
-If it doesn't exist, `$SYSCONFDIR/xdg/lunette/main.lua` is used directly — awesome's approach, which avoids stale copies of a config you never edited. `lunette --dump-config` gives you a copy to start editing.
+If this file does not exist, `$SYSCONFDIR/xdg/lunette/main.lua` is used directly. This matches awesome's approach, and avoids stale copies of a configuration the user never edited. `lunette --dump-config` produces a copy for the user to start editing.
 
 A config that never mentions `mullion` is a supported configuration.
 
 ## Events
 
-Native pushes through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and friends in a defined order. Callbacks are prefixed `lun`:
+The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. Callbacks are prefixed `lun`:
 
 ```lua
 function lovr.lunwindowopened(win) end
@@ -37,11 +37,11 @@ function lovr.lunlayerrevoked(claim) end
 function lovr.lunerror(err, traceback) end
 ```
 
-The prefix squats in LÖVR's callback namespace permanently, which is why it's distinctive: `lovr.lun*` is unlikely to collide with anything upstream adds.
+The prefix occupies LÖVR's callback namespace permanently and is chosen to be distinctive: `lovr.lun*` is unlikely to collide with any callback added upstream.
 
 `boot.lua`'s poll loop unpacks four arguments, so richer payloads travel as a table.
 
-**Signals live in Lua.** Native pushes flat events; `mullion` builds `connect_signal`/`emit_signal`, property-change signals, and per-window signal tables on top. awesome's signal system is about 100 lines of Lua, which is the right amount of machinery to leave replaceable.
+Signals are implemented in Lua. The native layer pushes flat events; `mullion` builds `connect_signal`, `emit_signal`, property-change signals, and per-window signal tables on top of them. awesome's signal system is approximately 100 lines of Lua, an amount of machinery small enough to leave replaceable.
 
 ## Handles
 
@@ -57,27 +57,27 @@ win:close()               -- returns nothing; watch for lovr.lunwindowclosed.
 
 ## Reload
 
-Two paths, both preserving your applications:
+There are two reload paths, both of which preserve running applications.
 
-**`lunette.reload()` — soft.** Clears `package.loaded` for user and standard-library namespaces and re-runs `main.lua`. The LÖVR modules, XR session, GPU objects, compositor, and clients all stay up. Effectively instant, no visual disruption. This is the default, and iterating on layout code in-headset with sub-second reloads is the single biggest quality-of-life feature available to us.
+`lunette.reload()` performs a soft reload. It clears `package.loaded` for user and standard-library namespaces and re-runs `main.lua`. The LÖVR modules, XR session, GPU objects, compositor, and clients all remain running. The reload is effectively instant, with no visual disruption. It is the default reload path. Iterating on layout code in-headset with sub-second reloads is a significant benefit of this design.
 
-The risk is the classic hot-reload footgun: timers, signal connections, coroutines, and stashed handles from the old config persist unless something tears them down. `mullion` provides an explicit teardown hook that soft reload calls.
+The risk of soft reload is that timers, signal connections, coroutines, and stashed handles from the old configuration persist unless something tears them down. `mullion` provides an explicit teardown hook that soft reload calls to address this.
 
-**`lunette.restart()` — hard.** LÖVR's `lovr.event.restart`, which closes the entire Lua state and rebuilds it, tearing down graphics and the XR session with it ([LÖVR integration](lovr-integration.md#restart-semantics)). Clean slate, visible hitch, brief blackness in the headset. Use when soft isn't enough.
+`lunette.restart()` performs a hard restart, using LÖVR's `lovr.event.restart`. This closes the entire Lua state and rebuilds it, tearing down graphics and the XR session with it. See [LÖVR integration](lovr-integration.md#restart-semantics). The result is a clean slate, with a visible hitch and brief blackness in the headset. It is used when a soft reload is not sufficient.
 
 Wayland clients survive both, because Rust holds the socket outside the Lua state.
 
 ## Errors
 
-Every user callback runs under `xpcall` with a traceback. An error logs, emits `lovr.lunerror`, and shows a floating error panel — then execution continues. Identical repeated errors are rate-limited, so a per-frame error doesn't fill your view.
+Every user callback runs under `xpcall` with a traceback. An error is logged, emits `lovr.lunerror`, and displays a floating error panel; execution then continues. Identical repeated errors are rate-limited, so an error recurring every frame does not fill the display.
 
 The handler itself is `mullion` code and can be replaced wholesale, since `lovr.errhand` is overridable.
 
-Native owns exactly one failure path: **if `main.lua` fails to load, safe mode starts.** A minimal built-in config with a laser, one panel, a way to spawn a terminal, and a reload key. A black headset with no way to recover means taking the HMD off and editing Lua at a desk, every time.
+The native layer owns exactly one failure path: if `main.lua` fails to load, safe mode starts. This is a minimal built-in configuration with a laser, one panel, a way to spawn a terminal, and a reload key. Without this fallback, a configuration error would produce a black headset with no way to recover, requiring the user to remove the headset and edit Lua at a desk every time.
 
 ## lunctl
 
-`lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette-0.sock`, mode 0600. It's evaluated on the Lua thread between frames with a wall-clock budget, and the result is serialised back.
+`lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette-0.sock`, mode 0600. The chunk is evaluated on the Lua thread between frames within a wall-clock budget, and the result is serialised back.
 
 ```console
 $ lunctl 'return #lunette.windows()'
@@ -86,24 +86,24 @@ $ lunctl 'for _, w in ipairs(lunette.windows()) do print(w.appId, w.title) end'
 $ lunctl 'mullion.layout.arc(mullion.tag.current())'
 ```
 
-This is the awesomewm inheritance that matters most — more than any layout algorithm. The reason awesome is pleasant is that the whole WM is inspectable and mutable from a shell prompt while it runs. It's also our end-to-end test harness: spawn a client, eval assertions, tear down.
+This is the most significant inheritance from awesome, more significant than any layout algorithm. awesome's design allows the whole window manager to be inspected and mutated from a shell prompt while it runs, which is a substantial part of its usability. `lunctl` also serves as the end-to-end test harness: it spawns a client, evaluates assertions, and tears down.
 
-Anyone who wants a typed protocol can build one in Lua on top of this.
+A caller that wants a typed protocol can build one in Lua on top of this mechanism.
 
 Three things learned from awesome's version (`inspiration/awesome/lib/awful/remote.lua`):
 
-- **awesome's is on the session D-Bus**, reachable by everything in your session — including Flatpak apps granted `--socket=session-bus`, making "sandboxed app asks your WM to run Lua" a live path. A 0600 socket in `$XDG_RUNTIME_DIR` has the same power with a much smaller blast radius.
-- **awesome enables it by accident.** The manpage implies it's opt-in, but `lib/awful/init.lua:28` requires `awful.remote`, so every config that does `require("awful")` has arbitrary code execution on. Ours is enabled deliberately, documented as "this is root on your session", with a switch to disable.
-- **awesome's serialisation is threadbare** — booleans, numbers, strings, everything else `tostring`'d. Fine for a REPL, useless for tooling. We serialise nested tables, and handles as opaque ids.
+- awesome's remote control is exposed on the session D-Bus, reachable by every process in the session, including Flatpak applications granted `--socket=session-bus`. This makes it possible for a sandboxed application to ask the window manager to run arbitrary Lua. A 0600 socket in `$XDG_RUNTIME_DIR` provides the same capability with a smaller attack surface.
+- awesome enables remote control unintentionally. The manpage implies it is opt-in, but `lib/awful/init.lua:28` requires `awful.remote` unconditionally, so every configuration that calls `require("awful")` has arbitrary code execution enabled. lunctl is enabled deliberately, documented as equivalent to root access on the user's session, with a switch to disable it.
+- awesome's serialisation is limited to booleans, numbers, and strings; every other value is converted with `tostring`. This is adequate for a REPL but insufficient for tooling. lunctl serialises nested tables, and represents handles as opaque ids.
 
-No network transport, ever.
+No network transport is provided.
 
 ## Bindings
 
-The API is bound with **`mlua` via `init_from_ptr`**, attaching to the `lua_State` LÖVR created. Hand-rolled `lua_State` C API is reserved for measured hot paths — realistically only per-frame snapshot publication, if it ever appears in a profile.
+The API is bound with `mlua`, via `init_from_ptr`, attaching to the `lua_State` that LÖVR created. Hand-written `lua_State` C API calls are reserved for measured hot paths, realistically only per-frame snapshot publication, if profiling shows it is necessary.
 
-The reason is the failure mode, not throughput. A Lua mistake should raise a catchable error, not segfault your window manager, because the premise of this project is that users write Lua that reshapes the system. mlua's per-call cost is irrelevant next to a compositor and a GPU frame.
+This choice is motivated by failure mode, not throughput. A Lua mistake should raise a catchable error rather than crash the window manager, because the premise of this project is that users write Lua that reshapes the system. mlua's per-call cost is negligible relative to the cost of a compositor and a GPU frame.
 
-LuaJIT's FFI stays available to users who want to call a C ABI directly at their own risk. We just don't build the standard library on it.
+LuaJIT's FFI remains available to a script that wants to call a C ABI directly, at its own risk. The standard library is not built on it.
 
-The API is **main-Lua-state only**. `lovr.thread` and `lovr.task` states don't get it.
+The API is available only in the main Lua state. `lovr.thread` and `lovr.task` states do not receive it.
