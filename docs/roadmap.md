@@ -42,6 +42,6 @@ Roughly WayVR's feature surface, plus the items this architecture makes easier.
 
 ## Upstream work, opportunistically
 
-- LÖVR: Vulkan handle export, foreign image import, `LOVR_BUILD_STATIC`, configurable `MAX_LAYERS`, embedding entry points.
+- LÖVR: external-memory device extensions, foreign image import, configurable `MAX_LAYERS`.
 - `wlx-capture`: portal `mapping_id` identification, `ext-image-copy-capture-v1`.
 - WayVR: anything from the above that applies to it.

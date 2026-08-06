@@ -2,7 +2,7 @@
 
 ## Process and thread structure
 
-lunette is a single Rust binary that statically links LÖVR. Rust owns `main()`.
+lunette is a single Rust binary that dynamically links LÖVR, which ships beside it as `liblovr.so` ([Build and development](build-and-development.md#building)). Rust owns `main()`.
 
 | Thread | Owns | Communicates with |
 |---|---|---|

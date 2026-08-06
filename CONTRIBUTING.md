@@ -2,7 +2,7 @@
 
 ## What this is
 
-lunette is an XR window manager and Wayland compositor. It runs as an OpenXR overlay, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that statically links LÖVR; the scripting layer is Lua on LuaJIT; the compositor is smithay, vendored from WayVR.
+lunette is an XR window manager and Wayland compositor. It runs as an OpenXR overlay, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR; the scripting layer is Lua on LuaJIT; the compositor is smithay, vendored from WayVR.
 
 The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code. Contributions are accepted under that licence.
 
@@ -10,21 +10,20 @@ The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code.
 
 ## Current status
 
-There is no code yet. The repository contains the design specification in `docs/` and nothing else. The first milestone is a vertical slice whose purpose is de-risking two specific unknowns; see [docs/roadmap.md](docs/roadmap.md).
-
-Until the workspace lands, the Rust commands in the template sections below describe the intended checks rather than commands that currently run.
+The workspace builds, links LÖVR, and opens a window running a Lua configuration. Nothing above that exists yet: no compositor, no capture, no standard library. The first milestone is a vertical slice whose purpose is de-risking two specific unknowns; see [docs/roadmap.md](docs/roadmap.md).
 
 ## Repository layout
 
-The planned layout is recorded in [docs/build-and-development.md](docs/build-and-development.md). In summary:
+The layout is recorded in [docs/build-and-development.md](docs/build-and-development.md). In summary:
 
 ```
 crates/lunette/              the binary: main(), Lua injection, frame orchestration
 crates/lunette-compositor/   smithay; vendored fork of WayVR's backend/wayvr
-crates/lunette-lovr/         cmake build and FFI surface for the LÖVR fork
+crates/lunette-lovr/         cmake build and FFI surface for LÖVR
 crates/lunette-capture/      wrappers over wlx-capture and HidProvider
 lua/                         the mullion standard library
-vendor/lovr/                 submodule, the LÖVR fork (recursive)
+etc/xdg/lunette/             the default configuration
+vendor/lovr/                 submodule, LÖVR with lunette's patch branch (recursive)
 docs/                        the design specification
 inspiration/                 reference checkouts, gitignored
 ```
@@ -49,7 +48,7 @@ Vendored code is exempt from the house style in this document until it is rewrit
 
 ## The LÖVR fork
 
-`vendor/lovr` is a submodule pointing at the lunette fork of LÖVR, tracking upstream on a branch. Its own `deps/` are nested submodules, so clone recursively.
+`vendor/lovr` is a submodule pointing at upstream LÖVR, with lunette's patches on a local `lunette` branch. Repointing it at a lunette-owned fork is a pre-push task. Its own `deps/` are nested submodules, so clone recursively.
 
 Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths. Each patch is shaped as an upstream pull request and opened upstream early. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md).
 

@@ -4,16 +4,16 @@
 
 ```
 lunette/
-  flake.nix, flake.lock           dev shell and package output
+  flake.nix, flake.lock           the dev shell
   Cargo.toml                      workspace
   crates/
     lunette/                      the binary: main(), Lua injection, frame orchestration
     lunette-compositor/           smithay; vendored fork of WayVR's backend/wayvr
-    lunette-lovr/                 cmake build + FFI surface for the LÖVR fork
+    lunette-lovr/                 cmake build + FFI surface for LÖVR
     lunette-capture/              wrappers over wlx-capture and HidProvider
   lua/                            the mullion standard library
-  vendor/lovr/                    submodule → the LÖVR fork (recursive)
-  examples/                       default main.lua and friends
+  etc/xdg/lunette/                the default configuration
+  vendor/lovr/                    submodule → LÖVR with lunette's patch branch (recursive)
   docs/                           this
   inspiration/                    reference checkouts, gitignored
 ```
@@ -22,17 +22,21 @@ lunette/
 
 ## Building
 
-LÖVR links statically. `LOVR_BUILD_STATIC` is added to the fork ([LÖVR integration](lovr-integration.md#3-static-library-target)), so `lunette` is one binary: no `rpath` handling, no `liblovr.so` to keep in lockstep, no ABI surface across submodule bumps.
+LÖVR links dynamically. `crates/lunette-lovr` builds it with `LOVR_BUILD_SHARED=ON` and `LOVR_BUILD_WITH_SYMBOLS=ON`, producing `liblovr.so` alongside five shared libraries it needs at runtime: `libluajit.so`, `libglfw.so`, `libmsdfgen.so`, `libphonon.so`, and joltc's wrapper around JoltPhysics. Those five are built shared however LÖVR itself is linked, which is why a static LÖVR target would not make `lunette` a single binary ([LÖVR integration](lovr-integration.md#rejected-a-static-library-target)).
+
+Two rpath arrangements make them resolve at runtime. `liblovr.so` is built with `CMAKE_SHARED_LINKER_FLAGS` adding `$ORIGIN/bin`, so it resolves its own siblings from the tree LÖVR's `move_files` target stages; an executable cannot supply that, because a `DT_RUNPATH` is not consulted when resolving a dependency's dependencies. The binary's own entries come from `crates/lunette-lovr/build.rs`, which publishes the library directories through `cargo::metadata` under a `links = "lovr"` declaration. `crates/lunette/build.rs` reads them back and emits the rpath link arguments itself, because Cargo applies a build script's link arguments to its own package's targets only.
 
 `build.rs` drives cmake via the `cmake` crate, so `cargo build` works for contributors not on NixOS. Nix supplies system libraries (Vulkan loader, Wayland, PipeWire, D-Bus, xkbcommon, the OpenXR loader) rather than performing the build.
 
-LÖVR's vendored dependencies are used as upstream intends: glslang, Jolt, LuaJIT, glfw, and the rest, from `deps/`. They form a known-good set that upstream CI tests, and substituting Nix versions would add a debugging surface with no offsetting benefit. The cost is a large first clone and a slow first build.
+LÖVR's vendored dependencies are used as upstream intends: glslang, LuaJIT, glfw, and the rest, from `deps/`. They form a known-good set that upstream CI tests, and substituting Nix versions would add a debugging surface with no offsetting benefit. The cost is a large first clone and a slow first build.
+
+JoltPhysics is the exception. `deps/joltc` reaches it through cmake's `FetchContent`, which wants the network at configure time. The devshell prefetches the revision `deps/joltc` declares and points `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS` at the result, so the cmake step needs no network. This is what the nixpkgs `lovr` derivation does, and the source is still the tree upstream selected. The revision moves when the `joltc` submodule is bumped.
 
 ## Nix
 
-A flake with a dev shell and a package output. No nixpkgs upstreaming until it works.
+A flake with a dev shell. It supplies the toolchain, the system libraries, and the prefetched JoltPhysics tree; it does not build lunette itself. A package output comes later, and no nixpkgs upstreaming until it works.
 
-Because LÖVR's `deps/` are nested submodules, the flake needs `fetchSubmodules = true` and a fixed-output hash that changes on every LÖVR bump. This is the recurring friction of the arrangement, and it is the price of tracking upstream on a branch.
+Because LÖVR's `deps/` are nested submodules, that package output will need `fetchSubmodules = true` and a fixed-output hash that changes on every LÖVR bump. This is the recurring friction of the arrangement, and it is the price of tracking upstream on a branch.
 
 ## Where things live at runtime
 
@@ -66,6 +70,6 @@ Full XR is ground truth, and soft reload ([The Lua API](lua-api.md#reload)) is w
 
 Tier A, logic headless, is a design constraint rather than an aspiration. The compositor crate, capture, input routing, and process management are tested as ordinary Rust, with a small `smithay-client-toolkit` test client connecting to a real socket. Buffer import is stubbed. This costs nothing beyond the layering discipline already required, and becomes impossible only if the codebase is accidentally coupled to the graphics module.
 
-Tier B, GPU headless, is a nice-to-have. LÖVR runs with no window and no XR, panels render offscreen, and pixels are read back and asserted. `boot.lua:171` only opens a window if `conf.window` is set, and `lovr.graphics.newReadback` exists, so this tier is available rather than theoretical. It is useful for confirming layout placement and for catching texture-import regressions.
+Tier B, GPU headless, is a nice-to-have. LÖVR runs with no window and no XR, panels render offscreen, and pixels are read back and asserted. `etc/boot.lua` opens a window only when `conf.window` is set, and `lovr.graphics.newReadback` exists, so this tier is available rather than theoretical. It is useful for confirming layout placement and for catching texture-import regressions.
 
 End-to-end testing runs via `lunctl`: a shell script that spawns a client, evaluates Lua to assert state, and tears down. This is nearly free, given that the control socket exists regardless.
