@@ -27,8 +27,8 @@ use std::io::Write;
 
 use harness::WINDOW_SIZE;
 use lunette_compositor::{
-    protocol::Command,
-    selection::{FakeHost, HostCall, HostEvent, MimeType, OfferCounter, OfferId, SelectionKind},
+    protocol::{Command, KeyboardConfig, KeymapConfig, SeatId},
+    selection::{FakeHost, HostCall, HostEvent, MimeType, OfferCounter, SelectionKind},
     state::{CompositorConfig, DEFAULT_SEAT},
     test_client::{SelectionDevices, TestClient, read_to_end},
     testing::TestCompositor,
@@ -48,12 +48,7 @@ const SEAT: &str = "lunette";
 /// the focused client, and both `set_selection` requests are refused from an
 /// unfocused one (`smithay-0.7.0/.../data_device/device.rs:117-129`). A test
 /// that skipped it would see nothing and blame the bridge.
-fn with_host() -> (TestCompositor, TestClient, FakeHost) {
-    with_host_and_devices().0
-}
-
-/// The same, with the client's two selection devices already bound.
-fn with_host_and_devices() -> ((TestCompositor, TestClient, FakeHost), SelectionDevices) {
+fn with_host() -> (TestCompositor, TestClient, FakeHost, SelectionDevices) {
     let host = FakeHost::default();
     let mut compositor = TestCompositor::with_config(CompositorConfig {
         host_selection: Some(host.source()),
@@ -81,18 +76,19 @@ fn with_host_and_devices() -> ((TestCompositor, TestClient, FakeHost), Selection
     // for one.
     let devices = client.open_selection(&mut compositor, SEAT);
 
-    ((compositor, client, host), devices)
+    (compositor, client, host, devices)
 }
 
 /// Announces a host selection carrying `mimes`, and reports its identifier.
 fn host_copies(
     compositor: &mut TestCompositor,
     client: &mut TestClient,
+    devices: &SelectionDevices,
     host: &FakeHost,
     counter: &OfferCounter,
     kind: SelectionKind,
     mimes: &[&str],
-) -> OfferId {
+) {
     let offer = counter.next();
     host.announce(HostEvent::Offered {
         kind,
@@ -103,13 +99,12 @@ fn host_copies(
             .map(|mime| MimeType::new(mime).expect("a non-empty mime type"))
             .collect(),
     });
-    client.settle(compositor, |driver| driver.has_selection(kind));
-    offer
+    client.settle(compositor, |driver| driver.has_selection(devices, kind));
 }
 
 #[test]
 fn both_selection_protocols_and_both_data_controls_are_advertised() {
-    let (_compositor, client, _host) = with_host();
+    let (_compositor, client, _host, _devices) = with_host();
 
     let globals = client.globals();
     for wanted in [
@@ -129,13 +124,14 @@ fn both_selection_protocols_and_both_data_controls_are_advertised() {
 fn a_host_selection_is_offered_to_a_client_with_the_hosts_own_mime_types() {
     // Both selections, because the host has one of each and a bridge that moved
     // only the clipboard would pass half of AC4.5.
-    let (mut compositor, mut client, host) = with_host();
+    let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
 
     for kind in SelectionKind::ALL {
         host_copies(
             &mut compositor,
             &mut client,
+            &devices,
             &host,
             &counter,
             kind,
@@ -143,7 +139,7 @@ fn a_host_selection_is_offered_to_a_client_with_the_hosts_own_mime_types() {
         );
 
         assert_eq!(
-            client.driver().offered(kind),
+            client.driver().offered(&devices, kind),
             vec![UTF8.to_owned(), "text/plain".to_owned(), "TEXT".to_owned()],
             "the {kind} offer did not carry the host's own list, unchanged",
         );
@@ -156,13 +152,21 @@ fn pasting_in_a_client_reads_the_bytes_the_host_writes_into_its_own_pipe() {
     // the pipe: the descriptor the client supplied is the one the fake host is
     // handed, and the bytes the test writes into it are the bytes the client
     // reads back.
-    let (mut compositor, mut client, host) = with_host();
+    let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
 
     for (kind, text) in SelectionKind::ALL.into_iter().zip(["clipped", "primary"]) {
-        host_copies(&mut compositor, &mut client, &host, &counter, kind, &[UTF8]);
+        host_copies(
+            &mut compositor,
+            &mut client,
+            &devices,
+            &host,
+            &counter,
+            kind,
+            &[UTF8],
+        );
 
-        let reader = client.paste(&mut compositor, kind, UTF8);
+        let reader = client.paste(&mut compositor, &devices, kind, UTF8);
 
         assert_eq!(
             host.calls().last(),
@@ -189,7 +193,7 @@ fn pasting_in_a_client_reads_the_bytes_the_host_writes_into_its_own_pipe() {
 
 #[test]
 fn copying_in_a_client_publishes_the_clients_own_mime_types_to_the_host() {
-    let ((mut compositor, mut client, host), devices) = with_host_and_devices();
+    let (mut compositor, mut client, host, devices) = with_host();
 
     for kind in SelectionKind::ALL {
         drop(client.copy(&mut compositor, &devices, kind, &[UTF8, "text/html"]));
@@ -212,7 +216,7 @@ fn copying_in_a_client_publishes_the_clients_own_mime_types_to_the_host() {
 fn pasting_on_the_host_reads_the_bytes_the_client_writes_into_the_hosts_pipe() {
     // The other half of AC4.5. The host's descriptor reaches the client that
     // owns the selection, and the client writes into it directly.
-    let ((mut compositor, mut client, host), devices) = with_host_and_devices();
+    let (mut compositor, mut client, host, devices) = with_host();
 
     for (kind, text) in SelectionKind::ALL.into_iter().zip(["copied", "selected"]) {
         let _source = client.copy(&mut compositor, &devices, kind, &[UTF8]);
@@ -243,18 +247,19 @@ fn pasting_on_the_host_reads_the_bytes_the_client_writes_into_the_hosts_pipe() {
 fn a_mime_type_the_host_does_not_offer_is_refused_rather_than_substituted() {
     // Nothing is handed to the host, and the client's pipe closes unread — an
     // empty paste rather than the nearest text type in the wrong encoding.
-    let (mut compositor, mut client, host) = with_host();
+    let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
     host_copies(
         &mut compositor,
         &mut client,
+        &devices,
         &host,
         &counter,
         SelectionKind::Clipboard,
         &["image/png"],
     );
 
-    let reader = client.paste(&mut compositor, SelectionKind::Clipboard, UTF8);
+    let reader = client.paste(&mut compositor, &devices, SelectionKind::Clipboard, UTF8);
 
     assert!(
         !host
@@ -269,11 +274,12 @@ fn a_mime_type_the_host_does_not_offer_is_refused_rather_than_substituted() {
 
 #[test]
 fn the_host_clearing_its_selection_withdraws_the_offer_from_the_client() {
-    let (mut compositor, mut client, host) = with_host();
+    let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
     host_copies(
         &mut compositor,
         &mut client,
+        &devices,
         &host,
         &counter,
         SelectionKind::Clipboard,
@@ -284,17 +290,21 @@ fn the_host_clearing_its_selection_withdraws_the_offer_from_the_client() {
         kind: SelectionKind::Clipboard,
     });
     client.settle(&mut compositor, |driver| {
-        !driver.has_selection(SelectionKind::Clipboard)
+        !driver.has_selection(&devices, SelectionKind::Clipboard)
     });
 
-    assert!(!client.driver().has_selection(SelectionKind::Clipboard));
+    assert!(
+        !client
+            .driver()
+            .has_selection(&devices, SelectionKind::Clipboard)
+    );
 }
 
 #[test]
 fn a_client_offering_no_mime_types_withdraws_rather_than_publishing_nothing() {
     // A source that advertises nothing can answer no request, so a selection
     // built from it would be one every paste comes back empty from.
-    let ((mut compositor, mut client, host), devices) = with_host_and_devices();
+    let (mut compositor, mut client, host, devices) = with_host();
 
     drop(client.copy(&mut compositor, &devices, SelectionKind::Clipboard, &[]));
 
@@ -311,18 +321,19 @@ fn a_client_that_never_reads_its_pipe_stalls_nothing() {
     // The case that would deadlock a compositor that copied the bytes itself.
     // lunette hands the descriptor on and forgets it, so a second window maps
     // while the first client's paste sits unread for ever.
-    let (mut compositor, mut client, host) = with_host();
+    let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
     host_copies(
         &mut compositor,
         &mut client,
+        &devices,
         &host,
         &counter,
         SelectionKind::Clipboard,
         &[UTF8],
     );
 
-    let unread = client.paste(&mut compositor, SelectionKind::Clipboard, UTF8);
+    let unread = client.paste(&mut compositor, &devices, SelectionKind::Clipboard, UTF8);
 
     let mut second = TestClient::connect(&mut compositor);
     second.open_toplevel(&mut compositor);
@@ -361,7 +372,269 @@ fn a_session_with_no_host_desktop_keeps_its_selections_to_itself() {
     drop(client.copy(&mut compositor, &devices, SelectionKind::Clipboard, &[UTF8]));
 
     assert!(
-        client.driver().has_selection(SelectionKind::Clipboard),
+        client
+            .driver()
+            .has_selection(&devices, SelectionKind::Clipboard),
         "a client's own selection was not offered back to it",
+    );
+}
+
+/// The second hand, which starts unbridged.
+const SECOND: (SeatId, &str) = (
+    match SeatId::new(2) {
+        Some(seat) => seat,
+        None => unreachable!(),
+    },
+    "second",
+);
+
+/// A keyboard on an explicitly named layout.
+///
+/// Named rather than defaulted, because the default is whatever the machine's
+/// `XKB_DEFAULT_LAYOUT` says, and a seat that fails to compile never appears.
+fn keyboard() -> Box<KeyboardConfig> {
+    Box::new(KeyboardConfig {
+        keymap: KeymapConfig {
+            layout: Some("us".to_owned()),
+            ..KeymapConfig::default()
+        },
+        ..KeyboardConfig::default()
+    })
+}
+
+/// The setup above, plus a second seat the same client is focused on, with its
+/// own pair of selection devices.
+///
+/// One client with two seats rather than two clients, because what is under test
+/// is the bridge rather than focus: both seats are focused on the same surface,
+/// so a selection reaching one device and not the other is the bridge deciding
+/// and nothing else.
+fn with_two_seats() -> (
+    TestCompositor,
+    TestClient,
+    FakeHost,
+    SelectionDevices,
+    SelectionDevices,
+) {
+    let (mut compositor, mut client, host, first) = with_host();
+
+    compositor.send(Command::CreateSeat {
+        seat: SECOND.0,
+        name: SECOND.1.to_owned(),
+        keyboard: keyboard(),
+    });
+    // The global rather than the name: the client binds a seat only when it is
+    // asked for one, so `seat_names` stays empty until `open_selection` runs.
+    client.settle(&mut compositor, |driver| {
+        driver
+            .globals
+            .iter()
+            .filter(|global| global.interface == "wl_seat")
+            .count()
+            == 2
+    });
+
+    let sink = compositor
+        .snapshot()
+        .windows
+        .first()
+        .expect("the window mapped")
+        .sink;
+    compositor.send(Command::Focus {
+        seat: SECOND.0,
+        sink: Some(sink),
+    });
+    client.settle_quiet(&mut compositor);
+
+    let second = client.open_selection(&mut compositor, SECOND.1);
+    (compositor, client, host, first, second)
+}
+
+#[test]
+fn only_the_bridged_seat_sees_the_hosts_selection() {
+    // The mapping AC4.5 rests on: the host has one clipboard, so exactly one
+    // seat speaks for it and the other keeps a selection of its own.
+    let (mut compositor, mut client, host, first, second) = with_two_seats();
+    let counter = OfferCounter::new();
+
+    host_copies(
+        &mut compositor,
+        &mut client,
+        &first,
+        &host,
+        &counter,
+        SelectionKind::Clipboard,
+        &[UTF8],
+    );
+
+    assert!(
+        client
+            .driver()
+            .has_selection(&first, SelectionKind::Clipboard),
+    );
+    assert!(
+        !client
+            .driver()
+            .has_selection(&second, SelectionKind::Clipboard),
+        "an unbridged seat was given the host's selection",
+    );
+}
+
+#[test]
+fn a_copy_on_an_unbridged_seat_stays_inside_lunette() {
+    let (mut compositor, mut client, host, _first, second) = with_two_seats();
+
+    drop(client.copy(&mut compositor, &second, SelectionKind::Clipboard, &[UTF8]));
+
+    assert!(
+        !host
+            .calls()
+            .iter()
+            .any(|call| matches!(call, HostCall::Publish { .. })),
+        "an unbridged seat's copy reached the host: {:?}",
+        host.calls(),
+    );
+    assert!(
+        client
+            .driver()
+            .has_selection(&second, SelectionKind::Clipboard),
+        "the selection did not reach the seat that owns it either",
+    );
+}
+
+#[test]
+fn moving_the_bridge_moves_both_directions_at_once() {
+    let (mut compositor, mut client, host, first, second) = with_two_seats();
+    let counter = OfferCounter::new();
+    host_copies(
+        &mut compositor,
+        &mut client,
+        &first,
+        &host,
+        &counter,
+        SelectionKind::Clipboard,
+        &[UTF8],
+    );
+
+    compositor.send(Command::SetClipboardBridge {
+        seat: Some(SECOND.0),
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.has_selection(&second, SelectionKind::Clipboard)
+    });
+
+    assert!(
+        !client
+            .driver()
+            .has_selection(&first, SelectionKind::Clipboard),
+        "the host's selection stayed on the seat that is no longer bridged",
+    );
+
+    drop(client.copy(&mut compositor, &second, SelectionKind::Clipboard, &[UTF8]));
+
+    assert_eq!(
+        host.calls().last(),
+        Some(&HostCall::Publish {
+            kind: SelectionKind::Clipboard,
+            mimes: vec![MimeType::new(UTF8).expect("non-empty")],
+        }),
+        "the newly bridged seat's copy did not reach the host",
+    );
+}
+
+#[test]
+fn taking_the_bridge_away_leaves_no_seat_speaking_for_the_host() {
+    let (mut compositor, mut client, host, first, _second) = with_two_seats();
+    let counter = OfferCounter::new();
+    host_copies(
+        &mut compositor,
+        &mut client,
+        &first,
+        &host,
+        &counter,
+        SelectionKind::Clipboard,
+        &[UTF8],
+    );
+
+    compositor.send(Command::SetClipboardBridge { seat: None });
+    client.settle(&mut compositor, |driver| {
+        !driver.has_selection(&first, SelectionKind::Clipboard)
+    });
+
+    assert_eq!(
+        host.calls().last(),
+        Some(&HostCall::Withdraw {
+            kind: SelectionKind::Primary
+        }),
+        "the host was not told lunette had stopped offering both selections",
+    );
+    assert_eq!(
+        compositor
+            .snapshot()
+            .seats
+            .iter()
+            .filter(|seat| seat.clipboard_bridge)
+            .count(),
+        0,
+    );
+}
+
+#[test]
+fn the_snapshot_names_exactly_one_bridged_seat() {
+    let (mut compositor, mut client, _host, _first, _second) = with_two_seats();
+
+    let bridged: Vec<SeatId> = compositor
+        .snapshot()
+        .seats
+        .iter()
+        .filter(|seat| seat.clipboard_bridge)
+        .map(|seat| seat.seat)
+        .collect();
+    assert_eq!(bridged, vec![DEFAULT_SEAT]);
+
+    compositor.send(Command::SetClipboardBridge {
+        seat: Some(SECOND.0),
+    });
+    client.settle(&mut compositor, |_| true);
+    compositor.step();
+
+    let bridged: Vec<SeatId> = compositor
+        .snapshot()
+        .seats
+        .iter()
+        .filter(|seat| seat.clipboard_bridge)
+        .map(|seat| seat.seat)
+        .collect();
+    assert_eq!(bridged, vec![SECOND.0], "two seats claimed the one bridge");
+}
+
+#[test]
+fn two_seats_hold_different_selections_without_interfering() {
+    let (mut compositor, mut client, host, first, second) = with_two_seats();
+    let counter = OfferCounter::new();
+
+    host_copies(
+        &mut compositor,
+        &mut client,
+        &first,
+        &host,
+        &counter,
+        SelectionKind::Clipboard,
+        &["text/host"],
+    );
+    drop(client.copy(
+        &mut compositor,
+        &second,
+        SelectionKind::Clipboard,
+        &["text/local"],
+    ));
+
+    assert_eq!(
+        client.driver().offered(&first, SelectionKind::Clipboard),
+        vec!["text/host".to_owned()],
+    );
+    assert_eq!(
+        client.driver().offered(&second, SelectionKind::Clipboard),
+        vec!["text/local".to_owned()],
     );
 }

@@ -663,10 +663,13 @@ pub struct Driver {
     // is where the struct is, and everything that reads them is in the submodule.
     /// The MIME types each selection offer advertised, by offer object.
     offers: Vec<(ObjectId, Vec<String>)>,
-    /// The clipboard offer the compositor last named, absent when it cleared it.
-    clipboard: Option<WlDataOffer>,
-    /// The primary-selection offer the compositor last named.
-    primary: Option<ZwpPrimarySelectionOfferV1>,
+    /// The clipboard offer each data device was last given, by device. Keyed
+    /// because two seats mean two devices, and a selection that does not say
+    /// which one it reached says nothing about the bridge.
+    clipboard: Vec<(ObjectId, Option<WlDataOffer>)>,
+    /// The primary-selection offer each device was last given, keyed for the
+    /// reason the clipboard is.
+    primary: Vec<(ObjectId, Option<ZwpPrimarySelectionOfferV1>)>,
     /// Requests the compositor made of this client's own sources, each with the
     /// descriptor to write into.
     sends: Vec<(String, OwnedFd)>,

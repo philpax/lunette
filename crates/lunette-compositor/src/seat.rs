@@ -140,7 +140,12 @@ impl SeatRegistry {
     }
 
     /// Every seat, as the main thread reads them.
-    pub(crate) fn snapshot(&self) -> Vec<SeatSnapshot> {
+    ///
+    /// `bridge` is the seat whose selections are the host desktop's, which the
+    /// registry does not own — it is [`crate::selection::SelectionBridge`]'s —
+    /// and which rides in the snapshot because a caller reading a seat wants to
+    /// know whether it is that one.
+    pub(crate) fn snapshot(&self, bridge: Option<SeatId>) -> Vec<SeatSnapshot> {
         self.seats
             .iter()
             .map(|entry| SeatSnapshot {
@@ -148,6 +153,7 @@ impl SeatRegistry {
                 name: entry.seat.name().to_owned(),
                 keymap: Arc::clone(entry.keymap().text()),
                 modifiers: held(entry.keyboard.modifier_state()),
+                clipboard_bridge: bridge == Some(entry.id),
             })
             .collect()
     }

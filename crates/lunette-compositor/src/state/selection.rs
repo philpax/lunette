@@ -35,6 +35,7 @@ use smithay::{
 use tracing::{debug, info, warn};
 
 use crate::{
+    protocol::SeatId,
     selection::{HostEvent, HostOffer, HostRead, MimeType, SelectionKind},
     state::compositor::CompositorState,
 };
@@ -120,6 +121,69 @@ impl CompositorState {
                 drop(pipe);
             }
         }
+    }
+
+    /// Names the seat whose selections are the host desktop's, or takes the
+    /// bridge away.
+    ///
+    /// The change takes effect where every other mutation does: this runs when
+    /// the command is applied, and the snapshot that reports it is published at
+    /// the end of the same tick.
+    ///
+    /// A selection the new seat already held is *not* pushed to the host. Only a
+    /// compositor-owned selection can be read back, and one a client owns cannot
+    /// be re-advertised without asking that client for a MIME list smithay does
+    /// not expose. The next copy on the seat crosses; the one from before the
+    /// bridge moved does not.
+    pub(super) fn set_clipboard_bridge(&mut self, seat: Option<SeatId>) {
+        if let Some(wanted) = seat
+            && self.seats.get(wanted).is_none()
+        {
+            warn!(seat = %wanted, "the clipboard bridge was asked for a seat that does not exist");
+            return;
+        }
+
+        let Some(rebind) = self.selection.rebind(seat) else {
+            return;
+        };
+
+        if let Some(previous) = rebind.withdrawn {
+            self.unbridge(previous);
+        }
+        for kind in SelectionKind::ALL {
+            match self.selection.offer(kind).cloned() {
+                Some(offer) => self.offer_to_bridge(&offer),
+                None => self.clear_on_bridge(kind),
+            }
+        }
+
+        match rebind.adopted {
+            Some(seat) => info!(%seat, "the host clipboard is bridged to this seat now"),
+            None => info!("no seat is bridged to the host clipboard now"),
+        }
+        self.touch();
+    }
+
+    /// Detaches a seat from the host: its offer comes off the host, and the
+    /// host's offers come off it.
+    ///
+    /// Both halves, because leaving either would be a seat that still speaks for
+    /// the host in one direction — a paste on the desktop reaching a hand that
+    /// no longer owns the clipboard, or a stale offer sitting on a seat nothing
+    /// refreshes.
+    fn unbridge(&mut self, seat: SeatId) {
+        if let Some(host) = self.selection.host() {
+            for kind in SelectionKind::ALL {
+                host.withdraw(kind);
+            }
+        }
+
+        let Some(entry) = self.seats.get(seat) else {
+            return;
+        };
+        let handle = entry.seat().clone();
+        clear_data_device_selection(&self.display, &handle);
+        clear_primary_selection(&self.display, &handle);
     }
 
     /// Applies one report from the host desktop's clipboard.

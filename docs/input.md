@@ -42,6 +42,22 @@ Seats are inexpensive in smithay, which is designed to support them. The cost is
 
 The host input domain is always exactly one seat, because the host desktop has one cursor. See [Host desktop](host-desktop.md#the-input-domain-leak).
 
+## Clipboard
+
+Each seat owns a clipboard and a primary selection, because smithay stores both against the seat and every protocol entry point takes one. The host desktop owns exactly one of each. The two do not line up, and the mapping is a designated bridge seat: exactly one seat's selections are the host's, in both directions, and every other seat keeps selections that stay inside lunette.
+
+```lua
+lunette.seats()[1].clipboardBridge   -- whether this seat's selections are the host's.
+seat:setClipboardBridge(true)        -- makes them; takes the bridge off whichever seat had it.
+seat:setClipboardBridge(false)       -- leaves no seat bridged, if this one held it.
+```
+
+A selection the host sets is offered to the bridge seat. A selection set on the bridge seat is pushed to the host. A selection set on any other seat is offered to the clients that seat is focused on and goes no further. The seat every session starts with is the bridged one, so a configuration that never mentions the clipboard gets the behaviour a single-seat compositor has.
+
+Which seat is bridged is Lua's decision, like every other policy. The change takes effect at the next frame boundary, as every other mutation does. A selection the newly bridged seat already held is not pushed retroactively: only a selection lunette owns can be re-advertised, and one a client owns cannot be without asking that client for a MIME list the protocol does not expose. The next copy on the seat crosses.
+
+MIME types are re-offered exactly as the source advertised them, in both directions; a request for a type an offer does not carry is refused rather than answered with the nearest thing. A transfer is a file descriptor passed between the two processes that own the bytes, so lunette buffers nothing and blocks nowhere. [Decisions](decisions.md#recorded-decisions) records both.
+
 ## Keyboard
 
 Wayland clients want an xkb keymap plus raw keycodes and modifier state; they do their own keysym translation.

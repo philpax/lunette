@@ -451,6 +451,7 @@ impl CompositorState {
                 keyboard,
             } => self.create_seat(seat, &name, keyboard.as_ref()),
             Command::DestroySeat { seat } => self.destroy_seat(seat),
+            Command::SetClipboardBridge { seat } => self.set_clipboard_bridge(seat),
             Command::Key { seat, key, pressed } => self.press_key(seat, key, pressed),
             Command::Modifiers { seat, modifiers } => self.set_modifiers(seat, &modifiers),
             Command::Focus { seat, sink } => self.set_focus(seat, sink),
@@ -684,7 +685,7 @@ impl CompositorState {
                 output: DEFAULT_OUTPUT,
                 mode: self.config.output,
             }],
-            seats: self.seats.snapshot(),
+            seats: self.seats.snapshot(self.selection.seat()),
         });
     }
 

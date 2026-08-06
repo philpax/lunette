@@ -119,6 +119,17 @@ impl<T: LuaTexture> UserData for Seat<T> {
 
         fields.add_field_method_get("dead", |_, seat| Ok(!seat.refresh()));
 
+        // Whether this seat's clipboard and primary selection are the host
+        // desktop's. At most one seat's are, because the host has one of each.
+        fields.add_field_method_get("clipboardBridge", |_, seat| {
+            seat.refresh();
+            Ok(seat
+                .known
+                .borrow()
+                .as_ref()
+                .is_some_and(|known| known.clipboard_bridge))
+        });
+
         // The modifiers this seat is holding, as clients were last told. An
         // array of names, in the order `KeyModifier` declares them.
         fields.add_field_method_get("modifiers", |lua, seat| {
@@ -160,6 +171,10 @@ impl<T: LuaTexture> UserData for Seat<T> {
 
         methods.add_method("setFocus", |_, seat, sink: Option<mlua::AnyUserData>| {
             set_focus(seat, sink.as_ref())
+        });
+
+        methods.add_method("setClipboardBridge", |_, seat, bridged: bool| {
+            Ok(set_clipboard_bridge(seat, bridged))
         });
 
         methods.add_method(
@@ -308,6 +323,35 @@ fn set_focus<T: LuaTexture>(
         sink: target,
     });
     Ok(true)
+}
+
+/// `seat:setClipboardBridge(bridged)`: makes this seat's selections the host
+/// desktop's, or stops them being.
+///
+/// One seat at a time, because the host has one clipboard and one primary
+/// selection: bridging this seat takes the bridge off whichever seat had it.
+/// Passing `false` on a seat that is not the bridged one does nothing, so a
+/// configuration can call it without first asking which seat holds it.
+///
+/// `docs/input.md` records why the mapping is one designated seat rather than
+/// last-writer-wins across all of them.
+fn set_clipboard_bridge<T>(seat: &Seat<T>, bridged: bool) -> bool {
+    if !seat.refresh() {
+        return false;
+    }
+    let held = seat
+        .known
+        .borrow()
+        .as_ref()
+        .is_some_and(|known| known.clipboard_bridge);
+    if held == bridged {
+        return true;
+    }
+
+    seat.session.queue(Command::SetClipboardBridge {
+        seat: bridged.then_some(seat.id),
+    });
+    true
 }
 
 /// `seat:strokeFor(value)`: which key and modifiers produce a character or a

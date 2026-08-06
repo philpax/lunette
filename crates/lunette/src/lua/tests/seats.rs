@@ -40,6 +40,9 @@ fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
         name: name.to_owned(),
         keymap: Arc::clone(keymap.text()),
         modifiers: ModifierState::new(),
+        // The default seat is the bridged one, which is what the compositor
+        // starts with; a test that wants another asks for it.
+        clipboard_bridge: raw == 1,
     }
 }
 
@@ -246,6 +249,69 @@ fn focus_can_be_withdrawn() {
         [Command::Focus { sink: None, .. }] => {}
         other => panic!("expected a withdrawal, got {other:?}"),
     }
+}
+
+#[test]
+fn a_seat_reports_whether_its_selections_are_the_hosts() {
+    let session = session(Vec::new());
+    session.begin(seated(
+        Vec::new(),
+        vec![seat(1, "lunette", "us"), seat(2, "left", "us")],
+    ));
+    let lua = lua(&session);
+
+    let (first, second): (bool, bool) = run(
+        &lua,
+        "local s = lunette.seats() return s[1].clipboardBridge, s[2].clipboardBridge",
+    );
+
+    assert!(
+        first,
+        "the default seat starts bridged to the host clipboard"
+    );
+    assert!(!second, "two seats claimed the one bridge");
+}
+
+#[test]
+fn bridging_a_seat_names_it_and_unbridging_names_no_seat() {
+    let session = session(Vec::new());
+    session.begin(seated(
+        Vec::new(),
+        vec![seat(1, "lunette", "us"), seat(2, "left", "us")],
+    ));
+    let lua = lua(&session);
+
+    run::<()>(&lua, "lunette.seats()[2]:setClipboardBridge(true)");
+
+    match session.flush().as_slice() {
+        [Command::SetClipboardBridge { seat }] => {
+            assert_eq!(*seat, Some(SeatId::new(2).expect("non-zero")));
+        }
+        other => panic!("expected one bridge command, got {other:?}"),
+    }
+
+    run::<()>(&lua, "lunette.seats()[1]:setClipboardBridge(false)");
+
+    match session.flush().as_slice() {
+        [Command::SetClipboardBridge { seat: None }] => {}
+        other => panic!("expected the bridge to be taken away, got {other:?}"),
+    }
+}
+
+#[test]
+fn asking_for_the_bridge_a_seat_already_has_queues_nothing() {
+    // A configuration may call this every frame without knowing which seat
+    // holds it, and a command per frame would republish the snapshot forever.
+    let session = us_session(Vec::new());
+    let lua = lua(&session);
+
+    run::<()>(
+        &lua,
+        "lunette.seats()[1]:setClipboardBridge(true)
+         lunette.seats()[1]:setClipboardBridge(true)",
+    );
+
+    assert!(session.flush().is_empty());
 }
 
 #[test]

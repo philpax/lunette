@@ -147,6 +147,7 @@ impl TestClient {
     pub fn paste(
         &mut self,
         compositor: &mut TestCompositor,
+        devices: &SelectionDevices,
         kind: SelectionKind,
         mime: &str,
     ) -> OwnedFd {
@@ -156,16 +157,16 @@ impl TestClient {
             SelectionKind::Clipboard => {
                 let offer = self
                     .driver
-                    .clipboard
-                    .clone()
+                    .clipboard_offer(devices)
+                    .cloned()
                     .expect("the compositor offered a clipboard selection");
                 offer.receive(mime.to_owned(), writer.as_fd());
             }
             SelectionKind::Primary => {
                 let offer = self
                     .driver
-                    .primary
-                    .clone()
+                    .primary_offer(devices)
+                    .cloned()
                     .expect("the compositor offered a primary selection");
                 offer.receive(mime.to_owned(), writer.as_fd());
             }
@@ -217,13 +218,13 @@ impl TestClient {
 }
 
 impl Driver {
-    /// The MIME types the current selection offer advertises, in the order the
+    /// The MIME types the offer on one device advertises, in the order the
     /// compositor sent them.
     #[must_use]
-    pub fn offered(&self, kind: SelectionKind) -> Vec<String> {
+    pub fn offered(&self, devices: &SelectionDevices, kind: SelectionKind) -> Vec<String> {
         let offer = match kind {
-            SelectionKind::Clipboard => self.clipboard.as_ref().map(Proxy::id),
-            SelectionKind::Primary => self.primary.as_ref().map(Proxy::id),
+            SelectionKind::Clipboard => self.clipboard_offer(devices).map(Proxy::id),
+            SelectionKind::Primary => self.primary_offer(devices).map(Proxy::id),
         };
         let Some(offer) = offer else {
             return Vec::new();
@@ -235,12 +236,36 @@ impl Driver {
             .unwrap_or_default()
     }
 
-    /// Whether the compositor is currently offering a selection of this kind.
+    /// Whether the compositor is currently offering a selection on one device.
     #[must_use]
-    pub fn has_selection(&self, kind: SelectionKind) -> bool {
+    pub fn has_selection(&self, devices: &SelectionDevices, kind: SelectionKind) -> bool {
         match kind {
-            SelectionKind::Clipboard => self.clipboard.is_some(),
-            SelectionKind::Primary => self.primary.is_some(),
+            SelectionKind::Clipboard => self.clipboard_offer(devices).is_some(),
+            SelectionKind::Primary => self.primary_offer(devices).is_some(),
+        }
+    }
+
+    fn clipboard_offer(&self, devices: &SelectionDevices) -> Option<&WlDataOffer> {
+        let device = devices.clipboard.id();
+        self.clipboard
+            .iter()
+            .find(|(id, _)| *id == device)
+            .and_then(|(_, offer)| offer.as_ref())
+    }
+
+    fn primary_offer(&self, devices: &SelectionDevices) -> Option<&ZwpPrimarySelectionOfferV1> {
+        let device = devices.primary.id();
+        self.primary
+            .iter()
+            .find(|(id, _)| *id == device)
+            .and_then(|(_, offer)| offer.as_ref())
+    }
+
+    /// Records the offer a device was given, replacing whatever it held.
+    fn selected<T>(slots: &mut Vec<(ObjectId, Option<T>)>, device: ObjectId, offer: Option<T>) {
+        match slots.iter_mut().find(|(id, _)| *id == device) {
+            Some((_, held)) => *held = offer,
+            None => slots.push((device, offer)),
         }
     }
 
@@ -312,7 +337,7 @@ fn pipe() -> (OwnedFd, OwnedFd) {
 impl Dispatch<WlDataDevice, ()> for Driver {
     fn event(
         state: &mut Self,
-        _proxy: &WlDataDevice,
+        proxy: &WlDataDevice,
         event: wl_data_device::Event,
         (): &(),
         _connection: &Connection,
@@ -320,7 +345,9 @@ impl Dispatch<WlDataDevice, ()> for Driver {
     ) {
         match event {
             wl_data_device::Event::DataOffer { id } => state.offers.push((id.id(), Vec::new())),
-            wl_data_device::Event::Selection { id } => state.clipboard = id,
+            wl_data_device::Event::Selection { id } => {
+                Self::selected(&mut state.clipboard, proxy.id(), id);
+            }
             _ => {}
         }
     }
@@ -367,7 +394,7 @@ impl Dispatch<WlDataSource, ()> for Driver {
 impl Dispatch<ZwpPrimarySelectionDeviceV1, ()> for Driver {
     fn event(
         state: &mut Self,
-        _proxy: &ZwpPrimarySelectionDeviceV1,
+        proxy: &ZwpPrimarySelectionDeviceV1,
         event: zwp_primary_selection_device_v1::Event,
         (): &(),
         _connection: &Connection,
@@ -377,7 +404,9 @@ impl Dispatch<ZwpPrimarySelectionDeviceV1, ()> for Driver {
             zwp_primary_selection_device_v1::Event::DataOffer { offer } => {
                 state.offers.push((offer.id(), Vec::new()));
             }
-            zwp_primary_selection_device_v1::Event::Selection { id } => state.primary = id,
+            zwp_primary_selection_device_v1::Event::Selection { id } => {
+                Self::selected(&mut state.primary, proxy.id(), id);
+            }
             _ => {}
         }
     }

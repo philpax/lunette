@@ -29,8 +29,8 @@
 //! [`Command::ConfigureWindow`], [`Command::Pointer`],
 //! [`Command::PointerLeave`], [`Command::Button`], [`Command::Key`],
 //! [`Command::Modifiers`], [`Command::Focus`], [`Command::TypeText`],
-//! [`Command::CreateSeat`], [`Command::DestroySeat`], and
-//! [`Command::Shutdown`].
+//! [`Command::CreateSeat`], [`Command::DestroySeat`],
+//! [`Command::SetClipboardBridge`], and [`Command::Shutdown`].
 //!
 //! One field of a handled command is not: [`SpawnRequest::output`] is accepted
 //! and ignored, because a window is not placed on an output until the outputs
@@ -44,10 +44,10 @@
 //!   and pacing phase. Until then one output exists with the default mode, and
 //!   [`Snapshot::outputs`] describes it.
 //!
-//! Not declared at all: clipboard and selection traffic, and the host-desktop
-//! capture surfaces. Both are specified in `docs/` only as capabilities, not as
-//! a message shape, and inventing one now would be a guess rather than a
-//! promise.
+//! Not declared at all: the host-desktop capture surfaces. Selection *content*
+//! is also absent from this vocabulary, and deliberately: a transfer is a file
+//! descriptor passed between the two processes that own the bytes, so nothing
+//! about it crosses this boundary. `docs/decisions.md` records why.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -146,6 +146,13 @@ pub enum Command {
     },
     /// Destroys a seat and drops any grab it held.
     DestroySeat { seat: SeatId },
+    /// Names the one seat whose clipboard and primary selection are the host
+    /// desktop's, or takes the bridge away entirely.
+    ///
+    /// The host has one of each and a seat owns one of each, so exactly one seat
+    /// can be the host's. Which one is policy, so it comes from Lua; see
+    /// `docs/input.md`.
+    SetClipboardBridge { seat: Option<SeatId> },
     /// Creates a virtual monitor for clients assigned to it.
     CreateOutput { output: OutputId, mode: OutputMode },
     /// Changes an existing output's mode. Clients reallocate and re-lay-out in
@@ -317,6 +324,9 @@ pub struct SeatSnapshot {
     pub keymap: Arc<KeymapText>,
     /// The modifiers this seat is holding, as clients were last told.
     pub modifiers: ModifierState,
+    /// Whether this is the seat whose selections are the host desktop's. At most
+    /// one seat is, because the host has one clipboard.
+    pub clipboard_bridge: bool,
 }
 
 /// A virtual monitor clients are told about.

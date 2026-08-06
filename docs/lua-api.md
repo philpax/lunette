@@ -167,11 +167,13 @@ for _, seat in ipairs(lunette.seats()) do
     print(seat.dead)               -- whether the compositor has this seat right now.
     print(seat.modifiers)          -- an array of names; what clients were last told.
     print(seat.layouts)            -- an array: 'English (US)', not 'us'.
+    print(seat.clipboardBridge)    -- whether this seat's selections are the host's.
     seat:setFocus(win.sink)        -- gives this seat's keyboard to a sink; nil withdraws it.
     seat:setModifiers{ 'shift' }   -- the same request sink:modifiers makes.
     seat:symbolFor(30)             -- the keysym a keycode produces, or nil.
     seat:characterFor(30, { 'shift' })  -- the text it types, or nil.
     seat:strokeFor('A')            -- { keycode = 30, modifiers = { 'shift' } }, or nil.
+    seat:setClipboardBridge(true)  -- makes this seat's selections the host's.
     seat:destroy()                 -- withdraws the seat.
 end
 ```
@@ -185,6 +187,10 @@ The options are the five names libxkbcommon compiles a layout from — `rules`, 
 `seat.layouts`, `seat:symbolFor`, `seat:characterFor`, and `seat:strokeFor` are the keymap queries [Input](input.md#keyboard) asks for. They are what lets a virtual keyboard draw correct legends and produce correct keycodes without reimplementing xkb in Lua. All of them answer from the seat's own layout, so two seats on different layouts answer differently.
 
 `seat:strokeFor(value)` is the reverse lookup. A string is read as the character to type and a number as a keysym, and the answer prefers the fewest modifiers and then the lowest keycode, so a digit resolves to the number row rather than the keypad. It returns `nil` for anything the layout cannot express — that is what `sink:typeText` is for — and raises on a string of more than one character, because a stroke produces one keysym.
+
+`seat.clipboardBridge` and `seat:setClipboardBridge(bridged)` are the host clipboard's one connection to a seat. The host desktop has one clipboard and one primary selection while every seat has its own, so exactly one seat is bridged: its selections are the host's in both directions, and every other seat's stay inside lunette. Bridging a seat takes the bridge off whichever seat had it, and passing `false` on a seat that is not the bridged one does nothing, so a configuration can call either without first asking which seat holds it. The seat every session starts with is bridged, so a configuration that never mentions the clipboard behaves as a single-seat compositor does. [Input](input.md#clipboard) states the mapping and [Decisions](decisions.md#recorded-decisions) states why it is one seat rather than all of them.
+
+A selection the newly bridged seat already held is not pushed to the host retroactively; the next copy on that seat crosses. Both calls return `false` on a dead seat, like every other seat method.
 
 `seat:destroy()` withdraws the seat. The seat every session starts with refuses: a session with no seat can deliver no input.
 

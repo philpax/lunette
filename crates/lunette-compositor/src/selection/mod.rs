@@ -340,6 +340,25 @@ impl SelectionBridge {
         self.seat == Some(seat)
     }
 
+    /// Moves the bridge to another seat, or to none.
+    ///
+    /// Reports what changed so the caller can take the old seat's offer off the
+    /// host and give the new seat what the host holds, rather than leaving both
+    /// half-attached. `None` when the seat was already the bridged one.
+    pub(crate) fn rebind(&mut self, seat: Option<SeatId>) -> Option<Rebind> {
+        if self.seat == seat {
+            return None;
+        }
+        let withdrawn = match seat {
+            Some(seat) => self.seat.replace(seat),
+            None => self.seat.take(),
+        };
+        Some(Rebind {
+            withdrawn,
+            adopted: seat,
+        })
+    }
+
     /// Records what the host is now offering.
     pub(crate) fn remember(&mut self, offer: HostOffer) {
         let index = offer.kind.index();
@@ -389,6 +408,19 @@ impl SelectionBridge {
         self.host = None;
         self.offers = [None, None];
     }
+}
+
+/// What moving the bridge from one seat to another asks the caller to do.
+///
+/// A description rather than an action, so the decision is testable without a
+/// host connection and without a seat registry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Rebind {
+    /// The seat that is no longer bridged. Its offer to the host is withdrawn,
+    /// and the host's offers are taken off it.
+    pub(crate) withdrawn: Option<SeatId>,
+    /// The seat that is bridged now, which the host's selections are offered to.
+    pub(crate) adopted: Option<SeatId>,
 }
 
 impl fmt::Debug for SelectionBridge {
