@@ -21,7 +21,7 @@ use mlua::{UserData, UserDataFields, UserDataMethods, Value};
 
 use crate::{
     import::formats::Alpha,
-    lua::{LuaTexture, Session, sink::Sink},
+    lua::{LuaTexture, Session, pixel_size, sink::Sink},
     texture::{TextureRef, TextureUnavailable},
 };
 
@@ -61,6 +61,12 @@ impl<T> Window<T> {
             session,
             known: RefCell::new(known),
         }
+    }
+
+    /// Which toplevel this handle names, for the parts of the module that take
+    /// a window as an argument rather than returning one.
+    pub(crate) const fn id(&self) -> WindowId {
+        self.id
     }
 
     /// Brings the cache up to date, reporting whether the window still exists.
@@ -271,7 +277,7 @@ fn close<T>(window: &Window<T>) -> bool {
 fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> {
     // Validated before the liveness check, so a bad size is reported whether or
     // not the window happens to still be there.
-    let size = pixel_size(width, height)?;
+    let size = pixel_size(width, height, "window size")?;
     if !window.refresh() {
         return Ok(false);
     }
@@ -341,23 +347,5 @@ fn answer<T: LuaTexture>(
         Err(raised @ (TextureUnavailable::Stale { .. } | TextureUnavailable::CopyFailed)) => {
             Err(mlua::Error::runtime(format!("lunette: {raised}")))
         }
-    }
-}
-
-/// Checks a size before it is asked of a client.
-fn pixel_size(width: f64, height: f64) -> mlua::Result<PixelSize> {
-    let pixels = |value: f64| {
-        // The bound is what makes the cast below exact: a finite whole number
-        // in `1 ..= u32::MAX` is representable in both.
-        (value.is_finite() && value >= 1.0 && value <= f64::from(u32::MAX) && value.fract() == 0.0)
-            .then_some(value as u32)
-    };
-
-    match (pixels(width), pixels(height)) {
-        (Some(width), Some(height)) => Ok(PixelSize::new(width, height)),
-        _ => Err(mlua::Error::runtime(format!(
-            "lunette: ({width}, {height}) is not a window size; both are whole pixel counts and \
-             have to be at least one"
-        ))),
     }
 }

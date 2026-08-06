@@ -145,6 +145,21 @@ impl PoolOutcome {
     }
 }
 
+/// What the pool knows about one claim.
+///
+/// Read together rather than field by field, because a handle refreshing itself
+/// wants a consistent answer: a claim revoked between two reads would otherwise
+/// report granted with the size of a layer it no longer holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClaimState {
+    pub key: LayerKey,
+    pub priority: Priority,
+    /// Whether the claim holds a layer that has been reported granted. False
+    /// while a newly created layer awaits its first blit: nothing has told Lua
+    /// about that one, and it is not submittable yet.
+    pub granted: bool,
+}
+
 /// A pool of `Layer` objects and the claims contending for them.
 ///
 /// # What is recycled
@@ -413,6 +428,41 @@ impl<B: LayerBackend> LayerPool<B> {
             .find(|entry| entry.id == claim)
             .and_then(|entry| entry.held.as_ref())
             .map(|held| &held.layer)
+    }
+
+    /// What the pool knows about a claim, or `None` if it knows nothing about
+    /// it — which is what a released claim, and a claim from a Lua state that
+    /// has been reloaded away, both look like.
+    #[must_use]
+    pub fn state(&self, claim: ClaimId) -> Option<ClaimState> {
+        let entry = self.claims.iter().find(|entry| entry.id == claim)?;
+        Some(ClaimState {
+            key: entry.key,
+            priority: entry.priority,
+            granted: entry
+                .held
+                .as_ref()
+                .is_some_and(|held| held.state == HeldState::Granted),
+        })
+    }
+
+    /// The layer a claim has been reported granted, which is the only one Lua
+    /// may be handed.
+    ///
+    /// [`LayerPool::layer`] answers with a layer awaiting its first blit too,
+    /// because that is precisely the layer the blit path is looking for.
+    /// Offering that one to Lua would hand out a `Layer` whose swapchain has
+    /// never released an image, before `lovr.lunlayergranted` has said the
+    /// claim holds anything.
+    #[must_use]
+    pub fn granted_layer(&self, claim: ClaimId) -> Option<&B::Layer> {
+        let held = self
+            .claims
+            .iter()
+            .find(|entry| entry.id == claim)?
+            .held
+            .as_ref()?;
+        (held.state == HeldState::Granted).then_some(&held.layer)
     }
 
     /// Every claim holding a layer, in the order the claims were made.

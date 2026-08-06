@@ -43,6 +43,7 @@
 //! Raising is safe: `boot.lua` runs every callback under `xpcall`, and the
 //! handler reports. Nothing here swallows an error to keep a frame alive.
 
+mod claim;
 mod process;
 mod sink;
 #[cfg(test)]
@@ -60,14 +61,21 @@ use std::{
 };
 
 use lunette_compositor::protocol::{
-    Argv, Command, PointerButton, ProcessId, Snapshot, SpawnRequest, WindowId, WindowSnapshot,
+    Argv, Command, PixelSize, PointerButton, ProcessId, Snapshot, SpawnRequest, WindowId,
+    WindowSnapshot,
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
 use mlua::{Lua, Table, Value};
 
-pub use crate::lua::{process::Process, sink::Sink, window::Window};
+pub use crate::lua::{
+    claim::{Claim, ClaimRegistry, LuaLayer, PoolRegistry},
+    process::Process,
+    sink::Sink,
+    window::Window,
+};
 use crate::{
     events::{EventName, EventQueue, EventSink, LuaEvent, install_dispatchers},
+    lua::claim::claim_layer,
     texture::{CopyableTexture, FrameGeneration, LovrTexture, TextureLedger},
 };
 
@@ -140,11 +148,15 @@ pub struct Session<T> {
     /// another generic through every handle would cost more to read than the
     /// indirection costs to run.
     sink: Box<dyn EventSink>,
+    /// Which claims hold composition layers. Behind a trait for the same reason
+    /// the sink is, and shared rather than owned because the frame loop drives
+    /// the blit and the submit through the same pool.
+    claims: Rc<dyn ClaimRegistry>,
 }
 
 impl<T> Session<T> {
     #[must_use]
-    pub fn new(sink: Box<dyn EventSink>) -> Rc<Self> {
+    pub fn new(sink: Box<dyn EventSink>, claims: Rc<dyn ClaimRegistry>) -> Rc<Self> {
         let empty = Arc::new(Snapshot::default());
         Rc::new(Self {
             frame: RefCell::new(Frame {
@@ -157,7 +169,24 @@ impl<T> Session<T> {
             textures: RefCell::new(TextureLedger::new()),
             events: RefCell::new(EventQueue::default()),
             sink,
+            claims,
         })
+    }
+
+    /// The pool, for the handles that read it and the frame loop that drives it.
+    #[must_use]
+    pub fn claims(&self) -> &dyn ClaimRegistry {
+        self.claims.as_ref()
+    }
+
+    /// Assigns the pool's layers for this frame.
+    ///
+    /// Called once at frame start, after [`Session::begin`] and before
+    /// `boot.lua` polls, so that a claim made during a callback is granted no
+    /// earlier than the next frame and a panel's realisation cannot change
+    /// between its `lovr.update` and its `lovr.draw`.
+    pub fn resolve_layers(&self) {
+        self.claims.resolve(self.generation());
     }
 
     /// Starts a frame against the compositor's latest snapshot.
@@ -334,6 +363,12 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
         lua.create_function(move |_, options: Table| spawn(&spawn_session, &options))?,
     )?;
 
+    let claim_session = Rc::clone(session);
+    module.set(
+        "claimLayer",
+        lua.create_function(move |_, options: Table| claim_layer(&claim_session, &options))?,
+    )?;
+
     // Here rather than in `install`, because `boot.lua:345` creates
     // `lovr.handlers` after `package.preload` has been populated and before
     // `main.lua` runs — so the first `require` is the earliest moment the table
@@ -454,6 +489,27 @@ fn strings(options: &Table, name: &str) -> mlua::Result<Vec<OsString>> {
 /// equivalent read fails on exactly that case.
 fn os_string(value: &mlua::LuaString) -> OsString {
     OsString::from_vec(value.as_bytes().to_vec())
+}
+
+/// Checks a pair of numbers before they are taken for a size in pixels.
+///
+/// `noun` names what is being sized, so the message says which argument the
+/// caller got wrong when a configuration is sizing several things a frame.
+fn pixel_size(width: f64, height: f64, noun: &str) -> mlua::Result<PixelSize> {
+    let pixels = |value: f64| {
+        // The bound is what makes the cast below exact: a finite whole number
+        // in `1 ..= u32::MAX` is representable in both.
+        (value.is_finite() && value >= 1.0 && value <= f64::from(u32::MAX) && value.fract() == 0.0)
+            .then_some(value as u32)
+    };
+
+    match (pixels(width), pixels(height)) {
+        (Some(width), Some(height)) => Ok(PixelSize::new(width, height)),
+        _ => Err(mlua::Error::runtime(format!(
+            "lunette: ({width}, {height}) is not a {noun}; both are whole pixel counts and have to \
+             be at least one"
+        ))),
+    }
 }
 
 /// The name Lua spells a pointer button with.

@@ -78,6 +78,39 @@ Both return `false` on a dead handle, without raising. Both are requests, so nei
 
 `win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
 
+## Layer claims
+
+A panel renders either as an in-scene quad or on an OpenXR composition layer. The second is sharper, because the runtime composites the source at its native resolution instead of resampling lunette's own resampling of it. Layers are scarce, so a panel asks for one:
+
+```lua
+local claim = lunette.claimLayer{
+    window = win,               -- the source whose pixels the layer carries.
+    width = win.width,          -- the requested size, in whole pixels.
+    height = win.height,
+    priority = 10,              -- where this ranks against every other claim.
+}
+
+print(claim.granted)         -- whether it holds a layer this frame.
+print(claim.layer)           -- the LÖVR Layer, or false; never cache it.
+print(claim.width, claim.height) -- the layer's size, not the requested size.
+print(claim.window)          -- the source it was made for.
+print(claim.priority)        -- the number last supplied.
+claim:setPriority(20)        -- reranks it; takes effect at the next boundary.
+claim:release()              -- withdraws it, returning the layer to the pool.
+```
+
+`claim.layer` is a real LÖVR `Layer`, not a wrapper, so `setPose`, `setDimensions`, `setCurve`, `setViewport`, `getTexture`, and the rest are the documented `Layer` methods. It is `false` whenever the claim holds none.
+
+The priority is Lua's own number and lunette never invents it. Rust sorts by it, stably, and assigns the top N; focus, gaze, distance, a rule ranking video above a terminal, and hysteresis to stop grants flapping are all cases of computing a different number. A priority that is not orderable — nan — raises, because a claim silently keeping its old ranking would be diagnosed as the pool misbehaving.
+
+`claim.width` and `claim.height` report the layer's size rather than the size that was asked for. Requested sizes are quantised to a ladder of discrete steps, described in [Rendering](rendering.md#the-layer-pool), so the layer is at least as large as the request and usually larger. A caller setting the layer's viewport wants the rung.
+
+Grants and revocations land on frame boundaries and never mid-frame, so a panel's realisation cannot change between its `lovr.update` and its `lovr.draw`. A fresh claim therefore holds nothing in the call that made it, and may hold nothing indefinitely if higher-priority claims keep the pool full. Both paths are live from the start: the in-scene quad is the fallback, not a degraded mode.
+
+Revocation does not kill the claim. `claim.granted` goes false and `claim.layer` answers `false`, and the claim takes a layer again as soon as one frees and nothing outranks it — which is what makes the upgrade automatic. A claim is dead only after `claim:release()`, and a dead handle reads its last-known values and answers `false` from its methods.
+
+Releasing is explicit. Nothing releases a claim when its handle is collected, because the grant and revoke events carry a second handle to the same claim and collecting that one would withdraw a live claim. A configuration that drops a panel releases the panel's claim.
+
 ## Reload
 
 There are two reload paths, both of which preserve running applications.

@@ -133,6 +133,11 @@ impl FrameDriver {
 
         self.drain_events();
 
+        // The frame boundary the pool decides on. Before `boot.lua` polls and
+        // so before `lovr.update`, which is what lets a callback read a claim's
+        // realisation and have it hold for the whole of the frame it draws.
+        self.session.resolve_layers();
+
         let barriers = self.barriers;
         self.session.with_textures(|ledger| {
             ledger.refresh_stable();
@@ -218,6 +223,10 @@ impl FrameDriver {
     /// view is invalid. There are no further frames to defer into, so the
     /// images are left for the device teardown that follows immediately.
     pub fn shutdown(&mut self) {
+        // While the XR session still exists, because destroying a `Layer` calls
+        // `xrDestroySwapchain` inline.
+        self.session.claims().shutdown();
+
         let released = self.session.with_textures(TextureLedger::take_all);
         for texture in released {
             texture.release_ref();

@@ -15,6 +15,7 @@
 )]
 
 mod events;
+mod layers;
 
 use std::{ffi::OsStr, rc::Rc, sync::Arc};
 
@@ -31,7 +32,8 @@ use pretty_assertions::assert_eq;
 use crate::{
     events::RecordingEventSink,
     import::formats::Alpha,
-    lua::{LuaTexture, Session, install},
+    layers::LayerPool,
+    lua::{LuaTexture, PoolRegistry, Session, install, tests::layers::FakeLayers},
     texture::{CopyableTexture, TextureDescription, TextureRef},
 };
 
@@ -111,11 +113,31 @@ fn session(windows: Vec<WindowSnapshot>) -> TestSession {
 
 /// A session whose pushed events can be replayed, for the tests that need to.
 fn recording_session(windows: Vec<WindowSnapshot>) -> (TestSession, RecordingEventSink) {
-    let sink = RecordingEventSink::default();
-    let session = Session::new(Box::new(sink.clone()));
-    session.begin(snapshot(windows, Vec::new()));
+    let (session, sink, _) = layered_session(windows, GENEROUS_LAYER_LIMIT);
     (session, sink)
 }
+
+/// A session whose pool is reachable, for the tests that drive frame boundaries.
+///
+/// `limit` is what the runtime reports, not what the pool will spend.
+fn layered_session(
+    windows: Vec<WindowSnapshot>,
+    limit: u32,
+) -> (
+    TestSession,
+    RecordingEventSink,
+    Rc<PoolRegistry<FakeLayers>>,
+) {
+    let sink = RecordingEventSink::default();
+    let registry = Rc::new(PoolRegistry::new(LayerPool::new(FakeLayers::new(limit))));
+    let session = Session::new(Box::new(sink.clone()), Rc::clone(&registry) as Rc<_>);
+    session.begin(snapshot(windows, Vec::new()));
+    (session, sink, registry)
+}
+
+/// A runtime limit generous enough that the pool is never the reason a test
+/// fails, for the tests that are not about layers.
+const GENEROUS_LAYER_LIMIT: u32 = 128;
 
 /// A Lua state with the module installed and `lunette` already required, which
 /// is the state a `main.lua` runs in.
@@ -872,7 +894,11 @@ fn the_module_exposes_only_what_this_phase_implements() {
 
     assert_eq!(
         names,
-        vec!["spawn".to_owned(), "windows".to_owned()],
+        vec![
+            "claimLayer".to_owned(),
+            "spawn".to_owned(),
+            "windows".to_owned(),
+        ],
         "a name added here is a promise; the rest of the surface arrives with the phase that \
          implements it"
     );

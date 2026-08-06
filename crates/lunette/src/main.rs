@@ -57,9 +57,16 @@ use std::{
     io,
     path::{Path, PathBuf},
     process::ExitCode,
+    rc::Rc,
 };
 
-use lunette::{events::LovrEventSink, frame::Startup, lua::Session, texture::BarrierPolicy};
+use lunette::{
+    events::LovrEventSink,
+    frame::Startup,
+    layers::{LayerPool, LovrLayers},
+    lua::{PoolRegistry, Session},
+    texture::BarrierPolicy,
+};
 use lunette_compositor::client::{XwaylandSatellite, listen};
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
@@ -136,9 +143,19 @@ fn main() -> ExitCode {
         ),
     };
 
+    // SAFETY: this is the thread that runs the LÖVR boot sequence below and
+    // every frame after it, so it is the thread that owns the headset module,
+    // and it stays that way for the life of the process.
+    let backend = unsafe { LovrLayers::new() };
+
     // Built before the Lua state and outliving it, because a restart throws the
-    // state away and the session is what the next one attaches to.
-    let session = Session::new(Box::new(LovrEventSink));
+    // state away and the session is what the next one attaches to. The pool
+    // outlives it for the same reason, and so a restart does not cost every
+    // panel its layer.
+    let session = Session::new(
+        Box::new(LovrEventSink),
+        Rc::new(PoolRegistry::new(LayerPool::new(backend))),
+    );
     boot::run(config_directory, &session, startup)
 }
 

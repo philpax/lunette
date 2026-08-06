@@ -36,5 +36,5 @@ pub use self::{
     backend::LayerBackend,
     key::{LayerKey, LayerProperties, LayerSize},
     lovr::{LovrLayer, LovrLayers},
-    pool::{ClaimId, LayerBudget, LayerPool, PoolOutcome, Priority},
+    pool::{ClaimId, ClaimState, LayerBudget, LayerPool, PoolOutcome, Priority},
 };
