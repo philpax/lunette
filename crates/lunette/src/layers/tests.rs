@@ -14,13 +14,13 @@ use std::{
     cell::{Cell, RefCell},
     io::{self, Write},
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Once},
 };
 
 use lunette_compositor::protocol::PixelSize;
 use parking_lot::Mutex;
 use pretty_assertions::assert_eq;
-use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::{filter::LevelFilter, fmt::MakeWriter};
 
 use crate::{
     layers::{
@@ -105,6 +105,11 @@ struct Harness {
 impl Harness {
     /// `limit` is what the runtime reports, not what the pool will spend.
     fn new(limit: u32) -> Self {
+        // Every log line the pool emits comes from a harness, so installing the
+        // subscriber here puts it in place before any thread can reach a
+        // callsite and have its interest decided against no subscriber at all.
+        install_collecting_subscriber();
+
         let calls = Rc::new(RefCell::new(Calls::default()));
         let refusing = Rc::new(Cell::new(false));
         let limit = Rc::new(Cell::new(limit));
@@ -189,21 +194,66 @@ impl Warnings {
             .count()
     }
 
-    /// Runs `body` with everything it logs collected here.
+    /// Runs `body` with everything the calling thread logs collected here.
     fn capture(body: impl FnOnce()) -> Self {
+        install_collecting_subscriber();
         let warnings = Self::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .with_writer(warnings.clone())
-            .finish();
-        tracing::subscriber::with_default(subscriber, body);
+        let _collecting = Collecting::start(warnings.clone());
+        body();
         warnings
     }
 }
 
-impl Write for Warnings {
+/// Installs the one subscriber the whole test binary logs through.
+///
+/// The subscriber is process-wide rather than per-thread because `tracing`
+/// caches a callsite's `Interest` globally, computing it once from whatever
+/// subscriber the thread that first reached the callsite happened to have. A
+/// per-thread subscriber installed with `with_default` therefore loses a race
+/// it cannot see: a test that reaches the same `warn!` without one caches
+/// `Interest::never` for that callsite, and every later capture of it collects
+/// nothing. One global subscriber settles the interest once, for every thread,
+/// whatever order the tests run in.
+fn install_collecting_subscriber() {
+    static INSTALLED: Once = Once::new();
+
+    INSTALLED.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(LevelFilter::TRACE)
+            .with_writer(ThreadCollector)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("no other subscriber is installed in the test binary");
+    });
+}
+
+thread_local! {
+    /// What the running thread collects into, if it is collecting.
+    static COLLECTING: RefCell<Option<Warnings>> = const { RefCell::new(None) };
+}
+
+/// Directs each event to whatever the thread that emitted it collects into, so
+/// that concurrent tests capture their own output and nothing else's.
+struct ThreadCollector;
+
+impl<'a> MakeWriter<'a> for ThreadCollector {
+    type Writer = ThreadWriter;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        ThreadWriter(COLLECTING.with_borrow(Clone::clone))
+    }
+}
+
+/// Writes to the collector the emitting thread has, and discards the line when
+/// it has none, which is every test that asserts on decisions rather than logs.
+struct ThreadWriter(Option<Warnings>);
+
+impl Write for ThreadWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.lock().extend_from_slice(buf);
+        if let Some(warnings) = self.0.as_ref() {
+            warnings.0.lock().extend_from_slice(buf);
+        }
         Ok(buf.len())
     }
 
@@ -212,11 +262,19 @@ impl Write for Warnings {
     }
 }
 
-impl<'a> MakeWriter<'a> for Warnings {
-    type Writer = Self;
+/// Collects into `warnings` until dropped, restoring whatever the thread
+/// collected into before, including when the body panics.
+struct Collecting(Option<Warnings>);
 
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
+impl Collecting {
+    fn start(warnings: Warnings) -> Self {
+        Self(COLLECTING.with_borrow_mut(|slot| slot.replace(warnings)))
+    }
+}
+
+impl Drop for Collecting {
+    fn drop(&mut self) {
+        COLLECTING.with_borrow_mut(|slot| *slot = self.0.take());
     }
 }
 
