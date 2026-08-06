@@ -1,4 +1,8 @@
-//! The FFI surface for the lunette fork of LÖVR.
+//! Linux, x86_64-only: the FFI surface for the lunette fork of LÖVR.
+//!
+//! The architecture half of that is [`LogCallback`], which names bindgen's
+//! System V x86_64 `va_list`; the platform half is the `liblovr.so` the build
+//! script produces.
 //!
 //! This crate owns the boundary between Rust and LÖVR. Its build script drives
 //! LÖVR's cmake build, generates bindings with bindgen, and emits the link

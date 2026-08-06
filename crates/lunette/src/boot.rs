@@ -1,4 +1,8 @@
-//! The LÖVR boot sequence.
+//! Linux-only: the LÖVR boot sequence.
+//!
+//! Paths reach the Lua `arg` table as raw bytes through
+//! `std::os::unix::ffi::OsStrExt`, and the symbols this module calls come from
+//! the `liblovr.so` that `lunette-lovr` builds.
 //!
 //! This module replicates `vendor/lovr/src/main.c` in Rust, against the symbols
 //! that `LOVR_BUILD_SHARED=ON` and `LOVR_BUILD_WITH_SYMBOLS=ON` export. LÖVR's

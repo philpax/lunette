@@ -1,5 +1,9 @@
-//! The lunette binary: boots LÖVR, runs the Lua session, and orchestrates the
-//! compositor and capture subsystems.
+//! Linux-only: the lunette binary, which boots LÖVR, runs the Lua session, and
+//! orchestrates the compositor and capture subsystems.
+//!
+//! The configuration directory follows the XDG base directory specification,
+//! whose `$HOME/.config` and `/etc/xdg` defaults are Unix paths, and the boot
+//! sequence below it is Linux-only in turn.
 //!
 //! This is the application entry point, and the only part of the program that
 //! reads the environment or installs a `tracing` subscriber. Everything it
