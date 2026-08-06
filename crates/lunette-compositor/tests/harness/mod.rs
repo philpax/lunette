@@ -28,16 +28,24 @@ use lunette_compositor::{
 /// unconditionally, and `wp_viewporter` because xwayland-satellite refuses to
 /// start without it. Both decoration managers are here so GTK and Qt clients do
 /// not draw their own titlebars inside a panel.
-pub const EXPECTED_GLOBALS: [&str; 10] = [
+///
+/// The four selection globals are all advertised whether or not a host desktop
+/// is reachable: a session with no host still has a clipboard, it just does not
+/// leave lunette.
+pub const EXPECTED_GLOBALS: [&str; 14] = [
+    "ext_data_control_manager_v1",
     "org_kde_kwin_server_decoration_manager",
     "wl_compositor",
+    "wl_data_device_manager",
     "wl_output",
     "wl_seat",
     "wl_shm",
     "wl_subcompositor",
     "wp_viewporter",
     "xdg_wm_base",
+    "zwlr_data_control_manager_v1",
     "zwp_linux_dmabuf_v1",
+    "zwp_primary_selection_device_manager_v1",
     "zxdg_decoration_manager_v1",
 ];
 

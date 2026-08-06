@@ -32,6 +32,12 @@ use smithay::{
     wayland::{
         compositor::{self, CompositorClientState, send_surface_state, with_states},
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
+        selection::{
+            data_device::DataDeviceState,
+            ext_data_control::DataControlState as ExtDataControlState,
+            primary_selection::PrimarySelectionState,
+            wlr_data_control::DataControlState as WlrDataControlState,
+        },
         shell::{
             kde::decoration::KdeDecorationState,
             xdg::{
@@ -56,6 +62,7 @@ use crate::{
         SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
     },
     seat::SeatRegistry,
+    selection::{HostEvents, HostSelectionSource, SelectionBridge},
     surface::{BufferImporter, RetainedBuffers, SurfaceContent, SurfaceRegistry},
     thread::{EventSender, LoopData, SnapshotParts, SnapshotPublisher},
     window::{Window, WindowManager},
@@ -96,10 +103,13 @@ const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// WayVR fixes the resolution at `mod.rs:172` as `WAYVR_SCREEN_RES`. Lunette's
 /// outputs are configurable from Phase 8, so this is a value with a default
 /// rather than a constant.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CompositorConfig {
     pub output: OutputMode,
     pub dmabuf: DmabufSupport,
+    /// How the host desktop's clipboard is reached. Absent means selections stay
+    /// inside lunette, which is what a session with no host Wayland socket gets.
+    pub host_selection: Option<Box<dyn HostSelectionSource>>,
     /// Which display lunette is. Absent when no socket was bound, which is the
     /// case in a test: a spawned client is then told nothing about where to
     /// connect, because there is nowhere to connect to.
@@ -121,6 +131,7 @@ impl Default for CompositorConfig {
                 refresh: RefreshRate::from_millihertz(60_000),
             },
             dmabuf: DmabufSupport::default(),
+            host_selection: None,
             display: None,
             satellite: None,
         }
@@ -184,6 +195,12 @@ pub(crate) struct CompositorState {
     /// global advertised.
     pub(super) seats: SeatRegistry,
     pub(super) dmabuf: DmabufState,
+    pub(super) data_device: DataDeviceState,
+    pub(super) primary_selection: PrimarySelectionState,
+    pub(super) wlr_data_control: WlrDataControlState,
+    pub(super) ext_data_control: ExtDataControlState,
+    /// Which seat's selections are the host's, and what the host is offering.
+    pub(super) selection: SelectionBridge,
     pub(super) kde_decoration: KdeDecorationState,
     pub(super) popups: PopupManager,
     pub(super) output: Output,
@@ -249,7 +266,7 @@ impl CompositorState {
     pub(crate) fn new(parts: StateParts<'_>) -> Self {
         let StateParts {
             display,
-            config,
+            mut config,
             importer,
             spawner,
             inspector,
@@ -257,6 +274,7 @@ impl CompositorState {
             snapshots,
             signal,
             loop_handle,
+            host_selection,
         } = parts;
         let compositor = compositor::CompositorState::new::<Self>(display);
         let xdg_shell = XdgShellState::new::<Self>(display);
@@ -305,6 +323,26 @@ impl CompositorState {
         let (dmabuf, dmabuf_global, dmabuf_feedback) =
             create_dmabuf_global(display, &config.dmabuf);
 
+        // Every client may read and write both selections. lunette hosts the
+        // applications a user started deliberately, so there is no privilege
+        // boundary here to draw; WayVR admits every client too
+        // (`mod.rs:176-178`).
+        let data_device = DataDeviceState::new::<Self>(display);
+        let primary_selection = PrimarySelectionState::new::<Self>(display);
+        let wlr_data_control =
+            WlrDataControlState::new::<Self, _>(display, Some(&primary_selection), |_| true);
+        let ext_data_control =
+            ExtDataControlState::new::<Self, _>(display, Some(&primary_selection), |_| true);
+
+        let host = config.host_selection.take().and_then(|source| {
+            source
+                .open(host_selection)
+                .inspect_err(|error| {
+                    warn!(%error, "the host clipboard will not be bridged this session");
+                })
+                .ok()
+        });
+
         let mut spawner = spawner;
         let satellite = match config.display {
             Some(name) => Satellite::start(spawner.as_mut(), config.satellite.as_ref(), name),
@@ -327,6 +365,11 @@ impl CompositorState {
             seat_state,
             seats,
             dmabuf,
+            data_device,
+            primary_selection,
+            wlr_data_control,
+            ext_data_control,
+            selection: SelectionBridge::new(Some(DEFAULT_SEAT), host),
             kde_decoration,
             popups: PopupManager::default(),
             output,
@@ -362,6 +405,7 @@ impl CompositorState {
             state.watch_processes();
         }
 
+        state.report_bridge();
         state
     }
 
@@ -782,6 +826,9 @@ impl CompositorState {
 pub(crate) struct StateParts<'a> {
     pub(crate) display: &'a DisplayHandle,
     pub(crate) config: CompositorConfig,
+    /// Where the host clipboard connection reports what it saw. Built by
+    /// [`crate::thread::build`], which registers the reading end on the loop.
+    pub(crate) host_selection: HostEvents,
     pub(crate) importer: Box<dyn BufferImporter>,
     pub(crate) spawner: Box<dyn ProcessSpawner>,
     pub(crate) inspector: Box<dyn ProcessInspector>,

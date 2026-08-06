@@ -27,6 +27,8 @@
               module is gated behind `cfg(test)` or the `test-fakes` feature"
 )]
 
+mod selection;
+
 use std::{
     io::{self, Read, Seek, SeekFrom},
     os::{
@@ -43,6 +45,7 @@ use wayland_client::{
     protocol::{
         wl_buffer::{self, WlBuffer},
         wl_compositor::WlCompositor,
+        wl_data_offer::WlDataOffer,
         wl_keyboard::{self, KeyState, WlKeyboard},
         wl_pointer::{self, ButtonState, WlPointer},
         wl_registry::{self, WlRegistry},
@@ -55,9 +58,12 @@ use wayland_client::{
     },
 };
 use wayland_protocols::{
-    wp::linux_dmabuf::zv1::client::{
-        zwp_linux_buffer_params_v1::{Flags as DmabufFlags, ZwpLinuxBufferParamsV1},
-        zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+    wp::{
+        linux_dmabuf::zv1::client::{
+            zwp_linux_buffer_params_v1::{Flags as DmabufFlags, ZwpLinuxBufferParamsV1},
+            zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+        },
+        primary_selection::zv1::client::zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1,
     },
     xdg::shell::client::{
         xdg_popup::XdgPopup,
@@ -68,6 +74,7 @@ use wayland_protocols::{
     },
 };
 
+pub use crate::test_client::selection::{ClientSource, SelectionDevices, read_to_end};
 use crate::{
     protocol::PixelSize,
     testing::{DEADLINE, TestCompositor},
@@ -651,6 +658,20 @@ pub struct Driver {
     /// Every buffer the compositor released, in order. A client may reuse a
     /// buffer only once it appears here.
     pub released: Vec<ObjectId>,
+
+    // The selection half, in `selection.rs`. The fields live here because that
+    // is where the struct is, and everything that reads them is in the submodule.
+    /// The MIME types each selection offer advertised, by offer object.
+    offers: Vec<(ObjectId, Vec<String>)>,
+    /// The clipboard offer the compositor last named, absent when it cleared it.
+    clipboard: Option<WlDataOffer>,
+    /// The primary-selection offer the compositor last named.
+    primary: Option<ZwpPrimarySelectionOfferV1>,
+    /// Requests the compositor made of this client's own sources, each with the
+    /// descriptor to write into.
+    sends: Vec<(String, OwnedFd)>,
+    /// Whether one of this client's sources was cancelled.
+    cancelled: bool,
 }
 
 impl Driver {

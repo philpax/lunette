@@ -29,22 +29,31 @@ tracing.workspace = true
 # libxkbcommon is not thread-safe, so each thread that queries a keymap owns
 # one. The pin keeps both halves on one copy of the xkb types.
 xkbcommon.workspace = true
-# A real client, so the tests exercise the protocol rather than the handlers
-# directly. Pinned to the versions smithay's `wayland-server` shares a
-# `wayland-backend` with; a split would make the two halves unable to talk.
-# Optional, and pulled in only by `test-fakes`, because `src/test_client.rs`
-# needs them and integration tests reach that module through the feature rather
-# than through `cfg(test)`.
-wayland-client = { workspace = true, optional = true }
-wayland-protocols = { workspace = true, features = ["client"], optional = true }
+# Two uses, one crate. `src/selection/data_control.rs` speaks
+# `ext_data_control_v1` to the *host* compositor as a client, which is how the
+# clipboard crosses the boundary; and `src/test_client.rs` drives lunette's own
+# protocol from a real client. Pinned to the versions smithay's `wayland-server`
+# shares a `wayland-backend` with; a split would make the two halves unable to
+# talk.
+wayland-client.workspace = true
+# `client` for the two above. `staging` gates `ext::data_control`, and
+# `unstable` gates the `zv1` protocols the test client uses.
+wayland-protocols = { workspace = true, features = [
+    "client",
+    "staging",
+    "unstable",
+] }
+# `zwlr_data_control_v1`, the fallback for a host that has not gained
+# ext-data-control yet — which today is every wlroots compositor.
+wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [features]
-# The in-process compositor, the test client, and the fake importer that stands
-# in for a graphics device. Off by default so a release build carries none of
-# them; integration tests turn it on through the self dev-dependency below, and
-# the crate's own unit tests get it through `cfg(test)` plus the dev-dependency
-# copies of the same crates.
-test-fakes = ["dep:wayland-client", "dep:wayland-protocols"]
+# The in-process compositor, the test client, the fake importer that stands in
+# for a graphics device, and the fake host clipboard. Off by default so a release
+# build carries none of them; integration tests turn it on through the self
+# dev-dependency below, and the crate's own unit tests get it through
+# `cfg(test)`.
+test-fakes = []
 
 [dev-dependencies]
 # The crate depending on itself is how an integration test gets a feature the
@@ -52,5 +61,3 @@ test-fakes = ["dep:wayland-client", "dep:wayland-protocols"]
 # `lunette-compositor` with no `testing` or `test_client` module at all.
 lunette-compositor = { path = ".", features = ["test-fakes"] }
 pretty_assertions.workspace = true
-wayland-client.workspace = true
-wayland-protocols = { workspace = true, features = ["client"] }

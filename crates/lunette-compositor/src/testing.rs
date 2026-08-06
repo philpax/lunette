@@ -38,6 +38,7 @@ use smithay::{
     reexports::{calloop, wayland_server::Client},
 };
 
+pub use crate::selection::{FakeHost, FakeHostSource, HostCall};
 use crate::{
     process::{
         ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,

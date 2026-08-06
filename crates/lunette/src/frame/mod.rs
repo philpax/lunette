@@ -61,6 +61,7 @@ use lunette_capture::{
 use lunette_compositor::{
     client::{DisplayName, WaylandSocket, XwaylandSatellite},
     protocol::{Event, ImportedBuffer, Snapshot, SurfaceId, WindowId},
+    selection::DataControlSource,
     state::CompositorConfig,
     thread::{self, CompositorHandle, PanicPolicy, StartError},
 };
@@ -97,6 +98,13 @@ pub struct Startup {
     pub barriers: BarrierPolicy,
     /// The host's own screens, or `None` when lunette cannot reach them.
     pub host: Option<HostDesktop>,
+    /// How the host desktop's clipboard is reached. Absent when there is no host
+    /// Wayland session, and selections then stay inside lunette.
+    ///
+    /// Separate from [`Self::host`] because it survives a host whose screens
+    /// cannot be captured: a session with no screencast portal still has a
+    /// clipboard worth bridging.
+    pub clipboard: Option<DataControlSource>,
 }
 
 /// The host desktop the entry point opened, for the frame loop to drive.
@@ -814,6 +822,7 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
         // Lifted out by `FrameDriver::new`, because it outlives this start and
         // is not consumed by it.
         host: _,
+        clipboard,
     } = startup;
 
     // SAFETY: the caller has established that LÖVR's graphics module is
@@ -827,6 +836,7 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
         dmabuf: device.dmabuf_support(),
         display: Some(name),
         satellite,
+        host_selection: clipboard.map(|source| Box::new(source) as _),
         ..CompositorConfig::default()
     };
 

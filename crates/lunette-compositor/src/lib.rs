@@ -18,6 +18,7 @@ pub mod keymap;
 pub mod process;
 pub mod protocol;
 pub(crate) mod seat;
+pub mod selection;
 pub mod state;
 pub mod surface;
 #[cfg(any(test, feature = "test-fakes"))]

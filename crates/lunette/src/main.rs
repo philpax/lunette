@@ -80,7 +80,10 @@ use lunette_capture::{
     portal::{CursorPolicy, WlxPortal},
     tokens::{self, Loaded, TokenFile},
 };
-use lunette_compositor::client::{DisplayName, XwaylandSatellite, listen};
+use lunette_compositor::{
+    client::{DisplayName, XwaylandSatellite, listen},
+    selection::DataControlSource,
+};
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
@@ -182,6 +185,10 @@ fn main() -> ExitCode {
             env::var(IMPORT_LAYOUT).ok().as_deref(),
         ),
         host: desktop,
+        // Independent of `desktop`: a host whose screens cannot be captured —
+        // no portal, or a portal the user refused — still has a clipboard, and
+        // bridging it needs nothing but the socket.
+        clipboard: host_socket.path().map(DataControlSource::new),
     };
 
     // SAFETY: this is the thread that runs the LÖVR boot sequence below and

@@ -194,6 +194,19 @@ impl SeatRegistry {
     pub(crate) fn get_mut(&mut self, id: SeatId) -> Option<&mut SeatEntry> {
         self.seats.iter_mut().find(|entry| entry.id == id)
     }
+
+    /// Which seat a smithay handle is, for the handlers that are given one and
+    /// no identifier.
+    ///
+    /// `SeatHandler` and `SelectionHandler` are per-compositor with the seat
+    /// passed in (`smithay-0.7.0/src/input/mod.rs:145-165`), so this is the only
+    /// way back to the identifier the rest of the crate is keyed by.
+    pub(crate) fn id_of(&self, seat: &Seat<CompositorState>) -> Option<SeatId> {
+        self.seats
+            .iter()
+            .find(|entry| &entry.seat == seat)
+            .map(SeatEntry::id)
+    }
 }
 
 impl fmt::Debug for SeatRegistry {

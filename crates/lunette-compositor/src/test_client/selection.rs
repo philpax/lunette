@@ -1,0 +1,425 @@
+//! The clipboard and primary-selection half of the test client.
+//!
+//! Split from [`super`] because that file is already past the size threshold and
+//! because the two halves are independent: nothing about copy and paste needs a
+//! buffer, a popup, or a pointer.
+//!
+//! Linux-only: a transfer is a `pipe2`, which is what the protocols themselves
+//! require of any client.
+
+use std::{
+    fs::File,
+    io::{self, Read},
+    net::Shutdown,
+    os::{
+        fd::{AsFd, OwnedFd},
+        unix::net::UnixStream,
+    },
+    time::Instant,
+};
+
+use wayland_client::{
+    Connection, Dispatch, Proxy, QueueHandle,
+    backend::ObjectId,
+    protocol::{
+        wl_data_device::{self, WlDataDevice},
+        wl_data_device_manager::WlDataDeviceManager,
+        wl_data_offer::{self, WlDataOffer},
+        wl_data_source::{self, WlDataSource},
+    },
+};
+use wayland_protocols::wp::primary_selection::zv1::client::{
+    zwp_primary_selection_device_manager_v1::ZwpPrimarySelectionDeviceManagerV1,
+    zwp_primary_selection_device_v1::{self, ZwpPrimarySelectionDeviceV1},
+    zwp_primary_selection_offer_v1::{self, ZwpPrimarySelectionOfferV1},
+    zwp_primary_selection_source_v1::{self, ZwpPrimarySelectionSourceV1},
+};
+
+use crate::{
+    selection::SelectionKind,
+    test_client::{Driver, Global, TestClient},
+    testing::{DEADLINE, TestCompositor},
+};
+
+/// The selection devices one seat carries, once the client has bound them.
+///
+/// Both, because `lunette-v1.AC4.5` is about both and a test that opened one
+/// would silently pass with the other unimplemented.
+#[derive(Clone, Debug)]
+pub struct SelectionDevices {
+    pub clipboard: WlDataDevice,
+    pub primary: ZwpPrimarySelectionDeviceV1,
+}
+
+/// A selection this client owns, which the compositor asks for bytes.
+#[derive(Clone, Debug)]
+pub enum ClientSource {
+    Clipboard(WlDataSource),
+    Primary(ZwpPrimarySelectionSourceV1),
+}
+
+impl TestClient {
+    /// Binds both selection devices on the seat advertising `name`.
+    pub fn open_selection(
+        &mut self,
+        compositor: &mut TestCompositor,
+        name: &str,
+    ) -> SelectionDevices {
+        let handle = self.queue.handle();
+        let seats = self.bind_seats(compositor);
+        let seat = seats
+            .iter()
+            .find(|seat| self.driver.seat_name(seat).as_deref() == Some(name))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no seat is named {name}; the client sees {:?}",
+                    self.driver.seat_names()
+                )
+            })
+            .clone();
+
+        let clipboard: WlDataDeviceManager =
+            self.bind_global(WlDataDeviceManager::interface().name);
+        let primary: ZwpPrimarySelectionDeviceManagerV1 =
+            self.bind_global(ZwpPrimarySelectionDeviceManagerV1::interface().name);
+
+        let devices = SelectionDevices {
+            clipboard: clipboard.get_data_device(&seat, &handle, ()),
+            primary: primary.get_device(&seat, &handle, ()),
+        };
+        self.settle_quiet(compositor);
+        devices
+    }
+
+    /// Offers a selection this client owns, advertising `mimes`.
+    ///
+    /// The serial is zero because smithay ignores it: `set_selection` is granted
+    /// on keyboard focus alone (`data_device/device.rs:117-129`), so a test must
+    /// have focused this client's toplevel first and the number is not read.
+    pub fn copy(
+        &mut self,
+        compositor: &mut TestCompositor,
+        devices: &SelectionDevices,
+        kind: SelectionKind,
+        mimes: &[&str],
+    ) -> ClientSource {
+        let handle = self.queue.handle();
+        let serial = 0;
+
+        let source = match kind {
+            SelectionKind::Clipboard => {
+                let manager: WlDataDeviceManager =
+                    self.bind_global(WlDataDeviceManager::interface().name);
+                let source = manager.create_data_source(&handle, ());
+                for mime in mimes {
+                    source.offer((*mime).to_owned());
+                }
+                devices.clipboard.set_selection(Some(&source), serial);
+                ClientSource::Clipboard(source)
+            }
+            SelectionKind::Primary => {
+                let manager: ZwpPrimarySelectionDeviceManagerV1 =
+                    self.bind_global(ZwpPrimarySelectionDeviceManagerV1::interface().name);
+                let source = manager.create_source(&handle, ());
+                for mime in mimes {
+                    source.offer((*mime).to_owned());
+                }
+                devices.primary.set_selection(Some(&source), serial);
+                ClientSource::Primary(source)
+            }
+        };
+
+        self.settle_quiet(compositor);
+        source
+    }
+
+    /// Asks for the current selection in `mime`, and hands back the read end.
+    ///
+    /// The read end rather than the bytes: whoever owns the selection writes
+    /// into the other end later in the test, and a read here would be a read of
+    /// a pipe nothing has written to yet.
+    ///
+    /// # Panics
+    ///
+    /// If the compositor has offered no selection of that kind, because a test
+    /// that pasted nothing and asserted nothing came back would pass for the
+    /// wrong reason.
+    pub fn paste(
+        &mut self,
+        compositor: &mut TestCompositor,
+        kind: SelectionKind,
+        mime: &str,
+    ) -> OwnedFd {
+        let (reader, writer) = pipe();
+
+        match kind {
+            SelectionKind::Clipboard => {
+                let offer = self
+                    .driver
+                    .clipboard
+                    .clone()
+                    .expect("the compositor offered a clipboard selection");
+                offer.receive(mime.to_owned(), writer.as_fd());
+            }
+            SelectionKind::Primary => {
+                let offer = self
+                    .driver
+                    .primary
+                    .clone()
+                    .expect("the compositor offered a primary selection");
+                offer.receive(mime.to_owned(), writer.as_fd());
+            }
+        }
+
+        // Closed before stepping, so the reader sees an end once whoever holds
+        // the other copy is finished with it. A copy left open here would make
+        // every read hang.
+        drop(writer);
+        self.settle_quiet(compositor);
+        reader
+    }
+
+    /// Every request the compositor made of this client's own sources, taken.
+    ///
+    /// Taken rather than borrowed because each carries a descriptor the test
+    /// writes into and then closes.
+    pub fn take_sends(&mut self) -> Vec<(String, OwnedFd)> {
+        std::mem::take(&mut self.driver.sends)
+    }
+
+    /// Binds a global by interface name, at the highest version both sides know.
+    fn bind_global<I>(&mut self, interface: &str) -> I
+    where
+        I: Proxy + 'static,
+        Driver: Dispatch<I, ()>,
+    {
+        let handle = self.queue.handle();
+        let global: Global = self
+            .driver
+            .globals
+            .iter()
+            .find(|global| global.interface == interface)
+            .cloned()
+            .unwrap_or_else(|| panic!("the compositor advertises {interface}"));
+        let registry = self
+            .driver
+            .registry
+            .as_ref()
+            .expect("the registry arrived with the globals");
+
+        registry.bind::<I, (), Driver>(
+            global.name,
+            global.version.min(I::interface().version),
+            &handle,
+            (),
+        )
+    }
+}
+
+impl Driver {
+    /// The MIME types the current selection offer advertises, in the order the
+    /// compositor sent them.
+    #[must_use]
+    pub fn offered(&self, kind: SelectionKind) -> Vec<String> {
+        let offer = match kind {
+            SelectionKind::Clipboard => self.clipboard.as_ref().map(Proxy::id),
+            SelectionKind::Primary => self.primary.as_ref().map(Proxy::id),
+        };
+        let Some(offer) = offer else {
+            return Vec::new();
+        };
+        self.offers
+            .iter()
+            .find(|(id, _)| *id == offer)
+            .map(|(_, mimes)| mimes.clone())
+            .unwrap_or_default()
+    }
+
+    /// Whether the compositor is currently offering a selection of this kind.
+    #[must_use]
+    pub fn has_selection(&self, kind: SelectionKind) -> bool {
+        match kind {
+            SelectionKind::Clipboard => self.clipboard.is_some(),
+            SelectionKind::Primary => self.primary.is_some(),
+        }
+    }
+
+    /// Whether the compositor has asked this client's sources for anything yet.
+    #[must_use]
+    pub fn sends_are_empty(&self) -> bool {
+        self.sends.is_empty()
+    }
+
+    /// Whether one of this client's sources was cancelled.
+    #[must_use]
+    pub fn cancelled(&self) -> bool {
+        self.cancelled
+    }
+
+    fn record_mime(&mut self, offer: &ObjectId, mime: String) {
+        match self.offers.iter_mut().find(|(id, _)| id == offer) {
+            Some((_, mimes)) => mimes.push(mime),
+            None => self.offers.push((offer.clone(), vec![mime])),
+        }
+    }
+}
+
+/// Reads a descriptor to end of file.
+///
+/// Polls rather than blocking, on the same deadline everything else in the
+/// harness uses: the writer is the test itself, and a blocking read would hang
+/// rather than fail if the test forgot to write.
+///
+/// # Panics
+///
+/// If nothing reaches end of file before the deadline.
+#[must_use]
+pub fn read_to_end(pipe: OwnedFd) -> Vec<u8> {
+    let mut file = File::from(pipe);
+    let mut bytes = Vec::new();
+    let deadline = Instant::now() + DEADLINE;
+
+    loop {
+        let mut chunk = [0_u8; 4096];
+        match file.read(&mut chunk) {
+            Ok(0) => return bytes,
+            Ok(read) => bytes.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                assert!(Instant::now() < deadline, "nothing was written to the pipe");
+                std::hint::spin_loop();
+            }
+            Err(error) => panic!("could not read the transfer pipe: {error}"),
+        }
+    }
+}
+
+/// A pipe, as the read end and the write end.
+///
+/// A `UnixStream` pair rather than `pipe2`, because `std` has no pipe and a
+/// socket pair behaves the same way for a one-shot transfer: the reader sees
+/// end of file when every copy of the other end is closed.
+fn pipe() -> (OwnedFd, OwnedFd) {
+    let (reader, writer) = UnixStream::pair().expect("a socket pair can always be made");
+    reader
+        .set_nonblocking(true)
+        .expect("a fresh socket accepts the flag");
+    writer
+        .shutdown(Shutdown::Read)
+        .expect("a fresh socket can be half-closed");
+    (OwnedFd::from(reader), OwnedFd::from(writer))
+}
+
+impl Dispatch<WlDataDevice, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        _proxy: &WlDataDevice,
+        event: wl_data_device::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_data_device::Event::DataOffer { id } => state.offers.push((id.id(), Vec::new())),
+            wl_data_device::Event::Selection { id } => state.clipboard = id,
+            _ => {}
+        }
+    }
+
+    wayland_client::event_created_child!(Driver, WlDataDevice, [
+        wl_data_device::EVT_DATA_OFFER_OPCODE => (WlDataOffer, ()),
+    ]);
+}
+
+impl Dispatch<WlDataOffer, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        proxy: &WlDataOffer,
+        event: wl_data_offer::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let wl_data_offer::Event::Offer { mime_type } = event {
+            state.record_mime(&proxy.id(), mime_type);
+        }
+    }
+}
+
+impl Dispatch<WlDataSource, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        _proxy: &WlDataSource,
+        event: wl_data_source::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_data_source::Event::Send { mime_type, fd } => {
+                state.sends.push((mime_type, fd));
+            }
+            wl_data_source::Event::Cancelled => state.cancelled = true,
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZwpPrimarySelectionDeviceV1, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        _proxy: &ZwpPrimarySelectionDeviceV1,
+        event: zwp_primary_selection_device_v1::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        match event {
+            zwp_primary_selection_device_v1::Event::DataOffer { offer } => {
+                state.offers.push((offer.id(), Vec::new()));
+            }
+            zwp_primary_selection_device_v1::Event::Selection { id } => state.primary = id,
+            _ => {}
+        }
+    }
+
+    wayland_client::event_created_child!(Driver, ZwpPrimarySelectionDeviceV1, [
+        zwp_primary_selection_device_v1::EVT_DATA_OFFER_OPCODE => (ZwpPrimarySelectionOfferV1, ()),
+    ]);
+}
+
+impl Dispatch<ZwpPrimarySelectionOfferV1, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        proxy: &ZwpPrimarySelectionOfferV1,
+        event: zwp_primary_selection_offer_v1::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let zwp_primary_selection_offer_v1::Event::Offer { mime_type } = event {
+            state.record_mime(&proxy.id(), mime_type);
+        }
+    }
+}
+
+impl Dispatch<ZwpPrimarySelectionSourceV1, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        _proxy: &ZwpPrimarySelectionSourceV1,
+        event: zwp_primary_selection_source_v1::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        match event {
+            zwp_primary_selection_source_v1::Event::Send { mime_type, fd } => {
+                state.sends.push((mime_type, fd));
+            }
+            zwp_primary_selection_source_v1::Event::Cancelled => state.cancelled = true,
+            _ => {}
+        }
+    }
+}
+
+wayland_client::delegate_noop!(Driver: ignore WlDataDeviceManager);
+wayland_client::delegate_noop!(Driver: ignore ZwpPrimarySelectionDeviceManagerV1);

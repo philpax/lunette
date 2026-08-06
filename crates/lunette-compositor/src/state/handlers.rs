@@ -8,10 +8,14 @@
 //! Nothing here decides anything — each handler translates a protocol request
 //! into a call on [`CompositorState`] and reports what happened.
 
+use std::os::fd::OwnedFd;
+
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
-    delegate_compositor, delegate_dmabuf, delegate_kde_decoration, delegate_output, delegate_seat,
-    delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf,
+    delegate_ext_data_control, delegate_kde_decoration, delegate_output,
+    delegate_primary_selection, delegate_seat, delegate_shm, delegate_viewporter,
+    delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{
         PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy,
         find_popup_root_surface,
@@ -36,6 +40,21 @@ use smithay::{
         compositor::{self, CompositorClientState},
         dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
         output::OutputHandler,
+        selection::{
+            SelectionHandler, SelectionSource, SelectionTarget,
+            data_device::{
+                ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
+            },
+            ext_data_control::{
+                DataControlHandler as ExtDataControlHandler,
+                DataControlState as ExtDataControlState,
+            },
+            primary_selection::{PrimarySelectionHandler, PrimarySelectionState},
+            wlr_data_control::{
+                DataControlHandler as WlrDataControlHandler,
+                DataControlState as WlrDataControlState,
+            },
+        },
         shell::{
             kde::decoration::{KdeDecorationHandler, KdeDecorationState},
             xdg::{
@@ -51,6 +70,7 @@ use tracing::{debug, info, warn};
 use crate::{
     protocol::Event,
     seat,
+    selection::{HostOffer, SelectionKind},
     state::compositor::{ClientState, CompositorState, toplevel_attribute, toplevel_state},
 };
 
@@ -115,14 +135,15 @@ impl SeatHandler for CompositorState {
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
-        // WayVR moves the data-device and primary-selection focus here
-        // (`comp.rs:334-339`). Both protocols are Phase 5 Task 6, and both are
-        // already per-seat in smithay, so this is where they attach.
         debug!(
             seat = seat.name(),
             focused = focused.is_some(),
             "a seat's keyboard focus changed"
         );
+        // Both selections follow the keyboard, per seat, because that is what
+        // the protocol says: a `wl_data_device` is offered a selection only
+        // while its client is the focused one.
+        self.focus_selection(seat, focused);
     }
 
     fn cursor_image(&mut self, seat: &Seat<Self>, image: CursorImageStatus) {
@@ -397,10 +418,80 @@ impl KdeDecorationHandler for CompositorState {
     }
 }
 
+/// The clipboard and the primary selection, in both directions.
+///
+/// [`Self::SelectionUserData`] is a [`HostOffer`], because the only selection
+/// lunette itself owns is one it took from the host: a selection a client owns
+/// is served by that client, and smithay routes those without asking here.
+/// Carrying the offer identifier in the user data is what makes a read that
+/// outlived its selection distinguishable from a current one.
+impl SelectionHandler for CompositorState {
+    type SelectionUserData = HostOffer;
+
+    fn new_selection(
+        &mut self,
+        target: SelectionTarget,
+        source: Option<SelectionSource>,
+        seat: Seat<Self>,
+    ) {
+        self.client_selection(SelectionKind::from_target(target), source.as_ref(), &seat);
+    }
+
+    fn send_selection(
+        &mut self,
+        _target: SelectionTarget,
+        mime_type: String,
+        fd: OwnedFd,
+        _seat: Seat<Self>,
+        user_data: &Self::SelectionUserData,
+    ) {
+        // The user data carries the kind, so the target argument adds nothing:
+        // a request can only arrive against the offer it was minted from.
+        self.serve_selection(&mime_type, fd, &user_data.clone());
+    }
+}
+
+impl DataDeviceHandler for CompositorState {
+    fn data_device_state(&self) -> &DataDeviceState {
+        &self.data_device
+    }
+}
+
+/// Drag and drop is out of scope for v1, recorded as such in
+/// `docs/host-desktop.md`. Both grab handlers exist because
+/// [`DataDeviceHandler`] requires them, and every method has a default that does
+/// nothing — which is the correct behaviour for a compositor that never starts a
+/// drag and offers no drop target.
+impl ClientDndGrabHandler for CompositorState {}
+
+impl ServerDndGrabHandler for CompositorState {}
+
+impl PrimarySelectionHandler for CompositorState {
+    fn primary_selection_state(&self) -> &PrimarySelectionState {
+        &self.primary_selection
+    }
+}
+
+impl WlrDataControlHandler for CompositorState {
+    fn data_control_state(&self) -> &WlrDataControlState {
+        &self.wlr_data_control
+    }
+}
+
+impl ExtDataControlHandler for CompositorState {
+    fn data_control_state(&self) -> &ExtDataControlState {
+        &self.ext_data_control
+    }
+}
+
 delegate_compositor!(CompositorState);
+delegate_data_control!(CompositorState);
+delegate_data_device!(CompositorState);
 delegate_dmabuf!(CompositorState);
+delegate_ext_data_control!(CompositorState);
 delegate_kde_decoration!(CompositorState);
 delegate_output!(CompositorState);
+delegate_primary_selection!(CompositorState);
 delegate_seat!(CompositorState);
 delegate_shm!(CompositorState);
 delegate_viewporter!(CompositorState);

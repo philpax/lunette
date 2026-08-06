@@ -54,6 +54,7 @@ use crate::{
         Command, Event, Generation, OutputSnapshot, ProcessSnapshot, SeatSnapshot, Snapshot,
         WindowSnapshot,
     },
+    selection::{HostEvent, HostEvents},
     state::{CompositorConfig, CompositorState, StateParts},
     surface::BufferImporter,
 };
@@ -70,6 +71,14 @@ pub(crate) const COMMAND_CAPACITY: usize = 256;
 /// Larger than the command capacity because a single client can produce many
 /// events in one dispatch batch, and the main thread only drains once a frame.
 pub(crate) const EVENT_CAPACITY: usize = 1024;
+
+/// How many host clipboard reports may be queued before one is discarded.
+///
+/// A report is a copy on the host desktop, or a paste of lunette's own
+/// selection. Neither happens in bursts, so the bound is small; it exists so a
+/// compositor that has stopped dispatching cannot make the host worker grow a
+/// queue of descriptors.
+pub(crate) const HOST_SELECTION_CAPACITY: usize = 32;
 
 const THREAD_NAME: &str = "lunette-compositor";
 
@@ -495,6 +504,25 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
             })?;
     }
 
+    let (host_selection, host_reports) = calloop::channel::sync_channel(HOST_SELECTION_CAPACITY);
+    handle
+        .insert_source(host_reports, |event, _metadata, data: &mut LoopData| {
+            match event {
+                calloop::channel::Event::Msg(report) => data.state.host_selection(report),
+                // The host worker stopped without reporting why, which is what a
+                // panic there looks like from here.
+                calloop::channel::Event::Closed => {
+                    data.state.host_selection(HostEvent::Lost {
+                        reason: "the host clipboard worker stopped".to_owned(),
+                    });
+                }
+            }
+        })
+        .map_err(|error| StartError::InsertSource {
+            source: "the host clipboard channel",
+            cause: error.error,
+        })?;
+
     handle
         .insert_source(commands, |event, _metadata, data: &mut LoopData| {
             match event {
@@ -518,6 +546,9 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
         snapshots,
         signal: event_loop.get_signal(),
         loop_handle: handle,
+        host_selection: HostEvents {
+            queue: host_selection,
+        },
     });
 
     // Published before the caller is told the thread started, so a caller that
