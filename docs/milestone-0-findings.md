@@ -2,7 +2,7 @@
 
 Milestone 0 exists to de-risk two unknowns before a standard library is written on top of them: the LÖVR Vulkan patch, and the compositor-thread split with the snapshot model it forces on Lua. [Roadmap](roadmap.md) states both. This document records what the two actually did, so phases 4 to 8 are detailed against measurement rather than against the design's expectations.
 
-Three acceptance criteria are human gates and are not recorded here as passed: two from milestone 0, and one from the composition-layer work that follows it. They are listed under [Outstanding](#outstanding), together with the one measurement that has to be taken again.
+Eight acceptance criteria are human gates and are not recorded here as passed: two from milestone 0, one from the composition-layer work that follows it, and five from the monitor-mirroring work after that. They are listed under [Outstanding](#outstanding), together with the two measurements that have to be taken.
 
 ## The machine
 
@@ -27,10 +27,12 @@ All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `n
 | `cargo +nightly fmt --all -- --check` | clean |
 | `cargo clippy --all-targets --all-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
 | `cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
-| `cargo test --workspace` | 340 passed, 0 failed, 0 ignored |
-| `cargo test --workspace --no-default-features` | 340 passed, 0 failed, 0 ignored |
+| `cargo test --workspace` | 623 passed, 0 failed, 0 ignored |
+| `cargo test --workspace --no-default-features` | 623 passed, 0 failed, 0 ignored |
 
-The 340 are 220 in `lunette`, 11 in its binary target, 3 in `tests/exit_status.rs`, 96 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, and 4 in `tests/pointer_routing.rs`. The compositor's 106 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`.
+The 623 are 256 in `lunette`, 18 in its binary target, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 234 in `lunette-capture`, 96 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, and 4 in `tests/pointer_routing.rs`. The compositor's 106 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`, and the monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 234 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`.
+
+No dependency in the tree names `async-std` or `ashpd`: `cargo tree | rg -c 'async-std|ashpd'` counts zero. Both would arrive with the published wlx-capture 0.5.4, and the pin is the 0.6.0 in the WayVR monorepo at `98f800c6` for that reason.
 
 ## Provenance
 
@@ -213,9 +215,55 @@ A layer coming off the free list still holds the pixels the previous claim put t
 
 Granting on reuse would be a frame cheaper and would put one window's content inside another window's panel whenever the new claim has nothing to copy — a window that has not committed a buffer yet, a window whose client has just died, or a device that cannot blit the format. The reuse itself is untouched: no allocation happens either way, which is what AC2.4 is about.
 
+## Monitor mirroring and host input
+
+These come out of phase 4. Every acceptance criterion the phase carries is a human gate, and none of them has been performed: the machine this was checked on runs at a bare TTY, with `XDG_SESSION_TYPE=tty` and neither `DISPLAY` nor `WAYLAND_DISPLAY` set. There is no compositor to capture, no display to point at, and no session to grant a portal request. What is recorded below is what could be established without one, and what could not is under [Outstanding](#the-five-monitor-mirroring-gates).
+
+### The portal on this machine
+
+The portal is reachable on the session bus without a graphical session, and it is the version this phase requires. `org.freedesktop.portal.Desktop` answers on `/org/freedesktop/portal/desktop`, `org.freedesktop.portal.ScreenCast` reports `version = 5`, `AvailableSourceTypes = 7`, and `AvailableCursorModes = 7`.
+
+The backends registered on the bus decide which path a real grant would take.
+
+| Backend | State |
+|---|---|
+| `org.freedesktop.impl.portal.desktop.gnome` | running |
+| `org.freedesktop.impl.portal.desktop.gtk` | running |
+| `org.freedesktop.impl.portal.desktop.wlr` | activatable |
+
+So a grant on this machine exercises the GNOME path. That is the backend under which `mapping_id` is mutter's `g_uuid_string_random()`, and only when the ScreenCast session is attached to a RemoteDesktop session, which lunette's is not. The expected result there is no `mapping_id` at all, and a UUID rather than a connector name if one did appear. `ConnectorName::parse` rejects both, which `a_uuid_shaped_mapping_id_is_not_a_connector_name` and `a_uuid_whose_last_group_is_all_digits_is_not_a_connector_name` cover. The reasoning is in [decisions.md](decisions.md).
+
+### What the pinned wlx-capture drops
+
+Two fields of the portal's response never reach lunette, and both were confirmed against the pinned source at `98f800c6` rather than against the published crate.
+
+`persist_mode` appears once in `wlx-capture/src/pipewire/mod.rs`, at line 512, where the request states it. `parse_start_response` (`mod.rs:686-691`) reads `streams` and `restore_token` and nothing else, so the granted mode is discarded before lunette can see it. Every real grant therefore records `GrantedPersistMode::Unstated`, and the store holds no mode. The consequence is diagnostic rather than functional — the restore token is stored either way — but it means the store cannot report what the backend actually granted, and a backend that downgrades the mode does so invisibly.
+
+`mapping_id` appears nowhere in that file at all. `parse_streams` (`mod.rs:693-733`) reads `node_id`, `position`, and `size`. `PortalStream::connector` is therefore always `None` on every backend, including wlroots where the field would have carried a real connector name. This does not cost anything, because the connector name comes from `wl_output.name` instead: version 4 of `wl_output` added a `name` event whose documented content is the connector name, both wlroots and mutter send it, and it arrives from the compositor lunette is already talking to. Both gaps are recorded in [decisions.md](decisions.md).
+
+### What is established without a session
+
+`crates/lunette/tests/host_outputs.rs` runs the real enumeration against lunette's own compositor over a socket pair, with a fake buffer importer, no graphics device, and no listening socket. It establishes that make and model arrive from `wl_output.geometry`, that the mode reaches `Monitor::pixels` unchanged at three different sizes, that the transform survives the trip rather than being defaulted at the far end, that the logical size is derived from the mode and the scale when no `zxdg_output_manager_v1` is advertised, and that an output whose name is not a DRM connector type is identified by its descriptor instead.
+
+Each of those six tests enumerates a fresh compositor. None of them changes anything under a live watcher, which is the limit described below.
+
+The mirror lifecycle is covered against a fake portal in `crates/lunette-capture/src/mirror/tests.rs`: one request however many monitors are wanted, dismissal stopping the stream while keeping the session, re-adding restarting without a second request, a stored token offered with the first request, and a declined dialog reported rather than leaving the monitor waiting. Those are the decisions AC3.4 and AC3.5 rest on, and they are tested against a fake because the real portal needs a session to grant anything.
+
+### Gaps this phase leaves
+
+The hotplug path is untested end to end. A monitor appearing and a monitor detaching are covered against fakes in `mirror/tests.rs`, and the roster's accumulator is unit-tested over the same events, but nothing exercises a real compositor advertising or withdrawing a `wl_output`, or changing a mode, while a watcher is live. Every end-to-end test enumerates once against a compositor whose configuration was fixed before it started.
+
+A rotated monitor is unresolved in two directions. `monitor.width` and `monitor.height` report the panel's mode, which for a rotated output is not the shape the desktop presents. Whether a capture stream of a rotated output delivers frames in the panel's orientation or the desktop's is unverified on any backend, and the two answers imply different code.
+
+`wl_virtual` is deliberately left unconfigured, so the provider chain reports it as not configured and falls through to uinput. A `zwp_virtual_keyboard_v1` needs a keymap before its first keystroke, and building one is phase 5's work. This is a chosen order rather than a defect, and the chain is honest about it.
+
+`UNITS_PER_DETENT` is 10.0 in `hid/wl_virtual.rs`, carried from WayVR, whose own comment on the value is "no clue". Nothing has measured what a host compositor does with it.
+
+uinput has never issued `UI_DEV_CREATE` to a kernel. The device setup, the axis setup, and the teardown are written and unit-tested over a recording fake, and no test has opened `/dev/uinput`.
+
 ## Outstanding
 
-Four items are unfinished: three human gates, and one measurement that has to be taken again.
+Ten items are unfinished: eight human gates, and two measurements that have to be taken.
 
 ### The two human gates
 
@@ -234,6 +282,24 @@ Not performed. It is phase 3's `lunette-v1.AC2.2`: a text-heavy terminal is visi
 It has to be checked under Monado in service mode. Overlay sessions do not work in monolithic mode: `multi_compositor_create` never initialises `z_order` from the session create-info, and only the IPC server calls `set_z_order`.
 
 Performing it also answers, or begins to answer, three things this document currently records as open: the free-list hit rate, whether the ladder's rungs are the right ones, and whether `lovrLayerCreate` stalls.
+
+### The five monitor-mirroring gates
+
+None of the five has been performed, and none of them can be performed on the machine this document records. It runs at a bare TTY, so there is no compositor to capture, no display to point at, and no session to grant a portal request. They are phase 4's acceptance criteria, all five of them human gates.
+
+- A mirrored monitor appears with a texture matching the captured output's resolution (AC3.1). The enumeration half is established by `tests/host_outputs.rs`; what has not happened is a frame arriving from a real stream and a person seeing it at the right size.
+- Pointing at a mirrored monitor moves the host cursor to the corresponding position on that physical display (AC3.2). It has to be checked on a scaled display and on a monitor at a non-zero origin, which are the two cases the mapping arithmetic gets wrong if it is wrong at all.
+- Keystrokes reach whatever the host focuses (AC3.3). uinput is the provider this would use, and it has never issued `UI_DEV_CREATE` to a kernel.
+- Monitors are selected once, in one dialog, in any order, and reattach correctly after a restart (AC3.4). The second run is the half that matters: whether the stored restore token avoided a second prompt is unanswered, and it is unanswerable without a first grant.
+- Dismissing a mirror stops its stream, and re-adding it restarts capture without re-prompting (AC3.5). The decisions are tested against a fake portal; the stream actually stopping is not.
+
+The four questions [phase 4](implementation-plans/2026-08-05-lunette-v1/phase_04.md) asks to be recorded are the same four, restated: which portal backend was tested and what it put in `mapping_id`, whether restore avoided a prompt on the second run, whether the uinput mapping was correct on a scaled or rotated display, and the GNOME result. All four are open. What is known about the backend without a grant is under [the portal on this machine](#the-portal-on-this-machine).
+
+### The GNOME pointer-mapping unknown
+
+Unmeasured, and it decides whether AC3.2 is achievable on GNOME at all. It is not known whether mutter maps a bare absolute uinput device across the whole layout or binds it to a single monitor. If it maps across the layout, the phase's arithmetic is what it needs. If it binds to one monitor, no arrangement of absolute coordinates reaches the others, and the honest answer on GNOME is libei through `org.freedesktop.portal.RemoteDesktop`, which v1 does not implement — so the limitation would be recorded rather than worked around.
+
+This machine registers the GNOME backend and runs no GNOME session, so it can name the path that would be exercised and measure nothing about it.
 
 ### The two `undefined` rows of the queue-family measurement
 
