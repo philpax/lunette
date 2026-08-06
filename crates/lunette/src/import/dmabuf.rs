@@ -28,7 +28,7 @@ use std::{
     fmt,
     fs::File,
     mem::ManuallyDrop,
-    os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+    os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
     sync::Arc,
 };
 
@@ -85,7 +85,13 @@ impl DmabufImporter {
     /// Retiring here rather than at destruction time is what keeps the cache
     /// from pinning a client's file descriptors: the key is weak, so the entry
     /// becomes collectable as soon as the compositor releases the buffer.
-    fn evict_gone_buffers(&mut self) {
+    ///
+    /// Called from the import above and from [`BufferImporter::sweep`], because
+    /// imports are not the only thing that makes an entry collectable and a
+    /// compositor whose clients have all disconnected performs none.
+    ///
+    /// [`BufferImporter::sweep`]: lunette_compositor::surface::BufferImporter::sweep
+    pub(crate) fn evict_gone_buffers(&mut self) {
         self.cache.retain(|buffer, image| {
             if buffer.is_gone() {
                 self.arena.retire(image.image);
@@ -213,9 +219,10 @@ impl DmabufImporter {
             .try_clone_to_owned()
             .map_err(DmabufError::DuplicateDescriptor)?;
 
-        // Taken before the descriptor is handed over: this call borrows it,
-        // and after `vkAllocateMemory` succeeds the descriptor is the driver's.
-        let importable = self.memory_type_bits(plane.as_raw_fd())?;
+        // Taken before the descriptor is handed over: after `vkAllocateMemory`
+        // succeeds the descriptor is the driver's, and a borrow of one it owns
+        // is not a borrow this side may take.
+        let importable = self.memory_type_bits(plane.as_fd())?;
         let allowed = requirements.memory_type_bits & importable;
         if allowed == 0 {
             return Err(DmabufError::NoCommonMemoryType {
@@ -276,14 +283,18 @@ impl DmabufImporter {
     /// from here whenever the descriptor was created outside Vulkan, which a
     /// client dmabuf always was. Taking the image's requirements alone happens
     /// to work on Mesa and is not what the specification permits.
-    fn memory_type_bits(&self, fd: RawFd) -> Result<u32, DmabufError> {
+    ///
+    /// A borrow rather than a raw descriptor, because this module's other
+    /// descriptor-taking call donates: `vkGetMemoryFdPropertiesKHR` leaves
+    /// ownership with the caller and the type is where that is said.
+    fn memory_type_bits(&self, fd: BorrowedFd<'_>) -> Result<u32, DmabufError> {
         let mut properties = vk::MemoryFdPropertiesKHR::default();
         // SAFETY: the call reads the descriptor without taking ownership of it,
         // and `properties` addresses a live local.
         unsafe {
             self.device.external_memory_fd().get_memory_fd_properties(
                 vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
-                fd,
+                fd.as_raw_fd(),
                 &mut properties,
             )
         }
@@ -415,7 +426,8 @@ impl PlaneLayouts {
             layouts: plane_layouts(
                 &dmabuf.offsets().collect::<Vec<_>>(),
                 &dmabuf.strides().collect::<Vec<_>>(),
-            ),
+                identities.len(),
+            )?,
         })
     }
 }
@@ -486,8 +498,25 @@ fn is_disjoint(identities: &[BufferIdentity]) -> bool {
 /// remaining three fields must be zero, which is what `default` gives them.
 /// smithay's offsets and strides are `u32` and Vulkan's are `VkDeviceSize`, so
 /// each widens rather than being reinterpreted.
-fn plane_layouts(offsets: &[u32], strides: &[u32]) -> Vec<vk::SubresourceLayout> {
-    offsets
+///
+/// The three counts have to agree. `planes` is what the descriptors reported and
+/// is what the image is created for, so producing fewer layouts than that would
+/// describe a different image from the one the client sent — a picture rather
+/// than an error, which is the outcome this module exists to refuse.
+fn plane_layouts(
+    offsets: &[u32],
+    strides: &[u32],
+    planes: usize,
+) -> Result<Vec<vk::SubresourceLayout>, DmabufError> {
+    if offsets.len() != planes || strides.len() != planes {
+        return Err(DmabufError::InconsistentPlaneCounts {
+            planes,
+            offsets: offsets.len(),
+            strides: strides.len(),
+        });
+    }
+
+    Ok(offsets
         .iter()
         .zip(strides)
         .map(|(offset, stride)| vk::SubresourceLayout {
@@ -495,7 +524,7 @@ fn plane_layouts(offsets: &[u32], strides: &[u32]) -> Vec<vk::SubresourceLayout>
             row_pitch: u64::from(*stride),
             ..Default::default()
         })
-        .collect()
+        .collect())
 }
 
 /// A dmabuf's size, rejecting the dimensions Vulkan cannot represent.
@@ -514,14 +543,27 @@ fn buffer_size(dmabuf: &Dmabuf) -> Result<PixelSize, DmabufError> {
 #[derive(Debug)]
 pub(crate) enum DmabufError {
     UnsupportedFormat(Fourcc),
-    NonsensicalSize { width: i32, height: i32 },
+    NonsensicalSize {
+        width: i32,
+        height: i32,
+    },
     NoPlanes,
-    Disjoint { planes: usize },
+    Disjoint {
+        planes: usize,
+    },
+    InconsistentPlaneCounts {
+        planes: usize,
+        offsets: usize,
+        strides: usize,
+    },
     IdentifyDescriptor(std::io::Error),
     DuplicateDescriptor(std::io::Error),
     CreateImage(vk::Result),
     DescriptorProperties(vk::Result),
-    NoCommonMemoryType { image: u32, descriptor: u32 },
+    NoCommonMemoryType {
+        image: u32,
+        descriptor: u32,
+    },
     AllocateMemory(vk::Result),
     BindMemory(vk::Result),
     NullImage,
@@ -542,6 +584,15 @@ impl fmt::Display for DmabufError {
                 f,
                 "the {planes} planes are backed by different buffer objects, and disjoint imports \
                  are out of scope for v1"
+            ),
+            Self::InconsistentPlaneCounts {
+                planes,
+                offsets,
+                strides,
+            } => write!(
+                f,
+                "the buffer reports {planes} planes but {offsets} offsets and {strides} strides, \
+                 so its layout cannot be described"
             ),
             Self::IdentifyDescriptor(_) => {
                 write!(f, "a plane's descriptor could not be identified")
@@ -578,6 +629,7 @@ impl std::error::Error for DmabufError {
             | Self::NonsensicalSize { .. }
             | Self::NoPlanes
             | Self::Disjoint { .. }
+            | Self::InconsistentPlaneCounts { .. }
             | Self::NoCommonMemoryType { .. }
             | Self::NullImage => None,
         }
@@ -723,7 +775,7 @@ mod tests {
 
     #[test]
     fn plane_layouts_widen_the_offsets_and_strides_and_zero_the_rest() {
-        let layouts = plane_layouts(&[0, 4096], &[7680, 3840]);
+        let layouts = plane_layouts(&[0, 4096], &[7680, 3840], 2).expect("the counts agree");
 
         assert_eq!(layouts.len(), 2);
         assert_eq!(layouts[0].offset, 0);
@@ -740,18 +792,53 @@ mod tests {
 
     #[test]
     fn the_widest_offset_and_stride_survive_the_widening() {
-        let layouts = plane_layouts(&[u32::MAX], &[u32::MAX]);
+        let layouts = plane_layouts(&[u32::MAX], &[u32::MAX], 1).expect("the counts agree");
         assert_eq!(layouts[0].offset, u64::from(u32::MAX));
         assert_eq!(layouts[0].row_pitch, u64::from(u32::MAX));
     }
 
     #[test]
-    fn a_layout_is_produced_per_plane_and_no_more() {
-        assert!(plane_layouts(&[], &[]).is_empty());
-        assert_eq!(
-            plane_layouts(&[0, 1, 2], &[10]).len(),
-            1,
-            "a mismatched report yields the shorter of the two rather than a partial layout"
+    fn a_layout_is_produced_for_every_plane_the_descriptors_reported() {
+        let layouts = plane_layouts(&[0, 4096, 8192], &[10, 20, 30], 3).expect("the counts agree");
+        assert_eq!(layouts.len(), 3);
+    }
+
+    #[test]
+    fn a_report_of_fewer_strides_than_planes_is_refused_rather_than_truncated() {
+        // Truncating here would create the image for one plane and hand the
+        // driver a buffer of three, which reads a plane's memory at another
+        // plane's offset.
+        assert!(matches!(
+            plane_layouts(&[0, 1, 2], &[10], 3),
+            Err(DmabufError::InconsistentPlaneCounts {
+                planes: 3,
+                offsets: 3,
+                strides: 1,
+            })
+        ));
+    }
+
+    #[test]
+    fn a_report_of_more_offsets_than_planes_is_refused() {
+        assert!(matches!(
+            plane_layouts(&[0, 1], &[10, 20], 1),
+            Err(DmabufError::InconsistentPlaneCounts {
+                planes: 1,
+                offsets: 2,
+                strides: 2,
+            })
+        ));
+    }
+
+    #[test]
+    fn no_planes_at_all_produces_no_layouts() {
+        // Reachable only through `PlaneLayouts::gather`, which rejects the
+        // empty case before it gets here; stated so the two checks stay
+        // distinct.
+        assert!(
+            plane_layouts(&[], &[], 0)
+                .expect("the counts agree")
+                .is_empty()
         );
     }
 }
