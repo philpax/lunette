@@ -1,0 +1,196 @@
+//! What a `Layer` fixes at creation, and so what the free list is keyed by.
+
+use std::fmt;
+
+use lunette_compositor::protocol::PixelSize;
+
+use crate::scale::quantize_dimension;
+
+/// A layer size on the ladder [`crate::scale`] defines.
+///
+/// The field is private and the only constructor quantises, so a size straight
+/// off a panel cannot become a key. Two panels a pixel apart would otherwise
+/// take two `Layer`s, neither would ever match the other's free-list entry, and
+/// a drag resize would allocate every frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayerSize(PixelSize);
+
+impl LayerSize {
+    /// Rounds a requested size up to the ladder.
+    ///
+    /// `None` if either dimension is zero; see [`quantize_dimension`].
+    #[must_use]
+    pub fn quantized(requested: PixelSize) -> Option<Self> {
+        Some(Self(PixelSize::new(
+            quantize_dimension(requested.width)?,
+            quantize_dimension(requested.height)?,
+        )))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> PixelSize {
+        self.0
+    }
+}
+
+impl fmt::Display for LayerSize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// The four booleans `LayerInfo` freezes alongside the size.
+///
+/// Named fields rather than positional arguments, because four booleans in a
+/// row is a transposition waiting to happen and every one of them changes what
+/// the runtime does with the layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayerProperties {
+    /// Two views rather than one. Costs two slots of the budget, because
+    /// `lovrHeadsetSetLayers` counts it that way.
+    pub stereo: bool,
+    /// Written once and never again. The pool never sets this: a pooled layer
+    /// is by definition reused, and LÖVR raises on the second acquire of an
+    /// immutable one.
+    pub immutable: bool,
+    /// Composited with alpha rather than over nothing.
+    pub transparent: bool,
+    /// Sampled with filtering rather than nearest.
+    pub filter: bool,
+}
+
+impl LayerProperties {
+    /// What a panel wants: one view, reusable, blended, and filtered.
+    pub const PANEL: Self = Self {
+        stereo: false,
+        immutable: false,
+        transparent: true,
+        filter: true,
+    };
+}
+
+/// Everything a `Layer` fixes at creation, and so everything a free-list entry
+/// has to match for a claim to reuse it.
+///
+/// A named type rather than a tuple: it is a domain type, it appears in several
+/// signatures, and a bare `(u32, u32, bool, bool, bool, bool)` is unreadable at
+/// every one of them.
+///
+/// `format` is deliberately absent, though the acceptance criterion this serves
+/// names it. There is exactly one: `lovrSwapchainInit` hard-codes
+/// `VK_FORMAT_R8G8B8A8_SRGB`, and session start aborts outright if the runtime
+/// refuses it. A field for it would imply a choice that does not exist.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayerKey {
+    size: LayerSize,
+    properties: LayerProperties,
+}
+
+impl LayerKey {
+    #[must_use]
+    pub const fn new(size: LayerSize, properties: LayerProperties) -> Self {
+        Self { size, properties }
+    }
+
+    #[must_use]
+    pub const fn size(self) -> LayerSize {
+        self.size
+    }
+
+    #[must_use]
+    pub const fn properties(self) -> LayerProperties {
+        self.properties
+    }
+
+    /// How much of the runtime's layer budget one of these spends.
+    ///
+    /// Two for a stereo layer, because `lovrHeadsetSetLayers` inserts the
+    /// right-eye copy as its own entry and checks the doubled total. The Lua
+    /// wrapper checks the object count instead; the two disagree and the native
+    /// check is the binding one.
+    #[must_use]
+    pub const fn slots(self) -> u32 {
+        if self.properties.stereo { 2 } else { 1 }
+    }
+}
+
+impl fmt::Display for LayerKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.size)?;
+        for (name, set) in [
+            ("stereo", self.properties.stereo),
+            ("immutable", self.properties.immutable),
+            ("transparent", self.properties.transparent),
+            ("filter", self.properties.filter),
+        ] {
+            if set {
+                write!(f, " {name}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    fn size(width: u32, height: u32) -> LayerSize {
+        LayerSize::quantized(PixelSize::new(width, height)).expect("a positive size has a rung")
+    }
+
+    #[test]
+    fn two_sizes_a_pixel_apart_share_a_key() {
+        // The reason the size is quantised at all: without this a drag resize
+        // misses the free list on every frame of the drag.
+        assert_eq!(size(1000, 1000), size(1001, 1000));
+    }
+
+    #[test]
+    fn a_quantised_size_is_at_least_the_size_asked_for() {
+        let quantised = size(1920, 1080).get();
+
+        assert!(quantised.width >= 1920 && quantised.height >= 1080);
+    }
+
+    #[test]
+    fn a_size_with_no_extent_has_no_key() {
+        assert_eq!(LayerSize::quantized(PixelSize::new(0, 512)), None);
+        assert_eq!(LayerSize::quantized(PixelSize::new(512, 0)), None);
+    }
+
+    #[test]
+    fn keys_differing_only_in_a_property_are_different_keys() {
+        let mono = LayerKey::new(size(512, 512), LayerProperties::PANEL);
+        let stereo = LayerKey::new(
+            size(512, 512),
+            LayerProperties {
+                stereo: true,
+                ..LayerProperties::PANEL
+            },
+        );
+
+        assert_ne!(mono, stereo);
+    }
+
+    #[test]
+    fn a_stereo_layer_spends_two_slots_of_the_budget() {
+        let mono = LayerKey::new(size(512, 512), LayerProperties::PANEL);
+        let stereo = LayerKey::new(
+            size(512, 512),
+            LayerProperties {
+                stereo: true,
+                ..LayerProperties::PANEL
+            },
+        );
+
+        assert_eq!(mono.slots(), 1);
+        assert_eq!(stereo.slots(), 2);
+    }
+}

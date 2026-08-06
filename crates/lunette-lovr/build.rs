@@ -284,6 +284,12 @@ fn generate_bindings(
         // not `MAX_LAYERS`: that is LÖVR's compile-time array bound, while this
         // is what the runtime honours, and neither implies the other.
         .allowlist_function("lovrHeadsetGetLayerLimit")
+        // The two ends of a pooled layer's life. `lovrLayerDestroy` is named
+        // only to be handed to `lovrRelease` as the destructor; calling it
+        // directly would bypass the reference count rather than decrement it.
+        // `LayerInfo` arrives with them, because it is the signature.
+        .allowlist_function("lovrLayerCreate")
+        .allowlist_function("lovrLayerDestroy")
         // How a `lun*` event reaches `lovr.handlers`. `CustomEvent`, `Event`,
         // and `EventType` arrive with it, because they are the signature.
         .allowlist_function("lovrEventPush")
