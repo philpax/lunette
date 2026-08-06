@@ -41,7 +41,7 @@ use wayland_client::{
     backend::{ObjectId, WaylandError},
     delegate_noop,
     protocol::{
-        wl_buffer::WlBuffer,
+        wl_buffer::{self, WlBuffer},
         wl_compositor::WlCompositor,
         wl_pointer::{self, ButtonState, WlPointer},
         wl_registry::{self, WlRegistry},
@@ -51,16 +51,25 @@ use wayland_client::{
         wl_surface::WlSurface,
     },
 };
-use wayland_protocols::xdg::shell::client::{
-    xdg_surface::{self, XdgSurface},
-    xdg_toplevel::{self, XdgToplevel},
-    xdg_wm_base::{self, XdgWmBase},
+use wayland_protocols::{
+    wp::linux_dmabuf::zv1::client::{
+        zwp_linux_buffer_params_v1::{Flags as DmabufFlags, ZwpLinuxBufferParamsV1},
+        zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+    },
+    xdg::shell::client::{
+        xdg_surface::{self, XdgSurface},
+        xdg_toplevel::{self, XdgToplevel},
+        xdg_wm_base::{self, XdgWmBase},
+    },
 };
 
 use crate::{
     protocol::PixelSize,
     testing::{DEADLINE, TestCompositor},
 };
+
+/// `DRM_FORMAT_ARGB8888`, which is the format a test advertises and attaches.
+const ARGB8888: u32 = smithay::backend::allocator::Fourcc::Argb8888 as u32;
 
 /// A connected client and the queue its events arrive on.
 pub struct TestClient {
@@ -71,6 +80,10 @@ pub struct TestClient {
     xdg_surface: Option<XdgSurface>,
     toplevel: Option<XdgToplevel>,
     pointer: Option<WlPointer>,
+    /// Every buffer this client created, held so none is destroyed early. A
+    /// destroyed `wl_buffer` cannot be released, and release is what the
+    /// retention tests are about.
+    buffers: Vec<WlBuffer>,
 }
 
 impl TestClient {
@@ -97,6 +110,7 @@ impl TestClient {
             xdg_surface: None,
             toplevel: None,
             pointer: None,
+            buffers: Vec::new(),
         }
     }
 
@@ -191,6 +205,37 @@ impl TestClient {
         self.acknowledge_configure();
     }
 
+    /// Attaches a linear `argb8888` dmabuf of `size` and commits.
+    ///
+    /// The descriptor is a `memfd` rather than anything a driver produced.
+    /// Nothing between here and the importer looks at what the descriptor
+    /// addresses — the compositor passes it on, and the importer under test is
+    /// the fake one — so a real device is not needed to exercise the path.
+    ///
+    /// Returns the buffer's object id, which is what a test asserting on
+    /// releases compares against.
+    pub fn attach_dmabuf(&mut self, compositor: &mut TestCompositor, size: PixelSize) -> ObjectId {
+        let handle = self.queue.handle();
+        let dmabuf = self.bind::<ZwpLinuxDmabufV1>(3);
+
+        let width = i32::try_from(size.width).expect("a width the protocol can carry");
+        let height = i32::try_from(size.height).expect("a height the protocol can carry");
+        let stride = size.width * 4;
+        let memory = anonymous_file(i64::from(stride) * i64::from(height));
+
+        let params = dmabuf.create_params(&handle, ());
+        // `DRM_FORMAT_MOD_LINEAR` is zero in both halves.
+        params.add(memory.as_fd(), 0, 0, stride, 0, 0);
+        let buffer =
+            params.create_immed(width, height, ARGB8888, DmabufFlags::empty(), &handle, ());
+        params.destroy();
+
+        let id = buffer.id();
+        self.attach(compositor, &buffer, width, height);
+        self.buffers.push(buffer);
+        id
+    }
+
     /// Attaches a shared-memory buffer of `size` and commits, which is what
     /// maps the window.
     pub fn attach_buffer(&mut self, compositor: &mut TestCompositor, size: PixelSize) {
@@ -216,8 +261,21 @@ impl TestClient {
             (),
         );
 
+        self.attach(compositor, &buffer, width, height);
+        self.buffers.push(buffer);
+    }
+
+    /// Attaches a buffer to the client's surface, damages all of it, and
+    /// commits.
+    fn attach(
+        &mut self,
+        compositor: &mut TestCompositor,
+        buffer: &WlBuffer,
+        width: i32,
+        height: i32,
+    ) {
         let surface = self.surface.clone().expect("a toplevel was opened first");
-        surface.attach(Some(&buffer), 0, 0);
+        surface.attach(Some(buffer), 0, 0);
         surface.damage(0, 0, width, height);
         surface.commit();
 
@@ -311,6 +369,9 @@ pub struct Driver {
     pub has_pointer: bool,
     /// Every pointer event delivered, in order.
     pub pointer: Vec<PointerEvent>,
+    /// Every buffer the compositor released, in order. A client may reuse a
+    /// buffer only once it appears here.
+    pub released: Vec<ObjectId>,
 }
 
 impl Driver {
@@ -496,11 +557,27 @@ impl Dispatch<WlPointer, ()> for Driver {
     }
 }
 
+impl Dispatch<WlBuffer, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        buffer: &WlBuffer,
+        event: wl_buffer::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let wl_buffer::Event::Release = event {
+            state.released.push(buffer.id());
+        }
+    }
+}
+
 delegate_noop!(Driver: ignore WlCompositor);
 delegate_noop!(Driver: ignore WlSurface);
 delegate_noop!(Driver: ignore WlShm);
 delegate_noop!(Driver: ignore WlShmPool);
-delegate_noop!(Driver: ignore WlBuffer);
+delegate_noop!(Driver: ignore ZwpLinuxDmabufV1);
+delegate_noop!(Driver: ignore ZwpLinuxBufferParamsV1);
 
 /// An anonymous file of `length` bytes, to back a `wl_shm` pool.
 ///

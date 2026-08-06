@@ -14,6 +14,7 @@
 use std::ffi::{OsStr, OsString};
 
 use pretty_assertions::assert_eq;
+use smithay::backend::allocator::{Format, Fourcc, Modifier};
 
 use crate::{
     client::XwaylandSatellite,
@@ -23,7 +24,9 @@ use crate::{
     },
     state::{
         DEFAULT_OUTPUT,
-        compositor::{CompositorConfig, evdev_button, protocol_state, toplevel_state},
+        compositor::{
+            CompositorConfig, DmabufSupport, evdev_button, protocol_state, toplevel_state,
+        },
     },
     test_client::TestClient,
     testing::TestCompositor,
@@ -42,6 +45,46 @@ fn only_window(compositor: &TestCompositor) -> WindowSnapshot {
     let snapshot = compositor.snapshot();
     assert_eq!(snapshot.windows.len(), 1, "expected exactly one window");
     snapshot.windows[0].clone()
+}
+
+/// A compositor that accepts linear `argb8888` over `zwp_linux_dmabuf_v1`.
+///
+/// The formats normally come from the graphics device. A test has none, so it
+/// names the one the fake importer accepts, which is all the dmabuf path needs
+/// to be reachable.
+fn accepting_dmabuf() -> CompositorConfig {
+    CompositorConfig {
+        dmabuf: DmabufSupport {
+            main_device: None,
+            formats: vec![Format {
+                code: Fourcc::Argb8888,
+                modifier: Modifier::Linear,
+            }],
+        },
+        ..CompositorConfig::default()
+    }
+}
+
+#[test]
+fn a_surface_falling_back_to_shared_memory_releases_the_dmabuf_it_held() {
+    let mut compositor = TestCompositor::with_config(accepting_dmabuf());
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+
+    let dmabuf = client.attach_dmabuf(&mut compositor, PixelSize::new(640, 480));
+    assert!(
+        !client.driver().released.contains(&dmabuf),
+        "a dmabuf is held for as long as lunette samples it"
+    );
+
+    // The fallback a client makes when modifier negotiation changes under it.
+    client.attach_buffer(&mut compositor, PixelSize::new(640, 480));
+    client.settle(&mut compositor, |driver| !driver.released.is_empty());
+
+    assert!(
+        client.driver().released.contains(&dmabuf),
+        "the dmabuf is no longer being sampled, so the client must be told it may reuse it"
+    );
 }
 
 #[test]

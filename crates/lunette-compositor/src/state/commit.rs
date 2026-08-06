@@ -182,19 +182,21 @@ impl CompositorState {
             let needed = usize::try_from(stride)
                 .ok()
                 .and_then(|stride| stride.checked_mul(size.height as usize))
-                .and_then(|bytes| bytes.checked_add(offset));
-            match needed {
-                Some(needed) if needed <= length => {}
-                _ => {
-                    return Err("a wl_shm buffer is smaller than its own stride implies".to_owned());
-                }
-            }
+                .and_then(|bytes| bytes.checked_add(offset))
+                .filter(|needed| *needed <= length);
+            let Some(needed) = needed else {
+                return Err("a wl_shm buffer is smaller than its own stride implies".to_owned());
+            };
+
+            // Only what the layout describes. A pool holds every buffer a
+            // client cycles through, so copying to the end of it would copy the
+            // whole pool on every commit rather than the one buffer committed.
+            let described = needed - offset;
 
             // SAFETY: `with_buffer_contents` guarantees the pointer addresses
             // `length` readable bytes of the client's pool for the duration of
             // this call, and the bounds check above keeps the slice inside it.
-            let pixels =
-                unsafe { std::slice::from_raw_parts(pointer.add(offset), length - offset) };
+            let pixels = unsafe { std::slice::from_raw_parts(pointer.add(offset), described) };
 
             Ok((
                 pixels.to_vec(),
@@ -225,6 +227,14 @@ impl CompositorState {
                 return false;
             }
         };
+
+        // Whatever this surface last committed is no longer being sampled: the
+        // copy above replaces it. A surface that falls back from dmabuf to
+        // shared memory — which modifier renegotiation makes a client do
+        // mid-session — would otherwise leave its last dmabuf pinned until it
+        // unmapped, holding the client's graphics memory for a buffer lunette
+        // has stopped reading.
+        self.buffers.forget(id);
 
         self.record_content(
             id,
