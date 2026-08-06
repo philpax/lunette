@@ -17,6 +17,7 @@
 mod events;
 mod layers;
 mod monitors;
+mod properties;
 mod seats;
 
 use std::{ffi::OsStr, rc::Rc, sync::Arc};

@@ -90,6 +90,7 @@ use crate::{
         seat::{new_seat, seats},
     },
     mirrors::MirrorRegistry,
+    properties::WindowProperties,
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
 
@@ -183,6 +184,10 @@ pub struct Session<T> {
     /// Each seat's published layout, compiled on this thread. See
     /// [`crate::keymaps`] for why the compositor cannot hand one over.
     keymaps: RefCell<KeymapCache>,
+    /// Per-window state the configuration asked to be kept for it. Here rather
+    /// than in Lua because the session outlives the Lua state and a soft reload
+    /// discards it; [`crate::properties`] states the whole reasoning.
+    properties: RefCell<WindowProperties>,
 }
 
 impl<T> Session<T> {
@@ -211,7 +216,16 @@ impl<T> Session<T> {
             mirrors,
             host,
             keymaps: RefCell::new(KeymapCache::default()),
+            properties: RefCell::new(WindowProperties::new()),
         })
+    }
+
+    /// Runs `body` against the per-window properties the session is keeping.
+    ///
+    /// A closure rather than a borrow guard, for the reason
+    /// [`Session::with_textures`] takes one.
+    pub fn with_properties<R>(&self, body: impl FnOnce(&mut WindowProperties) -> R) -> R {
+        body(&mut self.properties.borrow_mut())
     }
 
     /// Runs `body` against the compiled keymaps this frame can answer from.
@@ -286,6 +300,20 @@ impl<T> Session<T> {
         let mut frame = self.frame.borrow_mut();
         frame.previous = mem::replace(&mut frame.snapshot, snapshot);
         frame.generation = frame.generation.next();
+
+        // A window's properties last exactly as long as a handle can still
+        // describe it, which is one frame past the snapshot losing it:
+        // `lunwindowclosed` is dispatched against the frame the window is
+        // already gone from, and a handler tidying up after a panel reads them
+        // there. [`Session::window`] draws the same line for the same reason.
+        let live: Vec<WindowId> = frame
+            .snapshot
+            .windows
+            .iter()
+            .chain(frame.previous.windows.iter())
+            .map(|window| window.window)
+            .collect();
+        self.properties.borrow_mut().retain(&live);
     }
 
     /// Queues an event for `boot.lua`'s poll loop to dispatch this frame.

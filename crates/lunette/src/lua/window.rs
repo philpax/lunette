@@ -22,6 +22,7 @@ use mlua::{UserData, UserDataFields, UserDataMethods, Value};
 use crate::{
     import::formats::Alpha,
     lua::{LuaTexture, Session, pixel_size, sink::Sink},
+    properties::{PropertyError, PropertyKey, PropertyValue},
     texture::{TextureRef, TextureUnavailable},
 };
 
@@ -125,7 +126,9 @@ impl<T: LuaTexture> UserData for Window<T> {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         // Stable for the window's whole life, so it is the identifier a Lua
         // table of per-window state is keyed by, and what `lunctl` serialises
-        // a handle as.
+        // a handle as. A soft reload does not restart the compositor thread and
+        // so does not change it, which is what lets a configuration re-associate
+        // with its windows — and their properties — after one.
         fields.add_field_method_get("id", |_, window| Ok(window.id.get()));
 
         fields.add_field_method_get("dead", |_, window| Ok(!window.refresh()));
@@ -186,6 +189,14 @@ impl<T: LuaTexture> UserData for Window<T> {
         methods.add_method("resize", |_, window, (width, height): (f64, f64)| {
             resize(window, width, height)
         });
+        methods.add_method(
+            "setProperty",
+            |_, window, (key, value): (mlua::LuaString, Value)| set_property(window, &key, &value),
+        );
+        methods.add_method("getProperty", |lua, window, key: mlua::LuaString| {
+            get_property(lua, window, &key)
+        });
+        methods.add_method("properties", |lua, window, ()| properties(lua, window));
     }
 }
 
@@ -288,6 +299,135 @@ fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> 
         states: window.known.borrow().states.clone(),
     });
     Ok(true)
+}
+
+/// `window:setProperty(key, value)`: keeps a value for this window across a
+/// reload.
+///
+/// The store lives in Rust rather than in Lua, so it survives the Lua state
+/// being discarded and re-run. That is what it is for: a pose the user placed by
+/// hand, or a size they dragged, is not derivable from any rule, so a reload
+/// that lost it would scramble a hand-arranged workspace.
+///
+/// The value is a number, a string, a boolean, or nil to remove the key.
+/// Anything else raises with the key named, because a table would hold Lua
+/// values and so would not survive the reload this exists to survive. A caller
+/// wanting structure encodes it into a string itself.
+///
+/// `false` on a dead handle, like every other mutation here: the entries of a
+/// window that has gone are dropped, so there would be nothing to store into.
+///
+/// # Errors
+///
+/// If the key is empty or is not UTF-8, or the value is of a kind a property
+/// cannot hold.
+fn set_property<T>(window: &Window<T>, key: &mlua::LuaString, value: &Value) -> mlua::Result<bool> {
+    // Validated before the liveness check, for the reason `resize` validates
+    // first: a defect in the caller is worth reporting whether or not the
+    // window happened to still be there.
+    let key = property_key(key)?;
+    let stored = match value {
+        Value::Nil => None,
+        Value::Boolean(held) => Some(PropertyValue::Boolean(*held)),
+        Value::Integer(held) => Some(PropertyValue::number(&key, *held as f64).map_err(raised)?),
+        Value::Number(held) => Some(PropertyValue::number(&key, *held).map_err(raised)?),
+        Value::String(held) => Some(PropertyValue::Text(text(held, &key)?)),
+        other => {
+            return Err(raised(PropertyError::Unsupported {
+                key,
+                kind: other.type_name(),
+            }));
+        }
+    };
+
+    if !window.refresh() {
+        return Ok(false);
+    }
+
+    window.session.with_properties(|properties| match stored {
+        Some(value) => properties.set(window.id, key, value),
+        None => {
+            properties.clear(window.id, key.as_str());
+        }
+    });
+    Ok(true)
+}
+
+/// `window:getProperty(key)`: what was kept under `key`, or nil.
+///
+/// An absent key is nil rather than an error: a configuration asking for a pose
+/// it has not placed yet is the ordinary first case.
+///
+/// Readable on a dead handle, unlike the mutations, and for the same reason a
+/// dead handle still reports its title — a `lunwindowclosed` handler tidying up
+/// after a panel is exactly who wants to read what the panel stored.
+///
+/// # Errors
+///
+/// If the key is empty or is not UTF-8.
+fn get_property<T>(
+    lua: &mlua::Lua,
+    window: &Window<T>,
+    key: &mlua::LuaString,
+) -> mlua::Result<Value> {
+    let key = property_key(key)?;
+    window.session.with_properties(|properties| {
+        properties
+            .get(window.id, key.as_str())
+            .map_or(Ok(Value::Nil), |value| push_property(lua, value))
+    })
+}
+
+/// `window:properties()`: every key this window is carrying, as a table.
+///
+/// Present so that what survived a reload can be discovered rather than guessed
+/// at. A configuration that stores under a key it computed — a tag name, a
+/// monitor identity — cannot enumerate its own keys after the state holding them
+/// has gone, so without this the store would only be readable by a configuration
+/// that hardcoded every key it ever writes.
+///
+/// A fresh table each call, holding a copy. Nothing here hands Lua a reference
+/// into the store.
+fn properties<T>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<mlua::Table> {
+    let table = lua.create_table()?;
+    window.session.with_properties(|properties| {
+        for (key, value) in properties.of(window.id) {
+            table.set(key.as_str(), push_property(lua, value)?)?;
+        }
+        Ok(table)
+    })
+}
+
+/// Reads the name a property call was made against.
+fn property_key(key: &mlua::LuaString) -> mlua::Result<PropertyKey> {
+    // Not `to_string_lossy`: a key is what a later lookup is spelled with, and
+    // replacing an unrepresentable byte would silently merge two distinct keys
+    // into one.
+    PropertyKey::new(&*key.to_str()?).map_err(raised)
+}
+
+/// Reads a string property, refusing bytes that are not text.
+fn text(value: &mlua::LuaString, key: &PropertyKey) -> mlua::Result<String> {
+    value.to_str().map(|text| text.to_owned()).map_err(|_| {
+        raised(PropertyError::Unsupported {
+            key: key.clone(),
+            kind: "string of bytes that are not UTF-8",
+        })
+    })
+}
+
+/// Hands a stored value back to Lua.
+fn push_property(lua: &mlua::Lua, value: &PropertyValue) -> mlua::Result<Value> {
+    Ok(match value {
+        PropertyValue::Boolean(held) => Value::Boolean(*held),
+        PropertyValue::Number(held) => Value::Number(*held),
+        PropertyValue::Text(held) => Value::String(lua.create_string(held)?),
+    })
+}
+
+/// Turns a rejected property into the error Lua sees.
+fn raised(error: PropertyError) -> mlua::Error {
+    mlua::Error::runtime(format!("lunette: {error}"))
 }
 
 /// `window.opaque`: whether the texture's fourth component is padding.

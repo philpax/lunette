@@ -64,6 +64,9 @@ win:resize(1920, 1080)       -- a configure request; the client may ignore it.
 win:close()                  -- a close request, not a kill; watch for lovr.lunwindowclosed.
 win:getTexture()             -- this frame's pixels; never cache it.
 win:stabilize()              -- a persistent texture, at a copy per damaged frame.
+win:setProperty('pose', p)   -- keeps a value for this window across a reload.
+win:getProperty('pose')      -- what was kept, or nil.
+win:properties()             -- every key this window is carrying, as a table.
 ```
 
 `win:close()` sends the xdg-toplevel close request. The client decides what to do with it: an editor with unsaved work puts up a prompt, and a client is free to ignore it entirely. The window goes when the client unmaps it, which arrives as `lovr.lunwindowclosed`.
@@ -77,6 +80,30 @@ Both return `false` on a dead handle, without raising. Both are requests, so nei
 `win.opaque` reports that the window's current buffer has no alpha channel, so its fourth component is padding a caller forces to one rather than sampling. It is a property of the buffer and changes when the client renegotiates its format, so it is read each frame alongside the texture. [Rendering](rendering.md#alpha) states what a consumer does with it, and why premultiplied blending is the other half of the same subject.
 
 `win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
+
+## Per-window properties
+
+A soft reload discards the Lua state, so anything a configuration must remember across one cannot be kept in Lua. `win.userdata` holds a Lua value and goes with the state; the property store is native and does not:
+
+```lua
+win:setProperty('pose', '0 1.6 -1.5')  -- a number, a string, a boolean, or nil to remove.
+win:getProperty('pose')                -- what was kept, or nil.
+win:properties()                       -- { pose = '0 1.6 -1.5' }, a fresh table each call.
+```
+
+The two are for different lifetimes and both are wanted. State a rule can derive comes back when the rules re-run, and `userdata` is the right place for it. A pose the user placed by hand, a size they dragged, or a tag they assigned by hand is derivable from nothing, and a reload that lost it would scramble a hand-arranged workspace.
+
+A property is a number, a string, or a boolean. A table raises, with the key named: a table holds Lua values, which is the same problem one level down. A caller wanting structure encodes it into a string and knows that it did. A number that is not finite raises for the reason a layer priority that is not does — it is a defect in the caller's maths, and one that came back after a reload would be much harder to trace. `nil` removes the key.
+
+`win:setProperty` returns `false` on a dead handle, like every other mutation; the entries of a window that has gone are dropped, so there would be nothing to store into. `win:getProperty` still answers on one, for the reason a dead handle still reports its title: `lovr.lunwindowclosed` is dispatched against the frame the window has already left, and a handler tidying up after a panel is exactly who wants to read what that panel stored.
+
+`win:properties()` exists so that what survived a reload can be discovered rather than guessed at. A configuration that stores under a key it computed — a tag name, a monitor identity — cannot enumerate its own keys once the state holding them has gone.
+
+Entries live as long as the window and not as long as the Lua state. A reload leaves them untouched; a window closing drops them.
+
+`win.id` is stable for the window's whole life, and a soft reload does not change it. The compositor thread is not restarted by one — that is what a soft reload is — so the identifiers it minted are the identifiers it keeps, and re-associating with a window after a reload is a matter of reading `win.id` again. A hard restart is a different matter: it stops the compositor, and identifiers from before it name nothing. Anything that has to survive that is keyed on something the compositor did not mint, such as `win.appId` or a monitor's identity.
+
+Writing any of this to disk is the standard library's own business. The store is live state; what of it is worth keeping across a restart is a decision `mullion` makes.
 
 ## Monitors
 

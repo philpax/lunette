@@ -16,9 +16,11 @@
 //! discrete steps [`scale`] defines. [`mirrors`] is the other half of what Lua
 //! can point at: the user's own screens, mirrored through the screencast portal
 //! rather than hosted by the compositor, and [`host`] is where a sink pointed at
-//! one of them delivers. [`frame`] is what runs the rest in the
-//! order they require, once per frame, and is the only thing that starts the
-//! compositor thread.
+//! one of them delivers. [`properties`] is the one piece of per-window state
+//! Rust keeps on the configuration's behalf, because a soft reload throws the
+//! Lua state away and something has to survive it. [`frame`] is what runs the
+//! rest in the order they require, once per frame, and is the only thing that
+//! starts the compositor thread.
 
 pub mod events;
 pub mod frame;
@@ -28,5 +30,6 @@ pub mod keymaps;
 pub mod layers;
 pub mod lua;
 pub mod mirrors;
+pub mod properties;
 pub mod scale;
 pub mod texture;
