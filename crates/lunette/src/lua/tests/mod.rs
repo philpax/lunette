@@ -4,19 +4,24 @@
 //! A texture here is an integer, which is what the generic on [`Session`] is
 //! for. Everything else — the handles, the dead-handle rule, the mutation
 //! queue, the argument checking — is the production code path.
+//!
+//! The handles and the mutation queue are here; [`events`] holds the delivery
+//! of `lovr.lun*` callbacks, which needs a poll loop the rest of the surface
+//! does not.
 
 #![expect(
     clippy::expect_used,
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 
+mod events;
+
 use std::{ffi::OsStr, rc::Rc, sync::Arc};
 
 use lunette_compositor::{
     protocol::{
-        Command, PixelSize, PointerButton, ProcessId, ProcessOutcome, ProcessSnapshot,
-        SignalNumber, SinkId, Snapshot, Stream, SurfaceId, ToplevelStates, WindowId,
-        WindowSnapshot,
+        Command, PixelSize, PointerButton, ProcessId, ProcessSnapshot, SinkId, Snapshot, SurfaceId,
+        ToplevelState, ToplevelStates, WindowId, WindowSnapshot,
     },
     state::DEFAULT_SEAT,
 };
@@ -24,10 +29,10 @@ use mlua::{Lua, Table, Value};
 use pretty_assertions::assert_eq;
 
 use crate::{
-    events::{LuaEvent, RecordingEventSink},
+    events::RecordingEventSink,
     import::formats::Alpha,
     lua::{LuaTexture, Session, install},
-    texture::{TextureDescription, TextureRef},
+    texture::{CopyableTexture, TextureDescription, TextureRef},
 };
 
 /// Stands in for a LÖVR texture. Lua receives the number, which is enough to
@@ -40,6 +45,23 @@ impl LuaTexture for FakeTexture {
         Ok(Value::Integer(self.0))
     }
 }
+
+impl CopyableTexture for FakeTexture {
+    /// Offset rather than equal, so that Lua can tell a stabilised copy from
+    /// the imported texture it was made from.
+    fn allocate_copy(&self) -> Option<Self> {
+        Some(Self(self.0 + STABLE_OFFSET))
+    }
+
+    /// The copy itself is `texture.rs`'s to exercise; what matters here is that
+    /// Lua is handed the same texture every time it asks.
+    fn copy_to(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// How far a stabilised copy's number sits from its source's.
+const STABLE_OFFSET: i64 = 1000;
 
 type TestSession = Rc<Session<FakeTexture>>;
 
@@ -352,6 +374,199 @@ fn a_texture_handle_is_refused_once_its_frame_has_passed() {
 }
 
 #[test]
+fn closing_asks_the_client_and_does_not_remove_the_window_itself() {
+    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    assert!(run::<bool>(&lua, "return lunette.windows()[1]:close()"));
+    assert_eq!(
+        run::<usize>(&lua, "return #lunette.windows()"),
+        1,
+        "the client decides: it may prompt, or refuse, and the window goes when it unmaps"
+    );
+
+    match session.flush().as_slice() {
+        [Command::CloseWindow { window }] => assert_eq!(*window, window_id(1)),
+        other => panic!("expected a close command, got {other:?}"),
+    }
+}
+
+#[test]
+fn resizing_configures_the_toplevel_without_waiting_for_the_client() {
+    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    assert!(run::<bool>(
+        &lua,
+        "return lunette.windows()[1]:resize(1920, 1080)"
+    ));
+    let (width, height): (u32, u32) = run(
+        &lua,
+        "local w = lunette.windows()[1] return w.width, w.height",
+    );
+    assert_eq!(
+        (width, height),
+        (64, 32),
+        "the size reported is the one the client last committed, not the one asked of it"
+    );
+
+    match session.flush().as_slice() {
+        [
+            Command::ConfigureWindow {
+                window,
+                size,
+                states,
+            },
+        ] => {
+            assert_eq!(*window, window_id(1));
+            assert_eq!(*size, Some(PixelSize::new(1920, 1080)));
+            assert!(states.is_empty());
+        }
+        other => panic!("expected a configure command, got {other:?}"),
+    }
+}
+
+#[test]
+fn resizing_restates_the_states_the_window_is_already_in() {
+    let mut maximized = window(1, "editor", "foot", PixelSize::new(64, 32));
+    maximized.states = ToplevelStates::from_iter([ToplevelState::Maximized]);
+
+    let session = session(vec![maximized]);
+    let lua = lua(&session);
+    run::<bool>(&lua, "return lunette.windows()[1]:resize(800, 600)");
+
+    match session.flush().as_slice() {
+        [Command::ConfigureWindow { states, .. }] => assert!(
+            states.contains(&ToplevelState::Maximized),
+            "a configure replaces the state set wholesale, so omitting them would unmaximise it"
+        ),
+        other => panic!("expected a configure command, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_size_that_is_not_a_pair_of_pixel_counts_is_reported() {
+    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    for chunk in [
+        "lunette.windows()[1]:resize(0, 600)",
+        "lunette.windows()[1]:resize(-1, 600)",
+        "lunette.windows()[1]:resize(800, 0.5)",
+        "lunette.windows()[1]:resize(800, 0 / 0)",
+        "lunette.windows()[1]:resize(800, 2 ^ 40)",
+    ] {
+        let message = error(&lua, chunk);
+        assert!(
+            message.contains("is not a window size"),
+            "unhelpful message for {chunk}: {message}"
+        );
+    }
+
+    assert!(
+        session.flush().is_empty(),
+        "a refused configure must not reach the compositor"
+    );
+}
+
+#[test]
+fn stabilizing_hands_back_the_same_texture_while_the_buffer_rotates() {
+    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    session.with_textures(|textures| {
+        textures.install(
+            surface_id(1),
+            FakeTexture(42),
+            TextureDescription {
+                size: PixelSize::new(64, 32),
+                alpha: Alpha::Present,
+            },
+        )
+    });
+    let lua = lua(&session);
+
+    let (stable, again, imported): (i64, i64, i64) = run(
+        &lua,
+        "local w = lunette.windows()[1]
+         return w:stabilize(), w:stabilize(), w:getTexture()",
+    );
+
+    assert_eq!(
+        stable, again,
+        "a second call returns the same texture rather than allocating another"
+    );
+    assert_ne!(stable, imported, "the copy is lunette's, not the client's");
+
+    // The client commits its next buffer, which is a different texture.
+    session.with_textures(|textures| {
+        textures.install(
+            surface_id(1),
+            FakeTexture(43),
+            TextureDescription {
+                size: PixelSize::new(64, 32),
+                alpha: Alpha::Present,
+            },
+        )
+    });
+    session.begin(snapshot(
+        vec![window(1, "htop", "foot", PixelSize::new(64, 32))],
+        Vec::new(),
+    ));
+
+    let (after, rotated): (i64, i64) = run(
+        &lua,
+        "local w = lunette.windows()[1] return w:stabilize(), w:getTexture()",
+    );
+    assert_eq!(
+        after, stable,
+        "the identity is what the copy exists to provide"
+    );
+    assert_eq!(rotated, 43, "the imported texture rotated underneath it");
+}
+
+#[test]
+fn stabilizing_answers_false_before_the_client_has_committed_anything() {
+    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    assert!(!run::<bool>(
+        &lua,
+        "return lunette.windows()[1]:stabilize()"
+    ));
+}
+
+#[test]
+fn every_mutation_of_a_dead_handle_returns_false() {
+    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    session.with_textures(|textures| {
+        textures.install(
+            surface_id(1),
+            FakeTexture(42),
+            TextureDescription {
+                size: PixelSize::new(64, 32),
+                alpha: Alpha::Present,
+            },
+        )
+    });
+    let lua = lua(&session);
+    run::<()>(&lua, "held = lunette.windows()[1]");
+
+    session.begin(snapshot(Vec::new(), Vec::new()));
+
+    let (closed, resized, stabilized): (bool, bool, bool) = run(
+        &lua,
+        "return held:close(), held:resize(800, 600), held:stabilize()",
+    );
+
+    assert!(!closed);
+    assert!(!resized);
+    assert!(!stabilized);
+    assert!(
+        session.flush().is_empty(),
+        "a refused mutation must not reach the compositor"
+    );
+}
+
+#[test]
 fn a_pointer_event_queues_until_the_frame_ends() {
     let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
@@ -589,305 +804,6 @@ fn a_process_handle_reports_what_the_snapshot_says() {
     let (alive, pid): (bool, i32) = run(&lua, "return proc.alive, proc.pid");
     assert!(!alive, "a process absent from the snapshot has ended");
     assert_eq!(pid, 4242, "an ended process reads its last-known pid");
-}
-
-#[test]
-fn a_window_opening_hands_the_handler_a_handle_and_a_snapshot_that_holds_it() {
-    let (session, sink) =
-        recording_session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "function lovr.lunwindowopened(event)
-             opened = { id = event.window.id, title = event.window.title, dead = event.window.dead }
-             visible = #lunette.windows()
-         end",
-    );
-
-    session.push_event(LuaEvent::WindowOpened {
-        window: window_id(1),
-    });
-    poll(&lua, &sink);
-
-    let (id, title, dead, visible): (u64, String, bool, usize) =
-        run(&lua, "return opened.id, opened.title, opened.dead, visible");
-    assert_eq!((id, title.as_str(), dead), (1, "htop", false));
-    assert_eq!(
-        visible, 1,
-        "the event and the snapshot the handler reads have to describe the same frame"
-    );
-}
-
-#[test]
-fn a_title_change_carries_both_the_window_and_the_new_title() {
-    let (session, sink) =
-        recording_session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "function lovr.luntitlechanged(event) changed = event end",
-    );
-
-    session.push_event(LuaEvent::TitleChanged {
-        window: window_id(1),
-        title: "htop — 4 cores".to_owned(),
-    });
-    poll(&lua, &sink);
-
-    let (title, id): (String, u64) = run(&lua, "return changed.title, changed.window.id");
-    assert_eq!(title, "htop — 4 cores");
-    assert_eq!(id, 1);
-}
-
-#[test]
-fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_it_was() {
-    let (session, sink) =
-        recording_session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "function lovr.lunwindowclosed(event)
-             closed = {
-                 id = event.window.id,
-                 dead = event.window.dead,
-                 title = event.window.title,
-                 width = event.window.width,
-                 texture = event.window:getTexture(),
-             }
-             remaining = #lunette.windows()
-         end",
-    );
-
-    // The frame the window is absent from is the frame the event is drained in,
-    // which is what makes the handle dead before the handler ever sees it.
-    session.begin(snapshot(Vec::new(), Vec::new()));
-    session.push_event(LuaEvent::WindowClosed {
-        window: window_id(1),
-    });
-    poll(&lua, &sink);
-
-    let (id, dead, title, width, texture, remaining): (u64, bool, String, u32, bool, usize) = run(
-        &lua,
-        "return closed.id, closed.dead, closed.title, closed.width, closed.texture, remaining",
-    );
-
-    assert_eq!(id, 1);
-    assert!(dead);
-    assert_eq!(
-        (title.as_str(), width),
-        ("htop", 1280),
-        "the handle reads the last thing the window was known to be, not nothing"
-    );
-    assert!(!texture, "every method of a dead handle answers false");
-    assert_eq!(remaining, 0);
-}
-
-#[test]
-fn a_spawn_that_never_started_is_reported_as_an_exit_and_opens_no_window() {
-    let (session, sink) = recording_session(Vec::new());
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "opened = 0
-         function lovr.lunwindowopened() opened = opened + 1 end
-         function lovr.lunprocessexited(event)
-             exited = { id = event.process.id, outcome = event.outcome, message = event.message }
-         end",
-    );
-
-    let process = ProcessId::new(run::<u64>(
-        &lua,
-        "return lunette.spawn{ argv = { 'nosuchprogram' } }.id",
-    ))
-    .expect("non-zero");
-
-    session.push_event(LuaEvent::ProcessExited {
-        process,
-        outcome: ProcessOutcome::SpawnFailed {
-            message: "nosuchprogram: no such file or directory".to_owned(),
-        },
-    });
-    poll(&lua, &sink);
-
-    let (id, outcome, message, opened): (u64, String, String, usize) = run(
-        &lua,
-        "return exited.id, exited.outcome, exited.message, opened",
-    );
-
-    assert_eq!(id, process.get());
-    assert_eq!(outcome, "spawnFailed");
-    assert!(
-        message.contains("no such file or directory"),
-        "unhelpful message: {message}"
-    );
-    assert_eq!(
-        opened, 0,
-        "a program that never ran cannot have connected a client"
-    );
-}
-
-#[test]
-fn an_exit_reports_its_code_and_a_signal_reports_its_number() {
-    let (session, sink) = recording_session(Vec::new());
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "seen = {}
-         function lovr.lunprocessexited(event)
-             seen[#seen + 1] = { outcome = event.outcome, code = event.code, signal = event.signal }
-         end",
-    );
-
-    session.push_event(LuaEvent::ProcessExited {
-        process: ProcessId::new(1).expect("non-zero"),
-        outcome: ProcessOutcome::Exited { code: 3 },
-    });
-    session.push_event(LuaEvent::ProcessExited {
-        process: ProcessId::new(2).expect("non-zero"),
-        outcome: ProcessOutcome::Signalled {
-            signal: SignalNumber::new(9),
-        },
-    });
-    poll(&lua, &sink);
-
-    let (first, code, second, signal): (String, i32, String, i32) = run(
-        &lua,
-        "return seen[1].outcome, seen[1].code, seen[2].outcome, seen[2].signal",
-    );
-
-    assert_eq!((first.as_str(), code), ("exited", 3));
-    assert_eq!((second.as_str(), signal), ("signalled", 9));
-}
-
-#[test]
-fn output_arrives_as_bytes_under_the_stream_it_was_written_to() {
-    let (session, sink) = recording_session(Vec::new());
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "function lovr.lunprocessoutput(event) wrote = event end",
-    );
-
-    // Not valid UTF-8, and a Lua string is a byte string, so it survives.
-    session.push_event(LuaEvent::ProcessOutput {
-        process: ProcessId::new(1).expect("non-zero"),
-        stream: Stream::Stderr,
-        bytes: vec![b'o', b'h', 0xff],
-    });
-    poll(&lua, &sink);
-
-    let (stream, bytes): (String, mlua::LuaString) = run(&lua, "return wrote.stream, wrote.text");
-    assert_eq!(stream, "stderr");
-    assert_eq!(bytes.as_bytes().to_vec(), vec![b'o', b'h', 0xff]);
-}
-
-#[test]
-fn a_handler_that_raises_does_not_take_the_rest_of_the_frame_with_it() {
-    let (session, sink) = recording_session(vec![
-        window(1, "first", "foot", PixelSize::new(64, 32)),
-        window(2, "second", "foot", PixelSize::new(64, 32)),
-    ]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "seen = {}
-         function lovr.lunwindowopened(event)
-             seen[#seen + 1] = event.window.id
-             if event.window.id == 1 then error('a defect in the configuration') end
-         end
-         function lovr.luntitlechanged(event) titled = event.title end",
-    );
-
-    session.push_event(LuaEvent::WindowOpened {
-        window: window_id(1),
-    });
-    session.push_event(LuaEvent::WindowOpened {
-        window: window_id(2),
-    });
-    session.push_event(LuaEvent::TitleChanged {
-        window: window_id(2),
-        title: "renamed".to_owned(),
-    });
-    poll(&lua, &sink);
-
-    let (count, first, second, titled): (usize, u64, u64, String) =
-        run(&lua, "return #seen, seen[1], seen[2], titled");
-
-    assert_eq!((count, first, second), (2, 1, 2));
-    assert_eq!(
-        titled, "renamed",
-        "one bad handler must not swallow a frame's worth of events"
-    );
-}
-
-#[test]
-fn an_event_never_dispatched_is_not_delivered_against_a_later_frame() {
-    let (session, sink) =
-        recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "count = 0 function lovr.lunwindowopened() count = count + 1 end",
-    );
-
-    session.push_event(LuaEvent::WindowOpened {
-        window: window_id(1),
-    });
-    // The frame ends without the poll loop reaching it, as it would if a
-    // handler had called `lovr.event.clear()`.
-    let _discarded = sink.take();
-    session.begin(snapshot(Vec::new(), Vec::new()));
-
-    session.push_event(LuaEvent::WindowOpened {
-        window: window_id(2),
-    });
-    poll(&lua, &sink);
-
-    assert_eq!(
-        run::<usize>(&lua, "return count"),
-        1,
-        "the discarded event must not be delivered against a snapshot from a later frame"
-    );
-}
-
-#[test]
-fn an_event_with_no_handler_is_dispatched_and_dropped() {
-    let (session, sink) = recording_session(Vec::new());
-    let lua = lua(&session);
-
-    session.push_event(LuaEvent::WindowOpened {
-        window: window_id(1),
-    });
-    poll(&lua, &sink);
-
-    // A configuration that never defines `lovr.lunwindowopened` is a supported
-    // configuration; `poll` raising would be the failure.
-    assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
-}
-
-#[test]
-fn a_dispatcher_is_installed_for_every_event_the_module_can_push() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let mut names: Vec<String> = run::<Table>(&lua, "return lovr.handlers")
-        .pairs::<String, Value>()
-        .map(|pair| pair.expect("the handler keys are strings").0)
-        .collect();
-    names.sort();
-
-    assert_eq!(
-        names,
-        vec![
-            "lunmonitoradded".to_owned(),
-            "lunprocessexited".to_owned(),
-            "lunprocessoutput".to_owned(),
-            "luntitlechanged".to_owned(),
-            "lunwindowclosed".to_owned(),
-            "lunwindowopened".to_owned(),
-        ],
-        "a name here is what `docs/lua-api.md` promises a configuration can hook"
-    );
 }
 
 #[test]

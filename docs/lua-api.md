@@ -60,8 +60,18 @@ print(win.title)             -- last frame's value.
 print(win.appId)             -- the client's application identifier.
 print(win.width, win.height) -- the surface's size in pixels.
 win:resize(1920, 1080)       -- a configure request; the client may ignore it.
-win:close()                  -- returns nothing; watch for lovr.lunwindowclosed.
+win:close()                  -- a close request, not a kill; watch for lovr.lunwindowclosed.
+win:getTexture()             -- this frame's pixels; never cache it.
+win:stabilize()              -- a persistent texture, at a copy per damaged frame.
 ```
+
+`win:close()` sends the xdg-toplevel close request. The client decides what to do with it: an editor with unsaved work puts up a prompt, and a client is free to ignore it entirely. The window goes when the client unmaps it, which arrives as `lovr.lunwindowclosed`.
+
+`win:resize(width, height)` configures the toplevel. The client resizes at its own pace, and `win.width` and `win.height` change when it commits a buffer — which may be at a different size, because a client is free to honour its own minimum or to round to a character cell. Nothing waits for that. The dimensions are whole pixel counts of at least one, and a value that is not raises.
+
+Both return `false` on a dead handle, without raising. Both are requests, so neither reports what the client did; that arrives as an event or as a changed snapshot field.
+
+`win:stabilize()` is described in [Rendering](rendering.md#windowstabilize).
 
 `win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
 

@@ -63,7 +63,7 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
 - Every module is safe to `require` twice, and registers a teardown hook. Soft reload discards the Lua state; a module that leaks timers, signal connections, or coroutines across a reload is a defect.
 - Never assume a handle survives a frame. Check `handle.dead` before use.
-- Never cache the result of `window:getTexture()` across frames. Textures rotate as the client cycles its buffers. Use `surface:stabilize()` when a persistent texture is genuinely wanted.
+- Never cache the result of `window:getTexture()` across frames. Textures rotate as the client cycles its buffers. Use `window:stabilize()` when a persistent texture is genuinely wanted.
 - Raise errors normally. Callbacks run under `xpcall`, and the handler reports them. Do not swallow errors to keep a frame alive.
 - The file-size threshold is around 500 lines, lower than the Rust threshold because Lua modules carry less ceremony.
 - Comments end with a period. Headings and titles use sentence case.

@@ -275,6 +275,10 @@ fn generate_bindings(
         .allowlist_function("lovrImageCreateRaw")
         .allowlist_function("lovrImageDestroy")
         .allowlist_function("lovrImageGetLayerData")
+        // The one copy mechanism in the codebase: `window:stabilize()` and the
+        // layer blits both go through it, so the `syncStream` barriers are
+        // emitted from a single place.
+        .allowlist_function("lovrTextureCopy")
         // How a `lun*` event reaches `lovr.handlers`. `CustomEvent`, `Event`,
         // and `EventType` arrive with it, because they are the signature.
         .allowlist_function("lovrEventPush")

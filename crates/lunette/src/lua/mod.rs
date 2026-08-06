@@ -68,7 +68,7 @@ use mlua::{Lua, Table, Value};
 pub use crate::lua::{process::Process, sink::Sink, window::Window};
 use crate::{
     events::{EventName, EventQueue, EventSink, LuaEvent, install_dispatchers},
-    texture::{FrameGeneration, LovrTexture, TextureLedger},
+    texture::{CopyableTexture, FrameGeneration, LovrTexture, TextureLedger},
 };
 
 /// The name `require` resolves through, and the root of the native surface.
@@ -282,7 +282,11 @@ struct Frame {
 /// the conversion that needs a graphics device: everything else about a window
 /// handle is a projection of a snapshot, and the tests exercise that projection
 /// with a texture that is an integer.
-pub trait LuaTexture: 'static {
+///
+/// [`CopyableTexture`] is a supertrait rather than a second bound at each use,
+/// because `window:stabilize()` is part of the same surface: a texture the
+/// module can hand to Lua is one Lua can ask for a stable copy of.
+pub trait LuaTexture: CopyableTexture + 'static {
     /// Produces the value Lua holds for this texture.
     ///
     /// # Errors

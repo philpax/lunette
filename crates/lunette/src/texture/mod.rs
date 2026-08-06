@@ -33,6 +33,9 @@
 //! runtime settings on [`BarrierPolicy`] rather than constants, so a run can
 //! answer the question without a rebuild.
 
+#[cfg(test)]
+mod tests;
+
 use std::{collections::HashMap, ffi::c_void, fmt, ptr::NonNull, sync::Arc};
 
 use ash::vk;
@@ -43,8 +46,8 @@ use lunette_compositor::{
 use lunette_lovr::raw::{
     TEXTURE_SAMPLE, TEXTURE_TRANSFER, Texture, TextureFormat, TextureFormat_FORMAT_BGRA8,
     TextureInfo, TextureType_TEXTURE_2D, lovrImageCreateRaw, lovrImageDestroy,
-    lovrImageGetLayerData, lovrRelease, lovrTextureCreate, lovrTextureDestroy,
-    lovrTextureImportAcquire, lovrTextureImportRelease, lovrTextureSetPixels,
+    lovrImageGetLayerData, lovrRelease, lovrTextureCopy, lovrTextureCreate, lovrTextureDestroy,
+    lovrTextureGetInfo, lovrTextureImportAcquire, lovrTextureImportRelease, lovrTextureSetPixels,
 };
 use tracing::warn;
 
@@ -137,6 +140,10 @@ pub enum TextureUnavailable {
         obtained: FrameGeneration,
         current: FrameGeneration,
     },
+    /// A stabilised copy could not be allocated or written. Unlike the others
+    /// this is not a race with a client: the device refused, which a caller
+    /// cannot recover from and should hear about.
+    CopyFailed,
 }
 
 impl fmt::Display for TextureUnavailable {
@@ -151,6 +158,7 @@ impl fmt::Display for TextureUnavailable {
                  window's texture rotates as its client cycles buffers, so call getTexture again \
                  rather than caching it"
             ),
+            Self::CopyFailed => write!(f, "the stabilised copy could not be made"),
         }
     }
 }
@@ -184,46 +192,78 @@ impl<T> TextureLedger<T> {
         Self::default()
     }
 
-    /// Records a surface's new texture, returning the one it replaces.
+    /// Records a surface's new texture, returning the ones it displaces.
     ///
     /// The caller destroys what comes back. It is returned rather than dropped
     /// because destroying a LÖVR texture is an FFI call this type cannot make,
     /// and because the underlying image has to be retired at the same moment —
     /// which is the second thing this does.
+    ///
+    /// A stabilised copy is deliberately kept across the rotation: surviving it
+    /// is the whole reason to have asked for one. The exception is a surface
+    /// that changed shape, which a LÖVR texture cannot follow — its dimensions
+    /// are fixed at creation — so the copy is released and the next
+    /// [`stabilize`] allocates one that matches.
+    ///
+    /// [`stabilize`]: TextureLedger::stabilize
     pub fn install(
         &mut self,
         surface: SurfaceId,
         texture: T,
         description: TextureDescription,
-    ) -> Option<T> {
-        let previous = self.entries.insert(
+    ) -> Released<T> {
+        if let Some(entry) = self.entries.get_mut(&surface) {
+            let resized = entry.description.size != description.size;
+            let released = Released {
+                imported: entry.texture.replace(texture),
+                stable: if resized { entry.stable.take() } else { None },
+            };
+
+            entry.description = description;
+            entry.dead = false;
+            entry.damaged = true;
+            return released;
+        }
+
+        self.entries.insert(
             surface,
             Entry {
                 texture: Some(texture),
                 description,
                 dead: false,
+                stable: None,
+                damaged: true,
             },
         );
-
-        previous.and_then(|entry| entry.texture)
+        Released::default()
     }
 
     /// Marks a surface's client as gone.
     ///
     /// The description survives, so reads keep returning last-known values, and
-    /// the texture is handed back for destruction: an image whose client has
-    /// exited is not going to be redrawn.
-    pub fn mark_dead(&mut self, surface: SurfaceId) -> Option<T> {
-        let entry = self.entries.get_mut(&surface)?;
+    /// both textures are handed back for destruction: neither an image whose
+    /// client has exited nor a copy of it is going to be looked at again, since
+    /// every method of a dead handle answers `false` before it reaches one.
+    pub fn mark_dead(&mut self, surface: SurfaceId) -> Released<T> {
+        let Some(entry) = self.entries.get_mut(&surface) else {
+            return Released::default();
+        };
+
         entry.dead = true;
-        entry.texture.take()
+        Released {
+            imported: entry.texture.take(),
+            stable: entry.stable.take(),
+        }
     }
 
-    /// Drops everything known about a surface, returning its texture.
-    pub fn forget(&mut self, surface: SurfaceId) -> Option<T> {
+    /// Drops everything known about a surface, returning its textures.
+    pub fn forget(&mut self, surface: SurfaceId) -> Released<T> {
         self.entries
             .remove(&surface)
-            .and_then(|entry| entry.texture)
+            .map_or_else(Released::default, |entry| Released {
+                imported: entry.texture,
+                stable: entry.stable,
+            })
     }
 
     /// Resolves a handle against the frame it is being used in.
@@ -272,6 +312,99 @@ impl<T> TextureLedger<T> {
         self.entries.get(&surface).is_some_and(|entry| entry.dead)
     }
 
+    /// Hands out the surface's stabilised copy, allocating it on first ask.
+    ///
+    /// The copy is lunette's own texture, so its identity survives the client
+    /// cycling its buffers — which is the entire point, and the reason
+    /// [`TextureLedger::lookup`] cannot be used for it. It is brought up to
+    /// date here when the source has been damaged since it was last written, so
+    /// that the first call in a frame returns something current whether or not
+    /// [`TextureLedger::refresh_stable`] has run.
+    ///
+    /// The cost is a full-surface copy on every damaged frame, which for a 4K
+    /// mirror at 90 Hz is around 3 GB/s. `docs/rendering.md` records why that
+    /// makes this opt-in rather than the default.
+    ///
+    /// # Errors
+    ///
+    /// See [`TextureUnavailable`]. The generation is checked here as it is for
+    /// an imported texture: the returned texture outlives the frame, but the
+    /// surface it belongs to may not.
+    pub fn stabilize(
+        &mut self,
+        reference: TextureRef,
+        current: FrameGeneration,
+    ) -> Result<&T, TextureUnavailable>
+    where
+        T: CopyableTexture,
+    {
+        let Some(entry) = self.entries.get_mut(&reference.surface) else {
+            return Err(TextureUnavailable::Unknown);
+        };
+        if entry.dead {
+            return Err(TextureUnavailable::Dead);
+        }
+        if reference.generation != current {
+            return Err(TextureUnavailable::Stale {
+                obtained: reference.generation,
+                current,
+            });
+        }
+        let Some(source) = entry.texture.as_ref() else {
+            return Err(TextureUnavailable::Unknown);
+        };
+
+        if entry.stable.is_none() {
+            entry.stable = Some(
+                source
+                    .allocate_copy()
+                    .ok_or(TextureUnavailable::CopyFailed)?,
+            );
+            entry.damaged = true;
+        }
+
+        let Some(stable) = entry.stable.as_ref() else {
+            return Err(TextureUnavailable::CopyFailed);
+        };
+        if entry.damaged {
+            if !source.copy_to(stable) {
+                return Err(TextureUnavailable::CopyFailed);
+            }
+            entry.damaged = false;
+        }
+
+        Ok(stable)
+    }
+
+    /// Brings every stabilised copy up to date with the buffer behind it.
+    ///
+    /// Runs once a frame, after the frame's buffers have been installed and
+    /// before anything draws. A surface that has not been damaged since its
+    /// copy was last written is skipped, which is what makes an idle window cost
+    /// nothing.
+    pub fn refresh_stable(&mut self)
+    where
+        T: CopyableTexture,
+    {
+        for (surface, entry) in &mut self.entries {
+            if entry.dead || !entry.damaged {
+                continue;
+            }
+            let (Some(source), Some(stable)) = (entry.texture.as_ref(), entry.stable.as_ref())
+            else {
+                continue;
+            };
+
+            if source.copy_to(stable) {
+                entry.damaged = false;
+            } else {
+                // Left damaged, so the next frame tries again rather than
+                // leaving the copy silently showing an older frame for ever.
+                warn!(%surface, "a stabilised surface could not be updated");
+            }
+        }
+    }
+
     /// Schedules an image for destruction.
     pub fn retire_image(&mut self, image: ImageHandle, now: FrameGeneration) {
         self.morgue.retire(image, now);
@@ -300,6 +433,62 @@ struct Entry<T> {
     texture: Option<T>,
     description: TextureDescription,
     dead: bool,
+    /// The lunette-owned copy `window:stabilize()` hands out, present only once
+    /// something has asked for one.
+    stable: Option<T>,
+    /// Whether the source has been replaced since the copy was last written.
+    /// Set by every install, including the first, because a copy is only ever
+    /// as current as the last buffer it was given.
+    damaged: bool,
+}
+
+/// The textures a change to the ledger handed back for release.
+///
+/// Two fields rather than a list, because the caller has to be able to tell an
+/// imported texture from one LÖVR allocated: only the first has an image behind
+/// it that lunette destroys separately.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Released<T> {
+    /// The texture wrapping a client's buffer.
+    pub imported: Option<T>,
+    /// The stabilised copy, when it can no longer be kept.
+    pub stable: Option<T>,
+}
+
+impl<T> Default for Released<T> {
+    fn default() -> Self {
+        Self {
+            imported: None,
+            stable: None,
+        }
+    }
+}
+
+impl<T> IntoIterator for Released<T> {
+    type Item = T;
+    type IntoIter = std::iter::Flatten<std::array::IntoIter<Option<T>, 2>>;
+
+    /// Both textures, for a caller that releases them the same way.
+    fn into_iter(self) -> Self::IntoIter {
+        [self.imported, self.stable].into_iter().flatten()
+    }
+}
+
+/// A texture that can be copied into another of its own shape.
+///
+/// The seam between the bookkeeping and the device. `window:stabilize()` needs
+/// to allocate a texture and record a copy into it, and neither is something
+/// [`TextureLedger`] can do for an arbitrary `T` — so both are asked of the
+/// texture, and the tests answer with a counter.
+pub trait CopyableTexture: Sized {
+    /// Allocates a texture with this one's shape, to be copied into.
+    ///
+    /// `None` when the device refused.
+    fn allocate_copy(&self) -> Option<Self>;
+
+    /// Records a copy of this texture into `destination`, reporting whether it
+    /// was accepted.
+    fn copy_to(&self, destination: &Self) -> bool;
 }
 
 /// Images waiting out their deferral before being destroyed.
@@ -657,6 +846,66 @@ impl LovrTexture {
     }
 }
 
+impl CopyableTexture for LovrTexture {
+    /// Allocates a LÖVR-owned texture matching this one's size and format.
+    ///
+    /// The shape is read back out of LÖVR rather than tracked alongside,
+    /// because LÖVR is what `lovrTextureCopy` checks the bounds against and a
+    /// second record of the same thing is a second thing to get wrong.
+    ///
+    /// Not `foreign`: this texture is LÖVR's to initialise, and the flag exists
+    /// to suppress exactly the transition it wants.
+    fn allocate_copy(&self) -> Option<Self> {
+        // SAFETY: the pointer is the live texture this type owns a reference
+        // to, and `lovrTextureGetInfo` returns a borrow of the info inside it
+        // (`graphics.c:2920-2922`) which is read before anything can free it.
+        let info = unsafe { lovrTextureGetInfo(self.raw.as_ptr()).as_ref() }?;
+        let copy = texture_info(
+            PixelSize::new(info.width, info.height),
+            info.format,
+            0,
+            false,
+        );
+
+        // SAFETY: LÖVR's graphics module is initialised, because this texture
+        // exists; `copy` is a live local for the duration of the call.
+        let raw = unsafe { lovrTextureCreate(&raw const copy) };
+        Some(Self {
+            raw: NonNull::new(raw)?,
+            image: None,
+        })
+    }
+
+    /// Records the copy into LÖVR's own stream.
+    ///
+    /// `lovrTextureCopy` takes `state.lock` and emits `syncStream` barriers
+    /// against both textures, so ordering against LÖVR's own rendering is
+    /// handled inside LÖVR. That is why this is the one copy mechanism in the
+    /// codebase: a second one would have to reproduce that, and would get it
+    /// subtly wrong.
+    ///
+    /// An extent of `~0` asks for the largest region the two textures share,
+    /// resolved at `graphics.c:2977-2979`. Nothing here has to know the size.
+    fn copy_to(&self, destination: &Self) -> bool {
+        let mut source_offset = [0u32; 4];
+        let mut destination_offset = [0u32; 4];
+        let mut extent = [u32::MAX; 3];
+
+        // SAFETY: both pointers are live textures this program holds references
+        // to, and the three arrays are live locals LÖVR reads and rewrites in
+        // place rather than retaining.
+        unsafe {
+            lovrTextureCopy(
+                self.raw.as_ptr(),
+                destination.raw.as_ptr(),
+                source_offset.as_mut_ptr(),
+                destination_offset.as_mut_ptr(),
+                extent.as_mut_ptr(),
+            )
+        }
+    }
+}
+
 /// The `TextureInfo` an imported or uploaded texture is created with.
 ///
 /// `TEXTURE_SAMPLE | TEXTURE_TRANSFER` rather than `TEXTURE_SAMPLE` alone, for
@@ -665,7 +914,7 @@ impl LovrTexture {
 /// foreign image is actually in. And it takes the texture out of the
 /// sample-only exemption at `graphics.c:2647-2657`, giving it a real `Sync`
 /// object so it participates in `syncStream` — which is what a `lovrTextureCopy`
-/// source needs, and `surface:stabilize()` is exactly that copy.
+/// source needs, and `window:stabilize()` is exactly that copy.
 fn texture_info(size: PixelSize, format: TextureFormat, handle: u64, foreign: bool) -> TextureInfo {
     TextureInfo {
         type_: TextureType_TEXTURE_2D,
@@ -781,364 +1030,3 @@ impl fmt::Display for TextureError {
 }
 
 impl std::error::Error for TextureError {}
-
-#[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
-)]
-mod tests {
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    /// Stands in for a LÖVR texture. The ledger never dereferences what it
-    /// holds, which is the property that makes this substitution honest.
-    type FakeTexture = u32;
-
-    fn surface(raw: u64) -> SurfaceId {
-        SurfaceId::new(raw).expect("non-zero")
-    }
-
-    fn image(raw: u64) -> ImageHandle {
-        ImageHandle::new(raw).expect("non-zero")
-    }
-
-    fn frame(raw: u64) -> FrameGeneration {
-        let mut generation = FrameGeneration::INITIAL;
-        for _ in 0..raw {
-            generation = generation.next();
-        }
-        generation
-    }
-
-    fn description(width: u32, height: u32) -> TextureDescription {
-        TextureDescription {
-            size: PixelSize::new(width, height),
-            alpha: Alpha::Present,
-        }
-    }
-
-    fn ledger() -> TextureLedger<FakeTexture> {
-        TextureLedger::new()
-    }
-
-    #[test]
-    fn a_frame_generation_increases_and_never_wraps() {
-        assert_eq!(FrameGeneration::INITIAL.get(), 0);
-        assert_eq!(FrameGeneration::INITIAL.next().get(), 1);
-
-        let last = FrameGeneration(u64::MAX);
-        assert_eq!(
-            last.next(),
-            last,
-            "wrapping would make an ancient handle compare equal to a current one"
-        );
-    }
-
-    #[test]
-    fn a_handle_from_this_frame_resolves() {
-        let mut ledger = ledger();
-        ledger.install(surface(1), 7, description(64, 32));
-
-        let reference = TextureRef::new(surface(1), frame(3));
-        assert_eq!(ledger.lookup(reference, frame(3)), Ok(&7));
-    }
-
-    #[test]
-    fn a_handle_from_an_earlier_frame_is_refused() {
-        let mut ledger = ledger();
-        ledger.install(surface(1), 7, description(64, 32));
-
-        let reference = TextureRef::new(surface(1), frame(3));
-        assert_eq!(
-            ledger.lookup(reference, frame(4)),
-            Err(TextureUnavailable::Stale {
-                obtained: frame(3),
-                current: frame(4),
-            }),
-            "the texture rotates as the client cycles buffers, so a cached handle is not merely \
-             stale bookkeeping"
-        );
-    }
-
-    #[test]
-    fn a_handle_from_a_later_frame_is_refused_too() {
-        // Not reachable through the public API, but the check is an equality
-        // rather than an ordering, and stating that keeps it one.
-        let mut ledger = ledger();
-        ledger.install(surface(1), 7, description(64, 32));
-
-        assert!(
-            ledger
-                .lookup(TextureRef::new(surface(1), frame(9)), frame(4))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn a_handle_to_an_unknown_surface_resolves_to_nothing() {
-        assert_eq!(
-            ledger().lookup(TextureRef::new(surface(1), frame(1)), frame(1)),
-            Err(TextureUnavailable::Unknown)
-        );
-    }
-
-    #[test]
-    fn installing_a_texture_returns_the_one_it_replaces() {
-        let mut ledger = ledger();
-
-        assert_eq!(ledger.install(surface(1), 1, description(64, 32)), None);
-        assert_eq!(
-            ledger.install(surface(1), 2, description(64, 32)),
-            Some(1),
-            "the previous texture is handed back so its reference can be dropped"
-        );
-        assert_eq!(
-            ledger.lookup(TextureRef::new(surface(1), frame(0)), frame(0)),
-            Ok(&2)
-        );
-    }
-
-    #[test]
-    fn surfaces_do_not_replace_each_others_textures() {
-        let mut ledger = ledger();
-        assert_eq!(ledger.install(surface(1), 1, description(64, 32)), None);
-        assert_eq!(ledger.install(surface(2), 2, description(64, 32)), None);
-
-        assert_eq!(
-            ledger.lookup(TextureRef::new(surface(1), frame(0)), frame(0)),
-            Ok(&1)
-        );
-        assert_eq!(
-            ledger.lookup(TextureRef::new(surface(2), frame(0)), frame(0)),
-            Ok(&2)
-        );
-    }
-
-    #[test]
-    fn a_dead_surface_keeps_its_last_known_description() {
-        let mut ledger = ledger();
-        ledger.install(surface(1), 7, description(1280, 720));
-
-        assert_eq!(ledger.mark_dead(surface(1)), Some(7));
-        assert!(ledger.is_dead(surface(1)));
-        assert_eq!(
-            ledger.describe(surface(1)),
-            Some(description(1280, 720)),
-            "a handle whose client has exited reads its last-known values rather than nothing"
-        );
-    }
-
-    #[test]
-    fn a_dead_surface_reports_death_rather_than_staleness() {
-        let mut ledger = ledger();
-        ledger.install(surface(1), 7, description(64, 32));
-        ledger.mark_dead(surface(1));
-
-        assert_eq!(
-            ledger.lookup(TextureRef::new(surface(1), frame(1)), frame(9)),
-            Err(TextureUnavailable::Dead),
-            "a handle to an exited client is both dead and stale, and death is the answer that \
-             does not raise"
-        );
-    }
-
-    #[test]
-    fn marking_a_surface_dead_twice_yields_the_texture_once() {
-        let mut ledger = ledger();
-        ledger.install(surface(1), 7, description(64, 32));
-
-        assert_eq!(ledger.mark_dead(surface(1)), Some(7));
-        assert_eq!(
-            ledger.mark_dead(surface(1)),
-            None,
-            "a second call must not hand out a reference that has already been dropped"
-        );
-    }
-
-    #[test]
-    fn marking_an_unknown_surface_dead_does_nothing() {
-        let mut ledger = ledger();
-        assert_eq!(ledger.mark_dead(surface(4)), None);
-        assert!(!ledger.is_dead(surface(4)));
-        assert_eq!(ledger.describe(surface(4)), None);
-    }
-
-    #[test]
-    fn forgetting_a_surface_removes_it_entirely() {
-        let mut ledger = ledger();
-        ledger.install(surface(1), 7, description(64, 32));
-
-        assert_eq!(ledger.forget(surface(1)), Some(7));
-        assert_eq!(ledger.describe(surface(1)), None);
-        assert_eq!(ledger.forget(surface(1)), None);
-    }
-
-    #[test]
-    fn a_retired_image_is_not_destroyed_in_the_frame_it_was_retired() {
-        let mut ledger = ledger();
-        ledger.retire_image(image(1), frame(5));
-
-        assert_eq!(
-            ledger.collect_due_images(frame(5)),
-            Vec::new(),
-            "LÖVR retires the view at the end of this tick, so the image is still named by a \
-             recorded command buffer"
-        );
-    }
-
-    #[test]
-    fn a_retired_image_is_destroyed_once_its_deferral_has_elapsed() {
-        let mut ledger = ledger();
-        ledger.retire_image(image(1), frame(5));
-
-        assert_eq!(ledger.collect_due_images(frame(6)), Vec::new());
-        assert_eq!(ledger.collect_due_images(frame(7)), vec![image(1)]);
-        assert_eq!(
-            ledger.collect_due_images(frame(8)),
-            Vec::new(),
-            "an image is collected exactly once, or it is freed twice"
-        );
-    }
-
-    #[test]
-    fn images_retired_in_different_frames_come_due_in_order() {
-        let mut ledger = ledger();
-        ledger.retire_image(image(1), frame(1));
-        ledger.retire_image(image(2), frame(3));
-
-        assert_eq!(ledger.collect_due_images(frame(3)), vec![image(1)]);
-        assert_eq!(ledger.collect_due_images(frame(4)), Vec::new());
-        assert_eq!(ledger.collect_due_images(frame(5)), vec![image(2)]);
-    }
-
-    #[test]
-    fn several_images_retired_in_one_frame_come_due_together() {
-        let mut ledger = ledger();
-        ledger.retire_image(image(1), frame(2));
-        ledger.retire_image(image(2), frame(2));
-
-        let mut due = ledger.collect_due_images(frame(4));
-        due.sort_unstable();
-        assert_eq!(due, vec![image(1), image(2)]);
-    }
-
-    #[test]
-    fn a_barrier_policy_defaults_to_what_the_specification_describes() {
-        let policy = BarrierPolicy::default();
-        assert_eq!(policy.source_family, QueueFamilyMode::Foreign);
-        assert_eq!(policy.old_layout, ForeignLayout::General);
-        assert_eq!(policy.source_family.index(), vk::QUEUE_FAMILY_FOREIGN_EXT);
-        assert_eq!(policy.old_layout.layout(), vk::ImageLayout::GENERAL);
-    }
-
-    #[test]
-    fn the_other_value_of_each_setting_is_reachable_without_a_rebuild() {
-        let policy = BarrierPolicy::from_settings(Some("ignored"), Some("undefined"));
-
-        assert_eq!(policy.source_family, QueueFamilyMode::Ignored);
-        assert_eq!(policy.source_family.index(), vk::QUEUE_FAMILY_IGNORED);
-        assert_eq!(policy.old_layout, ForeignLayout::Undefined);
-        assert_eq!(policy.old_layout.layout(), vk::ImageLayout::UNDEFINED);
-    }
-
-    #[test]
-    fn an_unrecognised_setting_falls_back_rather_than_stopping_the_session() {
-        assert_eq!(
-            BarrierPolicy::from_settings(Some("FOREIGN"), Some("")),
-            BarrierPolicy::default(),
-            "a diagnostic switch is not worth failing a session over, and the parse is exact"
-        );
-        assert_eq!(QueueFamilyMode::parse("neither"), None);
-        assert_eq!(ForeignLayout::parse("optimal"), None);
-    }
-
-    #[test]
-    fn an_unset_setting_is_the_default() {
-        assert_eq!(
-            BarrierPolicy::from_settings(None, None),
-            BarrierPolicy::default()
-        );
-    }
-
-    #[test]
-    fn an_imported_x_format_is_described_as_opaque() {
-        let buffer = ImportedBuffer::Image(ImportedImage {
-            image: image(1),
-            size: PixelSize::new(8, 4),
-            format: smithay::backend::allocator::Fourcc::Xrgb8888,
-            modifier: smithay::backend::allocator::Modifier::Linear,
-        });
-
-        assert_eq!(
-            describe(&buffer),
-            TextureDescription {
-                size: PixelSize::new(8, 4),
-                alpha: Alpha::Opaque,
-            }
-        );
-    }
-
-    #[test]
-    fn an_imported_a_format_is_described_as_carrying_alpha() {
-        let buffer = ImportedBuffer::Image(ImportedImage {
-            image: image(1),
-            size: PixelSize::new(8, 4),
-            format: smithay::backend::allocator::Fourcc::Argb8888,
-            modifier: smithay::backend::allocator::Modifier::Linear,
-        });
-
-        assert_eq!(describe(&buffer).alpha, Alpha::Present);
-    }
-
-    #[test]
-    fn an_uploaded_buffer_always_carries_alpha_because_the_repack_forced_it() {
-        for format in [ShmFormat::Argb8888, ShmFormat::Xrgb8888] {
-            let pixels = PixelBuffer::new(PixelSize::new(1, 1), format, vec![1, 2, 3, 255])
-                .expect("one pixel");
-
-            assert_eq!(
-                describe(&ImportedBuffer::Pixels(pixels)),
-                TextureDescription {
-                    size: PixelSize::new(1, 1),
-                    alpha: Alpha::Present,
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn every_shm_format_is_uploaded_as_bgra() {
-        for format in [ShmFormat::Argb8888, ShmFormat::Xrgb8888] {
-            assert_eq!(shm_texture_format(format), TextureFormat_FORMAT_BGRA8);
-        }
-    }
-
-    #[test]
-    fn the_texture_declaration_matches_what_the_import_creates() {
-        let info = texture_info(PixelSize::new(2, 2), TextureFormat_FORMAT_BGRA8, 42, true);
-
-        assert_eq!(info.usage, TEXTURE_SAMPLE | TEXTURE_TRANSFER);
-        assert!(info.foreign);
-        assert_eq!(info.handle, 42);
-        assert_eq!(info.layers, 1);
-        assert_eq!(info.mipmaps, 1);
-        assert_eq!(info.samples, 1);
-        assert!(!info.srgb);
-        assert!(!info.xr);
-        assert_eq!(info.imageCount, 0);
-        assert!(info.images.is_null());
-    }
-
-    #[test]
-    fn a_texture_lovr_allocates_is_not_declared_foreign() {
-        let info = texture_info(PixelSize::new(2, 2), TextureFormat_FORMAT_BGRA8, 0, false);
-        assert!(
-            !info.foreign,
-            "the flag suppresses the initial transition, which a texture LÖVR is about to fill \
-             genuinely wants"
-        );
-        assert_eq!(info.handle, 0);
-    }
-}

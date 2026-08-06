@@ -20,9 +20,13 @@ Import is zero-copy and per-buffer. Wayland clients cycle among 2 to 4 buffers, 
 
 An alternative design, one persistent texture per surface updated by copy, was considered and rejected as a default. It would provide stable Lua identity and format normalisation, but it costs a full-surface copy per damaged frame. A 4K mirror at 90 Hz is approximately 3 GB/s, which matters on an integrated GPU sharing memory with the underlying application. It would also make the composition-layer path two copies instead of one. The composition-layer path is the one that determines text legibility, so doubling its cost is counterproductive.
 
-### `surface:stabilize()`
+### `window:stabilize()`
 
 This method is opt-in, for cases that require a persistent texture: running a multi-pass shader chain over a window, taking a screenshot, feeding a mesh with cached bindings, or freezing a window that stopped painting. It is damage-updated, so an idle window costs nothing.
+
+It allocates a lunette-owned texture and copies the client's buffer into it through `lovrTextureCopy`, which is the same call the layer blits use, so there is one copy mechanism rather than two. The cost is the full-surface copy per damaged frame described above, which is why it is opt-in.
+
+A second call returns the same texture rather than allocating another. The identity survives the client cycling its buffers, which is the point of it, and does not survive the client resizing: a LÖVR texture's dimensions are fixed when it is created, so a resize releases the copy and the next call allocates one that matches. It returns `false` on a dead handle, and on a window whose client has committed nothing.
 
 ### Forced conversion
 

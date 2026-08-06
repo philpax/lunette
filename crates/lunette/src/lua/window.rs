@@ -14,7 +14,9 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use lunette_compositor::protocol::{PixelSize, SinkId, SurfaceId, WindowId, WindowSnapshot};
+use lunette_compositor::protocol::{
+    Command, PixelSize, SinkId, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+};
 use mlua::{UserData, UserDataFields, UserDataMethods, Value};
 
 use crate::{
@@ -93,6 +95,10 @@ struct Known {
     title: Option<String>,
     app_id: Option<String>,
     size: PixelSize,
+    /// Carried so that a resize can restate them. A configure replaces the
+    /// state set wholesale, so sending one without them would take a window out
+    /// of maximised or fullscreen as a side effect of changing its size.
+    states: ToplevelStates,
 }
 
 impl From<&WindowSnapshot> for Known {
@@ -103,6 +109,7 @@ impl From<&WindowSnapshot> for Known {
             title: window.title.clone(),
             app_id: window.app_id.clone(),
             size: window.size,
+            states: window.states.clone(),
         }
     }
 }
@@ -156,6 +163,11 @@ impl<T: LuaTexture> UserData for Window<T> {
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("getTexture", |lua, window, ()| get_texture(lua, window));
+        methods.add_method("stabilize", |lua, window, ()| stabilize(lua, window));
+        methods.add_method("close", |_, window, ()| Ok(close(window)));
+        methods.add_method("resize", |_, window, (width, height): (f64, f64)| {
+            resize(window, width, height)
+        });
     }
 }
 
@@ -163,38 +175,157 @@ impl<T: LuaTexture> UserData for Window<T> {
 ///
 /// Valid for this frame only. Textures rotate as the client cycles its buffers,
 /// so the returned value names something that may not exist next frame; call it
-/// again rather than caching it, or take a copy with `surface:stabilize()`.
+/// again rather than caching it, or take a copy with `window:stabilize()`.
 ///
 /// `false` rather than an error in two cases, both of which are ordinary: the
 /// client is gone, and the client has not committed anything yet.
 fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<Value> {
-    if !window.refresh() {
-        return Ok(Value::Boolean(false));
-    }
-
-    let Some(surface) = window.known.borrow().surface else {
+    let Some(reference) = texture_ref(window) else {
         return Ok(Value::Boolean(false));
     };
 
     let generation = window.session.generation();
-    let reference = TextureRef::new(surface, generation);
+    window
+        .session
+        .with_textures(|textures| answer(lua, textures.lookup(reference, generation)))
+}
 
-    window.session.with_textures(|textures| {
-        match textures.lookup(reference, generation) {
-            // The push runs while the ledger is borrowed. That is safe here and
-            // only here: it pushes a value, and no Lua the caller wrote runs
-            // until this returns.
-            Ok(texture) => texture.push(lua),
-            Err(TextureUnavailable::Dead | TextureUnavailable::Unknown) => {
-                Ok(Value::Boolean(false))
-            }
-            // Unreachable through this path, because the reference was built
-            // from the generation it is about to be checked against. Stated
-            // rather than assumed, so that a future caller that holds a
-            // reference across a frame is told what it did.
-            Err(stale @ TextureUnavailable::Stale { .. }) => {
-                Err(mlua::Error::runtime(format!("lunette: {stale}")))
-            }
+/// `window:stabilize()`: a texture whose identity outlives the frame.
+///
+/// The default is zero-copy, so `window:getTexture()` hands out whichever
+/// buffer the client most recently committed and the texture behind it rotates.
+/// This allocates a lunette-owned texture instead and copies the client's
+/// buffer into it on every frame the surface is damaged, so the same texture
+/// comes back every time.
+///
+/// That copy is the price, and it is not small: a full surface per damaged
+/// frame, around 3 GB/s for a 4K mirror at 90 Hz. It is why sampling directly
+/// is the default. Reach for this when a persistent texture is genuinely
+/// wanted — a multi-pass shader chain, a screenshot, a mesh with cached
+/// bindings, or freezing a window that stopped painting — and not otherwise. An
+/// idle window costs nothing, because an undamaged surface is not copied.
+///
+/// A second call returns the same texture rather than allocating another. The
+/// identity survives the client cycling its buffers, which is the whole point;
+/// it does not survive the client resizing, because a LÖVR texture's dimensions
+/// are fixed when it is created.
+///
+/// `false` in the same two ordinary cases as `window:getTexture()`: the client
+/// is gone, and the client has not committed anything yet.
+fn stabilize<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<Value> {
+    let Some(reference) = texture_ref(window) else {
+        return Ok(Value::Boolean(false));
+    };
+
+    let generation = window.session.generation();
+    window
+        .session
+        .with_textures(|textures| answer(lua, textures.stabilize(reference, generation)))
+}
+
+/// `window:close()`: asks the client to close the window.
+///
+/// A request, and not a kill. The client decides what to do with it: a text
+/// editor with unsaved work puts up a prompt, and a client is free to ignore it
+/// entirely. The window disappears when the client unmaps it, which is reported
+/// as `lovr.lunwindowclosed` — watch for that rather than assuming this did it.
+///
+/// `false` when the client is already gone, without raising.
+fn close<T>(window: &Window<T>) -> bool {
+    if !window.refresh() {
+        return false;
+    }
+
+    window
+        .session
+        .queue(Command::CloseWindow { window: window.id });
+    true
+}
+
+/// `window:resize(width, height)`: configures the toplevel to a new size.
+///
+/// A request as well. The client resizes at its own pace and the new size is
+/// visible in `window.width` and `window.height` once it has committed a buffer
+/// at it, which is some frames later and may be a different size entirely: a
+/// client is free to honour its own minimum, or to round to a character cell.
+/// Nothing here waits for that.
+///
+/// The dimensions are pixels and both have to be positive whole numbers; a
+/// value that is not is a defect in the caller's maths and raises.
+///
+/// # Errors
+///
+/// If the size is not a pair of positive pixel counts.
+fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> {
+    // Validated before the liveness check, so a bad size is reported whether or
+    // not the window happens to still be there.
+    let size = pixel_size(width, height)?;
+    if !window.refresh() {
+        return Ok(false);
+    }
+
+    window.session.queue(Command::ConfigureWindow {
+        window: window.id,
+        size: Some(size),
+        states: window.known.borrow().states.clone(),
+    });
+    Ok(true)
+}
+
+/// Names this frame's texture for the window, if it has one to name.
+///
+/// `None` when the client is gone, and when nothing has ever been committed for
+/// the window — the two cases Lua is answered `false` for.
+fn texture_ref<T>(window: &Window<T>) -> Option<TextureRef> {
+    if !window.refresh() {
+        return None;
+    }
+
+    let surface = window.known.borrow().surface?;
+    Some(TextureRef::new(surface, window.session.generation()))
+}
+
+/// Turns what the ledger answered into what Lua receives.
+///
+/// The split is the dead-handle rule. A client exiting between the raycast and
+/// the draw is a race, and answering `false` is what keeps it from taking the
+/// frame down. A stale handle and a refused copy are not races: the first is a
+/// handle cached across a frame, and the second is the device saying no, and
+/// silence would leave either undiagnosed.
+fn answer<T: LuaTexture>(
+    lua: &mlua::Lua,
+    answered: Result<&T, TextureUnavailable>,
+) -> mlua::Result<Value> {
+    match answered {
+        // The push runs while the ledger is borrowed. That is safe here and
+        // only here: it pushes a value, and no Lua the caller wrote runs until
+        // this returns.
+        Ok(texture) => texture.push(lua),
+        Err(TextureUnavailable::Dead | TextureUnavailable::Unknown) => Ok(Value::Boolean(false)),
+        // Staleness is unreachable through either caller, because the reference
+        // is built from the generation it is about to be checked against.
+        // Stated rather than assumed, so that a future caller holding one across
+        // a frame is told what it did.
+        Err(raised @ (TextureUnavailable::Stale { .. } | TextureUnavailable::CopyFailed)) => {
+            Err(mlua::Error::runtime(format!("lunette: {raised}")))
         }
-    })
+    }
+}
+
+/// Checks a size before it is asked of a client.
+fn pixel_size(width: f64, height: f64) -> mlua::Result<PixelSize> {
+    let pixels = |value: f64| {
+        // The bound is what makes the cast below exact: a finite whole number
+        // in `1 ..= u32::MAX` is representable in both.
+        (value.is_finite() && value >= 1.0 && value <= f64::from(u32::MAX) && value.fract() == 0.0)
+            .then_some(value as u32)
+    };
+
+    match (pixels(width), pixels(height)) {
+        (Some(width), Some(height)) => Ok(PixelSize::new(width, height)),
+        _ => Err(mlua::Error::runtime(format!(
+            "lunette: ({width}, {height}) is not a window size; both are whole pixel counts and \
+             have to be at least one"
+        ))),
+    }
 }
