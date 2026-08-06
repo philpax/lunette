@@ -60,6 +60,8 @@ Restore tokens are stored in a versioned file that an older lunette refuses to r
 
 Named, not solved.
 
+A captured frame is imported only as a dmabuf. PipeWire can negotiate shared memory instead, as a memfd or a mapped pointer, and lunette refuses both by name rather than showing a black mirror. The mapped-pointer case is the awkward one: the pointer is valid only inside PipeWire's callback, so supporting it means copying every frame on the capture thread, which is the one thing the raw-forwarding arrangement exists to avoid. The refusal is counted and logged once per stream rather than per frame.
+
 wlx-capture discards two fields of the portal's `Start` response before lunette can read them. `parse_start_response` (`wlx-capture/src/pipewire/mod.rs:686-691`) reads `streams` and `restore_token` and drops the granted `persist_mode`, and `parse_streams` (`mod.rs:693-733`) reads `node_id`, `position`, and `size` and drops `mapping_id`. So lunette records that the backend stated no persistence rather than what it granted, and never gets the opportunistic connector name even on the one backend that supplies a real one. Both are upstream changes, and neither is load-bearing: geometry is the correlation mechanism, and a stated persistence mode is a diagnostic. The seam models both fields, so lifting them upstream is a change to one adapter.
 
 Host-to-lunette drag-and-drop. No protocol exists for a drag crossing a compositor boundary. In-compositor drag-and-drop works.

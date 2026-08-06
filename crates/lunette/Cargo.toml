@@ -12,6 +12,7 @@ license.workspace = true
 # itself. `linked` is deliberately not used — it would put a build-time
 # dependency on a Vulkan SDK in the way of a build that needs no device.
 ash.workspace = true
+lunette-capture = { path = "../lunette-capture" }
 lunette-compositor = { path = "../lunette-compositor" }
 lunette-lovr = { path = "../lunette-lovr" }
 parking_lot.workspace = true
@@ -34,5 +35,9 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]
+# The crate depending on a sibling with a feature the library does not enable is
+# how the capture import path gets a frame to import: `CapturedFrame::from_parts`
+# exists only under `test-fakes`, because nothing in production builds one.
+lunette-capture = { path = "../lunette-capture", features = ["test-fakes"] }
 pretty_assertions.workspace = true
 tempfile.workspace = true

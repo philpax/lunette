@@ -5,9 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# The frame queue's lock. Every span under it is a push or a pop with no await
+# and no reentry, which is what the non-poisoning guard is for.
+parking_lot.workspace = true
 # The monitor identity that keys a restore token, and the file that holds them.
 # `derive` is what the identity types are written with; the format is `toml`.
 serde = { workspace = true, features = ["derive"] }
+# A frame carries at most four planes, so the usual case allocates nothing.
+smallvec.workspace = true
 # The restore-token file's format. A serialised format rather than a hand-rolled
 # encoding because the file holds a monitor's make and model, which is whatever
 # its EDID says: quoting and escaping arbitrary text is exactly the kind of tail

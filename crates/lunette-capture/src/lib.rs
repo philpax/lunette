@@ -21,4 +21,5 @@
 
 pub mod monitor;
 pub mod portal;
+pub mod stream;
 pub mod tokens;

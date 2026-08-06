@@ -556,6 +556,7 @@ name = "lunette"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "lunette-capture",
  "lunette-compositor",
  "lunette-lovr",
  "mlua",
@@ -572,8 +573,10 @@ dependencies = [
 name = "lunette-capture"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
  "pretty_assertions",
  "serde",
+ "smallvec",
  "toml",
  "tracing",
  "wlx-capture",

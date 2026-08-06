@@ -12,7 +12,10 @@
 //! relates a client's DRM fourcc to a `VkFormat` and a LÖVR `TextureFormat`.
 //! [`dmabuf`] performs the import and owns the images it creates; [`shm`] does
 //! the same job for shared memory, which stops at pixels because the upload is
-//! a submission and submissions belong to the frame thread.
+//! a submission and submissions belong to the frame thread. [`capture`] is the
+//! second consumer of [`dmabuf`]: a mirrored monitor's frame arrives from
+//! PipeWire's thread as plain descriptors and is imported here, on the main
+//! thread, rather than in the callback that produced it.
 //!
 //! # Threading
 //!
@@ -20,7 +23,13 @@
 //! frame thread: the [`GraphicsDevice`], which both may use concurrently, and
 //! the [`ImageArena`], which is where the images it creates are handed over to
 //! be destroyed.
+//!
+//! [`CaptureImporter`] runs on the frame thread, against the same device and the
+//! same arena. Two importers, one import path: an image created for a mirrored
+//! monitor is retired and destroyed by exactly the machinery that destroys a
+//! client's.
 
+pub mod capture;
 pub mod device;
 pub mod dmabuf;
 pub mod formats;
@@ -36,6 +45,7 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 
 use crate::import::dmabuf::DmabufImporter;
 pub use crate::import::{
+    capture::{CaptureImportError, CaptureImporter},
     device::{DeviceError, GraphicsDevice},
     dmabuf::ImageArena,
 };

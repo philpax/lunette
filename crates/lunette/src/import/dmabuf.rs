@@ -463,14 +463,14 @@ fn with_donated_fd<T, E>(
 /// `dmabuf` filesystem, whether they arrived as one descriptor or as a `dup` of
 /// it. Two separate buffer objects do not, which is what makes this the
 /// distinction between a contiguous buffer and a disjoint one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct BufferIdentity {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct BufferIdentity {
     device: u64,
     inode: u64,
 }
 
 /// Reads a descriptor's identity without taking ownership of it.
-fn identify_buffer(descriptor: BorrowedFd<'_>) -> std::io::Result<BufferIdentity> {
+pub(crate) fn identify_buffer(descriptor: BorrowedFd<'_>) -> std::io::Result<BufferIdentity> {
     use std::os::unix::fs::MetadataExt as _;
 
     // SAFETY: `File` is the only way to reach `fstat` from `std`, and it closes
@@ -540,8 +540,12 @@ fn buffer_size(dmabuf: &Dmabuf) -> Result<PixelSize, DmabufError> {
 }
 
 /// Why a dmabuf could not be imported.
+///
+/// Public because it is reachable through [`crate::import::CaptureImportError`],
+/// which the frame thread reports: an error a caller can see the `Display` of
+/// but not the variants of is one they cannot act on.
 #[derive(Debug)]
-pub(crate) enum DmabufError {
+pub enum DmabufError {
     UnsupportedFormat(Fourcc),
     NonsensicalSize {
         width: i32,
