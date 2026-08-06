@@ -9,12 +9,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(any(test, feature = "test-fakes"))]
+use smithay::input::pointer::CursorImageStatus;
 use smithay::{
     backend::{allocator::Format, input::ButtonState},
     desktop::{PopupKind, PopupManager, find_popup_root_surface, get_popup_toplevel_coords},
     input::{
-        Seat, SeatState,
-        pointer::{ButtonEvent, CursorImageStatus, MotionEvent, PointerHandle},
+        SeatState,
+        pointer::{ButtonEvent, MotionEvent},
     },
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
@@ -56,13 +58,18 @@ use crate::{
         PixelSize, PointerButton, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
         SinkId, SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
     },
+    seat::{MouseState, SeatEntry, SeatRegistry},
     surface::{BufferImporter, RetainedBuffers, SurfaceContent, SurfaceRegistry},
     thread::{EventSender, LoopData, SnapshotPublisher},
-    window::{MouseState, Window, WindowManager},
+    window::{Window, WindowManager},
 };
 
-/// The one seat Phase 2 has. Multi-seat is Phase 5, and the identifier is fixed
-/// rather than allocated so nothing has to be rewritten when it stops being.
+/// The seat lunette starts with, which is the one a caller that has not asked
+/// for any gets.
+///
+/// Fixed rather than allocated, because it exists before anything has run that
+/// could allocate one. Further seats are named by whoever creates them, through
+/// [`Command::CreateSeat`].
 pub const DEFAULT_SEAT: SeatId = match SeatId::new(1) {
     Some(seat) => seat,
     None => unreachable!(),
@@ -74,7 +81,7 @@ pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
     None => unreachable!(),
 };
 
-/// The seat's name, which clients see on `wl_seat.name`.
+/// The default seat's name, which clients see on `wl_seat.name`.
 const SEAT_NAME: &str = "lunette";
 
 /// The output's name, which clients see on `wl_output.name`.
@@ -176,10 +183,9 @@ pub(crate) struct CompositorState {
     pub(super) xdg_shell: XdgShellState,
     pub(super) shm: ShmState,
     pub(super) seat_state: SeatState<Self>,
-    /// Held for its lifetime: dropping the seat withdraws the `wl_seat` global.
-    #[expect(dead_code, reason = "held so the global stays advertised")]
-    seat: Seat<Self>,
-    pointer: PointerHandle<Self>,
+    /// Every seat lunette serves. Holding an entry is what keeps its `wl_seat`
+    /// global advertised.
+    pub(super) seats: SeatRegistry,
     pub(super) dmabuf: DmabufState,
     pub(super) kde_decoration: KdeDecorationState,
     pub(super) popups: PopupManager,
@@ -218,7 +224,9 @@ pub(crate) struct CompositorState {
     /// xwayland-satellite and the `Xwayland` it started are reaped.
     satellite: Satellite,
     pub(super) frame_callbacks: HashMap<ObjectId, Vec<WlCallback>>,
-    pub(super) cursor_image: CursorImageStatus,
+    /// One counter for every seat. Serials are effectively global in smithay —
+    /// a client compares them across seats and against its own requests — so
+    /// per-seat counters would collide.
     serials: SerialCounter,
 
     /// The baseline for the millisecond timestamps the protocol wants.
@@ -267,9 +275,13 @@ impl CompositorState {
         );
 
         let mut seat_state = SeatState::new();
-        let mut seat = seat_state.new_wl_seat(display, SEAT_NAME);
-        // Pointer only. The keyboard, and the keymap it needs, are Phase 5.
-        let pointer = seat.add_pointer();
+        let mut seats = SeatRegistry::default();
+        if let Err(error) = seats.create(&mut seat_state, display, DEFAULT_SEAT, SEAT_NAME) {
+            warn!(
+                %error,
+                "could not create the default seat; input will reach no client until one is made"
+            );
+        }
 
         let output = Output::new(
             OUTPUT_NAME.to_owned(),
@@ -310,8 +322,7 @@ impl CompositorState {
             xdg_shell,
             shm,
             seat_state,
-            seat,
-            pointer,
+            seats,
             dmabuf,
             kde_decoration,
             popups: PopupManager::default(),
@@ -334,7 +345,6 @@ impl CompositorState {
             process_poll: None,
             loop_handle,
             frame_callbacks: HashMap::new(),
-            cursor_image: CursorImageStatus::default_named(),
             serials: SerialCounter::new(),
             started: Instant::now(),
             events,
@@ -388,12 +398,12 @@ impl CompositorState {
             } => self.press_button(seat, sink, button, pressed),
             Command::Spawn(request) => self.spawn_process(&request),
             Command::SignalProcess { process, signal } => self.signal_process(process, signal),
+            Command::CreateSeat { seat, name } => self.create_seat(seat, &name),
+            Command::DestroySeat { seat } => self.destroy_seat(seat),
             Command::Scroll { .. }
             | Command::Key { .. }
             | Command::Modifiers { .. }
             | Command::TypeText { .. }
-            | Command::CreateSeat { .. }
-            | Command::DestroySeat { .. }
             | Command::CreateOutput { .. }
             | Command::ReconfigureOutput { .. }
             | Command::DestroyOutput { .. }
@@ -606,6 +616,35 @@ impl CompositorState {
         tracked.request_size(size.map_or(bounds, logical_size), bounds);
     }
 
+    /// Creates a seat with its own pointer, focus, and hover.
+    fn create_seat(&mut self, seat: SeatId, name: &str) {
+        match self
+            .seats
+            .create(&mut self.seat_state, &self.display, seat, name)
+        {
+            Ok(entry) => info!(seat = %entry.id(), name, "a seat was created"),
+            Err(error) => warn!(%error, "could not create a seat"),
+        }
+    }
+
+    /// Destroys a seat, after taking its pointer off whatever it was over.
+    ///
+    /// The withdrawal happens first so the client under the pointer sees a
+    /// leave. Without it the surface keeps a pointer that has stopped existing,
+    /// and a toolkit that tracks hover keeps drawing the highlight.
+    fn destroy_seat(&mut self, seat: SeatId) {
+        if self.seats.get(seat).is_none() {
+            warn!(%seat, "a destroy was asked for a seat that does not exist");
+            return;
+        }
+
+        self.move_pointer(seat, None);
+        match self.seats.destroy(&self.display, seat) {
+            Ok(()) => info!(%seat, "a seat was destroyed"),
+            Err(error) => warn!(%error, "could not destroy a seat"),
+        }
+    }
+
     /// Moves a seat's pointer onto a sink, or withdraws it.
     ///
     /// Phase 2 delivers to the window's own surface at the position given.
@@ -613,9 +652,10 @@ impl CompositorState {
     /// Phase 5; until then a click lands on the toplevel, which is what the
     /// milestone gate asks for.
     fn move_pointer(&mut self, seat: SeatId, target: Option<(SinkId, PixelPoint)>) {
-        if !self.check_seat(seat) {
+        let Some(pointer) = self.seats.get(seat).map(SeatEntry::pointer) else {
+            warn!(%seat, "input was addressed to a seat that does not exist");
             return;
-        }
+        };
 
         // The focus origin is where the surface sits in the coordinate space
         // `location` is measured in. Delivering straight to the toplevel puts
@@ -631,7 +671,9 @@ impl CompositorState {
                 position,
             })
         });
-        self.windows.set_mouse(hovered);
+        if let Some(entry) = self.seats.get_mut(seat) {
+            entry.set_mouse(hovered);
+        }
 
         let location = target.map_or_else(
             || Point::from((-1.0, -1.0)),
@@ -644,30 +686,35 @@ impl CompositorState {
             time: self.millis(),
         };
 
-        let pointer = self.pointer.clone();
         pointer.motion(self, focus, &event);
         pointer.frame(self);
     }
 
     /// Presses or releases a pointer button over a sink.
     fn press_button(&mut self, seat: SeatId, sink: SinkId, button: PointerButton, pressed: bool) {
-        if !self.check_seat(seat) {
+        let Some(entry) = self.seats.get(seat) else {
+            warn!(%seat, "input was addressed to a seat that does not exist");
             return;
-        }
+        };
+        let pointer = entry.pointer();
+        let hovering = entry.mouse();
+
         let Some(window) = self.windows.by_sink(sink).map(Window::id) else {
             debug!(%sink, "a button was pressed over a sink that is already gone");
             return;
         };
 
-        // A button goes to whatever the pointer is over, which the protocol
-        // requires and a caller can get wrong by naming a sink it never moved
-        // the pointer onto.
-        match self.windows.mouse() {
+        // A button goes to whatever this seat's pointer is over, which the
+        // protocol requires and a caller can get wrong by naming a sink it never
+        // moved that seat's pointer onto. Another seat hovering the sink does
+        // not qualify: its pointer is a different pointer.
+        match hovering {
             Some(mouse) if mouse.hovered == window => {}
             _ => {
                 warn!(
+                    %seat,
                     %sink,
-                    "a button was pressed over a sink the pointer is not on; move it first"
+                    "a button was pressed over a sink the seat's pointer is not on; move it first"
                 );
                 return;
             }
@@ -684,18 +731,8 @@ impl CompositorState {
             },
         };
 
-        let pointer = self.pointer.clone();
         pointer.button(self, &event);
         pointer.frame(self);
-    }
-
-    /// Whether the seat named is the one that exists.
-    fn check_seat(&self, seat: SeatId) -> bool {
-        if seat == DEFAULT_SEAT {
-            return true;
-        }
-        warn!(%seat, "input was addressed to a seat that does not exist");
-        false
     }
 
     /// Republishes the snapshot if anything changed since the last one.
@@ -833,6 +870,20 @@ impl CompositorState {
 
     pub(super) fn output_logical_size(&self) -> Size<i32, Logical> {
         logical_size(self.config.output.size)
+    }
+}
+
+#[cfg(any(test, feature = "test-fakes"))]
+impl CompositorState {
+    /// What a seat's focused client last asked its cursor to look like.
+    ///
+    /// Inspection for the test that holds per-seat cursor state honest, which is
+    /// the property `SeatHandler::cursor_image` breaks by ignoring its seat
+    /// argument. Nothing in the compositor renders a cursor.
+    pub(crate) fn cursor_image(&self, seat: SeatId) -> Option<CursorImageStatus> {
+        self.seats
+            .get(seat)
+            .map(|entry| crate::seat::cursor_image(entry.seat()))
     }
 }
 

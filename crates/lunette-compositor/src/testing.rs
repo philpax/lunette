@@ -34,6 +34,7 @@ use std::{
 
 use smithay::{
     backend::allocator::{Buffer, Fourcc, Modifier, dmabuf::Dmabuf},
+    input::pointer::CursorImageStatus,
     reexports::{calloop, wayland_server::Client},
 };
 
@@ -44,7 +45,7 @@ use crate::{
     },
     protocol::{
         Command, Event, ImageHandle, ImportedImage, Pid, PixelSize, ProcessOutcome, ProcessSignal,
-        Snapshot, Stream,
+        SeatId, Snapshot, Stream,
     },
     state::{ClientState, CompositorConfig},
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
@@ -231,12 +232,45 @@ impl TestCompositor {
     pub fn proc(&self) -> FakeInspector {
         self.proc.clone()
     }
+
+    /// What a seat's focused client last asked its cursor to look like.
+    ///
+    /// The one piece of per-seat state no client can observe on another seat's
+    /// behalf, so a test asserting that two seats keep separate cursors has to
+    /// read it from this side.
+    #[must_use]
+    pub fn cursor_image(&self, seat: SeatId) -> Option<CursorImage> {
+        self.data
+            .state
+            .cursor_image(seat)
+            .map(|status| match status {
+                CursorImageStatus::Hidden => CursorImage::Hidden,
+                CursorImageStatus::Named(_) => CursorImage::Named,
+                CursorImageStatus::Surface(_) => CursorImage::Surface,
+            })
+    }
 }
 
 impl Default for TestCompositor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// What a seat's cursor is, in the terms a test asserts on.
+///
+/// A summary of smithay's `CursorImageStatus`, because an integration test does
+/// not depend on smithay and has no way to name that type. Which surface a
+/// client supplied is not carried: what a test about seats needs to tell apart
+/// is a seat whose client set a cursor from one whose client did not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorImage {
+    /// The client asked for no cursor at all.
+    Hidden,
+    /// A cursor from the theme, which is what a seat starts with.
+    Named,
+    /// A surface the client drew itself.
+    Surface,
 }
 
 /// What the fake importer was asked to do.

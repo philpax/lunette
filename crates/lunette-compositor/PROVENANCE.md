@@ -39,6 +39,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/comp.rs` (`CompositorHandler::commit`) | `src/state/commit.rs` |
 | `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
 | `backend/wayvr/window.rs`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/window.rs` |
+| `backend/wayvr/mod.rs` (the seat construction fragment), `backend/wayvr/window.rs` (the hover state) | `src/seat.rs` |
 | `backend/wayvr/time.rs` | folded into `src/state/compositor.rs` as `CompositorState::millis` |
 | `backend/wayvr/process.rs` (the registry and attribution), `backend/wayvr/mod.rs` (the spawn fragments) | `src/process/registry.rs` |
 | `backend/wayvr/process.rs` (spawning and signalling) | `src/process/spawn.rs` |

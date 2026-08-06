@@ -79,6 +79,10 @@ pub struct TestClient {
     surface: Option<WlSurface>,
     xdg_surface: Option<XdgSurface>,
     toplevel: Option<XdgToplevel>,
+    /// Every seat this client has bound, by the registry name of its global, so
+    /// a second look at the registry does not bind the same seat twice.
+    seats: Vec<(u32, WlSeat)>,
+    /// The pointer of the first seat, which is the one a single-seat test uses.
     pointer: Option<WlPointer>,
     /// Every buffer this client created, held so none is destroyed early. A
     /// destroyed `wl_buffer` cannot be released, and release is what the
@@ -109,6 +113,7 @@ impl TestClient {
             surface: None,
             xdg_surface: None,
             toplevel: None,
+            seats: Vec::new(),
             pointer: None,
             buffers: Vec::new(),
         }
@@ -324,17 +329,112 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// Binds the seat's pointer, so a test can observe what input reaches this
-    /// client.
+    /// Binds the first seat's pointer, so a test can observe what input reaches
+    /// this client.
     ///
     /// Waits for the capability rather than assuming it: asking a seat for a
     /// pointer it has not advertised is a protocol error.
-    pub fn open_pointer(&mut self, compositor: &mut TestCompositor) {
-        let handle = self.queue.handle();
-        let seat = self.bind::<WlSeat>(5);
-        self.settle(compositor, |driver| driver.has_pointer);
-        self.pointer = Some(seat.get_pointer(&handle, ()));
+    pub fn open_pointer(&mut self, compositor: &mut TestCompositor) -> WlPointer {
+        let seat = self
+            .bind_seats(compositor)
+            .first()
+            .cloned()
+            .expect("the compositor advertised at least one seat");
+        let pointer = self.open_pointer_on(compositor, &seat);
+        self.pointer = Some(pointer.clone());
+        pointer
+    }
+
+    /// Binds the pointer of the seat advertising `name` on `wl_seat.name`.
+    ///
+    /// The name is how a client tells two seats apart; there is nothing else on
+    /// the wire that distinguishes them.
+    pub fn open_pointer_for(&mut self, compositor: &mut TestCompositor, name: &str) -> WlPointer {
+        let seats = self.bind_seats(compositor);
+        let seat = seats
+            .iter()
+            .find(|seat| self.driver.seat_name(seat).as_deref() == Some(name))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no seat is named {name}; the client sees {:?}",
+                    self.driver.seat_names()
+                )
+            })
+            .clone();
+
+        self.open_pointer_on(compositor, &seat)
+    }
+
+    /// The pointer of the first seat, for a test that opened one.
+    #[must_use]
+    pub fn pointer(&self) -> &WlPointer {
+        self.pointer
+            .as_ref()
+            .expect("a pointer was opened before it was used")
+    }
+
+    /// Asks for a cursor image on `pointer`, as a client does when the pointer
+    /// enters one of its surfaces.
+    ///
+    /// The serial has to be the one that entered, or smithay refuses the request
+    /// (`wayland/seat/pointer.rs:379-381`) and the handler under test never runs.
+    pub fn set_cursor(
+        &mut self,
+        compositor: &mut TestCompositor,
+        pointer: &WlPointer,
+        cursor: &WlSurface,
+    ) {
+        let serial = self
+            .driver
+            .enter_serial(pointer)
+            .expect("the pointer entered a surface before a cursor was set for it");
+        pointer.set_cursor(serial, Some(cursor), 0, 0);
         self.settle_quiet(compositor);
+    }
+
+    /// Binds every seat the compositor has advertised, and waits for each to
+    /// report its name and capabilities.
+    fn bind_seats(&mut self, compositor: &mut TestCompositor) -> Vec<WlSeat> {
+        let handle = self.queue.handle();
+        let advertised: Vec<Global> = self
+            .driver
+            .globals
+            .iter()
+            .filter(|global| global.interface == WlSeat::interface().name)
+            .cloned()
+            .collect();
+
+        for global in advertised {
+            if self.seats.iter().any(|(name, _)| *name == global.name) {
+                continue;
+            }
+            let registry = self
+                .driver
+                .registry
+                .as_ref()
+                .expect("the registry arrived with the globals");
+            let seat = registry.bind::<WlSeat, (), Driver>(
+                global.name,
+                global.version.min(5),
+                &handle,
+                (),
+            );
+            self.seats.push((global.name, seat));
+        }
+
+        let bound: Vec<WlSeat> = self.seats.iter().map(|(_, seat)| seat.clone()).collect();
+        self.settle(compositor, |driver| {
+            bound.iter().all(|seat| driver.seat_name(seat).is_some())
+        });
+        bound
+    }
+
+    fn open_pointer_on(&mut self, compositor: &mut TestCompositor, seat: &WlSeat) -> WlPointer {
+        let handle = self.queue.handle();
+        self.settle(compositor, |driver| driver.has_pointer(seat));
+        let pointer = seat.get_pointer(&handle, ());
+        self.settle_quiet(compositor);
+        pointer
     }
 
     /// Sets the toplevel's title.
@@ -408,35 +508,113 @@ pub struct Driver {
     pub configure_serial: Option<u32>,
     pub toplevel_size: Option<(i32, i32)>,
     pub closed: bool,
-    pub has_pointer: bool,
-    /// Every pointer event delivered, in order.
-    pub pointer: Vec<PointerEvent>,
+    /// Every seat the client has bound, in the order it bound them.
+    seats: Vec<SeatRecord>,
+    /// Every pointer event delivered, in order, against the pointer it was
+    /// delivered to. Two seats mean two pointers, and an event that does not
+    /// say which one it reached says nothing about routing.
+    pointer: Vec<(ObjectId, PointerEvent)>,
     /// Every buffer the compositor released, in order. A client may reuse a
     /// buffer only once it appears here.
     pub released: Vec<ObjectId>,
 }
 
 impl Driver {
-    /// The first pointer enter, if one arrived.
+    /// The name a seat advertised on `wl_seat.name`, once it has.
     #[must_use]
-    pub fn first_enter(&self) -> Option<(&ObjectId, f64, f64)> {
-        self.pointer.iter().find_map(|event| match event {
-            PointerEvent::Enter { surface, x, y } => Some((surface, *x, *y)),
-            _ => None,
-        })
+    pub fn seat_name(&self, seat: &WlSeat) -> Option<String> {
+        self.seat(seat).and_then(|record| record.name.clone())
     }
 
-    /// Every button press and release, in order.
+    /// Every seat name the client has seen, for a failure message.
     #[must_use]
-    pub fn buttons(&self) -> Vec<(u32, bool)> {
+    pub fn seat_names(&self) -> Vec<String> {
+        self.seats
+            .iter()
+            .filter_map(|record| record.name.clone())
+            .collect()
+    }
+
+    /// Whether a seat has advertised a pointer capability.
+    #[must_use]
+    pub fn has_pointer(&self, seat: &WlSeat) -> bool {
+        self.seat(seat).is_some_and(|record| record.has_pointer)
+    }
+
+    /// Every event delivered to one pointer, in order.
+    #[must_use]
+    pub fn events(&self, pointer: &WlPointer) -> Vec<PointerEvent> {
+        let id = pointer.id();
         self.pointer
             .iter()
+            .filter(|(target, _)| *target == id)
+            .map(|(_, event)| event.clone())
+            .collect()
+    }
+
+    /// The first pointer enter delivered to one pointer, if one arrived.
+    #[must_use]
+    pub fn first_enter(&self, pointer: &WlPointer) -> Option<(ObjectId, f64, f64)> {
+        self.events(pointer)
+            .into_iter()
+            .find_map(|event| match event {
+                PointerEvent::Enter { surface, x, y, .. } => Some((surface, x, y)),
+                _ => None,
+            })
+    }
+
+    /// The serial of the last enter delivered to one pointer, which is what a
+    /// `set_cursor` request has to carry.
+    #[must_use]
+    pub fn enter_serial(&self, pointer: &WlPointer) -> Option<u32> {
+        self.events(pointer)
+            .into_iter()
+            .rev()
+            .find_map(|event| match event {
+                PointerEvent::Enter { serial, .. } => Some(serial),
+                _ => None,
+            })
+    }
+
+    /// Every button press and release delivered to one pointer, in order.
+    #[must_use]
+    pub fn buttons(&self, pointer: &WlPointer) -> Vec<(u32, bool)> {
+        self.events(pointer)
+            .into_iter()
             .filter_map(|event| match event {
-                PointerEvent::Button { button, pressed } => Some((*button, *pressed)),
+                PointerEvent::Button { button, pressed } => Some((button, pressed)),
                 _ => None,
             })
             .collect()
     }
+
+    fn seat(&self, seat: &WlSeat) -> Option<&SeatRecord> {
+        let id = seat.id();
+        self.seats.iter().find(|record| record.seat == id)
+    }
+
+    fn seat_mut(&mut self, seat: &WlSeat) -> &mut SeatRecord {
+        let id = seat.id();
+        if let Some(index) = self.seats.iter().position(|record| record.seat == id) {
+            return &mut self.seats[index];
+        }
+        self.seats.push(SeatRecord {
+            seat: id,
+            name: None,
+            has_pointer: false,
+        });
+        self.seats
+            .last_mut()
+            .unwrap_or_else(|| unreachable!("the record was just pushed"))
+    }
+}
+
+/// What one bound seat has told the client about itself.
+#[derive(Debug)]
+struct SeatRecord {
+    seat: ObjectId,
+    name: Option<String>,
+    has_pointer: bool,
 }
 
 /// One entry from the registry.
@@ -454,10 +632,24 @@ pub struct Global {
 /// surface's own frame.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PointerEvent {
-    Enter { surface: ObjectId, x: f64, y: f64 },
-    Motion { x: f64, y: f64 },
-    Button { button: u32, pressed: bool },
-    Leave { surface: ObjectId },
+    Enter {
+        surface: ObjectId,
+        x: f64,
+        y: f64,
+        /// What a `set_cursor` request has to quote back.
+        serial: u32,
+    },
+    Motion {
+        x: f64,
+        y: f64,
+    },
+    Button {
+        button: u32,
+        pressed: bool,
+    },
+    Leave {
+        surface: ObjectId,
+    },
 }
 
 impl Dispatch<WlRegistry, ()> for Driver {
@@ -541,17 +733,20 @@ impl Dispatch<XdgToplevel, ()> for Driver {
 impl Dispatch<WlSeat, ()> for Driver {
     fn event(
         state: &mut Self,
-        _seat: &WlSeat,
+        seat: &WlSeat,
         event: wl_seat::Event,
         (): &(),
         _connection: &Connection,
         _handle: &QueueHandle<Self>,
     ) {
-        if let wl_seat::Event::Capabilities {
-            capabilities: wayland_client::WEnum::Value(capabilities),
-        } = event
-        {
-            state.has_pointer = capabilities.contains(Capability::Pointer);
+        match event {
+            wl_seat::Event::Capabilities {
+                capabilities: wayland_client::WEnum::Value(capabilities),
+            } => {
+                state.seat_mut(seat).has_pointer = capabilities.contains(Capability::Pointer);
+            }
+            wl_seat::Event::Name { name } => state.seat_mut(seat).name = Some(name),
+            _ => {}
         }
     }
 }
@@ -559,7 +754,7 @@ impl Dispatch<WlSeat, ()> for Driver {
 impl Dispatch<WlPointer, ()> for Driver {
     fn event(
         state: &mut Self,
-        _pointer: &WlPointer,
+        pointer: &WlPointer,
         event: wl_pointer::Event,
         (): &(),
         _connection: &Connection,
@@ -570,11 +765,12 @@ impl Dispatch<WlPointer, ()> for Driver {
                 surface,
                 surface_x,
                 surface_y,
-                ..
+                serial,
             } => PointerEvent::Enter {
                 surface: surface.id(),
                 x: surface_x,
                 y: surface_y,
+                serial,
             },
             wl_pointer::Event::Motion {
                 surface_x,
@@ -595,7 +791,7 @@ impl Dispatch<WlPointer, ()> for Driver {
             // about routing, which is what these tests are about.
             _ => return,
         };
-        state.pointer.push(recorded);
+        state.pointer.push((pointer.id(), recorded));
     }
 }
 

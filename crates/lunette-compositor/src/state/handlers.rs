@@ -50,6 +50,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     protocol::Event,
+    seat,
     state::compositor::{ClientState, CompositorState, toplevel_attribute, toplevel_state},
 };
 
@@ -99,6 +100,11 @@ impl BufferHandler for CompositorState {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
 }
 
+/// Every method here is handed the seat the call is about, because `SeatHandler`
+/// is per-compositor rather than per-seat
+/// (`smithay-0.7.0/src/input/mod.rs:145-165`). Ignoring that argument is what
+/// makes a compositor single-seat by accident: WayVR's `cursor_image` does
+/// (`comp.rs:341-343`), and the result is one cursor image shared by every hand.
 impl SeatHandler for CompositorState {
     type KeyboardFocus = WlSurface;
     type PointerFocus = WlSurface;
@@ -108,14 +114,19 @@ impl SeatHandler for CompositorState {
         &mut self.seat_state
     }
 
-    fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         // WayVR moves the data-device and primary-selection focus here
-        // (`comp.rs:334-339`). Both protocols are Phase 5, so there is nothing
-        // to move yet.
+        // (`comp.rs:334-339`). Both protocols are Phase 5 Task 6, and both are
+        // already per-seat in smithay, so this is where they attach.
+        debug!(
+            seat = seat.name(),
+            focused = focused.is_some(),
+            "a seat's keyboard focus changed"
+        );
     }
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
-        self.cursor_image = image;
+    fn cursor_image(&mut self, seat: &Seat<Self>, image: CursorImageStatus) {
+        seat::set_cursor_image(seat, image);
     }
 }
 

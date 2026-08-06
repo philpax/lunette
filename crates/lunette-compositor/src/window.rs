@@ -20,6 +20,11 @@
 //! `Rc<ToplevelSurface>` (`:19`) is a plain `ToplevelSurface`: it is itself
 //! `Clone` and cheap, so the wrapper bought nothing and cost thread affinity.
 //!
+//! The hover and focus pair upstream keeps here (`window.rs:109-119`) is in
+//! [`crate::seat`] instead. One per compositor is what makes the off hand steal
+//! hover from the main hand, and it is a property of a seat rather than of the
+//! window set.
+//!
 //! `time.rs` is folded in too, but not here — its one function has one caller,
 //! `CompositorState::millis` in [`crate::state`], and that is where it lives.
 
@@ -33,7 +38,7 @@ use smithay::{
 use tracing::debug;
 
 use crate::protocol::{
-    PixelPoint, PixelSize, ProcessId, SinkId, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+    PixelSize, ProcessId, SinkId, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
 };
 
 /// The smallest size lunette will configure a window to.
@@ -52,7 +57,6 @@ const SMALLEST: i32 = 1;
 pub(crate) struct WindowManager {
     windows: Vec<Window>,
     minted: u64,
-    mouse: Option<MouseState>,
 }
 
 impl WindowManager {
@@ -126,30 +130,11 @@ impl WindowManager {
         self.windows.iter().filter(|window| window.mapped)
     }
 
-    /// Where the pointer was last put, and over which window.
-    pub(crate) fn mouse(&self) -> Option<MouseState> {
-        self.mouse
-    }
-
-    pub(crate) fn set_mouse(&mut self, mouse: Option<MouseState>) {
-        self.mouse = mouse;
-    }
-
     fn index_of(&self, toplevel: &ToplevelSurface) -> Option<usize> {
         self.windows
             .iter()
             .position(|window| &window.toplevel == toplevel)
     }
-}
-
-/// Where a seat's pointer is.
-///
-/// WayVR keeps this on the window manager (`window.rs:109-113`) because the
-/// hover target is a property of the window set rather than of any one window.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MouseState {
-    pub(crate) hovered: WindowId,
-    pub(crate) position: PixelPoint,
 }
 
 /// One toplevel and everything lunette knows about it.

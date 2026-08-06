@@ -32,7 +32,7 @@ const AIM: (f64, f64) = (12.0, 34.0);
 #[test]
 fn a_pointer_aimed_at_a_sink_enters_that_sink_s_surface_in_surface_local_coordinates() {
     let (mut compositor, mut client) = with_one_window();
-    client.open_pointer(&mut compositor);
+    let pointer = client.open_pointer(&mut compositor);
     let sink = only_window(&compositor).sink;
     let surface = client.surface_id().expect("a toplevel was opened");
 
@@ -41,14 +41,16 @@ fn a_pointer_aimed_at_a_sink_enters_that_sink_s_surface_in_surface_local_coordin
         sink,
         position: PixelPoint::new(AIM.0, AIM.1),
     });
-    client.settle(&mut compositor, |driver| driver.first_enter().is_some());
+    client.settle(&mut compositor, |driver| {
+        driver.first_enter(&pointer).is_some()
+    });
 
     let (entered, x, y) = client
         .driver()
-        .first_enter()
+        .first_enter(&pointer)
         .expect("the wait above returned because an enter arrived");
     assert_eq!(
-        entered, &surface,
+        entered, surface,
         "the pointer entered a surface other than the one behind the sink"
     );
     // The toplevel sits at the origin of the space the position is measured in,
@@ -60,7 +62,7 @@ fn a_pointer_aimed_at_a_sink_enters_that_sink_s_surface_in_surface_local_coordin
 #[test]
 fn a_click_over_a_sink_is_delivered_as_a_press_and_a_release() {
     let (mut compositor, mut client) = with_one_window();
-    client.open_pointer(&mut compositor);
+    let pointer = client.open_pointer(&mut compositor);
     let sink = only_window(&compositor).sink;
 
     compositor.send(Command::Pointer {
@@ -80,10 +82,12 @@ fn a_click_over_a_sink_is_delivered_as_a_press_and_a_release() {
         button: PointerButton::Left,
         pressed: false,
     });
-    client.settle(&mut compositor, |driver| driver.buttons().len() == 2);
+    client.settle(&mut compositor, |driver| {
+        driver.buttons(&pointer).len() == 2
+    });
 
     assert_eq!(
-        client.driver().buttons(),
+        client.driver().buttons(&pointer),
         [(BTN_LEFT, true), (BTN_LEFT, false)]
     );
 }
@@ -91,7 +95,7 @@ fn a_click_over_a_sink_is_delivered_as_a_press_and_a_release() {
 #[test]
 fn withdrawing_the_pointer_leaves_the_surface_it_had_entered() {
     let (mut compositor, mut client) = with_one_window();
-    client.open_pointer(&mut compositor);
+    let pointer = client.open_pointer(&mut compositor);
     let sink = only_window(&compositor).sink;
     let surface = client.surface_id().expect("a toplevel was opened");
 
@@ -100,29 +104,32 @@ fn withdrawing_the_pointer_leaves_the_surface_it_had_entered() {
         sink,
         position: PixelPoint::new(AIM.0, AIM.1),
     });
-    client.settle(&mut compositor, |driver| driver.first_enter().is_some());
+    client.settle(&mut compositor, |driver| {
+        driver.first_enter(&pointer).is_some()
+    });
 
     compositor.send(Command::PointerLeave { seat: DEFAULT_SEAT });
     client.settle(&mut compositor, |driver| {
         driver
-            .pointer
+            .events(&pointer)
             .iter()
             .any(|event| matches!(event, PointerEvent::Leave { .. }))
     });
 
     assert!(
-        client.driver().pointer.contains(&PointerEvent::Leave {
-            surface: surface.clone()
-        }),
+        client
+            .driver()
+            .events(&pointer)
+            .contains(&PointerEvent::Leave { surface }),
         "the leave named a surface other than the one entered: {:?}",
-        client.driver().pointer
+        client.driver().events(&pointer)
     );
 }
 
 #[test]
 fn input_addressed_to_a_seat_that_does_not_exist_reaches_no_client() {
     let (mut compositor, mut client) = with_one_window();
-    client.open_pointer(&mut compositor);
+    let pointer = client.open_pointer(&mut compositor);
     let sink = only_window(&compositor).sink;
     let absent = SeatId::new(99).expect("a non-zero identifier");
 
@@ -140,7 +147,7 @@ fn input_addressed_to_a_seat_that_does_not_exist_reaches_no_client() {
     client.settle_quiet(&mut compositor);
 
     assert_eq!(
-        client.driver().pointer,
+        client.driver().events(&pointer),
         [],
         "a command naming a seat that was never created must be refused, not routed"
     );

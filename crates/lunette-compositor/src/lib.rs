@@ -1,7 +1,7 @@
 //! The Wayland compositor: a smithay backend vendored from WayVR.
 //!
 //! This crate owns the Wayland display, the client sockets, the surface tree,
-//! and the seat. It hands out surface contents as buffers and accepts input
+//! and the seats. It hands out surface contents as buffers and accepts input
 //! events; it decides nothing about where a window is placed or how it is
 //! drawn.
 //!
@@ -15,6 +15,7 @@
 pub mod client;
 pub mod process;
 pub mod protocol;
+pub(crate) mod seat;
 pub mod state;
 pub mod surface;
 #[cfg(any(test, feature = "test-fakes"))]
