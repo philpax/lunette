@@ -234,6 +234,7 @@ impl<B: LayerBackend> LayerPool<B> {
             key,
             priority,
             held: None,
+            refusal_reported: false,
         });
 
         id
@@ -356,7 +357,16 @@ impl<B: LayerBackend> LayerPool<B> {
             created += 1;
 
             let Some(layer) = self.backend.create(key) else {
-                warn!(%key, "the runtime refused a composition layer");
+                // A runtime that refuses refuses on every frame that retries,
+                // so reporting each attempt buries every other line.
+                if !self.claims[index].refusal_reported {
+                    self.claims[index].refusal_reported = true;
+                    warn!(
+                        %key,
+                        claim = %self.claims[index].id,
+                        "the runtime refused a composition layer"
+                    );
+                }
                 continue;
             };
             self.claims[index].held = Some(Held {
@@ -396,6 +406,7 @@ impl<B: LayerBackend> LayerPool<B> {
         let mut outcome = PoolOutcome::default();
 
         for index in 0..self.claims.len() {
+            self.claims[index].refusal_reported = false;
             let Some(held) = self.claims[index].held.take() else {
                 continue;
             };
@@ -630,6 +641,11 @@ struct Claim<L> {
     key: LayerKey,
     priority: Priority,
     held: Option<Held<L>>,
+    /// Whether this claim's refusal has been reported, so a runtime that
+    /// refuses is described once rather than on every frame for the rest of
+    /// the session. Cleared when a session goes away, because the next one
+    /// answers the question afresh.
+    refusal_reported: bool,
 }
 
 /// A layer a claim holds.

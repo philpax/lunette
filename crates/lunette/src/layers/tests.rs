@@ -12,11 +12,15 @@
 
 use std::{
     cell::{Cell, RefCell},
+    io::{self, Write},
     rc::Rc,
+    sync::Arc,
 };
 
 use lunette_compositor::protocol::PixelSize;
+use parking_lot::Mutex;
 use pretty_assertions::assert_eq;
+use tracing_subscriber::fmt::MakeWriter;
 
 use crate::{
     layers::{
@@ -168,6 +172,51 @@ impl Harness {
     fn lose_session(&mut self) -> PoolOutcome {
         self.limit.set(0);
         self.pool.session_lost()
+    }
+}
+
+/// Collects what the code under test logged, so a test can assert on how often
+/// something was reported rather than only on what it decided.
+#[derive(Clone, Debug, Default)]
+struct Warnings(Arc<Mutex<Vec<u8>>>);
+
+impl Warnings {
+    /// How many lines mention `needle`.
+    fn mentioning(&self, needle: &str) -> usize {
+        String::from_utf8_lossy(&self.0.lock())
+            .lines()
+            .filter(|line| line.contains(needle))
+            .count()
+    }
+
+    /// Runs `body` with everything it logs collected here.
+    fn capture(body: impl FnOnce()) -> Self {
+        let warnings = Self::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(warnings.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, body);
+        warnings
+    }
+}
+
+impl Write for Warnings {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.lock().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for Warnings {
+    type Writer = Self;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
     }
 }
 
@@ -496,6 +545,50 @@ fn a_runtime_refusing_to_allocate_leaves_the_claim_ungranted_and_retries() {
     harness.resolve();
 
     assert!(harness.pool.layer(claim).is_some());
+}
+
+#[test]
+fn a_runtime_refusing_to_allocate_is_reported_once_per_claim_rather_than_every_frame() {
+    // A runtime that refuses refuses every frame, so a warning per attempt is
+    // thousands of identical lines a second and nothing else is readable.
+    const REFUSAL: &str = "the runtime refused a composition layer";
+
+    let warnings = Warnings::capture(|| {
+        let mut harness = Harness::new(GENEROUS);
+        harness.refusing.set(true);
+        harness.pool.claim(key(512, 512), priority(1.0));
+
+        for _ in 0..8 {
+            harness.resolve();
+        }
+
+        assert_eq!(harness.created(), 0);
+    });
+
+    assert_eq!(warnings.mentioning(REFUSAL), 1);
+}
+
+#[test]
+fn a_new_session_reports_a_refusal_the_old_one_had_already_reported() {
+    // The refusal belongs to the runtime the claim was refused by. A session
+    // that came up since is a different answer to the same question, and
+    // silence about it would hide a runtime that started refusing.
+    const REFUSAL: &str = "the runtime refused a composition layer";
+
+    let warnings = Warnings::capture(|| {
+        let mut harness = Harness::new(GENEROUS);
+        harness.refusing.set(true);
+        harness.pool.claim(key(512, 512), priority(1.0));
+        harness.resolve();
+        harness.resolve();
+
+        harness.lose_session();
+        harness.limit.set(GENEROUS);
+        harness.resolve();
+        harness.resolve();
+    });
+
+    assert_eq!(warnings.mentioning(REFUSAL), 2);
 }
 
 #[test]
