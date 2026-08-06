@@ -10,7 +10,11 @@ use pretty_assertions::assert_eq;
 
 use crate::{
     events::LuaEvent,
-    lua::tests::{lua, poll, recording_session, run, session, snapshot, window, window_id},
+    lua::tests::{
+        layered_session,
+        layers::{ONE_SLOT, settle},
+        lua, poll, recording_session, run, session, snapshot, window, window_id,
+    },
 };
 
 #[test]
@@ -287,6 +291,129 @@ fn an_event_with_no_handler_is_dispatched_and_dropped() {
     assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
 }
 
+/// Two windows contending for a pool with one slot, the first claim granted and
+/// the second waiting behind it.
+///
+/// The handlers record what they were handed rather than asserting in Lua, so
+/// that a failure reports the whole sequence instead of the first surprise.
+fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
+    let (session, sink, registry) = layered_session(
+        vec![
+            window(1, "first", "foot", PixelSize::new(640, 480)),
+            window(2, "second", "foot", PixelSize::new(640, 480)),
+        ],
+        ONE_SLOT,
+    );
+    let lua = lua(&session);
+    run::<()>(&lua, source);
+    run::<()>(
+        &lua,
+        "held = {}
+         for index = 1, 2 do
+             held[index] = lunette.claimLayer{
+                 window = lunette.windows()[index],
+                 width = 640, height = 480, priority = 6 - index,
+             }
+         end",
+    );
+
+    settle(&session, &registry);
+    poll(&lua, &sink);
+    run::<()>(&lua, "seen = {}");
+
+    // One boundary, in which the second claim outranks the first and takes the
+    // only layer there is.
+    run::<()>(&lua, "held[2]:setPriority(9)");
+    session.resolve_layers();
+    poll(&lua, &sink);
+
+    (session, lua)
+}
+
+#[test]
+fn a_displaced_claim_and_its_displacer_are_announced_at_the_same_boundary() {
+    let (_session, lua) = contending(
+        "seen = {}
+         function lovr.lunlayergranted(event)
+             seen[#seen + 1] = { name = 'granted', id = event.claim.id }
+         end
+         function lovr.lunlayerrevoked(event)
+             seen[#seen + 1] = { name = 'revoked', id = event.claim.id }
+         end",
+    );
+
+    let (count, first, revoked, second, granted): (usize, String, u64, String, u64) = run(
+        &lua,
+        "return #seen, seen[1].name, seen[1].id, seen[2].name, seen[2].id",
+    );
+
+    assert_eq!(count, 2, "exactly one of each, and neither twice");
+    assert_eq!(first, "revoked");
+    assert_eq!(second, "granted");
+    assert_eq!(
+        run::<u64>(&lua, "return held[1].id"),
+        revoked,
+        "the claim that lost the layer is the one the revocation names"
+    );
+    assert_eq!(
+        run::<u64>(&lua, "return held[2].id"),
+        granted,
+        "revoking is what frees the layer the grant in the same boundary takes"
+    );
+}
+
+#[test]
+fn a_grant_carries_the_layer_and_agrees_with_the_claim_the_handler_reads() {
+    let (_session, lua) = contending(
+        "function lovr.lunlayergranted(event)
+             gained = { layer = event.layer, granted = event.claim.granted, own = event.claim.layer }
+         end
+         function lovr.lunlayerrevoked(event)
+             lost = { granted = event.claim.granted, layer = event.claim.layer, dead = event.claim.dead }
+         end",
+    );
+
+    let (layer, granted, own): (Value, bool, Value) =
+        run(&lua, "return gained.layer, gained.granted, gained.own");
+    assert_eq!(
+        layer,
+        Value::Integer(1),
+        "the event carries the Layer itself"
+    );
+    assert!(
+        granted,
+        "the event fires at the boundary the grant lands on, so the claim already reads granted"
+    );
+    assert_eq!(
+        own, layer,
+        "and reading it through the claim is the same Layer"
+    );
+
+    let (still_granted, lost_layer, dead): (bool, Value, bool) =
+        run(&lua, "return lost.granted, lost.layer, lost.dead");
+    assert!(!still_granted);
+    assert_eq!(lost_layer, Value::Boolean(false));
+    assert!(
+        !dead,
+        "a revoked claim is still a claim; it takes a layer again when one frees"
+    );
+}
+
+#[test]
+fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
+    let (_session, lua) = contending(
+        "function lovr.lunlayerrevoked() error('a defect in the configuration') end
+         function lovr.lunlayergranted() error('and another') end",
+    );
+
+    let (first, second): (bool, bool) = run(&lua, "return held[1].granted, held[2].granted");
+    assert_eq!(
+        (first, second),
+        (false, true),
+        "both had already happened in Rust before either handler ran"
+    );
+}
+
 #[test]
 fn a_dispatcher_is_installed_for_every_event_the_module_can_push() {
     let session = session(Vec::new());
@@ -301,6 +428,8 @@ fn a_dispatcher_is_installed_for_every_event_the_module_can_push() {
     assert_eq!(
         names,
         vec![
+            "lunlayergranted".to_owned(),
+            "lunlayerrevoked".to_owned(),
             "lunmonitoradded".to_owned(),
             "lunprocessexited".to_owned(),
             "lunprocessoutput".to_owned(),

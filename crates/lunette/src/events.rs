@@ -1,10 +1,14 @@
 //! Linux-only: turning what the compositor reports into `lovr.lun*` callbacks.
 //!
-//! Six of the nine events `docs/lua-api.md` specifies are delivered from here.
-//! `lunlayergranted` and `lunlayerrevoked` arrive with the composition layers,
-//! and `lunerror` with the error handler; the three are absent rather than
+//! Eight of the nine events `docs/lua-api.md` specifies are delivered from
+//! here. `lunerror` arrives with the error handler, and is absent rather than
 //! stubbed, because a callback that is registered and never fired is a promise
 //! the build does not keep.
+//!
+//! Six of the eight are the compositor's, and are drained from its channel at
+//! frame start. The two layer events are lunette's own: nothing outside the
+//! process decides them, and [`crate::lua::Session::resolve_layers`] pushes them
+//! at the boundary the grant or revocation actually lands on.
 //!
 //! # Why the compositor thread does not push these itself
 //!
@@ -59,7 +63,10 @@ use lunette_lovr::raw::{CustomEvent, Event as LovrEvent, EventType_EVENT_CUSTOM,
 use mlua::{Function, Lua, Table};
 use tracing::error;
 
-use crate::lua::{LuaTexture, Process, Session, Window};
+use crate::{
+    layers::ClaimId,
+    lua::{Claim, LuaTexture, Process, Session, Window},
+};
 
 /// A report the Lua configuration is given a callback for.
 ///
@@ -98,6 +105,18 @@ pub enum LuaEvent {
         stream: Stream,
         bytes: Vec<u8>,
     },
+    /// `lovr.lunlayergranted{ claim = …, layer = … }`.
+    ///
+    /// The layer travels alongside the claim although `claim.layer` reads it
+    /// too, because the event is about the panel gaining one and a handler that
+    /// does nothing else should not have to go looking.
+    LayerGranted { claim: ClaimId },
+    /// `lovr.lunlayerrevoked{ claim = … }`.
+    ///
+    /// No layer, because there is none: the claim holds nothing by the time the
+    /// handler runs, which is what the event reports. The claim itself is alive
+    /// and takes a layer again as soon as one frees and nothing outranks it.
+    LayerRevoked { claim: ClaimId },
 }
 
 impl LuaEvent {
@@ -111,6 +130,8 @@ impl LuaEvent {
             Self::MonitorAdded { .. } => MONITOR_ADDED,
             Self::ProcessExited { .. } => PROCESS_EXITED,
             Self::ProcessOutput { .. } => PROCESS_OUTPUT,
+            Self::LayerGranted { .. } => LAYER_GRANTED,
+            Self::LayerRevoked { .. } => LAYER_REVOKED,
         }
     }
 
@@ -329,13 +350,15 @@ pub(crate) fn install_dispatchers<T: LuaTexture>(
 }
 
 /// The `lun*` events this build delivers, and the order they are installed in.
-pub(crate) const EVENT_NAMES: [EventName; 6] = [
+pub(crate) const EVENT_NAMES: [EventName; 8] = [
     WINDOW_OPENED,
     WINDOW_CLOSED,
     TITLE_CHANGED,
     MONITOR_ADDED,
     PROCESS_EXITED,
     PROCESS_OUTPUT,
+    LAYER_GRANTED,
+    LAYER_REVOKED,
 ];
 
 const WINDOW_OPENED: EventName = event_name("lunwindowopened");
@@ -344,6 +367,8 @@ const TITLE_CHANGED: EventName = event_name("luntitlechanged");
 const MONITOR_ADDED: EventName = event_name("lunmonitoradded");
 const PROCESS_EXITED: EventName = event_name("lunprocessexited");
 const PROCESS_OUTPUT: EventName = event_name("lunprocessoutput");
+const LAYER_GRANTED: EventName = event_name("lunlayergranted");
+const LAYER_REVOKED: EventName = event_name("lunlayerrevoked");
 
 /// Names an event, refusing one that does not fit `CustomEvent.name`.
 ///
@@ -437,6 +462,13 @@ fn payload<T: LuaTexture>(
             // that is not UTF-8 arrives intact and decoding stays the
             // configuration's decision.
             payload.set("text", lua.create_string(bytes)?)?;
+        }
+        LuaEvent::LayerGranted { claim } => {
+            payload.set("claim", Claim::new(Rc::clone(session), *claim))?;
+            payload.set("layer", session.claims().push_layer(lua, *claim)?)?;
+        }
+        LuaEvent::LayerRevoked { claim } => {
+            payload.set("claim", Claim::new(Rc::clone(session), *claim))?;
         }
     }
 
@@ -550,6 +582,8 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "lunlayergranted",
+                "lunlayerrevoked",
                 "lunmonitoradded",
                 "lunprocessexited",
                 "lunprocessoutput",

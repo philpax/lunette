@@ -107,6 +107,15 @@ The priority is Lua's own number and lunette never invents it. Rust sorts by it,
 
 Grants and revocations land on frame boundaries and never mid-frame, so a panel's realisation cannot change between its `lovr.update` and its `lovr.draw`. A fresh claim therefore holds nothing in the call that made it, and may hold nothing indefinitely if higher-priority claims keep the pool full. Both paths are live from the start: the in-scene quad is the fallback, not a degraded mode.
 
+Grants and revocations also arrive as callbacks, so a panel does not have to poll for them:
+
+```lua
+function lovr.lunlayergranted(event)  -- event.claim, event.layer.
+function lovr.lunlayerrevoked(event)  -- event.claim.
+```
+
+Both fire at the boundary the change lands on, before `lovr.update`, so a handler reading `event.claim.granted` agrees with the event it was handed. `lunlayerrevoked` carries no layer because there is none by then. An error raised in either handler is reported and changes nothing: both had already happened before the handler ran.
+
 Revocation does not kill the claim. `claim.granted` goes false and `claim.layer` answers `false`, and the claim takes a layer again as soon as one frees and nothing outranks it — which is what makes the upgrade automatic. A claim is dead only after `claim:release()`, and a dead handle reads its last-known values and answers `false` from its methods.
 
 Releasing is explicit. Nothing releases a claim when its handle is collected, because the grant and revoke events carry a second handle to the same claim and collecting that one would withdraw a live claim. A configuration that drops a panel releases the panel's claim.

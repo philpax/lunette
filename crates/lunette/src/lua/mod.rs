@@ -179,14 +179,30 @@ impl<T> Session<T> {
         self.claims.as_ref()
     }
 
-    /// Assigns the pool's layers for this frame.
+    /// Assigns the pool's layers for this frame, announcing what changed.
     ///
     /// Called once at frame start, after [`Session::begin`] and before
     /// `boot.lua` polls, so that a claim made during a callback is granted no
     /// earlier than the next frame and a panel's realisation cannot change
-    /// between its `lovr.update` and its `lovr.draw`.
+    /// between its `lovr.update` and its `lovr.draw`. Both events therefore
+    /// reach their handlers ahead of `lovr.update`, and a handler reading
+    /// `claim.granted` in the same frame agrees with the event it was handed.
+    ///
+    /// The grant and the revocation have already happened in Rust by the time
+    /// either is announced, so a handler that raises changes neither. It is
+    /// reported and the frame continues.
+    ///
+    /// Revocations are announced before grants, which is the order they happen
+    /// in: revoking is what frees the layer a grant in the same boundary takes.
     pub fn resolve_layers(&self) {
-        self.claims.resolve(self.generation());
+        let outcome = self.claims.resolve(self.generation());
+
+        for claim in outcome.revoked {
+            self.push_event(LuaEvent::LayerRevoked { claim });
+        }
+        for claim in outcome.granted {
+            self.push_event(LuaEvent::LayerGranted { claim });
+        }
     }
 
     /// Starts a frame against the compositor's latest snapshot.
