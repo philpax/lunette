@@ -24,6 +24,11 @@ smallvec.workspace = true
 smithay = { workspace = true, features = ["desktop", "wayland_frontend"] }
 subtle.workspace = true
 tracing.workspace = true
+# The keymap module. Named here as well as reached through smithay, because
+# `crate::keymap` compiles keymaps in its own context rather than smithay's:
+# libxkbcommon is not thread-safe, so each thread that queries a keymap owns
+# one. The pin keeps both halves on one copy of the xkb types.
+xkbcommon.workspace = true
 # A real client, so the tests exercise the protocol rather than the handlers
 # directly. Pinned to the versions smithay's `wayland-server` shares a
 # `wayland-backend` with; a split would make the two halves unable to talk.

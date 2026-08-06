@@ -602,6 +602,7 @@ dependencies = [
  "tracing",
  "wayland-client",
  "wayland-protocols",
+ "xkbcommon",
 ]
 
 [[package]]

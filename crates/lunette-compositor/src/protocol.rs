@@ -27,7 +27,9 @@
 //! Handled, along with every [`Event`] variant: [`Command::Spawn`],
 //! [`Command::SignalProcess`], [`Command::CloseWindow`],
 //! [`Command::ConfigureWindow`], [`Command::Pointer`],
-//! [`Command::PointerLeave`], [`Command::Button`], and [`Command::Shutdown`].
+//! [`Command::PointerLeave`], [`Command::Button`], [`Command::Key`],
+//! [`Command::Modifiers`], [`Command::Focus`], [`Command::CreateSeat`],
+//! [`Command::DestroySeat`], and [`Command::Shutdown`].
 //!
 //! One field of a handled command is not: [`SpawnRequest::output`] is accepted
 //! and ignored, because a window is not placed on an output until the outputs
@@ -35,9 +37,8 @@
 //!
 //! Accepted and logged, but otherwise inert until the phase named:
 //!
-//! - [`Command::Scroll`], [`Command::Key`], [`Command::Modifiers`],
-//!   [`Command::TypeText`], [`Command::CreateSeat`], and
-//!   [`Command::DestroySeat`] — the keyboard and multi-seat phase.
+//! - [`Command::Scroll`] and [`Command::TypeText`] — the rest of the keyboard
+//!   phase.
 //! - [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
 //!   [`Command::DestroyOutput`], and [`Command::SetFramePacing`] — the outputs
 //!   and pacing phase. Until then one output exists with the default mode, and
@@ -53,6 +54,7 @@ use std::{
     fmt,
     num::{NonZeroI32, NonZeroU64},
     path::PathBuf,
+    sync::Arc,
 };
 
 use smallvec::SmallVec;
@@ -112,6 +114,17 @@ pub enum Command {
         key: Keycode,
         pressed: bool,
     },
+    /// Gives a seat's keyboard focus to a sink, or takes it away.
+    ///
+    /// Separate from [`Command::Pointer`] on purpose. WayVR drives focus from
+    /// pointer motion (`mod.rs:1128-1148`), which with two hands means the off
+    /// hand steals focus by hovering; here hovering and focusing are two
+    /// requests, and which one a gesture makes is Lua's decision.
+    ///
+    /// A host sink cannot be focused. The host desktop has one keyboard focus
+    /// and lunette does not choose it, which is why the sink is named by
+    /// identifier rather than by handle: only a window has one.
+    Focus { seat: SeatId, sink: Option<SinkId> },
     /// Replaces a seat's modifier state wholesale.
     Modifiers {
         seat: SeatId,
@@ -123,7 +136,14 @@ pub enum Command {
     /// interleaved with [`Command::Key`] on the same seat.
     TypeText { seat: SeatId, text: String },
     /// Creates a `wl_seat` with its own pointer, keyboard, and focus.
-    CreateSeat { seat: SeatId, name: String },
+    CreateSeat {
+        seat: SeatId,
+        name: String,
+        /// Boxed because it is the largest thing any command carries and a seat
+        /// is created a handful of times a session, while every other command
+        /// travels the same bounded channel on every frame.
+        keyboard: Box<KeyboardConfig>,
+    },
     /// Destroys a seat and drops any grab it held.
     DestroySeat { seat: SeatId },
     /// Creates a virtual monitor for clients assigned to it.
@@ -206,6 +226,7 @@ pub struct Snapshot {
     pub windows: Vec<WindowSnapshot>,
     pub processes: Vec<ProcessSnapshot>,
     pub outputs: Vec<OutputSnapshot>,
+    pub seats: Vec<SeatSnapshot>,
 }
 
 /// A tick counter. Zero is the snapshot published before the compositor has
@@ -274,6 +295,28 @@ pub struct ProcessSnapshot {
     /// Whether the process connected from outside rather than being spawned.
     pub external: bool,
     pub alive: bool,
+}
+
+/// A seat, as of one tick.
+///
+/// The keymap rides along because the main thread cannot ask for it: a caller
+/// drawing a virtual keyboard needs the layout list and the keysym a keycode
+/// produces, and libxkbcommon is not thread-safe, so the text is what crosses
+/// and each thread compiles its own copy of it.
+///
+/// [`Arc`] rather than a `String` because a compiled layout serialises to tens
+/// of kilobytes and a snapshot is republished every tick. The keymap changes
+/// when a seat is created or `typeText` swaps one in, which is rare, so the
+/// clone is a refcount bump on every other tick.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeatSnapshot {
+    pub seat: SeatId,
+    /// What clients see on `wl_seat.name`, and how a client tells two seats
+    /// apart.
+    pub name: String,
+    pub keymap: Arc<KeymapText>,
+    /// The modifiers this seat is holding, as clients were last told.
+    pub modifiers: ModifierState,
 }
 
 /// A virtual monitor clients are told about.
@@ -711,6 +754,11 @@ impl Keycode {
 }
 
 /// A keyboard modifier that a seat can hold down.
+///
+/// The order is the XKB modifier index order — shift, lock, control, then
+/// `Mod1` through `Mod5` — because that is the order the masks on the wire are
+/// numbered in, and a reader comparing this against a keymap's modifier list
+/// should not have to reorder it in their head.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KeyModifier {
     Shift,
@@ -721,6 +769,260 @@ pub enum KeyModifier {
     Mod3,
     Logo,
     Mod5,
+}
+
+impl KeyModifier {
+    /// Every modifier a keymap can name.
+    pub const ALL: &'static [Self] = &[
+        Self::Shift,
+        Self::CapsLock,
+        Self::Control,
+        Self::Alt,
+        Self::NumLock,
+        Self::Mod3,
+        Self::Logo,
+        Self::Mod5,
+    ];
+
+    /// The name Lua spells this modifier with, and the name it reads back.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Shift => "shift",
+            Self::CapsLock => "capsLock",
+            Self::Control => "control",
+            Self::Alt => "alt",
+            Self::NumLock => "numLock",
+            Self::Mod3 => "mod3",
+            Self::Logo => "logo",
+            Self::Mod5 => "mod5",
+        }
+    }
+
+    /// The modifier a Lua name refers to, rejecting anything else.
+    ///
+    /// `None` rather than a default: `'shft'` is a typo, and a modifier that
+    /// silently does nothing is harder to find than an error.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|modifier| modifier.as_str() == name)
+    }
+
+    /// A modifier that only latches rather than tracking the key.
+    ///
+    /// A lock is reported to a client in the locked mask and never in the
+    /// depressed one, and the distinction is what stops a lock toggling itself
+    /// off on the next update.
+    #[must_use]
+    pub const fn is_lock(self) -> bool {
+        matches!(self, Self::CapsLock | Self::NumLock)
+    }
+}
+
+impl fmt::Display for KeyModifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// An X11 keysym: what a keycode means once a layout and modifiers are applied.
+///
+/// A newtype over the raw number rather than `xkbcommon`'s own `Keysym`,
+/// because a keysym travels between threads and through Lua, and neither end
+/// should have to name a type from a library that is not thread-safe. The
+/// numbering is X11's, which is also Wayland's and xkb's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Keysym(u32);
+
+impl Keysym {
+    /// The keysym Unicode codepoints map onto, which is the range
+    /// `0x0100_0000 | codepoint`.
+    const UNICODE_BASE: u32 = 0x0100_0000;
+
+    #[must_use]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// The keysym for a character, in the Unicode range every character has.
+    ///
+    /// Deliberately not the legacy Latin-1 or keypad keysyms a layout would
+    /// name the same character by. Those are what a *reverse lookup* answers
+    /// with; this is the canonical name a synthesised keymap binds, and one
+    /// canonical form is what makes two requests for the same character
+    /// deduplicate.
+    #[must_use]
+    pub const fn from_char(character: char) -> Self {
+        Self(Self::UNICODE_BASE | character as u32)
+    }
+}
+
+impl fmt::Display for Keysym {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "keysym {:#010x}", self.0)
+    }
+}
+
+/// A keyboard layout's name, as the keymap gives it.
+///
+/// Human-readable rather than an identifier: `"English (US)"`, not `"us"`. It
+/// is what a virtual keyboard puts on a layout switcher.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutName(String);
+
+impl LayoutName {
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for LayoutName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A compiled keyboard layout, in XKB's version 1 text format.
+///
+/// Text rather than a compiled keymap because that is the only form that
+/// crosses a thread: libxkbcommon is not thread-safe, and smithay refuses a
+/// compiled keymap at its own API boundary for exactly that reason
+/// (`smithay-0.7.0/src/input/keyboard/mod.rs:810-815`, which recompiles the
+/// string inside its own context and says so in a comment).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct KeymapText(String);
+
+impl KeymapText {
+    /// Wraps a keymap, rejecting an empty one.
+    ///
+    /// An empty keymap compiles to nothing and, uploaded over
+    /// `zwp_virtual_keyboard_v1`, is a protocol error that disconnects the
+    /// whole client rather than failing the one request.
+    #[must_use]
+    pub fn new(text: impl Into<String>) -> Option<Self> {
+        let text = text.into();
+        (!text.trim().is_empty()).then_some(Self(text))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The text, for an API that takes ownership of a `String`.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+/// Which layout a seat's keyboard is compiled from.
+///
+/// The five RMLVO names `xkb_keymap_new_from_names` takes. Every one is
+/// optional, and absent means the system default — which is what libxkbcommon
+/// resolves from its own environment variables, and is what a user who has
+/// configured a layout for their desktop expects lunette to inherit.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct KeymapConfig {
+    /// How the remaining four names are interpreted; `"evdev"` on Linux.
+    pub rules: Option<String>,
+    pub model: Option<String>,
+    /// A comma-separated list, one entry per layout the keymap carries.
+    pub layout: Option<String>,
+    /// A comma-separated list, one entry per layout.
+    pub variant: Option<String>,
+    /// A comma-separated list of options, such as which key switches layout.
+    pub options: Option<String>,
+}
+
+/// How long a held key waits, and how fast it then repeats.
+///
+/// Policy rather than mechanism: WayVR fixes it at seat construction
+/// (`mod.rs:262`), and `docs/input.md:56` puts it in Lua because it is timing
+/// that should differ per input device. This carries what Lua chose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct RepeatPolicy {
+    pub delay: RepeatDelay,
+    pub rate: RepeatRate,
+}
+
+impl Default for RepeatPolicy {
+    /// WayVR's values (`mod.rs:262`), which are also what most desktops ship.
+    fn default() -> Self {
+        Self {
+            delay: RepeatDelay::from_millis(200),
+            rate: RepeatRate::per_second(50),
+        }
+    }
+}
+
+/// How long a key is held before it starts repeating, in milliseconds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RepeatDelay(u16);
+
+impl RepeatDelay {
+    /// Saturating at `u16::MAX`, which is a little over a minute — long enough
+    /// that a caller asking for more meant "never", and short enough that the
+    /// value fits the `i32` the protocol carries without a cast that can wrap.
+    #[must_use]
+    pub const fn from_millis(millis: u32) -> Self {
+        Self(if millis > u16::MAX as u32 {
+            u16::MAX
+        } else {
+            millis as u16
+        })
+    }
+
+    #[must_use]
+    pub const fn millis(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+/// How many times a second a held key repeats. Zero disables repeat, which is
+/// what `wl_keyboard.repeat_info` defines zero to mean.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RepeatRate(u16);
+
+impl RepeatRate {
+    #[must_use]
+    pub const fn per_second(rate: u32) -> Self {
+        Self(if rate > u16::MAX as u32 {
+            u16::MAX
+        } else {
+            rate as u16
+        })
+    }
+
+    #[must_use]
+    pub const fn get(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+/// Everything a seat's keyboard is created with.
+///
+/// A parameter struct rather than two more arguments on the seat command: the
+/// keymap and the repeat policy are one cohesive decision Lua makes, and they
+/// travel together to the one place that applies them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct KeyboardConfig {
+    pub keymap: KeymapConfig,
+    pub repeat: RepeatPolicy,
 }
 
 /// A state an xdg-toplevel can be in.

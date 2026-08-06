@@ -62,6 +62,12 @@ wayland-protocols-wlr = { version = "=0.3.12", default-features = false }
 # `pipewire` implies `wayland`, so smithay-client-toolkit arrives whatever the
 # feature set; dropping `xshm` prunes exactly one crate. Feature pruning is not
 # where the weight is, so the set says what the crate uses and nothing more.
+# The keymap: compilation, forward keysym lookup, and the reverse lookup
+# `typeText` is built on. Pinned at 0.8.0 because smithay 0.7 carries a
+# non-optional `^0.8.0` dependency on it; 0.9.0 would resolve to a second copy
+# and split the xkb types, so a keymap compiled here could not be handed to a
+# smithay keyboard at all. `wayland` is the feature smithay itself asks for.
+xkbcommon = { version = "=0.8.0", features = ["wayland"] }
 wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719d3f23a20e50bd3237c29a8082cb", default-features = false, features = [
     "pipewire",
 ] }

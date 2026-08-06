@@ -14,8 +14,11 @@
 //! seat is reached directly and a second hand has nowhere to go.
 
 use smithay::{
-    backend::input::ButtonState,
-    input::pointer::{ButtonEvent, MotionEvent},
+    backend::input::{ButtonState, KeyState},
+    input::{
+        keyboard::{FilterResult, KeyboardTarget, Keycode as XkbKeycode},
+        pointer::{ButtonEvent, MotionEvent},
+    },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point},
 };
@@ -23,22 +26,116 @@ use tracing::{debug, info, warn};
 
 use crate::{
     hit_test::{self, HitTarget},
-    protocol::{PixelPoint, PointerButton, SeatId, SinkId},
-    seat::{MouseState, SeatEntry},
+    keymap::XKB_KEYCODE_OFFSET,
+    protocol::{KeyboardConfig, Keycode, ModifierState, PixelPoint, PointerButton, SeatId, SinkId},
+    seat::{self, MouseState, SeatEntry},
     state::compositor::CompositorState,
     window::Window,
 };
 
 impl CompositorState {
-    /// Creates a seat with its own pointer, focus, and hover.
-    pub(super) fn create_seat(&mut self, seat: SeatId, name: &str) {
+    /// Creates a seat with its own pointer, keyboard, focus, and hover.
+    pub(super) fn create_seat(&mut self, seat: SeatId, name: &str, keyboard: &KeyboardConfig) {
         match self
             .seats
-            .create(&mut self.seat_state, &self.display, seat, name)
+            .create(&mut self.seat_state, &self.display, seat, name, keyboard)
         {
-            Ok(entry) => info!(seat = %entry.id(), name, "a seat was created"),
+            Ok(entry) => {
+                info!(seat = %entry.id(), name, "a seat was created");
+                self.touch();
+            }
             Err(error) => warn!(%error, "could not create a seat"),
         }
+    }
+
+    /// Presses or releases a key on a seat's keyboard.
+    ///
+    /// The filter always forwards, as WayVR's does (`client.rs:229-245`): the
+    /// compositor never intercepts a binding, because binding policy is Lua's
+    /// and a key swallowed here would be a key a configuration could not see.
+    pub(super) fn press_key(&mut self, seat: SeatId, key: Keycode, pressed: bool) {
+        let Some(keyboard) = self.seats.get(seat).map(SeatEntry::keyboard) else {
+            warn!(%seat, "a key was addressed to a seat that does not exist");
+            return;
+        };
+
+        let serial = self.serials.next_serial();
+        let time = self.millis();
+        let state = if pressed {
+            KeyState::Pressed
+        } else {
+            KeyState::Released
+        };
+
+        keyboard.input::<(), _>(
+            self,
+            XkbKeycode::new(key.evdev().saturating_add(XKB_KEYCODE_OFFSET)),
+            state,
+            serial,
+            time,
+            |_, _, _| FilterResult::Forward,
+        );
+        self.touch();
+    }
+
+    /// Gives a seat's keyboard focus to a sink, or takes it away.
+    ///
+    /// Focus is applied here, never decided here. WayVR infers it from pointer
+    /// motion (`mod.rs:1128-1148`); with two hands that heuristic is per-seat
+    /// policy, and `docs/input.md` puts policy in Lua.
+    ///
+    /// A key delivered to a seat with no focus reaches nobody, which is what
+    /// `KeyboardHandle::input_forward` does with an empty focus and is the
+    /// correct behaviour: an unfocused keyboard has no client to talk to.
+    pub(super) fn set_focus(&mut self, seat: SeatId, sink: Option<SinkId>) {
+        let Some(keyboard) = self.seats.get(seat).map(SeatEntry::keyboard) else {
+            warn!(%seat, "focus was addressed to a seat that does not exist");
+            return;
+        };
+
+        let surface = match sink {
+            Some(sink) => match self.windows.by_sink(sink) {
+                Some(window) => Some(window.toplevel().wl_surface().clone()),
+                None => {
+                    debug!(%sink, "focus was asked for a sink that is already gone");
+                    return;
+                }
+            },
+            None => None,
+        };
+
+        let serial = self.serials.next_serial();
+        keyboard.set_focus(self, surface, serial);
+    }
+
+    /// Replaces a seat's modifier state wholesale.
+    ///
+    /// The mask is set directly rather than synthesised as presses of a
+    /// representative key per bit, which is what WayVR does
+    /// (`mod.rs:1215-1226`). Faking modifiers as keypresses misreports the state
+    /// to a client that queries it and produces key events nothing asked for;
+    /// `docs/input.md:51` asks for explicit state, and this is it.
+    ///
+    /// smithay updates its own authoritative state but does not broadcast, so
+    /// the focused surface is told separately. Without that the client would
+    /// only learn about the change with the next keystroke.
+    pub(super) fn set_modifiers(&mut self, seat: SeatId, modifiers: &ModifierState) {
+        let Some(entry) = self.seats.get(seat) else {
+            warn!(%seat, "modifiers were addressed to a seat that does not exist");
+            return;
+        };
+        let keyboard = entry.keyboard();
+        let handle = entry.seat().clone();
+
+        if keyboard.set_modifier_state(seat::modifiers_state(modifiers)) == 0 {
+            return;
+        }
+
+        if let Some(focus) = keyboard.current_focus() {
+            let serial = self.serials.next_serial();
+            KeyboardTarget::modifiers(&focus, &handle, self, keyboard.modifier_state(), serial);
+        }
+        self.touch();
     }
 
     /// Destroys a seat, after taking its pointer off whatever it was over.
@@ -54,7 +151,10 @@ impl CompositorState {
 
         self.move_pointer(seat, None);
         match self.seats.destroy(&self.display, seat) {
-            Ok(()) => info!(%seat, "a seat was destroyed"),
+            Ok(()) => {
+                info!(%seat, "a seat was destroyed");
+                self.touch();
+            }
             Err(error) => warn!(%error, "could not destroy a seat"),
         }
     }

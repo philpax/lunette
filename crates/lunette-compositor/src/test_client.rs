@@ -28,7 +28,7 @@
 )]
 
 use std::{
-    io,
+    io::{self, Read, Seek, SeekFrom},
     os::{
         fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
         unix::net::UnixStream,
@@ -43,6 +43,7 @@ use wayland_client::{
     protocol::{
         wl_buffer::{self, WlBuffer},
         wl_compositor::WlCompositor,
+        wl_keyboard::{self, KeyState, WlKeyboard},
         wl_pointer::{self, ButtonState, WlPointer},
         wl_registry::{self, WlRegistry},
         wl_seat::{self, Capability, WlSeat},
@@ -465,6 +466,30 @@ impl TestClient {
         self.open_pointer_on(compositor, &seat)
     }
 
+    /// Binds the keyboard of the seat advertising `name` on `wl_seat.name`.
+    ///
+    /// Waits for the capability first, for the reason a pointer does: asking a
+    /// seat for a keyboard it has not advertised is a protocol error.
+    pub fn open_keyboard_for(&mut self, compositor: &mut TestCompositor, name: &str) -> WlKeyboard {
+        let seats = self.bind_seats(compositor);
+        let seat = seats
+            .iter()
+            .find(|seat| self.driver.seat_name(seat).as_deref() == Some(name))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no seat is named {name}; the client sees {:?}",
+                    self.driver.seat_names()
+                )
+            })
+            .clone();
+
+        let handle = self.queue.handle();
+        self.settle(compositor, |driver| driver.has_keyboard(&seat));
+        let keyboard = seat.get_keyboard(&handle, ());
+        self.settle_quiet(compositor);
+        keyboard
+    }
+
     /// The pointer of the first seat, for a test that opened one.
     #[must_use]
     pub fn pointer(&self) -> &WlPointer {
@@ -619,6 +644,10 @@ pub struct Driver {
     /// delivered to. Two seats mean two pointers, and an event that does not
     /// say which one it reached says nothing about routing.
     pointer: Vec<(ObjectId, PointerEvent)>,
+    /// Every keyboard event delivered, in order, against the keyboard it was
+    /// delivered to. Two seats mean two keyboards, for the reason they mean two
+    /// pointers.
+    keyboard: Vec<(ObjectId, KeyboardEvent)>,
     /// Every buffer the compositor released, in order. A client may reuse a
     /// buffer only once it appears here.
     pub released: Vec<ObjectId>,
@@ -654,6 +683,76 @@ impl Driver {
     #[must_use]
     pub fn has_pointer(&self, seat: &WlSeat) -> bool {
         self.seat(seat).is_some_and(|record| record.has_pointer)
+    }
+
+    /// Whether a seat has advertised a keyboard capability.
+    #[must_use]
+    pub fn has_keyboard(&self, seat: &WlSeat) -> bool {
+        self.seat(seat).is_some_and(|record| record.has_keyboard)
+    }
+
+    /// Every event delivered to one keyboard, in order.
+    #[must_use]
+    pub fn keyboard_events(&self, keyboard: &WlKeyboard) -> Vec<KeyboardEvent> {
+        let id = keyboard.id();
+        self.keyboard
+            .iter()
+            .filter(|(target, _)| *target == id)
+            .map(|(_, event)| event.clone())
+            .collect()
+    }
+
+    /// Every key press and release delivered to one keyboard, in order.
+    #[must_use]
+    pub fn keys(&self, keyboard: &WlKeyboard) -> Vec<(u32, bool)> {
+        self.keyboard_events(keyboard)
+            .into_iter()
+            .filter_map(|event| match event {
+                KeyboardEvent::Key { key, pressed } => Some((key, pressed)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The last modifier masks the compositor told one keyboard about.
+    #[must_use]
+    pub fn modifiers(&self, keyboard: &WlKeyboard) -> Option<(u32, u32)> {
+        self.keyboard_events(keyboard)
+            .into_iter()
+            .rev()
+            .find_map(|event| match event {
+                KeyboardEvent::Modifiers { depressed, locked } => Some((depressed, locked)),
+                _ => None,
+            })
+    }
+
+    /// Every keymap the compositor uploaded to one keyboard, in order.
+    ///
+    /// The text as the client would read it, so a test can assert that a
+    /// keymap was restored to exactly what it was before.
+    #[must_use]
+    pub fn keymaps(&self, keyboard: &WlKeyboard) -> Vec<String> {
+        self.keyboard_events(keyboard)
+            .into_iter()
+            .filter_map(|event| match event {
+                KeyboardEvent::Keymap { text } => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether one keyboard currently holds focus on a surface.
+    #[must_use]
+    pub fn keyboard_focus(&self, keyboard: &WlKeyboard) -> Option<ObjectId> {
+        self.keyboard_events(keyboard)
+            .into_iter()
+            .rev()
+            .find_map(|event| match event {
+                KeyboardEvent::Enter { surface } => Some(Some(surface)),
+                KeyboardEvent::Leave { .. } => Some(None),
+                _ => None,
+            })
+            .flatten()
     }
 
     /// Every event delivered to one pointer, in order.
@@ -717,6 +816,7 @@ impl Driver {
             seat: id,
             name: None,
             has_pointer: false,
+            has_keyboard: false,
         });
         self.seats
             .last_mut()
@@ -730,6 +830,7 @@ struct SeatRecord {
     seat: ObjectId,
     name: Option<String>,
     has_pointer: bool,
+    has_keyboard: bool,
 }
 
 /// One entry from the registry.
@@ -866,7 +967,9 @@ impl Dispatch<WlSeat, ()> for Driver {
             wl_seat::Event::Capabilities {
                 capabilities: wayland_client::WEnum::Value(capabilities),
             } => {
-                state.seat_mut(seat).has_pointer = capabilities.contains(Capability::Pointer);
+                let record = state.seat_mut(seat);
+                record.has_pointer = capabilities.contains(Capability::Pointer);
+                record.has_keyboard = capabilities.contains(Capability::Keyboard);
             }
             wl_seat::Event::Name { name } => state.seat_mut(seat).name = Some(name),
             _ => {}
@@ -916,6 +1019,99 @@ impl Dispatch<WlPointer, ()> for Driver {
         };
         state.pointer.push((pointer.id(), recorded));
     }
+}
+
+/// A keyboard event as the client received it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeyboardEvent {
+    /// The layout the compositor uploaded, read back out of the mapped file.
+    Keymap {
+        text: String,
+    },
+    Enter {
+        surface: ObjectId,
+    },
+    Leave {
+        surface: ObjectId,
+    },
+    /// The key in evdev numbering, which is what `wl_keyboard.key` carries.
+    Key {
+        key: u32,
+        pressed: bool,
+    },
+    Modifiers {
+        depressed: u32,
+        locked: u32,
+    },
+}
+
+impl Dispatch<WlKeyboard, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        keyboard: &WlKeyboard,
+        event: wl_keyboard::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        let recorded = match event {
+            wl_keyboard::Event::Keymap { fd, size, .. } => KeyboardEvent::Keymap {
+                text: read_keymap(&fd, size),
+            },
+            wl_keyboard::Event::Enter { surface, .. } => KeyboardEvent::Enter {
+                surface: surface.id(),
+            },
+            wl_keyboard::Event::Leave { surface, .. } => KeyboardEvent::Leave {
+                surface: surface.id(),
+            },
+            wl_keyboard::Event::Key { key, state, .. } => KeyboardEvent::Key {
+                key,
+                pressed: state == wayland_client::WEnum::Value(KeyState::Pressed),
+            },
+            wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_locked,
+                ..
+            } => KeyboardEvent::Modifiers {
+                depressed: mods_depressed,
+                locked: mods_locked,
+            },
+            // `repeat_info` is policy the client applies itself and says
+            // nothing about what was delivered.
+            _ => return,
+        };
+        state.keyboard.push((keyboard.id(), recorded));
+    }
+}
+
+/// The keymap the compositor sent, as the client reads it.
+///
+/// The size the protocol carries includes the terminating NUL, which is not
+/// part of the text; a comparison against the compositor's own string would
+/// otherwise never match.
+fn read_keymap(fd: &OwnedFd, size: u32) -> String {
+    let length = usize::try_from(size).expect("a keymap size that fits in memory");
+    let mut file = std::fs::File::from(
+        fd.try_clone()
+            .expect("the keymap descriptor can be duplicated"),
+    );
+    // The descriptor is duplicated rather than owned, so it shares its offset
+    // with the one the compositor kept: a second keymap event would otherwise
+    // read from where the first one stopped.
+    file.seek(SeekFrom::Start(0))
+        .expect("the keymap file is seekable");
+    let mut bytes = vec![0_u8; length];
+    file.read_exact(&mut bytes)
+        .expect("the keymap file holds the bytes the compositor announced");
+
+    String::from_utf8(
+        bytes
+            .split(|byte| *byte == 0)
+            .next()
+            .expect("split always yields at least one piece")
+            .to_vec(),
+    )
+    .expect("a keymap is text")
 }
 
 impl Dispatch<WlBuffer, ()> for Driver {

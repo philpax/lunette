@@ -38,18 +38,22 @@
 //! (`mod.rs:1128-1148`). With two seats that heuristic becomes per-seat policy,
 //! and policy is Lua's; this module applies focus, it does not choose it.
 
-use std::{cell::RefCell, error::Error, fmt};
+use std::{cell::RefCell, error::Error, fmt, sync::Arc};
 
 use smithay::{
     input::{
         Seat, SeatState,
+        keyboard::{KeyboardHandle, ModifiersState, SerializedMods, XkbConfig},
         pointer::{CursorImageStatus, PointerHandle},
     },
     reexports::wayland_server::DisplayHandle,
 };
 
 use crate::{
-    protocol::{PixelPoint, SeatId, WindowId},
+    keymap::{Keymap, KeymapError},
+    protocol::{
+        KeyModifier, KeyboardConfig, ModifierState, PixelPoint, SeatId, SeatSnapshot, WindowId,
+    },
     state::CompositorState,
 };
 
@@ -64,20 +68,27 @@ pub(crate) struct SeatRegistry {
 }
 
 impl SeatRegistry {
-    /// Creates a seat with its own `wl_seat` global and its own pointer.
+    /// Creates a seat with its own `wl_seat` global, pointer, and keyboard.
+    ///
+    /// The keymap is compiled twice, once by this crate and once by smithay,
+    /// from the same RMLVO names. That is not waste: smithay's copy lives
+    /// behind its own context because libxkbcommon is not thread-safe, and this
+    /// crate's copy is what answers the queries `docs/input.md:50-52` asks for
+    /// and what `typeText` restores.
     ///
     /// # Errors
     ///
-    /// Returns [`SeatError`] when the identifier is already in use, or when
-    /// another seat already advertises the name — a client tells two seats apart
-    /// by `wl_seat.name`, so two seats sharing one is a configuration a client
-    /// cannot act on.
+    /// Returns [`SeatError`] when the identifier is already in use, when another
+    /// seat already advertises the name — a client tells two seats apart by
+    /// `wl_seat.name`, so two seats sharing one is a configuration a client
+    /// cannot act on — or when the layout does not compile.
     pub(crate) fn create(
         &mut self,
         state: &mut SeatState<CompositorState>,
         display: &DisplayHandle,
         id: SeatId,
         name: &str,
+        keyboard: &KeyboardConfig,
     ) -> Result<&SeatEntry, SeatError> {
         if self.get(id).is_some() {
             return Err(SeatError {
@@ -94,21 +105,51 @@ impl SeatRegistry {
             });
         }
 
+        let keymap = Keymap::compile(&keyboard.keymap).map_err(|error| SeatError {
+            seat: id,
+            kind: SeatErrorKind::Keymap { error },
+        })?;
+
         let mut seat = state.new_wl_seat(display, name.to_owned());
         let pointer = seat.add_pointer();
-        // The keyboard, and the keymap it cannot be added without, arrive with
-        // the rest of Phase 5.
+        let handle = seat
+            .add_keyboard(
+                xkb_config(keyboard),
+                keyboard.repeat.delay.millis(),
+                keyboard.repeat.rate.get(),
+            )
+            .map_err(|error| SeatError {
+                seat: id,
+                kind: SeatErrorKind::Keyboard {
+                    message: error.to_string(),
+                },
+            })?;
         seat.user_data().insert_if_missing(CursorImage::default);
 
         self.seats.push(SeatEntry {
             id,
             seat,
             pointer,
+            keyboard: handle,
+            keymap,
             mouse: None,
         });
         self.seats
             .last()
             .ok_or_else(|| unreachable!("the entry was just pushed"))
+    }
+
+    /// Every seat, as the main thread reads them.
+    pub(crate) fn snapshot(&self) -> Vec<SeatSnapshot> {
+        self.seats
+            .iter()
+            .map(|entry| SeatSnapshot {
+                seat: entry.id,
+                name: entry.seat.name().to_owned(),
+                keymap: Arc::clone(entry.keymap().text()),
+                modifiers: held(entry.keyboard.modifier_state()),
+            })
+            .collect()
     }
 
     /// Withdraws a seat's global and its capabilities.
@@ -139,6 +180,7 @@ impl SeatRegistry {
 
         let mut entry = self.seats.remove(index);
         entry.seat.remove_pointer();
+        entry.seat.remove_keyboard();
         if let Some(global) = entry.seat.global() {
             display.remove_global::<CompositorState>(global);
         }
@@ -165,6 +207,14 @@ pub(crate) struct SeatEntry {
     id: SeatId,
     seat: Seat<CompositorState>,
     pointer: PointerHandle<CompositorState>,
+    keyboard: KeyboardHandle<CompositorState>,
+    /// This crate's own copy of the layout the keyboard is running, which is
+    /// what answers a query and what a restore uploads. smithay's copy is
+    /// inside its own context and cannot be read back as text
+    /// (`smithay-0.7.0/src/input/keyboard/mod.rs` exposes only
+    /// `with_xkb_state`), so without this one there would be nothing to restore
+    /// to and `lunette-v1.AC4.3` would be unreachable.
+    keymap: Keymap,
     /// Where this seat's pointer is, and over which window. Independent per
     /// seat: WayVR keeps one for the whole compositor (`window.rs:109-119`),
     /// which is what makes the off hand steal hover from the main hand.
@@ -182,6 +232,15 @@ impl SeatEntry {
         self.pointer.clone()
     }
 
+    /// The keyboard handle, cloned for the reason the pointer is.
+    pub(crate) fn keyboard(&self) -> KeyboardHandle<CompositorState> {
+        self.keyboard.clone()
+    }
+
+    pub(crate) const fn keymap(&self) -> &Keymap {
+        &self.keymap
+    }
+
     pub(crate) const fn mouse(&self) -> Option<MouseState> {
         self.mouse
     }
@@ -189,11 +248,9 @@ impl SeatEntry {
     pub(crate) const fn set_mouse(&mut self, mouse: Option<MouseState>) {
         self.mouse = mouse;
     }
-}
 
-#[cfg(any(test, feature = "test-fakes"))]
-impl SeatEntry {
-    /// The smithay seat, for the inspection [`cursor_image`] needs.
+    /// The smithay seat, which every `KeyboardTarget` call takes as its first
+    /// argument.
     pub(crate) const fn seat(&self) -> &Seat<CompositorState> {
         &self.seat
     }
@@ -204,6 +261,7 @@ impl fmt::Debug for SeatEntry {
         f.debug_struct("SeatEntry")
             .field("id", &self.id)
             .field("name", &self.seat.name())
+            .field("keymap", &self.keymap)
             .field("mouse", &self.mouse)
             .finish()
     }
@@ -270,7 +328,17 @@ pub(crate) struct SeatError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SeatErrorKind {
     DuplicateId,
-    DuplicateName { name: String },
+    DuplicateName {
+        name: String,
+    },
+    Keymap {
+        error: KeymapError,
+    },
+    /// smithay's `KeyboardError`, kept as its message: the type is not
+    /// `PartialEq`, and what a caller does with it is report it.
+    Keyboard {
+        message: String,
+    },
     Unknown,
 }
 
@@ -285,9 +353,86 @@ impl fmt::Display for SeatError {
                 "seat: another seat is already named {name}, and a client tells two seats apart \
                  by name"
             ),
+            SeatErrorKind::Keymap { error } => write!(f, "seat: {}: {error}", self.seat),
+            SeatErrorKind::Keyboard { message } => write!(
+                f,
+                "seat: {} could not be given a keyboard: {message}",
+                self.seat
+            ),
             SeatErrorKind::Unknown => write!(f, "seat: {} does not exist", self.seat),
         }
     }
 }
 
-impl Error for SeatError {}
+impl Error for SeatError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match &self.kind {
+            SeatErrorKind::Keymap { error } => Some(error),
+            _ => None,
+        }
+    }
+}
+
+/// The RMLVO names smithay compiles its own copy of the layout from.
+///
+/// The same five names [`Keymap::compile`] uses, so the two copies agree. An
+/// absent field becomes the empty string, which is how libxkbcommon spells "the
+/// default".
+fn xkb_config(keyboard: &KeyboardConfig) -> XkbConfig<'_> {
+    fn name(value: &Option<String>) -> &str {
+        value.as_deref().unwrap_or_default()
+    }
+
+    XkbConfig {
+        rules: name(&keyboard.keymap.rules),
+        model: name(&keyboard.keymap.model),
+        layout: name(&keyboard.keymap.layout),
+        variant: name(&keyboard.keymap.variant),
+        options: keyboard.keymap.options.clone(),
+    }
+}
+
+/// smithay's modifier state as the closed set the protocol carries.
+///
+/// smithay names the modifiers by what they mean and lunette names them the
+/// same way, so this is a rename rather than a reinterpretation — with one
+/// exception worth noting: smithay calls `Mod3` `iso_level5_shift`
+/// (`input/keyboard/modifiers_state.rs`), which is what that modifier does on
+/// the layouts that use it.
+pub(crate) fn held(state: ModifiersState) -> ModifierState {
+    let present = [
+        (KeyModifier::Shift, state.shift),
+        (KeyModifier::CapsLock, state.caps_lock),
+        (KeyModifier::Control, state.ctrl),
+        (KeyModifier::Alt, state.alt),
+        (KeyModifier::NumLock, state.num_lock),
+        (KeyModifier::Mod3, state.iso_level5_shift),
+        (KeyModifier::Logo, state.logo),
+        (KeyModifier::Mod5, state.iso_level3_shift),
+    ];
+
+    present
+        .into_iter()
+        .filter_map(|(modifier, held)| held.then_some(modifier))
+        .collect()
+}
+
+/// The closed set as smithay's modifier state.
+///
+/// The serialised masks are left at their defaults: `set_modifier_state`
+/// recomputes them from the booleans against the keymap
+/// (`ModifiersState::serialize_back`), because only the keymap knows which bit
+/// each modifier occupies.
+pub(crate) fn modifiers_state(modifiers: &ModifierState) -> ModifiersState {
+    ModifiersState {
+        shift: modifiers.contains(&KeyModifier::Shift),
+        caps_lock: modifiers.contains(&KeyModifier::CapsLock),
+        ctrl: modifiers.contains(&KeyModifier::Control),
+        alt: modifiers.contains(&KeyModifier::Alt),
+        num_lock: modifiers.contains(&KeyModifier::NumLock),
+        iso_level5_shift: modifiers.contains(&KeyModifier::Mod3),
+        logo: modifiers.contains(&KeyModifier::Logo),
+        iso_level3_shift: modifiers.contains(&KeyModifier::Mod5),
+        serialized: SerializedMods::default(),
+    }
+}

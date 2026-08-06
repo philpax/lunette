@@ -22,10 +22,10 @@
 //!   (`smithay-0.7.0/src/wayland/fractional_scale/mod.rs:253-263` is a
 //!   `get_or_insert`, which records the calling thread). Phase 8 implements
 //!   fractional scale properly and owns the question.
-//! - **Clipboard, selection, and the keyboard.** `wl_data_device`,
-//!   `zwp_primary_selection`, both data-control protocols, and
-//!   `zwp_relative_pointer` are still to come. A seat here has a pointer and no
-//!   keyboard, because `add_keyboard` cannot be called without a keymap.
+//! - **Clipboard and selection.** `wl_data_device`, `zwp_primary_selection`,
+//!   both data-control protocols, and `zwp_relative_pointer` are still to come.
+//!   A seat has a pointer and a keyboard; what it does not yet have is anything
+//!   to copy and paste with.
 
 mod commit;
 mod compositor;

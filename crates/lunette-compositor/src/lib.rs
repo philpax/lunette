@@ -14,6 +14,7 @@
 
 pub mod client;
 pub(crate) mod hit_test;
+pub mod keymap;
 pub mod process;
 pub mod protocol;
 pub(crate) mod seat;

@@ -51,13 +51,13 @@ use crate::{
         DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
     },
     protocol::{
-        Command, Event, OutputId, OutputMode, OutputScale, OutputSnapshot, Pid, PixelSize,
-        ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
+        Command, Event, KeyboardConfig, OutputId, OutputMode, OutputScale, OutputSnapshot, Pid,
+        PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
         SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
     },
     seat::SeatRegistry,
     surface::{BufferImporter, RetainedBuffers, SurfaceContent, SurfaceRegistry},
-    thread::{EventSender, LoopData, SnapshotPublisher},
+    thread::{EventSender, LoopData, SnapshotParts, SnapshotPublisher},
     window::{Window, WindowManager},
 };
 
@@ -273,7 +273,13 @@ impl CompositorState {
 
         let mut seat_state = SeatState::new();
         let mut seats = SeatRegistry::default();
-        if let Err(error) = seats.create(&mut seat_state, display, DEFAULT_SEAT, SEAT_NAME) {
+        if let Err(error) = seats.create(
+            &mut seat_state,
+            display,
+            DEFAULT_SEAT,
+            SEAT_NAME,
+            &KeyboardConfig::default(),
+        ) {
             warn!(
                 %error,
                 "could not create the default seat; input will reach no client until one is made"
@@ -395,11 +401,16 @@ impl CompositorState {
             } => self.press_button(seat, sink, button, pressed),
             Command::Spawn(request) => self.spawn_process(&request),
             Command::SignalProcess { process, signal } => self.signal_process(process, signal),
-            Command::CreateSeat { seat, name } => self.create_seat(seat, &name),
+            Command::CreateSeat {
+                seat,
+                name,
+                keyboard,
+            } => self.create_seat(seat, &name, keyboard.as_ref()),
             Command::DestroySeat { seat } => self.destroy_seat(seat),
+            Command::Key { seat, key, pressed } => self.press_key(seat, key, pressed),
+            Command::Modifiers { seat, modifiers } => self.set_modifiers(seat, &modifiers),
+            Command::Focus { seat, sink } => self.set_focus(seat, sink),
             Command::Scroll { .. }
-            | Command::Key { .. }
-            | Command::Modifiers { .. }
             | Command::TypeText { .. }
             | Command::CreateOutput { .. }
             | Command::ReconfigureOutput { .. }
@@ -622,14 +633,15 @@ impl CompositorState {
 
         let windows = self.windows.mapped().map(Window::snapshot).collect();
 
-        self.snapshots.publish(
+        self.snapshots.publish(SnapshotParts {
             windows,
-            self.processes.snapshot(),
-            vec![OutputSnapshot {
+            processes: self.processes.snapshot(),
+            outputs: vec![OutputSnapshot {
                 output: DEFAULT_OUTPUT,
                 mode: self.config.output,
             }],
-        );
+            seats: self.seats.snapshot(),
+        });
     }
 
     /// Answers every frame callback a surface has accumulated.

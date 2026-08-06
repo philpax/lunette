@@ -5,8 +5,8 @@
 //! pointer positions, separate hover, separate cursor images, and a seat that
 //! goes away without taking the other with it.
 //!
-//! The keyboard half of a seat — modifier state in particular — arrives with the
-//! keymap work, since `add_keyboard` cannot be called without one.
+//! The keyboard half is here too: a key reaches only the seat that was focused,
+//! and a modifier held on one seat is not held on the other.
 //!
 //! See `tests/harness/mod.rs` for why none of this needs a GPU.
 
@@ -23,13 +23,35 @@ mod harness;
 
 use harness::WINDOW_SIZE;
 use lunette_compositor::{
-    protocol::{Command, PixelPoint, PointerButton, SeatId, WindowSnapshot},
+    protocol::{
+        Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, ModifierState, PixelPoint,
+        PointerButton, SeatId, WindowSnapshot,
+    },
     state::DEFAULT_SEAT,
     test_client::{Driver, PointerEvent, TestClient},
     testing::{CursorImage, TestCompositor},
 };
 use pretty_assertions::assert_eq;
 use wayland_client::protocol::wl_pointer::WlPointer;
+
+/// `KEY_A`, which every layout binds and which no test cares about beyond its
+/// being a key that exists.
+const KEY_A: Keycode = Keycode::from_evdev(30);
+
+/// A keyboard on an explicitly named layout.
+///
+/// Named rather than defaulted, because the default is whatever the machine's
+/// `XKB_DEFAULT_LAYOUT` says, and a test that depends on that passes or fails
+/// according to who is running it.
+fn keyboard() -> Box<KeyboardConfig> {
+    Box::new(KeyboardConfig {
+        keymap: KeymapConfig {
+            layout: Some("us".to_owned()),
+            ..KeymapConfig::default()
+        },
+        ..KeyboardConfig::default()
+    })
+}
 
 /// The two hands, as a caller would name them.
 const LEFT: (SeatId, &str) = (seat_id(2), "left");
@@ -272,10 +294,12 @@ fn a_seat_is_refused_when_its_identifier_or_its_name_is_taken() {
     compositor.send(Command::CreateSeat {
         seat: LEFT.0,
         name: "another".to_owned(),
+        keyboard: keyboard(),
     });
     compositor.send(Command::CreateSeat {
         seat: seat_id(4),
         name: LEFT.1.to_owned(),
+        keyboard: keyboard(),
     });
     client.settle_quiet(&mut compositor);
 
@@ -306,6 +330,212 @@ fn the_default_seat_is_the_one_a_caller_gets_without_asking() {
     assert_eq!(enter_position(client.driver(), &pointer), (2.0, 3.0));
 }
 
+#[test]
+fn a_seat_advertises_a_keyboard_and_uploads_its_layout() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, _) = add_both_seats(&mut compositor, &mut client);
+    let keyboard = client.open_keyboard_for(&mut compositor, left);
+
+    let uploaded = client.driver().keymaps(&keyboard);
+    assert_eq!(uploaded.len(), 1, "a keyboard is given exactly one keymap");
+    assert!(
+        uploaded[0].contains("xkb_keymap"),
+        "what arrived was not a keymap: {:?}",
+        uploaded[0].get(..64),
+    );
+
+    let published = compositor
+        .snapshot()
+        .seats
+        .iter()
+        .find(|seat| seat.seat == LEFT.0)
+        .expect("the left seat is in the snapshot")
+        .keymap
+        .as_str()
+        .to_owned();
+    assert_eq!(
+        uploaded[0], published,
+        "the snapshot's keymap is not the one the client was given, so a virtual keyboard drawn \
+         from it would show the wrong legends",
+    );
+}
+
+#[test]
+fn a_key_reaches_the_focused_client_and_no_other_seat() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, right) = add_both_seats(&mut compositor, &mut client);
+    let left_keyboard = client.open_keyboard_for(&mut compositor, left);
+    let right_keyboard = client.open_keyboard_for(&mut compositor, right);
+
+    let sink = windows(&compositor, 1)[0].sink;
+    compositor.send(Command::Focus {
+        seat: LEFT.0,
+        sink: Some(sink),
+    });
+    compositor.send(Command::Key {
+        seat: LEFT.0,
+        key: KEY_A,
+        pressed: true,
+    });
+    compositor.send(Command::Key {
+        seat: LEFT.0,
+        key: KEY_A,
+        pressed: false,
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.keys(&left_keyboard).len() == 2
+    });
+
+    assert_eq!(
+        client.driver().keys(&left_keyboard),
+        [(KEY_A.evdev(), true), (KEY_A.evdev(), false)],
+        "the key did not arrive in evdev numbering",
+    );
+    assert_eq!(
+        client.driver().keys(&right_keyboard),
+        [],
+        "a key sent to one seat reached the other hand's keyboard",
+    );
+}
+
+#[test]
+fn a_key_sent_to_an_unfocused_seat_reaches_nobody() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, _) = add_both_seats(&mut compositor, &mut client);
+    let keyboard = client.open_keyboard_for(&mut compositor, left);
+
+    compositor.send(Command::Key {
+        seat: LEFT.0,
+        key: KEY_A,
+        pressed: true,
+    });
+    client.settle_quiet(&mut compositor);
+
+    assert_eq!(client.driver().keys(&keyboard), []);
+    assert_eq!(client.driver().keyboard_focus(&keyboard), None);
+}
+
+#[test]
+fn a_modifier_set_on_one_seat_is_visible_to_the_client_and_not_on_the_other() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, right) = add_both_seats(&mut compositor, &mut client);
+    let left_keyboard = client.open_keyboard_for(&mut compositor, left);
+    let right_keyboard = client.open_keyboard_for(&mut compositor, right);
+
+    let sink = windows(&compositor, 1)[0].sink;
+    for seat in [LEFT.0, RIGHT.0] {
+        compositor.send(Command::Focus {
+            seat,
+            sink: Some(sink),
+        });
+    }
+    compositor.send(Command::Modifiers {
+        seat: LEFT.0,
+        modifiers: ModifierState::from_iter([KeyModifier::Shift]),
+    });
+    client.settle(&mut compositor, |driver| {
+        driver
+            .modifiers(&left_keyboard)
+            .is_some_and(|(depressed, _)| depressed != 0)
+    });
+
+    let (depressed, locked) = client
+        .driver()
+        .modifiers(&left_keyboard)
+        .expect("the focused client was told about the modifier");
+    assert_ne!(depressed, 0, "shift was not reported as depressed");
+    assert_eq!(locked, 0, "shift is not a lock");
+
+    assert_eq!(
+        client
+            .driver()
+            .modifiers(&right_keyboard)
+            .map(|(depressed, _)| depressed),
+        Some(0),
+        "a modifier held on one hand appeared on the other",
+    );
+
+    let published = seat_modifiers(&compositor, LEFT.0);
+    assert!(
+        published.contains(&KeyModifier::Shift),
+        "the snapshot does not report what the client was told: {published:?}",
+    );
+    assert!(seat_modifiers(&compositor, RIGHT.0).is_empty());
+}
+
+#[test]
+fn a_lock_is_reported_as_locked_rather_than_as_depressed() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, _) = add_both_seats(&mut compositor, &mut client);
+    let keyboard = client.open_keyboard_for(&mut compositor, left);
+
+    let sink = windows(&compositor, 1)[0].sink;
+    compositor.send(Command::Focus {
+        seat: LEFT.0,
+        sink: Some(sink),
+    });
+    compositor.send(Command::Modifiers {
+        seat: LEFT.0,
+        modifiers: ModifierState::from_iter([KeyModifier::CapsLock]),
+    });
+    client.settle(&mut compositor, |driver| {
+        driver
+            .modifiers(&keyboard)
+            .is_some_and(|(_, locked)| locked != 0)
+    });
+
+    let (depressed, locked) = client
+        .driver()
+        .modifiers(&keyboard)
+        .expect("the client was told about the lock");
+    assert_eq!(
+        depressed, 0,
+        "a lock reported as depressed toggles itself off"
+    );
+    assert_ne!(locked, 0);
+}
+
+#[test]
+fn a_seat_whose_layout_does_not_compile_is_not_created() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+
+    compositor.send(Command::CreateSeat {
+        seat: LEFT.0,
+        name: LEFT.1.to_owned(),
+        keyboard: Box::new(KeyboardConfig {
+            keymap: KeymapConfig {
+                layout: Some("this-is-not-a-layout".to_owned()),
+                ..KeymapConfig::default()
+            },
+            ..KeyboardConfig::default()
+        }),
+    });
+    client.settle_quiet(&mut compositor);
+
+    assert_eq!(
+        seat_globals(&client),
+        1,
+        "a seat whose keymap failed to compile was advertised anyway",
+    );
+}
+
+/// The modifiers the snapshot says a seat is holding.
+fn seat_modifiers(compositor: &TestCompositor, seat: SeatId) -> ModifierState {
+    compositor
+        .snapshot()
+        .seats
+        .iter()
+        .find(|entry| entry.seat == seat)
+        .map(|entry| entry.modifiers.clone())
+        .unwrap_or_else(|| panic!("{seat} is not in the snapshot"))
+}
+
 /// A client with one mapped window of its own.
 fn open_window(compositor: &mut TestCompositor) -> TestClient {
     let mut client = TestClient::connect(compositor);
@@ -325,10 +555,12 @@ fn add_both_seats(
     compositor.send(Command::CreateSeat {
         seat: LEFT.0,
         name: LEFT.1.to_owned(),
+        keyboard: keyboard(),
     });
     compositor.send(Command::CreateSeat {
         seat: RIGHT.0,
         name: RIGHT.1.to_owned(),
+        keyboard: keyboard(),
     });
     await_seats(compositor, client, SEAT_COUNT);
     (LEFT.1, RIGHT.1)

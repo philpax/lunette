@@ -51,7 +51,8 @@ use crate::{
     client::{self, WaylandSocket},
     process::{ProcFilesystem, ProcessInspector, ProcessSpawner, SystemSpawner},
     protocol::{
-        Command, Event, Generation, OutputSnapshot, ProcessSnapshot, Snapshot, WindowSnapshot,
+        Command, Event, Generation, OutputSnapshot, ProcessSnapshot, SeatSnapshot, Snapshot,
+        WindowSnapshot,
     },
     state::{CompositorConfig, CompositorState, StateParts},
     surface::BufferImporter,
@@ -293,20 +294,34 @@ pub(crate) struct SnapshotPublisher {
 
 impl SnapshotPublisher {
     /// Replaces the published snapshot with a newer generation.
-    pub(crate) fn publish(
-        &mut self,
-        windows: Vec<WindowSnapshot>,
-        processes: Vec<ProcessSnapshot>,
-        outputs: Vec<OutputSnapshot>,
-    ) {
+    pub(crate) fn publish(&mut self, parts: SnapshotParts) {
+        let SnapshotParts {
+            windows,
+            processes,
+            outputs,
+            seats,
+        } = parts;
+
         self.published = self.published.next();
         self.latest.store(Arc::new(Snapshot {
             generation: self.published,
             windows,
             processes,
             outputs,
+            seats,
         }));
     }
+}
+
+/// Everything a snapshot is assembled from, minus the generation.
+///
+/// A struct rather than four positional arguments: they are all lists of
+/// similar shape, so transposing two would compile and publish nonsense.
+pub(crate) struct SnapshotParts {
+    pub(crate) windows: Vec<WindowSnapshot>,
+    pub(crate) processes: Vec<ProcessSnapshot>,
+    pub(crate) outputs: Vec<OutputSnapshot>,
+    pub(crate) seats: Vec<SeatSnapshot>,
 }
 
 /// The main thread's end of the snapshot slot.
@@ -670,6 +685,16 @@ mod tests {
         Sent,
     }
 
+    /// A publication carrying only the outputs a test cares about.
+    fn parts(outputs: Vec<OutputSnapshot>) -> SnapshotParts {
+        SnapshotParts {
+            windows: Vec::new(),
+            processes: Vec::new(),
+            outputs,
+            seats: Vec::new(),
+        }
+    }
+
     #[test]
     fn a_reader_starts_at_the_initial_generation_with_nothing_in_it() {
         let (_publisher, reader) = snapshot_channel();
@@ -687,7 +712,7 @@ mod tests {
 
         let mut previous = reader.load().generation;
         for _ in 0..16 {
-            publisher.publish(Vec::new(), Vec::new(), Vec::new());
+            publisher.publish(parts(Vec::new()));
             let current = reader.load().generation;
             assert!(
                 current > previous,
@@ -709,7 +734,7 @@ mod tests {
             },
         }];
 
-        publisher.publish(Vec::new(), Vec::new(), outputs.clone());
+        publisher.publish(parts(outputs.clone()));
 
         assert_eq!(reader.load().outputs, outputs);
     }
@@ -717,10 +742,10 @@ mod tests {
     #[test]
     fn a_held_snapshot_does_not_change_under_a_later_publication() {
         let (mut publisher, reader) = snapshot_channel();
-        publisher.publish(Vec::new(), Vec::new(), Vec::new());
+        publisher.publish(parts(Vec::new()));
 
         let held = reader.load();
-        publisher.publish(Vec::new(), Vec::new(), Vec::new());
+        publisher.publish(parts(Vec::new()));
 
         assert_eq!(held.generation.get(), 1);
         assert_eq!(reader.load().generation.get(), 2);
