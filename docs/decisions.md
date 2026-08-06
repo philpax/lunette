@@ -40,6 +40,10 @@ The exit status is tested by spawning the binary, which is the one place a test 
 
 Dead handles go inert rather than raising errors. This is a compromise, made because it is less disruptive than a race condition taking down the session.
 
+An opaque dmabuf's alpha is forced by the consumer, not by the import. This leaves the same semantic problem solved two different ways in one crate: a `wl_shm` buffer is repacked on the way in, so the padding byte becomes one during the copy and the question never reaches Lua, while a dmabuf is imported without a copy, so whatever the client left in the padding byte survives to the sampler and `window.opaque` reports that it must be ignored. The asymmetry follows from zero-copy import rather than from a preference: there is no write to the dmabuf's memory to fix it in, and adding one would give up the property the import exists for. The alternative considered was a `VkComponentMapping` on the image view, which resolves it structurally at no per-frame cost and would make `window.opaque` unnecessary. It was not taken because LÖVR creates the view itself from `TextureInfo`, so it needs a fifth patch to the fork adding a swizzle field, and the patch set is kept narrow while the milestone is still measuring. It remains the right fix if a second consumer has to repeat the shader. See [Rendering](rendering.md#alpha) for what a consumer does today.
+
+That leaves one obligation for phase 3. A composition layer hands the image to the XR runtime rather than through `lovr.draw`, so no Lua consumer exists on that path and no shader runs; the padding byte would reach the compositor as alpha. Resolving it there is lunette's own Rust, not the configuration's, so the composition-layer path either carries the swizzle patch above or forces alpha in the copy it makes before submission. Phase 3 inherits the obligation rather than the flag.
+
 ## Known gaps
 
 Named, not solved.

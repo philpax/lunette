@@ -2,7 +2,7 @@
 
 Milestone 0 exists to de-risk two unknowns before a standard library is written on top of them: the LÖVR Vulkan patch, and the compositor-thread split with the snapshot model it forces on Lua. [Roadmap](roadmap.md) states both. This document records what the two actually did, so phases 4 to 8 are detailed against measurement rather than against the design's expectations.
 
-Two of the milestone's acceptance criteria are human gates and are not recorded here as passed. They are listed under [Outstanding](#outstanding-the-two-human-gates).
+Two of the milestone's acceptance criteria are human gates and are not recorded here as passed. They are listed under [Outstanding](#outstanding), together with the one measurement that has to be taken again.
 
 ## The machine
 
@@ -65,7 +65,7 @@ So the `foreign` flag was prudent rather than necessary on this driver. That is 
 
 The two `undefined` rows are not evidence and are kept only so the record is not silently rewritten. The release barrier passed the same layout the acquire did, so with the switch at `undefined` every frame recorded `VK_IMAGE_LAYOUT_UNDEFINED` as a barrier's `newLayout`, which VUID-VkImageMemoryBarrier2-newLayout-01198 forbids. With no validation layer present the run could not have noticed. Those two rows therefore describe a driver tolerating a spec violation rather than the queue family being indifferent, and the same defect taints the `undefined` half of [the transition out of an undefined layout](#the-transition-out-of-an-undefined-layout) above.
 
-The release now hands the image back in `VK_IMAGE_LAYOUT_GENERAL` whatever the switch says — the acquire is the half the switch was measurable in, and `UNDEFINED` is legal only there. The four-cell measurement was not re-run; it needs the census harness, a real GPU, and a client, and it should be re-run before either row is cited. The `general` rows are unaffected, and they are the rows the default rests on.
+The release now hands the image back in `VK_IMAGE_LAYOUT_GENERAL` whatever the switch says — the acquire is the half the switch was measurable in, and `UNDEFINED` is legal only there. The four-cell measurement was not re-run; it needs the census harness, a real GPU, and a client. It is tracked under [Outstanding](#the-two-undefined-rows-of-the-queue-family-measurement), and it should be re-run before either row is cited. The `general` rows are unaffected, and they are the rows the default rests on.
 
 `foreign` remains the default, because it is what the specification describes for a producer outside Vulkan and because it is what `VK_EXT_queue_family_foreign` is enabled for. WayVR uses `IGNORED` and works on Mesa; this run shows the NVIDIA proprietary driver is equally indifferent. Two drivers being indifferent is weak evidence that all are, and with no validation layer present the run cannot distinguish "correct" from "tolerated". The default stays on the specification-conformant value for that reason.
 
@@ -147,7 +147,11 @@ A restart drops the compositor and does not bring it back. `lovr.event.restart` 
 
 [compositor.md](compositor.md) documented a socket named `lunette-0`. Task 7 implemented WayVR's scheme instead, probing `wayland-20` through `wayland-40` for a free name, and the document was changed to match the code. Whether `lunette-0` was the real intent is an open question. A distinctive name is easier to recognise in `WAYLAND_DISPLAY`; WayVR's range is what existing tooling and habits expect. This was resolved in favour of the code without a decision being taken, and it should be settled deliberately.
 
-## Outstanding: the two human gates
+## Outstanding
+
+Three items are unfinished: two human gates, and one measurement that has to be taken again.
+
+### The two human gates
 
 Neither gate has been performed. Both are in [phase 2](implementation-plans/2026-08-05-lunette-v1/phase_02.md) as acceptance criteria, and neither is automatable.
 
@@ -156,3 +160,7 @@ The first gate is that a terminal spawned by lunette appears on a quad in the de
 The second gate is that the same build runs as an overlay under Monado alongside another OpenXR application, compositing over it with undrawn areas transparent. Nothing in this document bears on it. It requires a running Monado, a second OpenXR application, and a person to judge the compositing.
 
 Both gates should be performed before phase 3 begins, because phase 3 is the composition-layer work and it is detailed against the assumption that the overlay session behaves as designed.
+
+### The two `undefined` rows of the queue-family measurement
+
+The two `undefined` rows under [the queue family for the acquire](#the-queue-family-for-the-acquire) are annotated as invalid rather than replaced, and re-running them is a task rather than a condition attached to citing them. It needs the census harness, a real GPU, and a client, which is why it was not done when the release barrier was fixed. Until it is done, the `undefined` half of the queue-family question and the `undefined` half of [the transition out of an undefined layout](#the-transition-out-of-an-undefined-layout) are unmeasured, not merely uncertain. The default rests on the `general` rows, which are unaffected, so nothing is blocked on this; it is recorded here so the hole stays visible.
