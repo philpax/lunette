@@ -50,7 +50,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::{error::Error, fmt, rc::Rc, sync::Arc};
+use std::{collections::HashSet, error::Error, fmt, rc::Rc, sync::Arc};
 
 use lunette_capture::{
     mirror::PipewireStreams,
@@ -509,21 +509,31 @@ impl FrameDriver {
     ///
     /// A paused mirror keeps its texture on purpose: pausing is for a panel that
     /// has left the user's view, and resuming it is meant to cost nothing.
+    ///
+    /// Driven from everything lunette holds for a monitor rather than from the
+    /// texture ledger alone, for the reason [`stopped_monitors`] gives: a
+    /// monitor can retain capture buffers while holding no texture at all.
     fn drop_stopped_mirrors(&mut self) {
-        let held = self
+        let holding = self
             .session
             .with_monitor_textures(|textures| textures.monitors());
-        for monitor in held {
+        let retaining = self
+            .compositor
+            .as_ref()
+            .map(|compositor| compositor.capture.streams())
+            .unwrap_or_default();
+
+        let stopped = {
+            let mirrors = self.session.mirrors();
             // `None` is a monitor that has been unplugged, which stops
             // producing for the same reason and is answered the same way.
-            let mirroring = self
-                .session
-                .mirrors()
-                .state(&monitor)
-                .is_some_and(|state| state.mirrored);
-            if !mirroring {
-                self.forget_monitor_texture(&monitor);
-            }
+            stopped_monitors(holding, retaining, |monitor| {
+                mirrors.state(monitor).is_some_and(|state| state.mirrored)
+            })
+        };
+
+        for monitor in &stopped {
+            self.forget_monitor_texture(monitor);
         }
     }
 
@@ -764,6 +774,34 @@ fn ledger_change<'a>(
         | Event::ProcessExited { .. }
         | Event::ProcessOutput { .. } => LedgerChange::Nothing,
     }
+}
+
+/// Which monitors the sweep for stopped mirrors releases.
+///
+/// The union of what the two ledgers name, rather than either alone. `holding`
+/// is the monitors [`MonitorTextures`] has a texture for; `retaining` is the
+/// monitors [`CaptureImporter`] still holds buffers for. The sets diverge: a
+/// frame whose image imports but whose texture the device refuses retains a
+/// buffer and never reaches the texture ledger, so reading only `holding` would
+/// leave that monitor's buffers alive for the rest of the process.
+///
+/// Pure and separate from the sweep because the part worth getting right is the
+/// set, and the release itself is FFI.
+///
+/// [`CaptureImporter`]: crate::import::CaptureImporter
+fn stopped_monitors(
+    holding: Vec<MonitorKey>,
+    retaining: Vec<MonitorKey>,
+    mirroring: impl Fn(&MonitorKey) -> bool,
+) -> Vec<MonitorKey> {
+    let mut named = HashSet::new();
+
+    holding
+        .into_iter()
+        .chain(retaining)
+        .filter(|monitor| named.insert(monitor.clone()))
+        .filter(|monitor| !mirroring(monitor))
+        .collect()
 }
 
 /// Borrows LÖVR's device and starts the compositor against it.

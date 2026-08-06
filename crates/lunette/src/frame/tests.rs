@@ -1,5 +1,5 @@
-//! What one compositor event asks of the texture ledger, and what the ledger
-//! does with it.
+//! What one compositor event asks of the texture ledger, what the ledger does
+//! with it, and which monitors the sweep for stopped mirrors releases.
 //!
 //! Every case here is a pure mapping or a ledger operation, so none of it needs
 //! a graphics device: the texture is a counter.
@@ -9,13 +9,14 @@
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 
+use lunette_capture::monitor::{ConnectorKind, ConnectorName, MonitorKey};
 use lunette_compositor::{
     protocol::{Event, ImportedBuffer, PixelSize, SurfaceId, WindowId},
     surface::{PixelBuffer, ShmFormat},
 };
 use pretty_assertions::assert_eq;
 
-use super::{LedgerChange, ledger_change};
+use super::{LedgerChange, ledger_change, stopped_monitors};
 use crate::{
     import::formats::Alpha,
     texture::{FrameGeneration, TextureDescription, TextureLedger, TextureRef, TextureUnavailable},
@@ -49,6 +50,10 @@ fn description() -> TextureDescription {
 
 fn window_id(raw: u64) -> WindowId {
     WindowId::new(raw).expect("non-zero")
+}
+
+fn monitor(index: u32) -> MonitorKey {
+    MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, index))
 }
 
 #[test]
@@ -212,6 +217,67 @@ fn a_stabilised_copy_is_offered_a_barrier_alongside_its_source() {
         .expect("a live surface can be stabilised");
 
     assert_eq!(ledger.textures().count(), 2);
+}
+
+#[test]
+fn a_monitor_that_retains_buffers_but_holds_no_texture_is_still_swept() {
+    // The regression: the sweep read only the texture ledger, and a monitor
+    // whose frames import as images but whose textures the device refuses is
+    // never in it. Every frame retained a buffer, the dismissal released
+    // nothing, and the dmabuf descriptors and their imported memory stayed for
+    // the rest of the process.
+    assert_eq!(
+        stopped_monitors(vec![], vec![monitor(1)], |_| false),
+        vec![monitor(1)],
+    );
+}
+
+#[test]
+fn a_monitor_holding_a_texture_with_nothing_retained_is_swept() {
+    assert_eq!(
+        stopped_monitors(vec![monitor(1)], vec![], |_| false),
+        vec![monitor(1)],
+    );
+}
+
+#[test]
+fn a_monitor_that_is_still_mirroring_keeps_what_it_holds() {
+    // Neither the texture nor the retained buffers go while frames are still
+    // arriving, and a paused mirror is still mirroring.
+    assert_eq!(
+        stopped_monitors(vec![monitor(1)], vec![monitor(1)], |_| true),
+        Vec::new(),
+    );
+}
+
+#[test]
+fn a_monitor_named_by_both_is_released_once() {
+    // `forget_monitor_texture` is idempotent, but a repeat would log a second
+    // release for buffers already gone.
+    assert_eq!(
+        stopped_monitors(vec![monitor(1)], vec![monitor(1)], |_| false),
+        vec![monitor(1)],
+    );
+}
+
+#[test]
+fn a_sweep_over_nothing_releases_nothing() {
+    assert_eq!(
+        stopped_monitors(vec![], vec![], |_| unreachable!(
+            "no monitor is named, so none is asked about"
+        )),
+        Vec::new()
+    );
+}
+
+#[test]
+fn only_the_monitors_that_stopped_are_released() {
+    let live = monitor(2);
+    let stopped = stopped_monitors(vec![monitor(1)], vec![monitor(2), monitor(3)], |asked| {
+        asked == &live
+    });
+
+    assert_eq!(stopped, vec![monitor(1), monitor(3)]);
 }
 
 #[test]

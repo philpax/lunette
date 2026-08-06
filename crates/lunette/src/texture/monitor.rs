@@ -12,7 +12,7 @@
 //! [`DmabufImporter`] caches on the buffer it was handed and answers a recurring
 //! PipeWire buffer with the image it already made; without recording which image
 //! is installed, every frame from that buffer would allocate a fresh LOVR
-//! texture over the same memory. [`MonitorTextures::holds`] is what makes the
+//! texture over the same memory. [`MonitorTextures::image`] is what makes the
 //! second and later sightings free.
 //!
 //! Generic over the texture for the reason the surface ledger is: the

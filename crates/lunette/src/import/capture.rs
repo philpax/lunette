@@ -162,6 +162,21 @@ impl CaptureImporter {
         self.dmabuf.evict_gone_buffers();
     }
 
+    /// Which monitors have buffers retained for them.
+    ///
+    /// The frame loop's sweep for mirrors that have stopped is driven from this
+    /// as well as from the monitors holding a texture, because the two sets are
+    /// not the same. A frame whose image imports but whose texture the device
+    /// refuses retains a buffer here and never reaches [`MonitorTextures`], so a
+    /// sweep reading only the ledger would leave every buffer that monitor
+    /// retained alive for the rest of the process.
+    ///
+    /// [`MonitorTextures`]: crate::texture::MonitorTextures
+    #[must_use]
+    pub fn streams(&self) -> Vec<MonitorKey> {
+        self.streams.keys().cloned().collect()
+    }
+
     /// How many buffers are held across every stream.
     ///
     /// Diagnostic: a number that only grows means the key is not identifying a
