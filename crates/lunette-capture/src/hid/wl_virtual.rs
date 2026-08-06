@@ -320,14 +320,22 @@ impl HidProvider for WlVirtualProvider {
             if vertical != 0.0 {
                 let steps = detents(&mut self.wheel_residue.y, vertical);
                 let time = self.now();
-                self.pointer
-                    .axis_discrete(time, Axis::VerticalScroll, vertical, steps);
+                self.pointer.axis_discrete(
+                    time,
+                    Axis::VerticalScroll,
+                    vertical * AXIS_UNITS_PER_DETENT,
+                    steps,
+                );
             }
             if delta.x != 0.0 {
                 let steps = detents(&mut self.wheel_residue.x, delta.x);
                 let time = self.now();
-                self.pointer
-                    .axis_discrete(time, Axis::HorizontalScroll, delta.x, steps);
+                self.pointer.axis_discrete(
+                    time,
+                    Axis::HorizontalScroll,
+                    delta.x * AXIS_UNITS_PER_DETENT,
+                    steps,
+                );
             }
             self.pointer.frame();
         }
@@ -343,11 +351,13 @@ impl HidProvider for WlVirtualProvider {
 /// to depend on. WayVR reaches through smithay for it (`wl_virtual.rs:10`).
 const KEYMAP_FORMAT_XKB_V1: u32 = 1;
 
-/// How many logical scroll units make one detent.
+/// How many `wl_pointer.axis` units one wheel detent is.
 ///
-/// `axis_discrete` reports whole detents alongside the continuous value, and a
-/// host that only reads the discrete count scrolls nothing until one accrues.
-const UNITS_PER_DETENT: f64 = 10.0;
+/// The continuous value is in surface-local coordinates, and ten per detent is
+/// what libinput reports and what every wlroots compositor therefore expects.
+/// [`WheelDelta`] counts detents, so the conversion belongs here rather than
+/// being implied by whatever the caller happened to pass.
+const AXIS_UNITS_PER_DETENT: f64 = 10.0;
 
 /// The dispatch target. It handles nothing: neither virtual device sends events,
 /// and the registry's are not interesting once the globals have been bound.
@@ -442,14 +452,14 @@ fn offset(value: f64, origin: f64) -> u32 {
 
 /// How many whole detents `delta` completes, carrying the remainder forward.
 ///
-/// Without the carry, a trackpad-style stream of small deltas reports zero
-/// detents forever and a host that reads only the discrete count never scrolls.
+/// `delta` is in detents, as [`WheelDelta`] is. `axis_discrete` reports whole
+/// detents alongside the continuous value, and without the carry a
+/// trackpad-style stream of fractional deltas reports zero forever — so a host
+/// that reads only the discrete count never scrolls at all.
 fn detents(residue: &mut f64, delta: f64) -> i32 {
     *residue += delta;
-    let steps = (*residue / UNITS_PER_DETENT).trunc();
-    if steps != 0.0 {
-        *residue -= steps * UNITS_PER_DETENT;
-    }
+    let steps = residue.trunc();
+    *residue -= steps;
     steps as i32
 }
 
@@ -480,32 +490,32 @@ mod tests {
     fn a_scroll_shorter_than_a_detent_reports_no_step_yet() {
         let mut residue = 0.0;
 
-        assert_eq!(detents(&mut residue, 4.0), 0);
-        assert_eq!(residue, 4.0);
+        assert_eq!(detents(&mut residue, 0.4), 0);
+        assert_eq!(residue, 0.4);
     }
 
     #[test]
     fn successive_short_scrolls_accumulate_into_a_step() {
         let mut residue = 0.0;
-        let _ = detents(&mut residue, 6.0);
+        let _ = detents(&mut residue, 0.6);
 
-        assert_eq!(detents(&mut residue, 6.0), 1);
-        assert_eq!(residue, 2.0);
+        assert_eq!(detents(&mut residue, 0.6), 1);
+        assert!((residue - 0.2).abs() < f64::EPSILON * 8.0, "{residue}");
     }
 
     #[test]
     fn a_scroll_of_several_detents_reports_all_of_them_at_once() {
         let mut residue = 0.0;
 
-        assert_eq!(detents(&mut residue, 25.0), 2);
-        assert_eq!(residue, 5.0);
+        assert_eq!(detents(&mut residue, 2.5), 2);
+        assert_eq!(residue, 0.5);
     }
 
     #[test]
     fn scrolling_back_the_way_it_came_returns_the_residue_to_where_it_started() {
         let mut residue = 0.0;
-        let _ = detents(&mut residue, 7.0);
-        let _ = detents(&mut residue, -7.0);
+        let _ = detents(&mut residue, 0.7);
+        let _ = detents(&mut residue, -0.7);
 
         assert_eq!(residue, 0.0);
     }
@@ -514,7 +524,15 @@ mod tests {
     fn a_negative_scroll_steps_negatively() {
         let mut residue = 0.0;
 
-        assert_eq!(detents(&mut residue, -25.0), -2);
-        assert_eq!(residue, -5.0);
+        assert_eq!(detents(&mut residue, -2.5), -2);
+        assert_eq!(residue, -0.5);
+    }
+
+    #[test]
+    fn one_detent_is_ten_units_of_the_protocols_continuous_axis() {
+        // The unit both providers read `WheelDelta` in. uinput multiplies the
+        // same value by 120 for its high-resolution axes, so a disagreement
+        // here is a wheel that scrolls twelve times too far on one of them.
+        assert_eq!(1.0 * AXIS_UNITS_PER_DETENT, 10.0);
     }
 }

@@ -16,7 +16,7 @@
 //! Nothing in this file is `unsafe`; it is constants and one arithmetic helper.
 //! The calls that use them are in [`crate::hid::uinput`].
 
-use std::ffi::c_ulong;
+use std::{ffi::c_ulong, marker::PhantomData};
 
 // The ioctl request encoding below is Linux's asm-generic one, which covers
 // x86, arm, arm64, riscv, and loongarch. Alpha, MIPS, PowerPC, and SPARC use a
@@ -63,22 +63,60 @@ pub const REL_HWHEEL_HI_RES: u16 = 0x0c;
 /// How many units one wheel detent is, on the high-resolution axes.
 pub const WHEEL_HI_RES_PER_DETENT: f64 = 120.0;
 
+/// A request whose argument the kernel reads from a pointer to `T`.
+///
+/// The request number encodes `size_of::<T>()`, so the request and the type of
+/// its argument are one fact rather than two that have to be kept agreeing.
+/// Carrying the type in the request is what lets [`crate::hid::uinput`]'s
+/// generic `ioctl` say something true about the bytes the kernel reads: a call
+/// site cannot pair `UI_DEV_SETUP` with a `uinput_abs_setup`, because the types
+/// do not match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StructRequest<T> {
+    code: c_ulong,
+    /// The argument type, in a form that neither owns a `T` nor constrains
+    /// variance in a way a plain `PhantomData<T>` would.
+    argument: PhantomData<fn(&T)>,
+}
+
+impl<T> StructRequest<T> {
+    #[must_use]
+    pub const fn code(self) -> c_ulong {
+        self.code
+    }
+}
+
+/// A `UI_SET_*BIT` request, whose argument is one `int` passed by value.
+///
+/// A separate type from [`StructRequest`] because the calling convention
+/// differs: the kernel reads the bit out of the argument register rather than
+/// through a pointer, so the two must not be interchangeable at a call site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BitRequest(c_ulong);
+
+impl BitRequest {
+    #[must_use]
+    pub const fn code(self) -> c_ulong {
+        self.0
+    }
+}
+
 /// `UI_DEV_CREATE`: brings the configured device into existence.
 pub const UI_DEV_CREATE: c_ulong = io(1);
 /// `UI_DEV_DESTROY`: removes it again.
 pub const UI_DEV_DESTROY: c_ulong = io(2);
 /// `UI_DEV_SETUP`: names the device and gives it a bus identity.
-pub const UI_DEV_SETUP: c_ulong = iow(3, size_of::<libc::uinput_setup>());
+pub const UI_DEV_SETUP: StructRequest<libc::uinput_setup> = iow(3);
 /// `UI_ABS_SETUP`: declares one absolute axis's range.
-pub const UI_ABS_SETUP: c_ulong = iow(4, size_of::<libc::uinput_abs_setup>());
+pub const UI_ABS_SETUP: StructRequest<libc::uinput_abs_setup> = iow(4);
 /// `UI_SET_EVBIT`: declares that the device emits an event type at all.
-pub const UI_SET_EVBIT: c_ulong = iow(100, size_of::<libc::c_int>());
+pub const UI_SET_EVBIT: BitRequest = iow_bit(100);
 /// `UI_SET_KEYBIT`: declares one key or button the device can emit.
-pub const UI_SET_KEYBIT: c_ulong = iow(101, size_of::<libc::c_int>());
+pub const UI_SET_KEYBIT: BitRequest = iow_bit(101);
 /// `UI_SET_RELBIT`: declares one relative axis.
-pub const UI_SET_RELBIT: c_ulong = iow(102, size_of::<libc::c_int>());
+pub const UI_SET_RELBIT: BitRequest = iow_bit(102);
 /// `UI_SET_ABSBIT`: declares one absolute axis.
-pub const UI_SET_ABSBIT: c_ulong = iow(103, size_of::<libc::c_int>());
+pub const UI_SET_ABSBIT: BitRequest = iow_bit(103);
 
 /// The `'U'` in `_IOW('U', …)`, which is what makes these requests uinput's.
 const UINPUT_IOCTL_TYPE: u32 = b'U' as u32;
@@ -95,9 +133,18 @@ const fn io(nr: u32) -> c_ulong {
     ioc(0, nr, 0)
 }
 
-/// `_IOW('U', nr, ty)`: a request whose argument the kernel reads.
-const fn iow(nr: u32, size: usize) -> c_ulong {
-    ioc(IOC_DIR_WRITE, nr, size)
+/// `_IOW('U', nr, T)`: a request whose argument the kernel reads through a
+/// pointer.
+const fn iow<T>(nr: u32) -> StructRequest<T> {
+    StructRequest {
+        code: ioc(IOC_DIR_WRITE, nr, size_of::<T>()),
+        argument: PhantomData,
+    }
+}
+
+/// `_IOW('U', nr, int)`: a request whose argument is one `int` by value.
+const fn iow_bit(nr: u32) -> BitRequest {
+    BitRequest(ioc(IOC_DIR_WRITE, nr, size_of::<libc::c_int>()))
 }
 
 const fn ioc(dir: u32, nr: u32, size: usize) -> c_ulong {
@@ -125,25 +172,23 @@ mod tests {
     fn the_integer_requests_match_the_kernel_headers() {
         // `_IOW('U', 100, int)`: direction 1 at bit 30, size 4 at bit 16,
         // 'U' at bit 8, and the number in the low byte.
-        assert_eq!(UI_SET_EVBIT, 0x4004_5564);
-        assert_eq!(UI_SET_KEYBIT, 0x4004_5565);
-        assert_eq!(UI_SET_RELBIT, 0x4004_5566);
-        assert_eq!(UI_SET_ABSBIT, 0x4004_5567);
+        assert_eq!(UI_SET_EVBIT.code(), 0x4004_5564);
+        assert_eq!(UI_SET_KEYBIT.code(), 0x4004_5565);
+        assert_eq!(UI_SET_RELBIT.code(), 0x4004_5566);
+        assert_eq!(UI_SET_ABSBIT.code(), 0x4004_5567);
     }
 
     #[test]
     fn the_structure_requests_carry_the_structure_size() {
+        // The size in the request number is taken from the request's own
+        // argument type, so this states that the type is the one the kernel
+        // expects rather than that two constants agree.
         assert_eq!(
-            UI_DEV_SETUP,
-            iow(3, size_of::<libc::uinput_setup>()),
-            "the encoding and the constant disagree",
-        );
-        assert_eq!(
-            (UI_DEV_SETUP >> IOC_SIZE_SHIFT) & 0x3fff,
+            (UI_DEV_SETUP.code() >> IOC_SIZE_SHIFT) & 0x3fff,
             size_of::<libc::uinput_setup>() as c_ulong,
         );
         assert_eq!(
-            (UI_ABS_SETUP >> IOC_SIZE_SHIFT) & 0x3fff,
+            (UI_ABS_SETUP.code() >> IOC_SIZE_SHIFT) & 0x3fff,
             size_of::<libc::uinput_abs_setup>() as c_ulong,
         );
     }
@@ -153,12 +198,12 @@ mod tests {
         for request in [
             UI_DEV_CREATE,
             UI_DEV_DESTROY,
-            UI_DEV_SETUP,
-            UI_ABS_SETUP,
-            UI_SET_EVBIT,
-            UI_SET_KEYBIT,
-            UI_SET_RELBIT,
-            UI_SET_ABSBIT,
+            UI_DEV_SETUP.code(),
+            UI_ABS_SETUP.code(),
+            UI_SET_EVBIT.code(),
+            UI_SET_KEYBIT.code(),
+            UI_SET_RELBIT.code(),
+            UI_SET_ABSBIT.code(),
         ] {
             assert_eq!(
                 (request >> IOC_TYPE_SHIFT) & 0xff,

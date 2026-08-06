@@ -14,8 +14,11 @@
 //! evidence.
 //!
 //! Pure over plain data. Nothing here touches the portal, PipeWire, or a
-//! display, and the result is sorted, so correlating the same streams in a
-//! different order produces the same answer.
+//! display. Both passes walk the streams in node order rather than in the order
+//! the portal listed them, and the result is sorted, so correlating the same
+//! streams in a different order produces the same answer — including in the
+//! cases where two streams contend for one monitor and only one of them can
+//! have it.
 
 use std::{collections::BTreeMap, fmt};
 
@@ -43,7 +46,15 @@ use crate::{
 pub fn correlate(streams: &[PortalStream], roster: &Roster) -> Correlation {
     let mut claims = Claims::new(roster);
 
-    for stream in streams {
+    // By node rather than in the order the portal listed them. Two streams
+    // naming one connector cannot both have it, and taking the first in slice
+    // order would make which one wins a property of the portal's response
+    // ordering, which it guarantees nothing about. The position pass is already
+    // node-ordered, because it groups through a `BTreeMap`.
+    let mut ordered: Vec<&PortalStream> = streams.iter().collect();
+    ordered.sort_by_key(|stream| stream.node);
+
+    for stream in ordered {
         claims.claim_by_connector(stream);
     }
     claims.claim_by_position(streams);
@@ -592,6 +603,29 @@ mod tests {
                 (3, "Acme Left".to_owned(), MatchStrength::Connector),
                 (7, "Acme Right".to_owned(), MatchStrength::PositionAndSize),
             ],
+        );
+    }
+
+    #[test]
+    fn which_of_two_streams_naming_one_connector_wins_does_not_depend_on_portal_order() {
+        // Only one of them can have the monitor. Deciding it by slice position
+        // would make the answer a property of the portal's response ordering.
+        let mut first = stream(3, None, None);
+        first.connector = ConnectorName::parse("DP-1");
+        let mut second = stream(7, None, None);
+        second.connector = ConnectorName::parse("DP-1");
+
+        let forwards = [first.clone(), second.clone()];
+        let backwards = [second, first];
+
+        assert_eq!(
+            correlate(&forwards, &two_monitors()),
+            correlate(&backwards, &two_monitors()),
+        );
+        assert_eq!(
+            matched(&correlate(&backwards, &two_monitors())),
+            vec![(3, "Acme Left".to_owned(), MatchStrength::Connector)],
+            "the lower node identifier takes it, whichever order they arrived in",
         );
     }
 

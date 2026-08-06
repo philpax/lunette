@@ -17,7 +17,7 @@
 //! classifies devices by capability handles that inconsistently.
 
 use std::{
-    ffi::{c_int, c_ulong},
+    ffi::c_int,
     fmt,
     fs::{File, OpenOptions},
     io::{self, Write},
@@ -32,9 +32,10 @@ use tracing::{debug, warn};
 use crate::hid::{
     HidProvider,
     evdev::{
-        ABS_X, ABS_Y, EV_ABS, EV_KEY, EV_REL, EV_SYN, REL_HWHEEL_HI_RES, REL_WHEEL_HI_RES,
-        SYN_REPORT, UI_ABS_SETUP, UI_DEV_CREATE, UI_DEV_DESTROY, UI_DEV_SETUP, UI_SET_ABSBIT,
-        UI_SET_EVBIT, UI_SET_KEYBIT, UI_SET_RELBIT, WHEEL_HI_RES_PER_DETENT,
+        ABS_X, ABS_Y, BitRequest, EV_ABS, EV_KEY, EV_REL, EV_SYN, REL_HWHEEL_HI_RES,
+        REL_WHEEL_HI_RES, SYN_REPORT, StructRequest, UI_ABS_SETUP, UI_DEV_CREATE, UI_DEV_DESTROY,
+        UI_DEV_SETUP, UI_SET_ABSBIT, UI_SET_EVBIT, UI_SET_KEYBIT, UI_SET_RELBIT,
+        WHEEL_HI_RES_PER_DETENT,
     },
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
     pointer::{DesktopExtent, DesktopPoint, DesktopVector, PendingPointer, WheelDelta},
@@ -343,11 +344,15 @@ const VENDOR: u16 = 0x1d6b;
 const KEYBOARD_PRODUCT: u16 = 0x0001;
 const MOUSE_PRODUCT: u16 = 0x0002;
 
-/// One created uinput device, destroyed when it is dropped.
+/// A uinput device the kernel has created, destroyed when it is dropped.
+///
+/// Distinct from [`OpenNode`], which is the descriptor before `UI_DEV_CREATE`
+/// has been issued. Only this type has a `Drop`, so a setup that fails partway
+/// destroys nothing and reports what actually went wrong: `UI_DEV_DESTROY`
+/// against a node with no device behind it fails, and warning about it would
+/// bury the real failure under a misleading second line.
 struct UinputDevice {
-    file: File,
-    path: PathBuf,
-    name: String,
+    node: OpenNode,
 }
 
 impl UinputDevice {
@@ -359,24 +364,12 @@ impl UinputDevice {
         path: &Path,
         name: &str,
         product: u16,
-        declare: impl FnOnce(&Self) -> Result<Vec<libc::uinput_abs_setup>, ProviderError>,
+        declare: impl FnOnce(&OpenNode) -> Result<Vec<libc::uinput_abs_setup>, ProviderError>,
     ) -> Result<Self, ProviderError> {
-        let file = OpenOptions::new()
-            .write(true)
-            .open(path)
-            .map_err(|source| ProviderError::Io {
-                operation: "open",
-                path: Some(path.to_owned()),
-                source,
-            })?;
-        let device = Self {
-            file,
-            path: path.to_owned(),
-            name: name.to_owned(),
-        };
+        let node = OpenNode::open(path, name)?;
 
-        for axis in declare(&device)? {
-            device.ioctl(UI_ABS_SETUP, "configure an absolute axis", &raw const axis)?;
+        for axis in declare(&node)? {
+            node.ioctl(UI_ABS_SETUP, "configure an absolute axis", &raw const axis)?;
         }
 
         let setup = libc::uinput_setup {
@@ -389,50 +382,16 @@ impl UinputDevice {
             name: device_name(name),
             ff_effects_max: 0,
         };
-        device.ioctl(UI_DEV_SETUP, "name the device", &raw const setup)?;
+        node.ioctl(UI_DEV_SETUP, "name the device", &raw const setup)?;
 
         // SAFETY: `UI_DEV_CREATE` takes no argument, and the descriptor is
-        // owned by `device` and open for the duration of the call.
-        let created = unsafe { libc::ioctl(device.raw_fd(), UI_DEV_CREATE) };
+        // owned by `node` and open for the duration of the call.
+        let created = unsafe { libc::ioctl(node.raw_fd(), UI_DEV_CREATE) };
         if created < 0 {
-            return Err(device.last_error("create the device"));
+            return Err(node.last_error("create the device"));
         }
 
-        Ok(device)
-    }
-
-    /// Declares one capability bit.
-    fn set_bit(
-        &self,
-        request: c_ulong,
-        what: &'static str,
-        bit: c_int,
-    ) -> Result<(), ProviderError> {
-        // SAFETY: every `UI_SET_*BIT` request takes the bit by value as an
-        // `int`, and the descriptor is open for the duration of the call.
-        let result = unsafe { libc::ioctl(self.raw_fd(), request, bit) };
-        if result < 0 {
-            return Err(self.last_error(what));
-        }
-        Ok(())
-    }
-
-    /// Issues a request whose argument the kernel reads from `argument`.
-    fn ioctl<T>(
-        &self,
-        request: c_ulong,
-        what: &'static str,
-        argument: *const T,
-    ) -> Result<(), ProviderError> {
-        // SAFETY: `request` is an `_IOW` encoding whose size field is
-        // `size_of::<T>()` — the constants in `evdev` pair each request with its
-        // own structure — so the kernel reads exactly the bytes `argument`
-        // points at, and the pointer is to a live local of the caller's.
-        let result = unsafe { libc::ioctl(self.raw_fd(), request, argument) };
-        if result < 0 {
-            return Err(self.last_error(what));
-        }
-        Ok(())
+        Ok(Self { node })
     }
 
     /// Writes one group of events, ending with the caller's `EV_SYN`.
@@ -447,13 +406,98 @@ impl UinputDevice {
         let bytes = unsafe {
             slice::from_raw_parts(events.as_ptr().cast::<u8>(), mem::size_of_val(events))
         };
-        self.file
+        self.node
+            .file
             .write_all(bytes)
             .map_err(|source| ProviderError::Io {
                 operation: "write an event to",
-                path: Some(self.path.clone()),
+                path: Some(self.node.path.clone()),
                 source,
             })
+    }
+}
+
+impl Drop for UinputDevice {
+    fn drop(&mut self) {
+        // SAFETY: `UI_DEV_DESTROY` takes no argument, and the descriptor is
+        // still open — the `File` is dropped after this.
+        let destroyed = unsafe { libc::ioctl(self.node.raw_fd(), UI_DEV_DESTROY) };
+        if destroyed < 0 {
+            // Reported rather than propagated: a device the kernel would not
+            // destroy is one that outlives the process as a phantom keyboard,
+            // which is worth a line in the log and is not something the caller
+            // can do anything about.
+            warn!(
+                device = %self.node.name,
+                error = %io::Error::last_os_error(),
+                "could not destroy the uinput device",
+            );
+        }
+    }
+}
+
+/// An open `/dev/uinput` descriptor, before any device exists behind it.
+///
+/// Deliberately without a `Drop`: closing the descriptor is all that is wanted
+/// here, and that is `File`'s own.
+struct OpenNode {
+    file: File,
+    path: PathBuf,
+    name: String,
+}
+
+impl OpenNode {
+    fn open(path: &Path, name: &str) -> Result<Self, ProviderError> {
+        let file = OpenOptions::new()
+            .write(true)
+            .open(path)
+            .map_err(|source| ProviderError::Io {
+                operation: "open",
+                path: Some(path.to_owned()),
+                source,
+            })?;
+
+        Ok(Self {
+            file,
+            path: path.to_owned(),
+            name: name.to_owned(),
+        })
+    }
+
+    /// Declares one capability bit.
+    fn set_bit(
+        &self,
+        request: BitRequest,
+        what: &'static str,
+        bit: c_int,
+    ) -> Result<(), ProviderError> {
+        // SAFETY: `BitRequest` is minted only for the `UI_SET_*BIT` requests,
+        // every one of which takes the bit by value as an `int`, and the
+        // descriptor is open for the duration of the call.
+        let result = unsafe { libc::ioctl(self.raw_fd(), request.code(), bit) };
+        if result < 0 {
+            return Err(self.last_error(what));
+        }
+        Ok(())
+    }
+
+    /// Issues a request whose argument the kernel reads from `argument`.
+    fn ioctl<T>(
+        &self,
+        request: StructRequest<T>,
+        what: &'static str,
+        argument: *const T,
+    ) -> Result<(), ProviderError> {
+        // SAFETY: `StructRequest<T>` encodes `size_of::<T>()` in the request
+        // number and is the only way to name one of these requests, so the
+        // kernel reads exactly the bytes `argument` points at. The pointer is to
+        // a live local of the caller's, and the descriptor is open for the
+        // duration of the call.
+        let result = unsafe { libc::ioctl(self.raw_fd(), request.code(), argument) };
+        if result < 0 {
+            return Err(self.last_error(what));
+        }
+        Ok(())
     }
 
     fn raw_fd(&self) -> RawFd {
@@ -465,25 +509,6 @@ impl UinputDevice {
             operation: what,
             path: Some(self.path.clone()),
             source: io::Error::last_os_error(),
-        }
-    }
-}
-
-impl Drop for UinputDevice {
-    fn drop(&mut self) {
-        // SAFETY: `UI_DEV_DESTROY` takes no argument, and the descriptor is
-        // still open — the `File` is dropped after this.
-        let destroyed = unsafe { libc::ioctl(self.raw_fd(), UI_DEV_DESTROY) };
-        if destroyed < 0 {
-            // Reported rather than propagated: a device the kernel would not
-            // destroy is one that outlives the process as a phantom keyboard,
-            // which is worth a line in the log and is not something the caller
-            // can do anything about.
-            warn!(
-                device = %self.name,
-                error = %io::Error::last_os_error(),
-                "could not destroy the uinput device",
-            );
         }
     }
 }

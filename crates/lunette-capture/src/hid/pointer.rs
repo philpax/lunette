@@ -127,7 +127,14 @@ impl fmt::Display for DesktopExtent {
     }
 }
 
-/// How far a scroll wheel turned, in the host's logical scroll units.
+/// How far a scroll wheel turned, in detents.
+///
+/// One unit is one click of a notched wheel, and the value is fractional
+/// because a trackpad-style source produces a fraction of one. Both providers
+/// convert from here into whatever their transport counts in — uinput's
+/// high-resolution axes are 120ths of a detent, and `wl_pointer.axis` is ten
+/// surface-local units per detent — so the unit has to be stated once, here,
+/// and not implied differently at each end.
 #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
 pub struct WheelDelta {
     pub x: f64,
@@ -221,11 +228,17 @@ impl PendingPointer {
     /// frame than lost.
     ///
     /// The recorded position is forced to the latest requested one, so a click
-    /// lands where the laser is rather than where the frame's first move was.
+    /// lands where the laser is rather than where the frame's first move was —
+    /// unless a scroll has already suppressed this frame's motion, in which case
+    /// there is no position to send and reinstating one would put a motion event
+    /// back between the wheel events that [`Self::scroll`] took it out from
+    /// between.
     pub fn press(&mut self, button: PointerButton, down: bool) {
         if self.button.is_none() {
             self.button = Some((button, down));
-            self.position = self.last_requested;
+            if self.wheel.is_none() {
+                self.position = self.last_requested;
+            }
         }
     }
 
@@ -369,6 +382,23 @@ mod tests {
 
         assert_eq!(batch.wheel, None);
         assert_eq!(batch.position, Some(DesktopPoint::new(10.0, 10.0)));
+    }
+
+    #[test]
+    fn a_click_in_a_scrolling_frame_does_not_put_the_motion_back() {
+        // `press` forces the recorded position to the latest requested one, and
+        // doing that after a scroll would reinstate exactly the motion event
+        // `scroll` removed — which is what stops Chromium scrolling.
+        let mut pending = PendingPointer::new();
+        pending.move_to(DesktopPoint::new(10.0, 10.0));
+        pending.scroll(WheelDelta::new(0.0, 5.0));
+        pending.press(PointerButton::Left, true);
+
+        let batch = pending.take();
+
+        assert_eq!(batch.position, None);
+        assert_eq!(batch.button, Some((PointerButton::Left, true)));
+        assert_eq!(batch.wheel, Some(WheelDelta::new(0.0, 5.0)));
     }
 
     #[test]

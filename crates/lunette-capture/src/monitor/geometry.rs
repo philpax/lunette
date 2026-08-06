@@ -58,6 +58,20 @@ impl LogicalSize {
         Self { width, height }
     }
 
+    /// A size the host reported as the protocol's signed pair.
+    ///
+    /// `None` for a negative dimension. `zxdg_output_v1.logical_size` does not
+    /// permit one, so it means the compositor is misbehaving — and coercing it
+    /// to zero would turn that into a monitor with no area, which reads as an
+    /// output that has simply not finished describing itself.
+    #[must_use]
+    pub fn from_signed(width: i32, height: i32) -> Option<Self> {
+        match (u32::try_from(width), u32::try_from(height)) {
+            (Ok(width), Ok(height)) => Some(Self::new(width, height)),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub const fn is_empty(self) -> bool {
         self.width == 0 || self.height == 0
@@ -93,6 +107,19 @@ impl PixelExtent {
     #[must_use]
     pub const fn new(width: u32, height: u32) -> Self {
         Self { width, height }
+    }
+
+    /// A resolution the host reported as the protocol's signed pair.
+    ///
+    /// `None` for a negative dimension, which `wl_output.mode` does not permit.
+    /// Rejected rather than coerced, for the reason
+    /// [`LogicalSize::from_signed`] gives.
+    #[must_use]
+    pub fn from_signed(width: i32, height: i32) -> Option<Self> {
+        match (u32::try_from(width), u32::try_from(height)) {
+            (Ok(width), Ok(height)) => Some(Self::new(width, height)),
+            _ => None,
+        }
     }
 
     #[must_use]
@@ -230,6 +257,30 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn a_signed_pair_the_protocol_permits_becomes_a_size() {
+        assert_eq!(
+            LogicalSize::from_signed(1920, 1080),
+            Some(LogicalSize::new(1920, 1080)),
+        );
+        assert_eq!(
+            PixelExtent::from_signed(3840, 2160),
+            Some(PixelExtent::new(3840, 2160)),
+        );
+        assert_eq!(LogicalSize::from_signed(0, 0), Some(LogicalSize::new(0, 0)));
+    }
+
+    #[test]
+    fn a_negative_dimension_is_refused_rather_than_coerced_to_zero() {
+        // Zero would read as an output that has not finished describing itself,
+        // which is an ordinary state; a negative dimension is a compositor
+        // sending something the protocol does not permit, and the two must not
+        // be answered the same way.
+        assert_eq!(LogicalSize::from_signed(-1, 1080), None);
+        assert_eq!(LogicalSize::from_signed(1920, -1), None);
+        assert_eq!(PixelExtent::from_signed(-1, -1), None);
+    }
 
     #[test]
     fn every_transform_round_trips_through_its_protocol_value() {

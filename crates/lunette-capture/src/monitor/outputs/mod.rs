@@ -447,14 +447,17 @@ impl Dispatch<WlOutput, OutputId> for Registry {
                 let current = flags
                     .into_result()
                     .is_ok_and(|flags| flags.contains(Mode::Current));
-                state.outputs.record_mode(
-                    *id,
-                    current,
-                    PixelExtent::new(
-                        width.try_into().unwrap_or(0),
-                        height.try_into().unwrap_or(0),
-                    ),
-                );
+                let Some(pixels) = PixelExtent::from_signed(width, height) else {
+                    warn!(
+                        %id,
+                        width,
+                        height,
+                        "the host reported a mode with a negative dimension, which is not a \
+                         resolution; it is ignored rather than recorded as zero",
+                    );
+                    return;
+                };
+                state.outputs.record_mode(*id, current, pixels);
             }
             wl_output::Event::Scale { factor } => state.outputs.record_scale(*id, factor),
             wl_output::Event::Name { name } => state.outputs.record_name(*id, &name),
@@ -477,13 +480,17 @@ impl Dispatch<ZxdgOutputV1, OutputId> for Registry {
                 .outputs
                 .record_logical_position(*id, LogicalPosition::new(x, y)),
             zxdg_output_v1::Event::LogicalSize { width, height } => {
-                state.outputs.record_logical_size(
-                    *id,
-                    LogicalSize::new(
-                        width.try_into().unwrap_or(0),
-                        height.try_into().unwrap_or(0),
-                    ),
-                )
+                let Some(size) = LogicalSize::from_signed(width, height) else {
+                    warn!(
+                        %id,
+                        width,
+                        height,
+                        "the host reported a logical size with a negative dimension, which places \
+                         no monitor; it is ignored rather than recorded as zero",
+                    );
+                    return;
+                };
+                state.outputs.record_logical_size(*id, size);
             }
             _ => {}
         }
