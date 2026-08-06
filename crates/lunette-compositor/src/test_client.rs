@@ -48,6 +48,8 @@ use wayland_client::{
         wl_seat::{self, Capability, WlSeat},
         wl_shm::{self, WlShm},
         wl_shm_pool::WlShmPool,
+        wl_subcompositor::WlSubcompositor,
+        wl_subsurface::WlSubsurface,
         wl_surface::WlSurface,
     },
 };
@@ -57,6 +59,8 @@ use wayland_protocols::{
         zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
     },
     xdg::shell::client::{
+        xdg_popup::XdgPopup,
+        xdg_positioner::{self, XdgPositioner},
         xdg_surface::{self, XdgSurface},
         xdg_toplevel::{self, XdgToplevel},
         xdg_wm_base::{self, XdgWmBase},
@@ -82,6 +86,11 @@ pub struct TestClient {
     /// Every seat this client has bound, by the registry name of its global, so
     /// a second look at the registry does not bind the same seat twice.
     seats: Vec<(u32, WlSeat)>,
+    /// Every popup the client has opened, held so none is destroyed early.
+    popups: Vec<(XdgPopup, XdgSurface)>,
+    /// Every subsurface the client has created, held for the same reason: a
+    /// destroyed `wl_subsurface` puts its surface back to having no role.
+    subsurfaces: Vec<WlSubsurface>,
     /// The pointer of the first seat, which is the one a single-seat test uses.
     pointer: Option<WlPointer>,
     /// Every buffer this client created, held so none is destroyed early. A
@@ -114,6 +123,8 @@ impl TestClient {
             xdg_surface: None,
             toplevel: None,
             seats: Vec::new(),
+            popups: Vec::new(),
+            subsurfaces: Vec::new(),
             pointer: None,
             buffers: Vec::new(),
         }
@@ -206,8 +217,12 @@ impl TestClient {
         self.xdg_surface = Some(xdg_surface);
         self.toplevel = Some(toplevel);
 
-        self.settle(compositor, |driver| driver.configure_serial.is_some());
-        self.acknowledge_configure();
+        let xdg = self
+            .xdg_surface
+            .clone()
+            .unwrap_or_else(|| unreachable!("the xdg_surface was just stored"));
+        self.settle(compositor, |driver| driver.configure_serial(&xdg).is_some());
+        self.acknowledge_configure(&xdg);
     }
 
     /// Attaches a linear `argb8888` dmabuf of `size` and commits.
@@ -271,6 +286,91 @@ impl TestClient {
 
         self.attach_to(compositor, &surface, &buffer, width, height);
         self.buffers.push(buffer);
+        surface
+    }
+
+    /// Opens an `xdg_popup` of the toplevel, at `origin` in the toplevel's own
+    /// coordinates, and commits a buffer to it.
+    ///
+    /// The positioner anchors the popup's top-left corner at `origin`: the
+    /// anchor rectangle is a single pixel there, the anchor edge is its
+    /// top-left, and the gravity is bottom-right, so the popup grows away from
+    /// that corner and its geometry starts exactly at it. A menu placed by any
+    /// other combination lands somewhere a test would have to re-derive.
+    ///
+    /// Returns the popup's surface, which is what a routing test compares an
+    /// enter against.
+    pub fn open_popup(
+        &mut self,
+        compositor: &mut TestCompositor,
+        origin: (i32, i32),
+        size: PixelSize,
+    ) -> WlSurface {
+        let handle = self.queue.handle();
+        let wl_compositor = self.bind::<WlCompositor>(6);
+        let wm_base = self.bind::<XdgWmBase>(3);
+        let parent = self
+            .xdg_surface
+            .clone()
+            .expect("a toplevel was opened first");
+        let (width, height) = protocol_size(size);
+
+        let positioner = wm_base.create_positioner(&handle, ());
+        positioner.set_size(width, height);
+        positioner.set_anchor_rect(origin.0, origin.1, 1, 1);
+        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+
+        let surface = wl_compositor.create_surface(&handle, ());
+        let xdg_surface = wm_base.get_xdg_surface(&surface, &handle, ());
+        let popup = xdg_surface.get_popup(Some(&parent), &positioner, &handle, ());
+        positioner.destroy();
+        surface.commit();
+
+        self.settle(compositor, |driver| {
+            driver.configure_serial(&xdg_surface).is_some()
+        });
+        self.acknowledge_configure(&xdg_surface);
+
+        let buffer = self.shm_buffer(size);
+        self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+        self.popups.push((popup, xdg_surface));
+        surface
+    }
+
+    /// Adds a subsurface of the toplevel at `origin`, with a buffer committed.
+    ///
+    /// Desynchronised, and the parent is committed afterwards: a subsurface's
+    /// position is part of its *parent's* double-buffered state, so without the
+    /// parent commit the child sits at the origin however it was positioned.
+    ///
+    /// Returns the subsurface's own surface.
+    pub fn open_subsurface(
+        &mut self,
+        compositor: &mut TestCompositor,
+        origin: (i32, i32),
+        size: PixelSize,
+    ) -> WlSurface {
+        let handle = self.queue.handle();
+        let wl_compositor = self.bind::<WlCompositor>(6);
+        let subcompositor = self.bind::<WlSubcompositor>(1);
+        let parent = self.surface.clone().expect("a toplevel was opened first");
+        let (width, height) = protocol_size(size);
+
+        let surface = wl_compositor.create_surface(&handle, ());
+        let subsurface = subcompositor.get_subsurface(&surface, &parent, &handle, ());
+        subsurface.set_position(origin.0, origin.1);
+        subsurface.set_desync();
+
+        let buffer = self.shm_buffer(size);
+        self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+
+        parent.commit();
+        self.settle_quiet(compositor);
+
+        self.subsurfaces.push(subsurface);
         surface
     }
 
@@ -460,11 +560,13 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    fn acknowledge_configure(&mut self) {
-        let (Some(xdg_surface), Some(serial)) =
-            (self.xdg_surface.as_ref(), self.driver.configure_serial)
-        else {
-            panic!("the compositor did not configure the toplevel");
+    /// Acknowledges the configure one `xdg_surface` was last sent.
+    ///
+    /// A client may not attach a buffer before it has, and doing so is where
+    /// these tests fail confusingly rather than with a protocol error.
+    fn acknowledge_configure(&mut self, xdg_surface: &XdgSurface) {
+        let Some(serial) = self.driver.configure_serial(xdg_surface) else {
+            panic!("the compositor did not configure the surface");
         };
         xdg_surface.ack_configure(serial);
     }
@@ -505,7 +607,10 @@ impl TestClient {
 pub struct Driver {
     pub globals: Vec<Global>,
     registry: Option<WlRegistry>,
-    pub configure_serial: Option<u32>,
+    /// The serial each `xdg_surface` was last configured with. Keyed, because a
+    /// popup has its own `xdg_surface` and acknowledging the wrong one is a
+    /// protocol error.
+    configures: Vec<(ObjectId, u32)>,
     pub toplevel_size: Option<(i32, i32)>,
     pub closed: bool,
     /// Every seat the client has bound, in the order it bound them.
@@ -520,6 +625,16 @@ pub struct Driver {
 }
 
 impl Driver {
+    /// The serial an `xdg_surface` was last configured with.
+    #[must_use]
+    pub fn configure_serial(&self, xdg_surface: &XdgSurface) -> Option<u32> {
+        let id = xdg_surface.id();
+        self.configures
+            .iter()
+            .find(|(target, _)| *target == id)
+            .map(|(_, serial)| *serial)
+    }
+
     /// The name a seat advertised on `wl_seat.name`, once it has.
     #[must_use]
     pub fn seat_name(&self, seat: &WlSeat) -> Option<String> {
@@ -699,14 +814,22 @@ impl Dispatch<XdgWmBase, ()> for Driver {
 impl Dispatch<XdgSurface, ()> for Driver {
     fn event(
         state: &mut Self,
-        _xdg_surface: &XdgSurface,
+        xdg_surface: &XdgSurface,
         event: xdg_surface::Event,
         (): &(),
         _connection: &Connection,
         _handle: &QueueHandle<Self>,
     ) {
         if let xdg_surface::Event::Configure { serial } = event {
-            state.configure_serial = Some(serial);
+            let id = xdg_surface.id();
+            match state
+                .configures
+                .iter_mut()
+                .find(|(target, _)| *target == id)
+            {
+                Some((_, recorded)) => *recorded = serial,
+                None => state.configures.push((id, serial)),
+            }
         }
     }
 }
@@ -816,6 +939,12 @@ delegate_noop!(Driver: ignore WlShm);
 delegate_noop!(Driver: ignore WlShmPool);
 delegate_noop!(Driver: ignore ZwpLinuxDmabufV1);
 delegate_noop!(Driver: ignore ZwpLinuxBufferParamsV1);
+delegate_noop!(Driver: ignore WlSubcompositor);
+delegate_noop!(Driver: ignore WlSubsurface);
+delegate_noop!(Driver: ignore XdgPositioner);
+// An `xdg_popup` carries its own configure and a `popup_done`; neither says
+// anything about where input lands, which is what these tests are about.
+delegate_noop!(Driver: ignore XdgPopup);
 
 /// A size as the protocol counts it, which is in signed pixels.
 ///

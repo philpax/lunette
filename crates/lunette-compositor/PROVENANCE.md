@@ -40,6 +40,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
 | `backend/wayvr/window.rs`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/window.rs` |
 | `backend/wayvr/mod.rs` (the seat construction fragment), `backend/wayvr/window.rs` (the hover state) | `src/seat.rs` |
+| `backend/wayvr/hit_test.rs` | `src/hit_test.rs` |
 | `backend/wayvr/time.rs` | folded into `src/state/compositor.rs` as `CompositorState::millis` |
 | `backend/wayvr/process.rs` (the registry and attribution), `backend/wayvr/mod.rs` (the spawn fragments) | `src/process/registry.rs` |
 | `backend/wayvr/process.rs` (spawning and signalling) | `src/process/spawn.rs` |
@@ -47,7 +48,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/client.rs`, `backend/wayvr/mod.rs` (`WaylandEnv`, `ExternalProcessRequest`) | `src/client.rs` |
 | `backend/wayvr/image_importer.rs` (the `wl_shm` path) | `crates/lunette/src/import/shm.rs` |
 
-The table records files that exist. `backend/wayvr/hit_test.rs` is not among them: surface-local hit testing is wanted, and [docs/compositor.md](../../docs/compositor.md) says so, but nothing has been taken from it yet. Its row is added when the file it lands in exists.
+`hit_test.rs` comes across without its two couplings. The `Arc<ImageView>` on `RenderedSurface` is read only for a size, so the size arrives as a value and the image stays with whoever draws — which is what keeps this crate free of a graphics dependency. `PointerHit`, the UV transform, and the panel layer go entirely, because Lua performs the ray intersection and hands down pixel coordinates ([docs/input.md](../../docs/input.md)). `BORDER_SIZE` and `BAR_SIZE` are WayVR's titlebar chrome and are mullion's job.
 
 `comp.rs` and `process.rs` each land in more than one file because a single one
 would be past the size threshold in [CONTRIBUTING.md](../../CONTRIBUTING.md).
@@ -56,11 +57,11 @@ off it, and the commit path answer different questions.
 
 `mod.rs` is 1391 lines of which only fragments are wanted, so it lands in several files rather than one. Each names the fragments it took.
 
-Seven files carry no header, and the check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/` against this list.
+Eight files carry no header, and the check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/` against this list.
 
 - `src/protocol.rs`, `src/thread.rs`, `src/testing.rs`, and `src/test_client.rs` are lunette's own. WayVR has no equivalent: its compositor runs on the caller's thread, driven per-tick from `mod.rs`, and it has no cross-thread protocol to define.
 - `src/lib.rs` declares the crate's modules and states its boundary. It takes no code from upstream.
-- `src/process/tests.rs` and `src/state/tests.rs` are lunette's tests for ported code. WayVR ships none.
+- `src/process/tests.rs`, `src/state/tests.rs`, and `src/hit_test/tests.rs` are lunette's tests for ported code. WayVR ships none.
 
 `MouseIndex` (`mod.rs:154`) is not ported. `protocol::PointerButton` covers it and covers the two side buttons WayVR omits.
 

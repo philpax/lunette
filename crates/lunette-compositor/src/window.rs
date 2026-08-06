@@ -174,6 +174,12 @@ impl Window {
         self.mapped
     }
 
+    /// The size the client last committed, which is the window's client area
+    /// for the purposes of hit testing.
+    pub(crate) const fn size(&self) -> PixelSize {
+        self.size
+    }
+
     pub(crate) fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }

@@ -13,6 +13,7 @@
 //! direction the coupling would otherwise grow.
 
 pub mod client;
+pub(crate) mod hit_test;
 pub mod process;
 pub mod protocol;
 pub(crate) mod seat;

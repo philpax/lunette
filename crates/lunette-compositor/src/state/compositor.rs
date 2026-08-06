@@ -50,6 +50,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     client::{DisplayName, Satellite, XwaylandSatellite},
+    hit_test::{self, HitTarget},
     process::{
         DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
     },
@@ -646,24 +647,13 @@ impl CompositorState {
     }
 
     /// Moves a seat's pointer onto a sink, or withdraws it.
-    ///
-    /// Phase 2 delivers to the window's own surface at the position given.
-    /// Descending into subsurfaces and popups needs the hit test, which is
-    /// Phase 5; until then a click lands on the toplevel, which is what the
-    /// milestone gate asks for.
     fn move_pointer(&mut self, seat: SeatId, target: Option<(SinkId, PixelPoint)>) {
         let Some(pointer) = self.seats.get(seat).map(SeatEntry::pointer) else {
             warn!(%seat, "input was addressed to a seat that does not exist");
             return;
         };
 
-        // The focus origin is where the surface sits in the coordinate space
-        // `location` is measured in. Delivering straight to the toplevel puts
-        // it at the origin, so the surface-local position is the position given.
-        let focus = target.and_then(|(sink, _)| {
-            let surface = self.windows.by_sink(sink)?.toplevel().wl_surface().clone();
-            Some((surface, Point::from((0.0, 0.0))))
-        });
+        let focus = target.and_then(|(sink, position)| self.focus_at(sink, position));
 
         let hovered = target.and_then(|(sink, position)| {
             Some(MouseState {
@@ -688,6 +678,43 @@ impl CompositorState {
 
         pointer.motion(self, focus, &event);
         pointer.frame(self);
+    }
+
+    /// Which surface a point over a sink lands on, and where that surface sits.
+    ///
+    /// The origin is what smithay subtracts to produce the surface-local
+    /// coordinates a client receives, so a popup or a subsurface is delivered to
+    /// in its own frame rather than the window's. Nothing, when the point is
+    /// over no surface at all; the pointer then leaves whatever it was on.
+    ///
+    /// The context is built per event rather than cached. A window's tree is
+    /// tens of surfaces at most, and a cache would have to be invalidated from
+    /// every commit, every subsurface move, and every popup configure — three
+    /// places for it to go stale against one walk that is already cheap.
+    fn focus_at(
+        &self,
+        sink: SinkId,
+        position: PixelPoint,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let window = self.windows.by_sink(sink)?;
+        let toplevel = window.toplevel().wl_surface().clone();
+
+        let context = hit_test::context(&toplevel, window.size(), &|surface| {
+            self.surfaces
+                .get(surface)
+                .and_then(|id| self.contents.get(&id))
+                .map(|content| content.logical_size())
+        });
+
+        match context.target_at(position)? {
+            HitTarget::Toplevel { .. } => Some((toplevel, Point::from((0.0, 0.0)))),
+            HitTarget::Surface {
+                surface, origin, ..
+            }
+            | HitTarget::Popup {
+                surface, origin, ..
+            } => Some((surface, Point::from((origin.x, origin.y)))),
+        }
     }
 
     /// Presses or releases a pointer button over a sink.
