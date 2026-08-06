@@ -12,6 +12,7 @@
 //! module from becoming a dependency of window management, which is the
 //! direction the coupling would otherwise grow.
 
+pub mod client;
 pub mod process;
 pub mod protocol;
 pub mod state;

@@ -97,6 +97,7 @@ use smithay::{
 use tracing::{debug, info, warn};
 
 use crate::{
+    client::{DisplayName, Satellite, XwaylandSatellite},
     process::{
         DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
     },
@@ -148,10 +149,13 @@ const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub struct CompositorConfig {
     pub output: OutputMode,
     pub dmabuf: DmabufSupport,
-    /// What a spawned client is told about how to reach lunette. Empty until
-    /// the listening socket exists, and a child started with an empty one finds
-    /// no compositor — which is the truth of a compositor with no socket.
-    pub display: DisplayEnvironment,
+    /// Which display lunette is. Absent when no socket was bound, which is the
+    /// case in a test: a spawned client is then told nothing about where to
+    /// connect, because there is nowhere to connect to.
+    pub display: Option<DisplayName>,
+    /// Where to find xwayland-satellite. Absent means X11 clients are not
+    /// served, which is a session worth having.
+    pub satellite: Option<XwaylandSatellite>,
 }
 
 impl Default for CompositorConfig {
@@ -166,7 +170,8 @@ impl Default for CompositorConfig {
                 refresh: RefreshRate::from_millihertz(60_000),
             },
             dmabuf: DmabufSupport::default(),
-            display: DisplayEnvironment::default(),
+            display: None,
+            satellite: None,
         }
     }
 }
@@ -216,6 +221,9 @@ impl RenderNode {
 pub(crate) struct CompositorState {
     display: DisplayHandle,
     config: CompositorConfig,
+    /// What a spawned client is told about how to reach lunette, derived once
+    /// from the display name rather than rebuilt per spawn.
+    environment: DisplayEnvironment,
 
     compositor: compositor::CompositorState,
     xdg_shell: XdgShellState,
@@ -258,6 +266,11 @@ pub(crate) struct CompositorState {
     /// while there is something to reap.
     process_poll: Option<RegistrationToken>,
     loop_handle: LoopHandle<'static, LoopData>,
+    /// Held for its lifetime: dropping it asks the bridge's process group to
+    /// stop, which is how xwayland-satellite and the `Xwayland` it started are
+    /// reaped.
+    #[expect(dead_code, reason = "held so the x11 bridge stops when lunette does")]
+    satellite: Satellite,
     frame_callbacks: HashMap<ObjectId, Vec<WlCallback>>,
     cursor_image: CursorImageStatus,
     serials: SerialCounter,
@@ -331,8 +344,21 @@ impl CompositorState {
         let (dmabuf, dmabuf_global, dmabuf_feedback) =
             create_dmabuf_global(display, &config.dmabuf);
 
+        let mut spawner = spawner;
+        let satellite = match config.display {
+            Some(name) => Satellite::start(spawner.as_mut(), config.satellite.as_ref(), name),
+            None => {
+                debug!("no wayland socket was bound, so no x11 bridge is started");
+                Satellite::default()
+            }
+        };
+
         Self {
             display: display.clone(),
+            environment: config
+                .display
+                .map(DisplayName::environment)
+                .unwrap_or_default(),
             config,
             compositor,
             xdg_shell,
@@ -352,6 +378,7 @@ impl CompositorState {
             importer,
             spawner,
             inspector,
+            satellite,
             surfaces: SurfaceRegistry::default(),
             buffers: RetainedBuffers::default(),
             contents: HashMap::new(),
@@ -433,7 +460,7 @@ impl CompositorState {
             argv: &request.argv,
             env: &request.env,
             cwd: request.cwd.as_deref(),
-            display: &self.config.display,
+            display: &self.environment,
         };
 
         if request.xwayland {
@@ -470,14 +497,6 @@ impl CompositorState {
     /// environment, and failing both the client is adopted as external — which
     /// is the case a process started outside lunette with `WAYLAND_DISPLAY`
     /// pointing at its socket falls into.
-    #[cfg_attr(
-        not(any(test, feature = "test-fakes")),
-        expect(
-            dead_code,
-            reason = "the listening socket that calls this arrives with the ported client module; \
-                      until then only the test harness connects clients"
-        )
-    )]
     pub(crate) fn attach_client(&mut self, client: &Client) {
         let process = match client.get_credentials(&self.display) {
             Ok(credentials) => match Pid::new(credentials.pid) {
@@ -2127,6 +2146,98 @@ mod tests {
                 .iter()
                 .any(|reported| reported.external),
             "a client that presented a valid token is not external"
+        );
+    }
+
+    /// A configuration with a bound display and an x11 bridge, as the entry
+    /// point would build it.
+    fn with_display() -> CompositorConfig {
+        CompositorConfig {
+            display: Some(crate::client::DisplayName::for_test(20)),
+            satellite: Some(XwaylandSatellite {
+                executable: std::path::PathBuf::from("xwayland-satellite"),
+            }),
+            ..CompositorConfig::default()
+        }
+    }
+
+    #[test]
+    fn the_x11_bridge_is_started_once_when_the_display_is_bound() {
+        let compositor = TestCompositor::with_config(with_display());
+
+        let requested = compositor.spawns().requested();
+        assert_eq!(requested.len(), 1);
+        assert_eq!(
+            requested[0].argv.program(),
+            OsStr::new("xwayland-satellite")
+        );
+        assert!(
+            !compositor
+                .snapshot()
+                .processes
+                .iter()
+                .any(|process| process.external),
+            "the bridge is lunette's own plumbing, not a user process"
+        );
+    }
+
+    #[test]
+    fn nothing_is_bridged_when_no_display_was_bound() {
+        let compositor = TestCompositor::new();
+        assert!(
+            compositor.spawns().requested().is_empty(),
+            "there is nowhere for an x11 bridge to connect to"
+        );
+    }
+
+    #[test]
+    fn a_spawned_client_is_told_the_display_that_was_bound() {
+        let mut compositor = TestCompositor::with_config(with_display());
+        compositor.send(Command::Spawn(SpawnCommand {
+            process: ProcessId::new(1).expect("non-zero"),
+            argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+            env: Vec::new(),
+            cwd: None,
+            output: None,
+            xwayland: false,
+        }));
+        compositor.step();
+
+        let requested = compositor.spawns().requested();
+        let plan = requested.last().expect("the spawn was requested");
+        let value = |key: &str| {
+            plan.env
+                .iter()
+                .rev()
+                .find(|(name, _)| name == OsStr::new(key))
+                .map(|(_, value)| value.clone())
+        };
+
+        assert_eq!(value("WAYLAND_DISPLAY"), Some(OsString::from("wayland-20")));
+        assert_eq!(value("DISPLAY"), Some(OsString::from(":20")));
+    }
+
+    #[test]
+    fn a_spawned_client_is_told_nothing_when_no_display_was_bound() {
+        let mut compositor = TestCompositor::new();
+        compositor.send(Command::Spawn(SpawnCommand {
+            process: ProcessId::new(1).expect("non-zero"),
+            argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+            env: Vec::new(),
+            cwd: None,
+            output: None,
+            xwayland: false,
+        }));
+        compositor.step();
+
+        let requested = compositor.spawns().requested();
+        assert!(
+            !requested[0]
+                .env
+                .iter()
+                .any(|(key, _)| key == OsStr::new("WAYLAND_DISPLAY")),
+            "an empty display name would make a client connect to a socket called nothing, \
+             rather than fall back to the session's own"
         );
     }
 

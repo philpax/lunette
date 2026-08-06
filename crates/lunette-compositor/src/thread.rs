@@ -38,6 +38,7 @@ use smithay::reexports::{
 use tracing::{error, info, warn};
 
 use crate::{
+    client::{self, WaylandSocket},
     process::{ProcFilesystem, ProcessInspector, ProcessSpawner, SystemSpawner},
     protocol::{
         Command, Event, Generation, OutputSnapshot, ProcessSnapshot, Snapshot, WindowSnapshot,
@@ -69,10 +70,12 @@ const THREAD_NAME: &str = "lunette-compositor";
 /// rather than as a thread that quietly is not running.
 pub fn spawn(
     config: CompositorConfig,
+    socket: WaylandSocket,
     importer: Box<dyn BufferImporter>,
 ) -> Result<CompositorHandle, StartError> {
     spawn_with(
         config,
+        Some(socket),
         importer,
         Box::new(SystemSpawner),
         Box::new(ProcFilesystem),
@@ -86,6 +89,7 @@ pub fn spawn(
 /// real `/proc`. Production calls [`spawn`], which supplies the real ones.
 pub fn spawn_with(
     config: CompositorConfig,
+    socket: Option<WaylandSocket>,
     importer: Box<dyn BufferImporter>,
     spawner: Box<dyn ProcessSpawner>,
     inspector: Box<dyn ProcessInspector>,
@@ -102,6 +106,7 @@ pub fn spawn_with(
                 run(
                     Ingredients {
                         config,
+                        socket,
                         importer,
                         spawner,
                         inspector,
@@ -330,6 +335,9 @@ impl Drop for AbortGuard {
 /// takes one argument rather than six.
 pub(crate) struct Ingredients {
     pub(crate) config: CompositorConfig,
+    /// Absent only in a test, which connects clients over a socket pair rather
+    /// than through a bound socket.
+    pub(crate) socket: Option<WaylandSocket>,
     pub(crate) importer: Box<dyn BufferImporter>,
     pub(crate) spawner: Box<dyn ProcessSpawner>,
     pub(crate) inspector: Box<dyn ProcessInspector>,
@@ -380,6 +388,7 @@ pub(crate) type CompositorLoop = EventLoop<'static, LoopData>;
 pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopData), StartError> {
     let Ingredients {
         config,
+        socket,
         importer,
         spawner,
         inspector,
@@ -414,6 +423,17 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
             source: "the wayland display",
             cause: error.error,
         })?;
+
+    if let Some(socket) = socket {
+        handle
+            .insert_source(socket.source, |stream, _metadata, data: &mut LoopData| {
+                client::accept(data, stream);
+            })
+            .map_err(|error| StartError::InsertSource {
+                source: "the listening socket",
+                cause: error.error,
+            })?;
+    }
 
     handle
         .insert_source(commands, |event, _metadata, data: &mut LoopData| {
@@ -584,6 +604,7 @@ mod tests {
     fn test_compositor_thread() -> CompositorHandle {
         spawn_with(
             CompositorConfig::default(),
+            None,
             recording_importer(ImportLog::default()),
             Box::new(crate::testing::FakeSpawner::default()),
             Box::new(crate::testing::FakeInspector::default()),

@@ -89,6 +89,10 @@ impl TestCompositor {
 
         let (event_loop, data) = build(Ingredients {
             config,
+            // No listening socket: a test connects over a socket pair, so
+            // nothing is bound, no path is written, and two tests running at
+            // once cannot collide over a display number.
+            socket: None,
             importer: recording_importer(imports.clone()),
             spawner: Box::new(FakeSpawner {
                 log: spawns.clone(),

@@ -8,6 +8,24 @@
 //! This is the application entry point, and the only part of the program that
 //! reads the environment or installs a `tracing` subscriber. Everything it
 //! learns from the environment is passed onward as a parameter.
+//!
+//! # Writing the environment
+//!
+//! Exporting `WAYLAND_DISPLAY` — so that a process started outside lunette can
+//! find its socket — happens here and nowhere else, and it has to happen before
+//! any other thread exists.
+//!
+//! In Rust 2024 `std::env::set_var` is `unsafe`, and it is unsound once the
+//! process is multithreaded: a concurrent `getenv` anywhere, including inside a
+//! C library, reads a pointer the write may free. LÖVR and GLFW spawn threads
+//! as they boot, and the compositor cannot start before them because it needs
+//! the graphics device they create. So the only safe moment is at the top of
+//! `main`, before anything else runs.
+//!
+//! `lunette_compositor::client::listen` therefore returns the display name
+//! rather than exporting it, and carries the other half of this note. Setting
+//! the variable next to the code that creates the socket is the obvious thing
+//! to do, and it is wrong for a reason that is invisible from there.
 
 mod boot;
 
