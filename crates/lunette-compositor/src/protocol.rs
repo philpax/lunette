@@ -24,18 +24,20 @@
 //! are not all written. A declared variant with no handler is a promise this
 //! crate does not keep, so the state of each is recorded here.
 //!
-//! Handled by the end of this phase — the loop as it stands answers only
-//! [`Command::Shutdown`], and [`crate::thread`] states how much is wired up:
-//! [`Command::Spawn`], [`Command::SignalProcess`],
-//! [`Command::CloseWindow`], [`Command::ConfigureWindow`],
-//! [`Command::Pointer`], [`Command::Button`], and [`Command::Shutdown`]; and
-//! every [`Event`] variant.
+//! Handled, along with every [`Event`] variant: [`Command::Spawn`],
+//! [`Command::SignalProcess`], [`Command::CloseWindow`],
+//! [`Command::ConfigureWindow`], [`Command::Pointer`],
+//! [`Command::PointerLeave`], [`Command::Button`], and [`Command::Shutdown`].
+//!
+//! One field of a handled command is not: [`SpawnRequest::output`] is accepted
+//! and ignored, because a window is not placed on an output until the outputs
+//! and pacing phase gives a second one to place it on.
 //!
 //! Accepted and logged, but otherwise inert until the phase named:
 //!
-//! - [`Command::PointerLeave`], [`Command::Scroll`], [`Command::Key`],
-//!   [`Command::Modifiers`], [`Command::TypeText`], [`Command::CreateSeat`],
-//!   and [`Command::DestroySeat`] — the keyboard and multi-seat phase.
+//! - [`Command::Scroll`], [`Command::Key`], [`Command::Modifiers`],
+//!   [`Command::TypeText`], [`Command::CreateSeat`], and
+//!   [`Command::DestroySeat`] — the keyboard and multi-seat phase.
 //! - [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
 //!   [`Command::DestroyOutput`], and [`Command::SetFramePacing`] — the outputs
 //!   and pacing phase. Until then one output exists with the default mode, and
@@ -290,6 +292,10 @@ pub struct SpawnRequest {
     pub env: Vec<(OsString, OsString)>,
     pub cwd: Option<PathBuf>,
     /// The only output this client is shown. Absent means the default output.
+    ///
+    /// Accepted and ignored until the outputs and pacing phase, as this
+    /// module's documentation records: there is one output, so every client is
+    /// on it whatever this says.
     pub output: Option<OutputId>,
     /// Whether the child is launched against an X server rather than the
     /// Wayland socket directly.

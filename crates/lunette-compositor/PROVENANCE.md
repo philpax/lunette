@@ -44,8 +44,9 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/process.rs` (spawning and signalling) | `src/process/spawn.rs` |
 | `backend/wayvr/process.rs` (`get_process_env_value`) | `src/process/attribution.rs` |
 | `backend/wayvr/client.rs`, `backend/wayvr/mod.rs` (`WaylandEnv`, `ExternalProcessRequest`) | `src/client.rs` |
-| `backend/wayvr/hit_test.rs` | `src/hit_test.rs` |
-| `backend/wayvr/image_importer.rs` | `crates/lunette/src/import/shm.rs` |
+| `backend/wayvr/image_importer.rs` (the `wl_shm` path) | `crates/lunette/src/import/shm.rs` |
+
+The table records files that exist. `backend/wayvr/hit_test.rs` is not among them: surface-local hit testing is wanted, and [docs/compositor.md](../../docs/compositor.md) says so, but nothing has been taken from it yet. Its row is added when the file it lands in exists.
 
 `comp.rs` and `process.rs` each land in more than one file because a single one
 would be past the size threshold in [CONTRIBUTING.md](../../CONTRIBUTING.md).
