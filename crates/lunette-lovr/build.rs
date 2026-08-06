@@ -252,7 +252,32 @@ fn generate_bindings(
         // The step loop calls this once per frame; see `main.c:66`.
         .allowlist_function("os_sleep")
         .allowlist_function("lovrSetLogCallback")
+        // Reference counting. Every LOVR object is owned through these, and
+        // calling a `lovr*Destroy` directly would bypass the count rather than
+        // decrement it; `lovr*Destroy` is the destructor `lovrRelease` calls.
+        .allowlist_function("lovrRetain")
+        .allowlist_function("lovrRelease")
+        // The texture surface the import path is written against.
+        .allowlist_function("lovrGraphicsIsInitialized")
+        .allowlist_function("lovrGraphicsGetFeatures")
+        .allowlist_function("lovrTextureCreate")
+        .allowlist_function("lovrTextureDestroy")
+        .allowlist_function("lovrTextureGetInfo")
+        .allowlist_function("lovrTextureSetPixels")
+        .allowlist_function("lovrTextureImportAcquire")
+        .allowlist_function("lovrTextureImportRelease")
+        .allowlist_function("lovrImageCreateRaw")
+        .allowlist_function("lovrImageDestroy")
+        .allowlist_function("lovrImageGetLayerData")
+        // The Vulkan handles LOVR owns, declared in `wrapper.h` because no
+        // LOVR header declares them.
+        .allowlist_function("gpu_vk_get_.*")
         .allowlist_type("Variant")
+        .allowlist_type("TextureFormat")
+        // The `TEXTURE_*` usage bits and the `TEXTURE_2D` type, which are
+        // anonymous and named enums respectively in `graphics.h`.
+        .allowlist_type("TextureType")
+        .allowlist_item("TEXTURE_.*")
         .generate()
         .map_err(BuildError::GenerateBindings)?;
 

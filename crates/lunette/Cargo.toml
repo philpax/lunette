@@ -5,7 +5,21 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# The Vulkan surface lunette drives against the device LOVR created. The
+# default features stay on for `loaded`, which is what provides `Entry::load`:
+# LOVR resolves `vkGetInstanceProcAddr` out of a `dlopen`ed loader and exports
+# neither the pointer nor a link-time symbol, so ash opens the same library
+# itself. `linked` is deliberately not used — it would put a build-time
+# dependency on a Vulkan SDK in the way of a build that needs no device.
+ash.workspace = true
+lunette-compositor = { path = "../lunette-compositor" }
 lunette-lovr = { path = "../lunette-lovr" }
+parking_lot.workspace = true
+# Only for the `Dmabuf`, `Fourcc`, and `Modifier` types the compositor's import
+# seam is written in. The features stay at the base set: nothing here touches
+# the frontend or the desktop helpers, and Cargo unifies this with the richer
+# set `lunette-compositor` asks for.
+smithay.workspace = true
 mlua = { workspace = true, features = ["luajit"] }
 # `mlua-sys` is a direct dependency purely to reach its `external` feature,
 # which mlua's own feature table does not re-export. With `external` set,

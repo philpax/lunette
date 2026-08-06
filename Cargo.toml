@@ -13,11 +13,13 @@ license = "GPL-3.0-only"
 
 # Every crate here is workspace-internal, so each version is pinned exactly:
 # a caret range lets resolution drift between `cargo update` runs, while an
-# exact pin makes a bump a reviewable change. `ash` carries build metadata in
-# its version, and an exact pin must include it.
+# exact pin makes a bump a reviewable change.
 [workspace.dependencies]
 arc-swap = "=1.9.2"
-ash = "=0.38.0+1.3.281"
+# 0.38.0+1.3.281 upstream. The build metadata is left off the requirement
+# because Cargo ignores it when matching and warns about every mention of it;
+# `=0.38.0` is what actually pins the release.
+ash = "=0.38.0"
 bindgen = "=0.72.1"
 cmake = "=0.1.58"
 getrandom = "=0.3.4"
