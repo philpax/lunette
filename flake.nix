@@ -25,15 +25,14 @@
           # FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS at the result is how the nixpkgs
           # lovr derivation builds offline, and lunette does the same.
           #
-          # Placeholder revision: it is the one nixpkgs pins, not the one
-          # vendor/lovr/deps/joltc declares. vendor/lovr does not exist yet; the
-          # revision is corrected against its FetchContent_Declare block once the
-          # submodule lands.
+          # The revision is the commit tag v5.5.0 names, which is what
+          # vendor/lovr/deps/joltc/CMakeLists.txt:173 declares as its GIT_TAG.
+          # It moves when the joltc submodule is bumped.
           joltPhysicsSrc = pkgs.fetchFromGitHub {
             owner = "jrouwe";
             repo = "JoltPhysics";
-            rev = "c10d9b2a8ee134fb5e72de1a0f26f8c9cc8f6382";
-            hash = "sha256-owI9uM/hjicuUWXYeZOhfYby5ygWm3JOO/qifRGiOdM=";
+            rev = "23dadd0e603f1b321142d4c74df07fce85064989";
+            hash = "sha256-OQ3kqpd0NBKA0e/YRNCKaSR0wKIto1mcZ+X93CuJ+Dc=";
           };
 
           # LOVR dlopens these rather than linking them, so rpath does not reach
