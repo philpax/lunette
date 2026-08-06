@@ -44,7 +44,7 @@ The documents use a plain technical register: short declarative sentences, activ
 
 Vendored code is exempt from the house style in this document until it is rewritten. Reformatting it wholesale destroys the ability to diff against upstream when a fix is worth taking. Bring a file up to house style when a change touches it substantially, not in drive-by churn.
 
-`wlx-capture` is a git-pinned external dependency, not a vendor. Fixes to it go upstream.
+`wlx-capture` is a git-pinned external dependency, not a vendor. Fixes to it go upstream. Upstream is the `wlx-capture` directory of the WayVR monorepo, not the standalone `galister/wlx-capture` repository: that repository stopped at 0.5.4, which pulls `ashpd` with an `async-std` executor and a personal fork of pipewire-rs, while 0.6.0 removed both and exists only inside the monorepo with no independent tag. The pin therefore names a WayVR revision, and repointing it at the standalone repository is a regression rather than a tidy-up.
 
 ## The LÖVR fork
 
