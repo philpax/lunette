@@ -10,12 +10,16 @@
 //
 // event.h brings in lovrEventPush and the CustomEvent the lun* callbacks are
 // delivered through.
+//
+// headset.h brings in the composition layer surface: the runtime's layer limit,
+// which is what the layer pool budgets against.
 #include "api/api.h"
 #include "core/os.h"
 #include "util.h"
 #include "modules/event/event.h"
 #include "modules/graphics/graphics.h"
 #include "modules/data/image.h"
+#include "modules/headset/headset.h"
 
 // The Vulkan handles LOVR created. These are defined in core/gpu_vk.c and
 // declared by no header: headset.c forward-declares them at :45-48 and is

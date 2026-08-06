@@ -279,6 +279,11 @@ fn generate_bindings(
         // layer blits both go through it, so the `syncStream` barriers are
         // emitted from a single place.
         .allowlist_function("lovrTextureCopy")
+        // The most composition layers the runtime accepts in one `xrEndFrame`,
+        // which is the ceiling the layer pool's own budget sits below. It is
+        // not `MAX_LAYERS`: that is LÖVR's compile-time array bound, while this
+        // is what the runtime honours, and neither implies the other.
+        .allowlist_function("lovrHeadsetGetLayerLimit")
         // How a `lun*` event reaches `lovr.handlers`. `CustomEvent`, `Event`,
         // and `EventType` arrive with it, because they are the signature.
         .allowlist_function("lovrEventPush")

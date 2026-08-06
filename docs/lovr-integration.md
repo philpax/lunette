@@ -31,7 +31,21 @@ This patch carries the most unknowns of the set. Milestone 0 exists to resolve t
 
 ### 3. Raise `MAX_LAYERS`
 
-`MAX_LAYERS` is hard-coded to 10 (`inspiration/lovr/src/modules/headset/headset.h:9`). The patch makes it configurable at build time. The runtime imposes its own cap regardless, but 10 is low for a window manager that wants a layer per panel.
+`MAX_LAYERS` was hard-coded to 10 (`vendor/lovr/src/modules/headset/headset.h:9`). The patch raises it to 64. Ten is low for a window manager that wants a layer per panel.
+
+The constant is not made configurable. A build option would still be a compile-time bound, and true runtime configurability would mean heap-allocating the static array in the headset module and the three stack arrays in the submit path, on a hot path, to replace a number that only has to be a ceiling above the pool's budget. The budget is a policy number, and it lives in Rust.
+
+At 64 the cost is about 6.5KB of frame stack in `lovrHeadsetSubmit`, most of it `stereoLayers`, and half a kilobyte of static state.
+
+The two checks that guard those arrays count differently. `lovrHeadsetSetLayers` (`headset.c:2766`) counts the two composition layers a stereo layer submits; `l_lovrHeadsetSetLayers` (`l_headset.c:806`, `:817`) counts `Layer` objects. The native check binds. The patch records this in a comment and does not reconcile it, because reconciling it would change the behaviour of an existing path.
+
+### 4. Expose the runtime's composition layer limit
+
+`XrSystemGraphicsProperties::maxLayerCount` is the most composition layers `xrEndFrame` accepts, and LÖVR never read it. The patch adds `lovrHeadsetGetLayerLimit`, and `lovr.headset.getLayerLimit` on the Lua side, reading the value out of the `xrGetSystemProperties` call LÖVR already makes at connect. It reads as zero before there is a system to ask.
+
+This is a safety requirement rather than a convenience. The specification requires `XR_ERROR_LAYER_LIMIT_EXCEEDED` once the count goes over; Monado does not implement that check, and writes past the end of a fixed array instead. Under `XR_EXTX_overlay` the array is shared with the primary application, whose layer count lunette cannot observe, so lunette budgets well below the reported limit rather than up to it. See [Rendering](rendering.md).
+
+Monado reports 128 with a simulated HMD on Linux, which is `XRT_MAX_LAYERS`.
 
 ### Rejected: a static library target
 
