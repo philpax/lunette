@@ -50,10 +50,14 @@ Window, monitor, process, seat, output, and claim handles are persistent objects
 Reads are snapshot fields. Mutations are requests:
 
 ```lua
-print(win.title)          -- last frame's value.
-win:resize(1920, 1080)    -- a configure request; the client may ignore it.
-win:close()               -- returns nothing; watch for lovr.lunwindowclosed.
+print(win.title)             -- last frame's value.
+print(win.appId)             -- the client's application identifier.
+print(win.width, win.height) -- the surface's size in pixels.
+win:resize(1920, 1080)       -- a configure request; the client may ignore it.
+win:close()                  -- returns nothing; watch for lovr.lunwindowclosed.
 ```
+
+`win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
 
 ## Reload
 
@@ -100,7 +104,7 @@ No network transport is provided.
 
 ## Bindings
 
-The API is bound with `mlua`, via `init_from_ptr`, attaching to the `lua_State` that LÖVR created. Hand-written `lua_State` C API calls are reserved for measured hot paths, realistically only per-frame snapshot publication, if profiling shows it is necessary.
+The API is bound with `mlua`, via `Lua::get_or_init_from_ptr`, attaching to the `lua_State` that LÖVR created. That entry point constructs mlua's view of the state with its `owned` flag clear, so mlua never closes a state it did not create; the boot sequence keeps that responsibility. Hand-written `lua_State` C API calls are reserved for measured hot paths, realistically only per-frame snapshot publication, if profiling shows it is necessary.
 
 This choice is motivated by failure mode, not throughput. A Lua mistake should raise a catchable error rather than crash the window manager, because the premise of this project is that users write Lua that reshapes the system. mlua's per-call cost is negligible relative to the cost of a compositor and a GPU frame.
 

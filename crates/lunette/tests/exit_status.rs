@@ -36,6 +36,18 @@ fn a_quit_without_a_status_exits_zero() {
     assert_exit_status("quit-without-status", 0);
 }
 
+/// The `lunette` module is reachable from a configuration, on the state LÖVR
+/// created rather than on one a test built.
+///
+/// It reports through the exit status because that is the only channel a
+/// fixture has, which is what puts it in this file: the fixture's `main.lua`
+/// quits with 9 when every assertion held and with a distinct status for each
+/// that did not.
+#[test]
+fn a_configuration_can_require_the_lunette_module() {
+    assert_exit_status("require-lunette", 9);
+}
+
 /// Runs the binary against the named fixture and asserts the status it exited
 /// with.
 ///

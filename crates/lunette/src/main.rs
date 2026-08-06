@@ -37,6 +37,7 @@ use std::{
     process::ExitCode,
 };
 
+use lunette::lua::Session;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
@@ -74,7 +75,11 @@ fn main() -> ExitCode {
     };
 
     info!(path = %config_directory.display(), "loading the configuration");
-    boot::run(config_directory)
+
+    // Built before the Lua state and outliving it, because a restart throws the
+    // state away and the session is what the next one attaches to.
+    let session = Session::new();
+    boot::run(config_directory, &session)
 }
 
 /// The verbosity applied when `RUST_LOG` names none, or names something that

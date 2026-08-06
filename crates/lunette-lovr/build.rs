@@ -247,6 +247,12 @@ fn generate_bindings(
         .clang_args(includes)
         .clang_args(LOVR_DEFINES)
         .allowlist_function("luax_.*")
+        // How a LOVR object becomes a Lua userdata with LOVR's own metatable.
+        // The leading underscore is why it needs naming separately: the macro
+        // callers write is `luax_pushtype`, which resolves the `ObjectType` and
+        // calls this. It retains the object itself (`api/api.c:262`), so a
+        // caller pushing a texture it holds a reference to hands over nothing.
+        .allowlist_function("_luax_pushtype")
         .allowlist_function("os_init")
         .allowlist_function("os_destroy")
         // The step loop calls this once per frame; see `main.c:66`.

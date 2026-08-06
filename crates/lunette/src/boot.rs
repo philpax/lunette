@@ -33,8 +33,13 @@ use std::{
     path::Path,
     process::ExitCode,
     ptr,
+    rc::Rc,
 };
 
+use lunette::{
+    lua::{Session, install_on_state},
+    texture::LovrTexture,
+};
 use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback};
 use mlua_sys as lua;
 use tracing::error;
@@ -44,7 +49,12 @@ use tracing::error;
 /// `config_directory` is the directory LÖVR loads `main.lua` and `conf.lua`
 /// from. It is resolved by the caller, which is the only part of the program
 /// permitted to read the environment.
-pub fn run(config_directory: &Path) -> ExitCode {
+///
+/// `session` outlives every Lua state this creates, and is what `main.lua`
+/// reaches the compositor through. A restart closes the state and builds
+/// another; the session, the clients, and their textures are untouched by that,
+/// which is the whole reason it is owned out here.
+pub fn run(config_directory: &Path, session: &Rc<Session<LovrTexture>>) -> ExitCode {
     let platform = match Platform::init() {
         Ok(platform) => platform,
         Err(error) => {
@@ -63,10 +73,10 @@ pub fn run(config_directory: &Path) -> ExitCode {
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
 
     let status = loop {
-        match run_session(config_directory, &mut cookie) {
-            Session::Restart => (),
-            Session::Exit { status } => break status,
-            Session::LoadFailed => break FAILURE_STATUS,
+        match run_session(config_directory, session, &mut cookie) {
+            Outcome::Restart => (),
+            Outcome::Exit { status } => break status,
+            Outcome::LoadFailed => break FAILURE_STATUS,
         }
     };
 
@@ -81,7 +91,7 @@ const FAILURE_STATUS: u8 = 1;
 
 /// How one pass through the restart loop ended.
 #[derive(Debug)]
-enum Session {
+enum Outcome {
     /// `boot.lua` asked for a restart. The cookie carries state to the next
     /// session, and the Lua state has already been closed.
     Restart,
@@ -96,7 +106,11 @@ enum Session {
 }
 
 /// Creates a Lua state, runs `boot.lua` in it, and drives it to completion.
-fn run_session(config_directory: &Path, cookie: &mut raw::Variant) -> Session {
+fn run_session(
+    config_directory: &Path,
+    session: &Rc<Session<LovrTexture>>,
+    cookie: &mut raw::Variant,
+) -> Outcome {
     // SAFETY: this is the sequence at `vendor/lovr/src/main.c:34-74`, in the
     // same order, on a state this function exclusively owns for its lifetime.
     // Each `cast` converts between bindgen's opaque `lua_State` and mlua-sys',
@@ -105,12 +119,24 @@ fn run_session(config_directory: &Path, cookie: &mut raw::Variant) -> Session {
         let state = lua::luaL_newstate();
         if state.is_null() {
             error!("lua: the interpreter state could not be allocated");
-            return Session::LoadFailed;
+            return Outcome::LoadFailed;
         }
 
         raw::luax_setmainthread(state.cast());
         lua::luaL_openlibs(state);
         raw::luax_preload(state.cast());
+
+        // Before `boot.lua`, because `main.lua` runs inside it and requires the
+        // module at its top. After `luaL_openlibs`, because the module is
+        // registered through `package.preload`.
+        //
+        // SAFETY: the state was created above, is closed only after
+        // `run_steps` returns, and no reference into it is kept.
+        if let Err(error) = install_on_state(state, session) {
+            error!("lua: the lunette module could not be registered: {error}");
+            return Outcome::LoadFailed;
+        }
+
         push_arg_table(state, config_directory, cookie);
 
         lua::lua_pushcfunction(state, message_handler);
@@ -124,13 +150,13 @@ fn run_session(config_directory: &Path, cookie: &mut raw::Variant) -> Session {
         );
         if loaded != 0 || lua::lua_pcall(state, 0, 1, -2) != 0 {
             error!("lua: {}", describe_error(state));
-            return Session::LoadFailed;
+            return Outcome::LoadFailed;
         }
 
         let thread = lua::lua_tothread(state, -1);
         if thread.is_null() {
             error!("lua: boot.lua did not return a coroutine");
-            return Session::LoadFailed;
+            return Outcome::LoadFailed;
         }
 
         // SAFETY: `thread` stays alive until the `luax_close` below, and the
@@ -153,7 +179,7 @@ unsafe fn run_steps(
     state: *mut lua::lua_State,
     thread: *mut lua::lua_State,
     cookie: &mut raw::Variant,
-) -> Session {
+) -> Outcome {
     loop {
         // SAFETY: the caller guarantees `thread` is live, and nothing in this
         // loop closes it before returning.
@@ -176,7 +202,7 @@ unsafe fn run_steps(
                 clear_log_callback();
                 // SAFETY: no Lua value obtained above outlives this call.
                 unsafe { raw::luax_close(state.cast()) };
-                return Session::Restart;
+                return Outcome::Restart;
             }
             Step::Exit { status } => {
                 clear_log_callback();
@@ -185,7 +211,7 @@ unsafe fn run_steps(
                 //
                 // SAFETY: no Lua value obtained above outlives this call.
                 unsafe { raw::luax_close(thread.cast()) };
-                return Session::Exit { status };
+                return Outcome::Exit { status };
             }
         }
     }

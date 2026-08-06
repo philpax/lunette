@@ -5,11 +5,13 @@
 //! lives here, so that it is reachable from tests and so that its public surface
 //! is stated in one place.
 //!
-//! Two modules today. [`import`] turns what a client committed into something
+//! Three modules today. [`import`] turns what a client committed into something
 //! the graphics device holds, and runs on the compositor thread. [`texture`]
 //! turns that into a LÖVR `Texture`, and runs on the frame thread. The line
 //! between them is the line between creating an image, which touches no queue,
-//! and submitting work, which does.
+//! and submitting work, which does. [`lua`] is the surface all of it is
+//! presented to the user's configuration through.
 
 pub mod import;
+pub mod lua;
 pub mod texture;
