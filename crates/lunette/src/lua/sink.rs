@@ -27,24 +27,44 @@
 //! compositor currently focuses, and lunette does not choose what that is and
 //! must not try.
 //!
-//! There is no `key` method yet, only `pointer` and `button`. The provider chain
-//! underneath has the keyboard half — `send_key`, `set_modifiers`,
-//! `set_keymap` — and nothing here reaches it, because a key surface needs the
-//! keymap machinery phase 5 builds. `docs/milestone-0-findings.md` records that
-//! `lunette-v1.AC3.3` waits on that rather than on hardware alone.
+//! A key sent to a host sink is what `lunette-v1.AC3.3` asks for. It reaches the
+//! host through `HidProvider::send_key`, under the layout of the seat it was
+//! addressed to — uploaded to the host first, because
+//! `zwp_virtual_keyboard_v1` treats a key sent before a keymap as a protocol
+//! error and disconnects the provider.
+//!
+//! Focus is the one thing a host sink refuses. Which window on the host desktop
+//! holds the keyboard is the host compositor's decision, and lunette does not
+//! get a say in it.
+//!
+//! # Which seat
+//!
+//! Every method takes an optional trailing seat. Absent means the default seat,
+//! which is the one a configuration that never called `lunette.newSeat` has.
+//! A host sink ignores it and says so in `docs/lua-api.md`: the host has one
+//! cursor and one keyboard focus however many hands point at it.
 
 use std::rc::Rc;
 
-use lunette_capture::{hid::PanelPoint, monitor::MonitorKey};
+use lunette_capture::{
+    hid::{PanelPoint, WheelDelta, XkbKeymap as HostKeymap},
+    monitor::MonitorKey,
+};
 use lunette_compositor::{
-    protocol::{Command, InputDomain, PixelPoint, PointerButton, SinkId},
+    protocol::{
+        Command, InputDomain, Keycode, ModifierState, PixelPoint, PointerButton, ScrollAxis,
+        ScrollDelta, SeatId, SinkId,
+    },
     state::DEFAULT_SEAT,
 };
-use mlua::{UserData, UserDataFields, UserDataMethods};
+use mlua::{Table, UserData, UserDataFields, UserDataMethods};
 
 use crate::{
-    host::host_button,
-    lua::{LuaTexture, Monitor, POINTER_BUTTONS, Session, Window, pointer_button},
+    host::{host_button, host_key, host_modifiers},
+    lua::{
+        LuaTexture, Monitor, POINTER_BUTTONS, Seat, Session, Window, pointer_button,
+        seat::read_modifiers,
+    },
 };
 
 /// Somewhere pixel-space input can be delivered.
@@ -77,6 +97,17 @@ impl<T> Sink<T> {
         Self {
             target: SinkTarget::Host(monitor),
             session,
+        }
+    }
+
+    /// The compositor's identifier for a window sink.
+    ///
+    /// `None` for a host sink: a mirrored monitor is not a `wl_surface` and has
+    /// nothing the compositor could address.
+    pub(crate) const fn window_id(&self) -> Option<SinkId> {
+        match self.target {
+            SinkTarget::Window(id) => Some(id),
+            SinkTarget::Host(_) => None,
         }
     }
 
@@ -160,17 +191,21 @@ impl<T: LuaTexture> UserData for Sink<T> {
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("pointer", |_, sink, (x, y): (f64, f64)| {
-            let position = pixel_point(x, y)?;
-            if !sink.alive() {
-                return Ok(false);
-            }
-            Ok(pointer(sink, position))
-        });
+        methods.add_method(
+            "pointer",
+            |_, sink, (x, y, seat): (f64, f64, Option<mlua::AnyUserData>)| {
+                let position = pixel_point(x, y)?;
+                let seat = seat_of::<T>(seat.as_ref())?;
+                if !sink.alive() {
+                    return Ok(false);
+                }
+                Ok(pointer(sink, seat, position))
+            },
+        );
 
         methods.add_method(
             "button",
-            |_, sink, (name, pressed): (mlua::LuaString, bool)| {
+            |_, sink, (name, pressed, seat): (mlua::LuaString, bool, Option<mlua::AnyUserData>)| {
                 let name = name.to_string_lossy();
                 let button = pointer_button(&name).ok_or_else(|| {
                     mlua::Error::runtime(format!(
@@ -178,12 +213,89 @@ impl<T: LuaTexture> UserData for Sink<T> {
                          {POINTER_BUTTONS}"
                     ))
                 })?;
+                let seat = seat_of::<T>(seat.as_ref())?;
                 if !sink.alive() {
                     return Ok(false);
                 }
-                Ok(button_pressed(sink, button, pressed))
+                Ok(button_pressed(sink, seat, button, pressed))
             },
         );
+
+        methods.add_method(
+            "leave",
+            |_, sink, seat: Option<mlua::AnyUserData>| -> mlua::Result<bool> {
+                let seat = seat_of::<T>(seat.as_ref())?;
+                Ok(leave(sink, seat))
+            },
+        );
+
+        methods.add_method(
+            "scroll",
+            |_, sink, (dx, dy, seat): (f64, f64, Option<mlua::AnyUserData>)| {
+                let (dx, dy) = scroll_delta(dx, dy)?;
+                let seat = seat_of::<T>(seat.as_ref())?;
+                if !sink.alive() {
+                    return Ok(false);
+                }
+                Ok(scroll(
+                    sink,
+                    seat,
+                    ScrollDelta::Continuous(dx),
+                    ScrollDelta::Continuous(dy),
+                ))
+            },
+        );
+
+        methods.add_method(
+            "scrollDiscrete",
+            |_, sink, (dx, dy, seat): (i32, i32, Option<mlua::AnyUserData>)| {
+                let seat = seat_of::<T>(seat.as_ref())?;
+                if !sink.alive() {
+                    return Ok(false);
+                }
+                Ok(scroll(
+                    sink,
+                    seat,
+                    ScrollDelta::Discrete(dx),
+                    ScrollDelta::Discrete(dy),
+                ))
+            },
+        );
+
+        methods.add_method(
+            "key",
+            |_, sink, (key, pressed, seat): (u32, bool, Option<mlua::AnyUserData>)| {
+                let seat = seat_of::<T>(seat.as_ref())?;
+                if !sink.alive() {
+                    return Ok(false);
+                }
+                Ok(key_pressed(sink, seat, Keycode::from_evdev(key), pressed))
+            },
+        );
+
+        methods.add_method(
+            "modifiers",
+            |_, sink, (names, seat): (Option<Table>, Option<mlua::AnyUserData>)| {
+                let modifiers = read_modifiers(names.as_ref())?;
+                let seat = seat_of::<T>(seat.as_ref())?;
+                if !sink.alive() {
+                    return Ok(false);
+                }
+                Ok(modifiers_held(sink, seat, &modifiers))
+            },
+        );
+    }
+}
+
+/// Which seat an argument named, defaulting to the one every session has.
+///
+/// A configuration that never called `lunette.newSeat` addresses the default
+/// seat by leaving the argument off, which is what keeps the single-handed
+/// examples in `docs/input.md` correct.
+fn seat_of<T: LuaTexture>(seat: Option<&mlua::AnyUserData>) -> mlua::Result<SeatId> {
+    match seat {
+        Some(seat) => Ok(seat.borrow::<Seat<T>>()?.id()),
+        None => Ok(DEFAULT_SEAT),
     }
 }
 
@@ -193,11 +305,11 @@ impl<T: LuaTexture> UserData for Sink<T> {
 /// compositor as a queued command, flushed at frame end; a monitor's is
 /// normalised over the monitor's own resolution and handed to the host desktop,
 /// which maps it into that monitor's logical rectangle.
-fn pointer<T>(sink: &Sink<T>, position: PixelPoint) -> bool {
+fn pointer<T>(sink: &Sink<T>, seat: SeatId, position: PixelPoint) -> bool {
     match &sink.target {
         SinkTarget::Window(id) => {
             sink.session.queue(Command::Pointer {
-                seat: DEFAULT_SEAT,
+                seat,
                 sink: *id,
                 position,
             });
@@ -212,12 +324,13 @@ fn pointer<T>(sink: &Sink<T>, position: PixelPoint) -> bool {
     }
 }
 
-/// `sink:button(name, pressed)`: presses or releases a button on this sink.
-fn button_pressed<T>(sink: &Sink<T>, button: PointerButton, pressed: bool) -> bool {
+/// `sink:button(name, pressed, seat)`: presses or releases a button on this
+/// sink.
+fn button_pressed<T>(sink: &Sink<T>, seat: SeatId, button: PointerButton, pressed: bool) -> bool {
     match &sink.target {
         SinkTarget::Window(id) => {
             sink.session.queue(Command::Button {
-                seat: DEFAULT_SEAT,
+                seat,
                 sink: *id,
                 button,
                 pressed,
@@ -229,6 +342,162 @@ fn button_pressed<T>(sink: &Sink<T>, button: PointerButton, pressed: bool) -> bo
             true
         }
     }
+}
+
+/// `sink:leave(seat)`: takes a seat's pointer off whatever it is over.
+///
+/// Hover, not focus. A panel library highlights what a hand is pointing at
+/// without that hand taking the keyboard from the other one, which is exactly
+/// what a compositor inferring focus from motion makes impossible.
+///
+/// Refused on a host sink: the host cursor is always somewhere on the host
+/// desktop, and there is no position that means "nowhere".
+fn leave<T>(sink: &Sink<T>, seat: SeatId) -> bool {
+    match &sink.target {
+        SinkTarget::Window(_) => {
+            sink.session.queue(Command::PointerLeave { seat });
+            true
+        }
+        SinkTarget::Host(_) => false,
+    }
+}
+
+/// `sink:scroll(dx, dy, seat)` and `sink:scrollDiscrete(dx, dy, seat)`.
+///
+/// Two axes in one call because that is how a caller has them — a thumbstick
+/// deflection, a trackpad delta — and two requests would make a diagonal scroll
+/// arrive as two separate gestures. An axis whose delta is zero sends nothing.
+///
+/// The host takes only the vertical axis: `HidProvider::wheel` is one number,
+/// which is what both `zwlr_virtual_pointer_v1`'s axis request and uinput's
+/// `REL_WHEEL` carry in the form the providers were built around.
+fn scroll<T>(sink: &Sink<T>, seat: SeatId, horizontal: ScrollDelta, vertical: ScrollDelta) -> bool {
+    match &sink.target {
+        SinkTarget::Window(id) => {
+            for (axis, delta) in [
+                (ScrollAxis::Horizontal, horizontal),
+                (ScrollAxis::Vertical, vertical),
+            ] {
+                if is_still(delta) {
+                    continue;
+                }
+                sink.session.queue(Command::Scroll {
+                    seat,
+                    sink: *id,
+                    axis,
+                    delta,
+                });
+            }
+            true
+        }
+        SinkTarget::Host(_) => {
+            let delta = WheelDelta::new(detents(horizontal), detents(vertical));
+            if delta.is_zero() {
+                return true;
+            }
+            sink.session.host().wheel(delta);
+            true
+        }
+    }
+}
+
+/// Whether a scroll delta asks for nothing.
+fn is_still(delta: ScrollDelta) -> bool {
+    match delta {
+        ScrollDelta::Continuous(distance) => distance == 0.0,
+        ScrollDelta::Discrete(steps) => steps == 0,
+    }
+}
+
+/// A scroll delta in the detents the host provider counts in.
+///
+/// `wl_pointer.axis` carries ten surface-local units per detent, which is the
+/// convention every toolkit reads a continuous scroll under, so a continuous
+/// distance divides by that. A discrete count is already detents.
+fn detents(delta: ScrollDelta) -> f64 {
+    match delta {
+        ScrollDelta::Continuous(distance) => distance / SURFACE_UNITS_PER_DETENT,
+        ScrollDelta::Discrete(steps) => f64::from(steps),
+    }
+}
+
+/// How many surface-local units `wl_pointer.axis` carries per wheel detent.
+const SURFACE_UNITS_PER_DETENT: f64 = 10.0;
+
+/// `sink:key(keycode, pressed, seat)`: presses or releases a key.
+///
+/// The window path reaches the seat's keyboard, and so reaches whichever client
+/// that seat is focused on — nothing here chooses that, and a seat with no
+/// focus delivers to nobody.
+///
+/// The host path is `lunette-v1.AC3.3`. The seat's layout is uploaded to the
+/// host first: `zwp_virtual_keyboard_v1` treats a key before a keymap as a
+/// protocol error, so the provider would be disconnected by its very first
+/// keystroke otherwise. A keycode the provider never declared is refused rather
+/// than sent, because the kernel would drop it without a word.
+fn key_pressed<T>(sink: &Sink<T>, seat: SeatId, key: Keycode, pressed: bool) -> bool {
+    match &sink.target {
+        SinkTarget::Window(_) => {
+            sink.session.queue(Command::Key { seat, key, pressed });
+            true
+        }
+        SinkTarget::Host(_) => {
+            let Some(key) = host_key(key) else {
+                return false;
+            };
+            if !upload_layout(sink, seat) {
+                return false;
+            }
+            sink.session.host().key(key, pressed)
+        }
+    }
+}
+
+/// `sink:modifiers(names, seat)`: replaces the modifiers held on this sink.
+///
+/// Explicit state rather than synthesised keypresses, which is what
+/// `docs/input.md:51` asks for on the window side and what the host provider
+/// already implements on the other.
+fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) -> bool {
+    match &sink.target {
+        SinkTarget::Window(_) => {
+            sink.session.queue(Command::Modifiers {
+                seat,
+                modifiers: modifiers.clone(),
+            });
+            true
+        }
+        SinkTarget::Host(_) => {
+            let Some(modifiers) = host_modifiers(modifiers) else {
+                return false;
+            };
+            if !upload_layout(sink, seat) {
+                return false;
+            }
+            sink.session.host().modifiers(modifiers)
+        }
+    }
+}
+
+/// Gives the host the layout a seat's keycodes should be read under.
+///
+/// Called before every host keystroke rather than once at startup. The provider
+/// itself skips an upload that would change nothing, so the repetition costs a
+/// comparison; doing it here is what makes a seat whose layout changed reach
+/// the host with the layout it actually has.
+///
+/// False when the seat is not in this frame's snapshot, which is the one case
+/// where there is no layout to send.
+fn upload_layout<T>(sink: &Sink<T>, seat: SeatId) -> bool {
+    let snapshot = sink.session.snapshot();
+    let Some(entry) = snapshot.seats.iter().find(|entry| entry.seat == seat) else {
+        return false;
+    };
+    let Some(keymap) = HostKeymap::new(entry.keymap.as_str()) else {
+        return false;
+    };
+
+    sink.session.host().set_keymap(&keymap)
 }
 
 /// Turns a pixel coordinate on a mirrored monitor into a hit on its surface.
@@ -246,6 +515,20 @@ fn normalise<T>(sink: &Sink<T>, monitor: &MonitorKey, position: PixelPoint) -> O
         position.x / f64::from(pixels.width),
         position.y / f64::from(pixels.height),
     ))
+}
+
+/// Checks a scroll delta before it is sent.
+///
+/// A `NaN` here is a defect in the caller's maths for the reason a `NaN`
+/// coordinate is, and a client that receives one scrolls to an undefined place.
+fn scroll_delta(dx: f64, dy: f64) -> mlua::Result<(f64, f64)> {
+    if !dx.is_finite() || !dy.is_finite() {
+        return Err(mlua::Error::runtime(format!(
+            "lunette: ({dx}, {dy}) is not a scroll distance"
+        )));
+    }
+
+    Ok((dx, dy))
 }
 
 /// Checks a coordinate before it is sent to a client.

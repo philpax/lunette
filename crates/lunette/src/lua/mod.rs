@@ -46,6 +46,7 @@
 mod claim;
 mod monitor;
 mod process;
+mod seat;
 mod sink;
 #[cfg(test)]
 mod tests;
@@ -61,9 +62,12 @@ use std::{
     sync::Arc,
 };
 
-use lunette_compositor::protocol::{
-    Argv, Command, PixelSize, PointerButton, ProcessId, Snapshot, SpawnRequest, WindowId,
-    WindowSnapshot,
+use lunette_compositor::{
+    protocol::{
+        Argv, Command, PixelSize, PointerButton, ProcessId, SeatId, Snapshot, SpawnRequest,
+        WindowId, WindowSnapshot,
+    },
+    state::DEFAULT_SEAT,
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
 use mlua::{Lua, Table, Value};
@@ -72,13 +76,19 @@ pub use crate::lua::{
     claim::{Claim, ClaimRegistry, LuaLayer, PoolRegistry},
     monitor::Monitor,
     process::Process,
+    seat::Seat,
     sink::Sink,
     window::Window,
 };
 use crate::{
     events::{EventName, EventQueue, EventSink, LuaEvent, install_dispatchers},
     host::HostSinks,
-    lua::{claim::claim_layer, monitor::monitors},
+    keymaps::KeymapCache,
+    lua::{
+        claim::claim_layer,
+        monitor::monitors,
+        seat::{new_seat, seats},
+    },
     mirrors::MirrorRegistry,
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
@@ -170,6 +180,9 @@ pub struct Session<T> {
     /// every handle as a type parameter would cost more to read than the
     /// indirection costs to run.
     host: Rc<dyn HostSinks>,
+    /// Each seat's published layout, compiled on this thread. See
+    /// [`crate::keymaps`] for why the compositor cannot hand one over.
+    keymaps: RefCell<KeymapCache>,
 }
 
 impl<T> Session<T> {
@@ -188,6 +201,7 @@ impl<T> Session<T> {
                 generation: FrameGeneration::INITIAL,
                 commands: Vec::new(),
                 processes: 0,
+                seats: 0,
             }),
             textures: RefCell::new(TextureLedger::new()),
             monitors: RefCell::new(MonitorTextures::new()),
@@ -196,7 +210,17 @@ impl<T> Session<T> {
             claims,
             mirrors,
             host,
+            keymaps: RefCell::new(KeymapCache::default()),
         })
+    }
+
+    /// Runs `body` against the compiled keymaps this frame can answer from.
+    ///
+    /// A closure rather than a borrow guard, for the reason
+    /// [`Session::with_textures`] takes one: it is read from inside Lua
+    /// callbacks, and a guard held across one would panic on the re-entry.
+    pub(crate) fn with_keymaps<R>(&self, body: impl FnOnce(&mut KeymapCache) -> R) -> R {
+        body(&mut self.keymaps.borrow_mut())
     }
 
     /// The pool, for the handles that read it and the frame loop that drives it.
@@ -255,6 +279,9 @@ impl<T> Session<T> {
     /// not heard of.
     pub fn begin(&self, snapshot: Arc<Snapshot>) {
         self.events.borrow_mut().clear();
+
+        let live: Vec<SeatId> = snapshot.seats.iter().map(|seat| seat.seat).collect();
+        self.keymaps.borrow_mut().retain(&live);
 
         let mut frame = self.frame.borrow_mut();
         frame.previous = mem::replace(&mut frame.snapshot, snapshot);
@@ -351,6 +378,18 @@ impl<T> Session<T> {
         frame.processes = frame.processes.checked_add(1)?;
         ProcessId::new(frame.processes)
     }
+
+    /// Allocates the identifier a seat is created under.
+    ///
+    /// Minted here for the reason a process identifier is: `lunette.newSeat`
+    /// returns a handle in the same call, so the identifier exists before the
+    /// compositor has seen the request. Counting from the default seat rather
+    /// than from one, because the default seat already holds the first.
+    fn mint_seat(&self) -> Option<SeatId> {
+        let mut frame = self.frame.borrow_mut();
+        frame.seats = frame.seats.checked_add(1)?;
+        SeatId::new(DEFAULT_SEAT.get().checked_add(frame.seats)?)
+    }
 }
 
 /// What one frame answers from.
@@ -365,6 +404,8 @@ struct Frame {
     commands: Vec<Command>,
     /// The highest process identifier minted so far.
     processes: u64,
+    /// How many seats have been minted beyond the default one.
+    seats: u64,
 }
 
 /// How a texture is handed to Lua.
@@ -435,6 +476,22 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     module.set(
         "claimLayer",
         lua.create_function(move |_, options: Table| claim_layer(&claim_session, &options))?,
+    )?;
+
+    let new_seat_session = Rc::clone(session);
+    module.set(
+        "newSeat",
+        lua.create_function(
+            move |_, (name, options): (mlua::LuaString, Option<Table>)| {
+                new_seat(&new_seat_session, &name.to_string_lossy(), options.as_ref())
+            },
+        )?,
+    )?;
+
+    let seats_session = Rc::clone(session);
+    module.set(
+        "seats",
+        lua.create_function(move |lua, ()| seats(lua, &seats_session))?,
     )?;
 
     // Here rather than in `install`, because `boot.lua:345` creates
@@ -520,7 +577,7 @@ const SPAWN_OPTIONS: &[&str] = &["argv", "cwd", "env", "xwayland"];
 ///
 /// A silently ignored option is a configuration that does not do what it says,
 /// and the failure surfaces as behaviour rather than as an error.
-fn reject_unknown_options(options: &Table, known: &[&str]) -> mlua::Result<()> {
+pub(crate) fn reject_unknown_options(options: &Table, known: &[&str]) -> mlua::Result<()> {
     for pair in options.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let name = match &key {

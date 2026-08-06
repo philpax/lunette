@@ -36,7 +36,7 @@ local left  = lunette.newSeat('left')
 local right = lunette.newSeat('right')
 ```
 
-Each seat has independent pointer position, focus, and keyboard state. The standard library creates one seat per pointing device by default, and provides a collapse-to-one-seat mode for applications that misbehave with multiple seats. WayVR is limited to faking multi-seat behaviour on top of one seat; collapsing multi-seat down to one seat requires a small amount of Lua code.
+Each seat has independent pointer position, focus, and keyboard state. Hover and focus are separate requests: `sink:pointer` and `sink:leave` move the pointer, and `seat:setFocus` gives the keyboard. Nothing derives one from the other, so a hand pointing at a panel does not take the keyboard from the other hand. The standard library creates one seat per pointing device by default, and provides a collapse-to-one-seat mode for applications that misbehave with multiple seats. WayVR is limited to faking multi-seat behaviour on top of one seat; collapsing multi-seat down to one seat requires a small amount of Lua code.
 
 Seats are inexpensive in smithay, which is designed to support them. The cost is that popup grabs and drag-and-drop are per-seat, and multi-seat operation is less exercised in GTK and Qt, so toolkit confusion about which seat owns a grab can occur.
 
@@ -48,8 +48,12 @@ Wayland clients want an xkb keymap plus raw keycodes and modifier state; they do
 
 The native layer provides keycodes plus xkb data:
 
-- `sink:key(keycode, pressed)` and explicit modifier state.
-- The loaded keymap, exposed for querying: keysym-for-keycode-under-modifiers, the layout list, and reverse `keysym → (keycode, modifiers)` lookup.
+- `sink:key(keycode, pressed)` and explicit modifier state, as `sink:modifiers` or `seat:setModifiers`. The state is set directly rather than synthesised as presses of a representative key per modifier, so a client that queries it is not misled and no key event is produced that nothing asked for.
+- The loaded keymap, exposed for querying: `seat:symbolFor` and `seat:characterFor` are keysym-and-text-for-keycode-under-modifiers, `seat.layouts` is the layout list, and `seat:strokeFor` is the reverse `keysym → (keycode, modifiers)` lookup.
+
+Scrolling is `sink:scroll` for a continuous distance and `sink:scrollDiscrete` for whole wheel notches. The two stay apart because a client uses the difference to decide whether to scroll kinetically, and collapsing them loses that.
+
+[The Lua API](lua-api.md#seats) is where each of these is specified.
 
 This is sufficient for Lua to draw a virtual keyboard with correct legends, handle dead keys and AltGr, and implement key repeat, without the native layer deciding anything about UI. `xkbcommon` is already a WayVR dependency.
 

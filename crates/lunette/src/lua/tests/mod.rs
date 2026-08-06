@@ -17,13 +17,15 @@
 mod events;
 mod layers;
 mod monitors;
+mod seats;
 
 use std::{ffi::OsStr, rc::Rc, sync::Arc};
 
 use lunette_compositor::{
     protocol::{
-        Command, PixelSize, PointerButton, ProcessId, ProcessSnapshot, SinkId, Snapshot, SurfaceId,
-        ToplevelState, ToplevelStates, WindowId, WindowSnapshot,
+        Command, PixelSize, PointerButton, ProcessId, ProcessSnapshot, ScrollAxis, ScrollDelta,
+        SeatId, SinkId, Snapshot, SurfaceId, ToplevelState, ToplevelStates, WindowId,
+        WindowSnapshot,
     },
     state::DEFAULT_SEAT,
 };
@@ -931,6 +933,8 @@ fn the_module_exposes_only_what_this_phase_implements() {
         vec![
             "claimLayer".to_owned(),
             "monitors".to_owned(),
+            "newSeat".to_owned(),
+            "seats".to_owned(),
             "spawn".to_owned(),
             "windows".to_owned(),
         ],

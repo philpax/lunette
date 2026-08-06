@@ -123,19 +123,67 @@ The texture matches the captured output's resolution, which is `monitor.width` b
 A sink is somewhere pixel-space input can be delivered. `window.sink` names one for a window lunette hosts, and `monitor.sink` names one for a mirrored screen, and the two behave differently in a way that is exposed rather than hidden:
 
 ```lua
-print(sink.domain)         -- 'window' or 'host'.
-print(sink.window)         -- the window a window sink reaches, or nil.
-print(sink.monitor)        -- the monitor a host sink reaches, or nil.
-print(sink.id)             -- the compositor's identifier, or nil for a host sink.
-sink:pointer(x, y)         -- pixel coordinates on the target.
-sink:button('left', true)  -- press; false releases.
+print(sink.domain)             -- 'window' or 'host'.
+print(sink.window)             -- the window a window sink reaches, or nil.
+print(sink.monitor)            -- the monitor a host sink reaches, or nil.
+print(sink.id)                 -- the compositor's identifier, or nil for a host sink.
+sink:pointer(x, y)             -- pixel coordinates on the target.
+sink:button('left', true)      -- press; false releases.
+sink:leave()                   -- the pointer stops hovering; focus is untouched.
+sink:scroll(dx, dy)            -- a continuous distance, in surface-local pixels.
+sink:scrollDiscrete(dx, dy)    -- whole wheel notches.
+sink:key(keycode, true)        -- an evdev keycode; false releases.
+sink:modifiers{ 'shift' }      -- the modifiers held from now on.
 ```
 
 A window sink's events go to that client through its seat, so each window has independent focus and its own cursor. A host sink's go to the user's desktop through lunette's input provider, and every host sink shares one cursor and one keyboard focus, because the host has one of each. Two hands pointing at two mirrored monitors cannot produce two cursors. [Host desktop](host-desktop.md#the-input-domain-leak) states why that is surfaced rather than papered over.
 
-Both take pixel coordinates on their target — the window's committed size, or the monitor's resolution. A coordinate that is not finite raises, because it is a defect in the caller's maths rather than a race. Both return `false` on a dead handle without raising: a client can exit, and a monitor can be unplugged, between the raycast and the click.
+`sink:pointer` and `sink:button` take pixel coordinates on their target — the window's committed size, or the monitor's resolution. A coordinate that is not finite raises, because it is a defect in the caller's maths rather than a race. Every method returns `false` on a dead handle without raising: a client can exit, and a monitor can be unplugged, between the raycast and the click.
 
 `monitor.sink` exists whether or not the monitor is mirrored. Pointing at the host desktop does not require lunette to be showing it.
+
+`sink:leave()` is hover, not focus. It withdraws the pointer from whatever it was over without changing which sink holds the keyboard, so a panel library can highlight what one hand is pointing at without that hand taking the keyboard from the other. It returns `false` on a host sink: the host cursor is always somewhere on the host desktop, and there is no position that means "nowhere".
+
+The two scroll methods are separate because the protocol keeps the two sources apart. A notched wheel sends whole steps and a trackpad sends a continuous distance, and a client uses the difference to decide whether to scroll kinetically. An axis whose delta is zero sends nothing. A host sink takes both axes and converts to wheel detents, at ten surface-local pixels per detent.
+
+`sink:key(keycode, pressed)` takes an evdev keycode, which is what `wl_keyboard` carries and what `seat:strokeFor` hands back. On a window sink it goes to the seat's keyboard and so reaches whichever client that seat is focused on; a seat with no focus delivers to nobody. On a host sink it reaches whatever the host compositor currently focuses, and lunette does not choose what that is. A keycode outside the set lunette's host provider declared is refused with `false` rather than sent, because the kernel would otherwise drop it without a word.
+
+`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. The names are `shift`, `capsLock`, `control`, `alt`, `numLock`, `mod3`, `logo`, and `mod5`; an unrecognised one raises. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
+
+Every one of these methods takes an optional trailing seat. Leaving it off addresses the seat every session starts with, which is what a configuration that never calls `lunette.newSeat` wants. A host sink ignores the argument: the host has one cursor and one keyboard focus however many hands point at it.
+
+## Seats
+
+A `wl_seat` carries exactly one pointer and one keyboard, so two simultaneous cursors need two seats and the protocol offers nothing else. [Input](input.md#seats) states why.
+
+```lua
+local left = lunette.newSeat('left', { layout = 'de', repeatDelay = 200, repeatRate = 50 })
+
+for _, seat in ipairs(lunette.seats()) do
+    print(seat.id, seat.name)      -- the identifier, and what clients see on wl_seat.name.
+    print(seat.dead)               -- whether the compositor has this seat right now.
+    print(seat.modifiers)          -- an array of names; what clients were last told.
+    print(seat.layouts)            -- an array: 'English (US)', not 'us'.
+    seat:setFocus(win.sink)        -- gives this seat's keyboard to a sink; nil withdraws it.
+    seat:setModifiers{ 'shift' }   -- the same request sink:modifiers makes.
+    seat:symbolFor(30)             -- the keysym a keycode produces, or nil.
+    seat:characterFor(30, { 'shift' })  -- the text it types, or nil.
+    seat:strokeFor('A')            -- { keycode = 30, modifiers = { 'shift' } }, or nil.
+    seat:destroy()                 -- withdraws the seat.
+end
+```
+
+`lunette.newSeat(name, options)` returns a handle before the compositor has made the seat, so `seat.dead` is true in the frame that created it — the same rule `lunette.spawn` follows. The name is what clients tell two seats apart by, and it is the only thing on the wire that does, so a name another seat already has raises.
+
+The options are the five names libxkbcommon compiles a layout from — `rules`, `model`, `layout`, `variant`, and `options` — plus `repeatDelay` in milliseconds and `repeatRate` in repeats per second. An absent layout name takes the system default, which is what a user who configured a layout for their desktop expects lunette to inherit. Key repeat defaults to a 200ms delay and 50Hz, and a rate of zero disables it; the timing is policy, so it lives here rather than in the native layer. A layout that does not compile is reported in the log and the seat never appears.
+
+`seat:setFocus(sink)` is what gives a client the keyboard. Nothing infers focus from pointer motion — that heuristic is what makes a second hand steal focus by hovering — so a configuration that wants focus-follows-hover writes it. `nil` withdraws focus. A host sink returns `false`: which window on the host desktop holds the keyboard is the host compositor's decision.
+
+`seat.layouts`, `seat:symbolFor`, `seat:characterFor`, and `seat:strokeFor` are the keymap queries [Input](input.md#keyboard) asks for. They are what lets a virtual keyboard draw correct legends and produce correct keycodes without reimplementing xkb in Lua. All of them answer from the seat's own layout, so two seats on different layouts answer differently.
+
+`seat:strokeFor(value)` is the reverse lookup. A string is read as the character to type and a number as a keysym, and the answer prefers the fewest modifiers and then the lowest keycode, so a digit resolves to the number row rather than the keypad. It returns `nil` for anything the layout cannot express — that is what `sink:typeText` is for — and raises on a string of more than one character, because a stroke produces one keysym.
+
+`seat:destroy()` withdraws the seat. The seat every session starts with refuses: a session with no seat can deliver no input.
 
 ## Layer claims
 

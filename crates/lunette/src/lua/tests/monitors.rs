@@ -9,7 +9,9 @@
 use std::cell::RefCell;
 
 use lunette_capture::{
-    hid::{PanelPoint, PointerButton as HostButton},
+    hid::{
+        KeyModifiers, PanelPoint, PointerButton as HostButton, VirtualKey, WheelDelta, XkbKeymap,
+    },
     mirror::MirrorOutcome,
     monitor::{
         ConnectorKind, ConnectorName, LogicalGeometry, LogicalPosition, LogicalSize, MonitorKey,
@@ -43,7 +45,7 @@ pub(super) enum Call {
 
 impl FakeMirrors {
     /// A registry holding one monitor on `DP-1`, not mirrored.
-    fn one() -> Rc<Self> {
+    pub(super) fn one() -> Rc<Self> {
         let registry = Rc::new(Self::default());
         registry.states.borrow_mut().push(state(1, false));
         registry
@@ -119,11 +121,24 @@ pub(super) enum HostEvent {
         button: HostButton,
         pressed: bool,
     },
+    Wheel {
+        delta: WheelDelta,
+    },
+    Key {
+        key: VirtualKey,
+        pressed: bool,
+    },
+    Modifiers {
+        modifiers: KeyModifiers,
+    },
+    Keymap {
+        text: String,
+    },
     Committed,
 }
 
 impl RecordingHost {
-    fn events(&self) -> Vec<HostEvent> {
+    pub(super) fn events(&self) -> Vec<HostEvent> {
         self.events.borrow().clone()
     }
 }
@@ -141,6 +156,31 @@ impl HostSinks for RecordingHost {
         self.events
             .borrow_mut()
             .push(HostEvent::Button { button, pressed });
+    }
+
+    fn wheel(&self, delta: WheelDelta) {
+        self.events.borrow_mut().push(HostEvent::Wheel { delta });
+    }
+
+    fn key(&self, key: VirtualKey, pressed: bool) -> bool {
+        self.events
+            .borrow_mut()
+            .push(HostEvent::Key { key, pressed });
+        true
+    }
+
+    fn modifiers(&self, modifiers: KeyModifiers) -> bool {
+        self.events
+            .borrow_mut()
+            .push(HostEvent::Modifiers { modifiers });
+        true
+    }
+
+    fn set_keymap(&self, keymap: &XkbKeymap) -> bool {
+        self.events.borrow_mut().push(HostEvent::Keymap {
+            text: keymap.as_str().to_owned(),
+        });
+        true
     }
 
     fn commit(&self) {

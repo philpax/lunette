@@ -29,10 +29,13 @@
 use std::{cell::RefCell, fmt};
 
 use lunette_capture::{
-    hid::{DesktopLayout, HostInput, MonitorMapping, PanelPoint, PointerButton as HostButton},
+    hid::{
+        DesktopLayout, HostInput, KeyModifiers, MonitorMapping, PanelPoint,
+        PointerButton as HostButton, ProviderError, VirtualKey, WheelDelta, XkbKeymap,
+    },
     monitor::{MonitorKey, Roster},
 };
-use lunette_compositor::protocol::PointerButton;
+use lunette_compositor::protocol::{KeyModifier, Keycode, ModifierState, PointerButton};
 use tracing::{debug, warn};
 
 /// The host desktop, as a sink reaches it.
@@ -53,6 +56,33 @@ pub trait HostSinks: fmt::Debug {
     /// wherever that cursor is.
     fn button(&self, button: HostButton, pressed: bool);
 
+    /// Scrolls the host's wheel.
+    fn wheel(&self, delta: WheelDelta);
+
+    /// Presses or releases a key on the host's keyboard.
+    ///
+    /// Reports whether the key was one the provider declared. A key outside
+    /// [`VirtualKey`]'s set is refused rather than sent, because a uinput device
+    /// emits nothing it did not declare at creation and the kernel would drop it
+    /// without saying so.
+    ///
+    /// This is the last link of `lunette-v1.AC3.3`: what the key reaches is
+    /// whatever the *host* compositor currently focuses, and lunette does not
+    /// choose what that is.
+    fn key(&self, key: VirtualKey, pressed: bool) -> bool;
+
+    /// Brings the host's held modifiers to a set.
+    fn modifiers(&self, modifiers: KeyModifiers) -> bool;
+
+    /// Tells the host which layout its keycodes should be read under.
+    ///
+    /// Uploaded before the first keystroke, not at startup:
+    /// `zwp_virtual_keyboard_v1` treats a key sent before a keymap as a protocol
+    /// error and disconnects the provider, so `lunette-capture`'s chain leaves
+    /// the virtual keyboard unconfigured until there is a layout to give it.
+    /// Reports whether the host now has this layout.
+    fn set_keymap(&self, keymap: &XkbKeymap) -> bool;
+
     /// Sends what accumulated this frame. Called once, at frame end.
     ///
     /// Pointer and button calls only accumulate, which is the division
@@ -71,6 +101,10 @@ pub struct HostPointer {
     input: RefCell<HostInput>,
     /// One mapping per mappable monitor, in the roster's own order.
     monitors: RefCell<Vec<(MonitorKey, MonitorMapping)>>,
+    /// The layout the host was last told about, so an unchanged one is not
+    /// re-uploaded. A keymap upload rewrites a memfd and makes the host
+    /// compositor recompile, which is not something to do per keystroke.
+    keymap: RefCell<Option<XkbKeymap>>,
 }
 
 impl HostPointer {
@@ -79,6 +113,7 @@ impl HostPointer {
         Self {
             input: RefCell::new(input),
             monitors: RefCell::new(Vec::new()),
+            keymap: RefCell::new(None),
         }
     }
 
@@ -153,8 +188,54 @@ impl HostSinks for HostPointer {
             .send_button(button, pressed);
     }
 
+    fn wheel(&self, delta: WheelDelta) {
+        self.input.borrow_mut().provider().wheel(delta);
+    }
+
+    fn key(&self, key: VirtualKey, pressed: bool) -> bool {
+        report("a key could not be sent to the host desktop", || {
+            self.input.borrow_mut().provider().send_key(key, pressed)
+        })
+    }
+
+    fn modifiers(&self, modifiers: KeyModifiers) -> bool {
+        report("the host's modifiers could not be set", || {
+            self.input.borrow_mut().provider().set_modifiers(modifiers)
+        })
+    }
+
+    fn set_keymap(&self, keymap: &XkbKeymap) -> bool {
+        if self.keymap.borrow().as_ref() == Some(keymap) {
+            return true;
+        }
+
+        let uploaded = report("the host's layout could not be set", || {
+            self.input.borrow_mut().provider().set_keymap(keymap)
+        });
+        if uploaded {
+            *self.keymap.borrow_mut() = Some(keymap.clone());
+        }
+        uploaded
+    }
+
     fn commit(&self) {
         self.input.borrow_mut().commit();
+    }
+}
+
+/// Runs a provider call, reporting a failure rather than propagating it.
+///
+/// A Lua caller gets a boolean: driving the host desktop is best-effort — the
+/// user may have revoked a permission, or the host session may have gone — and
+/// a script that raised on every refused keystroke would be unwritable. The log
+/// line is where the reason survives.
+fn report(context: &str, call: impl FnOnce() -> Result<(), ProviderError>) -> bool {
+    match call() {
+        Ok(()) => true,
+        Err(error) => {
+            warn!(%error, "{context}");
+            false
+        }
     }
 }
 
@@ -173,6 +254,20 @@ impl HostSinks for NoHostSinks {
     }
 
     fn button(&self, _button: HostButton, _pressed: bool) {}
+
+    fn wheel(&self, _delta: WheelDelta) {}
+
+    fn key(&self, _key: VirtualKey, _pressed: bool) -> bool {
+        false
+    }
+
+    fn modifiers(&self, _modifiers: KeyModifiers) -> bool {
+        false
+    }
+
+    fn set_keymap(&self, _keymap: &XkbKeymap) -> bool {
+        false
+    }
 
     fn commit(&self) {}
 }
@@ -195,4 +290,44 @@ pub const fn host_button(button: PointerButton) -> HostButton {
         PointerButton::Back => HostButton::Side,
         PointerButton::Forward => HostButton::Extra,
     }
+}
+
+/// The host's name for a key the compositor's numbering named.
+///
+/// Both are evdev codes, so this is a validation rather than a translation: it
+/// is where a code outside the set the provider declared to the kernel is
+/// rejected, instead of being sent and dropped without a word.
+#[must_use]
+pub fn host_key(key: Keycode) -> Option<VirtualKey> {
+    VirtualKey::from_evdev(u16::try_from(key.evdev()).ok()?)
+}
+
+/// The host's modifier mask for the closed set the compositor carries.
+///
+/// The bits are XKB modifier indices on both sides, so the two enumerations
+/// agree by construction; this is where that is stated once rather than assumed
+/// at each call site.
+///
+/// `None` for a set containing `Mod3`, which neither
+/// `zwp_virtual_keyboard_v1`'s mask nor uinput's representative-key table has a
+/// bit for. Refusing the whole set is the honest answer: sending the rest would
+/// leave the host holding modifiers the caller did not ask for, which is worse
+/// than sending nothing and saying so.
+#[must_use]
+pub fn host_modifiers(modifiers: &ModifierState) -> Option<KeyModifiers> {
+    modifiers.iter().try_fold(
+        KeyModifiers::NONE,
+        |held, modifier| -> Option<KeyModifiers> {
+            Some(held.union(match modifier {
+                KeyModifier::Shift => KeyModifiers::SHIFT,
+                KeyModifier::CapsLock => KeyModifiers::CAPS_LOCK,
+                KeyModifier::Control => KeyModifiers::CTRL,
+                KeyModifier::Alt => KeyModifiers::ALT,
+                KeyModifier::NumLock => KeyModifiers::NUM_LOCK,
+                KeyModifier::Logo => KeyModifiers::SUPER,
+                KeyModifier::Mod5 => KeyModifiers::ALT_GR,
+                KeyModifier::Mod3 => return None,
+            }))
+        },
+    )
 }

@@ -24,6 +24,7 @@ pub mod events;
 pub mod frame;
 pub mod host;
 pub mod import;
+pub mod keymaps;
 pub mod layers;
 pub mod lua;
 pub mod mirrors;
