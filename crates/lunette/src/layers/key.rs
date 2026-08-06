@@ -53,18 +53,40 @@ pub struct LayerProperties {
     /// is by definition reused, and LÖVR raises on the second acquire of an
     /// immutable one.
     pub immutable: bool,
-    /// Composited with alpha rather than over nothing.
+    /// Whether the runtime looks at the layer's alpha channel at all. LÖVR
+    /// turns this into `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`;
+    /// without it the layer composites as opaque and its fourth component is
+    /// ignored.
     pub transparent: bool,
     /// Sampled with filtering rather than nearest.
     pub filter: bool,
 }
 
 impl LayerProperties {
-    /// What a panel wants: one view, reusable, blended, and filtered.
+    /// What a panel wants: one view, reusable, opaque, and filtered.
+    ///
+    /// Opaque is the resolution of the X-variant alpha problem, and it is the
+    /// only one available on this path. `Xrgb8888` and `Xbgr8888` have no alpha
+    /// channel, so they are imported as the alpha-carrying format with the same
+    /// component order and whatever the client left in the padding byte arrives
+    /// as alpha. The in-scene quad forces it to one in a fragment stage; a
+    /// composition layer goes to the runtime with no shader and no Lua
+    /// consumer, and a copy cannot fix it either — `lovrTextureCopy` and
+    /// `lovrTextureBlit` are `vkCmdCopyImage` and `vkCmdBlitImage`, which read
+    /// the image rather than a view, so an image-view swizzle does not reach
+    /// them. The layer's own blend flag is what is left, and turning it off
+    /// makes the padding byte unreachable for every source format, before and
+    /// after a client renegotiates one.
+    ///
+    /// The cost is that a genuinely translucent client is composited opaque
+    /// while it holds a layer. A panel that wants translucency renders as an
+    /// in-scene quad, where the shader path resolves alpha correctly, and
+    /// choosing between sharpness and translucency is Lua's to make by claiming
+    /// or not claiming. `docs/decisions.md` records this.
     pub const PANEL: Self = Self {
         stereo: false,
         immutable: false,
-        transparent: true,
+        transparent: false,
         filter: true,
     };
 }

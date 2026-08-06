@@ -33,6 +33,8 @@ struct Calls {
     created: Vec<LayerKey>,
     destroyed: Vec<u64>,
     abandoned: Vec<u64>,
+    /// One entry per submit, holding the layers that list named.
+    submitted: Vec<Vec<u64>>,
 }
 
 /// A layer that is a number.
@@ -68,6 +70,14 @@ impl LayerBackend for FakeLayers {
         self.calls.borrow_mut().created.push(key);
         self.next += 1;
         Some(FakeLayer(self.next))
+    }
+
+    fn submit(&mut self, layers: &[&Self::Layer]) -> bool {
+        self.calls
+            .borrow_mut()
+            .submitted
+            .push(layers.iter().map(|layer| layer.0).collect());
+        true
     }
 
     fn destroy(&mut self, layer: Self::Layer) {
@@ -142,6 +152,16 @@ impl Harness {
 
     fn abandoned(&self) -> Vec<u64> {
         self.calls.borrow().abandoned.clone()
+    }
+
+    /// The layers the most recent submit named.
+    fn last_submitted(&self) -> Vec<u64> {
+        self.calls
+            .borrow()
+            .submitted
+            .last()
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The session goes away, taking every swapchain with it.
@@ -541,6 +561,26 @@ fn the_first_boundary_after_recovery_grants_a_new_layer_rather_than_a_stale_one(
         !harness.abandoned().contains(&live.0),
         "a handle given up with the old session was handed back out"
     );
+}
+
+#[test]
+fn the_submitted_list_holds_every_granted_layer_and_nothing_else() {
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+
+    harness.resolve();
+    harness.pool.submit();
+    assert_eq!(
+        harness.last_submitted(),
+        Vec::<u64>::new(),
+        "a layer whose swapchain has never released an image is XR_ERROR_LAYER_INVALID"
+    );
+
+    harness.pool.note_blit_issued(claim);
+    harness.resolve();
+    harness.pool.submit();
+
+    assert_eq!(harness.last_submitted(), vec![1]);
 }
 
 #[test]

@@ -266,6 +266,11 @@ fn generate_bindings(
         // The texture surface the import path is written against.
         .allowlist_function("lovrGraphicsIsInitialized")
         .allowlist_function("lovrGraphicsGetFeatures")
+        // Whether the device can blit a format. The layer swapchain is
+        // `FORMAT_RGBA8` with sRGB and a client's window is usually
+        // `FORMAT_BGRA8` without, so the copy between them degrades to
+        // `lovrTextureBlit`, which needs `GPU_FEATURE_BLIT` on both.
+        .allowlist_function("lovrGraphicsGetFormatSupport")
         .allowlist_function("lovrTextureCreate")
         .allowlist_function("lovrTextureDestroy")
         .allowlist_function("lovrTextureGetInfo")
@@ -290,6 +295,14 @@ fn generate_bindings(
         // `LayerInfo` arrives with them, because it is the signature.
         .allowlist_function("lovrLayerCreate")
         .allowlist_function("lovrLayerDestroy")
+        // The layer's current swapchain image, which the blit path copies into.
+        // It acquires, and the release at the end of every submit resets the
+        // index, so what it answers with is only that frame's.
+        .allowlist_function("lovrLayerGetTexture")
+        // The list the runtime composites. It persists across frames and is
+        // released before it is retained, which is why the pool holds a
+        // reference of its own to everything it puts here.
+        .allowlist_function("lovrHeadsetSetLayers")
         // How a `lun*` event reaches `lovr.handlers`. `CustomEvent`, `Event`,
         // and `EventType` arrive with it, because they are the signature.
         .allowlist_function("lovrEventPush")

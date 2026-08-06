@@ -26,6 +26,7 @@
 //! the pool itself in Lua, and layer churn is what ruled it out.
 
 mod backend;
+mod blit;
 mod key;
 mod lovr;
 mod pool;
@@ -34,7 +35,8 @@ mod tests;
 
 pub use self::{
     backend::LayerBackend,
+    blit::{BlitLedger, Blitted, Decision, LayerBlitter, decide},
     key::{LayerKey, LayerProperties, LayerSize},
-    lovr::{LovrLayer, LovrLayers},
+    lovr::{LovrBlits, LovrLayer, LovrLayers},
     pool::{ClaimId, ClaimState, LayerBudget, LayerPool, PoolOutcome, Priority},
 };

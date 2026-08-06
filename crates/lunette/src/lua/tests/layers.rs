@@ -58,6 +58,12 @@ impl LayerBackend for FakeLayers {
         Some(FakeLayer(self.created))
     }
 
+    /// Nothing here reads the submitted list; what these tests are about is
+    /// what Lua is told, and the pool's own tests cover the list itself.
+    fn submit(&mut self, _layers: &[&Self::Layer]) -> bool {
+        true
+    }
+
     fn destroy(&mut self, _layer: Self::Layer) {}
 
     fn abandon(&mut self, _layer: Self::Layer) {}

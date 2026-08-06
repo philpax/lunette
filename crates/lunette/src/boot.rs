@@ -38,7 +38,8 @@ use std::{
 
 use lunette::{
     frame::{FrameDriver, Startup},
-    lua::{Session, install_on_state},
+    layers::{LovrBlits, LovrLayers},
+    lua::{PoolRegistry, Session, install_on_state},
     texture::LovrTexture,
 };
 use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback};
@@ -71,6 +72,7 @@ use tracing::error;
 pub fn run(
     config_directory: &Path,
     session: &Rc<Session<LovrTexture>>,
+    layers: &Rc<PoolRegistry<LovrLayers>>,
     startup: Startup,
 ) -> ExitCode {
     let platform = match Platform::init() {
@@ -81,7 +83,11 @@ pub fn run(
         }
     };
 
-    let mut driver = FrameDriver::new(Rc::clone(session), startup);
+    // SAFETY: this function runs the boot sequence and every frame after it on
+    // the calling thread, which is therefore the thread that owns LÖVR's
+    // graphics and headset modules for the life of the process.
+    let blits = unsafe { LovrBlits::new() };
+    let mut driver = FrameDriver::new(Rc::clone(session), Rc::clone(layers), blits, startup);
 
     // The restart cookie outlives every Lua state: one session writes it and
     // the next reads it back. `src/main.c:40` gets that lifetime from a

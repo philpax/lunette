@@ -60,7 +60,8 @@ use tracing::{error, info, warn};
 use crate::{
     events::LuaEvent,
     import::{DeviceError, GraphicsDevice, ImageArena, Importer},
-    lua::Session,
+    layers::{BlitLedger, Blitted, LovrBlits, LovrLayers},
+    lua::{PoolRegistry, Session},
     texture::{BarrierPolicy, LovrTexture, Released, TextureLedger, destroy_due_images},
 };
 
@@ -89,6 +90,13 @@ pub struct Startup {
 #[derive(Debug)]
 pub struct FrameDriver {
     session: Rc<Session<LovrTexture>>,
+    /// The same pool [`Session`] reaches through `ClaimRegistry`, held here
+    /// concretely as well. The trait is what Lua needs and is deliberately
+    /// dyn-safe; the blit and the submit need the backend's own `Layer` type,
+    /// which no dyn-safe trait can hand back.
+    layers: Rc<PoolRegistry<LovrLayers>>,
+    blits: LovrBlits,
+    blitted: BlitLedger,
     /// Consumed by the first successful or failed start.
     startup: Option<Startup>,
     compositor: Option<Compositor>,
@@ -110,10 +118,21 @@ struct Compositor {
 }
 
 impl FrameDriver {
+    /// `blits` carries the same thread guarantee the pool's backend does, which
+    /// is why it is taken rather than made here: this type is constructed by the
+    /// entry point, which is the one place able to state it.
     #[must_use]
-    pub fn new(session: Rc<Session<LovrTexture>>, startup: Startup) -> Self {
+    pub fn new(
+        session: Rc<Session<LovrTexture>>,
+        layers: Rc<PoolRegistry<LovrLayers>>,
+        blits: LovrBlits,
+        startup: Startup,
+    ) -> Self {
         Self {
             session,
+            layers,
+            blits,
+            blitted: BlitLedger::new(),
             barriers: startup.barriers,
             startup: Some(startup),
             compositor: None,
@@ -151,6 +170,11 @@ impl FrameDriver {
                 }
             }
         });
+
+        // After the acquire barriers, because a copy reads the imported
+        // texture; before `lovr.draw`, because the copy is recorded into the
+        // same stream the frame's rendering is and has to precede it.
+        self.blit_layers();
 
         // Last, and only here: `destroy_due_images` is sound only after the
         // frame's events have been drained into the ledger and the textures
@@ -226,6 +250,9 @@ impl FrameDriver {
         // While the XR session still exists, because destroying a `Layer` calls
         // `xrDestroySwapchain` inline.
         self.session.claims().shutdown();
+        // The cached swapchain images name textures the layers own, and those
+        // go with the layers.
+        self.blitted.clear();
 
         let released = self.session.with_textures(TextureLedger::take_all);
         for texture in released {
@@ -270,6 +297,47 @@ impl FrameDriver {
                  rest of this session"
             ),
         }
+    }
+
+    /// Copies each claim's window into the layer it holds, and hands the
+    /// runtime the list to composite.
+    ///
+    /// The submit runs whatever the copies decided. A layer skipped because its
+    /// window has not committed since the last copy still goes to the runtime,
+    /// which re-composites it from the image its swapchain last released;
+    /// leaving it out of the list would make its panel disappear rather than
+    /// hold still.
+    fn blit_layers(&mut self) {
+        let session = Rc::clone(&self.session);
+        let blits = &mut self.blits;
+        let blitted = &mut self.blitted;
+
+        self.layers.with_pool(|pool| {
+            session.with_textures(|textures| {
+                let report = blitted.run(pool, blits, textures, |claim| {
+                    session
+                        .claims()
+                        .source(claim)
+                        .and_then(|window| session.window(window))
+                        .map(|window| window.surface)
+                });
+
+                for (claim, outcome) in report {
+                    match outcome {
+                        Blitted::Copied | Blitted::Unchanged | Blitted::NoSource => {}
+                        // Reported every frame rather than once: unlike a device
+                        // that cannot blit, which the blit ledger reports once
+                        // because it never changes, these are transient and a
+                        // panel stuck on one is stuck showing an old frame.
+                        other => warn!(%claim, ?other, "a layer was not updated this frame"),
+                    }
+                }
+            });
+
+            if !pool.submit() {
+                warn!("the runtime refused this frame's composition layers");
+            }
+        });
     }
 
     /// Applies the frame's events to the ledger and queues them for Lua.

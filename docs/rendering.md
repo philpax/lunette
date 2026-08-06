@@ -38,6 +38,8 @@ The native layer records the distinction rather than resolving it: `window.opaqu
 
 Both facts are properties of the buffer, not of the window: a client that renegotiates its format changes `window.opaque` between one frame and the next, so it is read each frame alongside the texture rather than cached.
 
+A composition layer resolves both differently, because it has no shader and no Lua consumer to resolve them in. The copy into a layer is a Vulkan image copy or blit, which reads the image and cannot force a component, and an image-view swizzle does not apply to either. So layers are created without `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`: the runtime ignores the layer's alpha channel, the padding byte is unreachable whatever the source format, and premultiplication stops mattering. A window that wants its translucency composited renders as an in-scene quad rather than claiming a layer. [Decisions](decisions.md#recorded-decisions) records the alternatives.
+
 ### Forced conversion
 
 Some buffers cannot be sampled directly. Multi-planar YUV needs `VkSamplerYcbcrConversion`, which LÖVR has no concept of. Those buffers are converted into an RGBA texture transparently. This occurs with hardware-decoded video and some PipeWire capture formats. The Lua-visible behaviour is identical; only the cost differs.

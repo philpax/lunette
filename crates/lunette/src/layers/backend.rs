@@ -36,6 +36,16 @@ pub trait LayerBackend {
     /// `None` when the runtime refused.
     fn create(&mut self, key: LayerKey) -> Option<Self::Layer>;
 
+    /// Hands the runtime the layers to composite, in submit order.
+    ///
+    /// Called every frame with every grantable layer, copied into this frame or
+    /// not. `xrEndFrame` re-composites from the most recently released image,
+    /// so a layer left out of this list does not hold still — its panel
+    /// disappears.
+    ///
+    /// Reports whether the runtime accepted the list.
+    fn submit(&mut self, layers: &[&Self::Layer]) -> bool;
+
     /// Drops the pool's reference to a layer, destroying it if it was the last.
     ///
     /// Only sound while the session that owns the layer's swapchain is alive,

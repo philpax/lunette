@@ -75,6 +75,20 @@ impl compositor::CompositorHandler for CompositorState {
         self.forget_surface(surface);
     }
 
+    /// `on_commit_buffer_handler` is deliberately not called here, though
+    /// smithay documents it as the first thing a commit handler does.
+    ///
+    /// Its first act is `attrs.buffer.take()`, and that buffer is what
+    /// [`CompositorState::apply_commit`] reads to perform the import — so
+    /// calling it would leave the import path with nothing to import and no
+    /// client would ever display anything. Reading the buffer back out of
+    /// `RendererSurfaceState` instead would hand buffer ownership to smithay,
+    /// which releases a `wl_buffer` when it drops its own `Arc`, and lunette
+    /// already releases the same buffer itself.
+    ///
+    /// What that state is otherwise wanted for is damage tracking, and the
+    /// layer blit path counts lunette's own texture installs instead.
+    /// `docs/decisions.md` records why that predicate is the better one anyway.
     fn commit(&mut self, surface: &WlSurface) {
         self.popups_commit(surface);
         self.apply_commit(surface);

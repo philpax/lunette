@@ -44,10 +44,11 @@ use lunette_compositor::{
     surface::{PixelBuffer, ShmFormat},
 };
 use lunette_lovr::raw::{
-    TEXTURE_SAMPLE, TEXTURE_TRANSFER, Texture, TextureFormat, TextureFormat_FORMAT_BGRA8,
-    TextureInfo, TextureType_TEXTURE_2D, lovrImageCreateRaw, lovrImageDestroy,
-    lovrImageGetLayerData, lovrRelease, lovrTextureCopy, lovrTextureCreate, lovrTextureDestroy,
-    lovrTextureGetInfo, lovrTextureImportAcquire, lovrTextureImportRelease, lovrTextureSetPixels,
+    TEXTURE_FEATURE_BLIT, TEXTURE_SAMPLE, TEXTURE_TRANSFER, Texture, TextureFormat,
+    TextureFormat_FORMAT_BGRA8, TextureInfo, TextureType_TEXTURE_2D, lovrGraphicsGetFormatSupport,
+    lovrImageCreateRaw, lovrImageDestroy, lovrImageGetLayerData, lovrRelease, lovrTextureCopy,
+    lovrTextureCreate, lovrTextureDestroy, lovrTextureGetInfo, lovrTextureImportAcquire,
+    lovrTextureImportRelease, lovrTextureSetPixels,
 };
 use tracing::warn;
 
@@ -84,6 +85,43 @@ impl FrameGeneration {
 }
 
 impl fmt::Display for FrameGeneration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// How many buffers the whole session has installed, as of one surface's most
+/// recent.
+///
+/// The blit path stores the value it last copied and copies again only when it
+/// differs, which is the whole of the damage skipping.
+///
+/// Counted across every surface rather than per surface, and never restarted.
+/// A per-surface counter would repeat a value a surface had before it was
+/// forgotten and re-created — which happens whenever a client unmaps and
+/// re-maps — and a repeat reads to the blit path as "nothing has changed" while
+/// the texture underneath it is a different one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SurfaceCommit(u64);
+
+impl SurfaceCommit {
+    /// Before anything has been installed.
+    pub const INITIAL: Self = Self(0);
+
+    /// The next value, saturating rather than wrapping, for the reason
+    /// [`FrameGeneration::next`] saturates.
+    #[must_use]
+    pub const fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl fmt::Display for SurfaceCommit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -174,6 +212,9 @@ impl std::error::Error for TextureUnavailable {}
 #[derive(Debug)]
 pub struct TextureLedger<T> {
     entries: HashMap<SurfaceId, Entry<T>>,
+    /// The value the next install stamps its entry with. One counter for the
+    /// whole ledger, for the reason [`SurfaceCommit`] records.
+    commits: SurfaceCommit,
     morgue: Morgue,
 }
 
@@ -181,6 +222,7 @@ impl<T> Default for TextureLedger<T> {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            commits: SurfaceCommit::INITIAL,
             morgue: Morgue::default(),
         }
     }
@@ -212,6 +254,8 @@ impl<T> TextureLedger<T> {
         texture: T,
         description: TextureDescription,
     ) -> Released<T> {
+        self.commits = self.commits.next();
+
         if let Some(entry) = self.entries.get_mut(&surface) {
             let resized = entry.description.size != description.size;
             let released = Released {
@@ -222,6 +266,7 @@ impl<T> TextureLedger<T> {
             entry.description = description;
             entry.dead = false;
             entry.damaged = true;
+            entry.commit = self.commits;
             return released;
         }
 
@@ -233,6 +278,7 @@ impl<T> TextureLedger<T> {
                 dead: false,
                 stable: None,
                 damaged: true,
+                commit: self.commits,
             },
         );
         Released::default()
@@ -305,6 +351,23 @@ impl<T> TextureLedger<T> {
     #[must_use]
     pub fn describe(&self, surface: SurfaceId) -> Option<TextureDescription> {
         self.entries.get(&surface).map(|entry| entry.description)
+    }
+
+    /// A live surface's texture, and the commit that installed it.
+    ///
+    /// For the blit path, which wants both and neither a handle nor a
+    /// generation check: it runs inside the frame loop rather than from Lua, so
+    /// there is no caller-held reference for a generation to guard.
+    ///
+    /// Absent for a surface with no texture — never committed, or dead — which
+    /// is the case the blit path answers by leaving the layer as it is.
+    #[must_use]
+    pub fn source(&self, surface: SurfaceId) -> Option<(&T, SurfaceCommit)> {
+        let entry = self.entries.get(&surface)?;
+        if entry.dead {
+            return None;
+        }
+        Some((entry.texture.as_ref()?, entry.commit))
     }
 
     #[must_use]
@@ -466,6 +529,10 @@ struct Entry<T> {
     /// Set by every install, including the first, because a copy is only ever
     /// as current as the last buffer it was given.
     damaged: bool,
+    /// Which install produced the texture this entry holds. The blit path
+    /// compares it against what it last copied; `damaged` cannot serve both,
+    /// because [`TextureLedger::refresh_stable`] clears it.
+    commit: SurfaceCommit,
 }
 
 /// The textures a change to the ledger handed back for release.
@@ -874,10 +941,66 @@ impl LovrTexture {
         self.image
     }
 
+    /// Names a texture LÖVR owns, without taking a reference to it.
+    ///
+    /// For a layer's swapchain image: `lovrLayerGetTexture` hands back one of
+    /// the textures the swapchain holds and retains nothing, so the layer's own
+    /// reference is the only one there is.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must name a live LÖVR texture that outlives the returned value,
+    /// and [`LovrTexture::release_ref`] must never be called on it — that would
+    /// drop the owner's reference rather than one of this program's, and
+    /// destroy the image out from under whatever holds it.
+    #[must_use]
+    pub const unsafe fn borrowed(raw: NonNull<Texture>) -> Self {
+        Self { raw, image: None }
+    }
+
     /// The raw pointer, for the draw path that has to name it to LÖVR.
     #[must_use]
     pub fn as_raw(&self) -> *mut Texture {
         self.raw.as_ptr()
+    }
+
+    /// Whether the device can record a copy of this texture into `destination`.
+    ///
+    /// `lovrTextureCopy` degrades to `lovrTextureBlit` when the two formats
+    /// differ, which is the ordinary case here: a layer's swapchain image is
+    /// `FORMAT_RGBA8` with sRGB and a client's window is usually `FORMAT_BGRA8`
+    /// without. A blit needs `GPU_FEATURE_BLIT` on both formats, and
+    /// `lovrTextureBlit`'s own check for it is a `lovrCheck`, which compiles to
+    /// nothing in a release build — so asking here is what keeps an
+    /// unsupported blit from being recorded rather than refused.
+    #[must_use]
+    pub fn can_copy_to(&self, destination: &Self) -> bool {
+        let (Some(source), Some(destination)) = (self.shape(), destination.shape()) else {
+            return false;
+        };
+        if source.format == destination.format && source.srgb == destination.srgb {
+            return true;
+        }
+
+        blit_supported(source) && blit_supported(destination)
+    }
+
+    /// What LÖVR believes about the texture.
+    ///
+    /// Read back out of LÖVR rather than tracked alongside, because LÖVR is
+    /// what a copy's bounds are checked against and a second record of the same
+    /// thing is a second thing to get wrong.
+    fn shape(&self) -> Option<TextureShape> {
+        // SAFETY: the pointer is a live texture, and `lovrTextureGetInfo`
+        // returns a borrow of the info inside it (`graphics.c:2920-2922`) which
+        // is read before anything can free it.
+        let info = unsafe { lovrTextureGetInfo(self.raw.as_ptr()).as_ref() }?;
+        Some(TextureShape {
+            size: PixelSize::new(info.width, info.height),
+            layers: info.layers,
+            format: info.format,
+            srgb: info.srgb,
+        })
     }
 
     /// Drops lunette's reference to the texture.
@@ -902,16 +1025,8 @@ impl CopyableTexture for LovrTexture {
     /// Not `foreign`: this texture is LÖVR's to initialise, and the flag exists
     /// to suppress exactly the transition it wants.
     fn allocate_copy(&self) -> Option<Self> {
-        // SAFETY: the pointer is the live texture this type owns a reference
-        // to, and `lovrTextureGetInfo` returns a borrow of the info inside it
-        // (`graphics.c:2920-2922`) which is read before anything can free it.
-        let info = unsafe { lovrTextureGetInfo(self.raw.as_ptr()).as_ref() }?;
-        let copy = texture_info(
-            PixelSize::new(info.width, info.height),
-            info.format,
-            0,
-            false,
-        );
+        let shape = self.shape()?;
+        let copy = texture_info(shape.size, shape.format, 0, false);
 
         // SAFETY: LÖVR's graphics module is initialised, because this texture
         // exists; `copy` is a live local for the duration of the call.
@@ -930,12 +1045,27 @@ impl CopyableTexture for LovrTexture {
     /// codebase: a second one would have to reproduce that, and would get it
     /// subtly wrong.
     ///
-    /// An extent of `~0` asks for the largest region the two textures share,
-    /// resolved at `graphics.c:2977-2979`. Nothing here has to know the size.
+    /// The extent is the region the two textures share, computed here rather
+    /// than left as the `~0` that asks LÖVR for it. `lovrTextureCopy` resolves
+    /// `~0` against both textures (`graphics.c:2977-2979`), but when the
+    /// formats differ it hands the same array to `lovrTextureBlit` as both the
+    /// source and the destination extent — so the source's size is resolved
+    /// first and the destination is then told to take that many pixels
+    /// whatever its own size is. The bounds check that would catch it is a
+    /// `lovrCheck`, which compiles to nothing in a release build, leaving a
+    /// `vkCmdBlitImage` past the end of the destination.
     fn copy_to(&self, destination: &Self) -> bool {
+        let (Some(source), Some(target)) = (self.shape(), destination.shape()) else {
+            return false;
+        };
+
         let mut source_offset = [0u32; 4];
         let mut destination_offset = [0u32; 4];
-        let mut extent = [u32::MAX; 3];
+        let mut extent = [
+            source.size.width.min(target.size.width),
+            source.size.height.min(target.size.height),
+            source.layers.min(target.layers),
+        ];
 
         // SAFETY: both pointers are live textures this program holds references
         // to, and the three arrays are live locals LÖVR reads and rewrites in
@@ -950,6 +1080,34 @@ impl CopyableTexture for LovrTexture {
             )
         }
     }
+}
+
+/// What LÖVR believes a texture's shape and encoding to be.
+///
+/// Named fields rather than the `TextureInfo` it is read from, because that
+/// struct also carries a handle, a label, and the `foreign` flag — none of which
+/// survives creation as a question anyone asks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TextureShape {
+    size: PixelSize,
+    layers: u32,
+    format: TextureFormat,
+    /// Whether the sampler applies a transfer function. `lovrGraphicsGetFormatSupport`
+    /// reports the two encodings separately, so a format alone does not answer
+    /// what the device can do with it.
+    srgb: bool,
+}
+
+/// Whether the device can blit a texture of this shape.
+///
+/// `lovrGraphicsGetFormatSupport` answers with one bit per encoding —
+/// `graphics.c:1049-1062` walks `state.features.formats[format][srgb]` and
+/// shifts the result into bit `srgb` — so the sRGB flag selects the bit.
+fn blit_supported(shape: TextureShape) -> bool {
+    // SAFETY: LÖVR's graphics module is initialised, because a texture with
+    // this shape exists. The call reads a table of format capabilities.
+    let support = unsafe { lovrGraphicsGetFormatSupport(shape.format, TEXTURE_FEATURE_BLIT) };
+    support & (1 << u32::from(shape.srgb)) != 0
 }
 
 /// The `TextureInfo` an imported or uploaded texture is created with.

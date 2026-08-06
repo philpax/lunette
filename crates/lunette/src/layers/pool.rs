@@ -484,6 +484,26 @@ impl<B: LayerBackend> LayerPool<B> {
         })
     }
 
+    /// Hands the runtime every grantable layer, copied into this frame or not.
+    ///
+    /// Runs once a frame, after the blit. Skipping a copy does not mean
+    /// skipping the submit: the runtime re-composites an unchanged layer from
+    /// the image it last released, which costs it nothing, while leaving the
+    /// layer out of the list makes its panel disappear.
+    ///
+    /// Reports whether the runtime accepted the list.
+    pub fn submit(&mut self) -> bool {
+        let layers: Vec<&B::Layer> = self
+            .claims
+            .iter()
+            .filter_map(|entry| {
+                let held = entry.held.as_ref()?;
+                (held.state == HeldState::Granted).then_some(&held.layer)
+            })
+            .collect();
+        self.backend.submit(&layers)
+    }
+
     /// What the layers the pool holds cost against the budget, counting a
     /// stereo layer as two.
     ///

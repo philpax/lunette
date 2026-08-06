@@ -152,11 +152,13 @@ fn main() -> ExitCode {
     // state away and the session is what the next one attaches to. The pool
     // outlives it for the same reason, and so a restart does not cost every
     // panel its layer.
-    let session = Session::new(
-        Box::new(LovrEventSink),
-        Rc::new(PoolRegistry::new(LayerPool::new(backend))),
-    );
-    boot::run(config_directory, &session, startup)
+    //
+    // Two references to the one pool. Lua reaches it through `ClaimRegistry`,
+    // which is dyn-safe and hides the backend; the blit and the submit need the
+    // backend's own `Layer` type, so they hold it concretely.
+    let layers = Rc::new(PoolRegistry::new(LayerPool::new(backend)));
+    let session = Session::new(Box::new(LovrEventSink), Rc::clone(&layers) as _);
+    boot::run(config_directory, &session, &layers, startup)
 }
 
 /// Where a client is told to find lunette's socket.
