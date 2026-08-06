@@ -70,12 +70,60 @@ fn build() -> Result<(), BuildError> {
     let lovr_dir = canonicalize(&manifest_dir.join("../../vendor/lovr"))?;
 
     println!("cargo::rerun-if-env-changed={JOLT_SOURCE_VAR}");
+    watch_lovr_sources(&lovr_dir)?;
 
     let cmake_out = build_lovr(&lovr_dir, &jolt_source);
     let lovr_build = find_lovr_build(&cmake_out)?;
     emit_link_directives(&lovr_build);
     stage_boot_lua(&lovr_dir, &out_dir)?;
     generate_bindings(&manifest_dir, &lovr_dir, &out_dir)
+}
+
+/// Declares the LÖVR files whose contents govern the cmake build.
+///
+/// Cargo watches only the package directory, and `vendor/lovr` sits two
+/// directories above it, so without these lines a patch to LÖVR leaves this
+/// script Fresh and the stale `liblovr.so` is linked.
+///
+/// The files are named one by one rather than by handing Cargo the `src`
+/// directory, because cmake writes generated headers back into the source tree
+/// — `src/api/l_math.lua.h` and the shader headers under `etc/shaders`, both
+/// covered by LÖVR's own `.gitignore:2` pattern `*.*.h`. Watching the directory
+/// therefore sees a newer mtime after every build and rebuilds for ever.
+/// Excluding that pattern is what breaks the cycle, and Cargo has no way to
+/// express an exclusion against a directory entry.
+///
+/// A source file added to LÖVR is not itself watched until the next rerun, but
+/// `LOVR_SRC` in `CMakeLists.txt:255-304` lists every source explicitly, so
+/// adding one edits a watched file.
+///
+/// `deps/` is deliberately absent. It is a tree of submodules whose recursive
+/// walk costs far more than it returns, and a submodule bump shows up as a
+/// change to `CMakeLists.txt` or to the gitlink rather than to a file under
+/// `src/`.
+fn watch_lovr_sources(lovr_dir: &Path) -> Result<(), BuildError> {
+    println!(
+        "cargo::rerun-if-changed={}",
+        lovr_dir.join("CMakeLists.txt").display()
+    );
+
+    walk_files(&lovr_dir.join("src"), &mut |path| {
+        if !is_generated_header(path) {
+            println!("cargo::rerun-if-changed={}", path.display());
+        }
+    })
+}
+
+/// Whether a path matches the `*.*.h` pattern cmake generates headers under.
+///
+/// The generated names carry the source extension before `.h` — `l_math.lua.h`
+/// from `l_math.lua`, `fill.frag.h` from `fill.frag` — so a hand-written `.h`
+/// never matches unless its stem contains a dot, which none in LÖVR does.
+fn is_generated_header(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension == "h")
+        && Path::new(path.file_stem().unwrap_or_default())
+            .extension()
+            .is_some()
 }
 
 /// Configures and builds LÖVR, returning the cmake output directory.
@@ -260,6 +308,19 @@ fn find_lovr_build(cmake_out: &Path) -> Result<LovrBuild, BuildError> {
 }
 
 fn collect_matches(dir: &Path, name: &str, found: &mut Vec<PathBuf>) -> Result<(), BuildError> {
+    walk_files(dir, &mut |path| {
+        if path.file_name().is_some_and(|entry| entry == name) {
+            found.push(path.to_path_buf());
+        }
+    })
+}
+
+/// Calls `visit` for every non-directory entry below `dir`, depth first.
+///
+/// `visit` is a trait object rather than a generic, because the recursive call
+/// would otherwise instantiate the function at `&mut F` at each level and never
+/// terminate.
+fn walk_files(dir: &Path, visit: &mut dyn FnMut(&Path)) -> Result<(), BuildError> {
     let entries = std::fs::read_dir(dir).map_err(|error| BuildError::ReadDirectory {
         path: dir.to_path_buf(),
         cause: error,
@@ -282,9 +343,9 @@ fn collect_matches(dir: &Path, name: &str, found: &mut Vec<PathBuf>) -> Result<(
             })?;
 
         if file_type.is_dir() {
-            collect_matches(&path, name, found)?;
-        } else if entry.file_name() == name {
-            found.push(path);
+            walk_files(&path, visit)?;
+        } else {
+            visit(&path);
         }
     }
 
