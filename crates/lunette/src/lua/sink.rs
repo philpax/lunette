@@ -26,6 +26,12 @@
 //! than papered over. A key sent to a host sink reaches whatever the host
 //! compositor currently focuses, and lunette does not choose what that is and
 //! must not try.
+//!
+//! There is no `key` method yet, only `pointer` and `button`. The provider chain
+//! underneath has the keyboard half — `send_key`, `set_modifiers`,
+//! `set_keymap` — and nothing here reaches it, because a key surface needs the
+//! keymap machinery phase 5 builds. `docs/milestone-0-findings.md` records that
+//! `lunette-v1.AC3.3` waits on that rather than on hardware alone.
 
 use std::rc::Rc;
 

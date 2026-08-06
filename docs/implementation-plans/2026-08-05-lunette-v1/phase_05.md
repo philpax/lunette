@@ -291,7 +291,9 @@ git commit -m "feat(compositor): handle keymaps and explicit modifier state"
 <!-- START_TASK_4 -->
 ### Task 4: Expose keymap data to Lua
 
-**Verifies:** `lunette-v1.AC4.2`.
+**Verifies:** `lunette-v1.AC4.2`, and `lunette-v1.AC3.3` — which phase 4 did not deliver.
+
+Phase 4 built the host provider chain's keyboard half and reached none of it: `Sink` exposes `pointer` and `button` only, so nothing calls `send_key`, `set_modifiers`, or `set_keymap`. `sink:key` below is what makes AC3.3 reachable, and it must route to the host provider for a host sink exactly as `sink:pointer` does. The same step unblocks `wl_virtual`, which `hid::open` leaves unconfigured until a keymap exists: `zwp_virtual_keyboard_v1` treats a key before a keymap as a protocol error, so the provider would be disconnected by its first keystroke.
 
 **Files:**
 - Modify: `crates/lunette/src/lua/sink.rs`
