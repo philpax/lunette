@@ -42,6 +42,24 @@ libei via the portal's RemoteDesktop interface is the intended long-term replace
 
 Keymaps are a parameter. `lunette-capture` takes a layout in XKB's version 1 text format and uploads it to `zwp_virtual_keyboard_v1`, so typing into a mirrored monitor respects the user's real keyboard layout; reading that layout off the host is the binary's job, not the library's. There is nothing to upload under uinput, which injects raw keycodes below the display server and leaves the layout to the host.
 
+## Pointer mapping
+
+A hit on a mirrored panel is normalised over the panel's surface. The monitor's mapping turns it into a position inside that monitor's logical rectangle, applying the monitor's rotation and flip, and clamping to the rectangle first. The provider then places that position on the host desktop, which it knows only as a bounding box.
+
+The split matters. A `HidProvider` has no concept of a monitor: uinput's device spans the whole desktop in a fixed normalised range, and `zwlr_virtual_pointer_v1` takes the desktop extent on every call. Per-monitor targeting is upstream of both.
+
+Every dimension is logical, never pixels. On a display scaled by two the two differ by that factor, and a pointer mapped through pixels lands wrong by exactly that ratio.
+
+Clamping happens per monitor rather than to the bounding box. A non-rectangular arrangement leaves dead zones inside the box, and a hit clamped only to the box can land in the gap between two screens.
+
+The desktop's origin and extent are recomputed on every output change and handed to the provider again. Neither provider needs anything recreated for it, which is what uinput's fixed normalised range buys.
+
+### Known unknown: absolute uinput devices under GNOME
+
+Whether mutter maps a bare `ABS_X`/`ABS_Y` uinput device across the whole monitor layout or binds it to a single display is unverified. wlroots spans the layout unless `wlr_cursor_map_to_output` is used, which is opt-in; GNOME may treat an absolute device as tablet-like and bind it to one display instead.
+
+If it does bind to one, GNOME has no working absolute pointer path in v1: `zwlr_virtual_pointer_v1` is unavailable there too, and the honest answer is libei, which v1 does not implement. This is verified by observation on GNOME, not assumed.
+
 ## The input domain leak
 
 Windows and mirrored monitors share an interface, but they do not share semantics. This difference is exposed to Lua rather than hidden.

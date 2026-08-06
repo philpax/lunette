@@ -159,7 +159,7 @@ impl UinputProvider {
     /// The device spans the whole desktop bounding box rather than one monitor,
     /// which is what makes hotplug free: the range never changes, so only the
     /// origin and extent do and the device itself is never recreated.
-    /// `crate::hid::mapping` is what gets a hit on a mirrored panel into this
+    /// [`crate::hid::mapping`] is what gets a hit on a mirrored panel into this
     /// space in the first place.
     fn normalise(&mut self, position: DesktopPoint) -> Option<(i32, i32)> {
         let Some(extent) = self.desktop_extent else {

@@ -31,6 +31,7 @@
 pub mod dummy;
 pub mod evdev;
 pub mod key;
+pub mod mapping;
 pub mod pointer;
 #[cfg(any(test, feature = "test-fakes"))]
 pub mod recording;
@@ -43,6 +44,7 @@ use tracing::{info, warn};
 pub use crate::hid::{
     dummy::DummyProvider,
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
+    mapping::{DesktopLayout, MappingError, MonitorMapping, PanelPoint, SurfaceTransform},
     pointer::{
         DesktopExtent, DesktopPoint, DesktopVector, PendingPointer, PointerBatch, WheelDelta,
     },
@@ -193,6 +195,17 @@ impl HostInput {
             .then(|| NoHostInput::from_failures(self.failures.clone()))
     }
 
+    /// Tells the provider where the host desktop is and how large it is.
+    ///
+    /// Called on every output change. The layout is rebuilt rather than updated
+    /// in place, and the provider takes the new origin and extent without
+    /// anything being recreated: uinput's device spans a fixed normalised range
+    /// and `zwlr_virtual_pointer_v1` takes the extent on every call.
+    pub fn set_desktop(&mut self, layout: &DesktopLayout) {
+        self.provider.set_desktop_origin(layout.origin());
+        self.provider.set_desktop_extent(layout.extent());
+    }
+
     /// The provider, for the calls that only accumulate.
     #[must_use]
     pub fn provider(&mut self) -> &mut dyn HidProvider {
@@ -278,11 +291,18 @@ fn open_one(kind: ProviderKind, config: &HidConfig) -> Result<Box<dyn HidProvide
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
 mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::hid::recording::{HidEvent, Recording};
+    use crate::{
+        hid::recording::{HidEvent, Recording},
+        monitor::{LogicalGeometry, LogicalPosition, LogicalSize},
+    };
 
     fn host(provider: Box<dyn HidProvider>, kind: ProviderKind) -> HostInput {
         HostInput {
@@ -314,6 +334,30 @@ mod tests {
             vec![
                 HidEvent::MouseMove(DesktopPoint::new(4.0, 5.0)),
                 HidEvent::Commit,
+            ],
+        );
+    }
+
+    #[test]
+    fn an_output_change_reaches_the_provider_as_a_new_origin_and_extent() {
+        let recording = Recording::new();
+        let mut input = host(Box::new(recording.provider()), ProviderKind::WlVirtual);
+        let layout = DesktopLayout::new([MonitorMapping::new(
+            LogicalGeometry::new(LogicalPosition::new(-1920, 0), LogicalSize::new(1920, 1080)),
+            SurfaceTransform::Normal,
+        )
+        .expect("a monitor with an area")])
+        .expect("at least one monitor");
+
+        input.set_desktop(&layout);
+
+        assert_eq!(
+            recording.events(),
+            vec![
+                HidEvent::DesktopOrigin(DesktopPoint::new(-1920.0, 0.0)),
+                HidEvent::DesktopExtent(
+                    DesktopExtent::new(1920.0, 1080.0).expect("a positive extent")
+                ),
             ],
         );
     }

@@ -46,7 +46,7 @@ impl DesktopPoint {
     ///
     /// A non-rectangular arrangement leaves dead zones inside the desktop's
     /// bounding box, so this is not the whole of the clamping a pointer needs;
-    /// `crate::hid::mapping` clamps to the target monitor first. This is the
+    /// [`crate::hid::mapping`] clamps to the target monitor first. This is the
     /// last guard, and it is what keeps a relative motion from walking off the
     /// desktop entirely.
     #[must_use]
