@@ -27,7 +27,7 @@
 //! deliberate act rather than something that happens because an error was
 //! returned.
 
-use std::{error::Error, fmt, os::fd::OwnedFd};
+use std::{error::Error, fmt, os::fd::OwnedFd, time::Duration};
 
 use smithay::reexports::calloop;
 use tracing::debug;
@@ -167,6 +167,13 @@ pub enum HostStartError {
         socket: String,
         cause: Box<dyn Error + Send + Sync>,
     },
+    /// The socket accepted the connection and then answered nothing.
+    ///
+    /// Distinguished from [`HostStartError::Connect`] because the two ask for
+    /// different things of whoever reads the log: one means the path is wrong,
+    /// and this one means something is listening there that is not a Wayland
+    /// compositor, or is one that has stopped answering.
+    Unresponsive { socket: String, waited: Duration },
     /// The host implements neither `ext_data_control_v1` nor
     /// `zwlr_data_control_v1`, so its clipboard cannot be read or written at
     /// all. KDE and GNOME both fall here for the wlr protocol; ext-data-control
@@ -185,6 +192,10 @@ impl fmt::Display for HostStartError {
             Self::Connect { socket, cause: _ } => {
                 write!(f, "could not reach the host compositor at {socket}")
             }
+            Self::Unresponsive { socket, waited } => write!(
+                f,
+                "the socket at {socket} accepted a connection and did not answer within {waited:?}"
+            ),
             Self::NoDataControl => write!(
                 f,
                 "the host compositor implements neither ext-data-control nor wlr-data-control, so \
@@ -203,7 +214,7 @@ impl Error for HostStartError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Connect { cause, .. } | Self::Worker(cause) => Some(cause.as_ref()),
-            Self::NoDataControl | Self::NoSeat => None,
+            Self::NoDataControl | Self::NoSeat | Self::Unresponsive { .. } => None,
         }
     }
 }

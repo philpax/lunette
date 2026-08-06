@@ -116,7 +116,11 @@ impl SelectionKind {
     }
 
     /// Where this selection sits in a per-kind array.
-    const fn index(self) -> usize {
+    ///
+    /// One mapping for the whole crate. Two of them, over arrays in two files,
+    /// would let a divergence become a cross-file bug that neither file looks
+    /// wrong on its own.
+    pub(crate) const fn index(self) -> usize {
         match self {
             Self::Clipboard => 0,
             Self::Primary => 1,
@@ -140,14 +144,20 @@ impl fmt::Display for SelectionKind {
 pub struct MimeType(String);
 
 impl MimeType {
-    /// Wraps a MIME type, rejecting an empty one.
+    /// Wraps a MIME type, rejecting an empty one and one carrying surrounding
+    /// whitespace.
     ///
     /// An empty string is not a type any source can be asked for, and offering
-    /// one would advertise a transfer that can never be answered.
+    /// one would advertise a transfer that can never be answered. Whitespace
+    /// around a type is refused rather than trimmed away, because the stored
+    /// string is compared byte for byte against what the other side asks for:
+    /// trimming would make lunette answer a request naming a type no source
+    /// advertised, and accepting the untrimmed form would store a type nothing
+    /// will ever match.
     #[must_use]
     pub fn new(name: impl Into<String>) -> Option<Self> {
         let name = name.into();
-        (!name.trim().is_empty()).then_some(Self(name))
+        (!name.is_empty() && name.trim().len() == name.len()).then_some(Self(name))
     }
 
     #[must_use]
@@ -319,6 +329,14 @@ pub(crate) struct SelectionBridge {
     host: Option<Box<dyn HostSelection>>,
     /// What the host last announced, indexed by [`SelectionKind::index`].
     offers: [Option<HostOffer>; 2],
+    /// Which selections lunette currently owns on the host, indexed the same
+    /// way.
+    ///
+    /// Tracked because withdrawing one lunette does not own is not a no-op: the
+    /// data-control protocols carry `set_selection(null)` through with no
+    /// ownership check, so it empties the user's desktop clipboard rather than
+    /// taking lunette's offer off it.
+    published: [bool; 2],
 }
 
 impl SelectionBridge {
@@ -327,6 +345,7 @@ impl SelectionBridge {
             seat,
             host,
             offers: [None, None],
+            published: [false, false],
         }
     }
 
@@ -403,10 +422,41 @@ impl SelectionBridge {
         self.host.as_deref()
     }
 
+    /// Offers a lunette client's selection to the host, and records that
+    /// lunette owns it.
+    pub(crate) fn publish_to_host(&mut self, kind: SelectionKind, mimes: &[MimeType]) {
+        let Some(host) = self.host.as_deref() else {
+            return;
+        };
+        host.publish(kind, mimes);
+        self.published[kind.index()] = true;
+    }
+
+    /// Takes lunette's own offer off the host, and only that.
+    ///
+    /// A selection lunette never published belongs to something else on the
+    /// desktop — the user's browser, their editor — and withdrawing it would
+    /// destroy what they copied.
+    pub(crate) fn withdraw_from_host(&mut self, kind: SelectionKind) {
+        if !self.published[kind.index()] {
+            return;
+        }
+        self.published[kind.index()] = false;
+        if let Some(host) = self.host.as_deref() {
+            host.withdraw(kind);
+        }
+    }
+
+    /// Forgets that lunette owns a selection, because the host took it back.
+    pub(crate) const fn host_took_back(&mut self, kind: SelectionKind) {
+        self.published[kind.index()] = false;
+    }
+
     /// Drops the host connection, because it ended.
     pub(crate) fn lose_host(&mut self) {
         self.host = None;
         self.offers = [None, None];
+        self.published = [false, false];
     }
 }
 

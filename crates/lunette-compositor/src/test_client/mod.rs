@@ -38,6 +38,9 @@ use std::{
     time::Instant,
 };
 
+/// The protocol's own scroll-source enum, re-exported so a test can name the
+/// value it expects without depending on `wayland-client` itself.
+pub use wayland_client::protocol::wl_pointer::AxisSource;
 use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy, QueueHandle,
     backend::{ObjectId, WaylandError},
@@ -48,6 +51,7 @@ use wayland_client::{
         wl_data_offer::WlDataOffer,
         wl_keyboard::{self, KeyState, WlKeyboard},
         wl_pointer::{self, ButtonState, WlPointer},
+        wl_region::WlRegion,
         wl_registry::{self, WlRegistry},
         wl_seat::{self, Capability, WlSeat},
         wl_shm::{self, WlShm},
@@ -76,7 +80,7 @@ use wayland_protocols::{
 
 pub use crate::test_client::selection::{ClientSource, SelectionDevices, read_to_end};
 use crate::{
-    protocol::PixelSize,
+    protocol::{PixelSize, ScrollAxis},
     testing::{DEADLINE, TestCompositor},
 };
 
@@ -343,6 +347,58 @@ impl TestClient {
         let buffer = self.shm_buffer(size);
         self.attach_to(compositor, &surface, &buffer, width, height);
         self.buffers.push(buffer);
+        self.popups.push((popup, xdg_surface));
+        surface
+    }
+
+    /// Opens a popup and never acknowledges its configure.
+    ///
+    /// The point of the exercise is a popup that would otherwise be hit: an
+    /// input region covering the popup's extent is committed, so the geometry
+    /// alone would accept a click. A popup with neither a buffer nor a region is
+    /// skipped by the input-region test whether or not the configure was
+    /// answered, and would say nothing about the configure check.
+    ///
+    /// No buffer, because attaching one before acknowledging the configure is a
+    /// protocol error.
+    pub fn open_unconfigured_popup(
+        &mut self,
+        compositor: &mut TestCompositor,
+        origin: (i32, i32),
+        size: PixelSize,
+    ) -> WlSurface {
+        let handle = self.queue.handle();
+        let wl_compositor = self.bind::<WlCompositor>(6);
+        let wm_base = self.bind::<XdgWmBase>(3);
+        let parent = self
+            .xdg_surface
+            .clone()
+            .expect("a toplevel was opened first");
+        let (width, height) = protocol_size(size);
+
+        let positioner = wm_base.create_positioner(&handle, ());
+        positioner.set_size(width, height);
+        positioner.set_anchor_rect(origin.0, origin.1, 1, 1);
+        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+
+        let surface = wl_compositor.create_surface(&handle, ());
+        let xdg_surface = wm_base.get_xdg_surface(&surface, &handle, ());
+        let popup = xdg_surface.get_popup(Some(&parent), &positioner, &handle, ());
+        positioner.destroy();
+        surface.commit();
+
+        self.settle(compositor, |driver| {
+            driver.configure_serial(&xdg_surface).is_some()
+        });
+
+        let region = wl_compositor.create_region(&handle, ());
+        region.add(0, 0, width, height);
+        surface.set_input_region(Some(&region));
+        region.destroy();
+        surface.commit();
+        self.settle_quiet(compositor);
+
         self.popups.push((popup, xdg_surface));
         surface
     }
@@ -643,6 +699,11 @@ pub struct Driver {
     /// popup has its own `xdg_surface` and acknowledging the wrong one is a
     /// protocol error.
     configures: Vec<(ObjectId, u32)>,
+    /// Every configure serial the compositor ever sent, in order. Kept apart
+    /// from `configures` because that one keeps only the latest per surface,
+    /// and the property worth asserting — that no two events anywhere share a
+    /// serial — needs all of them.
+    configure_serials: Vec<u32>,
     pub toplevel_size: Option<(i32, i32)>,
     pub closed: bool,
     /// Every seat the client has bound, in the order it bound them.
@@ -686,6 +747,12 @@ impl Driver {
             .iter()
             .find(|(target, _)| *target == id)
             .map(|(_, serial)| *serial)
+    }
+
+    /// Every configure serial the compositor has sent, in order.
+    #[must_use]
+    pub fn configure_serials(&self) -> Vec<u32> {
+        self.configure_serials.clone()
     }
 
     /// The name a seat advertised on `wl_seat.name`, once it has.
@@ -890,6 +957,37 @@ pub enum PointerEvent {
     Leave {
         surface: ObjectId,
     },
+    /// `wl_pointer.axis_source`. Recorded as the protocol's own enum, because
+    /// what a client does with a scroll turns on whether it came from a notched
+    /// wheel or a continuous surface.
+    AxisSource {
+        source: wl_pointer::AxisSource,
+    },
+    /// `wl_pointer.axis`, the one axis event every version receives.
+    Axis {
+        axis: ScrollAxis,
+        value: f64,
+    },
+    /// `wl_pointer.axis_discrete`, which smithay synthesises from the v120
+    /// count for a client older than version 8.
+    AxisDiscrete {
+        axis: ScrollAxis,
+        steps: i32,
+    },
+}
+
+/// The axis a `wl_pointer` axis event named, or nothing for one from a protocol
+/// version this client does not know.
+fn scroll_axis(axis: wayland_client::WEnum<wl_pointer::Axis>) -> Option<ScrollAxis> {
+    match axis {
+        wayland_client::WEnum::Value(wl_pointer::Axis::VerticalScroll) => {
+            Some(ScrollAxis::Vertical)
+        }
+        wayland_client::WEnum::Value(wl_pointer::Axis::HorizontalScroll) => {
+            Some(ScrollAxis::Horizontal)
+        }
+        _ => None,
+    }
 }
 
 impl Dispatch<WlRegistry, ()> for Driver {
@@ -947,6 +1045,7 @@ impl Dispatch<XdgSurface, ()> for Driver {
     ) {
         if let xdg_surface::Event::Configure { serial } = event {
             let id = xdg_surface.id();
+            state.configure_serials.push(serial);
             match state
                 .configures
                 .iter_mut()
@@ -1037,8 +1136,28 @@ impl Dispatch<WlPointer, ()> for Driver {
             wl_pointer::Event::Leave { surface, .. } => PointerEvent::Leave {
                 surface: surface.id(),
             },
-            // Axis, frame, and the source and stop refinements say nothing
-            // about routing, which is what these tests are about.
+            wl_pointer::Event::AxisSource { axis_source } => {
+                let wayland_client::WEnum::Value(source) = axis_source else {
+                    return;
+                };
+                PointerEvent::AxisSource { source }
+            }
+            wl_pointer::Event::Axis { axis, value, .. } => {
+                let Some(axis) = scroll_axis(axis) else {
+                    return;
+                };
+                PointerEvent::Axis { axis, value }
+            }
+            wl_pointer::Event::AxisDiscrete { axis, discrete } => {
+                let Some(axis) = scroll_axis(axis) else {
+                    return;
+                };
+                PointerEvent::AxisDiscrete {
+                    axis,
+                    steps: discrete,
+                }
+            }
+            // The frame and stop refinements say nothing these tests assert on.
             _ => return,
         };
         state.pointer.push((pointer.id(), recorded));
@@ -1159,6 +1278,7 @@ delegate_noop!(Driver: ignore WlShm);
 delegate_noop!(Driver: ignore WlShmPool);
 delegate_noop!(Driver: ignore ZwpLinuxDmabufV1);
 delegate_noop!(Driver: ignore ZwpLinuxBufferParamsV1);
+delegate_noop!(Driver: ignore WlRegion);
 delegate_noop!(Driver: ignore WlSubcompositor);
 delegate_noop!(Driver: ignore WlSubsurface);
 delegate_noop!(Driver: ignore XdgPositioner);

@@ -31,8 +31,13 @@
 //! The serial counter. Serials are effectively global in smithay — a client
 //! compares them across seats and against its own requests — so one counter is
 //! correct and per-seat counters would collide. WayVR keeps it in the per-seat
-//! struct (`client.rs:41`); lunette keeps it on the compositor state, where the
-//! keyboard and the pointer of every seat draw from the same sequence.
+//! struct (`client.rs:41`); lunette mints every serial from smithay's own
+//! `utils::SERIAL_COUNTER`, which the library documents as the counter to use
+//! and which it draws from itself on paths lunette drives every frame —
+//! `update_xkb_state`, `set_modifier_state`, popup grabs, and xdg configures. A
+//! second counter beside it would hand out numbers that already meant something
+//! else, and `Serial`'s wrapping comparison would then order two unrelated
+//! sequences against each other.
 //!
 //! Focus policy. WayVR drives keyboard focus from pointer motion
 //! (`mod.rs:1128-1148`). With two seats that heuristic becomes per-seat policy,
@@ -52,7 +57,8 @@ use smithay::{
 use crate::{
     keymap::{Keymap, KeymapError},
     protocol::{
-        KeyModifier, KeyboardConfig, ModifierState, PixelPoint, SeatId, SeatSnapshot, WindowId,
+        KeyModifier, KeyboardConfig, KeymapText, ModifierState, PixelPoint, SeatId, SeatSnapshot,
+        WindowId,
     },
     state::CompositorState,
 };
@@ -132,6 +138,7 @@ impl SeatRegistry {
             pointer,
             keyboard: handle,
             keymap,
+            uploaded: None,
             mouse: None,
         });
         self.seats
@@ -234,6 +241,18 @@ pub(crate) struct SeatEntry {
     /// `with_xkb_state`), so without this one there would be nothing to restore
     /// to and `lunette-v1.AC4.3` would be unreachable.
     keymap: Keymap,
+    /// The layout smithay's own copy is holding, when it is not this seat's own.
+    ///
+    /// `None` means smithay holds [`SeatEntry::keymap`]'s text, which is the
+    /// ordinary state. `Some` means a synthetic layout from `typeText` is still
+    /// loaded, which happens when a restore failed.
+    ///
+    /// Tracked rather than assumed. `KeyboardHandle` cannot be asked what it
+    /// holds, so without this a failed restore leaves the two silently out of
+    /// step: the next `typeText` would resolve native strokes against this
+    /// seat's layout and upload nothing, and the text would come out as whatever
+    /// the synthetic layout happens to bind.
+    uploaded: Option<Arc<KeymapText>>,
     /// Where this seat's pointer is, and over which window. Independent per
     /// seat: WayVR keeps one for the whole compositor (`window.rs:109-119`),
     /// which is what makes the off hand steal hover from the main hand.
@@ -258,6 +277,17 @@ impl SeatEntry {
 
     pub(crate) const fn keymap(&self) -> &Keymap {
         &self.keymap
+    }
+
+    /// The synthetic layout smithay is holding, if one is.
+    pub(crate) const fn uploaded(&self) -> Option<&Arc<KeymapText>> {
+        self.uploaded.as_ref()
+    }
+
+    /// Records what smithay is holding after an upload succeeded or a restore
+    /// did not.
+    pub(crate) fn set_uploaded(&mut self, uploaded: Option<Arc<KeymapText>>) {
+        self.uploaded = uploaded;
     }
 
     pub(crate) const fn mouse(&self) -> Option<MouseState> {

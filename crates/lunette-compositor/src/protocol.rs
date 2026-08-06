@@ -29,7 +29,7 @@
 //! [`Command::ConfigureWindow`], [`Command::Pointer`],
 //! [`Command::PointerLeave`], [`Command::Button`], [`Command::Key`],
 //! [`Command::Modifiers`], [`Command::Focus`], [`Command::TypeText`],
-//! [`Command::CreateSeat`], [`Command::DestroySeat`],
+//! [`Command::Scroll`], [`Command::CreateSeat`], [`Command::DestroySeat`],
 //! [`Command::SetClipboardBridge`], and [`Command::Shutdown`].
 //!
 //! One field of a handled command is not: [`SpawnRequest::output`] is accepted
@@ -38,7 +38,6 @@
 //!
 //! Accepted and logged, but otherwise inert until the phase named:
 //!
-//! - [`Command::Scroll`] — the rest of the keyboard phase.
 //! - [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
 //!   [`Command::DestroyOutput`], and [`Command::SetFramePacing`] — the outputs
 //!   and pacing phase. Until then one output exists with the default mode, and

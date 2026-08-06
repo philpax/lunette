@@ -210,6 +210,7 @@ fn destroying_a_seat_leaves_the_other_one_working() {
     let (left, right) = add_both_seats(&mut compositor, &mut client);
     let left_pointer = client.open_pointer_for(&mut compositor, left);
     let right_pointer = client.open_pointer_for(&mut compositor, right);
+    let right_keyboard = client.open_keyboard_for(&mut compositor, right);
 
     let sink = windows(&compositor, 1)[0].sink;
     compositor.send(Command::Pointer {
@@ -217,8 +218,13 @@ fn destroying_a_seat_leaves_the_other_one_working() {
         sink,
         position: PixelPoint::new(7.0, 8.0),
     });
+    compositor.send(Command::Focus {
+        seat: RIGHT.0,
+        sink: Some(sink),
+    });
     client.settle(&mut compositor, |driver| {
         driver.first_enter(&right_pointer).is_some()
+            && driver.keyboard_focus(&right_keyboard).is_some()
     });
 
     compositor.send(Command::DestroySeat { seat: RIGHT.0 });
@@ -228,6 +234,15 @@ fn destroying_a_seat_leaves_the_other_one_working() {
             .iter()
             .any(|event| matches!(event, PointerEvent::Leave { .. }))
     });
+
+    // The keyboard as well as the pointer. `Seat::remove_keyboard` clears the
+    // capability and sends no leave, so a client left focused keeps its focus
+    // ring and its caret alive for a seat that has stopped existing.
+    assert_eq!(
+        client.driver().keyboard_focus(&right_keyboard),
+        None,
+        "the destroyed seat's keyboard never left the surface it was focused on",
+    );
     assert_eq!(
         seat_globals(&client),
         SEAT_COUNT - 1,

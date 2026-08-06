@@ -166,7 +166,7 @@ for _, seat in ipairs(lunette.seats()) do
     print(seat.id, seat.name)      -- the identifier, and what clients see on wl_seat.name.
     print(seat.dead)               -- whether the compositor has this seat right now.
     print(seat.modifiers)          -- an array of names; what clients were last told.
-    print(seat.layouts)            -- an array: 'English (US)', not 'us'.
+    print(seat.layouts)            -- an array of one: 'English (US)', not 'us'.
     print(seat.clipboardBridge)    -- whether this seat's selections are the host's.
     seat:setFocus(win.sink)        -- gives this seat's keyboard to a sink; nil withdraws it.
     seat:setModifiers{ 'shift' }   -- the same request sink:modifiers makes.
@@ -182,9 +182,11 @@ end
 
 The options are the five names libxkbcommon compiles a layout from — `rules`, `model`, `layout`, `variant`, and `options` — plus `repeatDelay` in milliseconds and `repeatRate` in repeats per second. An absent layout name takes the system default, which is what a user who configured a layout for their desktop expects lunette to inherit. Key repeat defaults to a 200ms delay and 50Hz, and a rate of zero disables it; the timing is policy, so it lives here rather than in the native layer. A layout that does not compile is reported in the log and the seat never appears.
 
+A seat carries exactly one layout, so `layout` naming several — `'us,de'` — is refused and the seat never appears. Every keymap query answers for the seat's one layout and nothing can read or set an active group, so a seat with two would answer for the first whichever one the user had switched to. A configuration wanting two layouts makes two seats. [Decisions](decisions.md#recorded-decisions) records the reasoning and what lifting it would take.
+
 `seat:setFocus(sink)` is what gives a client the keyboard. Nothing infers focus from pointer motion — that heuristic is what makes a second hand steal focus by hovering — so a configuration that wants focus-follows-hover writes it. `nil` withdraws focus. A host sink returns `false`: which window on the host desktop holds the keyboard is the host compositor's decision.
 
-`seat.layouts`, `seat:symbolFor`, `seat:characterFor`, and `seat:strokeFor` are the keymap queries [Input](input.md#keyboard) asks for. They are what lets a virtual keyboard draw correct legends and produce correct keycodes without reimplementing xkb in Lua. All of them answer from the seat's own layout, so two seats on different layouts answer differently.
+`seat.layouts` is an array of one, for the reason above; it is an array because that is what `wl_keyboard`'s keymap carries and a second entry becomes possible if group switching ever lands. It, `seat:symbolFor`, `seat:characterFor`, and `seat:strokeFor` are the keymap queries [Input](input.md#keyboard) asks for. They are what lets a virtual keyboard draw correct legends and produce correct keycodes without reimplementing xkb in Lua. All of them answer from the seat's own layout, so two seats on different layouts answer differently.
 
 `seat:strokeFor(value)` is the reverse lookup. A string is read as the character to type and a number as a keysym, and the answer prefers the fewest modifiers and then the lowest keycode, so a digit resolves to the number row rather than the keypad. It returns `nil` for anything the layout cannot express — that is what `sink:typeText` is for — and raises on a string of more than one character, because a stroke produces one keysym.
 

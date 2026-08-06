@@ -225,6 +225,9 @@ impl<T: LuaTexture> UserData for Sink<T> {
             "leave",
             |_, sink, seat: Option<mlua::AnyUserData>| -> mlua::Result<bool> {
                 let seat = seat_of::<T>(seat.as_ref())?;
+                if !sink.alive() {
+                    return Ok(false);
+                }
                 Ok(leave(sink, seat))
             },
         );
@@ -363,7 +366,10 @@ fn button_pressed<T>(sink: &Sink<T>, seat: SeatId, button: PointerButton, presse
 /// what a compositor inferring focus from motion makes impossible.
 ///
 /// Refused on a host sink: the host cursor is always somewhere on the host
-/// desktop, and there is no position that means "nowhere".
+/// desktop, and there is no position that means "nowhere". Refused on a dead
+/// handle too, like every other method: a window whose client has exited has
+/// already had its pointer withdrawn, and reporting success would tell a caller
+/// something happened that did not.
 fn leave<T>(sink: &Sink<T>, seat: SeatId) -> bool {
     match &sink.target {
         SinkTarget::Window(_) => {

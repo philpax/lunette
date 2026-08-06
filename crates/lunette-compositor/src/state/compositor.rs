@@ -28,7 +28,7 @@ use smithay::{
             protocol::{wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface},
         },
     },
-    utils::{Logical, Physical, Rectangle, SerialCounter, Size, Transform},
+    utils::{Logical, Physical, Rectangle, Size, Transform},
     wayland::{
         compositor::{self, CompositorClientState, send_surface_state, with_states},
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
@@ -238,10 +238,11 @@ pub(crate) struct CompositorState {
     /// xwayland-satellite and the `Xwayland` it started are reaped.
     satellite: Satellite,
     pub(super) frame_callbacks: HashMap<ObjectId, Vec<WlCallback>>,
-    /// One counter for every seat. Serials are effectively global in smithay —
-    /// a client compares them across seats and against its own requests — so
-    /// per-seat counters would collide.
-    pub(super) serials: SerialCounter,
+    /// How many keymap uploads to let through, and how many to fail after
+    /// them. Always `(0, 0)` in production; see
+    /// [`CompositorState::fail_keymap_uploads`].
+    #[cfg(any(test, feature = "test-fakes"))]
+    failing_uploads: std::cell::Cell<(usize, usize)>,
 
     /// The baseline for the millisecond timestamps the protocol wants.
     ///
@@ -391,7 +392,8 @@ impl CompositorState {
             process_poll: None,
             loop_handle,
             frame_callbacks: HashMap::new(),
-            serials: SerialCounter::new(),
+            #[cfg(any(test, feature = "test-fakes"))]
+            failing_uploads: std::cell::Cell::new((0, 0)),
             started: Instant::now(),
             events,
             snapshots,
@@ -456,8 +458,13 @@ impl CompositorState {
             Command::Modifiers { seat, modifiers } => self.set_modifiers(seat, &modifiers),
             Command::Focus { seat, sink } => self.set_focus(seat, sink),
             Command::TypeText { seat, text } => self.type_text(seat, &text),
-            Command::Scroll { .. }
-            | Command::CreateOutput { .. }
+            Command::Scroll {
+                seat,
+                sink,
+                axis,
+                delta,
+            } => self.scroll(seat, sink, axis, delta),
+            Command::CreateOutput { .. }
             | Command::ReconfigureOutput { .. }
             | Command::DestroyOutput { .. }
             | Command::SetFramePacing { .. } => {
@@ -819,6 +826,32 @@ impl CompositorState {
         self.seats
             .get(seat)
             .map(|entry| crate::seat::cursor_image(entry.seat()))
+    }
+
+    /// Lets the next `skip` keymap uploads through and fails the `count` after
+    /// them.
+    ///
+    /// The seam `lunette-v1.AC4.3`'s failure clause needs. A real upload fails
+    /// only on a layout that does not compile, and the generator refuses to
+    /// produce one, so the restore path has no other way to be exercised.
+    /// `skip` is what picks out *which* upload fails, which is the whole
+    /// question: failing the first leaves nothing loaded to restore.
+    pub(crate) fn fail_keymap_uploads(&self, skip: usize, count: usize) {
+        self.failing_uploads.set((skip, count));
+    }
+
+    /// Consumes one injected failure, if any are outstanding.
+    pub(super) fn take_upload_failure(&self) -> bool {
+        let (skip, remaining) = self.failing_uploads.get();
+        if skip > 0 {
+            self.failing_uploads.set((skip - 1, remaining));
+            return false;
+        }
+        if remaining == 0 {
+            return false;
+        }
+        self.failing_uploads.set((0, remaining - 1));
+        true
     }
 }
 

@@ -303,8 +303,10 @@ fn the_host_clearing_its_selection_withdraws_the_offer_from_the_client() {
 #[test]
 fn a_client_offering_no_mime_types_withdraws_rather_than_publishing_nothing() {
     // A source that advertises nothing can answer no request, so a selection
-    // built from it would be one every paste comes back empty from.
+    // built from it would be one every paste comes back empty from. lunette's
+    // own offer comes off the host instead.
     let (mut compositor, mut client, host, devices) = with_host();
+    drop(client.copy(&mut compositor, &devices, SelectionKind::Clipboard, &[UTF8]));
 
     drop(client.copy(&mut compositor, &devices, SelectionKind::Clipboard, &[]));
 
@@ -313,6 +315,22 @@ fn a_client_offering_no_mime_types_withdraws_rather_than_publishing_nothing() {
         Some(&HostCall::Withdraw {
             kind: SelectionKind::Clipboard
         }),
+    );
+}
+
+#[test]
+fn an_empty_source_on_a_clipboard_lunette_never_owned_says_nothing_to_the_host() {
+    // The same request, with the desktop's own copy on the host clipboard. There
+    // is no offer of lunette's to take off, and taking anything off would empty
+    // what the user copied outside lunette.
+    let (mut compositor, mut client, host, devices) = with_host();
+
+    drop(client.copy(&mut compositor, &devices, SelectionKind::Clipboard, &[]));
+
+    assert_eq!(
+        host.calls(),
+        Vec::new(),
+        "an empty source reached the host at all",
     );
 }
 
@@ -544,6 +562,11 @@ fn moving_the_bridge_moves_both_directions_at_once() {
 
 #[test]
 fn taking_the_bridge_away_leaves_no_seat_speaking_for_the_host() {
+    // The host owns the clipboard here and lunette published nothing, so nothing
+    // is said to the host at all. `set_selection(null)` is not "stop offering
+    // mine" in either data-control protocol — it unsets the seat's selection
+    // whoever put it there — so withdrawing an offer lunette does not own would
+    // empty the user's own desktop clipboard.
     let (mut compositor, mut client, host, first, _second) = with_two_seats();
     let counter = OfferCounter::new();
     host_copies(
@@ -561,12 +584,13 @@ fn taking_the_bridge_away_leaves_no_seat_speaking_for_the_host() {
         !driver.has_selection(&first, SelectionKind::Clipboard)
     });
 
-    assert_eq!(
-        host.calls().last(),
-        Some(&HostCall::Withdraw {
-            kind: SelectionKind::Primary
-        }),
-        "the host was not told lunette had stopped offering both selections",
+    assert!(
+        !host
+            .calls()
+            .iter()
+            .any(|call| matches!(call, HostCall::Withdraw { .. })),
+        "the host's own clipboard was withdrawn on lunette's behalf: {:?}",
+        host.calls(),
     );
     assert_eq!(
         compositor
@@ -576,6 +600,78 @@ fn taking_the_bridge_away_leaves_no_seat_speaking_for_the_host() {
             .filter(|seat| seat.clipboard_bridge)
             .count(),
         0,
+    );
+}
+
+#[test]
+fn moving_the_bridge_leaves_a_selection_the_host_owns_untouched() {
+    let (mut compositor, mut client, host, first, _second) = with_two_seats();
+    let counter = OfferCounter::new();
+    host_copies(
+        &mut compositor,
+        &mut client,
+        &first,
+        &host,
+        &counter,
+        SelectionKind::Clipboard,
+        &[UTF8],
+    );
+
+    compositor.send(Command::SetClipboardBridge {
+        seat: Some(SECOND.0),
+    });
+    client.settle_quiet(&mut compositor);
+
+    assert!(
+        !host
+            .calls()
+            .iter()
+            .any(|call| matches!(call, HostCall::Withdraw { .. })),
+        "moving the bridge cleared the desktop's clipboard: {:?}",
+        host.calls(),
+    );
+}
+
+#[test]
+fn taking_the_bridge_away_withdraws_only_the_selection_lunette_published() {
+    // The other side of the same rule: lunette owns the clipboard here, so that
+    // one comes off the host and the primary selection — which lunette never
+    // published — is left where it is.
+    let (mut compositor, mut client, host, first, _second) = with_two_seats();
+    let _source = client.copy(&mut compositor, &first, SelectionKind::Clipboard, &[UTF8]);
+
+    compositor.send(Command::SetClipboardBridge { seat: None });
+    client.settle_quiet(&mut compositor);
+
+    let withdrawn: Vec<SelectionKind> = host
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            HostCall::Withdraw { kind } => Some(kind),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(withdrawn, vec![SelectionKind::Clipboard]);
+}
+
+#[test]
+fn moving_the_bridge_leaves_a_selection_a_lunette_client_owns_alone() {
+    // A user copies in a terminal inside lunette, then Lua moves the bridge to
+    // the other hand for a reason that has nothing to do with that terminal. The
+    // terminal's own selection is not lunette's to destroy.
+    let (mut compositor, mut client, _host, first, _second) = with_two_seats();
+    let _source = client.copy(&mut compositor, &first, SelectionKind::Clipboard, &[UTF8]);
+
+    compositor.send(Command::SetClipboardBridge {
+        seat: Some(SECOND.0),
+    });
+    client.settle_quiet(&mut compositor);
+
+    assert!(
+        client
+            .driver()
+            .has_selection(&first, SelectionKind::Clipboard),
+        "the client's own selection was cleared because the bridge moved",
     );
 }
 

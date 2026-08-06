@@ -165,6 +165,75 @@ fn text_the_layout_cannot_express_arrives_and_the_keymap_is_restored() {
 }
 
 #[test]
+fn a_failure_part_way_through_still_restores_the_clients_own_layout() {
+    // Two chunks, and the second chunk's upload fails. The loop breaks, and the
+    // restore has to happen anyway: leaving the client on lunette's synthetic
+    // layout is the state `lunette-v1.AC4.3` exists to rule out, and it is worse
+    // than the failure that produced it.
+    let mut compositor = TestCompositor::new();
+    let (mut client, keyboard) = typing_client(&mut compositor);
+    let before = keymaps(&client, &keyboard);
+
+    // "\u{2603}a\u{4e00}" plans as synthetic, native, synthetic, so the uploads
+    // are: the first synthetic layout, the seat's own for the native run, the
+    // second synthetic layout, and the restore. Failing the second breaks the
+    // loop with a synthetic layout loaded, which is the only way to reach that
+    // path.
+    compositor.fail_keymap_uploads(1, 1);
+    compositor.send(Command::TypeText {
+        seat: DEFAULT_SEAT,
+        text: "\u{2603}a\u{4e00}".to_owned(),
+    });
+    client.settle_quiet(&mut compositor);
+
+    let after = keymaps(&client, &keyboard);
+    assert_eq!(
+        after.last(),
+        before.first(),
+        "a failure while typing left the client holding a layout that is not its own: {after:?}",
+    );
+}
+
+#[test]
+fn a_restore_that_failed_is_made_good_by_the_next_call_rather_than_assumed_away() {
+    // The state nothing can observe from outside: smithay holds a synthetic
+    // layout and this crate thinks it holds the seat's own. A native-only plan
+    // uploads nothing, so without tracking what was actually uploaded the next
+    // `typeText` types whatever the stale layout happens to bind.
+    let mut compositor = TestCompositor::new();
+    let (mut client, keyboard) = typing_client(&mut compositor);
+    let before = keymaps(&client, &keyboard);
+
+    // The synthetic upload goes through and the restore after it fails, so the
+    // client is left holding a layout that is not its own.
+    compositor.fail_keymap_uploads(1, 1);
+    compositor.send(Command::TypeText {
+        seat: DEFAULT_SEAT,
+        text: "\u{2603}".to_owned(),
+    });
+    client.settle_quiet(&mut compositor);
+
+    // Text the seat's own layout expresses entirely.
+    compositor.send(Command::TypeText {
+        seat: DEFAULT_SEAT,
+        text: "ab".to_owned(),
+    });
+    client.settle_quiet(&mut compositor);
+
+    let after = keymaps(&client, &keyboard);
+    assert_eq!(
+        after.last(),
+        before.first(),
+        "the seat's own layout was never put back: {after:?}",
+    );
+    assert!(
+        typed(&client, &keyboard).ends_with("ab"),
+        "native text was typed against a stale synthetic layout: {:?}",
+        typed(&client, &keyboard),
+    );
+}
+
+#[test]
 fn a_client_can_still_type_normally_after_text_was_entered_for_it() {
     let mut compositor = TestCompositor::new();
     let (mut client, keyboard) = typing_client(&mut compositor);

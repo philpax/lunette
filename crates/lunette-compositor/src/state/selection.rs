@@ -23,12 +23,12 @@ use smithay::{
     wayland::selection::{
         SelectionSource,
         data_device::{
-            clear_data_device_selection, request_data_device_client_selection,
-            set_data_device_focus, set_data_device_selection,
+            clear_data_device_selection, current_data_device_selection_userdata,
+            request_data_device_client_selection, set_data_device_focus, set_data_device_selection,
         },
         primary_selection::{
-            clear_primary_selection, request_primary_client_selection, set_primary_focus,
-            set_primary_selection,
+            clear_primary_selection, current_primary_selection_userdata,
+            request_primary_client_selection, set_primary_focus, set_primary_selection,
         },
     },
 };
@@ -72,9 +72,6 @@ impl CompositorState {
             debug!(seat = %id, %kind, "a selection was set on a seat that is not bridged");
             return;
         }
-        let Some(host) = self.selection.host() else {
-            return;
-        };
 
         let mimes: Vec<MimeType> = source
             .map(SelectionSource::mime_types)
@@ -85,12 +82,14 @@ impl CompositorState {
 
         // A source that advertises nothing can answer no request, so publishing
         // it would put a selection on the host that every paste comes back empty
-        // from. Withdrawing says the same thing honestly.
+        // from. Taking lunette's own offer off says the same thing honestly —
+        // and does nothing at all when lunette had no offer there, because the
+        // host's clipboard then belongs to something on the desktop.
         if mimes.is_empty() {
-            host.withdraw(kind);
+            self.selection.withdraw_from_host(kind);
             return;
         }
-        host.publish(kind, &mimes);
+        self.selection.publish_to_host(kind, &mimes);
     }
 
     /// A client asked to read the selection lunette took from the host.
@@ -164,26 +163,54 @@ impl CompositorState {
         self.touch();
     }
 
-    /// Detaches a seat from the host: its offer comes off the host, and the
-    /// host's offers come off it.
+    /// Detaches a seat from the host: lunette's offer comes off the host, and
+    /// the host's offers come off the seat.
     ///
     /// Both halves, because leaving either would be a seat that still speaks for
     /// the host in one direction — a paste on the desktop reaching a hand that
     /// no longer owns the clipboard, or a stale offer sitting on a seat nothing
     /// refreshes.
+    ///
+    /// Neither half touches a selection lunette does not own. The stale-offer
+    /// argument holds only for the compositor-owned selection lunette put on the
+    /// seat from the host; a selection a lunette client set is that client's,
+    /// and destroying it because the bridge moved would break a copy that had
+    /// nothing to do with the host.
     fn unbridge(&mut self, seat: SeatId) {
-        if let Some(host) = self.selection.host() {
-            for kind in SelectionKind::ALL {
-                host.withdraw(kind);
-            }
+        for kind in SelectionKind::ALL {
+            self.selection.withdraw_from_host(kind);
+            self.clear_lunettes_selection(seat, kind);
         }
+    }
 
+    /// Clears one of a seat's selections, but only when lunette is what put it
+    /// there.
+    ///
+    /// `current_*_selection_userdata` answers `Some` only for an
+    /// `OfferReplySource::Compositor`, which is exactly "lunette advertised this
+    /// on the seat's behalf". A client's own source answers `None` and is left
+    /// alone.
+    fn clear_lunettes_selection(&mut self, seat: SeatId, kind: SelectionKind) {
         let Some(entry) = self.seats.get(seat) else {
             return;
         };
         let handle = entry.seat().clone();
-        clear_data_device_selection(&self.display, &handle);
-        clear_primary_selection(&self.display, &handle);
+
+        // The borrow is scoped, because the clear below takes the same `RefCell`
+        // mutably and holding a read across it would panic.
+        let ours = match kind {
+            SelectionKind::Clipboard => current_data_device_selection_userdata(&handle).is_some(),
+            SelectionKind::Primary => current_primary_selection_userdata(&handle).is_some(),
+        };
+        if !ours {
+            debug!(%seat, %kind, "leaving a selection a lunette client owns where it is");
+            return;
+        }
+
+        match kind {
+            SelectionKind::Clipboard => clear_data_device_selection(&self.display, &handle),
+            SelectionKind::Primary => clear_primary_selection(&self.display, &handle),
+        }
     }
 
     /// Applies one report from the host desktop's clipboard.
@@ -205,6 +232,7 @@ impl CompositorState {
             HostEvent::Send { kind, mime, pipe } => self.host_wants_bytes(kind, &mime, pipe),
             HostEvent::Cancelled { kind } => {
                 debug!(%kind, "the host took the selection back from lunette");
+                self.selection.host_took_back(kind);
             }
             HostEvent::Lost { reason } => {
                 warn!(
@@ -240,14 +268,13 @@ impl CompositorState {
         }
     }
 
+    /// Takes the host's offer off the bridge seat, leaving anything a lunette
+    /// client owns alone.
     fn clear_on_bridge(&mut self, kind: SelectionKind) {
-        let Some(seat) = self.bridge_seat() else {
+        let Some(seat) = self.selection.seat() else {
             return;
         };
-        match kind {
-            SelectionKind::Clipboard => clear_data_device_selection(&self.display, &seat),
-            SelectionKind::Primary => clear_primary_selection(&self.display, &seat),
-        }
+        self.clear_lunettes_selection(seat, kind);
     }
 
     /// The host asked for the bytes behind a selection a lunette client owns.

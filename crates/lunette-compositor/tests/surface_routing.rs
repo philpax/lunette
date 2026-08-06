@@ -98,6 +98,41 @@ fn a_click_beside_a_popup_still_reaches_the_window() {
 }
 
 #[test]
+fn a_popup_that_has_not_acknowledged_its_configure_does_not_take_the_click() {
+    // A popup with no agreed geometry has no position yet: it sits at the
+    // window's own origin until the client acknowledges the configure and is
+    // moved to where the positioner asked for. So the click aimed at here is
+    // one the popup would take at a place it is about to leave — which is
+    // exactly what the configure check exists to prevent. The popup carries an
+    // input region covering its extent, so its geometry alone would accept.
+    let (mut compositor, mut client) = with_one_window();
+    let pointer = client.open_pointer(&mut compositor);
+    let popup = client.open_unconfigured_popup(&mut compositor, POPUP_ORIGIN, POPUP_SIZE);
+    let sink = only_window(&compositor).sink;
+    let toplevel = client.surface_id().expect("a toplevel was opened");
+
+    compositor.send(Command::Pointer {
+        seat: DEFAULT_SEAT,
+        sink,
+        position: PixelPoint::new(10.0, 20.0),
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.first_enter(&pointer).is_some()
+    });
+
+    let (entered, _, _) = client
+        .driver()
+        .first_enter(&pointer)
+        .expect("the wait above returned because an enter arrived");
+    assert_ne!(
+        entered,
+        popup.id(),
+        "a popup that never answered its configure took the click",
+    );
+    assert_eq!(entered, toplevel);
+}
+
+#[test]
 fn moving_from_the_window_onto_a_popup_leaves_the_window_and_enters_the_popup() {
     let (mut compositor, mut client) = with_one_window();
     let pointer = client.open_pointer(&mut compositor);

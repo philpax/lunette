@@ -13,24 +13,27 @@
 //! seat happens to exist. That is the whole difference from WayVR, where one
 //! seat is reached directly and a second hand has nowhere to go.
 
-use std::sync::Arc;
+use std::{error::Error, fmt, sync::Arc};
 
 use smithay::{
-    backend::input::{ButtonState, KeyState},
+    backend::input::{Axis, AxisSource, ButtonState, KeyState},
     input::{
         Seat,
         keyboard::{FilterResult, KeyboardHandle, KeyboardTarget, Keycode as XkbKeycode},
-        pointer::{ButtonEvent, MotionEvent},
+        pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerHandle},
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Point},
+    utils::{Logical, Point, SERIAL_COUNTER},
 };
 use tracing::{debug, info, warn};
 
 use crate::{
     hit_test::{self, HitTarget},
     keymap::XKB_KEYCODE_OFFSET,
-    protocol::{KeyboardConfig, Keycode, ModifierState, PixelPoint, PointerButton, SeatId, SinkId},
+    protocol::{
+        KeyboardConfig, Keycode, KeymapText, ModifierState, PixelPoint, PointerButton, ScrollAxis,
+        ScrollDelta, SeatId, SinkId,
+    },
     seat::{self, MouseState, SeatEntry},
     state::compositor::CompositorState,
     type_text::{self, TypeStep},
@@ -63,7 +66,7 @@ impl CompositorState {
             return;
         };
 
-        let serial = self.serials.next_serial();
+        let serial = SERIAL_COUNTER.next_serial();
         let time = self.millis();
         let state = if pressed {
             KeyState::Pressed
@@ -108,7 +111,7 @@ impl CompositorState {
             None => None,
         };
 
-        let serial = self.serials.next_serial();
+        let serial = SERIAL_COUNTER.next_serial();
         keyboard.set_focus(self, surface, serial);
     }
 
@@ -169,16 +172,22 @@ impl CompositorState {
             return;
         }
 
-        // Whether a synthetic layout is loaded right now. The restore is driven
-        // off this rather than off reaching the end of the loop, so every way
-        // out of the loop — including a chunk that failed — passes through it.
-        let mut synthetic = false;
+        // The synthetic layout smithay is holding, which is not assumed to be
+        // absent: a restore that failed on an earlier call left one loaded, and
+        // a native chunk run against it would type whatever that layout binds.
+        // Every way out of the loop — including a chunk that failed — passes
+        // through the restore below, and what is recorded afterwards is what
+        // smithay actually holds rather than what was asked for.
+        let mut loaded: Option<Arc<KeymapText>> = entry.uploaded().map(Arc::clone);
 
         for chunk in plan.chunks() {
-            let wanted = chunk.keymap().unwrap_or(&original);
-            if chunk.keymap().is_some() || synthetic {
-                match keyboard.set_keymap_from_string(self, wanted.as_str().to_owned()) {
-                    Ok(()) => synthetic = chunk.keymap().is_some(),
+            let wanted = chunk.keymap().map(|text| Arc::new(text.clone()));
+            if loaded != wanted {
+                let text = wanted.as_deref().unwrap_or(&original);
+                match self.upload_keymap(&keyboard, text) {
+                    // A failed upload leaves smithay's own keymap untouched, so
+                    // `loaded` is still accurate on this branch.
+                    Ok(()) => loaded = wanted,
                     Err(error) => {
                         warn!(%seat, %error, "a layout could not be uploaded while typing");
                         break;
@@ -196,13 +205,45 @@ impl CompositorState {
             }
         }
 
-        if synthetic
-            && let Err(error) = keyboard.set_keymap_from_string(self, original.as_str().to_owned())
-        {
-            warn!(%seat, %error, "the seat's own layout could not be restored");
+        if loaded.is_some() {
+            match self.upload_keymap(&keyboard, &original) {
+                Ok(()) => loaded = None,
+                Err(error) => {
+                    warn!(%seat, %error, "the seat's own layout could not be restored");
+                }
+            }
+        }
+
+        if let Some(entry) = self.seats.get_mut(seat) {
+            entry.set_uploaded(loaded);
         }
         self.apply_modifiers(&keyboard, &handle, &held);
         self.touch();
+    }
+
+    /// Hands a layout to smithay's own copy of the keyboard.
+    ///
+    /// The one place an upload happens, so the record of what smithay holds
+    /// cannot drift from the uploads that produced it. Its failure is injectable
+    /// under test, because the restore path is the whole reason
+    /// `lunette-v1.AC4.3` names the failure case and a real upload only fails on
+    /// a keymap that does not compile — which is what the generator already
+    /// refuses to produce.
+    fn upload_keymap(
+        &mut self,
+        keyboard: &KeyboardHandle<Self>,
+        text: &KeymapText,
+    ) -> Result<(), KeymapUploadError> {
+        #[cfg(any(test, feature = "test-fakes"))]
+        if self.take_upload_failure() {
+            return Err(KeymapUploadError::Injected);
+        }
+
+        keyboard
+            .set_keymap_from_string(self, text.as_str().to_owned())
+            .map_err(|error| KeymapUploadError::Refused {
+                message: error.to_string(),
+            })
     }
 
     /// Presses and releases one key, with a serial and a timestamp of its own.
@@ -212,7 +253,7 @@ impl CompositorState {
     /// apart when it quotes one back.
     fn tap(&mut self, keyboard: &KeyboardHandle<Self>, key: Keycode) {
         for state in [KeyState::Pressed, KeyState::Released] {
-            let serial = self.serials.next_serial();
+            let serial = SERIAL_COUNTER.next_serial();
             let time = self.millis();
             keyboard.input::<(), _>(
                 self,
@@ -240,16 +281,21 @@ impl CompositorState {
             return;
         }
         if let Some(focus) = keyboard.current_focus() {
-            let serial = self.serials.next_serial();
+            let serial = SERIAL_COUNTER.next_serial();
             KeyboardTarget::modifiers(&focus, handle, self, keyboard.modifier_state(), serial);
         }
     }
 
-    /// Destroys a seat, after taking its pointer off whatever it was over.
+    /// Destroys a seat, after taking its pointer and its focus off whatever
+    /// they were on.
     ///
-    /// The withdrawal happens first so the client under the pointer sees a
-    /// leave. Without it the surface keeps a pointer that has stopped existing,
-    /// and a toolkit that tracks hover keeps drawing the highlight.
+    /// Both withdrawals happen first so the clients involved see a leave.
+    /// Without the pointer's, the surface keeps a pointer that has stopped
+    /// existing and a toolkit that tracks hover keeps drawing the highlight;
+    /// without the keyboard's, the focused client keeps its focus ring, its
+    /// caret, and any input-method state alive for a seat that no longer exists.
+    /// `Seat::remove_keyboard` does not do this — it clears the capability and
+    /// re-sends `wl_seat.capabilities`, and sends no `wl_keyboard.leave`.
     pub(super) fn destroy_seat(&mut self, seat: SeatId) {
         if self.seats.get(seat).is_none() {
             warn!(%seat, "a destroy was asked for a seat that does not exist");
@@ -257,6 +303,7 @@ impl CompositorState {
         }
 
         self.move_pointer(seat, None);
+        self.set_focus(seat, None);
         match self.seats.destroy(&self.display, seat) {
             Ok(()) => {
                 info!(%seat, "a seat was destroyed");
@@ -292,7 +339,7 @@ impl CompositorState {
 
         let event = MotionEvent {
             location,
-            serial: self.serials.next_serial(),
+            serial: SERIAL_COUNTER.next_serial(),
             time: self.millis(),
         };
 
@@ -345,36 +392,12 @@ impl CompositorState {
         button: PointerButton,
         pressed: bool,
     ) {
-        let Some(entry) = self.seats.get(seat) else {
-            warn!(%seat, "input was addressed to a seat that does not exist");
+        let Some(pointer) = self.pointer_over(seat, sink, "a button was pressed") else {
             return;
         };
-        let pointer = entry.pointer();
-        let hovering = entry.mouse();
-
-        let Some(window) = self.windows.by_sink(sink).map(Window::id) else {
-            debug!(%sink, "a button was pressed over a sink that is already gone");
-            return;
-        };
-
-        // A button goes to whatever this seat's pointer is over, which the
-        // protocol requires and a caller can get wrong by naming a sink it never
-        // moved that seat's pointer onto. Another seat hovering the sink does
-        // not qualify: its pointer is a different pointer.
-        match hovering {
-            Some(mouse) if mouse.hovered == window => {}
-            _ => {
-                warn!(
-                    %seat,
-                    %sink,
-                    "a button was pressed over a sink the seat's pointer is not on; move it first"
-                );
-                return;
-            }
-        }
 
         let event = ButtonEvent {
-            serial: self.serials.next_serial(),
+            serial: SERIAL_COUNTER.next_serial(),
             time: self.millis(),
             button: evdev_button(button),
             state: if pressed {
@@ -387,7 +410,126 @@ impl CompositorState {
         pointer.button(self, &event);
         pointer.frame(self);
     }
+
+    /// Scrolls one axis over a sink.
+    ///
+    /// One axis per call, and one `wl_pointer.frame` around it. A caller with a
+    /// diagonal delta sends two, which a client accumulates: the protocol's own
+    /// axis events are per-axis, and folding two into one frame would make a
+    /// vertical-only scroll indistinguishable from a diagonal one that happened
+    /// to have a zero horizontal component.
+    ///
+    /// The two delta forms stay apart all the way down, because a client uses
+    /// the difference to decide whether to scroll kinetically. A discrete step
+    /// carries the notch count as well as a distance, since `wl_pointer.axis` is
+    /// the one event every version receives and a client older than version 5
+    /// sees nothing else.
+    pub(super) fn scroll(
+        &mut self,
+        seat: SeatId,
+        sink: SinkId,
+        axis: ScrollAxis,
+        delta: ScrollDelta,
+    ) {
+        let Some(pointer) = self.pointer_over(seat, sink, "a scroll was sent") else {
+            return;
+        };
+
+        let axis = match axis {
+            ScrollAxis::Vertical => Axis::Vertical,
+            ScrollAxis::Horizontal => Axis::Horizontal,
+        };
+
+        let frame = AxisFrame::new(self.millis());
+        let frame = match delta {
+            // No steps and no stop event: `AxisSource::Finger` would oblige the
+            // caller to say when the finger lifted, and nothing above this knows
+            // that — a thumbstick deflection has no lift.
+            ScrollDelta::Continuous(distance) => {
+                frame.source(AxisSource::Continuous).value(axis, distance)
+            }
+            ScrollDelta::Discrete(steps) => frame
+                .source(AxisSource::Wheel)
+                .v120(axis, steps.saturating_mul(V120_PER_DETENT))
+                .value(axis, f64::from(steps) * SURFACE_UNITS_PER_DETENT),
+        };
+
+        pointer.axis(self, frame);
+        pointer.frame(self);
+    }
+
+    /// The seat's pointer, when that pointer is over the named sink.
+    ///
+    /// An event goes to whatever this seat's pointer is over, which the protocol
+    /// requires and a caller can get wrong by naming a sink it never moved that
+    /// seat's pointer onto. Another seat hovering the sink does not qualify: its
+    /// pointer is a different pointer.
+    fn pointer_over(
+        &self,
+        seat: SeatId,
+        sink: SinkId,
+        what: &'static str,
+    ) -> Option<PointerHandle<Self>> {
+        let Some(entry) = self.seats.get(seat) else {
+            warn!(%seat, "input was addressed to a seat that does not exist");
+            return None;
+        };
+        let pointer = entry.pointer();
+        let hovering = entry.mouse();
+
+        let Some(window) = self.windows.by_sink(sink).map(Window::id) else {
+            debug!(%sink, "{what} over a sink that is already gone");
+            return None;
+        };
+
+        match hovering {
+            Some(mouse) if mouse.hovered == window => Some(pointer),
+            _ => {
+                warn!(
+                    %seat,
+                    %sink,
+                    "{what} over a sink the seat's pointer is not on; move it first"
+                );
+                None
+            }
+        }
+    }
 }
+
+/// How many surface-local units `wl_pointer.axis` carries per wheel detent.
+///
+/// The convention every toolkit reads a continuous scroll under, and what the
+/// Lua side divides by when it converts the other way.
+const SURFACE_UNITS_PER_DETENT: f64 = 10.0;
+
+/// What `wl_pointer.axis_value120` counts per wheel detent.
+///
+/// smithay accumulates these and emits `axis_discrete` for a client older than
+/// version 8, so a partial detent is carried rather than rounded away.
+const V120_PER_DETENT: i32 = 120;
+
+/// Why a layout could not be handed to smithay's copy of the keyboard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum KeymapUploadError {
+    /// smithay would not compile the text. Its `Error` is not `PartialEq` and
+    /// what a caller does with it is report it, so the message is kept instead.
+    Refused { message: String },
+    /// A failure a test asked for, to exercise the restore path.
+    #[cfg(any(test, feature = "test-fakes"))]
+    Injected,
+}
+
+impl fmt::Display for KeymapUploadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Refused { message } => write!(f, "keymap: smithay refused a layout: {message}"),
+            #[cfg(any(test, feature = "test-fakes"))]
+            Self::Injected => f.write_str("keymap: a test asked this upload to fail"),
+        }
+    }
+}
+
+impl Error for KeymapUploadError {}
 
 /// Maps a pointer button onto the evdev code `wl_pointer.button` carries.
 ///

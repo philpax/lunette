@@ -67,6 +67,8 @@ The native layer provides keycodes plus xkb data:
 - `sink:key(keycode, pressed)` and explicit modifier state, as `sink:modifiers` or `seat:setModifiers`. The state is set directly rather than synthesised as presses of a representative key per modifier, so a client that queries it is not misled and no key event is produced that nothing asked for.
 - The loaded keymap, exposed for querying: `seat:symbolFor` and `seat:characterFor` are keysym-and-text-for-keycode-under-modifiers, `seat.layouts` is the layout list, and `seat:strokeFor` is the reverse `keysym → (keycode, modifiers)` lookup.
 
+A seat carries one layout group. Every query answers for it, and there is no way to read or set an active group, so a seat compiled with several layouts is refused rather than answered for the first. Two layouts mean two seats. [Decisions](decisions.md#recorded-decisions) records why.
+
 Scrolling is `sink:scroll` for a continuous distance and `sink:scrollDiscrete` for whole wheel notches. The two stay apart because a client uses the difference to decide whether to scroll kinetically, and collapsing them loses that.
 
 [The Lua API](lua-api.md#seats) is where each of these is specified.

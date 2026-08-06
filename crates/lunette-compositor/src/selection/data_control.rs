@@ -36,18 +36,28 @@
 //! host cancels a source before announcing the one that replaced it — smithay
 //! does so in `set_clipboard_selection`, and wlroots likewise — so a genuine
 //! change is never mistaken for an echo.
+//!
+//! That last sentence is what both implementations do rather than what either
+//! protocol states, so the discard is logged at warning level rather than
+//! passed over. A host that announced first would have a genuine selection
+//! dropped here and clients would keep pasting the previous one, which is
+//! indistinguishable from a broken bridge unless it says so. The alternative
+//! considered was a nonce MIME type appended to what lunette publishes, which
+//! an echo would carry and a genuine selection could not; it was not taken,
+//! because it gives up the property that lunette re-offers a source's own list
+//! unchanged. `docs/decisions.md` records the choice.
 
 use std::{
-    collections::HashMap,
     error::Error,
     fmt, io,
     os::{
-        fd::{AsFd, BorrowedFd, OwnedFd},
+        fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd},
         unix::net::UnixStream,
     },
     path::{Path, PathBuf},
     sync::mpsc::TrySendError,
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use smithay::reexports::calloop::{
@@ -61,7 +71,7 @@ use wayland_client::{
     backend::{ObjectId, WaylandError},
     delegate_noop, event_created_child,
     globals::{GlobalList, GlobalListContents, registry_queue_init},
-    protocol::{wl_registry::WlRegistry, wl_seat::WlSeat},
+    protocol::{wl_callback::WlCallback, wl_registry::WlRegistry, wl_seat::WlSeat},
 };
 use wayland_protocols::ext::data_control::v1::client::{
     ext_data_control_device_v1::{self, ExtDataControlDeviceV1},
@@ -96,6 +106,20 @@ const COMMAND_CAPACITY: usize = 32;
 const WLR_PRIMARY_SINCE: u32 = 2;
 
 const THREAD_NAME: &str = "lunette-clipboard";
+
+/// How many announced-but-unnamed offers are remembered at once.
+///
+/// A host announces one offer per copy and names it immediately after, so more
+/// than a handful outstanding means the host is announcing offers it never
+/// uses. Generous enough that no ordinary desktop reaches it.
+const PENDING_OFFER_LIMIT: usize = 32;
+
+/// How long the host has to answer before its clipboard is given up on.
+///
+/// Generous, because this is a desktop compositor answering a one-message
+/// question and the only thing that makes it slow is a machine already in
+/// trouble. Short enough that lunette starts rather than appearing to hang.
+const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(5);
 
 /// The host desktop's clipboard, reached over its Wayland socket.
 ///
@@ -142,7 +166,7 @@ impl HostSelectionSource for DataControlSource {
             events,
             device,
             manager,
-            offers: HashMap::new(),
+            offers: Vec::new(),
             current: [None, None],
             sources: [None, None],
             counter: OfferCounter::new(),
@@ -260,6 +284,12 @@ enum HostCommand {
 /// Non-blocking because the worker polls the descriptor itself: a blocking read
 /// inside the loop would hold the thread past the point where a command needs
 /// answering.
+///
+/// The handshake comes first and is what carries the deadline. Everything after
+/// it — `registry_queue_init`'s own roundtrip — polls the socket with no
+/// timeout at all (`wayland-client-0.31.15/src/conn.rs:233`), and this runs on
+/// the compositor thread during startup, so a socket that accepts and then says
+/// nothing would hang lunette's boot with no diagnostic.
 fn connect(socket: &Path) -> Result<Connection, HostStartError> {
     let describe = |cause: Box<dyn Error + Send + Sync>| HostStartError::Connect {
         socket: socket.display().to_string(),
@@ -267,11 +297,85 @@ fn connect(socket: &Path) -> Result<Connection, HostStartError> {
     };
 
     let stream = UnixStream::connect(socket).map_err(|error| describe(Box::new(error)))?;
-    stream
+    let probe = stream
+        .try_clone()
+        .map_err(|error| describe(Box::new(error)))?;
+    let connection = Connection::from_socket(stream).map_err(|error| describe(Box::new(error)))?;
+
+    handshake(&connection, &probe, socket)?;
+
+    probe
         .set_nonblocking(true)
         .map_err(|error: io::Error| describe(Box::new(error)))?;
-    Connection::from_socket(stream).map_err(|error| describe(Box::new(error)))
+    probe
+        .set_read_timeout(None)
+        .map_err(|error: io::Error| describe(Box::new(error)))?;
+    Ok(connection)
 }
+
+/// Waits, with a deadline, for the host to answer anything at all.
+///
+/// A `wl_display.sync` is the smallest question there is, and a callback is
+/// one-shot so nothing is left bound afterwards. The answer is peeked rather
+/// than read, so the bytes are still in the socket for the real queue.
+///
+/// `probe` shares the socket's file description with the connection, which is
+/// what makes `SO_RCVTIMEO` apply to both — and is why the socket is still
+/// blocking here. A host that answers this and then falls silent mid-handshake
+/// is out of scope: what this rules out is the socket that accepts and never
+/// speaks.
+fn handshake(
+    connection: &Connection,
+    probe: &UnixStream,
+    socket: &Path,
+) -> Result<(), HostStartError> {
+    let describe = |cause: Box<dyn Error + Send + Sync>| HostStartError::Connect {
+        socket: socket.display().to_string(),
+        cause,
+    };
+
+    probe
+        .set_read_timeout(Some(HANDSHAKE_DEADLINE))
+        .map_err(|error: io::Error| describe(Box::new(error)))?;
+
+    let queue: EventQueue<Handshake> = connection.new_event_queue();
+    drop(connection.display().sync(&queue.handle(), ()));
+    connection
+        .flush()
+        .map_err(|error| describe(Box::new(error)))?;
+
+    if peeked_a_byte(probe) {
+        return Ok(());
+    }
+    Err(HostStartError::Unresponsive {
+        socket: socket.display().to_string(),
+        waited: HANDSHAKE_DEADLINE,
+    })
+}
+
+/// Whether the socket has anything to say, waiting up to its read timeout.
+///
+/// `MSG_PEEK` rather than a read, so the bytes are still there for the real
+/// event queue. `UnixStream::peek` is what this would be if it were stable
+/// (rust-lang/rust#76923).
+fn peeked_a_byte(probe: &UnixStream) -> bool {
+    let mut byte = 0u8;
+    // SAFETY: `probe` owns the descriptor and outlives the call, and the buffer
+    // is one byte with a length of one.
+    let read = unsafe {
+        libc::recv(
+            probe.as_raw_fd(),
+            std::ptr::from_mut(&mut byte).cast(),
+            1,
+            libc::MSG_PEEK,
+        )
+    };
+    read > 0
+}
+
+/// The dispatch target for the handshake's one callback, which carries no
+/// information beyond having arrived.
+struct Handshake;
 
 /// The worker thread's body.
 fn run(
@@ -377,8 +481,23 @@ struct Worker {
 }
 
 impl Worker {
+    /// Pushes whatever is buffered to the host.
+    ///
+    /// A full send buffer is ordinary rather than a fault: the socket is
+    /// non-blocking, so `flush` reports `WouldBlock` when the host is slow to
+    /// read. The message stays buffered and the next round tries again.
+    /// Treating it as the connection ending would tear the clipboard down for
+    /// the rest of the session over a host that was briefly busy, and
+    /// [`HostEvent::Lost`] is never reconnected.
     fn flush(&self) -> Result<(), WorkerError> {
-        self.connection.flush().map_err(WorkerError::Wayland)
+        match self.connection.flush() {
+            Ok(()) => Ok(()),
+            Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {
+                debug!("the host's socket is full; the clipboard message stays buffered");
+                Ok(())
+            }
+            Err(error) => Err(WorkerError::Wayland(error)),
+        }
     }
 
     /// Reads whatever the host sent and dispatches it.
@@ -451,9 +570,14 @@ struct Host {
     device: Device,
     manager: Manager,
     /// Offers the host has announced but not yet made current, with the MIME
-    /// types accumulated so far. An offer's types arrive as separate events
-    /// before the `selection` event names it.
-    offers: HashMap<ObjectId, Vec<MimeType>>,
+    /// types accumulated so far, oldest first. An offer's types arrive as
+    /// separate events before the `selection` event names it.
+    ///
+    /// Ordered and capped rather than a map, because an offer the host
+    /// announces and then never names is never removed by any other path: the
+    /// host is free to introduce one and change its mind, and a session's worth
+    /// of those would grow without bound.
+    offers: Vec<(ObjectId, Vec<MimeType>)>,
     /// The offer that is current for each kind, held alive so a later
     /// `receive` has something to ask.
     current: [Option<Current>; 2],
@@ -490,25 +614,33 @@ impl Host {
         }
         self.device.set(kind, Some(&source));
 
-        if let Some(previous) = self.sources[index(kind)].replace(source) {
+        if let Some(previous) = self.sources[kind.index()].replace(source) {
             previous.destroy();
         }
     }
 
     /// Gives up lunette's ownership of a selection.
+    ///
+    /// Nothing is sent unless lunette actually owns one. `set_selection(null)`
+    /// is not "stop offering mine" — both wlroots and smithay pass the null
+    /// straight through with no ownership check, so it unsets the seat's
+    /// selection whoever put it there. Sending it while the user's own copy is
+    /// on the host clipboard would empty their desktop's clipboard.
     fn withdraw(&mut self, kind: SelectionKind) {
         if !self.supports(kind) {
             return;
         }
+        let Some(source) = self.sources[kind.index()].take() else {
+            debug!(%kind, "nothing to withdraw; lunette does not own the host's selection");
+            return;
+        };
         self.device.set(kind, None);
-        if let Some(source) = self.sources[index(kind)].take() {
-            source.destroy();
-        }
+        source.destroy();
     }
 
     /// Asks the host to fill a lunette client's pipe with the host's selection.
     fn read(&mut self, request: HostRead) {
-        let Some(current) = self.current[index(request.kind)].as_ref() else {
+        let Some(current) = self.current[request.kind.index()].as_ref() else {
             debug!(kind = %request.kind, "the host's selection went away before it could be read");
             return;
         };
@@ -546,23 +678,65 @@ impl Host {
             debug!("the host offered an empty mime type; ignoring it");
             return;
         };
-        self.offers.entry(offer.key()).or_default().push(mime);
+
+        let key = offer.key();
+        if let Some((_, mimes)) = self.offers.iter_mut().find(|(held, _)| *held == key) {
+            mimes.push(mime);
+            return;
+        }
+
+        if self.offers.len() >= PENDING_OFFER_LIMIT {
+            // The oldest is the one least likely to be named next, and dropping
+            // the wrapper rather than destroying it leaves the host's object
+            // alone: the host may still name it, and a `selection` naming an
+            // object lunette destroyed would be a protocol error against the
+            // host rather than a tidy-up.
+            warn!(
+                limit = PENDING_OFFER_LIMIT,
+                "the host has announced more selections than it has named; forgetting the oldest"
+            );
+            self.offers.remove(0);
+        }
+        self.offers.push((key, vec![mime]));
+    }
+
+    /// Takes the MIME types accumulated against an offer, forgetting it.
+    fn take_offered(&mut self, key: &ObjectId) -> Vec<MimeType> {
+        let Some(index) = self.offers.iter().position(|(held, _)| held == key) else {
+            return Vec::new();
+        };
+        self.offers.remove(index).1
     }
 
     /// Takes an announced offer as the current selection of one kind.
     fn selected(&mut self, kind: SelectionKind, offer: Option<Offer>) {
-        if self.sources[index(kind)].is_some() {
+        if self.sources[kind.index()].is_some() {
             // lunette owns this selection, so the host is announcing lunette's
             // own source back to it. Re-offering it would replace the client's
             // source with a proxy of itself.
+            //
+            // Loud rather than silent, because the rule this rests on — that a
+            // host cancels a source before announcing its replacement — is what
+            // smithay and wlroots do rather than what either protocol states. A
+            // host that announced first would have a genuine selection discarded
+            // here, and clients would keep pasting the previous one until the
+            // next copy. That is indistinguishable from a broken bridge unless
+            // it says so.
             if let Some(offer) = offer {
-                self.offers.remove(&offer.key());
+                let mimes = self.take_offered(&offer.key());
+                warn!(
+                    %kind,
+                    ?mimes,
+                    "discarding a host selection as an echo of lunette's own; if a paste inside \
+                     lunette is stale, this host announces a selection before cancelling the \
+                     source it replaced",
+                );
                 offer.destroy();
             }
             return;
         }
 
-        let previous = self.current[index(kind)].take();
+        let previous = self.current[kind.index()].take();
 
         let Some(offer) = offer else {
             if let Some(previous) = previous {
@@ -572,14 +746,14 @@ impl Host {
             return;
         };
 
-        let mimes = self.offers.remove(&offer.key()).unwrap_or_default();
+        let mimes = self.take_offered(&offer.key());
         let id = self.counter.next();
         self.events.report(HostEvent::Offered {
             kind,
             offer: id,
             mimes,
         });
-        self.current[index(kind)] = Some(Current { id, offer });
+        self.current[kind.index()] = Some(Current { id, offer });
 
         // Destroyed only after the replacement is recorded: a client mid-read
         // holds the old offer's identifier, and `read` refuses on the identifier
@@ -607,26 +781,28 @@ impl Host {
         let Some(kind) = self.kind_of(source) else {
             return;
         };
-        if let Some(source) = self.sources[index(kind)].take() {
+        if let Some(source) = self.sources[kind.index()].take() {
             source.destroy();
         }
         self.events.report(HostEvent::Cancelled { kind });
     }
 
+    /// The host withdrew lunette's device, so nothing crosses again.
+    fn finished(&mut self) {
+        // Every announced offer belongs to a device that no longer exists, so
+        // there is nothing left to name them.
+        self.offers.clear();
+        self.events.report(HostEvent::Lost {
+            reason: "the host withdrew lunette's data-control device".to_owned(),
+        });
+    }
+
     fn kind_of(&self, source: &Source) -> Option<SelectionKind> {
         SelectionKind::ALL.into_iter().find(|kind| {
-            self.sources[index(*kind)]
+            self.sources[kind.index()]
                 .as_ref()
                 .is_some_and(|held| held.key() == source.key())
         })
-    }
-}
-
-/// Where a selection sits in the per-kind arrays.
-const fn index(kind: SelectionKind) -> usize {
-    match kind {
-        SelectionKind::Clipboard => 0,
-        SelectionKind::Primary => 1,
     }
 }
 
@@ -809,9 +985,7 @@ impl Dispatch<ExtDataControlDeviceV1, ()> for Host {
             Event::PrimarySelection { id } => {
                 state.selected(SelectionKind::Primary, id.map(Offer::Ext));
             }
-            Event::Finished => state.events.report(HostEvent::Lost {
-                reason: "the host withdrew lunette's data-control device".to_owned(),
-            }),
+            Event::Finished => state.finished(),
             _ => {}
         }
     }
@@ -839,9 +1013,7 @@ impl Dispatch<ZwlrDataControlDeviceV1, ()> for Host {
             Event::PrimarySelection { id } => {
                 state.selected(SelectionKind::Primary, id.map(Offer::Wlr));
             }
-            Event::Finished => state.events.report(HostEvent::Lost {
-                reason: "the host withdrew lunette's data-control device".to_owned(),
-            }),
+            Event::Finished => state.finished(),
             _ => {}
         }
     }
@@ -921,6 +1093,7 @@ impl Dispatch<ZwlrDataControlSourceV1, ()> for Host {
     }
 }
 
+delegate_noop!(Handshake: ignore WlCallback);
 delegate_noop!(Host: ignore WlSeat);
 delegate_noop!(Host: ignore ExtDataControlManagerV1);
 delegate_noop!(Host: ignore ZwlrDataControlManagerV1);

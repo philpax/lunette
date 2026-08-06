@@ -250,6 +250,18 @@ impl TestCompositor {
                 CursorImageStatus::Surface(_) => CursorImage::Surface,
             })
     }
+
+    /// Lets the next `skip` keymap uploads through and fails the `count` after
+    /// them.
+    ///
+    /// `lunette-v1.AC4.3` requires the client's own keymap handling to survive a
+    /// failure part-way through typing, and a real upload fails only on a layout
+    /// that does not compile — which `type_text`'s generator verifies before it
+    /// hands one over. So the failure is injected rather than provoked, and
+    /// `skip` is what decides which upload it lands on.
+    pub fn fail_keymap_uploads(&self, skip: usize, count: usize) {
+        self.data.state.fail_keymap_uploads(skip, count);
+    }
 }
 
 impl Default for TestCompositor {

@@ -82,6 +82,33 @@ fn a_point_in_an_empty_window_lands_on_the_toplevel() {
 }
 
 #[test]
+fn a_popup_left_out_of_the_context_claims_nothing() {
+    // What [`super::context`] does with a popup that has not answered its
+    // configure: it never enters the tree, so the point falls through to the
+    // window. Stated here as well as over a client, because it is the whole
+    // observable consequence of that exclusion.
+    let covering = vec![surface("popup", (0.0, 0.0), (100, 100))];
+    let with_it = context(Vec::new(), vec![covering]);
+    let without_it = context(Vec::new(), Vec::new());
+
+    assert_eq!(
+        with_it.target_at(at(10.0, 20.0)),
+        Some(HitTarget::Popup {
+            surface: "popup",
+            origin: at(0.0, 0.0),
+            local: at(10.0, 20.0),
+        }),
+        "the case the exclusion is measured against does not hold",
+    );
+    assert_eq!(
+        without_it.target_at(at(10.0, 20.0)),
+        Some(HitTarget::Toplevel {
+            position: at(10.0, 20.0)
+        }),
+    );
+}
+
+#[test]
 fn a_point_outside_the_window_lands_on_nothing() {
     let context = context(vec![surface("only", (0.0, 0.0), (100, 100))], Vec::new());
 

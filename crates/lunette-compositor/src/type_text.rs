@@ -99,9 +99,9 @@ pub(crate) enum TypeStep {
 ///
 /// # Errors
 ///
-/// [`TypeTextError`] when the capacity is zero, or when a character resolves to
-/// a keysym libxkbcommon will not name — which is what a keymap cannot be
-/// written for.
+/// [`TypeTextError`] when the capacity is zero or beyond [`SPARE_KEYCODES`], or
+/// when a character resolves to a keysym libxkbcommon will not name — which is
+/// what a keymap cannot be written for.
 pub(crate) fn plan(
     text: &str,
     keymap: &Keymap,
@@ -110,6 +110,11 @@ pub(crate) fn plan(
     if capacity == 0 {
         return Err(TypeTextError {
             kind: TypeTextErrorKind::NoCapacity,
+        });
+    }
+    if capacity > SPARE_KEYCODES {
+        return Err(TypeTextError {
+            kind: TypeTextErrorKind::TooMuchCapacity { capacity },
         });
     }
 
@@ -149,6 +154,9 @@ pub(crate) struct TypeTextError {
 enum TypeTextErrorKind {
     /// A keymap with no spare keycodes, which nothing could be typed on.
     NoCapacity,
+    /// More keycodes than `wl_keyboard`'s eight-bit numbering reaches, so the
+    /// keys past the range are ones no client could be told about.
+    TooMuchCapacity { capacity: usize },
     /// The generated keymap does not type what it was generated for, which
     /// means the generator is wrong.
     Unbindable { symbol: Keysym },
@@ -162,6 +170,11 @@ impl fmt::Display for TypeTextError {
             TypeTextErrorKind::NoCapacity => {
                 f.write_str("type text: a keymap with no spare keycodes can type nothing")
             }
+            TypeTextErrorKind::TooMuchCapacity { capacity } => write!(
+                f,
+                "type text: {capacity} spare keycodes were asked for and the eight-bit range \
+                 wl_keyboard carries holds {SPARE_KEYCODES}"
+            ),
             TypeTextErrorKind::Unbindable { symbol } => write!(
                 f,
                 "type text: the synthesised keymap does not type {symbol}"
@@ -567,6 +580,18 @@ mod tests {
     #[test]
     fn the_capacity_a_synthetic_chunk_can_hold_is_the_x11_keycode_range() {
         assert_eq!(SPARE_KEYCODES, 248);
+    }
+
+    #[test]
+    fn a_capacity_past_the_keycode_range_is_refused_rather_than_emitting_unreachable_keys() {
+        // `xkb_code` is `8 + index` with nothing above it, so one more than the
+        // range would declare a key at 256 — past what `wl_keyboard` carries,
+        // and so a key no client could be told about.
+        assert!(plan("\u{2603}", &us(), SPARE_KEYCODES).is_ok());
+
+        let error = plan("\u{2603}", &us(), SPARE_KEYCODES + 1)
+            .expect_err("the eight-bit range is what a client can be told about");
+        assert!(error.to_string().starts_with("type text: "));
     }
 
     #[test]

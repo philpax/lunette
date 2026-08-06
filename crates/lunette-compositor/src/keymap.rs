@@ -28,6 +28,20 @@
 //! is cheap once and wasteful per query, so it is built with the keymap and
 //! cached — the keymap changes when a seat is created or `typeText` swaps one
 //! in, and not otherwise.
+//!
+//! # One layout group
+//!
+//! Every query here resolves against layout group zero, and lunette exposes no
+//! way to read or set the active group: [`Keymap::stroke`] answers with a
+//! keycode and modifiers, and nothing carries a group alongside them. smithay's
+//! own state does track one — `KeyboardHandle::input` applies layout-switch
+//! actions and `ModifiersState::serialize_back` preserves the effective layout
+//! — so a keymap with several groups would have these answers drift out from
+//! under it the moment a user pressed the switch.
+//!
+//! So a keymap carrying more than one group is refused at compile rather than
+//! answered for the first. `docs/decisions.md` records the choice and what it
+//! would take to lift it.
 
 use std::{collections::HashMap, error::Error, fmt, sync::Arc};
 
@@ -173,6 +187,18 @@ impl Keymap {
     /// and a keymap whose text cannot be produced is one no client can be told
     /// about and one `typeText` could never restore.
     fn from_xkb(keymap: &xkb::Keymap) -> Result<Self, KeymapError> {
+        // Every query below resolves against layout group zero, and nothing in
+        // lunette can read or set the active group. A keymap carrying several
+        // would answer for the first whichever one the seat is actually on, so
+        // it is refused rather than answered wrongly. `docs/decisions.md`
+        // records the choice.
+        let count = keymap.num_layouts();
+        if count > 1 {
+            return Err(KeymapError {
+                kind: KeymapErrorKind::ManyLayouts { count },
+            });
+        }
+
         let text = KeymapText::new(keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)).ok_or(
             KeymapError {
                 kind: KeymapErrorKind::Serialisation,
@@ -222,6 +248,8 @@ enum KeymapErrorKind {
     Text,
     /// The keymap compiled but would not serialise back to text.
     Serialisation,
+    /// The keymap carries more than one layout group.
+    ManyLayouts { count: u32 },
 }
 
 impl fmt::Display for KeymapError {
@@ -243,6 +271,12 @@ impl fmt::Display for KeymapError {
             KeymapErrorKind::Serialisation => {
                 f.write_str("keymap: the compiled layout would not serialise back to text")
             }
+            KeymapErrorKind::ManyLayouts { count } => write!(
+                f,
+                "keymap: {count} layout groups were asked for, and lunette serves one; there is no \
+                 way to read or set the active group, so a query would answer for the first \
+                 whichever group the seat is on"
+            ),
         }
     }
 }
@@ -251,11 +285,14 @@ impl Error for KeymapError {}
 
 /// The modifier combinations a reverse lookup is built over.
 ///
-/// Only the ones that select a shift level, in increasing order of effort, so
-/// that the first combination to produce a keysym is the cheapest way to type
-/// it. Control, alt, and the logo key are absent because they do not select a
-/// level in any ordinary layout — they are what a client turns into a binding,
-/// and a binding is not a character.
+/// Only the ones that select a shift level, ordered by how many modifiers each
+/// holds down, so that the first combination to produce a keysym is the
+/// cheapest way to type it. Within one count the order is the modifiers' own,
+/// which is what decides a tie between two equally cheap answers.
+///
+/// Control, alt, and the logo key are absent because they do not select a level
+/// in any ordinary layout — they are what a client turns into a binding, and a
+/// binding is not a character.
 ///
 /// `NumLock` is absent for a reason worth stating: it would make the keypad's
 /// digits reachable, and they would then compete with the number row for the
@@ -264,8 +301,8 @@ const LEVEL_MODIFIERS: &[&[KeyModifier]] = &[
     &[],
     &[KeyModifier::Shift],
     &[KeyModifier::Mod5],
-    &[KeyModifier::Shift, KeyModifier::Mod5],
     &[KeyModifier::Mod3],
+    &[KeyModifier::Shift, KeyModifier::Mod5],
     &[KeyModifier::Shift, KeyModifier::Mod3],
 ];
 
@@ -560,17 +597,31 @@ mod tests {
 
     #[test]
     fn the_layout_list_names_what_was_compiled() {
-        let keymap = Keymap::compile(&KeymapConfig {
+        let keymap = us();
+
+        assert_eq!(keymap.layouts().len(), 1);
+        assert!(
+            keymap.layouts()[0].as_str().contains("US"),
+            "the layout is {}",
+            keymap.layouts()[0],
+        );
+    }
+
+    #[test]
+    fn a_keymap_with_several_layout_groups_is_refused_rather_than_answered_for_the_first() {
+        // Every query resolves against group zero and nothing can read or set
+        // the active group, so `us,de` would type `zy` for `yz` the moment the
+        // user switched to German. Refusing says so; answering does not.
+        let error = Keymap::compile(&KeymapConfig {
             layout: Some("us,de".to_owned()),
             ..KeymapConfig::default()
         })
-        .expect("two layouts compile");
+        .expect_err("two layout groups are more than lunette serves");
 
-        assert_eq!(keymap.layouts().len(), 2);
+        assert!(error.to_string().starts_with("keymap: "));
         assert!(
-            keymap.layouts()[0].as_str().contains("US"),
-            "the first layout is {}",
-            keymap.layouts()[0],
+            error.to_string().contains("layout groups"),
+            "the message does not say what was wrong: {error}",
         );
     }
 
