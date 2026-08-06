@@ -52,9 +52,19 @@ Internal synchronisation is sidestepped by construction. The compositor thread n
 
 ## The layer pool
 
-`lovr.headset.setLayers` is a per-frame, global, last-call-wins list, capped by `MAX_LAYERS` and by whatever the runtime allows. Layers are also expensive: `newLayer` allocates an OpenXR swapchain with images, memory, and runtime state. A panel manager that promotes and demotes panels as the user looks around would churn swapchains every few frames if Lua allocated them directly.
+`lovr.headset.setLayers` sets a global, last-call-wins list, capped by `MAX_LAYERS` and by whatever the runtime allows. The list persists across frames. `lovrHeadsetSetLayers` retains it in `state.layers` and `lovrHeadsetGetLayers` reads it back, so it does not need setting again every frame.
 
-Rust owns the pool instead, and recycles swapchains by `(width, height, format)`. A demoted 1920x1080 panel's swapchain goes straight to the next 1920x1080 claimant with no allocation.
+That persistence is what makes damage skipping safe. Every per-layer GPU cost is gated behind `getTexture` or `getPass` being called, so a panel that is not redrawn this frame costs one struct in the submitted array and nothing else, and the runtime re-composites it from the most recently released swapchain image.
+
+Layers are expensive to create. `newLayer` allocates an OpenXR swapchain with images, memory, and runtime state, synchronously, ending in a wait with `XR_INFINITE_DURATION` inside a retry loop that has no escape. A panel manager that promotes and demotes panels as the user looks around would allocate one every few frames if Lua created them directly.
+
+Rust owns the pool instead, and recycles whole `Layer` objects, keyed on the properties `LayerInfo` fixes at creation: width, height, stereo, immutable, transparent, and filter. A demoted 1920x1080 panel's layer goes straight to the next 1920x1080 claimant with no allocation.
+
+The unit is the whole `Layer` rather than its swapchain because LÖVR offers no way to separate the two: `struct Layer` embeds its `Swapchain` by value, `lovrLayerDestroy` calls `xrDestroySwapchain` inline, and nothing exposes the swapchain a layer's `subImage` points at. Nor is a way needed. Everything a panel varies — pose, metre dimensions, curve, colour, viewport, and origin — has a setter and lives outside `LayerInfo`, so keeping the layer alive keeps its swapchain alive and available to any claimant of the same key.
+
+Format is absent from the key because there is exactly one. `lovrSwapchainInit` hard-codes `VK_FORMAT_R8G8B8A8_SRGB`, and session start aborts if the runtime refuses it, so there is nothing to negotiate and nothing to key on.
+
+Requested sizes are quantised to a ladder of discrete steps before becoming a key, so that a panel resized continuously by a drag settles on a rung the free list already holds rather than allocating on every frame of the drag. The same ladder supplies the discrete scale steps reported through `wp_fractional_scale_v1`.
 
 The design keeps this from becoming policy implemented in Rust, through the following division.
 
