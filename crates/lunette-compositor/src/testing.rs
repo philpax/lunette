@@ -206,8 +206,8 @@ impl TestCompositor {
     /// Queues a command, as the main thread would.
     pub fn send(&self, command: Command) {
         self.commands
-            .send(command)
-            .expect("the test compositor is still running");
+            .try_send(command)
+            .expect("the test compositor is still running and its queue has room");
     }
 
     /// How many buffers the importer was asked for.

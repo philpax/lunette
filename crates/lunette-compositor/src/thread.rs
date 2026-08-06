@@ -7,21 +7,31 @@
 //! an [`ArcSwap`] the compositor republishes a whole [`Snapshot`] into once per
 //! tick.
 //!
-//! Both channels are bounded, so neither direction can hide a backlog. A send
-//! into a full channel waits for room rather than dropping the message: a
-//! dropped `WindowClosed` leaves the main thread holding a handle that never
-//! dies, which is a worse failure than a stall. The stall cannot deadlock,
-//! because the main thread drains events every frame and never waits on the
-//! compositor for anything.
+//! Both channels are bounded, so neither direction can hide a backlog. The two
+//! directions handle a full channel differently, and the asymmetry is the whole
+//! of what stops them deadlocking.
+//!
+//! The compositor's [`EventSender::send`] waits for room. A dropped
+//! `WindowClosed` leaves the main thread holding a handle that never dies,
+//! which is worse than a stall, so no event is ever discarded.
+//!
+//! The main thread's [`CommandSender::try_send`] never waits. It is the only
+//! way to queue a command, and a full queue comes back as
+//! [`TrySendError::Full`] carrying the command that was not sent. If it waited
+//! too, the pair would deadlock: the compositor fills the event channel inside
+//! a dispatch callback — one client can commit hundreds of times in a batch —
+//! and blocks there without draining commands, while the main thread, having
+//! already drained this frame's events, blocks filling the command channel.
+//! Neither could then reach the call that would free the other. With the main
+//! thread unable to block, it always returns to the frame loop and drains
+//! events, which is what releases the compositor.
 //!
 //! # How much is wired up
 //!
 //! The loop dispatches clients, drains commands, answers frame callbacks,
 //! publishes snapshots, and flushes. Every global is advertised, and
-//! [`crate::state`] serves them. It accepts no connections yet: the listening
-//! socket and client attribution arrive with the ported client module. Of the
-//! commands, only [`Command::Shutdown`] has a handler; the rest are logged as
-//! unhandled, and [`crate::protocol`] records which phase each is waiting on.
+//! [`crate::state`] serves them. [`crate::protocol`] records which commands
+//! have handlers and which are still inert.
 
 use std::{
     error::Error,
@@ -35,7 +45,7 @@ use smithay::reexports::{
     calloop::{self, EventLoop, Interest, Mode, PostAction, channel::Channel, generic::Generic},
     wayland_server::Display,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     client::{self, WaylandSocket},
@@ -185,9 +195,14 @@ impl CompositorHandle {
             thread,
         } = self;
 
-        // A disconnected channel means the thread already stopped, which is the
-        // outcome being asked for.
-        let _ = commands.send(Command::Shutdown);
+        // Best effort, and enough on its own only when there is room. A refused
+        // or disconnected send is not a failure to stop: dropping the sender
+        // below closes the channel, which the loop reads as a stop, and
+        // dropping the receiver releases a compositor waiting to report an
+        // event so it can reach that close.
+        if let Err(error) = commands.try_send(Command::Shutdown) {
+            debug!(%error, "asking the compositor to stop by closing its command channel");
+        }
         drop(commands);
         drop(events);
         drop(snapshots);
@@ -203,18 +218,13 @@ pub struct CommandSender {
 }
 
 impl CommandSender {
-    /// Queues a command, waiting for room if the channel is full.
-    ///
-    /// Only the main thread may call this. Calling it from the compositor
-    /// thread would wait for a loop that is not running to drain the queue.
-    pub fn send(&self, command: Command) -> Result<(), Disconnected> {
-        self.queue.send(command).map_err(|_| Disconnected)
-    }
-
     /// Queues a command, returning it if there is no room.
     ///
-    /// For a caller that must not wait. The command comes back rather than
-    /// being dropped, so the decision to discard it is the caller's.
+    /// The only way to queue one, and it never waits. A caller that blocked
+    /// here could deadlock against a compositor blocked reporting an event;
+    /// this module's documentation sets out the cycle. The command comes back
+    /// rather than being dropped, so the decision to discard it is the
+    /// caller's, and a full queue is a report rather than a silent loss.
     pub fn try_send(&self, command: Command) -> Result<(), TrySendError> {
         self.queue.try_send(command).map_err(|error| match error {
             mpsc::TrySendError::Full(command) => TrySendError::Full(command),
@@ -247,6 +257,12 @@ pub(crate) struct EventSender {
 
 impl EventSender {
     /// Reports an event, waiting for room if the channel is full.
+    ///
+    /// This is the side that waits, because an event has nowhere else to go: a
+    /// dropped one leaves the main thread's model of the compositor
+    /// permanently wrong. The wait ends when the main thread next drains, and
+    /// it always reaches that drain because nothing it does on the command
+    /// channel can block.
     pub(crate) fn send(&self, event: Event) -> Result<(), Disconnected> {
         self.queue.send(event).map_err(|_| Disconnected)
     }
@@ -729,12 +745,13 @@ mod tests {
     }
 
     #[test]
-    fn a_send_to_a_full_channel_waits_for_room_rather_than_dropping() {
-        let (queue, channel) = calloop::channel::sync_channel(1);
-        let sender = CommandSender { queue };
+    fn an_event_sent_to_a_full_channel_waits_for_room_rather_than_dropping() {
+        let (queue, channel) = mpsc::sync_channel(1);
+        let sender = EventSender { queue };
+        let surface = crate::protocol::SurfaceId::new(1).expect("non-zero");
 
         sender
-            .try_send(Command::Shutdown)
+            .send(Event::SurfaceDamaged { surface })
             .expect("the channel starts empty");
 
         let (progress, watch) = mpsc::channel();
@@ -743,7 +760,7 @@ mod tests {
                 .send(Progress::Sending)
                 .expect("the test is watching");
             sender
-                .send(Command::Shutdown)
+                .send(Event::SurfaceDamaged { surface })
                 .expect("the channel is alive");
             progress.send(Progress::Sent).expect("the test is watching");
         });
@@ -757,7 +774,7 @@ mod tests {
             "the send completed while the channel was still full"
         );
 
-        channel.try_recv().expect("the queued command is delivered");
+        channel.try_recv().expect("the queued event is delivered");
 
         assert_eq!(
             watch.recv_timeout(DEADLINE).expect("the sender finished"),
@@ -765,7 +782,7 @@ mod tests {
         );
         channel
             .try_recv()
-            .expect("the waiting command was delivered, not dropped");
+            .expect("the waiting event was delivered, not dropped");
         waiter.join().expect("the sending thread finished cleanly");
     }
 

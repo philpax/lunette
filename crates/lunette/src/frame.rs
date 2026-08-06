@@ -193,11 +193,14 @@ impl FrameDriver {
         };
 
         for command in commands {
-            // Waiting rather than dropping. A dropped `CloseWindow` is a window
-            // that never closes, and the wait cannot deadlock: the compositor
-            // thread drains its queue on every pass of its own loop and never
-            // waits on this one.
-            if let Err(error) = compositor.handle.commands().send(command) {
+            // Never waiting. The compositor may be blocked reporting an event,
+            // and it drains commands only between dispatches, so a main thread
+            // that waited here would be waiting for a thread that is waiting
+            // for it. A refused command is reported and the rest of the frame's
+            // are abandoned, because they were queued in order and delivering
+            // the tail without the head would apply the configuration out of
+            // sequence.
+            if let Err(error) = compositor.handle.commands().try_send(command) {
                 warn!(%error, "the frame's remaining commands were not delivered");
                 break;
             }
