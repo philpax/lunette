@@ -27,10 +27,10 @@ All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `n
 | `cargo +nightly fmt --all -- --check` | clean |
 | `cargo clippy --all-targets --all-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
 | `cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
-| `cargo test --workspace` | 245 passed, 0 failed, 0 ignored |
-| `cargo test --workspace --no-default-features` | 245 passed, 0 failed, 0 ignored |
+| `cargo test --workspace` | 266 passed, 0 failed, 0 ignored |
+| `cargo test --workspace --no-default-features` | 266 passed, 0 failed, 0 ignored |
 
-The 245 are 132 in `lunette`, 11 in its binary target, 3 in `tests/exit_status.rs`, 89 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, and 4 in `tests/pointer_routing.rs`. The compositor's 99 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`.
+The 266 are 146 in `lunette`, 11 in its binary target, 3 in `tests/exit_status.rs`, 96 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, and 4 in `tests/pointer_routing.rs`. The compositor's 106 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`.
 
 ## Provenance
 
@@ -48,6 +48,8 @@ The hazard is `gpu_vk.c:3789` upstream: `gpu_texture_upload` records a barrier w
 
 The driver does not discard. `LUNETTE_IMPORT_LAYOUT=undefined` makes `gpu_import_acquire` record the same `UNDEFINED` to `GENERAL` transition over the imported image, once per frame, and the contents survive it. A terminal on a solid background was imported, left quiescent for four seconds while several hundred such barriers were recorded and submitted, and then read back. The census is identical to the `general` run to within sampling noise: 7500 samples, 5 distinct colours, the background occupying 98.5 per cent of them.
 
+That run is subject to the release-barrier defect recorded under [the queue family for the acquire](#the-queue-family-for-the-acquire): with the switch at `undefined` the release recorded an illegal `newLayout` as well, so what survived was a frame of barriers of which one was invalid. The acquire under test was legal throughout, and the content surviving is still the observation, but the run should be repeated now that the release is fixed before the result is treated as settled.
+
 So the `foreign` flag was prudent rather than necessary on this driver. That is not an argument for removing it. The specification permits the discard, the patch is written against the specification rather than against one implementation, and the cost of the flag is one branch. The finding to carry forward is narrower and more useful: a discard on a Mesa driver will not be caught by any test on this machine, so the first Mesa run is where this question is genuinely answered.
 
 ### The queue family for the acquire
@@ -57,9 +59,13 @@ So the `foreign` flag was prudent rather than necessary on this driver. That is 
 | Queue family | Old layout | Distinct colours | Dominant colour share |
 |---|---|---|---|
 | `foreign` | `general` | 5 | 0.9853 |
-| `foreign` | `undefined` | 5 | 0.9855 |
+| `foreign` | `undefined` | 5 | 0.9855 (invalid, see below) |
 | `ignored` | `general` | 5 | 0.9855 |
-| `ignored` | `undefined` | 5 | 0.9853 |
+| `ignored` | `undefined` | 5 | 0.9853 (invalid, see below) |
+
+The two `undefined` rows are not evidence and are kept only so the record is not silently rewritten. The release barrier passed the same layout the acquire did, so with the switch at `undefined` every frame recorded `VK_IMAGE_LAYOUT_UNDEFINED` as a barrier's `newLayout`, which VUID-VkImageMemoryBarrier2-newLayout-01198 forbids. With no validation layer present the run could not have noticed. Those two rows therefore describe a driver tolerating a spec violation rather than the queue family being indifferent, and the same defect taints the `undefined` half of [the transition out of an undefined layout](#the-transition-out-of-an-undefined-layout) above.
+
+The release now hands the image back in `VK_IMAGE_LAYOUT_GENERAL` whatever the switch says — the acquire is the half the switch was measurable in, and `UNDEFINED` is legal only there. The four-cell measurement was not re-run; it needs the census harness, a real GPU, and a client, and it should be re-run before either row is cited. The `general` rows are unaffected, and they are the rows the default rests on.
 
 `foreign` remains the default, because it is what the specification describes for a producer outside Vulkan and because it is what `VK_EXT_queue_family_foreign` is enabled for. WayVR uses `IGNORED` and works on Mesa; this run shows the NVIDIA proprietary driver is equally indifferent. Two drivers being indifferent is weak evidence that all are, and with no validation layer present the run cannot distinguish "correct" from "tolerated". The default stays on the specification-conformant value for that reason.
 
@@ -103,7 +109,7 @@ The import is colour-exact, and clients send premultiplied alpha.
 
 This was checked because the first census returned a background of `#cc0066` where the client had been told `#ff007f`, a uniform factor of 0.8. Repeating with `#ffffff`, `#808080`, and `#00ff00` returned `#cccccc`, `#666666`, and `#00cc00`: a linear scale by 0.8 in every channel, which rules out a gamma or sRGB misinterpretation, since those are nonlinear. Probing the alpha channel at a single pixel returned `0.8000, 0.8000, 0.8000, 0.8000`. The terminal was configured with `opacity = 0.8`, so the buffer holds exactly what the client wrote, premultiplied.
 
-The consequence belongs to the layer work in phase 3: a `AR24` surface arrives premultiplied, and a composition layer or in-scene quad that assumes straight alpha will darken every translucent client.
+The consequence is recorded in [rendering.md](rendering.md#alpha) and acted on by the in-scene path now: `etc/xdg/lunette/main.lua` draws with `pass:setBlendMode('alpha', 'premultiplied')`, because LÖVR's default alpha mode multiplies the colour by the alpha a second time and so darkens every translucent client. The composition-layer path inherits the same requirement in phase 3.
 
 ### The `wl_shm` fallback
 
@@ -132,6 +138,8 @@ These came out of building the slice rather than out of the two unknowns, and ea
 LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` at `gpu_vk.c:3089`. Vulkan 1.1 is therefore the ceiling for anything lunette does on the borrowed device, regardless of what the physical device supports. `ash::Device::load` cannot fail: a missing entry point becomes a stub that panics when called, so a 1.2 or 1.3 function looks present and aborts the process on first use. Any later work that reaches for a newer entry point must go through an extension whose presence is checked, not through a core function of a later version.
 
 `l_lovrEventPush` allocates the `Variant` array with `lovrMalloc` at `l_event.c:171`, and the poll path at `l_event.c:139-145` destroys each `Variant` but never frees the array. Every custom event leaks that allocation. lunette pushes payload-free events and builds the event table at dispatch, which reduces the leak to the minimal allocation `malloc(0)` returns rather than eliminating it. A fix belongs upstream; until then, no lunette path should push a custom event carrying a payload.
+
+Retirement is swept once per compositor dispatch and whenever a surface's content goes away, not only when the next import happens to run. An import-driven sweep alone holds every image of a client that has disconnected or fallen quiet, because neither performs an import, and the count the shutdown path logs would then describe buffers freed minutes earlier.
 
 Imported images are not destroyed at shutdown, by design. LÖVR empties its morgue only in `gpu_destroy`, so an image released after the last frame is held until the graphics module is torn down, and the process exit bounds it. The shutdown path logs the count it is leaving behind. This is correct for a process that exits and would not be correct for a long-lived process that started and stopped the compositor repeatedly, which nothing currently does.
 

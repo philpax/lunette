@@ -19,6 +19,23 @@ local QUAD_HEIGHT = 0.8
 -- not yet seen its window in a snapshot does.
 local DEFAULT_ASPECT = 16 / 9
 
+-- The fragment stage for a window whose buffer has no alpha channel.
+--
+-- An X-variant fourcc such as XR24 has no Vulkan format of its own, so it is
+-- imported as the alpha-carrying format with the same component order and the
+-- client's padding byte arrives as alpha. Most renderers leave that byte at
+-- zero, so sampling it draws the window fully invisible. window.opaque is what
+-- says the byte means nothing; this is what acts on it. docs/rendering.md
+-- records both.
+local OPAQUE_FRAGMENT = [[
+  vec4 lovrmain() {
+    return vec4((Color * getPixel(ColorTexture, UV)).rgb, Color.a);
+  }
+]]
+
+-- Built in lovr.load, which is the first moment the graphics module exists.
+local opaqueShader = nil
+
 -- A demonstration, not policy. lunette itself spawns nothing; what a session
 -- opens is mullion's decision, and mullion is not written yet. This exists so
 -- that a fresh installation shows something without a client being attached by
@@ -53,6 +70,7 @@ local function spawnNextTerminal()
 end
 
 function lovr.load()
+  opaqueShader = lovr.graphics.newShader('unlit', OPAQUE_FRAGMENT)
   spawnNextTerminal()
 end
 
@@ -89,7 +107,21 @@ function lovr.draw(pass)
     aspect = window.width / window.height
   end
 
+  -- A client's buffer holds premultiplied alpha: a terminal at opacity 0.8
+  -- writes 0.8 into every channel, alpha included. LÖVR's default alpha mode
+  -- multiplies the colour by the alpha again in the shader, which darkens a
+  -- translucent window twice.
+  pass:setBlendMode('alpha', 'premultiplied')
+
+  -- This buffer's fourth component is padding, so the shader replaces it with
+  -- one instead of sampling it.
+  if window.opaque then
+    pass:setShader(opaqueShader)
+  end
+
   pass:setMaterial(texture)
   pass:plane(QUAD_X, QUAD_Y, QUAD_Z, QUAD_HEIGHT * aspect, QUAD_HEIGHT)
   pass:setMaterial()
+  pass:setShader()
+  pass:setBlendMode('alpha', 'alphamultiply')
 end

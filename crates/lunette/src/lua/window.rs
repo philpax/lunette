@@ -20,6 +20,7 @@ use lunette_compositor::protocol::{
 use mlua::{UserData, UserDataFields, UserDataMethods, Value};
 
 use crate::{
+    import::formats::Alpha,
     lua::{LuaTexture, Session, sink::Sink},
     texture::{TextureRef, TextureUnavailable},
 };
@@ -147,6 +148,17 @@ impl<T: LuaTexture> UserData for Window<T> {
             Ok(window.known.borrow().size.height)
         });
 
+        // Whether the fourth component of this window's pixels is padding
+        // rather than alpha, which a client negotiating an X-variant fourcc —
+        // `XR24` is the commonest opaque format there is — leaves at whatever
+        // it happened to write, usually zero. A caller drawing such a texture
+        // forces alpha to one instead of sampling it; `docs/rendering.md`
+        // records how, and `etc/xdg/lunette/main.lua` does it.
+        //
+        // False for a window with no texture yet, which is the answer that
+        // makes an unanswerable question harmless: there is nothing to draw.
+        fields.add_field_method_get("opaque", |_, window| Ok(is_opaque(window)));
+
         // Where input for this window goes. A fresh handle each read: it holds
         // an identifier and an `Rc`, so there is nothing to gain by caching one
         // and a stale cache to lose.
@@ -270,6 +282,26 @@ fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> 
         states: window.known.borrow().states.clone(),
     });
     Ok(true)
+}
+
+/// `window.opaque`: whether the texture's fourth component is padding.
+///
+/// Read from the ledger rather than from the snapshot, because it is a property
+/// of the buffer the client committed and not of the toplevel. False once the
+/// surface is gone, which is the same answer `window:getTexture()` gives then
+/// and for the same reason: there is nothing left to draw, so there is nothing
+/// to force alpha on.
+fn is_opaque<T>(window: &Window<T>) -> bool {
+    window.refresh();
+    let Some(surface) = window.known.borrow().surface else {
+        return false;
+    };
+
+    window.session.with_textures(|textures| {
+        textures
+            .describe(surface)
+            .is_some_and(|description| description.alpha == Alpha::Opaque)
+    })
 }
 
 /// Names this frame's texture for the window, if it has one to name.

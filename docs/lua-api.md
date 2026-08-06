@@ -59,6 +59,7 @@ Reads are snapshot fields. Mutations are requests:
 print(win.title)             -- last frame's value.
 print(win.appId)             -- the client's application identifier.
 print(win.width, win.height) -- the surface's size in pixels.
+print(win.opaque)            -- true when the buffer's fourth component is padding, not alpha.
 win:resize(1920, 1080)       -- a configure request; the client may ignore it.
 win:close()                  -- a close request, not a kill; watch for lovr.lunwindowclosed.
 win:getTexture()             -- this frame's pixels; never cache it.
@@ -72,6 +73,8 @@ win:stabilize()              -- a persistent texture, at a copy per damaged fram
 Both return `false` on a dead handle, without raising. Both are requests, so neither reports what the client did; that arrives as an event or as a changed snapshot field.
 
 `win:stabilize()` is described in [Rendering](rendering.md#windowstabilize).
+
+`win.opaque` reports that the window's current buffer has no alpha channel, so its fourth component is padding a caller forces to one rather than sampling. It is a property of the buffer and changes when the client renegotiates its format, so it is read each frame alongside the texture. [Rendering](rendering.md#alpha) states what a consumer does with it, and why premultiplied blending is the other half of the same subject.
 
 `win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
 

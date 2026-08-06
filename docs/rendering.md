@@ -28,6 +28,16 @@ It allocates a lunette-owned texture and copies the client's buffer into it thro
 
 A second call returns the same texture rather than allocating another. The identity survives the client cycling its buffers, which is the point of it, and does not survive the client resizing: a LÖVR texture's dimensions are fixed when it is created, so a resize releases the copy and the next call allocates one that matches. It returns `false` on a dead handle, and on a window whose client has committed nothing.
 
+### Alpha
+
+An imported buffer holds premultiplied alpha. A client rendering at 80 per cent opacity writes 0.8 into every channel including alpha, which the milestone measured directly ([Milestone 0 findings](milestone-0-findings.md#colour-fidelity-and-premultiplied-alpha)). A consumer therefore draws with premultiplied blending; LÖVR spells that `pass:setBlendMode('alpha', 'premultiplied')`. The default alpha mode multiplies the colour by the alpha a second time in the shader, which darkens every translucent client.
+
+Some buffers have no alpha channel at all. `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` name three components and a padding byte, and Vulkan has no format for that, so each is imported as the alpha-carrying format with the same component order. Whatever the client left in the padding byte then arrives as alpha, and most renderers leave it at zero. Sampling it draws the window fully invisible.
+
+The native layer records the distinction rather than resolving it: `window.opaque` is true for such a buffer, and a consumer forces alpha to one instead of sampling it. `etc/xdg/lunette/main.lua` does this with a one-line fragment shader over the default `unlit` vertex stage, and is the worked example. The shared-memory path resolves it on the way in instead — `wl_shm` buffers are repacked, so the padding byte is set to one during the copy — which is why `window.opaque` is only ever true for a dmabuf.
+
+Both facts are properties of the buffer, not of the window: a client that renegotiates its format changes `window.opaque` between one frame and the next, so it is read each frame alongside the texture rather than cached.
+
 ### Forced conversion
 
 Some buffers cannot be sampled directly. Multi-planar YUV needs `VkSamplerYcbcrConversion`, which LÖVR has no concept of. Those buffers are converted into an RGBA texture transparently. This occurs with hardware-decoded video and some PipeWire capture formats. The Lua-visible behaviour is identical; only the cost differs.

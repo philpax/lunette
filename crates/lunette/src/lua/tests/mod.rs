@@ -328,6 +328,59 @@ fn get_texture_answers_with_the_texture_the_ledger_holds() {
 }
 
 #[test]
+fn a_window_whose_buffer_has_no_alpha_channel_reports_itself_opaque() {
+    // The regression: an X-variant fourcc maps to an alpha Vulkan format, so
+    // the padding byte arrives as alpha and is usually zero. Nothing consumed
+    // the distinction, and a `XR24` client drew fully invisible.
+    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    session.with_textures(|textures| {
+        textures.install(
+            surface_id(1),
+            FakeTexture(42),
+            TextureDescription {
+                size: PixelSize::new(64, 32),
+                alpha: Alpha::Opaque,
+            },
+        )
+    });
+    let lua = lua(&session);
+
+    assert!(
+        run::<bool>(&lua, "return lunette.windows()[1].opaque"),
+        "a consumer forces alpha to one for these, and this is what tells it to"
+    );
+}
+
+#[test]
+fn a_window_whose_buffer_carries_alpha_does_not_report_itself_opaque() {
+    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    session.with_textures(|textures| {
+        textures.install(
+            surface_id(1),
+            FakeTexture(42),
+            TextureDescription {
+                size: PixelSize::new(64, 32),
+                alpha: Alpha::Present,
+            },
+        )
+    });
+    let lua = lua(&session);
+
+    assert!(!run::<bool>(&lua, "return lunette.windows()[1].opaque"));
+}
+
+#[test]
+fn a_window_with_no_buffer_yet_is_not_reported_opaque() {
+    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    assert!(
+        !run::<bool>(&lua, "return lunette.windows()[1].opaque"),
+        "there is no texture to draw, so there is nothing to force alpha on"
+    );
+}
+
+#[test]
 fn get_texture_answers_false_before_the_client_has_committed_anything() {
     let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
@@ -823,4 +876,22 @@ fn the_module_exposes_only_what_this_phase_implements() {
         "a name added here is a promise; the rest of the surface arrives with the phase that \
          implements it"
     );
+}
+
+#[test]
+fn the_shipped_configuration_is_valid_lua() {
+    // The one thing about `etc/xdg/lunette/main.lua` that can be checked
+    // without a graphics device and an XR runtime. It is the configuration a
+    // fresh installation runs, so a syntax error in it is a broken build that
+    // nothing else in the suite would notice.
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../etc/xdg/lunette/main.lua"
+    );
+    let source = std::fs::read_to_string(path).expect("the shipped configuration is readable");
+
+    Lua::new()
+        .load(&source)
+        .into_function()
+        .expect("the shipped configuration parses");
 }
