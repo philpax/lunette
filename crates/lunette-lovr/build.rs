@@ -90,7 +90,18 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
         config
             .define("LOVR_BUILD_SHARED", "ON")
             .define("LOVR_BUILD_WITH_SYMBOLS", "ON")
-            .define("FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS", jolt_source);
+            .define("FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS", jolt_source)
+            // `vendor/lovr/CMakeLists.txt:908-909` gives `liblovr.so` an rpath
+            // of `$ORIGIN`, which is right for the packaged layout where every
+            // library sits in one directory. In the build tree the `move_files`
+            // target (`:912-938`) stages the siblings one level down in `bin/`,
+            // so `$ORIGIN/bin` has to be on the rpath as well. It cannot be
+            // supplied from the executable's own link line: a `DT_RUNPATH` is
+            // not consulted when resolving a dependency's dependencies.
+            //
+            // The backslash survives into cmake's generated link script, where
+            // the shell strips it and hands the linker a literal `$ORIGIN`.
+            .define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-rpath,\\$ORIGIN/bin");
         config
     };
 
@@ -126,9 +137,16 @@ fn emit_link_directives(build: &LovrBuild) -> Result<(), BuildError> {
     // `target/debug/deps/` resolve the library too. Cargo passes the string to
     // `rustc -C link-arg` with no shell involved, so the literal `$ORIGIN`
     // reaches the dynamic linker intact.
+    //
+    // These apply to this package's own targets and no further, which is why the
+    // directories are also published below. A dependent that links an executable
+    // has to emit its own rpath entries from them.
     println!("cargo::rustc-link-arg=-Wl,-rpath,{library_dir}");
     println!("cargo::rustc-link-arg=-Wl,-rpath,{staged_dir}");
     println!("cargo::rustc-link-arg=-Wl,-rpath,$ORIGIN");
+
+    println!("cargo::metadata=library_dir={library_dir}");
+    println!("cargo::metadata=staged_dir={staged_dir}");
 
     Ok(())
 }
