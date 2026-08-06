@@ -836,14 +836,12 @@ impl LovrTexture {
             return true;
         }
 
+        let arguments = acquire_arguments(policy);
+
         // SAFETY: the caller's guarantee. The two values are plain integers
         // LÖVR passes through to the barrier.
         unsafe {
-            lovrTextureImportAcquire(
-                self.raw.as_ptr(),
-                policy.acquire_layout().as_raw().unsigned_abs(),
-                policy.source_family.index(),
-            )
+            lovrTextureImportAcquire(self.raw.as_ptr(), arguments.layout, arguments.queue_family)
         }
     }
 
@@ -862,13 +860,11 @@ impl LovrTexture {
             return true;
         }
 
+        let arguments = release_arguments(policy);
+
         // SAFETY: as above.
         unsafe {
-            lovrTextureImportRelease(
-                self.raw.as_ptr(),
-                BarrierPolicy::RELEASE_LAYOUT.as_raw().unsigned_abs(),
-                policy.source_family.index(),
-            )
+            lovrTextureImportRelease(self.raw.as_ptr(), arguments.layout, arguments.queue_family)
         }
     }
 
@@ -985,6 +981,42 @@ fn texture_info(size: PixelSize, format: TextureFormat, handle: u64, foreign: bo
         label: std::ptr::null_mut(),
         handle: handle as usize,
         foreign,
+    }
+}
+
+/// The two integers an import barrier is recorded with.
+///
+/// Named fields rather than a pair, because both are `u32` and the FFI call
+/// takes them positionally: a transposition would compile and record a barrier
+/// naming a queue family index as a layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BarrierArguments {
+    layout: u32,
+    queue_family: u32,
+}
+
+/// The arguments the acquire barrier is recorded with.
+///
+/// Separate from [`LovrTexture::acquire`] so the choice is a pure function of
+/// the policy: recording the barrier needs a device and this does not, which is
+/// what makes the choice testable.
+fn acquire_arguments(policy: BarrierPolicy) -> BarrierArguments {
+    BarrierArguments {
+        layout: policy.acquire_layout().as_raw().unsigned_abs(),
+        queue_family: policy.source_family.index(),
+    }
+}
+
+/// The arguments the release barrier is recorded with.
+///
+/// The layout is [`BarrierPolicy::RELEASE_LAYOUT`] whatever the policy says.
+/// This is a barrier's `newLayout`, where `UNDEFINED` is forbidden, so the
+/// policy's own layout must not reach here. As [`acquire_arguments`], separate
+/// so that is testable without a device.
+fn release_arguments(policy: BarrierPolicy) -> BarrierArguments {
+    BarrierArguments {
+        layout: BarrierPolicy::RELEASE_LAYOUT.as_raw().unsigned_abs(),
+        queue_family: policy.source_family.index(),
     }
 }
 

@@ -293,19 +293,64 @@ fn a_release_hands_the_image_back_in_a_layout_a_barrier_may_name() {
     // The regression: the release passed the policy's own layout as the
     // barrier's `newLayout`, so `LUNETTE_IMPORT_LAYOUT=undefined` recorded
     // `VK_IMAGE_LAYOUT_UNDEFINED` as a destination, which
-    // VUID-VkImageMemoryBarrier2-newLayout-01198 forbids.
-    assert_ne!(BarrierPolicy::RELEASE_LAYOUT, vk::ImageLayout::UNDEFINED);
-    assert_eq!(BarrierPolicy::RELEASE_LAYOUT, vk::ImageLayout::GENERAL);
-
-    for layout in [ForeignLayout::General, ForeignLayout::Undefined] {
+    // VUID-VkImageMemoryBarrier2-newLayout-01198 forbids. Asserting on the
+    // arguments the call is made with, rather than on the constant, is what
+    // makes reintroducing the switch on the release side fail here.
+    for old_layout in [ForeignLayout::General, ForeignLayout::Undefined] {
         let policy = BarrierPolicy {
             source_family: QueueFamilyMode::Foreign,
-            old_layout: layout,
+            old_layout,
         };
         assert_eq!(
-            policy.acquire_layout(),
-            layout.layout(),
-            "the acquire is where the switch is measurable, and `UNDEFINED` is legal there"
+            release_arguments(policy),
+            BarrierArguments {
+                layout: vk::ImageLayout::GENERAL.as_raw().unsigned_abs(),
+                queue_family: vk::QUEUE_FAMILY_FOREIGN_EXT,
+            },
+            "the release names `GENERAL` whatever the policy asked for, for {old_layout:?}"
+        );
+    }
+}
+
+#[test]
+fn an_acquire_names_the_layout_the_policy_asked_for() {
+    // The other half of the pair: `UNDEFINED` is legal as a barrier's
+    // `oldLayout`, and naming it is the whole point of the setting, so the
+    // acquire must pass the policy through where the release must not.
+    for (old_layout, expected) in [
+        (ForeignLayout::General, vk::ImageLayout::GENERAL),
+        (ForeignLayout::Undefined, vk::ImageLayout::UNDEFINED),
+    ] {
+        let policy = BarrierPolicy {
+            source_family: QueueFamilyMode::Foreign,
+            old_layout,
+        };
+        assert_eq!(
+            acquire_arguments(policy),
+            BarrierArguments {
+                layout: expected.as_raw().unsigned_abs(),
+                queue_family: vk::QUEUE_FAMILY_FOREIGN_EXT,
+            },
+            "the acquire is where the switch is measurable, for {old_layout:?}"
+        );
+    }
+}
+
+#[test]
+fn both_barriers_name_the_queue_family_the_policy_asked_for() {
+    for (source_family, expected) in [
+        (QueueFamilyMode::Foreign, vk::QUEUE_FAMILY_FOREIGN_EXT),
+        (QueueFamilyMode::Ignored, vk::QUEUE_FAMILY_IGNORED),
+    ] {
+        let policy = BarrierPolicy {
+            source_family,
+            old_layout: ForeignLayout::General,
+        };
+        assert_eq!(acquire_arguments(policy).queue_family, expected);
+        assert_eq!(
+            release_arguments(policy).queue_family,
+            expected,
+            "the release side is the half of the ownership transfer the policy still governs"
         );
     }
 }
