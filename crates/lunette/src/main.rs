@@ -11,21 +11,43 @@
 //!
 //! # Writing the environment
 //!
-//! Exporting `WAYLAND_DISPLAY` — so that a process started outside lunette can
-//! find its socket — happens here and nowhere else, and it has to happen before
-//! any other thread exists.
+//! Exporting `WAYLAND_DISPLAY` — so that everything lunette starts finds its
+//! socket without being told — happens here and nowhere else, and it has to
+//! happen before any other thread exists.
 //!
 //! In Rust 2024 `std::env::set_var` is `unsafe`, and it is unsound once the
 //! process is multithreaded: a concurrent `getenv` anywhere, including inside a
 //! C library, reads a pointer the write may free. LÖVR and GLFW spawn threads
-//! as they boot, and the compositor cannot start before them because it needs
-//! the graphics device they create. So the only safe moment is at the top of
-//! `main`, before anything else runs.
+//! as they boot, and the compositor thread cannot start before them because it
+//! needs the graphics device they create. So the only safe moment is at the top
+//! of `main`, before anything else runs.
 //!
-//! `lunette_compositor::client::listen` therefore returns the display name
-//! rather than exporting it, and carries the other half of this note. Setting
-//! the variable next to the code that creates the socket is the obvious thing
-//! to do, and it is wrong for a reason that is invisible from there.
+//! That ordering is available because binding the socket needs nothing from the
+//! graphics device — only the compositor *thread* does. [`listen`] runs here,
+//! at the top of `main`, and returns the name; the socket then travels down to
+//! the frame loop, which starts the thread once LÖVR has a device to lend it.
+//!
+//! `lunette_compositor::client::listen` therefore does not export the name
+//! itself, and carries the other half of this note. Setting the variable next
+//! to the code that creates the socket is the obvious thing to do, and it is
+//! wrong for a reason that is invisible from there.
+//!
+//! # Why this does not point LÖVR at lunette's own socket
+//!
+//! Setting `WAYLAND_DISPLAY` in a process that is about to open a window of its
+//! own is a way to deadlock: the window's toolkit would connect to a socket
+//! whose compositor thread has not started, and wait for a registry that cannot
+//! arrive until it has. LÖVR's GLFW is built with `GLFW_BUILD_WAYLAND OFF`
+//! (`vendor/lovr/CMakeLists.txt:113`), so it is X11-only and never reads the
+//! variable. A LÖVR build with Wayland support would have to save the host's
+//! value and hand it back, or defer the export until after the window exists —
+//! which the soundness rule above forbids.
+//!
+//! `DISPLAY` is deliberately not exported. It would name lunette's own X server
+//! whether or not xwayland-satellite actually started, so every X11 client
+//! lunette launched would hang against a socket with nothing behind it. A
+//! spawned child is told both values explicitly, by the compositor's spawner,
+//! which knows whether the bridge is running.
 
 mod boot;
 
@@ -37,7 +59,8 @@ use std::{
     process::ExitCode,
 };
 
-use lunette::{events::LovrEventSink, lua::Session};
+use lunette::{events::LovrEventSink, frame::Startup, lua::Session, texture::BarrierPolicy};
+use lunette_compositor::client::{XwaylandSatellite, listen};
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
@@ -76,11 +99,64 @@ fn main() -> ExitCode {
 
     info!(path = %config_directory.display(), "loading the configuration");
 
+    // `name` rather than `display`, because `tracing`'s macros bring a function
+    // of that name into scope and a local would shadow it.
+    let (socket, name) = match listen() {
+        Ok(bound) => bound,
+        Err(error) => {
+            error!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // SAFETY: this is the only write to the environment in the program, and it
+    // runs before anything has spawned a thread — the subscriber is installed,
+    // the configuration directory is resolved, and the socket is bound, none of
+    // which starts one. Every later reader is in a thread this write precedes.
+    unsafe { env::set_var(WAYLAND_DISPLAY, name.wayland()) };
+
+    info!(
+        "connect a client from outside with WAYLAND_DISPLAY={}",
+        name.wayland().to_string_lossy()
+    );
+
+    let startup = Startup {
+        socket,
+        display: name,
+        // Best-effort: an installation without the bridge logs a warning and
+        // serves Wayland clients only.
+        satellite: Some(XwaylandSatellite::resolve(
+            env::var_os(APPDIR)
+                .as_deref()
+                .filter(|appdir| !appdir.is_empty()),
+        )),
+        barriers: BarrierPolicy::from_settings(
+            env::var(IMPORT_QUEUE_FAMILY).ok().as_deref(),
+            env::var(IMPORT_LAYOUT).ok().as_deref(),
+        ),
+    };
+
     // Built before the Lua state and outliving it, because a restart throws the
     // state away and the session is what the next one attaches to.
     let session = Session::new(Box::new(LovrEventSink));
-    boot::run(config_directory, &session)
+    boot::run(config_directory, &session, startup)
 }
+
+/// Where a client is told to find lunette's socket.
+const WAYLAND_DISPLAY: &str = "WAYLAND_DISPLAY";
+
+/// The AppImage runtime's own root, when lunette is running from one.
+const APPDIR: &str = "APPDIR";
+
+/// The two diagnostic settings milestone 0 exists to answer.
+///
+/// Neither the queue family an imported image is acquired from nor the layout it
+/// is taken to be in is settled, and the point of measuring is to try the other
+/// value without a rebuild. `crates/lunette/src/texture/mod.rs` documents what
+/// each accepts; an unrecognised value falls back with a warning rather than
+/// stopping a session.
+const IMPORT_QUEUE_FAMILY: &str = "LUNETTE_IMPORT_QUEUE_FAMILY";
+const IMPORT_LAYOUT: &str = "LUNETTE_IMPORT_LAYOUT";
 
 /// The verbosity applied when `RUST_LOG` names none, or names something that
 /// does not parse.

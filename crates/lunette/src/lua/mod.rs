@@ -199,7 +199,7 @@ impl<T> Session<T> {
     /// window is gone from the frame's own snapshot by the time the handler
     /// runs — that is what the event reports — so a handle built from it alone
     /// would know nothing but the identifier.
-    fn window(&self, id: WindowId) -> Option<WindowSnapshot> {
+    pub(crate) fn window(&self, id: WindowId) -> Option<WindowSnapshot> {
         let frame = self.frame.borrow();
         [&frame.snapshot, &frame.previous]
             .into_iter()

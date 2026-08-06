@@ -405,6 +405,32 @@ impl<T> TextureLedger<T> {
         }
     }
 
+    /// Every texture a live surface currently holds.
+    ///
+    /// The frame loop records the import barriers over these: an acquire before
+    /// anything in the frame can sample one, and a release after. A dead
+    /// surface is skipped because its texture has already been handed back.
+    pub fn textures(&self) -> impl Iterator<Item = &T> {
+        self.entries
+            .values()
+            .filter(|entry| !entry.dead)
+            .flat_map(|entry| entry.texture.iter().chain(entry.stable.iter()))
+    }
+
+    /// Empties the ledger, returning every texture it held.
+    ///
+    /// For teardown, where the caller releases all of them at once. The images
+    /// behind them are not retired: a shutdown destroys the graphics device
+    /// immediately afterwards, and [`destroy_due_images`] cannot run then
+    /// because the deferral it counts in frames has no frames left to count.
+    #[must_use]
+    pub fn take_all(&mut self) -> Vec<T> {
+        self.entries
+            .drain()
+            .flat_map(|(_, entry)| entry.texture.into_iter().chain(entry.stable))
+            .collect()
+    }
+
     /// Schedules an image for destruction.
     pub fn retire_image(&mut self, image: ImageHandle, now: FrameGeneration) {
         self.morgue.retire(image, now);

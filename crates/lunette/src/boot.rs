@@ -37,6 +37,7 @@ use std::{
 };
 
 use lunette::{
+    frame::{FrameDriver, Startup},
     lua::{Session, install_on_state},
     texture::LovrTexture,
 };
@@ -54,7 +55,24 @@ use tracing::error;
 /// reaches the compositor through. A restart closes the state and builds
 /// another; the session, the clients, and their textures are untouched by that,
 /// which is the whole reason it is owned out here.
-pub fn run(config_directory: &Path, session: &Rc<Session<LovrTexture>>) -> ExitCode {
+///
+/// `startup` is what the entry point resolved while the process was still
+/// single-threaded. The compositor is built from it on the first frame at which
+/// LÖVR has a graphics device to lend, which is why it travels this far rather
+/// than being used in `main`.
+///
+/// # A restart does not bring the compositor back
+///
+/// `lovr.event.restart` closes the Lua state, and closing it destroys LÖVR's
+/// graphics module and the `VkDevice` the compositor borrowed. So the compositor
+/// is stopped before the state closes and is not started again: its socket went
+/// with it. The soft reload that keeps clients across a reconfiguration is a
+/// later phase's, and it works by not discarding the graphics module at all.
+pub fn run(
+    config_directory: &Path,
+    session: &Rc<Session<LovrTexture>>,
+    startup: Startup,
+) -> ExitCode {
     let platform = match Platform::init() {
         Ok(platform) => platform,
         Err(error) => {
@@ -62,6 +80,8 @@ pub fn run(config_directory: &Path, session: &Rc<Session<LovrTexture>>) -> ExitC
             return ExitCode::FAILURE;
         }
     };
+
+    let mut driver = FrameDriver::new(Rc::clone(session), startup);
 
     // The restart cookie outlives every Lua state: one session writes it and
     // the next reads it back. `src/main.c:40` gets that lifetime from a
@@ -73,13 +93,17 @@ pub fn run(config_directory: &Path, session: &Rc<Session<LovrTexture>>) -> ExitC
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
 
     let status = loop {
-        match run_session(config_directory, session, &mut cookie) {
+        match run_session(config_directory, session, &mut driver, &mut cookie) {
             Outcome::Restart => (),
             Outcome::Exit { status } => break status,
             Outcome::LoadFailed => break FAILURE_STATUS,
         }
     };
 
+    // Nothing after the last session should reach the compositor, but a load
+    // failure leaves it running: `run_session` returns before `run_steps` is
+    // reached, so nothing has stopped it.
+    driver.shutdown();
     platform.destroy();
     ExitCode::from(status)
 }
@@ -109,6 +133,7 @@ enum Outcome {
 fn run_session(
     config_directory: &Path,
     session: &Rc<Session<LovrTexture>>,
+    driver: &mut FrameDriver,
     cookie: &mut raw::Variant,
 ) -> Outcome {
     // SAFETY: this is the sequence at `vendor/lovr/src/main.c:34-74`, in the
@@ -164,7 +189,7 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        run_steps(state, thread, cookie)
+        run_steps(state, thread, driver, cookie)
     }
 }
 
@@ -178,16 +203,30 @@ fn run_session(
 unsafe fn run_steps(
     state: *mut lua::lua_State,
     thread: *mut lua::lua_State,
+    driver: &mut FrameDriver,
     cookie: &mut raw::Variant,
 ) -> Outcome {
     loop {
+        // The frame's snapshot and the frame's events are installed together,
+        // before `boot.lua` polls, so a `lun*` handler reads a snapshot that
+        // already accounts for the event it was handed.
+        driver.begin_frame();
+
         // SAFETY: the caller guarantees `thread` is live, and nothing in this
         // loop closes it before returning.
-        match unsafe { step(thread) } {
+        let step = unsafe { step(thread) };
+
+        // Before the branch, so that a session ending still delivers the
+        // mutations its last frame made — a `win:close()` from a quit handler,
+        // for instance.
+        driver.end_frame();
+
+        match step {
             // SAFETY: yielding to the platform is what `src/main.c:66` does
             // between frames; `os_sleep` touches no Lua state.
             Step::Continue => unsafe { raw::os_sleep(0.0) },
             Step::Restart => {
+                driver.shutdown();
                 // SAFETY: `boot.lua` leaves the cookie at index 2 of the thread
                 // when it yields "restart"; `src/main.c:68` reads it there.
                 unsafe {
@@ -205,6 +244,9 @@ unsafe fn run_steps(
                 return Outcome::Restart;
             }
             Step::Exit { status } => {
+                // Before the state closes, because closing it destroys the
+                // graphics module and the device the compositor borrowed.
+                driver.shutdown();
                 clear_log_callback();
                 // `src/main.c:23` closes the thread rather than the state on
                 // this path, which LÖVR resolves back to the main state.

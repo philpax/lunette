@@ -19,6 +19,56 @@ local QUAD_HEIGHT = 0.8
 -- not yet seen its window in a snapshot does.
 local DEFAULT_ASPECT = 16 / 9
 
+-- A demonstration, not policy. lunette itself spawns nothing; what a session
+-- opens is mullion's decision, and mullion is not written yet. This exists so
+-- that a fresh installation shows something without a client being attached by
+-- hand, and so that the spawn path is exercised on every run.
+--
+-- Delete this block and the two functions below it for a session that only
+-- adopts clients started from elsewhere, which is the other half of the same
+-- workflow:
+--
+--   WAYLAND_DISPLAY=wayland-20 foot
+--
+-- lunette logs the display name it bound as it starts.
+local DEMONSTRATION_TERMINALS = { 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
+
+-- Which candidate is being tried, and the handle it was tried with. A spawn
+-- that never started arrives as lovr.lunprocessexited with an outcome of
+-- 'spawnFailed', and that is the only report a missing program produces, so the
+-- fallback is driven from there rather than from anything checkable up front.
+local attempt = 0
+local attempted = nil
+
+local function spawnNextTerminal()
+  attempt = attempt + 1
+  local program = DEMONSTRATION_TERMINALS[attempt]
+  if not program then
+    attempted = nil
+    print('lunette: no terminal emulator was found; start a client yourself with WAYLAND_DISPLAY')
+    return
+  end
+
+  attempted = lunette.spawn { argv = { program } }
+end
+
+function lovr.load()
+  spawnNextTerminal()
+end
+
+function lovr.lunprocessexited(event)
+  if not attempted or event.process.id ~= attempted.id then
+    return
+  end
+
+  if event.outcome == 'spawnFailed' then
+    -- Expected on a machine without this particular terminal.
+    spawnNextTerminal()
+  else
+    attempted = nil
+  end
+end
+
 function lovr.draw(pass)
   local window = lunette.windows()[1]
   if not window then

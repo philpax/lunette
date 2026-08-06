@@ -77,7 +77,7 @@ lunette takes WayVR's solution wholesale: generate a random auth key per spawn, 
 
 ### Adoption
 
-Processes not spawned by lunette are adopted. The lunette socket is a real Wayland socket; anything with the right `WAYLAND_DISPLAY` can connect, and running `WAYLAND_DISPLAY=lunette-0 foot` from a host terminal is one of the most useful development workflows available. Adopted processes appear with the same window events and a process handle marked `external = true`.
+Processes not spawned by lunette are adopted. The lunette socket is a real Wayland socket; anything with the right `WAYLAND_DISPLAY` can connect, and running `WAYLAND_DISPLAY=wayland-20 foot` from a host terminal is one of the most useful development workflows available. Adopted processes appear with the same window events and a process handle marked `external = true`.
 
 ### Lifecycle
 

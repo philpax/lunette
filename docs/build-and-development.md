@@ -62,7 +62,9 @@ The simulator drives input sinks from mouse and keyboard, which costs nothing ex
 
 Nesting works naturally. lunette in simulator mode is just another Wayland client of the host desktop, running its own nested compositor inside itself. This is useful for demonstrations and for development without a headset.
 
-`WAYLAND_DISPLAY=lunette-0 <app>` from a host terminal launches an application into a running lunette, adopted as an external process ([Compositor](compositor.md#adoption)).
+`WAYLAND_DISPLAY=wayland-20 <app>` from a host terminal launches an application into a running lunette, adopted as an external process ([Compositor](compositor.md#adoption)). lunette binds the first free name from `wayland-20` upwards and logs which it took, and exports that name into its own environment, so a client it starts inherits it.
+
+Two environment settings exist for milestone 0 and answer the two open questions about the import barrier. `LUNETTE_IMPORT_QUEUE_FAMILY` takes `foreign` or `ignored`, and `LUNETTE_IMPORT_LAYOUT` takes `general` or `undefined`; `crates/lunette/src/texture/mod.rs` is the source of truth for both, and an unrecognised value falls back to the default with a warning rather than stopping the session.
 
 Full XR is ground truth, and soft reload ([The Lua API](lua-api.md#reload)) is what makes iterating on it practical, since the editor is not readable with the headset on.
 

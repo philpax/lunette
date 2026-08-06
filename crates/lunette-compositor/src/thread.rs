@@ -72,6 +72,7 @@ pub fn spawn(
     config: CompositorConfig,
     socket: WaylandSocket,
     importer: Box<dyn BufferImporter>,
+    panics: PanicPolicy,
 ) -> Result<CompositorHandle, StartError> {
     spawn_with(
         config,
@@ -79,6 +80,7 @@ pub fn spawn(
         importer,
         Box::new(SystemSpawner),
         Box::new(ProcFilesystem),
+        panics,
     )
 }
 
@@ -93,6 +95,7 @@ pub fn spawn_with(
     importer: Box<dyn BufferImporter>,
     spawner: Box<dyn ProcessSpawner>,
     inspector: Box<dyn ProcessInspector>,
+    panics: PanicPolicy,
 ) -> Result<CompositorHandle, StartError> {
     let (commands, command_channel) = calloop::channel::sync_channel(COMMAND_CAPACITY);
     let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
@@ -102,7 +105,7 @@ pub fn spawn_with(
     let thread = thread::Builder::new()
         .name(THREAD_NAME.to_owned())
         .spawn(move || {
-            abort_on_panic(THREAD_NAME, || {
+            let body = move || {
                 run(
                     Ingredients {
                         config,
@@ -118,7 +121,12 @@ pub fn spawn_with(
                     },
                     &started,
                 );
-            });
+            };
+
+            match panics {
+                PanicPolicy::Abort => abort_on_panic(THREAD_NAME, body),
+                PanicPolicy::Unwind => body(),
+            }
         })
         .map_err(StartError::SpawnThread)?;
 
@@ -140,6 +148,7 @@ pub fn spawn_with(
 }
 
 /// The main thread's end of a running compositor.
+#[derive(Debug)]
 pub struct CompositorHandle {
     commands: CommandSender,
     events: EventReceiver,
@@ -301,16 +310,32 @@ impl SnapshotReader {
     }
 }
 
+/// What a panic on the compositor thread does to the process.
+///
+/// The choice is the caller's rather than this crate's. `std::panic::set_hook`
+/// is process-global, so a library that installs one takes over the behaviour
+/// of every consumer, the test harness included; instead the policy is offered
+/// here and the binary states which one it wants.
+///
+/// [`crate::thread::abort_on_panic`] is the implementation of the first, and is
+/// public so a consumer that spawns its own compositor-adjacent thread can
+/// apply the same rule to it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PanicPolicy {
+    /// Abort the process. What `crates/lunette/src/frame.rs` asks for: a
+    /// compositor thread that unwinds leaves the Wayland socket held by a
+    /// process that no longer services it, and leaves the main thread reading a
+    /// snapshot that will never change again.
+    #[default]
+    Abort,
+    /// Let the thread unwind and leave the process running. For a test harness,
+    /// which reports a panicking thread rather than being killed by it.
+    Unwind,
+}
+
 /// Runs `body`, aborting the process if it panics.
 ///
-/// A compositor thread that unwinds leaves the Wayland socket held by a process
-/// that no longer services it, and leaves the main thread reading a snapshot
-/// that will never change again. A clean abort is the better failure.
-///
-/// This is a wrapper rather than a panic hook because `std::panic::set_hook` is
-/// process-global: a library that installs one takes over the behaviour of
-/// every consumer, the test harness included. The policy lives here and the
-/// thread that wants it opts in by calling this.
+/// A wrapper rather than a panic hook, for the reason [`PanicPolicy`] records.
 pub fn abort_on_panic<R>(name: &'static str, body: impl FnOnce() -> R) -> R {
     let guard = AbortGuard { name };
     let value = body();
@@ -608,6 +633,7 @@ mod tests {
             recording_importer(ImportLog::default()),
             Box::new(crate::testing::FakeSpawner::default()),
             Box::new(crate::testing::FakeInspector::default()),
+            PanicPolicy::Unwind,
         )
         .expect("the compositor thread starts")
     }
