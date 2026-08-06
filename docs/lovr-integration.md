@@ -15,7 +15,11 @@ The patches live on a branch rather than as a rebased series against each upstre
 
 ### 1. External-memory device extensions
 
-LÖVR requests no external-memory extensions when it creates the Vulkan device, so a dmabuf cannot be imported onto that device at all. The patch enables `VK_KHR_external_memory`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, and `VK_EXT_image_drm_format_modifier` when the physical device advertises them, and leaves them off when it does not.
+LÖVR requests no external-memory extensions when it creates the Vulkan device, so a dmabuf cannot be imported onto that device at all. The patch enables `VK_KHR_external_memory`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, and `VK_EXT_queue_family_foreign` when the physical device advertises them, and leaves them off when it does not. `VK_KHR_image_format_list`, which `VK_EXT_image_drm_format_modifier` depends on, is already enabled upstream as `formatList`.
+
+The five are optional, not required: a driver lacking them still starts, and lunette falls back to the `wl_shm` path. Because they are optional, the patch also reports which were enabled, through five new fields on `gpu_features` and `GraphicsFeatures`. `ash::Device::load` cannot fail — a missing entry point becomes a stub that panics on call — so asking is the only way to know.
+
+LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` in its `VkApplicationInfo` (`src/core/gpu_vk.c`, in `gpu_init`). Vulkan 1.1 is therefore the floor for the import path, and `vkBindImageMemory2` and `vkGetPhysicalDeviceFormatProperties2` are core rather than extension entry points. Neither needs a `KHR` suffix or a separate loader.
 
 ### 2. Foreign image import
 
