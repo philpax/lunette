@@ -14,8 +14,9 @@ use std::{ffi::OsStr, rc::Rc, sync::Arc};
 
 use lunette_compositor::{
     protocol::{
-        Command, PixelSize, PointerButton, ProcessId, ProcessSnapshot, SinkId, Snapshot, SurfaceId,
-        ToplevelStates, WindowId, WindowSnapshot,
+        Command, PixelSize, PointerButton, ProcessId, ProcessOutcome, ProcessSnapshot,
+        SignalNumber, SinkId, Snapshot, Stream, SurfaceId, ToplevelStates, WindowId,
+        WindowSnapshot,
     },
     state::DEFAULT_SEAT,
 };
@@ -23,6 +24,7 @@ use mlua::{Lua, Table, Value};
 use pretty_assertions::assert_eq;
 
 use crate::{
+    events::{LuaEvent, RecordingEventSink},
     import::formats::Alpha,
     lua::{LuaTexture, Session, install},
     texture::{TextureDescription, TextureRef},
@@ -82,20 +84,55 @@ fn snapshot(windows: Vec<WindowSnapshot>, processes: Vec<ProcessSnapshot>) -> Ar
 
 /// A session at the first frame, holding `windows`.
 fn session(windows: Vec<WindowSnapshot>) -> TestSession {
-    let session = Session::new();
+    recording_session(windows).0
+}
+
+/// A session whose pushed events can be replayed, for the tests that need to.
+fn recording_session(windows: Vec<WindowSnapshot>) -> (TestSession, RecordingEventSink) {
+    let sink = RecordingEventSink::default();
+    let session = Session::new(Box::new(sink.clone()));
     session.begin(snapshot(windows, Vec::new()));
-    session
+    (session, sink)
 }
 
 /// A Lua state with the module installed and `lunette` already required, which
 /// is the state a `main.lua` runs in.
+///
+/// The `lovr` table and its `handlers` are what `boot.lua:340-345` leaves
+/// behind, reproduced here because the module's event dispatchers are installed
+/// into them.
 fn lua(session: &TestSession) -> Lua {
     let lua = Lua::new();
     install(&lua, session).expect("the module installs");
+    lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
+        .exec()
+        .expect("the lovr scaffolding loads");
     lua.load("lunette = require 'lunette'")
         .exec()
         .expect("require resolves the module");
     lua
+}
+
+/// Runs `boot.lua`'s poll loop over what the session pushed.
+///
+/// `vendor/lovr/etc/boot.lua:193-198` reads a name and up to four payload
+/// values out of `lovr.event.poll` and calls `lovr.handlers[name]` with them.
+/// A `lun*` event carries no payload values, so the call takes none.
+fn poll(lua: &Lua, sink: &RecordingEventSink) {
+    let handlers: Table = lua
+        .globals()
+        .get::<Table>("lovr")
+        .expect("the lovr table exists")
+        .get("handlers")
+        .expect("boot.lua's handlers table exists");
+
+    for name in sink.take() {
+        handlers
+            .get::<mlua::Function>(name.as_str())
+            .expect("a dispatcher is installed for every event the module pushes")
+            .call::<()>(())
+            .expect("a dispatcher reports a handler's error rather than raising");
+    }
 }
 
 fn run<R: mlua::FromLuaMulti>(lua: &Lua, chunk: &str) -> R {
@@ -552,6 +589,305 @@ fn a_process_handle_reports_what_the_snapshot_says() {
     let (alive, pid): (bool, i32) = run(&lua, "return proc.alive, proc.pid");
     assert!(!alive, "a process absent from the snapshot has ended");
     assert_eq!(pid, 4242, "an ended process reads its last-known pid");
+}
+
+#[test]
+fn a_window_opening_hands_the_handler_a_handle_and_a_snapshot_that_holds_it() {
+    let (session, sink) =
+        recording_session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "function lovr.lunwindowopened(event)
+             opened = { id = event.window.id, title = event.window.title, dead = event.window.dead }
+             visible = #lunette.windows()
+         end",
+    );
+
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(1),
+    });
+    poll(&lua, &sink);
+
+    let (id, title, dead, visible): (u64, String, bool, usize) =
+        run(&lua, "return opened.id, opened.title, opened.dead, visible");
+    assert_eq!((id, title.as_str(), dead), (1, "htop", false));
+    assert_eq!(
+        visible, 1,
+        "the event and the snapshot the handler reads have to describe the same frame"
+    );
+}
+
+#[test]
+fn a_title_change_carries_both_the_window_and_the_new_title() {
+    let (session, sink) =
+        recording_session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "function lovr.luntitlechanged(event) changed = event end",
+    );
+
+    session.push_event(LuaEvent::TitleChanged {
+        window: window_id(1),
+        title: "htop — 4 cores".to_owned(),
+    });
+    poll(&lua, &sink);
+
+    let (title, id): (String, u64) = run(&lua, "return changed.title, changed.window.id");
+    assert_eq!(title, "htop — 4 cores");
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_it_was() {
+    let (session, sink) =
+        recording_session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "function lovr.lunwindowclosed(event)
+             closed = {
+                 id = event.window.id,
+                 dead = event.window.dead,
+                 title = event.window.title,
+                 width = event.window.width,
+                 texture = event.window:getTexture(),
+             }
+             remaining = #lunette.windows()
+         end",
+    );
+
+    // The frame the window is absent from is the frame the event is drained in,
+    // which is what makes the handle dead before the handler ever sees it.
+    session.begin(snapshot(Vec::new(), Vec::new()));
+    session.push_event(LuaEvent::WindowClosed {
+        window: window_id(1),
+    });
+    poll(&lua, &sink);
+
+    let (id, dead, title, width, texture, remaining): (u64, bool, String, u32, bool, usize) = run(
+        &lua,
+        "return closed.id, closed.dead, closed.title, closed.width, closed.texture, remaining",
+    );
+
+    assert_eq!(id, 1);
+    assert!(dead);
+    assert_eq!(
+        (title.as_str(), width),
+        ("htop", 1280),
+        "the handle reads the last thing the window was known to be, not nothing"
+    );
+    assert!(!texture, "every method of a dead handle answers false");
+    assert_eq!(remaining, 0);
+}
+
+#[test]
+fn a_spawn_that_never_started_is_reported_as_an_exit_and_opens_no_window() {
+    let (session, sink) = recording_session(Vec::new());
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "opened = 0
+         function lovr.lunwindowopened() opened = opened + 1 end
+         function lovr.lunprocessexited(event)
+             exited = { id = event.process.id, outcome = event.outcome, message = event.message }
+         end",
+    );
+
+    let process = ProcessId::new(run::<u64>(
+        &lua,
+        "return lunette.spawn{ argv = { 'nosuchprogram' } }.id",
+    ))
+    .expect("non-zero");
+
+    session.push_event(LuaEvent::ProcessExited {
+        process,
+        outcome: ProcessOutcome::SpawnFailed {
+            message: "nosuchprogram: no such file or directory".to_owned(),
+        },
+    });
+    poll(&lua, &sink);
+
+    let (id, outcome, message, opened): (u64, String, String, usize) = run(
+        &lua,
+        "return exited.id, exited.outcome, exited.message, opened",
+    );
+
+    assert_eq!(id, process.get());
+    assert_eq!(outcome, "spawnFailed");
+    assert!(
+        message.contains("no such file or directory"),
+        "unhelpful message: {message}"
+    );
+    assert_eq!(
+        opened, 0,
+        "a program that never ran cannot have connected a client"
+    );
+}
+
+#[test]
+fn an_exit_reports_its_code_and_a_signal_reports_its_number() {
+    let (session, sink) = recording_session(Vec::new());
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "seen = {}
+         function lovr.lunprocessexited(event)
+             seen[#seen + 1] = { outcome = event.outcome, code = event.code, signal = event.signal }
+         end",
+    );
+
+    session.push_event(LuaEvent::ProcessExited {
+        process: ProcessId::new(1).expect("non-zero"),
+        outcome: ProcessOutcome::Exited { code: 3 },
+    });
+    session.push_event(LuaEvent::ProcessExited {
+        process: ProcessId::new(2).expect("non-zero"),
+        outcome: ProcessOutcome::Signalled {
+            signal: SignalNumber::new(9),
+        },
+    });
+    poll(&lua, &sink);
+
+    let (first, code, second, signal): (String, i32, String, i32) = run(
+        &lua,
+        "return seen[1].outcome, seen[1].code, seen[2].outcome, seen[2].signal",
+    );
+
+    assert_eq!((first.as_str(), code), ("exited", 3));
+    assert_eq!((second.as_str(), signal), ("signalled", 9));
+}
+
+#[test]
+fn output_arrives_as_bytes_under_the_stream_it_was_written_to() {
+    let (session, sink) = recording_session(Vec::new());
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "function lovr.lunprocessoutput(event) wrote = event end",
+    );
+
+    // Not valid UTF-8, and a Lua string is a byte string, so it survives.
+    session.push_event(LuaEvent::ProcessOutput {
+        process: ProcessId::new(1).expect("non-zero"),
+        stream: Stream::Stderr,
+        bytes: vec![b'o', b'h', 0xff],
+    });
+    poll(&lua, &sink);
+
+    let (stream, bytes): (String, mlua::LuaString) = run(&lua, "return wrote.stream, wrote.text");
+    assert_eq!(stream, "stderr");
+    assert_eq!(bytes.as_bytes().to_vec(), vec![b'o', b'h', 0xff]);
+}
+
+#[test]
+fn a_handler_that_raises_does_not_take_the_rest_of_the_frame_with_it() {
+    let (session, sink) = recording_session(vec![
+        window(1, "first", "foot", PixelSize::new(64, 32)),
+        window(2, "second", "foot", PixelSize::new(64, 32)),
+    ]);
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "seen = {}
+         function lovr.lunwindowopened(event)
+             seen[#seen + 1] = event.window.id
+             if event.window.id == 1 then error('a defect in the configuration') end
+         end
+         function lovr.luntitlechanged(event) titled = event.title end",
+    );
+
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(1),
+    });
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(2),
+    });
+    session.push_event(LuaEvent::TitleChanged {
+        window: window_id(2),
+        title: "renamed".to_owned(),
+    });
+    poll(&lua, &sink);
+
+    let (count, first, second, titled): (usize, u64, u64, String) =
+        run(&lua, "return #seen, seen[1], seen[2], titled");
+
+    assert_eq!((count, first, second), (2, 1, 2));
+    assert_eq!(
+        titled, "renamed",
+        "one bad handler must not swallow a frame's worth of events"
+    );
+}
+
+#[test]
+fn an_event_never_dispatched_is_not_delivered_against_a_later_frame() {
+    let (session, sink) =
+        recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "count = 0 function lovr.lunwindowopened() count = count + 1 end",
+    );
+
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(1),
+    });
+    // The frame ends without the poll loop reaching it, as it would if a
+    // handler had called `lovr.event.clear()`.
+    let _discarded = sink.take();
+    session.begin(snapshot(Vec::new(), Vec::new()));
+
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(2),
+    });
+    poll(&lua, &sink);
+
+    assert_eq!(
+        run::<usize>(&lua, "return count"),
+        1,
+        "the discarded event must not be delivered against a snapshot from a later frame"
+    );
+}
+
+#[test]
+fn an_event_with_no_handler_is_dispatched_and_dropped() {
+    let (session, sink) = recording_session(Vec::new());
+    let lua = lua(&session);
+
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(1),
+    });
+    poll(&lua, &sink);
+
+    // A configuration that never defines `lovr.lunwindowopened` is a supported
+    // configuration; `poll` raising would be the failure.
+    assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
+}
+
+#[test]
+fn a_dispatcher_is_installed_for_every_event_the_module_can_push() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    let mut names: Vec<String> = run::<Table>(&lua, "return lovr.handlers")
+        .pairs::<String, Value>()
+        .map(|pair| pair.expect("the handler keys are strings").0)
+        .collect();
+    names.sort();
+
+    assert_eq!(
+        names,
+        vec![
+            "lunmonitoradded".to_owned(),
+            "lunprocessexited".to_owned(),
+            "lunprocessoutput".to_owned(),
+            "luntitlechanged".to_owned(),
+            "lunwindowclosed".to_owned(),
+            "lunwindowopened".to_owned(),
+        ],
+        "a name here is what `docs/lua-api.md` promises a configuration can hook"
+    );
 }
 
 #[test]

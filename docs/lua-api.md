@@ -23,23 +23,29 @@ A config that never mentions `mullion` is a supported configuration.
 
 ## Events
 
-The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. Callbacks are prefixed `lun`:
+The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. Callbacks are prefixed `lun`, and every one of them takes a single table:
 
 ```lua
-function lovr.lunwindowopened(win) end
-function lovr.lunwindowclosed(win) end
-function lovr.luntitlechanged(win, title) end
-function lovr.lunmonitoradded(mon) end
-function lovr.lunprocessexited(proc, code) end
-function lovr.lunprocessoutput(proc, stream, text) end
-function lovr.lunlayergranted(claim, layer) end
-function lovr.lunlayerrevoked(claim) end
-function lovr.lunerror(err, traceback) end
+function lovr.lunwindowopened(event) end   -- window.
+function lovr.lunwindowclosed(event) end   -- window.
+function lovr.luntitlechanged(event) end   -- window, title.
+function lovr.lunmonitoradded(event) end   -- id.
+function lovr.lunprocessexited(event) end  -- process, outcome, and one of code, signal, message.
+function lovr.lunprocessoutput(event) end  -- process, stream, text.
+function lovr.lunlayergranted(event) end   -- claim, layer.
+function lovr.lunlayerrevoked(event) end   -- claim.
+function lovr.lunerror(event) end          -- message, traceback.
 ```
 
 The prefix occupies LÖVR's callback namespace permanently and is chosen to be distinctive: `lovr.lun*` is unlikely to collide with any callback added upstream.
 
-`boot.lua`'s poll loop unpacks four arguments, so richer payloads travel as a table.
+`boot.lua`'s poll loop unpacks four arguments, so a payload of more than four values would not arrive. Every event carries a table instead, including the events with one field, so the shape does not differ between callbacks and a field added later is not a change to a signature.
+
+`event.outcome` on `lunprocessexited` is `'exited'`, `'signalled'`, or `'spawnFailed'`, and says which of `event.code`, `event.signal`, and `event.message` is present. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
+
+An event is delivered against the snapshot of the frame it was drained in. `lovr.lunwindowclosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
+
+An error raised by one of these handlers is reported and does not stop the frame's remaining events from being delivered.
 
 Signals are implemented in Lua. The native layer pushes flat events; `mullion` builds `connect_signal`, `emit_signal`, property-change signals, and per-window signal tables on top of them. awesome's signal system is approximately 100 lines of Lua, an amount of machinery small enough to leave replaceable.
 

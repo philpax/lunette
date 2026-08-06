@@ -275,6 +275,9 @@ fn generate_bindings(
         .allowlist_function("lovrImageCreateRaw")
         .allowlist_function("lovrImageDestroy")
         .allowlist_function("lovrImageGetLayerData")
+        // How a `lun*` event reaches `lovr.handlers`. `CustomEvent`, `Event`,
+        // and `EventType` arrive with it, because they are the signature.
+        .allowlist_function("lovrEventPush")
         // The Vulkan handles LOVR owns, declared in `wrapper.h` because no
         // LOVR header declares them.
         .allowlist_function("gpu_vk_get_.*")

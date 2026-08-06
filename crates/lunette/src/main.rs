@@ -37,7 +37,7 @@ use std::{
     process::ExitCode,
 };
 
-use lunette::lua::Session;
+use lunette::{events::LovrEventSink, lua::Session};
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
@@ -78,7 +78,7 @@ fn main() -> ExitCode {
 
     // Built before the Lua state and outliving it, because a restart throws the
     // state away and the session is what the next one attaches to.
-    let session = Session::new();
+    let session = Session::new(Box::new(LovrEventSink));
     boot::run(config_directory, &session)
 }
 

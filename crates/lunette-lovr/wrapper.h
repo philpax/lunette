@@ -7,9 +7,13 @@
 // import paths are written against: lovrTextureCreate with TextureInfo.foreign,
 // the import barrier wrappers, and lovrImageCreateRaw as the vehicle for a
 // shared-memory upload.
+//
+// event.h brings in lovrEventPush and the CustomEvent the lun* callbacks are
+// delivered through.
 #include "api/api.h"
 #include "core/os.h"
 #include "util.h"
+#include "modules/event/event.h"
 #include "modules/graphics/graphics.h"
 #include "modules/data/image.h"
 

@@ -40,6 +40,26 @@ impl<T> Window<T> {
         }
     }
 
+    /// Builds a handle for a window named by an event rather than found in a
+    /// list.
+    ///
+    /// The window may already be gone: `lunwindowclosed` is dispatched against
+    /// the snapshot that no longer holds it, which is the whole content of the
+    /// event. The cache is seeded from the frame before in that case, so the
+    /// handler is handed a dead handle that still reports the title and size
+    /// the window had.
+    pub(crate) fn for_id(session: Rc<Session<T>>, id: WindowId) -> Self {
+        let known = session
+            .window(id)
+            .as_ref()
+            .map_or_else(Known::default, Known::from);
+        Self {
+            id,
+            session,
+            known: RefCell::new(known),
+        }
+    }
+
     /// Brings the cache up to date, reporting whether the window still exists.
     ///
     /// A window absent from the snapshot has unmapped or its client has
@@ -61,10 +81,15 @@ impl<T> Window<T> {
 }
 
 /// The last thing each field of a window was known to be.
-#[derive(Clone, Debug)]
+///
+/// The surface and the sink are optional for one case: a handle built for a
+/// window that no snapshot in reach describes. Everything else has a natural
+/// empty value; those two are identifiers, and inventing one would name a
+/// surface belonging to somebody else.
+#[derive(Clone, Debug, Default)]
 struct Known {
-    surface: SurfaceId,
-    sink: SinkId,
+    surface: Option<SurfaceId>,
+    sink: Option<SinkId>,
     title: Option<String>,
     app_id: Option<String>,
     size: PixelSize,
@@ -73,8 +98,8 @@ struct Known {
 impl From<&WindowSnapshot> for Known {
     fn from(window: &WindowSnapshot) -> Self {
         Self {
-            surface: window.surface,
-            sink: window.sink,
+            surface: Some(window.surface),
+            sink: Some(window.sink),
             title: window.title.clone(),
             app_id: window.app_id.clone(),
             size: window.size,
@@ -118,12 +143,14 @@ impl<T: LuaTexture> UserData for Window<T> {
         // Where input for this window goes. A fresh handle each read: it holds
         // an identifier and an `Rc`, so there is nothing to gain by caching one
         // and a stale cache to lose.
+        //
+        // Nil only for a handle that has never seen its window in a snapshot,
+        // which a `lunwindowclosed` handler can produce by holding on to the
+        // payload for a frame too long. A dead window still names its sink.
         fields.add_field_method_get("sink", |_, window| {
             window.refresh();
-            Ok(Sink::new(
-                Rc::clone(&window.session),
-                window.known.borrow().sink,
-            ))
+            let sink = window.known.borrow().sink;
+            Ok(sink.map(|sink| Sink::new(Rc::clone(&window.session), sink)))
         });
     }
 
@@ -145,8 +172,12 @@ fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Resu
         return Ok(Value::Boolean(false));
     }
 
+    let Some(surface) = window.known.borrow().surface else {
+        return Ok(Value::Boolean(false));
+    };
+
     let generation = window.session.generation();
-    let reference = TextureRef::new(window.known.borrow().surface, generation);
+    let reference = TextureRef::new(surface, generation);
 
     window.session.with_textures(|textures| {
         match textures.lookup(reference, generation) {

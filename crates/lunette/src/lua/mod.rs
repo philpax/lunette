@@ -52,6 +52,7 @@ mod window;
 use std::{
     cell::RefCell,
     ffi::{OsString, c_void},
+    mem,
     os::unix::ffi::OsStringExt,
     path::PathBuf,
     rc::Rc,
@@ -59,13 +60,16 @@ use std::{
 };
 
 use lunette_compositor::protocol::{
-    Argv, Command, PointerButton, ProcessId, Snapshot, SpawnRequest,
+    Argv, Command, PointerButton, ProcessId, Snapshot, SpawnRequest, WindowId, WindowSnapshot,
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
 use mlua::{Lua, Table, Value};
 
 pub use crate::lua::{process::Process, sink::Sink, window::Window};
-use crate::texture::{FrameGeneration, LovrTexture, TextureLedger};
+use crate::{
+    events::{EventName, EventQueue, EventSink, LuaEvent, install_dispatchers},
+    texture::{FrameGeneration, LovrTexture, TextureLedger},
+};
 
 /// The name `require` resolves through, and the root of the native surface.
 pub const MODULE_NAME: &str = "lunette";
@@ -130,19 +134,29 @@ pub unsafe fn install_on_state<T: LuaTexture>(
 pub struct Session<T> {
     frame: RefCell<Frame>,
     textures: RefCell<TextureLedger<T>>,
+    events: RefCell<EventQueue>,
+    /// Where a pushed event is announced. Boxed rather than a second type
+    /// parameter: it is called a handful of times a frame, and threading
+    /// another generic through every handle would cost more to read than the
+    /// indirection costs to run.
+    sink: Box<dyn EventSink>,
 }
 
 impl<T> Session<T> {
     #[must_use]
-    pub fn new() -> Rc<Self> {
+    pub fn new(sink: Box<dyn EventSink>) -> Rc<Self> {
+        let empty = Arc::new(Snapshot::default());
         Rc::new(Self {
             frame: RefCell::new(Frame {
-                snapshot: Arc::new(Snapshot::default()),
+                snapshot: Arc::clone(&empty),
+                previous: empty,
                 generation: FrameGeneration::INITIAL,
                 commands: Vec::new(),
                 processes: 0,
             }),
             textures: RefCell::new(TextureLedger::new()),
+            events: RefCell::new(EventQueue::default()),
+            sink,
         })
     }
 
@@ -151,10 +165,51 @@ impl<T> Session<T> {
     /// Advancing the generation is what invalidates the previous frame's
     /// texture handles, so this runs once per frame even when the snapshot has
     /// not changed.
+    ///
+    /// The frame's events are drained onto the session after this, never
+    /// before: a handler reads through the snapshot installed here, and an
+    /// event that arrived ahead of it would describe a window the snapshot has
+    /// not heard of.
     pub fn begin(&self, snapshot: Arc<Snapshot>) {
+        self.events.borrow_mut().clear();
+
         let mut frame = self.frame.borrow_mut();
-        frame.snapshot = snapshot;
+        frame.previous = mem::replace(&mut frame.snapshot, snapshot);
         frame.generation = frame.generation.next();
+    }
+
+    /// Queues an event for `boot.lua`'s poll loop to dispatch this frame.
+    ///
+    /// Called once per compositor report, after [`Session::begin`] has
+    /// installed the snapshot the report belongs with.
+    pub fn push_event(&self, event: LuaEvent) {
+        self.sink.push(event.name());
+        self.events.borrow_mut().push(event);
+    }
+
+    /// Takes the event a dispatch is for, if it is still pending.
+    pub(crate) fn take_event(&self, name: EventName) -> Option<LuaEvent> {
+        self.events.borrow_mut().take(name)
+    }
+
+    /// What the snapshot last said about a window, this frame or the one
+    /// before.
+    ///
+    /// The fallback is what makes a `lunwindowclosed` payload useful. The
+    /// window is gone from the frame's own snapshot by the time the handler
+    /// runs — that is what the event reports — so a handle built from it alone
+    /// would know nothing but the identifier.
+    fn window(&self, id: WindowId) -> Option<WindowSnapshot> {
+        let frame = self.frame.borrow();
+        [&frame.snapshot, &frame.previous]
+            .into_iter()
+            .find_map(|snapshot| {
+                snapshot
+                    .windows
+                    .iter()
+                    .find(|window| window.window == id)
+                    .cloned()
+            })
     }
 
     /// Takes the frame's queued mutations, for the caller to send onward.
@@ -165,7 +220,7 @@ impl<T> Session<T> {
     /// Lua callback is not running.
     #[must_use]
     pub fn flush(&self) -> Vec<Command> {
-        std::mem::take(&mut self.frame.borrow_mut().commands)
+        mem::take(&mut self.frame.borrow_mut().commands)
     }
 
     /// The snapshot the frame is answering from.
@@ -211,6 +266,9 @@ impl<T> Session<T> {
 #[derive(Debug)]
 struct Frame {
     snapshot: Arc<Snapshot>,
+    /// The frame before's, kept only so that a handle minted for something that
+    /// has just gone can still say what it was.
+    previous: Arc<Snapshot>,
     generation: FrameGeneration,
     /// The mutations made so far this frame, in the order they were made.
     commands: Vec<Command>,
@@ -271,6 +329,12 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
         "spawn",
         lua.create_function(move |_, options: Table| spawn(&spawn_session, &options))?,
     )?;
+
+    // Here rather than in `install`, because `boot.lua:345` creates
+    // `lovr.handlers` after `package.preload` has been populated and before
+    // `main.lua` runs — so the first `require` is the earliest moment the table
+    // exists, and the only one at which the module is known to be wanted.
+    install_dispatchers(lua, session)?;
 
     Ok(module)
 }
