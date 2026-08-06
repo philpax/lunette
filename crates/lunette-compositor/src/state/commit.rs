@@ -26,7 +26,7 @@ use smithay::{
 use tracing::warn;
 
 use crate::{
-    protocol::{Event, PixelSize, SurfaceId},
+    protocol::{Event, ImportedBuffer, PixelSize, SurfaceId},
     state::compositor::CompositorState,
     surface::{BufferScale, BufferTransform, ShmFormat, ShmLayout, SurfaceContent},
 };
@@ -147,7 +147,10 @@ impl CompositorState {
                 scale,
             },
         );
-        self.report(Event::BufferImported { surface: id, image });
+        self.report(Event::BufferImported {
+            surface: id,
+            buffer: ImportedBuffer::Image(image),
+        });
         self.report(Event::SurfaceDamaged { surface: id });
         true
     }
@@ -215,8 +218,8 @@ impl CompositorState {
             }
         };
 
-        let image = match self.importer.import_shm(&pixels, layout) {
-            Ok(image) => image,
+        let packed = match self.importer.import_shm(&pixels, layout) {
+            Ok(packed) => packed,
             Err(error) => {
                 warn!(%error, "could not import a client's shared-memory buffer");
                 return false;
@@ -231,7 +234,10 @@ impl CompositorState {
                 scale,
             },
         );
-        self.report(Event::BufferImported { surface: id, image });
+        self.report(Event::BufferImported {
+            surface: id,
+            buffer: ImportedBuffer::Pixels(packed),
+        });
         self.report(Event::SurfaceDamaged { surface: id });
         // The copy is taken, so the client may reuse the buffer at once.
         false

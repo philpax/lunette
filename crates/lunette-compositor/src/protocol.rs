@@ -56,6 +56,8 @@ use std::{
 use smallvec::SmallVec;
 use smithay::backend::allocator::{Fourcc, Modifier};
 
+use crate::surface::PixelBuffer;
+
 /// A request from the main thread to the compositor thread.
 ///
 /// Every variant is a request rather than a call. Nothing here reports a
@@ -158,10 +160,10 @@ pub enum Event {
     /// A surface committed new content. Consumers that copy rather than sample
     /// use this to skip unchanged surfaces.
     SurfaceDamaged { surface: SurfaceId },
-    /// A client buffer became available as an image on the graphics device.
+    /// A client buffer became available to the frame thread.
     BufferImported {
         surface: SurfaceId,
-        image: ImportedImage,
+        buffer: ImportedBuffer,
     },
     /// A spawned process ended, or never started.
     ProcessExited {
@@ -417,6 +419,33 @@ impl Pid {
 impl fmt::Display for Pid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+/// How far a client's buffer got before it crossed to the frame thread.
+///
+/// The two client buffer types do not converge, and pretending they did would
+/// mean one of the two paths lying. A dmabuf becomes an image on the compositor
+/// thread, because creating one touches no queue. A shared-memory buffer cannot:
+/// filling a texture is a submission, and only the frame thread submits. So a
+/// dmabuf arrives as a handle and a shared-memory buffer arrives as pixels,
+/// and the frame thread finishes whichever it is given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImportedBuffer {
+    /// An image already on the graphics device.
+    Image(ImportedImage),
+    /// Tightly packed pixels awaiting an upload.
+    Pixels(PixelBuffer),
+}
+
+impl ImportedBuffer {
+    /// The buffer's size in pixels, whichever form it took.
+    #[must_use]
+    pub fn size(&self) -> PixelSize {
+        match self {
+            Self::Image(image) => image.size,
+            Self::Pixels(pixels) => pixels.size(),
+        }
     }
 }
 

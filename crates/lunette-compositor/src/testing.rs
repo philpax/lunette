@@ -47,7 +47,7 @@ use crate::{
         Snapshot, Stream,
     },
     state::{ClientState, CompositorConfig},
-    surface::{BufferImporter, ImportFailed, ShmLayout},
+    surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
     thread::{
         COMMAND_CAPACITY, CommandSender, CompositorLoop, EVENT_CAPACITY, EventReceiver,
         EventSender, Ingredients, LoopData, SnapshotReader, build, snapshot_channel,
@@ -325,7 +325,7 @@ impl BufferImporter for RecordingImporter {
         &mut self,
         pixels: &[u8],
         layout: ShmLayout,
-    ) -> Result<ImportedImage, ImportFailed> {
+    ) -> Result<PixelBuffer, ImportFailed> {
         if let Some(refusal) = self.log.refused() {
             return Err(refusal);
         }
@@ -339,7 +339,18 @@ impl BufferImporter for RecordingImporter {
         if let Ok(mut layouts) = self.log.shm.lock() {
             layouts.push(layout);
         }
-        Ok(Self::fabricate(layout.size, Fourcc::Argb8888))
+
+        // Repacking is the real importer's job and is tested there; the fake
+        // only has to produce a buffer of the right shape, so it produces a
+        // blank one rather than duplicating the arithmetic under test.
+        let blank = vec![
+            0;
+            (layout.size.width as usize)
+                .saturating_mul(layout.size.height as usize)
+                .saturating_mul(ShmFormat::BYTES_PER_PIXEL as usize)
+        ];
+        PixelBuffer::new(layout.size, layout.format, blank)
+            .ok_or_else(|| ImportFailed::new("the fake importer packed a buffer of the wrong size"))
     }
 }
 

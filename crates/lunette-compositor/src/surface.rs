@@ -161,16 +161,70 @@ pub trait BufferImporter: Send {
     /// first.
     fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> Result<ImportedImage, ImportFailed>;
 
-    /// Imports a client's shared-memory buffer.
+    /// Repacks a client's shared-memory buffer.
     ///
     /// `pixels` is a mapping of the client's pool and is valid only for the
-    /// duration of the call. An implementation that defers the upload copies
-    /// first.
-    fn import_shm(
-        &mut self,
-        pixels: &[u8],
-        layout: ShmLayout,
-    ) -> Result<ImportedImage, ImportFailed>;
+    /// duration of the call, so an implementation copies out of it before
+    /// returning.
+    ///
+    /// The return type differs from [`BufferImporter::import_dmabuf`] because
+    /// the two paths reach the device by different routes. A dmabuf becomes an
+    /// image through `vkCreateImage` and `vkAllocateMemory`, neither of which
+    /// touches a queue, so the compositor thread may do it. A shared-memory
+    /// buffer becomes a texture through an upload, and only the thread that
+    /// owns the queue may submit one — so this path stops at plain pixels and
+    /// the frame thread finishes the job.
+    fn import_shm(&mut self, pixels: &[u8], layout: ShmLayout)
+    -> Result<PixelBuffer, ImportFailed>;
+}
+
+/// Tightly packed pixels, on their way to a texture upload.
+///
+/// Tightly packed means what it says: the client's stride padding is gone, and
+/// `pixels` is exactly `width * height * 4` bytes. The invariant is checked at
+/// construction rather than asserted at use, so a consumer computing an offset
+/// into it does not have to re-derive whether it holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PixelBuffer {
+    size: PixelSize,
+    format: ShmFormat,
+    pixels: Vec<u8>,
+}
+
+impl PixelBuffer {
+    /// Wraps pixels that match their own declared dimensions.
+    ///
+    /// Returns nothing when they do not, which is the only failure available: a
+    /// buffer of the wrong length is a defect in whatever packed it, not
+    /// something a caller can correct.
+    #[must_use]
+    pub fn new(size: PixelSize, format: ShmFormat, pixels: Vec<u8>) -> Option<Self> {
+        let expected = usize::try_from(size.width)
+            .ok()?
+            .checked_mul(usize::try_from(size.height).ok()?)?
+            .checked_mul(ShmFormat::BYTES_PER_PIXEL as usize)?;
+
+        (pixels.len() == expected).then_some(Self {
+            size,
+            format,
+            pixels,
+        })
+    }
+
+    #[must_use]
+    pub fn size(&self) -> PixelSize {
+        self.size
+    }
+
+    #[must_use]
+    pub fn format(&self) -> ShmFormat {
+        self.format
+    }
+
+    #[must_use]
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
 }
 
 /// Why a buffer could not be imported.
@@ -525,6 +579,35 @@ mod tests {
             unknown.is_err() || BufferTransform::from_protocol(unknown.expect("checked")).is_none(),
             "an unrecognised transform must not silently become Normal"
         );
+    }
+
+    #[test]
+    fn a_pixel_buffer_accepts_only_its_own_declared_length() {
+        let size = PixelSize::new(3, 2);
+        assert!(PixelBuffer::new(size, ShmFormat::Argb8888, vec![0; 24]).is_some());
+        assert!(PixelBuffer::new(size, ShmFormat::Argb8888, vec![0; 23]).is_none());
+        assert!(PixelBuffer::new(size, ShmFormat::Argb8888, vec![0; 25]).is_none());
+    }
+
+    #[test]
+    fn a_pixel_buffer_of_no_pixels_is_representable_but_only_when_empty() {
+        let size = PixelSize::new(0, 0);
+        assert!(PixelBuffer::new(size, ShmFormat::Argb8888, Vec::new()).is_some());
+        assert!(PixelBuffer::new(size, ShmFormat::Argb8888, vec![0; 4]).is_none());
+    }
+
+    #[test]
+    fn a_pixel_buffer_reports_what_it_was_built_from() {
+        let buffer = PixelBuffer::new(
+            PixelSize::new(1, 1),
+            ShmFormat::Xrgb8888,
+            vec![1, 2, 3, 255],
+        )
+        .expect("one pixel of four bytes");
+
+        assert_eq!(buffer.size(), PixelSize::new(1, 1));
+        assert_eq!(buffer.format(), ShmFormat::Xrgb8888);
+        assert_eq!(buffer.pixels(), &[1, 2, 3, 255]);
     }
 
     #[test]

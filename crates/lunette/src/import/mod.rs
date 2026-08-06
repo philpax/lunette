@@ -10,7 +10,9 @@
 //! Three concerns, one per submodule. [`device`] borrows the device LÖVR
 //! created and verifies it can do what is about to be asked of it. [`formats`]
 //! relates a client's DRM fourcc to a `VkFormat` and a LÖVR `TextureFormat`.
-//! [`dmabuf`] performs the import and owns the images it creates.
+//! [`dmabuf`] performs the import and owns the images it creates; [`shm`] does
+//! the same job for shared memory, which stops at pixels because the upload is
+//! a submission and submissions belong to the frame thread.
 //!
 //! # Threading
 //!
@@ -22,12 +24,13 @@
 pub mod device;
 pub mod dmabuf;
 pub mod formats;
+pub mod shm;
 
 use std::sync::Arc;
 
 use lunette_compositor::{
     protocol::ImportedImage,
-    surface::{BufferImporter, ImportFailed, ShmLayout},
+    surface::{BufferImporter, ImportFailed, PixelBuffer, ShmLayout},
 };
 use smithay::backend::allocator::dmabuf::Dmabuf;
 
@@ -67,18 +70,11 @@ impl BufferImporter for Importer {
             .map_err(|error| ImportFailed::new(error.to_string()))
     }
 
-    /// Refuses, until the shared-memory path lands alongside it.
-    ///
-    /// A refusal rather than a fallback to the dmabuf path: the two have nothing
-    /// in common, and a client that committed shared memory would otherwise be
-    /// told its buffer was imported when nothing was.
     fn import_shm(
         &mut self,
-        _pixels: &[u8],
-        _layout: ShmLayout,
-    ) -> Result<ImportedImage, ImportFailed> {
-        Err(ImportFailed::new(
-            "shared-memory buffers are not imported yet",
-        ))
+        pixels: &[u8],
+        layout: ShmLayout,
+    ) -> Result<PixelBuffer, ImportFailed> {
+        shm::repack(pixels, layout).map_err(|error| ImportFailed::new(error.to_string()))
     }
 }
