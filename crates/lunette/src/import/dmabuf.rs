@@ -597,24 +597,31 @@ mod tests {
 
     use super::*;
 
-    /// Whether a raw descriptor is still open.
+    /// A descriptor to hand around, and the other end of the pipe it came from.
     ///
-    /// `dup` is the cheapest question the kernel answers about one, and it does
-    /// not disturb the descriptor it is asked about: on a closed descriptor it
-    /// reports `EBADF` rather than misbehaving, which is the answer being asked
-    /// for.
-    fn is_open(raw: RawFd) -> bool {
-        // SAFETY: the borrow is used only for the duration of the `dup` below,
-        // which tolerates a descriptor that is no longer open.
-        let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
-        rustix::io::dup(borrowed).is_ok()
+    /// A pipe rather than a file, so no filesystem is touched, and both ends
+    /// rather than one because the write end is what makes the read end's
+    /// closure observable. Asking whether a descriptor *number* is still open
+    /// answers a question about whichever thread claimed it next — the kernel
+    /// hands out the lowest free number and the harness runs tests in parallel
+    /// — so the question has to be about this pipe instead.
+    fn pipe() -> (OwnedFd, OwnedFd) {
+        let (read, write) = std::io::pipe().expect("a pipe can be created");
+        (OwnedFd::from(read), OwnedFd::from(write))
     }
 
-    /// A descriptor to hand around, from a pipe rather than a file so no
-    /// filesystem is touched.
+    /// A descriptor whose pipe nothing else holds.
     fn descriptor() -> OwnedFd {
-        let (read, _write) = std::io::pipe().expect("a pipe can be created");
-        OwnedFd::from(read)
+        pipe().0
+    }
+
+    /// Whether the read end of the pipe `write` belongs to has been closed.
+    ///
+    /// A write into a pipe with no reader fails with `EPIPE`. Rust's runtime
+    /// sets `SIGPIPE` to `SIG_IGN` at startup, so the error arrives rather than
+    /// the signal.
+    fn read_end_is_closed(write: BorrowedFd<'_>) -> bool {
+        matches!(rustix::io::write(write, b"."), Err(rustix::io::Errno::PIPE))
     }
 
     fn identity(device: u64, inode: u64) -> BufferIdentity {
@@ -623,17 +630,17 @@ mod tests {
 
     #[test]
     fn a_donated_descriptor_stays_open_when_the_call_succeeds() {
-        let fd = descriptor();
-        let raw = fd.as_fd().as_raw_fd();
+        let (read, write) = pipe();
+        let raw = read.as_fd().as_raw_fd();
 
-        let outcome: Result<(), ()> = with_donated_fd(fd, |donated| {
+        let outcome: Result<(), ()> = with_donated_fd(read, |donated| {
             assert_eq!(donated, raw);
             Ok(())
         });
 
         assert_eq!(outcome, Ok(()));
         assert!(
-            is_open(raw),
+            !read_end_is_closed(write.as_fd()),
             "the driver owns the descriptor after a successful import, so closing it here would \
              close one it is using"
         );
@@ -644,17 +651,17 @@ mod tests {
 
     #[test]
     fn a_donated_descriptor_is_closed_when_the_call_fails() {
-        let fd = descriptor();
-        let raw = fd.as_fd().as_raw_fd();
+        let (read, write) = pipe();
+        let raw = read.as_fd().as_raw_fd();
 
-        let outcome: Result<(), &str> = with_donated_fd(fd, |donated| {
+        let outcome: Result<(), &str> = with_donated_fd(read, |donated| {
             assert_eq!(donated, raw);
             Err("the allocation failed")
         });
 
         assert_eq!(outcome, Err("the allocation failed"));
         assert!(
-            !is_open(raw),
+            read_end_is_closed(write.as_fd()),
             "ownership did not transfer, so leaving it open would leak a descriptor per rejected \
              buffer"
         );
