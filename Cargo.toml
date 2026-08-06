@@ -25,7 +25,10 @@ mlua-sys = "=0.11.0"
 parking_lot = "=0.12.5"
 pretty_assertions = "=1.4.1"
 smallvec = "=1.15.2"
-smithay = "=0.7.0"
+# `default-features = false` is set here rather than at the member, because the
+# default set drags in libseat, libinput, udev, gbm, winit, and a GL renderer —
+# a whole session backend for a compositor that renders nothing itself.
+smithay = { version = "=0.7.0", default-features = false }
 smol_str = "=0.3.6"
 tempfile = "=3.27.0"
 tracing = "=0.1.44"

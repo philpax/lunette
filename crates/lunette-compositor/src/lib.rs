@@ -11,3 +11,6 @@
 //! built `liblovr.so` to link against. The separation also keeps the graphics
 //! module from becoming a dependency of window management, which is the
 //! direction the coupling would otherwise grow.
+
+pub mod protocol;
+pub mod thread;
