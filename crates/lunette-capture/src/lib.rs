@@ -18,3 +18,5 @@
 //! process, rather than a second queue on the capture thread as WayVR needs,
 //! and it keeps this crate testable without a graphics device — the same
 //! constraint `lunette-compositor` carries, for the same reason.
+
+pub mod monitor;

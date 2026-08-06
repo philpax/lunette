@@ -572,6 +572,8 @@ dependencies = [
 name = "lunette-capture"
 version = "0.1.0"
 dependencies = [
+ "pretty_assertions",
+ "tracing",
  "wlx-capture",
 ]
 
