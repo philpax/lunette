@@ -4,4 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
-[dependencies]
+[build-dependencies]
+# LOVR exports no CMake interface, so the build script drives cmake directly and
+# generates the FFI surface with bindgen rather than consuming a package config.
+bindgen = { workspace = true }
+cmake = { workspace = true }
