@@ -1,0 +1,620 @@
+//! Tests for [`crate::state`].
+
+#![expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
+
+use std::ffi::{OsStr, OsString};
+
+use pretty_assertions::assert_eq;
+
+use crate::{
+    client::XwaylandSatellite,
+    protocol::{
+        Argv, Command, Event, PixelPoint, PixelSize, PointerButton, ProcessId, ProcessOutcome,
+        ProcessSignal, SeatId, SpawnRequest as SpawnCommand, Stream, ToplevelState, ToplevelStates,
+        WindowId, WindowSnapshot,
+    },
+    state::{
+        DEFAULT_OUTPUT, DEFAULT_SEAT,
+        compositor::{CompositorConfig, evdev_button, protocol_state, toplevel_state},
+    },
+    surface::ShmFormat,
+    test_client::TestClient,
+    testing::TestCompositor,
+};
+
+/// Every global lunette advertises, in the order `globals()` sorts them.
+///
+/// `wl_subcompositor` is here because `CompositorState::new` creates it
+/// unconditionally, and `wp_viewporter` because xwayland-satellite refuses
+/// to start without it. Both decoration managers are here so GTK and Qt
+/// clients do not draw their own titlebars inside a panel.
+const EXPECTED_GLOBALS: [&str; 10] = [
+    "org_kde_kwin_server_decoration_manager",
+    "wl_compositor",
+    "wl_output",
+    "wl_seat",
+    "wl_shm",
+    "wl_subcompositor",
+    "wp_viewporter",
+    "xdg_wm_base",
+    "zwp_linux_dmabuf_v1",
+    "zxdg_decoration_manager_v1",
+];
+
+/// A compositor with one mapped window, and the client that owns it.
+fn with_one_window() -> (TestCompositor, TestClient) {
+    let mut compositor = TestCompositor::new();
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+    client.attach_buffer(&mut compositor, 640, 480);
+    (compositor, client)
+}
+
+fn only_window(compositor: &TestCompositor) -> WindowSnapshot {
+    let snapshot = compositor.snapshot();
+    assert_eq!(snapshot.windows.len(), 1, "expected exactly one window");
+    snapshot.windows[0].clone()
+}
+
+#[test]
+fn a_client_sees_every_global_lunette_advertises() {
+    let mut compositor = TestCompositor::new();
+    let client = TestClient::connect(&mut compositor);
+
+    assert_eq!(client.globals(), EXPECTED_GLOBALS);
+}
+
+#[test]
+fn a_toplevel_with_no_buffer_is_not_yet_a_window() {
+    let mut compositor = TestCompositor::new();
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+
+    assert!(
+        compositor.snapshot().windows.is_empty(),
+        "a toplevel that has never committed content has nothing to show"
+    );
+    assert!(
+        !compositor
+            .drain_events()
+            .iter()
+            .any(|event| matches!(event, Event::WindowOpened { .. })),
+        "nothing opened, because nothing was drawn"
+    );
+}
+
+#[test]
+fn a_mapped_toplevel_is_reported_and_appears_in_the_snapshot() {
+    let (compositor, _client) = with_one_window();
+
+    let events = compositor.drain_events();
+    let opened: Vec<WindowId> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::WindowOpened { window } => Some(*window),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(opened.len(), 1, "exactly one window opened: {events:?}");
+
+    let window = only_window(&compositor);
+    assert_eq!(window.window, opened[0]);
+    assert_eq!(window.size, PixelSize::new(640, 480));
+    assert_eq!(window.output, Some(DEFAULT_OUTPUT));
+}
+
+#[test]
+fn a_shm_commit_reaches_the_importer_with_the_layout_the_client_declared() {
+    let (compositor, _client) = with_one_window();
+
+    let layouts = compositor.imports().shm_layouts();
+    assert_eq!(layouts.len(), 1, "one commit, one import");
+    assert_eq!(layouts[0].size, PixelSize::new(640, 480));
+    assert_eq!(layouts[0].stride, 640 * 4);
+    assert_eq!(layouts[0].format, ShmFormat::Argb8888);
+    assert_eq!(
+        compositor.imports().dmabuf_count(),
+        0,
+        "a shared-memory client must not reach the dmabuf path"
+    );
+}
+
+#[test]
+fn a_buffer_the_importer_refuses_leaves_the_window_unmapped() {
+    let mut compositor = TestCompositor::new();
+    compositor.imports().refuse("no graphics device");
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+    client.attach_buffer(&mut compositor, 640, 480);
+
+    assert!(
+        compositor.snapshot().windows.is_empty(),
+        "a window with no importable content is not shown"
+    );
+}
+
+#[test]
+fn a_title_change_is_reported_once_per_change() {
+    let (mut compositor, mut client) = with_one_window();
+    drop(compositor.drain_events());
+
+    client.set_title(&mut compositor, "a terminal");
+    client.set_title(&mut compositor, "a terminal");
+
+    let titles: Vec<String> = compositor
+        .drain_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::TitleChanged { title, .. } => Some(title),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        ["a terminal"],
+        "setting the same title twice is not a change"
+    );
+    assert_eq!(
+        only_window(&compositor).title.as_deref(),
+        Some("a terminal")
+    );
+}
+
+#[test]
+fn destroying_a_toplevel_reports_the_window_closed_and_removes_it() {
+    let (mut compositor, mut client) = with_one_window();
+    let window = only_window(&compositor).window;
+    drop(compositor.drain_events());
+
+    client.close_toplevel(&mut compositor);
+
+    assert!(
+        compositor.drain_events().iter().any(
+            |event| matches!(event, Event::WindowClosed { window: closed } if *closed == window)
+        ),
+        "the window that went away is the one reported"
+    );
+    assert!(compositor.snapshot().windows.is_empty());
+}
+
+#[test]
+fn a_disconnecting_client_takes_its_window_with_it() {
+    let (mut compositor, client) = with_one_window();
+    assert_eq!(compositor.snapshot().windows.len(), 1);
+
+    client.disconnect(&mut compositor);
+
+    assert!(
+        compositor.snapshot().windows.is_empty(),
+        "a client that is gone leaves no windows behind"
+    );
+}
+
+#[test]
+fn closing_a_window_asks_the_client_rather_than_removing_it() {
+    let (mut compositor, mut client) = with_one_window();
+    let window = only_window(&compositor).window;
+
+    compositor.send(Command::CloseWindow { window });
+    client.settle(&mut compositor, |driver| driver.closed);
+
+    assert_eq!(
+        compositor.snapshot().windows.len(),
+        1,
+        "a close is a request; the window stays until the client acts on it"
+    );
+}
+
+#[test]
+fn configuring_a_window_sizes_the_toplevel_without_changing_the_snapshot() {
+    let (mut compositor, mut client) = with_one_window();
+    let window = only_window(&compositor).window;
+
+    compositor.send(Command::ConfigureWindow {
+        window,
+        size: Some(PixelSize::new(800, 600)),
+        states: ToplevelStates::new(),
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.toplevel_size == Some((800, 600))
+    });
+
+    assert_eq!(
+        only_window(&compositor).size,
+        PixelSize::new(640, 480),
+        "the snapshot reports what the client committed, not what it was asked for"
+    );
+}
+
+#[test]
+fn closing_a_window_that_is_already_gone_is_not_an_error() {
+    let (mut compositor, mut client) = with_one_window();
+    let window = only_window(&compositor).window;
+    client.close_toplevel(&mut compositor);
+
+    compositor.send(Command::CloseWindow { window });
+    client.settle_quiet(&mut compositor);
+}
+
+#[test]
+fn input_addressed_to_a_seat_that_does_not_exist_is_refused() {
+    let (mut compositor, mut client) = with_one_window();
+    let sink = only_window(&compositor).sink;
+    let absent = SeatId::new(99).expect("non-zero");
+
+    compositor.send(Command::Pointer {
+        seat: absent,
+        sink,
+        position: PixelPoint::new(1.0, 1.0),
+    });
+    compositor.send(Command::Button {
+        seat: absent,
+        sink,
+        button: PointerButton::Left,
+        pressed: true,
+    });
+    client.settle_quiet(&mut compositor);
+}
+
+#[test]
+fn a_pointer_over_a_window_is_delivered_to_its_surface() {
+    let (mut compositor, mut client) = with_one_window();
+    let sink = only_window(&compositor).sink;
+
+    compositor.send(Command::Pointer {
+        seat: DEFAULT_SEAT,
+        sink,
+        position: PixelPoint::new(12.0, 34.0),
+    });
+    compositor.send(Command::Button {
+        seat: DEFAULT_SEAT,
+        sink,
+        button: PointerButton::Left,
+        pressed: true,
+    });
+    compositor.send(Command::Button {
+        seat: DEFAULT_SEAT,
+        sink,
+        button: PointerButton::Left,
+        pressed: false,
+    });
+    compositor.send(Command::PointerLeave { seat: DEFAULT_SEAT });
+    client.settle_quiet(&mut compositor);
+}
+
+#[test]
+fn the_default_output_is_reported_with_the_configured_mode() {
+    let compositor = TestCompositor::new();
+    let snapshot = compositor.snapshot();
+
+    assert_eq!(snapshot.outputs.len(), 1);
+    assert_eq!(snapshot.outputs[0].output, DEFAULT_OUTPUT);
+    assert_eq!(
+        snapshot.outputs[0].mode.size,
+        CompositorConfig::default().output.size
+    );
+}
+
+#[test]
+fn spawning_a_program_that_does_not_exist_reports_a_failure_and_creates_no_window() {
+    let mut compositor = TestCompositor::new();
+    compositor.spawns().refuse("no such file or directory");
+    let process = ProcessId::new(1).expect("non-zero");
+
+    compositor.send(Command::Spawn(SpawnCommand {
+        process,
+        argv: Argv::from_list(vec![OsString::from("not-a-program")]).expect("non-empty"),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+
+    let events = compositor.collect_events(|events| !events.is_empty());
+    let reported = events
+        .iter()
+        .find_map(|event| match event {
+            Event::ProcessExited {
+                process: reported,
+                outcome,
+            } if *reported == process => Some(outcome.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("the failure was not reported: {events:?}"));
+
+    assert!(
+        matches!(reported, ProcessOutcome::SpawnFailed { message } if message.contains("not-a-program")),
+        "the report names the program that could not be started"
+    );
+    assert!(compositor.snapshot().windows.is_empty());
+    assert!(
+        compositor.snapshot().processes.is_empty(),
+        "a process that never ran is not tracked"
+    );
+}
+
+#[test]
+fn a_spawned_process_is_reported_until_it_exits() {
+    let mut compositor = TestCompositor::new();
+    let process = ProcessId::new(1).expect("non-zero");
+    compositor.send(Command::Spawn(SpawnCommand {
+        process,
+        argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+    compositor.step();
+    compositor.step();
+
+    let snapshot = compositor.snapshot();
+    assert_eq!(snapshot.processes.len(), 1);
+    assert_eq!(snapshot.processes[0].process, process);
+    assert!(!snapshot.processes[0].external);
+    assert!(snapshot.processes[0].alive);
+
+    compositor
+        .spawns()
+        .finish(0, ProcessOutcome::Exited { code: 3 });
+
+    let events = compositor.collect_events(|events| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::ProcessExited { .. }))
+    });
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::ProcessExited { process: reported, outcome: ProcessOutcome::Exited { code: 3 } }
+            if *reported == process
+    )));
+    assert!(compositor.snapshot().processes.is_empty());
+}
+
+#[test]
+fn a_spawned_process_output_is_reported_as_bytes() {
+    let mut compositor = TestCompositor::new();
+    let process = ProcessId::new(1).expect("non-zero");
+    compositor.send(Command::Spawn(SpawnCommand {
+        process,
+        argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+    compositor.step();
+
+    // Not UTF-8, which a child's output is under no obligation to be.
+    compositor.spawns().write(0, Stream::Stderr, &[0xFF, b'!']);
+
+    let events = compositor.collect_events(|events| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::ProcessOutput { .. }))
+    });
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::ProcessOutput { stream: Stream::Stderr, bytes, .. } if bytes == &[0xFF, b'!']
+    )));
+}
+
+#[test]
+fn signalling_a_process_reaches_its_group() {
+    let mut compositor = TestCompositor::new();
+    let process = ProcessId::new(1).expect("non-zero");
+    compositor.send(Command::Spawn(SpawnCommand {
+        process,
+        argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+    compositor.step();
+
+    compositor.send(Command::SignalProcess {
+        process,
+        signal: ProcessSignal::Terminate,
+    });
+    compositor.step();
+
+    assert_eq!(compositor.spawns().signals(0), [ProcessSignal::Terminate]);
+}
+
+#[test]
+fn a_client_that_matches_no_process_is_adopted_as_external() {
+    let mut compositor = TestCompositor::new();
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+    client.attach_buffer(&mut compositor, 320, 240);
+
+    let snapshot = compositor.snapshot();
+    assert_eq!(snapshot.processes.len(), 1);
+    assert!(
+        snapshot.processes[0].external,
+        "a client lunette did not start is external"
+    );
+    assert_eq!(
+        only_window(&compositor).process,
+        Some(snapshot.processes[0].process),
+        "an adopted process still owns the windows of the client it came with"
+    );
+}
+
+#[test]
+fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
+    let mut compositor = TestCompositor::new();
+    let process = ProcessId::new(1).expect("non-zero");
+    compositor.send(Command::Spawn(SpawnCommand {
+        process,
+        argv: Argv::from_list(vec![OsString::from("sh")]).expect("non-empty"),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+    compositor.step();
+
+    // The connecting pid over a socket pair is the test's own, which is not
+    // the pid the spawner reported — exactly the shape a shell wrapper or a
+    // flatpak sandbox produces, and the reason the token exists.
+    let plan = compositor.spawns().requested();
+    let token = plan[0]
+        .env
+        .iter()
+        .find(|(key, _)| key == OsStr::new("LUNETTE_DISPLAY_AUTH"))
+        .map(|(_, value)| value.clone())
+        .expect("a spawn carries a token");
+    let connecting = i32::try_from(std::process::id()).expect("a plausible pid");
+    compositor
+        .proc()
+        .set_variable(connecting, "LUNETTE_DISPLAY_AUTH", token.as_encoded_bytes());
+
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+    client.attach_buffer(&mut compositor, 320, 240);
+
+    assert_eq!(only_window(&compositor).process, Some(process));
+    assert!(
+        !compositor
+            .snapshot()
+            .processes
+            .iter()
+            .any(|reported| reported.external),
+        "a client that presented a valid token is not external"
+    );
+}
+
+/// A configuration with a bound display and an x11 bridge, as the entry
+/// point would build it.
+fn with_display() -> CompositorConfig {
+    CompositorConfig {
+        display: Some(crate::client::DisplayName::for_test(20)),
+        satellite: Some(XwaylandSatellite {
+            executable: std::path::PathBuf::from("xwayland-satellite"),
+        }),
+        ..CompositorConfig::default()
+    }
+}
+
+#[test]
+fn the_x11_bridge_is_started_once_when_the_display_is_bound() {
+    let compositor = TestCompositor::with_config(with_display());
+
+    let requested = compositor.spawns().requested();
+    assert_eq!(requested.len(), 1);
+    assert_eq!(
+        requested[0].argv.program(),
+        OsStr::new("xwayland-satellite")
+    );
+    assert!(
+        !compositor
+            .snapshot()
+            .processes
+            .iter()
+            .any(|process| process.external),
+        "the bridge is lunette's own plumbing, not a user process"
+    );
+}
+
+#[test]
+fn nothing_is_bridged_when_no_display_was_bound() {
+    let compositor = TestCompositor::new();
+    assert!(
+        compositor.spawns().requested().is_empty(),
+        "there is nowhere for an x11 bridge to connect to"
+    );
+}
+
+#[test]
+fn a_spawned_client_is_told_the_display_that_was_bound() {
+    let mut compositor = TestCompositor::with_config(with_display());
+    compositor.send(Command::Spawn(SpawnCommand {
+        process: ProcessId::new(1).expect("non-zero"),
+        argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+    compositor.step();
+
+    let requested = compositor.spawns().requested();
+    let plan = requested.last().expect("the spawn was requested");
+    let value = |key: &str| {
+        plan.env
+            .iter()
+            .rev()
+            .find(|(name, _)| name == OsStr::new(key))
+            .map(|(_, value)| value.clone())
+    };
+
+    assert_eq!(value("WAYLAND_DISPLAY"), Some(OsString::from("wayland-20")));
+    assert_eq!(value("DISPLAY"), Some(OsString::from(":20")));
+}
+
+#[test]
+fn a_spawned_client_is_told_nothing_when_no_display_was_bound() {
+    let mut compositor = TestCompositor::new();
+    compositor.send(Command::Spawn(SpawnCommand {
+        process: ProcessId::new(1).expect("non-zero"),
+        argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+    compositor.step();
+
+    let requested = compositor.spawns().requested();
+    assert!(
+        !requested[0]
+            .env
+            .iter()
+            .any(|(key, _)| key == OsStr::new("WAYLAND_DISPLAY")),
+        "an empty display name would make a client connect to a socket called nothing, \
+         rather than fall back to the session's own"
+    );
+}
+
+#[test]
+fn every_pointer_button_maps_to_a_distinct_evdev_code() {
+    let buttons = [
+        PointerButton::Left,
+        PointerButton::Right,
+        PointerButton::Middle,
+        PointerButton::Back,
+        PointerButton::Forward,
+    ];
+    let mut codes: Vec<u32> = buttons.into_iter().map(evdev_button).collect();
+    codes.sort_unstable();
+    codes.dedup();
+
+    assert_eq!(codes.len(), buttons.len(), "two buttons share a code");
+    assert_eq!(evdev_button(PointerButton::Left), 0x110, "BTN_LEFT");
+}
+
+#[test]
+fn every_reported_toplevel_state_round_trips_through_the_protocol() {
+    for state in [
+        ToplevelState::Maximized,
+        ToplevelState::Fullscreen,
+        ToplevelState::Resizing,
+        ToplevelState::Activated,
+        ToplevelState::TiledLeft,
+        ToplevelState::TiledRight,
+        ToplevelState::TiledTop,
+        ToplevelState::TiledBottom,
+        ToplevelState::Suspended,
+    ] {
+        assert_eq!(
+            toplevel_state(protocol_state(state)),
+            Some(state),
+            "{state:?} did not survive the round trip"
+        );
+    }
+}

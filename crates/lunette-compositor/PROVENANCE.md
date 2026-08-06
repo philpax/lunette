@@ -34,14 +34,23 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 
 | Upstream | lunette |
 |---|---|
-| `backend/wayvr/comp.rs`, `backend/wayvr/mod.rs` (the globals and output fragments) | `src/state.rs` |
+| `backend/wayvr/comp.rs` (the state and globals), `backend/wayvr/mod.rs` (the globals and output fragments) | `src/state/compositor.rs` |
+| `backend/wayvr/comp.rs` (the handler impls and `delegate_*!`) | `src/state/handlers.rs` |
+| `backend/wayvr/comp.rs` (`CompositorHandler::commit`) | `src/state/commit.rs` |
 | `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
 | `backend/wayvr/window.rs`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/window.rs` |
-| `backend/wayvr/time.rs` | folded into `src/state.rs` as `CompositorState::millis` |
-| `backend/wayvr/process.rs`, `backend/wayvr/mod.rs` (the spawn and attribution fragments) | `src/process.rs` |
+| `backend/wayvr/time.rs` | folded into `src/state/compositor.rs` as `CompositorState::millis` |
+| `backend/wayvr/process.rs` (the registry and attribution), `backend/wayvr/mod.rs` (the spawn fragments) | `src/process/registry.rs` |
+| `backend/wayvr/process.rs` (spawning and signalling) | `src/process/spawn.rs` |
+| `backend/wayvr/process.rs` (`get_process_env_value`) | `src/process/attribution.rs` |
 | `backend/wayvr/client.rs`, `backend/wayvr/mod.rs` (`WaylandEnv`, `ExternalProcessRequest`) | `src/client.rs` |
 | `backend/wayvr/hit_test.rs` | `src/hit_test.rs` |
 | `backend/wayvr/image_importer.rs` | `crates/lunette/src/import/shm.rs` |
+
+`comp.rs` and `process.rs` each land in more than one file because a single one
+would be past the size threshold in [CONTRIBUTING.md](../../CONTRIBUTING.md).
+The split is along a seam, not at the line limit: the state, the handlers hung
+off it, and the commit path answer different questions.
 
 `mod.rs` is 1391 lines of which only fragments are wanted, so it lands in several files rather than one. Each names the fragments it took.
 

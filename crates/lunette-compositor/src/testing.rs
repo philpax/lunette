@@ -38,7 +38,10 @@ use smithay::{
 };
 
 use crate::{
-    process::{ChildProcess, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan},
+    process::{
+        ChildProcess, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,
+        find_environment_value,
+    },
     protocol::{
         Command, Event, ImageHandle, ImportedImage, Pid, PixelSize, ProcessOutcome, ProcessSignal,
         Snapshot, Stream,
@@ -536,10 +539,7 @@ impl ProcessInspector for FakeInspector {
             .get(&pid.get())
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
 
-        Ok(crate::process::find_environment_value(
-            block,
-            key.as_bytes(),
-        ))
+        Ok(find_environment_value(block, key.as_bytes()))
     }
 
     fn is_running(&self, pid: Pid) -> bool {
