@@ -15,12 +15,14 @@
 //! panels are promoted onto OpenXR composition layers, over the ladder of
 //! discrete steps [`scale`] defines. [`mirrors`] is the other half of what Lua
 //! can point at: the user's own screens, mirrored through the screencast portal
-//! rather than hosted by the compositor. [`frame`] is what runs the rest in the
+//! rather than hosted by the compositor, and [`host`] is where a sink pointed at
+//! one of them delivers. [`frame`] is what runs the rest in the
 //! order they require, once per frame, and is the only thing that starts the
 //! compositor thread.
 
 pub mod events;
 pub mod frame;
+pub mod host;
 pub mod import;
 pub mod layers;
 pub mod lua;

@@ -218,6 +218,11 @@ impl FrameDriver {
             }
         });
 
+        // Once, at frame end, alongside the compositor's commands: a host sink's
+        // pointer and button calls only accumulate, so a frame that moved the
+        // cursor five times sends one motion.
+        self.session.host().commit();
+
         let commands = self.session.flush();
         let Some(compositor) = &self.compositor else {
             if !commands.is_empty() {

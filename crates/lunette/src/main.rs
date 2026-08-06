@@ -63,6 +63,7 @@ use std::{
 use lunette::{
     events::LovrEventSink,
     frame::Startup,
+    host::NoHostSinks,
     layers::{LayerPool, LovrLayers},
     lua::{PoolRegistry, Session},
     mirrors::NoMonitors,
@@ -173,11 +174,16 @@ fn main() -> ExitCode {
     // answer for a lunette that cannot see the host's screens. Swapping this for
     // `HostMirrors::new(MirrorSet::new(WlxPortal::connect()?, …))` is what makes
     // it live, and needs no change above this line.
+    //
+    // `NoHostSinks` follows from the same gap. A host sink maps a hit through
+    // its monitor's logical geometry, so a provider opened against a layout with
+    // no monitors in it would have nothing to place a cursor on.
     let mirrors = Rc::new(NoMonitors);
     let session = Session::new(
         Box::new(LovrEventSink),
         Rc::clone(&layers) as _,
         mirrors as _,
+        Rc::new(NoHostSinks) as _,
     );
     boot::run(config_directory, &session, &layers, startup)
 }

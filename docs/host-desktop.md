@@ -74,6 +74,12 @@ Compositor windows have independent focus and pointer state. Each window can be 
 
 Every sink carries an input domain. Sinks in the same domain share cursor position and keyboard focus. All mirrored monitors belong to the `host` domain; each compositor window is independently addressable. Lua can query the input domain, so a panel library can report which target the host desktop currently has focused, rather than presenting inaccurate state.
 
+The domain is a type rather than a flag, so routing is an exhaustive match: a domain added later cannot be silently unhandled. It is also per sink rather than global, which is what makes two hands pointing at two kinds of surface expressible. WayVR has one global `InputFocus { PhysicalScreen, WayVR }` (`subsystem/input.rs:10`), toggled for the whole session, and cannot express it.
+
+The two domains route down different pipelines. A window sink's pointer and button events queue as compositor commands and are flushed at frame end, reaching the client through its seat. A host sink's are normalised over the monitor's own resolution, mapped through that monitor's logical rectangle, and handed to the `HidProvider`, which accumulates them and sends once per frame. Neither reaches the other's pipeline, in the same frame or any other.
+
+`sink.domain` reads `'window'` or `'host'`. `sink.window` names the window a window sink reaches and `sink.monitor` names the monitor a host sink reaches; each is nil in the other domain, so a caller that has to know which it is holding is never left guessing from a number.
+
 ## Clipboard
 
 Copying in an application on the host desktop and pasting into a terminal running inside lunette involves two compositors with two clipboards. Nothing bridges them unless lunette does.

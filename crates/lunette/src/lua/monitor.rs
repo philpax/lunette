@@ -25,7 +25,7 @@ use mlua::{Table, UserData, UserDataFields, UserDataMethods};
 use tracing::warn;
 
 use crate::{
-    lua::{LuaTexture, Session},
+    lua::{LuaTexture, Session, Sink},
     mirrors::MonitorState,
 };
 
@@ -124,6 +124,19 @@ impl<T: LuaTexture> UserData for Monitor<T> {
         fields.add_field_method_get("logicalHeight", |_, monitor| {
             monitor.refresh();
             Ok(monitor.known.borrow().geometry.size.height)
+        });
+
+        // Where input for this monitor goes: a sink in the host domain, whose
+        // events reach the user's own desktop rather than a client lunette
+        // hosts. A fresh handle each read, for the reason `window.sink` is.
+        //
+        // Present whether or not the monitor is mirrored. Pointing at the host
+        // desktop does not require lunette to be showing it, and a sink that
+        // appeared and disappeared with the mirror would be a handle a
+        // configuration had to re-fetch on every grant.
+        fields.add_field_method_get("sink", |_, monitor| {
+            monitor.refresh();
+            Ok(Sink::host(Rc::clone(&monitor.session), monitor.key.clone()))
         });
     }
 

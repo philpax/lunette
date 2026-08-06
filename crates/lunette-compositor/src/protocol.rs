@@ -623,6 +623,54 @@ pub enum PointerButton {
     Forward,
 }
 
+/// Which pipeline a sink's input travels down.
+///
+/// A sink is somewhere pixel-space input can be delivered, and there are two
+/// kinds of somewhere. A window sink reaches a client this compositor hosts,
+/// through its seat. A host sink reaches the user's own desktop, through the
+/// `HidProvider` in `lunette-capture`, and nothing in this crate ever sees one:
+/// the domain is defined here because it is the closed set both halves name, and
+/// because a caller routing input has to be able to ask which it is holding.
+///
+/// A type rather than a flag, so routing is an exhaustive match and a domain
+/// added later cannot be silently unhandled.
+///
+/// This is new work. WayVR has one global binary `InputFocus { PhysicalScreen,
+/// WayVR }` (`subsystem/input.rs:10`), toggled for the whole session, which
+/// cannot express two hands pointing at two kinds of surface at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InputDomain {
+    /// A surface this compositor hosts.
+    ///
+    /// Each window is independently addressable: two seats pointing at two
+    /// windows produce two cursors and two focuses.
+    Window,
+    /// The host desktop, behind a mirrored monitor.
+    ///
+    /// Every host sink shares one cursor and one keyboard focus, because the
+    /// host has one of each. Two seats pointing at two mirrored monitors cannot
+    /// produce two cursors, and `docs/host-desktop.md` records why that
+    /// difference is exposed rather than hidden.
+    Host,
+}
+
+impl InputDomain {
+    /// The name Lua reads on `sink.domain`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Window => "window",
+            Self::Host => "host",
+        }
+    }
+}
+
+impl fmt::Display for InputDomain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScrollAxis {
     Vertical,

@@ -113,6 +113,25 @@ Capture starts lazily. Nothing is requested of the portal until the first `monit
 
 `lovr.lunmonitoradded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
 
+## Sinks and input domains
+
+A sink is somewhere pixel-space input can be delivered. `window.sink` names one for a window lunette hosts, and `monitor.sink` names one for a mirrored screen, and the two behave differently in a way that is exposed rather than hidden:
+
+```lua
+print(sink.domain)         -- 'window' or 'host'.
+print(sink.window)         -- the window a window sink reaches, or nil.
+print(sink.monitor)        -- the monitor a host sink reaches, or nil.
+print(sink.id)             -- the compositor's identifier, or nil for a host sink.
+sink:pointer(x, y)         -- pixel coordinates on the target.
+sink:button('left', true)  -- press; false releases.
+```
+
+A window sink's events go to that client through its seat, so each window has independent focus and its own cursor. A host sink's go to the user's desktop through lunette's input provider, and every host sink shares one cursor and one keyboard focus, because the host has one of each. Two hands pointing at two mirrored monitors cannot produce two cursors. [Host desktop](host-desktop.md#the-input-domain-leak) states why that is surfaced rather than papered over.
+
+Both take pixel coordinates on their target — the window's committed size, or the monitor's resolution. A coordinate that is not finite raises, because it is a defect in the caller's maths rather than a race. Both return `false` on a dead handle without raising: a client can exit, and a monitor can be unplugged, between the raycast and the click.
+
+`monitor.sink` exists whether or not the monitor is mirrored. Pointing at the host desktop does not require lunette to be showing it.
+
 ## Layer claims
 
 A panel renders either as an in-scene quad or on an OpenXR composition layer. The second is sharper, because the runtime composites the source at its native resolution instead of resampling lunette's own resampling of it. Layers are scarce, so a panel asks for one:

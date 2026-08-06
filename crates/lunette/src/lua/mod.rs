@@ -77,6 +77,7 @@ pub use crate::lua::{
 };
 use crate::{
     events::{EventName, EventQueue, EventSink, LuaEvent, install_dispatchers},
+    host::HostSinks,
     lua::{claim::claim_layer, monitor::monitors},
     mirrors::MirrorRegistry,
     texture::{CopyableTexture, FrameGeneration, LovrTexture, TextureLedger},
@@ -159,6 +160,11 @@ pub struct Session<T> {
     /// the same reasons the pool is: the frame loop advances the portal exchange
     /// through the same lifecycle Lua mirrors and dismisses through.
     mirrors: Rc<dyn MirrorRegistry>,
+    /// Where a host sink's input goes. Behind a trait for the same reason: the
+    /// provider chain belongs to `lunette-capture`, and threading it through
+    /// every handle as a type parameter would cost more to read than the
+    /// indirection costs to run.
+    host: Rc<dyn HostSinks>,
 }
 
 impl<T> Session<T> {
@@ -167,6 +173,7 @@ impl<T> Session<T> {
         sink: Box<dyn EventSink>,
         claims: Rc<dyn ClaimRegistry>,
         mirrors: Rc<dyn MirrorRegistry>,
+        host: Rc<dyn HostSinks>,
     ) -> Rc<Self> {
         let empty = Arc::new(Snapshot::default());
         Rc::new(Self {
@@ -182,6 +189,7 @@ impl<T> Session<T> {
             sink,
             claims,
             mirrors,
+            host,
         })
     }
 
@@ -195,6 +203,12 @@ impl<T> Session<T> {
     #[must_use]
     pub fn mirrors(&self) -> &dyn MirrorRegistry {
         self.mirrors.as_ref()
+    }
+
+    /// The host desktop, for the sinks that deliver to it.
+    #[must_use]
+    pub fn host(&self) -> &dyn HostSinks {
+        self.host.as_ref()
     }
 
     /// Assigns the pool's layers for this frame, announcing what changed.
@@ -308,7 +322,7 @@ impl<T> Session<T> {
     }
 
     /// Queues a mutation for the frame's flush.
-    fn queue(&self, command: Command) {
+    pub(crate) fn queue(&self, command: Command) {
         self.frame.borrow_mut().commands.push(command);
     }
 

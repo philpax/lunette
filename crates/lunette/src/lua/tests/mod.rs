@@ -32,11 +32,15 @@ use pretty_assertions::assert_eq;
 
 use crate::{
     events::RecordingEventSink,
+    host::NoHostSinks,
     import::formats::Alpha,
     layers::LayerPool,
     lua::{
         LuaTexture, PoolRegistry, Session, install,
-        tests::{layers::FakeLayers, monitors::FakeMirrors},
+        tests::{
+            layers::FakeLayers,
+            monitors::{FakeMirrors, RecordingHost},
+        },
     },
     mirrors::NoMonitors,
     texture::{CopyableTexture, TextureDescription, TextureRef},
@@ -139,6 +143,7 @@ fn layered_session(
         Box::new(sink.clone()),
         Rc::clone(&registry) as Rc<_>,
         Rc::new(NoMonitors) as Rc<_>,
+        Rc::new(NoHostSinks) as Rc<_>,
     );
     session.begin(snapshot(windows, Vec::new()));
     (session, sink, registry)
@@ -146,19 +151,22 @@ fn layered_session(
 
 /// A session whose monitors are reachable, for the tests about them.
 fn mirrored_session(
+    windows: Vec<WindowSnapshot>,
     monitors: Rc<FakeMirrors>,
-) -> (TestSession, RecordingEventSink, Rc<FakeMirrors>) {
+) -> (TestSession, Rc<FakeMirrors>, Rc<RecordingHost>) {
     let sink = RecordingEventSink::default();
     let registry = Rc::new(PoolRegistry::new(LayerPool::new(FakeLayers::new(
         GENEROUS_LAYER_LIMIT,
     ))));
+    let host = Rc::new(RecordingHost::default());
     let session = Session::new(
-        Box::new(sink.clone()),
+        Box::new(sink),
         registry as Rc<_>,
         Rc::clone(&monitors) as Rc<_>,
+        Rc::clone(&host) as Rc<_>,
     );
-    session.begin(snapshot(Vec::new(), Vec::new()));
-    (session, sink, monitors)
+    session.begin(snapshot(windows, Vec::new()));
+    (session, monitors, host)
 }
 
 /// A runtime limit generous enough that the pool is never the reason a test

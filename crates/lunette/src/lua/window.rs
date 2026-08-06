@@ -175,7 +175,7 @@ impl<T: LuaTexture> UserData for Window<T> {
         fields.add_field_method_get("sink", |_, window| {
             window.refresh();
             let sink = window.known.borrow().sink;
-            Ok(sink.map(|sink| Sink::new(Rc::clone(&window.session), sink)))
+            Ok(sink.map(|sink| Sink::window(Rc::clone(&window.session), sink)))
         });
     }
 
