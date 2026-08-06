@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn a_window_no_snapshot_in_reach_describes_changes_nothing() {
+    fn a_window_the_snapshot_does_not_describe_changes_nothing() {
         assert_eq!(
             ledger_change(
                 &Event::WindowClosed {
