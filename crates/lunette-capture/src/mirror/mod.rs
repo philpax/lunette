@@ -30,12 +30,23 @@
 //!
 //! # The roster arrives from outside
 //!
-//! [`MirrorSet`] does not enumerate the host's monitors. Nothing in this crate
-//! does yet: `wl_output` enumeration against the host compositor is not built,
-//! so [`MirrorSet::attach`] is how the caller supplies what it knows. Until
-//! something supplies a roster, `lunette.monitors()` is empty and no session is
-//! ever requested, which is the honest behaviour for a lunette that cannot see
-//! the host's screens.
+//! [`MirrorSet`] does not enumerate the host's monitors;
+//! [`crate::monitor::outputs`] does, against the host compositor's Wayland
+//! socket, and [`MirrorSet::attach`] is how the result reaches the lifecycle.
+//! The separation is what lets every transition below be tested with a roster
+//! built by hand.
+//!
+//! # The stream source arrives later still
+//!
+//! A PipeWire stream negotiates against the DRM formats the importer accepts,
+//! and those are not known until LOVR has created a graphics device — several
+//! steps into the boot sequence, and long after this type exists. So a
+//! [`MirrorSet`] starts with [`NoStreams`] and the entry point installs the real
+//! source through [`MirrorSet::set_streams`] once the device exists. This is the
+//! same deferral the compositor thread uses, for the same reason.
+//!
+//! A monitor mirrored before then stays wanted, and [`MirrorSet::poll`] opens it
+//! on the first frame after the source arrives.
 
 pub mod source;
 
@@ -48,7 +59,7 @@ use std::mem;
 
 use tracing::{debug, info, warn};
 
-pub use crate::mirror::source::{MonitorStream, MonitorStreams, PipewireStreams};
+pub use crate::mirror::source::{MonitorStream, MonitorStreams, NoStreams, PipewireStreams};
 use crate::{
     monitor::{name::MonitorKey, roster::Roster},
     portal::{
@@ -83,21 +94,20 @@ pub struct MirrorSet<P> {
 }
 
 impl<P: ScreenCastPortal> MirrorSet<P> {
-    /// Builds a set that knows no monitors and holds no session.
+    /// Builds a set that knows no monitors, holds no session, and cannot open a
+    /// stream yet.
     ///
     /// `tokens` is what a previous run stored, so that the first request can
     /// offer one and skip the dialog. An empty store is the ordinary first-run
     /// case rather than an error.
+    ///
+    /// [`Self::set_streams`] is what makes the set able to capture. Until then
+    /// every mirror is remembered and none is running; see the module note.
     #[must_use]
-    pub fn new(
-        portal: P,
-        streams: Box<dyn MonitorStreams>,
-        cursor: CursorPolicy,
-        tokens: TokenStore,
-    ) -> Self {
+    pub fn new(portal: P, cursor: CursorPolicy, tokens: TokenStore) -> Self {
         Self {
             portal,
-            streams,
+            streams: Box::new(NoStreams),
             cursor,
             roster: Roster::new(),
             session: SessionState::Idle,
@@ -106,6 +116,21 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
             tokens,
             tokens_changed: false,
         }
+    }
+
+    /// Installs the source that opens capture streams.
+    ///
+    /// Called once, by the entry point, on the first frame at which the graphics
+    /// device exists and the DRM formats the importer accepts are therefore
+    /// known. Replacing the source does not disturb the streams already open:
+    /// there are none, because a source that could open one is exactly what was
+    /// missing.
+    pub fn set_streams(&mut self, streams: Box<dyn MonitorStreams>) {
+        debug!(
+            wanted = self.wanted.len(),
+            "capture streams can now be opened"
+        );
+        self.streams = streams;
     }
 
     /// Replaces what lunette believes is attached, and says what changed.
@@ -180,10 +205,13 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
         match &self.session {
             SessionState::Held(held) => match held.node_for(key) {
-                Some(node) => {
-                    self.open(key.clone(), node);
-                    MirrorOutcome::Mirroring
-                }
+                // A source that cannot open one yet leaves the monitor wanted
+                // and reports the same thing a pending dialog does: the request
+                // was made, and it has not landed.
+                Some(node) => match self.open(key.clone(), node) {
+                    true => MirrorOutcome::Mirroring,
+                    false => MirrorOutcome::Requested,
+                },
                 // The session was granted without this screen in it, so the only
                 // way to reach it is another dialog.
                 None => self.request(),
@@ -242,7 +270,17 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     /// nothing for a caller to do about any of them.
     pub fn poll(&mut self) -> Progress {
         let SessionState::Requested(request) = self.session else {
-            return Progress::Idle;
+            // A held session still has work on most frames only in one case:
+            // a wanted monitor whose stream could not be opened when the grant
+            // arrived, because the source was not ready. Retried here rather
+            // than at the moment the source is installed, so there is one place
+            // that opens streams.
+            let started = self.open_wanted();
+            return if started.is_empty() {
+                Progress::Idle
+            } else {
+                Progress::Started(started)
+            };
         };
 
         match self.portal.poll(request) {
@@ -382,20 +420,26 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
         let mut started = Vec::with_capacity(pending.len());
         for (key, node) in pending {
-            self.open(key.clone(), node);
-            started.push(key);
+            if self.open(key.clone(), node) {
+                started.push(key);
+            }
         }
         started
     }
 
-    fn open(&mut self, key: MonitorKey, node: NodeId) {
-        let stream = self.streams.open(&key.to_string(), node);
+    /// Opens a stream for one monitor. Reports whether the source could.
+    fn open(&mut self, key: MonitorKey, node: NodeId) -> bool {
+        let Some(stream) = self.streams.open(&key.to_string(), node) else {
+            return false;
+        };
+
         self.active.push(Mirror {
             key,
             node,
             stream,
             paused: false,
         });
+        true
     }
 
     /// Drops a monitor's stream. Reports whether one was running.

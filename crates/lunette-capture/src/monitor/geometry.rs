@@ -1,4 +1,9 @@
-//! Where a monitor sits on the host desktop, and how large it is there.
+//! Where a monitor sits on the host desktop, how large it is there, and which
+//! way up it is.
+//!
+//! All three arrive together, from the `wl_output.geometry` and
+//! `zxdg_output_v1.logical_*` events that [`crate::monitor::outputs`] reads, so
+//! they are described together here.
 
 use std::fmt;
 
@@ -123,5 +128,140 @@ impl LogicalGeometry {
 impl fmt::Display for LogicalGeometry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} at {}", self.size, self.position)
+    }
+}
+
+/// How a monitor's panel is oriented relative to the rectangle it occupies.
+///
+/// The eight values of `wl_output.transform`, as a closed set. The logical
+/// geometry already accounts for the rotation — a portrait-mounted 1920x1080
+/// panel reports a logical size of 1080x1920 — so this describes only which
+/// corner of the panel corresponds to which corner of that rectangle.
+///
+/// Here rather than beside the pointer mapping that consumes it, because this is
+/// what `wl_output.geometry` reports alongside the position, the make, and the
+/// model: [`crate::monitor::outputs`] reads all four from the one event.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SurfaceTransform {
+    #[default]
+    Normal,
+    Rotate90,
+    Rotate180,
+    Rotate270,
+    /// Mirrored about the vertical axis.
+    Flipped,
+    Flipped90,
+    Flipped180,
+    Flipped270,
+}
+
+impl SurfaceTransform {
+    /// Every transform, in `wl_output.transform`'s own order.
+    pub const ALL: [Self; 8] = [
+        Self::Normal,
+        Self::Rotate90,
+        Self::Rotate180,
+        Self::Rotate270,
+        Self::Flipped,
+        Self::Flipped90,
+        Self::Flipped180,
+        Self::Flipped270,
+    ];
+
+    /// The transform a `wl_output.geometry` event's value names.
+    ///
+    /// `None` for anything outside the protocol's eight, rather than a silent
+    /// fallback to [`Self::Normal`]: a value this does not recognise would put
+    /// the cursor in the wrong corner, which is worse than reporting that the
+    /// monitor cannot be mapped.
+    #[must_use]
+    pub const fn from_wl_output(value: u32) -> Option<Self> {
+        match value {
+            0 => Some(Self::Normal),
+            1 => Some(Self::Rotate90),
+            2 => Some(Self::Rotate180),
+            3 => Some(Self::Rotate270),
+            4 => Some(Self::Flipped),
+            5 => Some(Self::Flipped90),
+            6 => Some(Self::Flipped180),
+            7 => Some(Self::Flipped270),
+            _ => None,
+        }
+    }
+
+    /// The value `wl_output.geometry` carries for this transform.
+    #[must_use]
+    pub const fn as_wl_output(self) -> u32 {
+        match self {
+            Self::Normal => 0,
+            Self::Rotate90 => 1,
+            Self::Rotate180 => 2,
+            Self::Rotate270 => 3,
+            Self::Flipped => 4,
+            Self::Flipped90 => 5,
+            Self::Flipped180 => 6,
+            Self::Flipped270 => 7,
+        }
+    }
+
+    /// Whether the transform exchanges the two axes.
+    ///
+    /// A rotated monitor's logical size is its pixel size with the axes swapped,
+    /// which is what makes this worth asking: the fallback that derives a
+    /// logical size from `wl_output.mode` and `wl_output.scale` has to swap them
+    /// back, and `zxdg_output_v1` reports the already-swapped size directly.
+    #[must_use]
+    pub const fn swaps_axes(self) -> bool {
+        matches!(
+            self,
+            Self::Rotate90 | Self::Rotate270 | Self::Flipped90 | Self::Flipped270
+        )
+    }
+}
+
+impl fmt::Display for SurfaceTransform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn every_transform_round_trips_through_its_protocol_value() {
+        for transform in SurfaceTransform::ALL {
+            assert_eq!(
+                SurfaceTransform::from_wl_output(transform.as_wl_output()),
+                Some(transform),
+            );
+        }
+    }
+
+    #[test]
+    fn a_value_outside_the_protocols_eight_names_no_transform() {
+        assert_eq!(SurfaceTransform::from_wl_output(8), None);
+        assert_eq!(SurfaceTransform::from_wl_output(u32::MAX), None);
+    }
+
+    #[test]
+    fn exactly_the_quarter_turns_exchange_the_axes() {
+        let swapping: Vec<SurfaceTransform> = SurfaceTransform::ALL
+            .into_iter()
+            .filter(|transform| transform.swaps_axes())
+            .collect();
+
+        assert_eq!(
+            swapping,
+            vec![
+                SurfaceTransform::Rotate90,
+                SurfaceTransform::Rotate270,
+                SurfaceTransform::Flipped90,
+                SurfaceTransform::Flipped270,
+            ],
+        );
     }
 }

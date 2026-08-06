@@ -2,10 +2,12 @@
 
 pub mod geometry;
 pub mod name;
+pub mod outputs;
 pub mod roster;
 
 pub use self::{
-    geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent},
+    geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent, SurfaceTransform},
     name::{ConnectorKind, ConnectorName, Descriptor, KeyStrength, MonitorKey, MonitorName},
-    roster::{Monitor, Roster},
+    outputs::{HostOutputs, OutputError, OutputId, OutputWatcher},
+    roster::{Monitor, MonitorReport, Roster},
 };

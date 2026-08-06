@@ -21,7 +21,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_capture::{mirror::MirrorOutcome, monitor::MonitorKey};
-use mlua::{Table, UserData, UserDataFields, UserDataMethods};
+use mlua::{Table, UserData, UserDataFields, UserDataMethods, Value};
 use tracing::warn;
 
 use crate::{
@@ -141,6 +141,7 @@ impl<T: LuaTexture> UserData for Monitor<T> {
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("getTexture", |lua, monitor, ()| get_texture(lua, monitor));
         methods.add_method("mirror", |_, monitor, ()| Ok(mirror(monitor)));
         methods.add_method("dismiss", |_, monitor, ()| Ok(dismiss(monitor)));
         methods.add_method("setPaused", |_, monitor, paused: bool| {
@@ -170,6 +171,31 @@ pub(crate) fn monitors<T: LuaTexture>(
     }
 
     Ok(monitors)
+}
+
+/// `monitor:getTexture()`: the texture holding this monitor's latest frame.
+///
+/// Valid for this frame only, for the same reason `window:getTexture()` is:
+/// PipeWire cycles a small pool of buffers and the texture rotates with them.
+/// Call it again each frame rather than caching it.
+///
+/// `false` rather than an error in three cases, all ordinary: the monitor has
+/// gone, it is not mirrored, and it is mirrored but has produced no frame yet —
+/// which is what a still desktop looks like, since a monitor that is not
+/// changing sends nothing at all.
+fn get_texture<T: LuaTexture>(lua: &mlua::Lua, monitor: &Monitor<T>) -> mlua::Result<Value> {
+    if !monitor.refresh() {
+        return Ok(Value::Boolean(false));
+    }
+
+    // The push runs while the ledger is borrowed. That is safe here and only
+    // here: it pushes a value, and no Lua the caller wrote runs until it
+    // returns.
+    monitor.session.with_monitor_textures(|textures| {
+        textures
+            .texture(&monitor.key)
+            .map_or_else(|| Ok(Value::Boolean(false)), |texture| texture.push(lua))
+    })
 }
 
 /// `monitor:mirror()`: asks for this screen to be captured.

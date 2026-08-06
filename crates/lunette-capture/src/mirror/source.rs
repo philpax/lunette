@@ -8,9 +8,11 @@
 //! [`crate::mirror`] are exercised without PipeWire, without a portal, and
 //! without a display.
 
+use tracing::debug;
+
 use crate::{
     portal::NodeId,
-    stream::{CaptureStream, CapturedFrame, FrameCounts},
+    stream::{CaptureStream, CapturedFrame, DrmFormat, FrameCounts},
 };
 
 /// One monitor's frames, as the lifecycle consumes them.
@@ -63,7 +65,41 @@ pub trait MonitorStreams {
     /// Connects to `node` and starts delivering frames.
     ///
     /// `name` is the monitor's identity, for the stream's own logging.
-    fn open(&mut self, name: &str, node: NodeId) -> Box<dyn MonitorStream>;
+    ///
+    /// `None` when the source cannot open a stream yet, which is
+    /// [`NoStreams`]'s only answer and is a real state at startup: a PipeWire
+    /// stream negotiates against the DRM formats the importer accepts, and
+    /// those are not known until LOVR has created a graphics device. The
+    /// lifecycle keeps the monitor wanted and asks again on the next
+    /// [`MirrorSet::poll`], which is how the compositor's deferred start works
+    /// too.
+    ///
+    /// [`MirrorSet::poll`]: crate::mirror::MirrorSet::poll
+    fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>>;
+}
+
+/// A source that cannot open a stream yet.
+///
+/// What [`MirrorSet`] is built with, and what it keeps until the entry point
+/// installs a [`PipewireStreams`] through [`MirrorSet::set_streams`]. A mirror
+/// asked for before then is remembered rather than refused, so a configuration
+/// that mirrors a monitor from `lovr.load` does not have to know when the
+/// graphics device appeared.
+///
+/// [`MirrorSet`]: crate::mirror::MirrorSet
+/// [`MirrorSet::set_streams`]: crate::mirror::MirrorSet::set_streams
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoStreams;
+
+impl MonitorStreams for NoStreams {
+    fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>> {
+        debug!(
+            stream = name,
+            %node,
+            "a capture stream was wanted before anything could open one",
+        );
+        None
+    }
 }
 
 /// The production source: one PipeWire stream per granted node.
@@ -73,18 +109,18 @@ pub trait MonitorStreams {
 /// device and passes the answer in.
 #[derive(Clone, Debug)]
 pub struct PipewireStreams {
-    formats: Vec<wlx_capture::DrmFormat>,
+    formats: Vec<DrmFormat>,
 }
 
 impl PipewireStreams {
     #[must_use]
-    pub fn new(formats: Vec<wlx_capture::DrmFormat>) -> Self {
+    pub fn new(formats: Vec<DrmFormat>) -> Self {
         Self { formats }
     }
 }
 
 impl MonitorStreams for PipewireStreams {
-    fn open(&mut self, name: &str, node: NodeId) -> Box<dyn MonitorStream> {
-        Box::new(CaptureStream::start(name, node, &self.formats))
+    fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>> {
+        Some(Box::new(CaptureStream::start(name, node, &self.formats)))
     }
 }

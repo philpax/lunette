@@ -29,10 +29,7 @@
 use std::{cell::RefCell, fmt};
 
 use lunette_capture::{
-    hid::{
-        DesktopLayout, HostInput, MonitorMapping, PanelPoint, PointerButton as HostButton,
-        SurfaceTransform,
-    },
+    hid::{DesktopLayout, HostInput, MonitorMapping, PanelPoint, PointerButton as HostButton},
     monitor::{MonitorKey, Roster},
 };
 use lunette_compositor::protocol::PointerButton;
@@ -97,12 +94,11 @@ impl HostPointer {
     pub fn attach(&self, roster: &Roster) {
         let mut monitors = Vec::with_capacity(roster.monitors().len());
         for monitor in roster.monitors() {
-            // `SurfaceTransform::Normal` because the roster carries no
-            // transform: nothing enumerates the host's `wl_output`s yet, and the
-            // transform is reported by the `geometry` event that enumeration
-            // would read. A rotated monitor therefore maps as though it were
-            // upright until that lands.
-            match MonitorMapping::new(monitor.geometry(), SurfaceTransform::Normal) {
+            // The transform the host reported through `wl_output.geometry`, not
+            // an assumed `Normal`. A portrait-mounted monitor reports a rotated
+            // transform and a logical size with the axes already swapped; using
+            // the size without the transform puts every hit in the wrong corner.
+            match MonitorMapping::new(monitor.geometry(), monitor.transform()) {
                 Ok(mapping) => monitors.push((monitor.key().clone(), mapping)),
                 Err(error) => warn!(
                     monitor = %monitor.key(),

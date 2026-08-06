@@ -581,6 +581,7 @@ dependencies = [
  "toml",
  "tracing",
  "wayland-client",
+ "wayland-protocols",
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "wlx-capture",

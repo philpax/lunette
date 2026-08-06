@@ -343,8 +343,9 @@ mod tests {
 
     use super::*;
     use crate::monitor::{
-        geometry::{LogicalGeometry, LogicalSize, PixelExtent},
+        geometry::{LogicalGeometry, LogicalSize, PixelExtent, SurfaceTransform},
         name::{ConnectorName, MonitorName},
+        roster::MonitorReport,
     };
 
     fn node(raw: u32) -> NodeId {
@@ -369,15 +370,24 @@ mod tests {
         PixelExtent::new(1920, 1080)
     }
 
+    /// An unrotated monitor, which is what every correlation test is about.
+    fn report(name: MonitorName, geometry: LogicalGeometry) -> MonitorReport {
+        MonitorReport {
+            name,
+            geometry,
+            pixels: resolution(),
+            transform: SurfaceTransform::Normal,
+        }
+    }
+
     /// Two monitors side by side, each 1920 wide, distinguishable by model.
     fn two_monitors() -> Roster {
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), "Left"), geometry(0, 1920), resolution());
-        roster.add(
+        roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
+        roster.add(report(
             named(Some("HDMI-A-1"), "Right"),
             geometry(1920, 1920),
-            resolution(),
-        );
+        ));
         roster
     }
 
@@ -527,12 +537,8 @@ mod tests {
         // Mirrored outputs occupy one logical rectangle. Picking one would put
         // the mirror on whichever the enumeration happened to list first.
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), "Left"), geometry(0, 1920), resolution());
-        roster.add(
-            named(Some("HDMI-A-1"), "Right"),
-            geometry(0, 1920),
-            resolution(),
-        );
+        roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
+        roster.add(report(named(Some("HDMI-A-1"), "Right"), geometry(0, 1920)));
 
         let correlation = correlate(
             &[
@@ -572,12 +578,8 @@ mod tests {
         // connector pass takes that monitor, so the position pass sees exactly
         // one candidate and one stream, which is no longer ambiguous.
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), "Left"), geometry(0, 1920), resolution());
-        roster.add(
-            named(Some("HDMI-A-1"), "Right"),
-            geometry(0, 1920),
-            resolution(),
-        );
+        roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
+        roster.add(report(named(Some("HDMI-A-1"), "Right"), geometry(0, 1920)));
 
         let mut first = stream(3, Some(0), Some(1920));
         first.connector = ConnectorName::parse("DP-1");

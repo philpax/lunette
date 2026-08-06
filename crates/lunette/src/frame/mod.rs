@@ -46,8 +46,17 @@
 //! import extensions, a thread that cannot be spawned — do not become true
 //! later.
 
-use std::{error::Error, fmt, rc::Rc, sync::Arc};
+#[cfg(test)]
+mod tests;
 
+use std::{error::Error, fmt, path::PathBuf, rc::Rc, sync::Arc};
+
+use lunette_capture::{
+    mirror::PipewireStreams,
+    monitor::{MonitorKey, OutputWatcher},
+    stream::DrmFormat,
+    tokens,
+};
 use lunette_compositor::{
     client::{DisplayName, WaylandSocket, XwaylandSatellite},
     protocol::{Event, ImportedBuffer, Snapshot, SurfaceId, WindowId},
@@ -55,14 +64,18 @@ use lunette_compositor::{
     thread::{self, CompositorHandle, PanicPolicy, StartError},
 };
 use lunette_lovr::raw::lovrGraphicsIsInitialized;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     events::LuaEvent,
-    import::{DeviceError, GraphicsDevice, ImageArena, Importer},
+    host::HostPointer,
+    import::{CaptureImporter, DeviceError, GraphicsDevice, ImageArena, Importer},
     layers::{BlitLedger, LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session},
-    texture::{BarrierPolicy, LovrTexture, Released, TextureLedger, destroy_due_images},
+    mirrors::MirrorFrames,
+    texture::{
+        BarrierPolicy, LovrTexture, MonitorTextures, Released, TextureLedger, destroy_due_images,
+    },
 };
 
 /// What the entry point resolved before any thread existed, for the compositor
@@ -81,6 +94,38 @@ pub struct Startup {
     /// How the two open questions about the import barrier are answered for
     /// this run. Both are milestone 0's to measure.
     pub barriers: BarrierPolicy,
+    /// The host's own screens, or `None` when lunette cannot reach them.
+    pub host: Option<HostDesktop>,
+}
+
+/// The host desktop the entry point opened, for the frame loop to drive.
+///
+/// Here rather than resolved on demand for the reason the socket is: the host's
+/// `WAYLAND_DISPLAY` has to be read before the entry point overwrites it with
+/// lunette's own, which is before any other thread exists.
+pub struct HostDesktop {
+    /// The host's `wl_output`s, kept up to date as they change.
+    pub outputs: OutputWatcher,
+    /// The mirror lifecycle's frame-loop half. The same object the Lua session
+    /// reaches through `MirrorRegistry`, held here through the other trait.
+    pub mirrors: Rc<dyn MirrorFrames>,
+    /// The per-monitor pointer mapping, which is rebuilt on every output change.
+    pub pointer: Rc<HostPointer>,
+    /// Where the portal's restore tokens are written, or `None` when they
+    /// cannot be. Resolved by the entry point, because where a state directory
+    /// is is its knowledge, and absent when the file on disk was written by a
+    /// later lunette — rendering this version's fields over it would drop the
+    /// ones this version does not know about.
+    pub tokens: Option<PathBuf>,
+}
+
+impl fmt::Debug for HostDesktop {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostDesktop")
+            .field("outputs", &self.outputs)
+            .field("tokens", &self.tokens)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Drives one frame of the session against the compositor.
@@ -100,6 +145,9 @@ pub struct FrameDriver {
     /// Consumed by the first successful or failed start.
     startup: Option<Startup>,
     compositor: Option<Compositor>,
+    /// The host's own screens, for the whole session rather than only until the
+    /// compositor starts, which is why it is lifted out of [`Startup`] here.
+    host: Option<HostDesktop>,
     barriers: BarrierPolicy,
     /// Handed to [`Session::begin`] while there is no compositor, so that the
     /// generation still advances and a texture handle from the frame before is
@@ -115,6 +163,10 @@ struct Compositor {
     /// destruction happens on this side.
     device: Arc<GraphicsDevice>,
     arena: ImageArena,
+    /// The main thread's own importer, for the frames PipeWire produces. Held
+    /// beside the compositor because it needs the same device and the same
+    /// arena, and both arrive at the same moment.
+    capture: CaptureImporter,
 }
 
 impl FrameDriver {
@@ -126,7 +178,7 @@ impl FrameDriver {
         session: Rc<Session<LovrTexture>>,
         layers: Rc<PoolRegistry<LovrLayers>>,
         blits: LovrBlits,
-        startup: Startup,
+        mut startup: Startup,
     ) -> Self {
         Self {
             session,
@@ -134,6 +186,7 @@ impl FrameDriver {
             blits,
             blitted: BlitLedger::new(),
             barriers: startup.barriers,
+            host: startup.host.take(),
             startup: Some(startup),
             compositor: None,
             empty: Arc::new(Snapshot::default()),
@@ -152,6 +205,10 @@ impl FrameDriver {
 
         self.drain_events();
 
+        // Before the lifecycle's own poll, so that a monitor plugged in this
+        // frame is announced this frame rather than next.
+        self.attach_outputs();
+
         // After the snapshot, for the reason the compositor's events are: a
         // handler reading `lunette.monitors()` has to see the monitor it was
         // handed. This is also what carries a portal exchange forward, so a
@@ -159,6 +216,14 @@ impl FrameDriver {
         for monitor in self.session.mirrors().poll() {
             self.session.push_event(LuaEvent::MonitorAdded { monitor });
         }
+
+        self.persist_tokens();
+
+        // After the portal exchange, because that is what starts a stream, and
+        // before the barriers below, because a texture installed here has to be
+        // acquired for the frame that is about to sample it.
+        self.drop_stopped_mirrors();
+        self.import_capture_frames();
 
         // The frame boundary the pool decides on. Before `boot.lua` polls and
         // so before `lovr.update`, which is what lets a callback read a claim's
@@ -175,6 +240,18 @@ impl FrameDriver {
                 // `lovr.draw` has not run yet.
                 if !unsafe { texture.acquire(barriers) } {
                     warn!("an imported texture could not be acquired for this frame");
+                }
+            }
+        });
+
+        // The same acquire for a mirrored monitor's texture. An image imported
+        // from PipeWire needs it exactly as a client's does; they differ only in
+        // which ledger holds them.
+        self.session.with_monitor_textures(|textures| {
+            for texture in textures.textures() {
+                // SAFETY: as the acquire above.
+                if !unsafe { texture.acquire(barriers) } {
+                    warn!("a mirrored monitor's texture could not be acquired for this frame");
                 }
             }
         });
@@ -214,6 +291,15 @@ impl FrameDriver {
                 // else runs between `lovr.draw` returning and this.
                 if !unsafe { texture.release(barriers) } {
                     warn!("an imported texture could not be released at frame end");
+                }
+            }
+        });
+
+        self.session.with_monitor_textures(|textures| {
+            for texture in textures.textures() {
+                // SAFETY: as above.
+                if !unsafe { texture.release(barriers) } {
+                    warn!("a mirrored monitor's texture could not be released at frame end");
                 }
             }
         });
@@ -272,9 +358,20 @@ impl FrameDriver {
             texture.release_ref();
         }
 
-        let Some(compositor) = self.compositor.take() else {
+        // The mirrors first, because dropping the lifecycle stops PipeWire's
+        // threads, and a stream still delivering into a queue nothing drains is
+        // a descriptor held open for the rest of the teardown.
+        let released = self
+            .session
+            .with_monitor_textures(MonitorTextures::take_all);
+        for texture in released {
+            texture.release_ref();
+        }
+
+        let Some(mut compositor) = self.compositor.take() else {
             return;
         };
+        compositor.capture.forget_buffers();
 
         let live = compositor.arena.live();
         if let Err(error) = compositor.handle.shutdown() {
@@ -284,6 +381,149 @@ impl FrameDriver {
             images = live,
             "compositor stopped; its images are freed with the graphics device"
         );
+    }
+
+    /// Reads what the host compositor has said about its outputs, and applies it.
+    ///
+    /// Both consumers are updated together and from the one roster: the mirror
+    /// lifecycle, so a monitor that has gone loses its stream, and the pointer
+    /// mapping, so the desktop's bounding box follows the monitor that moved.
+    /// Splitting them would let the two disagree about what is attached, which
+    /// is how a pointer ends up on a screen that is no longer there.
+    fn attach_outputs(&mut self) {
+        let Some(host) = &mut self.host else {
+            return;
+        };
+        let Some(roster) = host.outputs.poll() else {
+            return;
+        };
+
+        host.pointer.attach(&roster);
+        let change = host.mirrors.attach(roster);
+        for monitor in change.removed {
+            // A monitor that has gone produces no further frames, so a texture
+            // left behind is a still picture that looks live.
+            self.forget_monitor_texture(&monitor);
+        }
+    }
+
+    /// Writes the portal's restore tokens when a grant has changed them.
+    ///
+    /// Best-effort, and reported rather than fatal: the cost of failing is one
+    /// dialog on the next run, which is not worth ending a session over.
+    fn persist_tokens(&mut self) {
+        let Some(host) = &self.host else {
+            return;
+        };
+        let Some(path) = &host.tokens else {
+            return;
+        };
+        let Some(store) = host.mirrors.take_changed_tokens() else {
+            return;
+        };
+
+        match tokens::write(path, &store) {
+            Ok(()) => info!(
+                path = %path.display(),
+                monitors = store.len(),
+                "recorded the screencast restore tokens",
+            ),
+            Err(error) => warn!(
+                %error,
+                "the screencast restore tokens were not recorded, so the next run will prompt",
+            ),
+        }
+    }
+
+    /// Turns each mirror's newest frame into the texture Lua samples.
+    ///
+    /// The frames arrive as plain descriptors from PipeWire's own thread, and
+    /// every Vulkan import in the process happens here, on the main thread,
+    /// through the same dmabuf path a client's buffer takes.
+    fn import_capture_frames(&mut self) {
+        let (Some(host), Some(compositor)) = (&self.host, &mut self.compositor) else {
+            return;
+        };
+
+        for (monitor, frame) in host.mirrors.take_frames() {
+            let size = frame.format().size;
+            let image = match compositor.capture.import(frame) {
+                Ok(image) => image,
+                Err(error) => {
+                    warn!(%monitor, %error, "a mirrored monitor's frame could not be imported");
+                    continue;
+                }
+            };
+
+            // The importer answers a recurring PipeWire buffer with the image it
+            // already made, and PipeWire cycles a small fixed pool — so after
+            // the first few frames this is the branch that runs, and wrapping
+            // the image again would allocate a texture over memory a texture
+            // already covers.
+            if self
+                .session
+                .with_monitor_textures(|textures| textures.holds(&monitor, image.image))
+            {
+                continue;
+            }
+
+            // SAFETY: this is the frame thread and LÖVR's graphics module is
+            // initialised, because the device the import ran against is the one
+            // LÖVR created. The handle names an image the arena holds.
+            let texture = match unsafe { LovrTexture::import(&image) } {
+                Ok(texture) => texture,
+                Err(error) => {
+                    warn!(%monitor, %error, "a mirrored monitor's frame could not become a texture");
+                    continue;
+                }
+            };
+
+            debug!(%monitor, %size, "a mirrored monitor produced a new texture");
+            let description = crate::texture::describe(&ImportedBuffer::Image(image));
+            let displaced = self.session.with_monitor_textures(|textures| {
+                textures.install(monitor.clone(), image.image, texture, description)
+            });
+            if let Some(displaced) = displaced {
+                displaced.release_ref();
+            }
+        }
+    }
+
+    /// Releases the texture of every monitor whose mirror has stopped.
+    ///
+    /// `monitor:dismiss()` tears the stream down from Lua, and nothing after
+    /// that refreshes what the texture holds. Leaving it would leave a panel
+    /// showing whatever the screen last displayed, which is worse than showing
+    /// nothing because it looks live.
+    ///
+    /// A paused mirror keeps its texture on purpose: pausing is for a panel that
+    /// has left the user's view, and resuming it is meant to cost nothing.
+    fn drop_stopped_mirrors(&self) {
+        let held = self
+            .session
+            .with_monitor_textures(|textures| textures.monitors());
+        for monitor in held {
+            // `None` is a monitor that has been unplugged, which stops
+            // producing for the same reason and is answered the same way.
+            let mirroring = self
+                .session
+                .mirrors()
+                .state(&monitor)
+                .is_some_and(|state| state.mirrored);
+            if !mirroring {
+                self.forget_monitor_texture(&monitor);
+            }
+        }
+    }
+
+    /// Drops the texture held for a monitor that is no longer producing frames.
+    fn forget_monitor_texture(&self, monitor: &MonitorKey) {
+        let released = self
+            .session
+            .with_monitor_textures(|textures| textures.forget(monitor));
+        if let Some(texture) = released {
+            texture.release_ref();
+        }
     }
 
     /// Starts the compositor once LÖVR has a device to lend it.
@@ -304,7 +544,21 @@ impl FrameDriver {
         };
 
         match start(startup) {
-            Ok(compositor) => self.compositor = Some(compositor),
+            Ok(compositor) => {
+                // The same moment, and for the same reason: a capture stream
+                // negotiates against the DRM formats the importer accepts, and
+                // those are a property of the device that has only now appeared.
+                if let Some(host) = &self.host {
+                    let formats = capture_formats(&compositor.device);
+                    info!(
+                        formats = formats.len(),
+                        "monitor capture can now negotiate a dmabuf"
+                    );
+                    host.mirrors
+                        .set_streams(Box::new(PipewireStreams::new(formats)));
+                }
+                self.compositor = Some(compositor);
+            }
             Err(error) => error!(
                 "{error}; lunette will run with no compositor, so no client can connect for the \
                  rest of this session"
@@ -493,6 +747,9 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
         display: name,
         satellite,
         barriers: _,
+        // Lifted out by `FrameDriver::new`, because it outlives this start and
+        // is not consumed by it.
+        host: _,
     } = startup;
 
     // SAFETY: the caller has established that LÖVR's graphics module is
@@ -517,10 +774,28 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
     info!(%name, "compositor running; clients may connect");
 
     Ok(Compositor {
+        capture: CaptureImporter::new(Arc::clone(&device), arena.clone()),
         handle,
         device,
         arena,
     })
+}
+
+/// The DRM formats a capture stream may negotiate.
+///
+/// The same set the compositor advertises to its own clients, because both go
+/// through the one dmabuf import path: a format the importer cannot accept is a
+/// format the stream must not agree to, whichever side produced the buffer.
+fn capture_formats(device: &GraphicsDevice) -> Vec<DrmFormat> {
+    device
+        .dmabuf_support()
+        .formats
+        .into_iter()
+        .map(|format| DrmFormat {
+            code: format.code,
+            modifier: format.modifier,
+        })
+        .collect()
 }
 
 /// Drops lunette's references to the textures a ledger change handed back.
@@ -558,244 +833,5 @@ impl Error for StartupError {
             Self::Device(cause) => Some(cause),
             Self::Thread(cause) => Some(cause),
         }
-    }
-}
-
-#[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
-)]
-mod tests {
-    use lunette_compositor::{
-        protocol::PixelSize,
-        surface::{PixelBuffer, ShmFormat},
-    };
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-    use crate::{
-        import::formats::Alpha,
-        texture::{FrameGeneration, TextureDescription, TextureRef, TextureUnavailable},
-    };
-
-    /// A texture that is a counter, so the ledger's bookkeeping can be
-    /// exercised without a graphics device.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct Counted(u64);
-
-    impl crate::texture::CopyableTexture for Counted {
-        fn allocate_copy(&self) -> Option<Self> {
-            Some(Self(self.0 + 1000))
-        }
-
-        fn copy_to(&self, _destination: &Self) -> bool {
-            true
-        }
-    }
-
-    fn surface(raw: u64) -> SurfaceId {
-        SurfaceId::new(raw).expect("non-zero")
-    }
-
-    fn description() -> TextureDescription {
-        TextureDescription {
-            size: PixelSize::new(4, 4),
-            alpha: Alpha::Present,
-        }
-    }
-
-    fn window_id(raw: u64) -> WindowId {
-        WindowId::new(raw).expect("non-zero")
-    }
-
-    #[test]
-    fn a_surface_going_away_takes_its_texture_out_of_the_ledger() {
-        // The regression: every `wl_surface` mints an identifier and can hold
-        // a texture, and only a toplevel is ever reported closed. A popup or a
-        // cursor surface that was never forgotten left a texture naming an
-        // image the compositor had already retired.
-        assert_eq!(
-            ledger_change(
-                &Event::SurfaceGone {
-                    surface: surface(1)
-                },
-                |_| unreachable!("a surface event names its surface directly")
-            ),
-            LedgerChange::Forget(surface(1))
-        );
-    }
-
-    #[test]
-    fn forgetting_a_surface_hands_back_both_of_its_textures_and_stops_naming_them() {
-        let mut ledger = TextureLedger::<Counted>::new();
-        ledger.install(surface(1), Counted(1), description());
-        ledger
-            .stabilize(
-                TextureRef::new(surface(1), FrameGeneration::INITIAL),
-                FrameGeneration::INITIAL,
-            )
-            .expect("a live surface can be stabilised");
-
-        let released = ledger.forget(surface(1));
-
-        assert_eq!(released.imported, Some(Counted(1)));
-        assert_eq!(released.stable, Some(Counted(1001)));
-        assert_eq!(
-            ledger.textures().count(),
-            0,
-            "a texture the frame no longer holds must not be named in a barrier"
-        );
-        assert_eq!(
-            ledger.lookup(
-                TextureRef::new(surface(1), FrameGeneration::INITIAL),
-                FrameGeneration::INITIAL
-            ),
-            Err(TextureUnavailable::Unknown)
-        );
-    }
-
-    #[test]
-    fn a_window_closing_marks_its_surface_dead_rather_than_forgetting_it() {
-        assert_eq!(
-            ledger_change(
-                &Event::WindowClosed {
-                    window: window_id(3)
-                },
-                |window| (window == window_id(3)).then(|| surface(9))
-            ),
-            LedgerChange::MarkDead(surface(9))
-        );
-    }
-
-    #[test]
-    fn a_window_the_snapshot_does_not_describe_changes_nothing() {
-        assert_eq!(
-            ledger_change(
-                &Event::WindowClosed {
-                    window: window_id(3)
-                },
-                |_| None
-            ),
-            LedgerChange::Nothing
-        );
-    }
-
-    #[test]
-    fn an_imported_buffer_installs_against_the_surface_it_arrived_for() {
-        let buffer = ImportedBuffer::Pixels(
-            PixelBuffer::new(
-                PixelSize::new(1, 1),
-                ShmFormat::Argb8888,
-                vec![0, 0, 0, 255],
-            )
-            .expect("one pixel"),
-        );
-        let event = Event::BufferImported {
-            surface: surface(2),
-            buffer,
-        };
-
-        let Event::BufferImported { buffer, .. } = &event else {
-            unreachable!("the event was just built as an import")
-        };
-        assert_eq!(
-            ledger_change(&event, |_| unreachable!(
-                "a buffer names its surface directly"
-            )),
-            LedgerChange::Install {
-                surface: surface(2),
-                buffer,
-            }
-        );
-    }
-
-    #[test]
-    fn the_reports_that_touch_no_texture_change_nothing() {
-        for event in [
-            Event::WindowOpened {
-                window: window_id(1),
-            },
-            Event::TitleChanged {
-                window: window_id(1),
-                title: "htop".to_owned(),
-            },
-            Event::SurfaceDamaged {
-                surface: surface(1),
-            },
-        ] {
-            assert_eq!(
-                ledger_change(&event, |_| None),
-                LedgerChange::Nothing,
-                "{event:?} has nothing to do with what the frame may sample"
-            );
-        }
-    }
-
-    #[test]
-    fn every_live_texture_is_offered_a_barrier() {
-        let mut ledger = TextureLedger::<Counted>::new();
-        ledger.install(surface(1), Counted(1), description());
-        ledger.install(surface(2), Counted(2), description());
-
-        let mut seen: Vec<u64> = ledger.textures().map(|texture| texture.0).collect();
-        seen.sort_unstable();
-
-        assert_eq!(seen, vec![1, 2]);
-    }
-
-    #[test]
-    fn a_dead_surfaces_texture_is_not_offered_a_barrier() {
-        let mut ledger = TextureLedger::<Counted>::new();
-        ledger.install(surface(1), Counted(1), description());
-        let released = ledger.mark_dead(surface(1));
-
-        assert_eq!(released.imported, Some(Counted(1)));
-        assert_eq!(
-            ledger.textures().count(),
-            0,
-            "a texture already handed back must not be named in a barrier"
-        );
-    }
-
-    #[test]
-    fn a_stabilised_copy_is_offered_a_barrier_alongside_its_source() {
-        let mut ledger = TextureLedger::<Counted>::new();
-        ledger.install(surface(1), Counted(1), description());
-        ledger
-            .stabilize(
-                TextureRef::new(surface(1), FrameGeneration::INITIAL),
-                FrameGeneration::INITIAL,
-            )
-            .expect("a live surface can be stabilised");
-
-        assert_eq!(ledger.textures().count(), 2);
-    }
-
-    #[test]
-    fn teardown_hands_back_every_texture_once() {
-        let mut ledger = TextureLedger::<Counted>::new();
-        ledger.install(surface(1), Counted(1), description());
-        ledger.install(surface(2), Counted(2), description());
-
-        let mut taken: Vec<u64> = ledger
-            .take_all()
-            .into_iter()
-            .map(|texture| texture.0)
-            .collect();
-        taken.sort_unstable();
-
-        assert_eq!(taken, vec![1, 2]);
-        assert!(
-            ledger.take_all().is_empty(),
-            "a second teardown has nothing left to release"
-        );
-        assert_eq!(
-            ledger.lookup(
-                TextureRef::new(surface(1), FrameGeneration::INITIAL),
-                FrameGeneration::INITIAL
-            ),
-            Err(TextureUnavailable::Unknown)
-        );
     }
 }

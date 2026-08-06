@@ -44,7 +44,7 @@ use tracing::{info, warn};
 pub use crate::hid::{
     dummy::DummyProvider,
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
-    mapping::{DesktopLayout, MappingError, MonitorMapping, PanelPoint, SurfaceTransform},
+    mapping::{DesktopLayout, MappingError, MonitorMapping, PanelPoint, reorient},
     pointer::{
         DesktopExtent, DesktopPoint, DesktopVector, PendingPointer, PointerBatch, WheelDelta,
     },
@@ -301,7 +301,7 @@ mod tests {
     use super::*;
     use crate::{
         hid::recording::{HidEvent, Recording},
-        monitor::{LogicalGeometry, LogicalPosition, LogicalSize},
+        monitor::{LogicalGeometry, LogicalPosition, LogicalSize, SurfaceTransform},
     };
 
     fn host(provider: Box<dyn HidProvider>, kind: ProviderKind) -> HostInput {

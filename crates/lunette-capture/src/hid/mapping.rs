@@ -14,6 +14,11 @@
 //! WayVR builds an `Affine2` per screen (`overlays/screen/backend.rs:93-145`).
 //! The provider then places it on the desktop.
 //!
+//! The rotation itself is
+//! [`SurfaceTransform`](crate::monitor::SurfaceTransform), which lives with the
+//! rest of a monitor's geometry because that is where it is read from; what to
+//! do with it is [`reorient`], here.
+//!
 //! # Logical, never pixels
 //!
 //! Every dimension here is the compositor's logical geometry. On a display
@@ -37,7 +42,7 @@ use std::{error::Error, fmt};
 
 use crate::{
     hid::pointer::{DesktopExtent, DesktopPoint},
-    monitor::geometry::{LogicalGeometry, LogicalPosition},
+    monitor::geometry::{LogicalGeometry, LogicalPosition, SurfaceTransform},
 };
 
 /// A hit on a mirrored panel, normalised over its surface.
@@ -90,98 +95,26 @@ impl fmt::Display for PanelPoint {
     }
 }
 
-/// How a mirrored surface is oriented relative to its monitor's rectangle.
+/// Moves a normalised panel coordinate into its monitor's own orientation.
 ///
-/// The eight values of `wl_output.transform`, as a closed set. The monitor's
-/// logical geometry already accounts for the rotation — a portrait-mounted
-/// 1920×1080 panel reports a logical size of 1080×1920 — so this describes only
-/// which corner of the panel corresponds to which corner of that rectangle.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SurfaceTransform {
-    #[default]
-    Normal,
-    Rotate90,
-    Rotate180,
-    Rotate270,
-    /// Mirrored about the vertical axis.
-    Flipped,
-    Flipped90,
-    Flipped180,
-    Flipped270,
-}
-
-impl SurfaceTransform {
-    /// Every transform, in `wl_output.transform`'s own order.
-    pub const ALL: [Self; 8] = [
-        Self::Normal,
-        Self::Rotate90,
-        Self::Rotate180,
-        Self::Rotate270,
-        Self::Flipped,
-        Self::Flipped90,
-        Self::Flipped180,
-        Self::Flipped270,
-    ];
-
-    /// The transform a `wl_output.geometry` event's value names.
-    ///
-    /// `None` for anything outside the protocol's eight, rather than a silent
-    /// fallback to [`Self::Normal`]: a value this does not recognise would put
-    /// the cursor in the wrong corner, which is worse than reporting that the
-    /// monitor cannot be mapped.
-    #[must_use]
-    pub const fn from_wl_output(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::Normal),
-            1 => Some(Self::Rotate90),
-            2 => Some(Self::Rotate180),
-            3 => Some(Self::Rotate270),
-            4 => Some(Self::Flipped),
-            5 => Some(Self::Flipped90),
-            6 => Some(Self::Flipped180),
-            7 => Some(Self::Flipped270),
-            _ => None,
-        }
-    }
-
-    /// The value `wl_output.geometry` carries for this transform.
-    #[must_use]
-    pub const fn as_wl_output(self) -> u32 {
-        match self {
-            Self::Normal => 0,
-            Self::Rotate90 => 1,
-            Self::Rotate180 => 2,
-            Self::Rotate270 => 3,
-            Self::Flipped => 4,
-            Self::Flipped90 => 5,
-            Self::Flipped180 => 6,
-            Self::Flipped270 => 7,
-        }
-    }
-
-    /// Moves a normalised panel coordinate into the monitor's own orientation.
-    ///
-    /// A bijection of the unit square, so a corner always lands on a corner and
-    /// the centre always stays the centre.
-    #[must_use]
-    pub fn apply(self, point: PanelPoint) -> PanelPoint {
-        let PanelPoint { u, v } = point;
-        match self {
-            Self::Normal => PanelPoint::new(u, v),
-            Self::Rotate90 => PanelPoint::new(v, 1.0 - u),
-            Self::Rotate180 => PanelPoint::new(1.0 - u, 1.0 - v),
-            Self::Rotate270 => PanelPoint::new(1.0 - v, u),
-            Self::Flipped => PanelPoint::new(1.0 - u, v),
-            Self::Flipped90 => PanelPoint::new(v, u),
-            Self::Flipped180 => PanelPoint::new(u, 1.0 - v),
-            Self::Flipped270 => PanelPoint::new(1.0 - v, 1.0 - u),
-        }
-    }
-}
-
-impl fmt::Display for SurfaceTransform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
+/// A bijection of the unit square, so a corner always lands on a corner and the
+/// centre always stays the centre.
+///
+/// A free function rather than a method on [`SurfaceTransform`], because the
+/// type describes what the host reported and belongs with the rest of a
+/// monitor's geometry, while what to do with it belongs here with the mapping.
+#[must_use]
+pub fn reorient(transform: SurfaceTransform, point: PanelPoint) -> PanelPoint {
+    let PanelPoint { u, v } = point;
+    match transform {
+        SurfaceTransform::Normal => PanelPoint::new(u, v),
+        SurfaceTransform::Rotate90 => PanelPoint::new(v, 1.0 - u),
+        SurfaceTransform::Rotate180 => PanelPoint::new(1.0 - u, 1.0 - v),
+        SurfaceTransform::Rotate270 => PanelPoint::new(1.0 - v, u),
+        SurfaceTransform::Flipped => PanelPoint::new(1.0 - u, v),
+        SurfaceTransform::Flipped90 => PanelPoint::new(v, u),
+        SurfaceTransform::Flipped180 => PanelPoint::new(u, 1.0 - v),
+        SurfaceTransform::Flipped270 => PanelPoint::new(1.0 - v, 1.0 - u),
     }
 }
 
@@ -244,7 +177,7 @@ impl MonitorMapping {
     /// instead, for the reason given there.
     #[must_use]
     pub fn map(&self, hit: PanelPoint) -> DesktopPoint {
-        let local = self.transform.apply(hit.clamped());
+        let local = reorient(self.transform, hit.clamped());
         DesktopPoint::new(
             f64::from(self.geometry.position.x) + local.u * f64::from(self.geometry.size.width),
             f64::from(self.geometry.position.y) + local.v * f64::from(self.geometry.size.height),
@@ -566,7 +499,7 @@ mod tests {
     fn every_transform_keeps_the_centre_at_the_centre() {
         for transform in SurfaceTransform::ALL {
             assert_eq!(
-                transform.apply(PanelPoint::CENTRE),
+                reorient(transform, PanelPoint::CENTRE),
                 PanelPoint::CENTRE,
                 "{transform} moved the centre",
             );
@@ -588,7 +521,7 @@ mod tests {
             let mut mapped: Vec<(u8, u8)> = corners
                 .into_iter()
                 .map(|corner| {
-                    let moved = transform.apply(corner);
+                    let moved = reorient(transform, corner);
                     (moved.u as u8, moved.v as u8)
                 })
                 .collect();
@@ -604,21 +537,10 @@ mod tests {
         let start = PanelPoint::new(0.25, 0.75);
         let mut point = start;
         for _ in 0..4 {
-            point = SurfaceTransform::Rotate90.apply(point);
+            point = reorient(SurfaceTransform::Rotate90, point);
         }
 
         assert_eq!(point, start);
-    }
-
-    #[test]
-    fn every_transform_round_trips_through_its_protocol_value() {
-        for transform in SurfaceTransform::ALL {
-            assert_eq!(
-                SurfaceTransform::from_wl_output(transform.as_wl_output()),
-                Some(transform),
-            );
-        }
-        assert_eq!(SurfaceTransform::from_wl_output(8), None);
     }
 
     #[test]

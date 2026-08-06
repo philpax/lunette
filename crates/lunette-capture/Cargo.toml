@@ -24,9 +24,14 @@ smallvec.workspace = true
 # that is not worth handrolling. Already in the tree, so it costs no new crate.
 toml.workspace = true
 tracing.workspace = true
-# The `wl_virtual` input provider talks to the host compositor directly, as a
-# client. Already in the tree beneath wlx-capture, so neither adds a crate.
+# The `wl_virtual` input provider and the `wl_output` enumeration talk to the
+# host compositor directly, as a client. Already in the tree beneath
+# wlx-capture, so neither adds a crate.
 wayland-client.workspace = true
+# `zxdg_output_manager_v1`, which reports each output's logical geometry — the
+# space a screencast stream's position and size are correlated against.
+# `unstable` is what gates the `zv1` protocols.
+wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 # `zwp_virtual_keyboard_v1`. It lives in the misc set rather than the wlr one
 # because it started as a GNOME-adjacent proposal, but only wlroots implements
 # it, so it travels with `zwlr_virtual_pointer_v1` in practice.

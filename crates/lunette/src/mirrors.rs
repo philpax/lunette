@@ -14,9 +14,11 @@
 use std::{cell::RefCell, fmt, mem};
 
 use lunette_capture::{
-    mirror::{MirrorOutcome, MirrorSet, Progress, RosterChange},
+    mirror::{MirrorOutcome, MirrorSet, MonitorStreams, Progress, RosterChange},
     monitor::{LogicalGeometry, Monitor, MonitorKey, PixelExtent, Roster},
     portal::ScreenCastPortal,
+    stream::CapturedFrame,
+    tokens::TokenStore,
 };
 use tracing::warn;
 
@@ -67,6 +69,38 @@ pub trait MirrorRegistry: fmt::Debug {
     fn set_paused(&self, monitor: &MonitorKey, paused: bool) -> bool;
 }
 
+/// The mirror lifecycle, as the frame loop drives it.
+///
+/// A second trait over the same object rather than more methods on
+/// [`MirrorRegistry`], because these are two audiences: [`MirrorRegistry`] is
+/// what a Lua handle reads and mutates, and this is the frame's own mechanics —
+/// what the host attached, what the capture produced, what has to be written to
+/// disk. Keeping them apart is what stops a Lua handle reaching a capture frame.
+///
+/// A trait at all, rather than the concrete type, because [`HostMirrors`] is
+/// generic over the portal and [`crate::frame::FrameDriver`] must not name the
+/// production one — the frame loop has no business knowing whether the portal is
+/// real.
+pub trait MirrorFrames: fmt::Debug {
+    /// Installs the source that opens capture streams.
+    ///
+    /// Called once, on the first frame at which LOVR has a graphics device, so
+    /// the DRM formats a stream negotiates against are known.
+    fn set_streams(&self, streams: Box<dyn MonitorStreams>);
+
+    /// Replaces what lunette believes is attached, and says what changed.
+    fn attach(&self, roster: Roster) -> RosterChange;
+
+    /// The newest frame each running mirror has produced.
+    fn take_frames(&self) -> Vec<(MonitorKey, CapturedFrame)>;
+
+    /// The restore tokens to persist, once a grant has changed them.
+    ///
+    /// Cloned rather than borrowed, because the caller writes a file with it and
+    /// the lifecycle is reachable from Lua in between.
+    fn take_changed_tokens(&self) -> Option<TokenStore>;
+}
+
 /// The monitors of the machine lunette is running on.
 ///
 /// Owns the lifecycle. The frame loop drives [`Self::poll`] once a frame and
@@ -90,20 +124,7 @@ impl<P: ScreenCastPortal> HostMirrors<P> {
         }
     }
 
-    /// Replaces what lunette believes is attached, and says what changed.
-    ///
-    /// The monitors that appeared are queued for the next
-    /// [`MirrorRegistry::poll`] to announce.
-    pub fn attach(&self, roster: Roster) -> RosterChange {
-        let change = self.mirrors.borrow_mut().attach(roster);
-        self.appeared
-            .borrow_mut()
-            .extend(change.added.iter().cloned());
-        change
-    }
-
-    /// Runs `body` against the lifecycle, for the frame loop's frame drain and
-    /// for token persistence.
+    /// Runs `body` against the lifecycle.
     ///
     /// A closure rather than a borrow guard, for the reason
     /// [`crate::lua::Session::with_textures`] takes one: the lifecycle is
@@ -111,6 +132,32 @@ impl<P: ScreenCastPortal> HostMirrors<P> {
     /// panic on the re-entry.
     pub fn with_mirrors<R>(&self, body: impl FnOnce(&mut MirrorSet<P>) -> R) -> R {
         body(&mut self.mirrors.borrow_mut())
+    }
+}
+
+impl<P: ScreenCastPortal> MirrorFrames for HostMirrors<P> {
+    fn set_streams(&self, streams: Box<dyn MonitorStreams>) {
+        self.mirrors.borrow_mut().set_streams(streams);
+    }
+
+    /// The monitors that appeared are queued for the next
+    /// [`MirrorRegistry::poll`] to announce, rather than announced here: an
+    /// event reaches Lua at a frame boundary, and a monitor may appear at any
+    /// point between two.
+    fn attach(&self, roster: Roster) -> RosterChange {
+        let change = self.mirrors.borrow_mut().attach(roster);
+        self.appeared
+            .borrow_mut()
+            .extend(change.added.iter().cloned());
+        change
+    }
+
+    fn take_frames(&self) -> Vec<(MonitorKey, CapturedFrame)> {
+        self.mirrors.borrow_mut().take_frames()
+    }
+
+    fn take_changed_tokens(&self) -> Option<TokenStore> {
+        self.mirrors.borrow_mut().take_changed_tokens().cloned()
     }
 }
 
@@ -159,10 +206,16 @@ impl<P: ScreenCastPortal> MirrorRegistry for HostMirrors<P> {
 
 /// A registry over a machine whose monitors lunette cannot see.
 ///
-/// What the entry point installs when the screencast portal cannot be reached —
-/// no session bus, a container without it bound — and what a test that is not
-/// about monitors uses. Distinct from a machine with no monitors only in the
-/// reason, which the entry point logs where it knows it.
+/// What the entry point installs when the host's outputs cannot be read or the
+/// screencast portal cannot be reached — no Wayland session, no session bus, a
+/// container without either bound — and what a test that is not about monitors
+/// uses. Distinct from a machine with no monitors only in the reason, which the
+/// entry point logs where it knows it.
+///
+/// It implements [`MirrorRegistry`] and deliberately not [`MirrorFrames`]. A
+/// session with no host desktop has no [`crate::frame::HostDesktop`] at all, so
+/// there is nothing for the frame loop to drive; a no-op implementation here
+/// would be a second way to spell the same absence.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoMonitors;
 

@@ -4,15 +4,17 @@
 //! and repacks pixels; this module turns either into a `Texture` LÖVR can
 //! sample, records the barriers around reading it, and destroys it afterwards.
 //!
-//! The four parts are separate because three of them need no graphics device.
+//! The five parts are separate because four of them need no graphics device.
 //! `generation` is two counters, `ledger` is the bookkeeping over an
-//! arbitrary texture, `barrier` is the choice of arguments an import barrier
-//! is recorded with, and `lovr` is the only part that calls LÖVR.
+//! arbitrary texture, `monitor` is the same for a mirrored monitor's texture,
+//! `barrier` is the choice of arguments an import barrier is recorded with, and
+//! `lovr` is the only part that calls LÖVR.
 
 mod barrier;
 mod generation;
 mod ledger;
 mod lovr;
+mod monitor;
 
 pub use self::{
     barrier::{BarrierPolicy, ForeignLayout, QueueFamilyMode},
@@ -22,4 +24,5 @@ pub use self::{
         TextureUnavailable, describe, destroy_due_images,
     },
     lovr::{LovrTexture, TextureError},
+    monitor::MonitorTextures,
 };

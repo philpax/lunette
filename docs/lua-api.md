@@ -91,6 +91,7 @@ for _, monitor in ipairs(lunette.monitors()) do
     print(monitor.logicalWidth, monitor.logicalHeight) -- how large it is there.
     print(monitor.mirrored)        -- whether a capture stream is running.
     print(monitor.pending)         -- whether one has been asked for and not arrived.
+    monitor:getTexture()           -- this frame's pixels, or false.
     monitor:mirror()               -- start capturing; may prompt.
     monitor:setPaused(true)        -- stop the stream, keep the node.
     monitor:dismiss()              -- stop capturing; no ongoing cost.
@@ -108,6 +109,10 @@ The list is ordered by identity rather than by the order the host enumerated the
 Capture starts lazily. Nothing is requested of the portal until the first `monitor:mirror()`, so a configuration that mirrors nothing never prompts.
 
 `monitor:dismiss()` stops the capture for real: the stream is torn down, so a dismissed monitor has no ongoing cost. The portal session is kept, so mirroring the monitor again does not prompt a second time. It returns `false` when nothing was running, which is not an error — dismissing twice is how a configuration says "make sure this is off".
+
+`monitor:getTexture()` returns the texture holding the monitor's latest captured frame, and is valid for that frame only — PipeWire cycles a small pool of buffers and the texture rotates with them. Call it again each frame rather than caching it. It returns `false` in three ordinary cases: the monitor is gone, it is not mirrored, and it is mirrored but has produced no frame yet, which is what a still desktop looks like since an unchanging monitor sends nothing at all.
+
+The texture matches the captured output's resolution, which is `monitor.width` by `monitor.height`.
 
 `monitor:setPaused(paused)` is the middle case, for a panel that has left the user's view. The stream stops producing but is not given up, so resuming costs nothing. Reach for `dismiss` when the user closed the panel, and for `setPaused` when they merely turned away.
 

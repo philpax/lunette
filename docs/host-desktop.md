@@ -14,17 +14,35 @@ This backend requires a portal permission dialog on first use. A restore token i
 
 ### One divergence: monitor identification
 
-WayVR's onboarding asks the user to select screens in a prescribed order, because the portal hands out anonymous streams. lunette requests every monitor in one dialog and correlates each returned stream to a `wl_output` by comparing the stream's `position` and `size` against the output's logical geometry. That works on every portal backend, and it is what wlx-overlay-s does on X11. The portal's `mapping_id` is read opportunistically and taken as a connector name when it is one, which is the case on xdg-desktop-portal-wlr; it is not the mechanism, because two of the three backends do not supply a usable one. [Decisions](decisions.md#recorded-decisions) records the evidence.
+WayVR's onboarding asks the user to select screens in a prescribed order, because the portal hands out anonymous streams. lunette requests every monitor in one dialog and correlates each returned stream to a `wl_output` by comparing the stream's `position` and `size` against the output's logical geometry. That works on every portal backend, and it is what wlx-overlay-s does on X11. The portal's `mapping_id` is not the mechanism: two of the three backends do not supply a usable one, and `wl_output.name` supplies a real connector name on all three. [Decisions](decisions.md#recorded-decisions) records the evidence.
 
 This is an improvement over WayVR's approach and is a candidate for contributing upstream.
 
 `ext-image-copy-capture-v1` support is planned as a later addition. It is the successor to the deprecated `wlr-screencopy`. Adding it to `wlx-capture` benefits WayVR as well.
 
+### Enumeration
+
+The monitors themselves come from the host compositor, over a Wayland connection lunette opens as a client. It binds each `wl_output`, and `zxdg_output_manager_v1` where the compositor offers one, and reads the make, the model, the connector name, the transform, the mode, and the logical geometry. The connection stays open, so a monitor plugged in, unplugged, or moved while lunette runs is seen; the roster is rebuilt and handed to both the mirror lifecycle and the pointer mapping together, so the two cannot disagree about what is attached.
+
+Logical geometry comes from `zxdg_output_v1` where it exists. Where it does not, it is derived from `wl_output.mode` and `wl_output.scale`, with the axes swapped for a rotated output. The derived form is integer division and so is wrong on a fractional scale, which is why it is the fallback rather than the mechanism.
+
+The socket is resolved by the binary before it exports its own `WAYLAND_DISPLAY`, and passed to `lunette-capture` as a path. `wlx-capture`'s own `WlxClient` reads the variable itself, which after that export names lunette's compositor rather than the host's.
+
+An X11 host has no `wl_output`, so lunette sees no monitors on one. `wlx-capture` has an X11 path; v1 does not use it.
+
 ### Identity and lifecycle
 
 Monitors receive stable identities, so Lua layout rules survive a replug or a reboot. The identity is the make and model reported in `wl_output.geometry`, falling back to a connector name such as `DP-2` where one is available, and to the monitor's logical position where neither is. The descriptor comes first because it survives a monitor moving to a different port. A Wayland client cannot read a serial, so two monitors of the same model are indistinguishable by descriptor; the second of them is identified by its connector alone, and lunette says so rather than picking one silently.
 
+The connector name comes from `wl_output.name`, added in `wl_output` version 4, whose documented content is the connector. Both wlroots and mutter send it, which makes it a better source than the portal's `mapping_id` on every backend. A name that does not parse as a DRM connector is treated as absent rather than stored as one.
+
 Capture starts lazily and can be stopped from Lua. Nothing is asked of the portal until the first `monitor:mirror()`, so a configuration that mirrors nothing never prompts.
+
+A capture stream negotiates against the DRM formats lunette's importer accepts, and those are a property of the graphics device LÖVR creates several steps into the boot sequence. A monitor mirrored before then is remembered, and its stream opens on the first frame after the device exists. This is the same deferral the compositor thread uses, for the same reason.
+
+Frames arrive on PipeWire's own thread and are forwarded raw to the frame loop, which imports them through the same dmabuf path a hosted client's buffer takes. There is one import path and one GPU queue in the process. The importer answers a recurring PipeWire buffer with the image it already made, so a monitor cycling a pool of four buffers allocates four textures and then allocates nothing further.
+
+The restore tokens are kept in `$XDG_STATE_HOME/lunette/screencast-tokens.toml`, falling back to `$HOME/.local/state`. They are state rather than configuration, so they do not live in the configuration directory, which may be the read-only system one.
 
 Stopping and pausing are separate operations, because they cost different things. `monitor:setPaused(true)` deactivates the PipeWire stream but keeps it, for a panel that has left the user's view; resuming costs nothing. `monitor:dismiss()` drops the stream entirely, which stops PipeWire's thread and closes its descriptors, so a dismissed screen has no ongoing cost at all. The portal session survives a dismissal, so mirroring the monitor again does not prompt a second time; only a session the user revokes, or one the backend loses, produces another dialog.
 

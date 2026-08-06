@@ -53,7 +53,7 @@ mod boot;
 
 use std::{
     env,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     io,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -62,12 +62,19 @@ use std::{
 
 use lunette::{
     events::LovrEventSink,
-    frame::Startup,
-    host::NoHostSinks,
+    frame::{HostDesktop, Startup},
+    host::{HostPointer, HostSinks, NoHostSinks},
     layers::{LayerPool, LovrLayers},
     lua::{PoolRegistry, Session},
-    mirrors::NoMonitors,
+    mirrors::{HostMirrors, MirrorFrames, MirrorRegistry, NoMonitors},
     texture::BarrierPolicy,
+};
+use lunette_capture::{
+    hid::{self, HidConfig},
+    mirror::MirrorSet,
+    monitor::OutputWatcher,
+    portal::{CursorPolicy, WlxPortal},
+    tokens::{self, Loaded},
 };
 use lunette_compositor::client::{XwaylandSatellite, listen};
 use tracing::{error, info, warn};
@@ -108,6 +115,16 @@ fn main() -> ExitCode {
 
     info!(path = %config_directory.display(), "loading the configuration");
 
+    // Read before the export below replaces it. Everything that reaches the
+    // *host* compositor — the output enumeration, and the `wl_virtual` input
+    // provider when Phase 5 gives it a keymap — needs the socket the user's own
+    // session is on, and after the export the variable names lunette's.
+    let host_socket = host_wayland_socket(
+        env::var_os(XDG_RUNTIME_DIR).as_deref(),
+        env::var_os(WAYLAND_DISPLAY).as_deref(),
+    );
+    let state_directory = state_directory(&StateDirectorySources::from_environment());
+
     // `name` rather than `display`, because `tracing`'s macros bring a function
     // of that name into scope and a local would shadow it.
     let (socket, name) = match listen() {
@@ -129,6 +146,31 @@ fn main() -> ExitCode {
         name.wayland().to_string_lossy()
     );
 
+    // Three references to at most two objects. Lua reaches the mirrors through
+    // `MirrorRegistry` and the pointer through `HostSinks`, both dyn-safe; the
+    // frame loop reaches the same mirrors through `MirrorFrames` and the same
+    // pointer concretely, because neither of those is anything Lua should hold.
+    let (mirrors, sinks, desktop): (
+        Rc<dyn MirrorRegistry>,
+        Rc<dyn HostSinks>,
+        Option<HostDesktop>,
+    ) = match host_socket
+        .as_deref()
+        .and_then(|socket| open_host(socket, state_directory.as_deref()))
+    {
+        Some(host) => (
+            Rc::clone(&host.mirrors) as _,
+            Rc::clone(&host.pointer) as _,
+            Some(HostDesktop {
+                outputs: host.outputs,
+                mirrors: host.mirrors as Rc<dyn MirrorFrames>,
+                pointer: host.pointer,
+                tokens: host.tokens,
+            }),
+        ),
+        None => (Rc::new(NoMonitors) as _, Rc::new(NoHostSinks) as _, None),
+    };
+
     let startup = Startup {
         socket,
         display: name,
@@ -143,6 +185,7 @@ fn main() -> ExitCode {
             env::var(IMPORT_QUEUE_FAMILY).ok().as_deref(),
             env::var(IMPORT_LAYOUT).ok().as_deref(),
         ),
+        host: desktop,
     };
 
     // SAFETY: this is the thread that runs the LÖVR boot sequence below and
@@ -160,32 +203,182 @@ fn main() -> ExitCode {
     // backend's own `Layer` type, so they hold it concretely.
     let layers = Rc::new(PoolRegistry::new(LayerPool::new(backend)));
 
-    // `NoMonitors` rather than `HostMirrors`, because two things the lifecycle
-    // needs do not exist yet and neither is this file's to invent.
-    //
-    // Nothing enumerates the host's `wl_output`s, so a `HostMirrors` would hold
-    // an empty roster and refuse every monitor a configuration named. And a
-    // capture stream negotiates against the DRM formats the importer accepts,
-    // which are not known until LÖVR has made a graphics device — several steps
-    // into `boot::run`, and the same reason the compositor thread starts from
-    // the frame loop rather than from here.
-    //
-    // `lunette.monitors()` is therefore empty in this build, which is the honest
-    // answer for a lunette that cannot see the host's screens. Swapping this for
-    // `HostMirrors::new(MirrorSet::new(WlxPortal::connect()?, …))` is what makes
-    // it live, and needs no change above this line.
-    //
-    // `NoHostSinks` follows from the same gap. A host sink maps a hit through
-    // its monitor's logical geometry, so a provider opened against a layout with
-    // no monitors in it would have nothing to place a cursor on.
-    let mirrors = Rc::new(NoMonitors);
     let session = Session::new(
         Box::new(LovrEventSink),
         Rc::clone(&layers) as _,
-        mirrors as _,
-        Rc::new(NoHostSinks) as _,
+        mirrors,
+        sinks,
     );
     boot::run(config_directory, &session, &layers, startup)
+}
+
+/// Everything the host desktop is reached through, before it is split between
+/// the Lua session and the frame loop.
+struct Host {
+    mirrors: Rc<HostMirrors<WlxPortal>>,
+    pointer: Rc<HostPointer>,
+    outputs: OutputWatcher,
+    tokens: Option<PathBuf>,
+}
+
+/// Opens the user's own desktop: its monitors, its screencast portal, and its
+/// input.
+///
+/// `None` when the host's outputs cannot be read, and the session then runs with
+/// no monitors and no host input. That is not a fault to stop for — lunette is
+/// perfectly usable as a compositor for the clients it spawns — but it is
+/// reported, because a user who expected their screens is otherwise left
+/// guessing.
+///
+/// The outputs decide it because everything else depends on them. A screencast
+/// stream is correlated to a monitor by logical geometry, and a host sink maps a
+/// hit through its monitor's rectangle; with no monitors there is nothing for
+/// either to reach. It also means an X11 host has no monitors here, since there
+/// are no `wl_output`s on one.
+fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
+    let outputs = match OutputWatcher::connect(socket) {
+        Ok(outputs) => outputs,
+        Err(error) => {
+            warn!(
+                "{error}; lunette will show none of the host's screens and will not drive its \
+                 pointer"
+            );
+            return None;
+        }
+    };
+
+    let portal = match WlxPortal::connect() {
+        Ok(portal) => portal,
+        Err(error) => {
+            warn!("{error}; no monitor can be mirrored this session");
+            return None;
+        }
+    };
+
+    let (stored, tokens) = read_tokens(state_directory);
+
+    // `wl_virtual` is deliberately not configured: it requires a keymap to
+    // upload before its first keystroke, and building one belongs to Phase 5.
+    // Naming the socket without one would produce a provider the first key
+    // disconnects, so the chain reports "not configured" and falls to uinput.
+    let input = hid::open(&HidConfig::default());
+    if let Some(error) = input.unreachable() {
+        warn!("{error}");
+    }
+
+    // The roster is deliberately not attached here, even though the enumeration
+    // has already read it. The watcher reports it as a change on its first poll,
+    // and letting that one path attach it is what makes `lovr.lunmonitoradded`
+    // fire for the monitors present at startup as well as for one plugged in
+    // later. Attaching here would consume the change and announce nothing.
+    info!(
+        monitors = outputs.outputs().len(),
+        provider = %input.kind(),
+        "the host desktop is reachable",
+    );
+
+    Some(Host {
+        mirrors: Rc::new(HostMirrors::new(MirrorSet::new(
+            portal,
+            CursorPolicy::Hidden,
+            stored,
+        ))),
+        pointer: Rc::new(HostPointer::new(input)),
+        outputs,
+        tokens,
+    })
+}
+
+/// Reads the restore tokens, and says whether they may be written back.
+///
+/// A file written by a later lunette is read for nothing and must not be
+/// rewritten: rendering this version's fields over it would drop the ones this
+/// version does not know about.
+fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<PathBuf>) {
+    let Some(directory) = state_directory else {
+        warn!(
+            "state: neither {XDG_STATE_HOME} nor HOME names an absolute path, so screencast \
+             permissions will be asked for again on every run"
+        );
+        return (tokens::TokenStore::new(), None);
+    };
+
+    let path = directory.join(TOKEN_FILE);
+    match tokens::read(&path) {
+        Ok(Loaded::Store(store)) => {
+            info!(path = %path.display(), monitors = store.len(), "read the screencast tokens");
+            (store, Some(path))
+        }
+        Ok(Loaded::Absent) => (tokens::TokenStore::new(), Some(path)),
+        Ok(Loaded::FromTheFuture { found, supported }) => {
+            warn!(
+                path = %path.display(),
+                %found,
+                %supported,
+                "the screencast tokens were written by a later lunette, so they are left untouched",
+            );
+            (tokens::TokenStore::new(), None)
+        }
+        Err(error) => {
+            warn!("{error}; the screencast portal will prompt again");
+            (tokens::TokenStore::new(), None)
+        }
+    }
+}
+
+/// The host compositor's socket, from the two variables that name it.
+///
+/// `WAYLAND_DISPLAY` may be an absolute path, which the protocol permits and
+/// which is taken as-is, or a name relative to `XDG_RUNTIME_DIR`. `None` when
+/// there is no host Wayland session to reach, which is what a machine at a bare
+/// TTY and an X11-only session both look like.
+fn host_wayland_socket(runtime_dir: Option<&OsStr>, display: Option<&OsStr>) -> Option<PathBuf> {
+    let display = PathBuf::from(display.filter(|display| !display.is_empty())?);
+    if display.is_absolute() {
+        return Some(display);
+    }
+    Some(absolute_path(runtime_dir.map(OsStr::to_owned))?.join(display))
+}
+
+/// The environment values the state directory is resolved from.
+#[derive(Debug)]
+struct StateDirectorySources {
+    /// `$XDG_STATE_HOME`, when it is set to an absolute path.
+    xdg_state_home: Option<PathBuf>,
+    /// `$HOME`, when it is set to an absolute path.
+    home: Option<PathBuf>,
+}
+
+impl StateDirectorySources {
+    fn from_environment() -> Self {
+        Self {
+            xdg_state_home: absolute_path(env::var_os(XDG_STATE_HOME)),
+            home: absolute_path(env::var_os("HOME")),
+        }
+    }
+}
+
+/// Where lunette keeps what it learned rather than what it was told.
+///
+/// State rather than configuration, and so not the configuration directory: the
+/// portal's restore tokens are written by lunette, and the configuration
+/// directory may be the read-only system one. There is no system fallback for
+/// the same reason — a token belongs to one user's session.
+///
+/// The directory is not created here. `lunette_capture::tokens::write` writes
+/// through a sibling temporary file and reports a directory it cannot write to,
+/// which is the same failure as any other and is already handled as one.
+fn state_directory(sources: &StateDirectorySources) -> Option<PathBuf> {
+    sources
+        .xdg_state_home
+        .as_ref()
+        .map(|state| state.join("lunette"))
+        .or_else(|| {
+            sources
+                .home
+                .as_ref()
+                .map(|home| home.join(".local").join("state").join("lunette"))
+        })
 }
 
 /// Where a client is told to find lunette's socket.
@@ -193,6 +386,15 @@ const WAYLAND_DISPLAY: &str = "WAYLAND_DISPLAY";
 
 /// The AppImage runtime's own root, when lunette is running from one.
 const APPDIR: &str = "APPDIR";
+
+/// Where a relative `WAYLAND_DISPLAY` is resolved against.
+const XDG_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
+
+/// The XDG base directory for what a program learns rather than what it is told.
+const XDG_STATE_HOME: &str = "XDG_STATE_HOME";
+
+/// The file the screencast portal's restore tokens are kept in.
+const TOKEN_FILE: &str = "screencast-tokens.toml";
 
 /// The two diagnostic settings milestone 0 exists to answer.
 ///
@@ -288,6 +490,74 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    fn state_sources(xdg_state_home: Option<&str>, home: Option<&str>) -> StateDirectorySources {
+        StateDirectorySources {
+            xdg_state_home: xdg_state_home.map(PathBuf::from),
+            home: home.map(PathBuf::from),
+        }
+    }
+
+    fn socket(runtime_dir: Option<&str>, display: Option<&str>) -> Option<PathBuf> {
+        host_wayland_socket(runtime_dir.map(OsStr::new), display.map(OsStr::new))
+    }
+
+    #[test]
+    fn a_relative_wayland_display_resolves_against_the_runtime_directory() {
+        assert_eq!(
+            socket(Some("/run/user/1000"), Some("wayland-1")),
+            Some(PathBuf::from("/run/user/1000/wayland-1")),
+        );
+    }
+
+    #[test]
+    fn an_absolute_wayland_display_is_taken_as_it_stands() {
+        // The protocol permits it, and a session that uses it has no reason to
+        // set XDG_RUNTIME_DIR to anything in particular.
+        assert_eq!(
+            socket(None, Some("/tmp/custom/wayland-9")),
+            Some(PathBuf::from("/tmp/custom/wayland-9")),
+        );
+    }
+
+    #[test]
+    fn no_wayland_display_names_no_host_socket() {
+        // A bare TTY, and an X11-only session. Both are ordinary, and both mean
+        // lunette can see none of the host's screens.
+        assert_eq!(socket(Some("/run/user/1000"), None), None);
+        assert_eq!(socket(Some("/run/user/1000"), Some("")), None);
+    }
+
+    #[test]
+    fn a_relative_wayland_display_with_no_runtime_directory_names_nothing() {
+        // There is nothing to resolve it against, and guessing /run/user/$UID
+        // would connect to a socket the session did not name.
+        assert_eq!(socket(None, Some("wayland-1")), None);
+        assert_eq!(socket(Some("relative"), Some("wayland-1")), None);
+    }
+
+    #[test]
+    fn the_state_directory_prefers_xdg_state_home() {
+        assert_eq!(
+            state_directory(&state_sources(Some("/state"), Some("/home/user"))),
+            Some(PathBuf::from("/state/lunette")),
+        );
+    }
+
+    #[test]
+    fn the_state_directory_falls_back_to_the_xdg_default_under_home() {
+        assert_eq!(
+            state_directory(&state_sources(None, Some("/home/user"))),
+            Some(PathBuf::from("/home/user/.local/state/lunette")),
+        );
+    }
+
+    #[test]
+    fn no_state_directory_is_representable() {
+        // There is no system fallback, unlike the configuration directory: a
+        // restore token belongs to one user's session.
+        assert_eq!(state_directory(&state_sources(None, None)), None);
+    }
 
     fn sources(xdg_config_home: Option<&str>, home: Option<&str>) -> ConfigDirectorySources {
         ConfigDirectorySources {

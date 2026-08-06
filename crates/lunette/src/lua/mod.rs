@@ -80,7 +80,7 @@ use crate::{
     host::HostSinks,
     lua::{claim::claim_layer, monitor::monitors},
     mirrors::MirrorRegistry,
-    texture::{CopyableTexture, FrameGeneration, LovrTexture, TextureLedger},
+    texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
 
 /// The name `require` resolves through, and the root of the native surface.
@@ -146,6 +146,11 @@ pub unsafe fn install_on_state<T: LuaTexture>(
 pub struct Session<T> {
     frame: RefCell<Frame>,
     textures: RefCell<TextureLedger<T>>,
+    /// A mirrored monitor's texture, which is keyed by monitor rather than by
+    /// surface and needs none of the surface ledger's death and damage
+    /// bookkeeping. [`crate::texture::MonitorTextures`] says why the two are
+    /// separate types.
+    monitors: RefCell<MonitorTextures<T>>,
     events: RefCell<EventQueue>,
     /// Where a pushed event is announced. Boxed rather than a second type
     /// parameter: it is called a handful of times a frame, and threading
@@ -185,6 +190,7 @@ impl<T> Session<T> {
                 processes: 0,
             }),
             textures: RefCell::new(TextureLedger::new()),
+            monitors: RefCell::new(MonitorTextures::new()),
             events: RefCell::new(EventQueue::default()),
             sink,
             claims,
@@ -319,6 +325,14 @@ impl<T> Session<T> {
     /// callbacks, and a guard held across one would panic on the re-entry.
     pub fn with_textures<R>(&self, body: impl FnOnce(&mut TextureLedger<T>) -> R) -> R {
         body(&mut self.textures.borrow_mut())
+    }
+
+    /// Runs `body` against the textures the frame's mirrored monitors hold.
+    ///
+    /// A closure rather than a borrow guard, for the reason
+    /// [`Session::with_textures`] takes one.
+    pub fn with_monitor_textures<R>(&self, body: impl FnOnce(&mut MonitorTextures<T>) -> R) -> R {
+        body(&mut self.monitors.borrow_mut())
     }
 
     /// Queues a mutation for the frame's flush.

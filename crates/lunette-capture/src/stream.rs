@@ -44,8 +44,13 @@ use std::{
 use parking_lot::Mutex;
 use smallvec::SmallVec;
 use tracing::{debug, info, warn};
+// Re-exported so a consumer can say which DRM formats its importer accepts
+// without taking a direct dependency on `wlx-capture`. `CaptureFormat` already
+// exposes both types by value, so this states an existing coupling rather than
+// creating one.
+pub use wlx_capture::{DrmFormat, DrmFourcc, DrmModifier};
 use wlx_capture::{
-    DrmFormat, DrmFourcc, DrmModifier, WlxCapture,
+    WlxCapture,
     frame::{DmabufFrame, FrameFormat, FramePlane, Transform, WlxFrame},
     pipewire::capture::PipewireCapture,
 };

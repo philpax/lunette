@@ -102,15 +102,15 @@ impl RecordingSource {
 }
 
 impl MonitorStreams for RecordingSource {
-    fn open(&mut self, name: &str, node: NodeId) -> Box<dyn MonitorStream> {
+    fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>> {
         self.log.record(StreamEvent::Opened {
             name: name.to_owned(),
             node,
         });
-        Box::new(RecordedStream {
+        Some(Box::new(RecordedStream {
             log: self.log.clone(),
             node,
-        })
+        }))
     }
 }
 
