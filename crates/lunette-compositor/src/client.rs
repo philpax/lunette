@@ -315,6 +315,31 @@ impl Satellite {
             }
         }
     }
+
+    /// Whether the bridge is still running.
+    pub(crate) fn is_running(&self) -> bool {
+        self.child.is_some()
+    }
+
+    /// Reaps the bridge if it has exited.
+    ///
+    /// The bridge is not in the process registry — no `lunette.spawn` asked for
+    /// it and no handle refers to it — so nothing else waits on it, and without
+    /// this it would sit as a zombie for the rest of the session. Its exit is
+    /// not reported to Lua for the same reason: there is no process handle for
+    /// it to be an exit of.
+    pub(crate) fn poll(&mut self) {
+        let Some(child) = self.child.as_mut() else {
+            return;
+        };
+        if let Some(outcome) = child.poll() {
+            warn!(
+                ?outcome,
+                "xwayland-satellite stopped; x11 applications will not work"
+            );
+            self.child = None;
+        }
+    }
 }
 
 #[cfg(test)]

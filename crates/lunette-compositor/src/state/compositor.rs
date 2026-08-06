@@ -213,10 +213,9 @@ pub(crate) struct CompositorState {
     /// while there is something to reap.
     process_poll: Option<RegistrationToken>,
     loop_handle: LoopHandle<'static, LoopData>,
-    /// Held for its lifetime: dropping it asks the bridge's process group to
-    /// stop, which is how xwayland-satellite and the `Xwayland` it started are
-    /// reaped.
-    #[expect(dead_code, reason = "held so the x11 bridge stops when lunette does")]
+    /// Polled with the spawned processes, and dropped with the state: dropping
+    /// it asks the bridge's process group to stop, which is how
+    /// xwayland-satellite and the `Xwayland` it started are reaped.
     satellite: Satellite,
     pub(super) frame_callbacks: HashMap<ObjectId, Vec<WlCallback>>,
     pub(super) cursor_image: CursorImageStatus,
@@ -300,7 +299,7 @@ impl CompositorState {
             }
         };
 
-        Self {
+        let mut state = Self {
             display: display.clone(),
             environment: config
                 .display
@@ -342,7 +341,15 @@ impl CompositorState {
             snapshots,
             signal,
             dirty: true,
+        };
+
+        // The bridge is a child like any other and has to be waited on, so the
+        // poll timer starts with it rather than with the first `lunette.spawn`.
+        if state.satellite.is_running() {
+            state.watch_processes();
         }
+
+        state
     }
 
     pub(crate) fn stop(&self) {
@@ -532,6 +539,8 @@ impl CompositorState {
 
     /// Collects output and exits, and decides whether to keep watching.
     fn poll_processes(&mut self) -> TimeoutAction {
+        self.satellite.poll();
+
         for report in self.processes.poll(self.inspector.as_ref()) {
             match report {
                 Report::Output { id, stream, bytes } => self.report(Event::ProcessOutput {
@@ -549,7 +558,7 @@ impl CompositorState {
             }
         }
 
-        if self.processes.is_empty() {
+        if self.processes.is_empty() && !self.satellite.is_running() {
             // Nothing left to reap. The timer is dropped rather than left to
             // wake an otherwise idle compositor ten times a second.
             self.process_poll = None;

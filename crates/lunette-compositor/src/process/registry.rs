@@ -5,7 +5,7 @@
 
 use std::{
     ffi::{OsStr, OsString},
-    fmt,
+    fmt, io,
     path::Path,
 };
 
@@ -65,7 +65,7 @@ impl ProcessRegistry {
         spawner: &mut dyn ProcessSpawner,
         request: SpawnRequest<'_>,
     ) -> Result<(), SpawnError> {
-        let token = AuthToken::generate();
+        let token = AuthToken::generate(request.argv.program())?;
         let plan = build_plan(&request, &token);
 
         let child = spawner.spawn(&plan)?;
@@ -286,15 +286,26 @@ pub(crate) struct AuthToken {
 }
 
 impl AuthToken {
-    pub(crate) fn generate() -> Self {
+    /// Draws a token from the operating system's CSPRNG.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SpawnError`] when the random source is unavailable, which a
+    /// hardened kernel blocking `getrandom` and an exhausted descriptor table
+    /// both produce. There is no fallback: a predictable token is worse than
+    /// none, because it would let any client claim any process. Refusing the
+    /// spawn is the whole of the response — the session keeps running.
+    pub(crate) fn generate(program: &OsStr) -> Result<Self, SpawnError> {
         let mut bytes = [0_u8; TOKEN_BYTES];
-        getrandom::fill(&mut bytes).unwrap_or_else(|error| {
-            // The kernel's random source being unavailable means the machine is
-            // in a state where a token cannot be trusted, and a predictable one
-            // is worse than none: it would let any client claim any process.
-            panic!("the operating system's random source is unavailable: {error}")
-        });
-        Self { bytes }
+        getrandom::fill(&mut bytes).map_err(|error| {
+            SpawnError::refused(
+                program.to_owned(),
+                io::Error::other(format!(
+                    "the operating system's random source is unavailable: {error}"
+                )),
+            )
+        })?;
+        Ok(Self { bytes })
     }
 
     /// Reads a token a client presented, which may be any length or malformed.
@@ -337,7 +348,7 @@ impl fmt::Debug for AuthToken {
 /// launcher's environment and `--env` is an argument of `flatpak run` rather
 /// than of `flatpak`.
 fn build_plan(request: &SpawnRequest<'_>, token: &AuthToken) -> SpawnPlan {
-    let hints = toolkit_hints(&request.display.wayland_display, &token.encoded());
+    let hints = toolkit_hints(&token.encoded());
     let flatpak = is_flatpak(request.argv);
 
     let (argv, env) = if flatpak {
@@ -399,12 +410,15 @@ fn display_variables(display: &DisplayEnvironment) -> Vec<(OsString, OsString)> 
     .collect()
 }
 
-/// The variables that tell each toolkit to prefer Wayland.
+/// The variables that tell each toolkit to prefer Wayland, and the token that
+/// identifies the process they belong to.
 ///
 /// Copied wholesale from `mod.rs:1334-1340`. Without them a toolkit that
 /// supports both backends often picks X11, which then goes through
-/// xwayland-satellite for no reason.
-fn toolkit_hints(_wayland_display: &OsStr, token: &str) -> Vec<(OsString, OsString)> {
+/// xwayland-satellite for no reason. `WAYLAND_DISPLAY` is not among them:
+/// [`display_variables`] carries it, because a spawn with no socket bound must
+/// omit it rather than export an empty one.
+fn toolkit_hints(token: &str) -> Vec<(OsString, OsString)> {
     [
         (AUTH_VARIABLE, token),
         ("GDK_BACKEND", "wayland,x11"),

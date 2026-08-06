@@ -6,9 +6,12 @@ license.workspace = true
 
 [dependencies]
 arc-swap.workspace = true
+# The operating system's CSPRNG, for the token that attributes a client to the
+# process lunette started it as. Never a userspace generator: a token that can
+# be predicted is an attribution a hostile client can claim.
+getrandom.workspace = true
 # Only for `dev_t` and `makedev`: `DmabufFeedbackBuilder::new` takes a device
 # number, and naming the C type is better than assuming it is `u64` here.
-getrandom.workspace = true
 libc.workspace = true
 smallvec.workspace = true
 # `desktop` supplies `Window` and `PopupManager`. `backend_vulkan` stays off:

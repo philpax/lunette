@@ -13,6 +13,8 @@ use std::{
     os::unix::process::{CommandExt, ExitStatusExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use smithay::reexports::rustix::{
@@ -24,7 +26,25 @@ use tracing::{debug, warn};
 use crate::protocol::{Argv, Pid, ProcessOutcome, ProcessSignal, SignalNumber, Stream};
 
 /// How much of a child's output is taken in one read.
+///
+/// One chunk per stream per poll, and [`crate::state`] polls ten times a second,
+/// so a child's output is carried at roughly 80 KB/s per stream and anything
+/// past that backs up in the pipe until the next poll. That is deliberate: the
+/// output is diagnostic, a chatty child must not be able to make the compositor
+/// thread spend a frame reading, and the pipe's own buffer is the backpressure.
+/// A child that outruns it is slowed, not truncated.
 const OUTPUT_CHUNK: usize = 8192;
+
+/// How long a child is given to honour `SIGTERM` before `SIGKILL` follows.
+///
+/// A duration rather than a condition, because the thing being waited on is a
+/// process choosing whether to exit, and there is no state to poll for other
+/// than the exit itself. It bounds lunette's own teardown: this is spent once
+/// per still-running child, and only when lunette is already stopping.
+const TERMINATE_GRACE: Duration = Duration::from_millis(200);
+
+/// How often the grace period is rechecked.
+const REAP_POLL: Duration = Duration::from_millis(5);
 
 /// Starts child processes.
 ///
@@ -51,13 +71,19 @@ pub trait ChildProcess: Send {
     fn pid(&self) -> Pid;
 
     /// The outcome, once the child has ended and been reaped. `None` while it
-    /// is still running.
+    /// is still running, and `None` for ever after the outcome is reported
+    /// once.
     fn poll(&mut self) -> Option<ProcessOutcome>;
 
     /// Takes whatever the child has written since the last call.
     fn read_output(&mut self) -> Vec<(Stream, Vec<u8>)>;
 
     /// Signals the child's whole process group.
+    ///
+    /// An implementation must ignore this once [`ChildProcess::poll`] has
+    /// reported an outcome. The pid is the group's leader, so reaping the child
+    /// frees the pgid too, and a signal sent afterwards lands on whichever
+    /// unrelated group the kernel has since given that number to.
     fn signal(&mut self, signal: ProcessSignal);
 }
 
@@ -153,7 +179,11 @@ impl ProcessSpawner for SystemSpawner {
             cause: io::Error::other("the child reported an impossible process id"),
         })?;
 
-        Ok(Box::new(SystemChild { pid, child }))
+        Ok(Box::new(SystemChild {
+            pid,
+            child,
+            liveness: Liveness::Running,
+        }))
     }
 }
 
@@ -171,6 +201,7 @@ impl<T: std::os::fd::AsFd> AsRawPipe for T {
 struct SystemChild {
     pid: Pid,
     child: Child,
+    liveness: Liveness,
 }
 
 impl ChildProcess for SystemChild {
@@ -179,16 +210,23 @@ impl ChildProcess for SystemChild {
     }
 
     fn poll(&mut self) -> Option<ProcessOutcome> {
+        if self.liveness == Liveness::Reaped {
+            return None;
+        }
+
         match self.child.try_wait() {
-            Ok(Some(status)) => Some(match (status.code(), status.signal()) {
-                (Some(code), _) => ProcessOutcome::Exited { code },
-                (None, Some(signal)) => ProcessOutcome::Signalled {
-                    signal: SignalNumber::new(signal),
-                },
-                // `wait` reported neither, which the interface permits and the
-                // kernel does not produce. Naming it as an exit of unknown
-                // cause beats inventing a signal number.
-                (None, None) => ProcessOutcome::Exited { code: -1 },
+            Ok(Some(status)) => Some({
+                self.liveness = Liveness::Reaped;
+                match (status.code(), status.signal()) {
+                    (Some(code), _) => ProcessOutcome::Exited { code },
+                    (None, Some(signal)) => ProcessOutcome::Signalled {
+                        signal: SignalNumber::new(signal),
+                    },
+                    // `wait` reported neither, which the interface permits and
+                    // the kernel does not produce. Naming it as an exit of
+                    // unknown cause beats inventing a signal number.
+                    (None, None) => ProcessOutcome::Exited { code: -1 },
+                }
             }),
             Ok(None) => None,
             Err(error) => {
@@ -216,23 +254,96 @@ impl ChildProcess for SystemChild {
     }
 
     fn signal(&mut self, signal: ProcessSignal) {
+        if !self.liveness.may_signal() {
+            debug!(pid = %self.pid, "not signalling a child that has already been reaped");
+            return;
+        }
         if let Err(error) = signal_group(self.pid, signal) {
             warn!(pid = %self.pid, %error, "could not signal a child's process group");
         }
     }
 }
 
+impl SystemChild {
+    /// Waits for a signalled child, escalating to `SIGKILL` if it does not go.
+    ///
+    /// Without this the child stays a zombie for as long as lunette runs, since
+    /// nothing else waits on it. `SIGKILL` cannot be caught, so the blocking
+    /// wait that follows the escalation ends promptly rather than inheriting a
+    /// child's decision not to exit.
+    fn reap(&mut self) {
+        let deadline = Instant::now() + TERMINATE_GRACE;
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => {
+                    self.liveness = Liveness::Reaped;
+                    return;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(pid = %self.pid, %error, "could not wait for a stopping child");
+                    return;
+                }
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+            thread::sleep(REAP_POLL);
+        }
+
+        debug!(pid = %self.pid, "a process group did not stop when asked; killing it");
+        if let Err(error) = signal_group(self.pid, ProcessSignal::Kill) {
+            debug!(pid = %self.pid, %error, "the process group was already gone");
+        }
+        match self.child.wait() {
+            Ok(_) => self.liveness = Liveness::Reaped,
+            Err(error) => warn!(pid = %self.pid, %error, "could not wait for a killed child"),
+        }
+    }
+}
+
 impl Drop for SystemChild {
-    /// Asks the child's whole group to stop.
+    /// Asks the child's whole group to stop, and waits for the child itself.
     ///
     /// WayVR sends `SIGTERM` to the direct child here (`process.rs:88-97`). A
     /// group is the correct unit: the direct child of a wrapper script is the
     /// script, and killing it leaves the application running with no window.
     fn drop(&mut self) {
+        if !self.liveness.may_signal() {
+            return;
+        }
+
         debug!(pid = %self.pid, "asking a process group to stop");
         if let Err(error) = signal_group(self.pid, ProcessSignal::Terminate) {
             debug!(pid = %self.pid, %error, "the process group was already gone");
         }
+        self.reap();
+    }
+}
+
+/// Whether a child still exists as a process, and so whether its process group
+/// may be addressed.
+///
+/// The distinction is not bookkeeping. `wait` returns a reaped child's pid to
+/// the kernel's free pool, and `setsid` made that pid the group's leader, so the
+/// pgid becomes free with it. A machine with the usual `pid_max` of 32768 wraps
+/// the pid space in minutes under load, at which point `kill(-pid, …)` addresses
+/// whichever unrelated process group has since been given that number. Every
+/// signal this crate sends is therefore gated on the process not having been
+/// reaped.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Liveness {
+    /// Not yet waited on, so the pid is still lunette's and still addressable.
+    #[default]
+    Running,
+    /// Waited on. The pid is the kernel's again and must never be signalled.
+    Reaped,
+}
+
+impl Liveness {
+    /// Whether the process group behind this pid is still the child's.
+    pub(crate) fn may_signal(self) -> bool {
+        matches!(self, Self::Running)
     }
 }
 
@@ -248,6 +359,15 @@ impl SpawnError {
     #[must_use]
     pub fn message(&self) -> String {
         self.to_string()
+    }
+
+    /// Reports a spawn refused before anything was started.
+    ///
+    /// The registry uses it when the authentication token cannot be drawn.
+    /// Reported the same way as a program that could not be executed, because
+    /// the outcome the caller sees is the same: no process exists.
+    pub(crate) fn refused(program: OsString, cause: io::Error) -> Self {
+        Self { program, cause }
     }
 
     /// Builds an error a fake spawner can report.

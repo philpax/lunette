@@ -46,6 +46,10 @@ mod tests;
 #[cfg(any(test, feature = "test-fakes"))]
 pub(crate) use crate::process::registry::find_environment_value;
 pub(crate) use crate::process::registry::{ProcessRegistry, Report, SpawnRequest};
+/// Reached by the fake child in [`crate::testing`], which enforces the same
+/// signalling rule as the real one so a test can assert it without forking.
+#[cfg(any(test, feature = "test-fakes"))]
+pub(crate) use crate::process::spawn::Liveness;
 pub use crate::process::{
     attribution::{ProcFilesystem, ProcessInspector},
     spawn::{

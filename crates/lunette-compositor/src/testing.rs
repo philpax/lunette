@@ -39,7 +39,7 @@ use smithay::{
 
 use crate::{
     process::{
-        ChildProcess, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,
+        ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,
         find_environment_value,
     },
     protocol::{
@@ -453,6 +453,7 @@ impl ProcessSpawner for FakeSpawner {
                 outcome: None,
                 output: Vec::new(),
                 signals: Vec::new(),
+                liveness: Liveness::default(),
             }));
             state.children.push(Arc::clone(&child));
 
@@ -467,6 +468,11 @@ struct FakeChildState {
     outcome: Option<ProcessOutcome>,
     output: Vec<(Stream, Vec<u8>)>,
     signals: Vec<ProcessSignal>,
+    /// Whether the child has been waited on, tracked exactly as the real one
+    /// tracks it. The fake carries this because the rule it guards — that a
+    /// reaped pid is never signalled — is the whole reason a test would look at
+    /// [`SpawnLog::signals`] after a child has exited.
+    liveness: Liveness,
 }
 
 #[derive(Debug)]
@@ -491,7 +497,16 @@ impl ChildProcess for FakeChild {
     }
 
     fn poll(&mut self) -> Option<ProcessOutcome> {
-        self.with(|state| state.outcome.take())
+        self.with(|state| {
+            if !state.liveness.may_signal() {
+                return None;
+            }
+            let outcome = state.outcome.take();
+            if outcome.is_some() {
+                state.liveness = Liveness::Reaped;
+            }
+            outcome
+        })
     }
 
     fn read_output(&mut self) -> Vec<(Stream, Vec<u8>)> {
@@ -499,7 +514,23 @@ impl ChildProcess for FakeChild {
     }
 
     fn signal(&mut self, signal: ProcessSignal) {
-        self.with(|state| state.signals.push(signal));
+        self.with(|state| {
+            if state.liveness.may_signal() {
+                state.signals.push(signal);
+            }
+        });
+    }
+}
+
+impl Drop for FakeChild {
+    /// Mirrors `SystemChild`'s drop, which asks a still-running child's process
+    /// group to stop and leaves a reaped one alone.
+    ///
+    /// Without this the fake would be silent on exactly the path the real one is
+    /// dangerous on, and a test could not tell the two apart.
+    fn drop(&mut self) {
+        self.signal(ProcessSignal::Terminate);
+        self.with(|state| state.liveness = Liveness::Reaped);
     }
 }
 

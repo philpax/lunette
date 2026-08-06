@@ -17,7 +17,7 @@ use crate::{
         },
         spawn::{DisplayEnvironment, SpawnError, SpawnPlan},
     },
-    protocol::{Argv, Pid, ProcessId},
+    protocol::{Argv, Pid, ProcessId, ProcessOutcome, ProcessSignal},
     testing::{FakeInspector, FakeSpawner},
 };
 
@@ -310,6 +310,48 @@ fn an_adopted_process_that_disappears_is_reported_once() {
 }
 
 #[test]
+fn a_child_that_has_exited_is_never_signalled_again() {
+    let mut registry = ProcessRegistry::default();
+    let mut spawner = FakeSpawner::default();
+    spawn_into(&mut registry, &mut spawner, process(1), &["foot"]).expect("started");
+
+    spawner.log.finish(0, ProcessOutcome::Exited { code: 0 });
+    let reports = registry.poll(&FakeInspector::default());
+    assert_eq!(reports.len(), 1, "the exit is reported: {reports:?}");
+
+    // The registry drops the child as it removes the entry. A signal sent then
+    // would go to the pid the kernel has just taken back, and therefore to
+    // whichever unrelated process group is next given that number.
+    assert_eq!(
+        spawner.log.signals(0),
+        Vec::new(),
+        "a reaped child's process group must not be signalled"
+    );
+
+    registry.signal(process(1), ProcessSignal::Terminate);
+    assert_eq!(
+        spawner.log.signals(0),
+        Vec::new(),
+        "nor after the entry is gone"
+    );
+}
+
+#[test]
+fn a_child_that_is_still_running_is_asked_to_stop_when_the_registry_goes() {
+    let mut spawner = FakeSpawner::default();
+    let mut registry = ProcessRegistry::default();
+    spawn_into(&mut registry, &mut spawner, process(1), &["foot"]).expect("started");
+
+    drop(registry);
+
+    assert_eq!(
+        spawner.log.signals(0),
+        vec![ProcessSignal::Terminate],
+        "a live child's group is asked to stop as lunette shuts down"
+    );
+}
+
+#[test]
 fn an_environment_block_is_read_as_bytes() {
     let mut block = Vec::new();
     block.extend_from_slice(b"PATH=/usr/bin\0");
@@ -354,7 +396,7 @@ fn an_empty_environment_block_yields_nothing() {
 
 #[test]
 fn a_token_round_trips_through_its_encoded_form() {
-    let token = AuthToken::generate();
+    let token = AuthToken::generate(OsStr::new("foot")).expect("the random source answers");
     let encoded = token.encoded();
 
     assert_eq!(encoded.len(), TOKEN_BYTES * 2);
@@ -363,7 +405,7 @@ fn a_token_round_trips_through_its_encoded_form() {
 
 #[test]
 fn a_token_does_not_match_a_prefix_of_itself() {
-    let token = AuthToken::generate();
+    let token = AuthToken::generate(OsStr::new("foot")).expect("the random source answers");
     let encoded = token.encoded();
 
     assert!(!token.matches(&AuthToken::from_bytes(
@@ -388,7 +430,7 @@ fn hexadecimal_decoding_rejects_what_is_not_hexadecimal() {
 
 #[test]
 fn a_token_is_not_written_into_a_log_line() {
-    let token = AuthToken::generate();
+    let token = AuthToken::generate(OsStr::new("foot")).expect("the random source answers");
     let rendered = format!("{token:?}");
 
     assert!(!rendered.contains(&token.encoded()));
