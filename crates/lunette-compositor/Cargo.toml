@@ -8,6 +8,7 @@ license.workspace = true
 arc-swap.workspace = true
 # Only for `dev_t` and `makedev`: `DmabufFeedbackBuilder::new` takes a device
 # number, and naming the C type is better than assuming it is `u64` here.
+getrandom.workspace = true
 libc.workspace = true
 smallvec.workspace = true
 # `desktop` supplies `Window` and `PopupManager`. `backend_vulkan` stays off:
@@ -18,6 +19,7 @@ smallvec.workspace = true
 # `smithay::reexports` rather than named here, so there is one version of each
 # in the tree by construction.
 smithay = { workspace = true, features = ["desktop", "wayland_frontend"] }
+subtle.workspace = true
 tracing.workspace = true
 
 [features]

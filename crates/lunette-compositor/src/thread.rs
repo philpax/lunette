@@ -38,10 +38,11 @@ use smithay::reexports::{
 use tracing::{error, info, warn};
 
 use crate::{
+    process::{ProcFilesystem, ProcessInspector, ProcessSpawner, SystemSpawner},
     protocol::{
         Command, Event, Generation, OutputSnapshot, ProcessSnapshot, Snapshot, WindowSnapshot,
     },
-    state::{CompositorConfig, CompositorState},
+    state::{CompositorConfig, CompositorState, StateParts},
     surface::BufferImporter,
 };
 
@@ -70,6 +71,25 @@ pub fn spawn(
     config: CompositorConfig,
     importer: Box<dyn BufferImporter>,
 ) -> Result<CompositorHandle, StartError> {
+    spawn_with(
+        config,
+        importer,
+        Box::new(SystemSpawner),
+        Box::new(ProcFilesystem),
+    )
+}
+
+/// Starts the compositor thread against spawner and `/proc` implementations of
+/// the caller's choosing.
+///
+/// The two seams exist for tests, which must not fork and must not read the
+/// real `/proc`. Production calls [`spawn`], which supplies the real ones.
+pub fn spawn_with(
+    config: CompositorConfig,
+    importer: Box<dyn BufferImporter>,
+    spawner: Box<dyn ProcessSpawner>,
+    inspector: Box<dyn ProcessInspector>,
+) -> Result<CompositorHandle, StartError> {
     let (commands, command_channel) = calloop::channel::sync_channel(COMMAND_CAPACITY);
     let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
     let (snapshots, reader) = snapshot_channel();
@@ -83,6 +103,8 @@ pub fn spawn(
                     Ingredients {
                         config,
                         importer,
+                        spawner,
+                        inspector,
                         commands: command_channel,
                         events: EventSender {
                             queue: event_sender,
@@ -309,6 +331,8 @@ impl Drop for AbortGuard {
 pub(crate) struct Ingredients {
     pub(crate) config: CompositorConfig,
     pub(crate) importer: Box<dyn BufferImporter>,
+    pub(crate) spawner: Box<dyn ProcessSpawner>,
+    pub(crate) inspector: Box<dyn ProcessInspector>,
     pub(crate) commands: Channel<Command>,
     pub(crate) events: EventSender,
     pub(crate) snapshots: SnapshotPublisher,
@@ -357,6 +381,8 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
     let Ingredients {
         config,
         importer,
+        spawner,
+        inspector,
         commands,
         events,
         snapshots,
@@ -402,14 +428,17 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
             cause: error.error,
         })?;
 
-    let mut state = CompositorState::new(
-        &display.handle(),
+    let mut state = CompositorState::new(StateParts {
+        display: &display.handle(),
         config,
         importer,
+        spawner,
+        inspector,
         events,
         snapshots,
-        event_loop.get_signal(),
-    );
+        signal: event_loop.get_signal(),
+        loop_handle: handle,
+    });
 
     // Published before the caller is told the thread started, so a caller that
     // reads a snapshot immediately after `spawn` sees a real one — with the
@@ -553,9 +582,11 @@ mod tests {
     use crate::testing::{ImportLog, recording_importer};
 
     fn test_compositor_thread() -> CompositorHandle {
-        spawn(
+        spawn_with(
             CompositorConfig::default(),
             recording_importer(ImportLog::default()),
+            Box::new(crate::testing::FakeSpawner::default()),
+            Box::new(crate::testing::FakeInspector::default()),
         )
         .expect("the compositor thread starts")
     }

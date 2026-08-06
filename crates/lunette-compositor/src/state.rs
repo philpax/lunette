@@ -33,7 +33,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use smithay::{
@@ -54,7 +54,10 @@ use smithay::{
     },
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
-        calloop::LoopSignal,
+        calloop::{
+            LoopHandle, LoopSignal, RegistrationToken,
+            timer::{TimeoutAction, Timer},
+        },
         wayland_protocols::xdg::{
             decoration::zv1::server::zxdg_toplevel_decoration_v1, shell::server::xdg_toplevel,
         },
@@ -94,16 +97,20 @@ use smithay::{
 use tracing::{debug, info, warn};
 
 use crate::{
+    process::{
+        DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
+    },
     protocol::{
-        Command, Event, OutputId, OutputMode, OutputScale, OutputSnapshot, PixelPoint, PixelSize,
-        PointerButton, ProcessId, RefreshRate, SeatId, SinkId, SurfaceId, ToplevelState,
-        ToplevelStates, WindowId, WindowSnapshot,
+        Command, Event, OutputId, OutputMode, OutputScale, OutputSnapshot, Pid, PixelPoint,
+        PixelSize, PointerButton, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
+        SinkId, SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
     },
     surface::{
         BufferImporter, BufferScale, BufferTransform, RetainedBuffers, ShmFormat, ShmLayout,
         SurfaceContent, SurfaceRegistry,
     },
-    thread::{EventSender, SnapshotPublisher},
+    thread::{EventSender, LoopData, SnapshotPublisher},
+    window::{MouseState, Window, WindowManager},
 };
 
 /// The one seat Phase 2 has. Multi-seat is Phase 5, and the identifier is fixed
@@ -125,6 +132,13 @@ const SEAT_NAME: &str = "lunette";
 /// The output's name, which clients see on `wl_output.name`.
 const OUTPUT_NAME: &str = "lunette-0";
 
+/// How often spawned processes are checked for output and for having exited.
+///
+/// A tenth of a second. Output from a spawned application is diagnostic, so the
+/// latency does not matter; the interval is short enough that a process that
+/// exits is reported within a frame or two of it happening.
+const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
 /// How lunette configures its virtual monitor and its buffer support.
 ///
 /// WayVR fixes the resolution at `mod.rs:172` as `WAYVR_SCREEN_RES`. Lunette's
@@ -134,6 +148,10 @@ const OUTPUT_NAME: &str = "lunette-0";
 pub struct CompositorConfig {
     pub output: OutputMode,
     pub dmabuf: DmabufSupport,
+    /// What a spawned client is told about how to reach lunette. Empty until
+    /// the listening socket exists, and a child started with an empty one finds
+    /// no compositor — which is the truth of a compositor with no socket.
+    pub display: DisplayEnvironment,
 }
 
 impl Default for CompositorConfig {
@@ -148,6 +166,7 @@ impl Default for CompositorConfig {
                 refresh: RefreshRate::from_millihertz(60_000),
             },
             dmabuf: DmabufSupport::default(),
+            display: DisplayEnvironment::default(),
         }
     }
 }
@@ -195,6 +214,7 @@ impl RenderNode {
 /// bottom of this file names it, so it is the single type smithay dispatches
 /// protocol traffic into.
 pub(crate) struct CompositorState {
+    display: DisplayHandle,
     config: CompositorConfig,
 
     compositor: compositor::CompositorState,
@@ -225,10 +245,19 @@ pub(crate) struct CompositorState {
     output_global: smithay::reexports::wayland_server::backend::GlobalId,
 
     importer: Box<dyn BufferImporter>,
+    spawner: Box<dyn ProcessSpawner>,
+    inspector: Box<dyn ProcessInspector>,
     surfaces: SurfaceRegistry,
     buffers: RetainedBuffers<WlBuffer>,
     contents: HashMap<SurfaceId, SurfaceContent>,
-    toplevels: Toplevels,
+    windows: WindowManager,
+    processes: ProcessRegistry,
+    /// Which process each connected client was attributed to.
+    clients: HashMap<ClientId, ProcessId>,
+    /// The timer that reaps children and collects their output, present only
+    /// while there is something to reap.
+    process_poll: Option<RegistrationToken>,
+    loop_handle: LoopHandle<'static, LoopData>,
     frame_callbacks: HashMap<ObjectId, Vec<WlCallback>>,
     cursor_image: CursorImageStatus,
     serials: SerialCounter,
@@ -253,14 +282,18 @@ impl CompositorState {
     /// creates `wl_subcompositor` unconditionally
     /// (`smithay-0.7.0/src/wayland/compositor/mod.rs:685-710`), so omitting it
     /// is not an option a caller has.
-    pub(crate) fn new(
-        display: &DisplayHandle,
-        config: CompositorConfig,
-        importer: Box<dyn BufferImporter>,
-        events: EventSender,
-        snapshots: SnapshotPublisher,
-        signal: LoopSignal,
-    ) -> Self {
+    pub(crate) fn new(parts: StateParts<'_>) -> Self {
+        let StateParts {
+            display,
+            config,
+            importer,
+            spawner,
+            inspector,
+            events,
+            snapshots,
+            signal,
+            loop_handle,
+        } = parts;
         let compositor = compositor::CompositorState::new::<Self>(display);
         let xdg_shell = XdgShellState::new::<Self>(display);
         // An empty extra-format list, as WayVR passes at `mod.rs:185`, so only
@@ -299,6 +332,7 @@ impl CompositorState {
             create_dmabuf_global(display, &config.dmabuf);
 
         Self {
+            display: display.clone(),
             config,
             compositor,
             xdg_shell,
@@ -316,10 +350,16 @@ impl CompositorState {
             viewporter,
             output_global,
             importer,
+            spawner,
+            inspector,
             surfaces: SurfaceRegistry::default(),
             buffers: RetainedBuffers::default(),
             contents: HashMap::new(),
-            toplevels: Toplevels::default(),
+            windows: WindowManager::default(),
+            processes: ProcessRegistry::default(),
+            clients: HashMap::new(),
+            process_poll: None,
+            loop_handle,
             frame_callbacks: HashMap::new(),
             cursor_image: CursorImageStatus::default_named(),
             serials: SerialCounter::new(),
@@ -365,9 +405,9 @@ impl CompositorState {
                 button,
                 pressed,
             } => self.press_button(seat, sink, button, pressed),
-            Command::Spawn(_)
-            | Command::SignalProcess { .. }
-            | Command::Scroll { .. }
+            Command::Spawn(request) => self.spawn_process(&request),
+            Command::SignalProcess { process, signal } => self.signal_process(process, signal),
+            Command::Scroll { .. }
             | Command::Key { .. }
             | Command::Modifiers { .. }
             | Command::TypeText { .. }
@@ -382,16 +422,187 @@ impl CompositorState {
         }
     }
 
+    /// Starts a process and attributes the clients it connects with.
+    ///
+    /// A spawn that fails is reported as an exit that never happened, because
+    /// that is the one report a caller of `lunette.spawn` gets for a mistyped
+    /// program name and there is nothing else to hang it on.
+    fn spawn_process(&mut self, request: &SpawnCommand) {
+        let plan = SpawnRequest {
+            process: request.process,
+            argv: &request.argv,
+            env: &request.env,
+            cwd: request.cwd.as_deref(),
+            display: &self.config.display,
+        };
+
+        if request.xwayland {
+            debug!(
+                process = %request.process,
+                "an X11 client still reaches lunette through xwayland-satellite's own socket"
+            );
+        }
+
+        match self.processes.spawn(self.spawner.as_mut(), plan) {
+            Ok(()) => {
+                self.touch();
+                self.watch_processes();
+            }
+            Err(error) => {
+                warn!(%error, "could not start a process");
+                self.report(Event::ProcessExited {
+                    process: request.process,
+                    outcome: ProcessOutcome::SpawnFailed {
+                        message: error.message(),
+                    },
+                });
+            }
+        }
+    }
+
+    fn signal_process(&mut self, process: ProcessId, signal: ProcessSignal) {
+        self.processes.signal(process, signal);
+    }
+
+    /// Attributes a newly connected client to a process.
+    ///
+    /// The connecting pid first, then the token in the client's own
+    /// environment, and failing both the client is adopted as external — which
+    /// is the case a process started outside lunette with `WAYLAND_DISPLAY`
+    /// pointing at its socket falls into.
+    #[cfg_attr(
+        not(any(test, feature = "test-fakes")),
+        expect(
+            dead_code,
+            reason = "the listening socket that calls this arrives with the ported client module; \
+                      until then only the test harness connects clients"
+        )
+    )]
+    pub(crate) fn attach_client(&mut self, client: &Client) {
+        let process = match client.get_credentials(&self.display) {
+            Ok(credentials) => match Pid::new(credentials.pid) {
+                Some(pid) => self.attribute(pid),
+                None => {
+                    warn!("a client connected with an impossible process id; not attributing it");
+                    return;
+                }
+            },
+            Err(error) => {
+                warn!(%error, "could not read a connecting client's credentials");
+                return;
+            }
+        };
+
+        self.prune_clients();
+        self.clients.insert(client.id(), process);
+        self.touch();
+        self.watch_processes();
+    }
+
+    /// Forgets clients that have gone away.
+    ///
+    /// There is no per-client destruction hook to hang this on:
+    /// `ClientData::disconnected` is called on an `Arc` that knows nothing
+    /// about the compositor, and `CompositorHandler` only reports surfaces. So
+    /// the map is swept when a new client arrives, which bounds it at the
+    /// number of clients that have connected since the last connection rather
+    /// than at the number that have ever connected.
+    fn prune_clients(&mut self) {
+        let backend = self.display.backend_handle();
+        self.clients.retain(|client, _| {
+            backend
+                .get_client_data(client.clone())
+                .ok()
+                .and_then(|data| data.downcast_arc::<ClientState>().ok())
+                .is_some_and(|data| !data.disconnected())
+        });
+    }
+
+    fn attribute(&mut self, pid: Pid) -> ProcessId {
+        if let Some(process) = self.processes.identify(pid, self.inspector.as_ref()) {
+            debug!(%pid, %process, "attributed a client to a process lunette started");
+            return process;
+        }
+
+        let process = self.processes.adopt(pid);
+        info!(
+            %pid,
+            %process,
+            "a process lunette did not start connected to its socket; adopting it"
+        );
+        process
+    }
+
+    /// The process a client was attributed to.
+    fn process_of(&self, surface: &WlSurface) -> Option<ProcessId> {
+        let client = surface.client()?;
+        self.clients.get(&client.id()).copied()
+    }
+
+    /// Starts the poll timer if it is not already running.
+    ///
+    /// One timer for every process rather than a source per pipe and a reaper
+    /// besides: a child's output is diagnostic, so a fraction of a second of
+    /// latency costs nothing, and a source registered per child would have to
+    /// be unregistered from inside its own callback.
+    fn watch_processes(&mut self) {
+        if self.process_poll.is_some() {
+            return;
+        }
+
+        let inserted = self.loop_handle.insert_source(
+            Timer::from_duration(PROCESS_POLL_INTERVAL),
+            |_now, _metadata, data: &mut LoopData| data.state.poll_processes(),
+        );
+
+        match inserted {
+            Ok(token) => self.process_poll = Some(token),
+            Err(error) => warn!(
+                error = %error.error,
+                "could not watch spawned processes; their output and exits will not be reported"
+            ),
+        }
+    }
+
+    /// Collects output and exits, and decides whether to keep watching.
+    fn poll_processes(&mut self) -> TimeoutAction {
+        for report in self.processes.poll(self.inspector.as_ref()) {
+            match report {
+                Report::Output { id, stream, bytes } => self.report(Event::ProcessOutput {
+                    process: id,
+                    stream,
+                    bytes,
+                }),
+                Report::Exited { id, outcome } => {
+                    self.touch();
+                    self.report(Event::ProcessExited {
+                        process: id,
+                        outcome,
+                    });
+                }
+            }
+        }
+
+        if self.processes.is_empty() {
+            // Nothing left to reap. The timer is dropped rather than left to
+            // wake an otherwise idle compositor ten times a second.
+            self.process_poll = None;
+            return TimeoutAction::Drop;
+        }
+
+        TimeoutAction::ToDuration(PROCESS_POLL_INTERVAL)
+    }
+
     /// Asks a toplevel to close.
     ///
     /// A request, not a kill: the client may prompt the user, or refuse. The
     /// window disappears when the client destroys the toplevel, not here.
     fn close_window(&mut self, window: WindowId) {
-        let Some(toplevel) = self.toplevels.find(window) else {
+        let Some(tracked) = self.windows.get(window) else {
             debug!(%window, "a close was asked for a window that is already gone");
             return;
         };
-        toplevel.toplevel.send_close();
+        tracked.toplevel().send_close();
     }
 
     /// Configures a toplevel's size and states.
@@ -405,22 +616,19 @@ impl CompositorState {
         states: &ToplevelStates,
     ) {
         let bounds = self.output_logical_size();
-        let Some(toplevel) = self.toplevels.find(window) else {
+        let Some(tracked) = self.windows.get_mut(window) else {
             debug!(%window, "a configure was asked for a window that is already gone");
             return;
         };
 
-        let requested = size.map(logical_size);
-        toplevel.toplevel.with_pending_state(|pending| {
-            pending.bounds = Some(bounds);
-            if let Some(requested) = requested {
-                pending.size = Some(requested);
-            }
+        // The states are applied first, because a client reads them alongside
+        // the size in the same configure.
+        tracked.toplevel().with_pending_state(|pending| {
             for state in states {
                 pending.states.set(protocol_state(*state));
             }
         });
-        toplevel.toplevel.send_configure();
+        tracked.request_size(size.map_or(bounds, logical_size), bounds);
     }
 
     /// Moves a seat's pointer onto a sink, or withdraws it.
@@ -438,14 +646,18 @@ impl CompositorState {
         // `location` is measured in. Delivering straight to the toplevel puts
         // it at the origin, so the surface-local position is the position given.
         let focus = target.and_then(|(sink, _)| {
-            let surface = self
-                .toplevels
-                .find_sink(sink)?
-                .toplevel
-                .wl_surface()
-                .clone();
+            let surface = self.windows.by_sink(sink)?.toplevel().wl_surface().clone();
             Some((surface, Point::from((0.0, 0.0))))
         });
+
+        let hovered = target.and_then(|(sink, position)| {
+            Some(MouseState {
+                hovered: self.windows.by_sink(sink)?.id(),
+                position,
+            })
+        });
+        self.windows.set_mouse(hovered);
+
         let location = target.map_or_else(
             || Point::from((-1.0, -1.0)),
             |(_, position)| Point::from((position.x, position.y)),
@@ -467,9 +679,23 @@ impl CompositorState {
         if !self.check_seat(seat) {
             return;
         }
-        if self.toplevels.find_sink(sink).is_none() {
+        let Some(window) = self.windows.by_sink(sink).map(Window::id) else {
             debug!(%sink, "a button was pressed over a sink that is already gone");
             return;
+        };
+
+        // A button goes to whatever the pointer is over, which the protocol
+        // requires and a caller can get wrong by naming a sink it never moved
+        // the pointer onto.
+        match self.windows.mouse() {
+            Some(mouse) if mouse.hovered == window => {}
+            _ => {
+                warn!(
+                    %sink,
+                    "a button was pressed over a sink the pointer is not on; move it first"
+                );
+                return;
+            }
         }
 
         let event = ButtonEvent {
@@ -504,16 +730,11 @@ impl CompositorState {
         }
         self.dirty = false;
 
-        let windows = self
-            .toplevels
-            .iter()
-            .filter(|toplevel| toplevel.mapped)
-            .map(|toplevel| toplevel.snapshot(self.config.output.size))
-            .collect();
+        let windows = self.windows.mapped().map(Window::snapshot).collect();
 
         self.snapshots.publish(
             windows,
-            Vec::new(),
+            self.processes.snapshot(),
             vec![OutputSnapshot {
                 output: DEFAULT_OUTPUT,
                 mode: self.config.output,
@@ -657,15 +878,11 @@ impl CompositorState {
             Some(BufferAssignment::NewBuffer(buffer)) => {
                 self.attach_buffer(id, &buffer, committed.transform, committed.scale);
             }
-            Some(BufferAssignment::Removed) => {
-                self.buffers.forget(id);
-                self.contents.remove(&id);
-                self.touch();
-            }
+            Some(BufferAssignment::Removed) => self.unmap_surface(id),
             None => {}
         }
 
-        self.remember_committed_size(surface, id);
+        self.remember_committed_size(id);
     }
 
     /// Imports a newly attached buffer and takes ownership of it.
@@ -843,28 +1060,46 @@ impl CompositorState {
     }
 
     /// Notices a toplevel's first mapped buffer and its size changes.
-    fn remember_committed_size(&mut self, surface: &WlSurface, id: SurfaceId) {
+    fn remember_committed_size(&mut self, id: SurfaceId) {
         let Some(content) = self.contents.get(&id).copied() else {
             return;
         };
-        let Some(index) = self.toplevels.index_of_surface(surface) else {
+        let bounds = self.output_logical_size();
+        let Some(window) = self.windows.by_surface_mut(id) else {
             return;
         };
 
-        let size = content.logical_size();
-        let toplevel = &mut self.toplevels.entries[index];
-        let opened = !toplevel.mapped;
-        let changed = toplevel.size != size;
+        // A client may change its own size limits at any commit, so they are
+        // re-read rather than captured once when the toplevel was created.
+        window.refresh_constraints(bounds);
+        let change = window.remember_committed_size(content.logical_size());
+        let opened = change.mapped.then(|| window.id());
 
-        toplevel.mapped = true;
-        toplevel.size = size;
-
-        if opened {
-            let window = toplevel.window;
+        if change.is_visible() {
             self.touch();
+        }
+        if let Some(window) = opened {
             self.report(Event::WindowOpened { window });
-        } else if changed {
-            self.touch();
+        }
+    }
+
+    /// Handles a commit that removed a surface's buffer.
+    ///
+    /// Attaching a null buffer to an xdg-toplevel unmaps it, and the protocol
+    /// says the client may then re-map it by committing again. So the window is
+    /// reported closed but keeps its identifier, and re-mapping reports it
+    /// opened rather than creating a second one.
+    fn unmap_surface(&mut self, id: SurfaceId) {
+        self.buffers.forget(id);
+        self.contents.remove(&id);
+        self.touch();
+
+        let Some(window) = self.windows.by_surface_mut(id) else {
+            return;
+        };
+        if window.unmap() {
+            let window = window.id();
+            self.report(Event::WindowClosed { window });
         }
     }
 
@@ -886,105 +1121,18 @@ struct Committed {
     callbacks: Vec<WlCallback>,
 }
 
-/// The toplevels lunette knows about, in the order they were created.
-///
-/// A `Vec` rather than a map because it is walked far more often than it is
-/// searched by identifier, and a panel count is in the tens.
-#[derive(Debug, Default)]
-pub(crate) struct Toplevels {
-    entries: Vec<TrackedToplevel>,
-    minted: u64,
-}
-
-impl Toplevels {
-    fn insert(&mut self, toplevel: ToplevelSurface, process: Option<ProcessId>) -> WindowId {
-        self.minted += 1;
-        let raw = self.minted;
-        let window = WindowId::new(raw)
-            .unwrap_or_else(|| unreachable!("the counter starts at one and only increases"));
-        let sink = SinkId::new(raw)
-            .unwrap_or_else(|| unreachable!("the counter starts at one and only increases"));
-
-        self.entries.push(TrackedToplevel {
-            window,
-            sink,
-            surface: None,
-            process,
-            toplevel,
-            title: None,
-            app_id: None,
-            size: PixelSize::default(),
-            states: ToplevelStates::new(),
-            mapped: false,
-        });
-        window
-    }
-
-    fn index_of_surface(&self, surface: &WlSurface) -> Option<usize> {
-        self.entries
-            .iter()
-            .position(|entry| entry.toplevel.wl_surface() == surface)
-    }
-
-    fn index_of(&self, toplevel: &ToplevelSurface) -> Option<usize> {
-        self.entries
-            .iter()
-            .position(|entry| &entry.toplevel == toplevel)
-    }
-
-    fn find(&self, window: WindowId) -> Option<&TrackedToplevel> {
-        self.entries.iter().find(|entry| entry.window == window)
-    }
-
-    fn find_sink(&self, sink: SinkId) -> Option<&TrackedToplevel> {
-        self.entries.iter().find(|entry| entry.sink == sink)
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &TrackedToplevel> {
-        self.entries.iter()
-    }
-}
-
-/// One toplevel, as much of it as Phase 2 reports.
-///
-/// Geometry bookkeeping — minimum and maximum sizes, pending configures, the
-/// clamping rules — arrives with the window manager.
-#[derive(Debug)]
-pub(crate) struct TrackedToplevel {
-    window: WindowId,
-    sink: SinkId,
-    surface: Option<SurfaceId>,
-    process: Option<ProcessId>,
-    pub(crate) toplevel: ToplevelSurface,
-    title: Option<String>,
-    app_id: Option<String>,
-    size: PixelSize,
-    states: ToplevelStates,
-    /// Whether a buffer has ever been committed. A toplevel exists from its
-    /// creation, but it is not a window until it has content.
-    mapped: bool,
-}
-
-impl TrackedToplevel {
-    fn snapshot(&self, output: PixelSize) -> WindowSnapshot {
-        let _ = output;
-        WindowSnapshot {
-            window: self.window,
-            surface: self.surface.unwrap_or_else(|| {
-                unreachable!("a mapped toplevel has committed, so its surface has an identifier")
-            }),
-            sink: self.sink,
-            process: self.process,
-            output: Some(DEFAULT_OUTPUT),
-            title: self.title.clone(),
-            app_id: self.app_id.clone(),
-            size: self.size,
-            min_size: None,
-            max_size: None,
-            parent: None,
-            states: self.states.clone(),
-        }
-    }
+/// Everything [`CompositorState::new`] needs, bundled so the constructor takes
+/// one argument rather than nine.
+pub(crate) struct StateParts<'a> {
+    pub(crate) display: &'a DisplayHandle,
+    pub(crate) config: CompositorConfig,
+    pub(crate) importer: Box<dyn BufferImporter>,
+    pub(crate) spawner: Box<dyn ProcessSpawner>,
+    pub(crate) inspector: Box<dyn ProcessInspector>,
+    pub(crate) events: EventSender,
+    pub(crate) snapshots: SnapshotPublisher,
+    pub(crate) signal: LoopSignal,
+    pub(crate) loop_handle: LoopHandle<'static, LoopData>,
 }
 
 /// What lunette attaches to each connected client.
@@ -1127,10 +1275,9 @@ impl XdgShellHandler for CompositorState {
         surface.send_configure();
 
         let id = self.surfaces.id_for(&wl_surface);
-        let window = self.toplevels.insert(surface, None);
-        if let Some(index) = self.toplevels.index_of_surface(&wl_surface) {
-            self.toplevels.entries[index].surface = Some(id);
-        }
+        let bounds = self.output_logical_size();
+        let process = self.process_of(&wl_surface);
+        let window = self.windows.insert(surface, id, process, bounds);
         info!(%window, "a toplevel was created");
     }
 
@@ -1138,39 +1285,37 @@ impl XdgShellHandler for CompositorState {
         self.output.leave(surface.wl_surface());
         self.forget_surface(surface.wl_surface());
 
-        let Some(index) = self.toplevels.index_of(&surface) else {
+        let Some(removed) = self.windows.remove(&surface) else {
             return;
         };
-        let removed = self.toplevels.entries.remove(index);
         self.touch();
-        if removed.mapped {
+        if removed.is_mapped() {
             self.report(Event::WindowClosed {
-                window: removed.window,
+                window: removed.id(),
             });
         }
     }
 
     fn title_changed(&mut self, surface: ToplevelSurface) {
         let title = toplevel_attribute(&surface, |attributes| attributes.title.clone()).flatten();
-        let Some(index) = self.toplevels.index_of(&surface) else {
+        let Some(tracked) = self.windows.by_toplevel_mut(&surface) else {
             return;
         };
-        if self.toplevels.entries[index].title == title {
+        if !tracked.set_title(title) {
             return;
         }
-        self.toplevels.entries[index].title.clone_from(&title);
-        let window = self.toplevels.entries[index].window;
+
+        let window = tracked.id();
+        let title = tracked.title().unwrap_or_default().to_owned();
         self.touch();
-        self.report(Event::TitleChanged {
-            window,
-            title: title.unwrap_or_default(),
-        });
+        self.report(Event::TitleChanged { window, title });
     }
 
     fn app_id_changed(&mut self, surface: ToplevelSurface) {
         let app_id = toplevel_attribute(&surface, |attributes| attributes.app_id.clone()).flatten();
-        if let Some(index) = self.toplevels.index_of(&surface) {
-            self.toplevels.entries[index].app_id = app_id;
+        if let Some(tracked) = self.windows.by_toplevel_mut(&surface)
+            && tracked.set_app_id(app_id)
+        {
             self.touch();
         }
     }
@@ -1281,10 +1426,10 @@ impl CompositorState {
         });
         surface.send_configure();
 
-        if let Some(index) = self.toplevels.index_of(surface)
-            && let Some(state) = toplevel_state(state)
+        if let Some(state) = toplevel_state(state)
+            && let Some(tracked) = self.windows.by_toplevel_mut(surface)
+            && tracked.set_state(state, true)
         {
-            self.toplevels.entries[index].states.insert(state);
             self.touch();
         }
     }
@@ -1299,10 +1444,10 @@ impl CompositorState {
         });
         surface.send_configure();
 
-        if let Some(index) = self.toplevels.index_of(surface)
-            && let Some(state) = toplevel_state(state)
+        if let Some(state) = toplevel_state(state)
+            && let Some(tracked) = self.windows.by_toplevel_mut(surface)
+            && tracked.set_state(state, false)
         {
-            self.toplevels.entries[index].states.remove(&state);
             self.touch();
         }
     }
@@ -1508,11 +1653,13 @@ fn toplevel_state(state: xdg_toplevel::State) -> Option<ToplevelState> {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
+    use std::ffi::{OsStr, OsString};
+
     use pretty_assertions::assert_eq;
 
     use super::*;
     use crate::{
-        protocol::{PixelPoint, PointerButton},
+        protocol::{Argv, PixelPoint, PointerButton, Stream, WindowSnapshot},
         test_client::TestClient,
         testing::TestCompositor,
     };
@@ -1787,6 +1934,199 @@ mod tests {
         assert_eq!(
             snapshot.outputs[0].mode.size,
             CompositorConfig::default().output.size
+        );
+    }
+
+    #[test]
+    fn spawning_a_program_that_does_not_exist_reports_a_failure_and_creates_no_window() {
+        let mut compositor = TestCompositor::new();
+        compositor.spawns().refuse("no such file or directory");
+        let process = ProcessId::new(1).expect("non-zero");
+
+        compositor.send(Command::Spawn(SpawnCommand {
+            process,
+            argv: Argv::from_list(vec![OsString::from("not-a-program")]).expect("non-empty"),
+            env: Vec::new(),
+            cwd: None,
+            output: None,
+            xwayland: false,
+        }));
+
+        let events = compositor.collect_events(|events| !events.is_empty());
+        let reported = events
+            .iter()
+            .find_map(|event| match event {
+                Event::ProcessExited {
+                    process: reported,
+                    outcome,
+                } if *reported == process => Some(outcome.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("the failure was not reported: {events:?}"));
+
+        assert!(
+            matches!(reported, ProcessOutcome::SpawnFailed { message } if message.contains("not-a-program")),
+            "the report names the program that could not be started"
+        );
+        assert!(compositor.snapshot().windows.is_empty());
+        assert!(
+            compositor.snapshot().processes.is_empty(),
+            "a process that never ran is not tracked"
+        );
+    }
+
+    #[test]
+    fn a_spawned_process_is_reported_until_it_exits() {
+        let mut compositor = TestCompositor::new();
+        let process = ProcessId::new(1).expect("non-zero");
+        compositor.send(Command::Spawn(SpawnCommand {
+            process,
+            argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+            env: Vec::new(),
+            cwd: None,
+            output: None,
+            xwayland: false,
+        }));
+        compositor.step();
+        compositor.step();
+
+        let snapshot = compositor.snapshot();
+        assert_eq!(snapshot.processes.len(), 1);
+        assert_eq!(snapshot.processes[0].process, process);
+        assert!(!snapshot.processes[0].external);
+        assert!(snapshot.processes[0].alive);
+
+        compositor
+            .spawns()
+            .finish(0, ProcessOutcome::Exited { code: 3 });
+
+        let events = compositor.collect_events(|events| {
+            events
+                .iter()
+                .any(|event| matches!(event, Event::ProcessExited { .. }))
+        });
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::ProcessExited { process: reported, outcome: ProcessOutcome::Exited { code: 3 } }
+                if *reported == process
+        )));
+        assert!(compositor.snapshot().processes.is_empty());
+    }
+
+    #[test]
+    fn a_spawned_process_output_is_reported_as_bytes() {
+        let mut compositor = TestCompositor::new();
+        let process = ProcessId::new(1).expect("non-zero");
+        compositor.send(Command::Spawn(SpawnCommand {
+            process,
+            argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+            env: Vec::new(),
+            cwd: None,
+            output: None,
+            xwayland: false,
+        }));
+        compositor.step();
+
+        // Not UTF-8, which a child's output is under no obligation to be.
+        compositor.spawns().write(0, Stream::Stderr, &[0xFF, b'!']);
+
+        let events = compositor.collect_events(|events| {
+            events
+                .iter()
+                .any(|event| matches!(event, Event::ProcessOutput { .. }))
+        });
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::ProcessOutput { stream: Stream::Stderr, bytes, .. } if bytes == &[0xFF, b'!']
+        )));
+    }
+
+    #[test]
+    fn signalling_a_process_reaches_its_group() {
+        let mut compositor = TestCompositor::new();
+        let process = ProcessId::new(1).expect("non-zero");
+        compositor.send(Command::Spawn(SpawnCommand {
+            process,
+            argv: Argv::from_list(vec![OsString::from("foot")]).expect("non-empty"),
+            env: Vec::new(),
+            cwd: None,
+            output: None,
+            xwayland: false,
+        }));
+        compositor.step();
+
+        compositor.send(Command::SignalProcess {
+            process,
+            signal: ProcessSignal::Terminate,
+        });
+        compositor.step();
+
+        assert_eq!(compositor.spawns().signals(0), [ProcessSignal::Terminate]);
+    }
+
+    #[test]
+    fn a_client_that_matches_no_process_is_adopted_as_external() {
+        let mut compositor = TestCompositor::new();
+        let mut client = TestClient::connect(&mut compositor);
+        client.open_toplevel(&mut compositor);
+        client.attach_buffer(&mut compositor, 320, 240);
+
+        let snapshot = compositor.snapshot();
+        assert_eq!(snapshot.processes.len(), 1);
+        assert!(
+            snapshot.processes[0].external,
+            "a client lunette did not start is external"
+        );
+        assert_eq!(
+            only_window(&compositor).process,
+            Some(snapshot.processes[0].process),
+            "an adopted process still owns the windows of the client it came with"
+        );
+    }
+
+    #[test]
+    fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
+        let mut compositor = TestCompositor::new();
+        let process = ProcessId::new(1).expect("non-zero");
+        compositor.send(Command::Spawn(SpawnCommand {
+            process,
+            argv: Argv::from_list(vec![OsString::from("sh")]).expect("non-empty"),
+            env: Vec::new(),
+            cwd: None,
+            output: None,
+            xwayland: false,
+        }));
+        compositor.step();
+
+        // The connecting pid over a socket pair is the test's own, which is not
+        // the pid the spawner reported — exactly the shape a shell wrapper or a
+        // flatpak sandbox produces, and the reason the token exists.
+        let plan = compositor.spawns().requested();
+        let token = plan[0]
+            .env
+            .iter()
+            .find(|(key, _)| key == OsStr::new("LUNETTE_DISPLAY_AUTH"))
+            .map(|(_, value)| value.clone())
+            .expect("a spawn carries a token");
+        let connecting = i32::try_from(std::process::id()).expect("a plausible pid");
+        compositor.proc().set_variable(
+            connecting,
+            "LUNETTE_DISPLAY_AUTH",
+            token.as_encoded_bytes(),
+        );
+
+        let mut client = TestClient::connect(&mut compositor);
+        client.open_toplevel(&mut compositor);
+        client.attach_buffer(&mut compositor, 320, 240);
+
+        assert_eq!(only_window(&compositor).process, Some(process));
+        assert!(
+            !compositor
+                .snapshot()
+                .processes
+                .iter()
+                .any(|reported| reported.external),
+            "a client that presented a valid token is not external"
         );
     }
 

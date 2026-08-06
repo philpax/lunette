@@ -12,6 +12,7 @@
 //! module from becoming a dependency of window management, which is the
 //! direction the coupling would otherwise grow.
 
+pub mod process;
 pub mod protocol;
 pub mod state;
 pub mod surface;
@@ -20,3 +21,4 @@ mod test_client;
 #[cfg(any(test, feature = "test-fakes"))]
 pub mod testing;
 pub mod thread;
+pub mod window;

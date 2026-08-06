@@ -36,7 +36,8 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 |---|---|
 | `backend/wayvr/comp.rs`, `backend/wayvr/mod.rs` (the globals and output fragments) | `src/state.rs` |
 | `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
-| `backend/wayvr/window.rs`, `backend/wayvr/time.rs` | `src/window.rs` |
+| `backend/wayvr/window.rs`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/window.rs` |
+| `backend/wayvr/time.rs` | folded into `src/state.rs` as `CompositorState::millis` |
 | `backend/wayvr/process.rs`, `backend/wayvr/mod.rs` (the spawn and attribution fragments) | `src/process.rs` |
 | `backend/wayvr/client.rs`, `backend/wayvr/mod.rs` (`WaylandEnv`, `ExternalProcessRequest`) | `src/client.rs` |
 | `backend/wayvr/hit_test.rs` | `src/hit_test.rs` |
