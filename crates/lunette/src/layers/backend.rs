@@ -15,7 +15,8 @@ pub trait LayerBackend {
     /// A reference to a live `Layer`.
     ///
     /// The pool holds one for every layer it owns, granted or free, and hands
-    /// it back through [`LayerBackend::destroy`].
+    /// it back through exactly one of [`LayerBackend::destroy`] and
+    /// [`LayerBackend::abandon`].
     type Layer: fmt::Debug;
 
     /// The most composition layers the runtime accepts in one `xrEndFrame`.
@@ -40,4 +41,13 @@ pub trait LayerBackend {
     /// Only sound while the session that owns the layer's swapchain is alive,
     /// because destruction calls `xrDestroySwapchain` inline.
     fn destroy(&mut self, layer: Self::Layer);
+
+    /// Gives up a layer whose session is already gone.
+    ///
+    /// Separate from [`LayerBackend::destroy`] because destroying is the wrong
+    /// call after session loss rather than merely a wasted one: the swapchain
+    /// handle inside the layer was invalidated by `xrDestroySession`, and
+    /// `lovrLayerDestroy` calls `xrDestroySwapchain` on it unconditionally and
+    /// inline, which is a use-after-free in the runtime.
+    fn abandon(&mut self, layer: Self::Layer);
 }

@@ -16,8 +16,8 @@ use crate::layers::{backend::LayerBackend, key::LayerKey};
 ///
 /// A reference rather than the object: `lovrHeadsetSetLayers` takes its own
 /// while the layer is submitted, and the whole point of this one is that it is
-/// independent of that. It is handed back through [`LayerBackend::destroy`];
-/// dropping it instead leaks the reference.
+/// independent of that. It is handed back through [`LayerBackend::destroy`] or
+/// [`LayerBackend::abandon`]; dropping it instead leaks the reference.
 #[derive(Debug)]
 pub struct LovrLayer(NonNull<Layer>);
 
@@ -85,4 +85,11 @@ impl LayerBackend for LovrLayers {
         // holds survives this, and is destroyed when that list is replaced.
         unsafe { lovrRelease(layer.0.as_ptr().cast::<c_void>(), Some(lovrLayerDestroy)) };
     }
+
+    /// The layer is deliberately not released, which leaks it. Releasing the
+    /// reference here would run `lovrLayerDestroy`, and that calls
+    /// `xrDestroySwapchain` on a handle `xrDestroySession` has already
+    /// invalidated. A few hundred bytes, on a path taken once per lost session,
+    /// is the cheaper of the two.
+    fn abandon(&mut self, _layer: Self::Layer) {}
 }

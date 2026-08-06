@@ -32,6 +32,7 @@ use crate::{
 struct Calls {
     created: Vec<LayerKey>,
     destroyed: Vec<u64>,
+    abandoned: Vec<u64>,
 }
 
 /// A layer that is a number.
@@ -40,7 +41,10 @@ struct FakeLayer(u64);
 
 #[derive(Debug)]
 struct FakeLayers {
-    limit: u32,
+    /// Shared with the harness for the same reason `refusing` is, and mutable
+    /// because a session being lost and rebuilt is a limit going to zero and
+    /// back.
+    limit: Rc<Cell<u32>>,
     /// Whether creation is refused, standing in for a runtime that will not
     /// allocate another swapchain. Shared rather than owned, because the pool
     /// owns the backend and a test that could reach into it through the pool
@@ -54,7 +58,7 @@ impl LayerBackend for FakeLayers {
     type Layer = FakeLayer;
 
     fn layer_limit(&self) -> u32 {
-        self.limit
+        self.limit.get()
     }
 
     fn create(&mut self, key: LayerKey) -> Option<Self::Layer> {
@@ -69,6 +73,10 @@ impl LayerBackend for FakeLayers {
     fn destroy(&mut self, layer: Self::Layer) {
         self.calls.borrow_mut().destroyed.push(layer.0);
     }
+
+    fn abandon(&mut self, layer: Self::Layer) {
+        self.calls.borrow_mut().abandoned.push(layer.0);
+    }
 }
 
 /// A pool and a frame counter to drive it with.
@@ -76,6 +84,7 @@ struct Harness {
     pool: LayerPool<FakeLayers>,
     calls: Rc<RefCell<Calls>>,
     refusing: Rc<Cell<bool>>,
+    limit: Rc<Cell<u32>>,
     frame: FrameGeneration,
 }
 
@@ -84,8 +93,9 @@ impl Harness {
     fn new(limit: u32) -> Self {
         let calls = Rc::new(RefCell::new(Calls::default()));
         let refusing = Rc::new(Cell::new(false));
+        let limit = Rc::new(Cell::new(limit));
         let backend = FakeLayers {
-            limit,
+            limit: Rc::clone(&limit),
             refusing: Rc::clone(&refusing),
             next: 0,
             calls: Rc::clone(&calls),
@@ -95,6 +105,7 @@ impl Harness {
             pool: LayerPool::new(backend),
             calls,
             refusing,
+            limit,
             frame: FrameGeneration::INITIAL,
         }
     }
@@ -127,6 +138,16 @@ impl Harness {
 
     fn destroyed(&self) -> usize {
         self.calls.borrow().destroyed.len()
+    }
+
+    fn abandoned(&self) -> Vec<u64> {
+        self.calls.borrow().abandoned.clone()
+    }
+
+    /// The session goes away, taking every swapchain with it.
+    fn lose_session(&mut self) -> PoolOutcome {
+        self.limit.set(0);
+        self.pool.session_lost()
     }
 }
 
@@ -455,6 +476,71 @@ fn a_runtime_refusing_to_allocate_leaves_the_claim_ungranted_and_retries() {
     harness.resolve();
 
     assert!(harness.pool.layer(claim).is_some());
+}
+
+#[test]
+fn session_loss_gives_up_every_layer_and_revokes_every_grant() {
+    let mut harness = Harness::new(GENEROUS);
+    let granted = harness.pool.claim(key(512, 512), priority(2.0));
+    let freed = harness.pool.claim(key(1024, 1024), priority(1.0));
+    harness.settle();
+    harness.pool.release_claim(freed);
+    assert_eq!(harness.created(), 2);
+    assert_eq!(harness.pool.free_layers(), 1);
+
+    let outcome = harness.lose_session();
+
+    assert_eq!(outcome.revoked, vec![granted]);
+    assert_eq!(
+        harness.abandoned().len(),
+        2,
+        "the free list is as invalid as the granted layer"
+    );
+    assert_eq!(harness.pool.free_layers(), 0);
+    assert!(harness.pool.layer(granted).is_none());
+    assert_eq!(harness.pool.budget().slots(), 0);
+}
+
+#[test]
+fn a_layer_is_never_destroyed_once_its_session_is_gone() {
+    // `lovrLayerDestroy` calls `xrDestroySwapchain` inline, and after
+    // `xrDestroySession` the handle it would pass is already invalid.
+    let mut harness = Harness::new(GENEROUS);
+    harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+
+    harness.lose_session();
+
+    assert_eq!(harness.destroyed(), 0);
+}
+
+#[test]
+fn the_first_boundary_after_recovery_grants_a_new_layer_rather_than_a_stale_one() {
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+    let before = harness.lose_session();
+    assert_eq!(before.revoked, vec![claim]);
+
+    // Nothing is granted while there is no session to grant against.
+    harness.resolve();
+    assert!(harness.pool.layer(claim).is_none());
+    assert_eq!(harness.created(), 1);
+
+    harness.limit.set(GENEROUS);
+    let after = harness.settle();
+
+    assert_eq!(after.granted, vec![claim]);
+    assert_eq!(
+        harness.created(),
+        2,
+        "the claim was served from the pool it had before the session went away"
+    );
+    let live = harness.pool.layer(claim).expect("the claim holds a layer");
+    assert!(
+        !harness.abandoned().contains(&live.0),
+        "a handle given up with the old session was handed back out"
+    );
 }
 
 #[test]

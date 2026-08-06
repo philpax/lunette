@@ -349,7 +349,48 @@ impl<B: LayerBackend> LayerPool<B> {
         outcome
     }
 
+    /// Discards every layer the pool holds, because the session that owned
+    /// their swapchains is gone.
+    ///
+    /// `lovrHeadsetStop` releases every layer and zeroes the layer count before
+    /// `xrDestroySession`, so nothing the pool holds names anything afterwards,
+    /// granted or free. The state is discarded rather than reconciled: no
+    /// layer, and no key, survives a session.
+    ///
+    /// The claims themselves survive holding nothing, and are re-evaluated
+    /// against the new session at the first boundary after it comes up. Every
+    /// claim that had been reported granted is reported revoked here, so Lua
+    /// falls back to in-scene quads by the path exhaustion already defines and
+    /// never holds a `Layer` that names a destroyed swapchain.
+    pub fn session_lost(&mut self) -> PoolOutcome {
+        let mut outcome = PoolOutcome::default();
+
+        for index in 0..self.claims.len() {
+            let Some(held) = self.claims[index].held.take() else {
+                continue;
+            };
+            if held.state == HeldState::Granted {
+                outcome.revoked.push(self.claims[index].id);
+            }
+            self.backend.abandon(held.layer);
+        }
+
+        for entry in std::mem::take(&mut self.free) {
+            self.backend.abandon(entry.layer);
+        }
+
+        // Not cosmetic: the budget is otherwise the old session's until the
+        // next resolve re-reads it, and anything asking in between would be
+        // told the pool can hold layers it has just given up.
+        self.budget = LayerBudget::from_runtime_limit(0);
+
+        outcome
+    }
+
     /// Destroys every layer the pool holds, while the session still exists.
+    ///
+    /// The orderly counterpart to [`LayerPool::session_lost`], for a teardown
+    /// lunette is performing rather than observing.
     pub fn shutdown(&mut self) {
         for claim in &mut self.claims {
             if let Some(held) = claim.held.take() {
