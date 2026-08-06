@@ -289,6 +289,28 @@ fn the_other_value_of_each_setting_is_reachable_without_a_rebuild() {
 }
 
 #[test]
+fn a_release_hands_the_image_back_in_a_layout_a_barrier_may_name() {
+    // The regression: the release passed the policy's own layout as the
+    // barrier's `newLayout`, so `LUNETTE_IMPORT_LAYOUT=undefined` recorded
+    // `VK_IMAGE_LAYOUT_UNDEFINED` as a destination, which
+    // VUID-VkImageMemoryBarrier2-newLayout-01198 forbids.
+    assert_ne!(BarrierPolicy::RELEASE_LAYOUT, vk::ImageLayout::UNDEFINED);
+    assert_eq!(BarrierPolicy::RELEASE_LAYOUT, vk::ImageLayout::GENERAL);
+
+    for layout in [ForeignLayout::General, ForeignLayout::Undefined] {
+        let policy = BarrierPolicy {
+            source_family: QueueFamilyMode::Foreign,
+            old_layout: layout,
+        };
+        assert_eq!(
+            policy.acquire_layout(),
+            layout.layout(),
+            "the acquire is where the switch is measurable, and `UNDEFINED` is legal there"
+        );
+    }
+}
+
+#[test]
 fn an_unrecognised_setting_falls_back_rather_than_stopping_the_session() {
     assert_eq!(
         BarrierPolicy::from_settings(Some("FOREIGN"), Some("")),

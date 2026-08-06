@@ -596,6 +596,25 @@ impl BarrierPolicy {
             old_layout,
         }
     }
+
+    /// The layout the acquire takes the image to be in.
+    ///
+    /// The measurable half of the policy: an acquire may legally name
+    /// `UNDEFINED` here, and doing so is what asks the driver whether it
+    /// discards the client's content.
+    #[must_use]
+    fn acquire_layout(self) -> vk::ImageLayout {
+        self.old_layout.layout()
+    }
+
+    /// The layout the release hands the image back in.
+    ///
+    /// `GENERAL` whatever the policy says, because this is a barrier's
+    /// `newLayout` and VUID-VkImageMemoryBarrier2-newLayout-01198 forbids
+    /// `UNDEFINED` there. It is also the layout the image is genuinely in: a
+    /// producer outside Vulkan has no other, which is why it is what
+    /// [`ForeignLayout::General`] names on the way in.
+    const RELEASE_LAYOUT: vk::ImageLayout = vk::ImageLayout::GENERAL;
 }
 
 /// Which queue family an imported image is acquired from.
@@ -822,13 +841,18 @@ impl LovrTexture {
         unsafe {
             lovrTextureImportAcquire(
                 self.raw.as_ptr(),
-                policy.old_layout.layout().as_raw().unsigned_abs(),
+                policy.acquire_layout().as_raw().unsigned_abs(),
                 policy.source_family.index(),
             )
         }
     }
 
     /// Records the barrier that hands the image back after the frame's reads.
+    ///
+    /// The layout is [`BarrierPolicy::RELEASE_LAYOUT`] and not the policy's own:
+    /// this is a barrier's `newLayout`, where `UNDEFINED` is forbidden. Only the
+    /// queue family is taken from the policy, which is the half of it that has
+    /// a release side at all.
     ///
     /// # Safety
     ///
@@ -842,7 +866,7 @@ impl LovrTexture {
         unsafe {
             lovrTextureImportRelease(
                 self.raw.as_ptr(),
-                policy.old_layout.layout().as_raw().unsigned_abs(),
+                BarrierPolicy::RELEASE_LAYOUT.as_raw().unsigned_abs(),
                 policy.source_family.index(),
             )
         }
