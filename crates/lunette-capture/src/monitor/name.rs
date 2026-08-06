@@ -18,6 +18,8 @@
 
 use std::{cmp::Ordering, fmt};
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+
 use crate::monitor::geometry::LogicalPosition;
 
 /// A DRM connector's type, as the kernel names it.
@@ -183,6 +185,26 @@ impl fmt::Display for ConnectorName {
     }
 }
 
+/// Persisted as the name the kernel prints, such as `DP-1`.
+///
+/// Written by hand rather than derived from the fields, so the stored form is
+/// the one a user reads in `wlr-randr` rather than a pair of numbers whose
+/// meaning depends on the order of [`ConnectorKind`]'s variants. Adding a
+/// variant then cannot silently renumber every key already on disk.
+impl Serialize for ConnectorName {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for ConnectorName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text)
+            .ok_or_else(|| D::Error::custom(format!("{text:?} is not a DRM connector name")))
+    }
+}
+
 /// A monitor's make and model, rendered as one string.
 ///
 /// Follows niri's `"{make} {model} {serial}"` form with the serial dropped and
@@ -190,7 +212,8 @@ impl fmt::Display for ConnectorName {
 /// one of the two still has a descriptor. Constructing one goes through
 /// [`MonitorName::descriptor`], so the substitution happens in exactly one
 /// place and a descriptor never disagrees with itself.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Descriptor(String);
 
 impl Descriptor {
@@ -352,8 +375,11 @@ impl fmt::Display for MonitorName {
 /// exists.
 ///
 /// [`fmt::Display`] renders a key for logs and is not a parseable form. A
-/// consumer that persists a key stores the variant, not the text.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// consumer that persists a key stores the variant, which is what the serde
+/// implementation writes: an externally-tagged enum, so the variant name is in
+/// the file and a key recorded as one kind can never be read back as another.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub enum MonitorKey {
     /// Make and model. Survives the monitor moving to a different port.
     Descriptor(Descriptor),

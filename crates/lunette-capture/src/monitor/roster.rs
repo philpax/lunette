@@ -14,7 +14,7 @@ use std::cmp::Ordering;
 use tracing::warn;
 
 use crate::monitor::{
-    geometry::LogicalPosition,
+    geometry::{LogicalGeometry, LogicalPosition, LogicalSize},
     name::{MonitorKey, MonitorName},
 };
 
@@ -22,7 +22,7 @@ use crate::monitor::{
 #[derive(Clone, Debug)]
 pub struct Monitor {
     name: MonitorName,
-    position: LogicalPosition,
+    geometry: LogicalGeometry,
     key: MonitorKey,
 }
 
@@ -32,9 +32,23 @@ impl Monitor {
         &self.name
     }
 
+    /// Where the monitor sits and how large it is, in logical coordinates.
+    ///
+    /// This is what a ScreenCast stream is correlated against: the portal
+    /// reports each stream's `position` and `size` in the same space.
+    #[must_use]
+    pub const fn geometry(&self) -> LogicalGeometry {
+        self.geometry
+    }
+
     #[must_use]
     pub const fn position(&self) -> LogicalPosition {
-        self.position
+        self.geometry.position
+    }
+
+    #[must_use]
+    pub const fn size(&self) -> LogicalSize {
+        self.geometry.size
     }
 
     /// How this monitor is recorded across restarts.
@@ -46,7 +60,7 @@ impl Monitor {
     fn compare(&self, other: &Self) -> Ordering {
         self.name
             .compare(&other.name)
-            .then_with(|| self.position.cmp(&other.position))
+            .then_with(|| self.geometry.cmp(&other.geometry))
     }
 }
 
@@ -75,7 +89,7 @@ impl Roster {
     /// earlier one keeps the descriptor and the later one loses it. lunette has
     /// no serial to separate them with, so this is commoner here than in niri
     /// rather than rarer.
-    pub fn add(&mut self, name: MonitorName, position: LogicalPosition) {
+    pub fn add(&mut self, name: MonitorName, geometry: LogicalGeometry) {
         let name = if self.carries_descriptor_of(&name) {
             warn!(
                 monitor = %name,
@@ -87,7 +101,7 @@ impl Roster {
             name
         };
 
-        let key = MonitorKey::for_monitor(&name, position);
+        let key = MonitorKey::for_monitor(&name, geometry.position);
         if let MonitorKey::Position(position) = key {
             warn!(
                 %position,
@@ -98,7 +112,7 @@ impl Roster {
 
         self.monitors.push(Monitor {
             name,
-            position,
+            geometry,
             key,
         });
     }
@@ -131,7 +145,7 @@ impl Roster {
     pub fn find(&self, key: &MonitorKey) -> Option<&Monitor> {
         self.monitors
             .iter()
-            .find(|monitor| key.identifies(&monitor.name, monitor.position))
+            .find(|monitor| key.identifies(&monitor.name, monitor.geometry.position))
     }
 
     fn carries_descriptor_of(&self, name: &MonitorName) -> bool {
@@ -163,7 +177,12 @@ mod tests {
         )
     }
 
-    fn at(x: i32) -> LogicalPosition {
+    /// A monitor's geometry: a 1920-wide panel whose left edge is at `x`.
+    fn at(x: i32) -> LogicalGeometry {
+        LogicalGeometry::new(origin(x), LogicalSize::new(1920, 1080))
+    }
+
+    fn origin(x: i32) -> LogicalPosition {
         LogicalPosition::new(x, 0)
     }
 
@@ -225,7 +244,7 @@ mod tests {
             .find(&keys(&roster)[0])
             .map(|monitor| monitor.position());
 
-        assert_eq!(found, Some(at(0)));
+        assert_eq!(found, Some(origin(0)));
     }
 
     #[test]
@@ -252,7 +271,7 @@ mod tests {
 
         let keys = keys(&roster);
         assert_eq!(keys[0].strength(), KeyStrength::Descriptor);
-        assert_eq!(keys[1], MonitorKey::Position(at(1920)));
+        assert_eq!(keys[1], MonitorKey::Position(origin(1920)));
     }
 
     #[test]
@@ -260,7 +279,7 @@ mod tests {
         let mut roster = Roster::new();
         roster.add(named(None, None, None), at(1920));
 
-        assert_eq!(keys(&roster), vec![MonitorKey::Position(at(1920))]);
+        assert_eq!(keys(&roster), vec![MonitorKey::Position(origin(1920))]);
     }
 
     #[test]

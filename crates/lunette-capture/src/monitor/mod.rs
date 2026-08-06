@@ -5,7 +5,7 @@ pub mod name;
 pub mod roster;
 
 pub use self::{
-    geometry::LogicalPosition,
+    geometry::{LogicalGeometry, LogicalPosition, LogicalSize},
     name::{ConnectorKind, ConnectorName, Descriptor, KeyStrength, MonitorKey, MonitorName},
     roster::{Monitor, Roster},
 };
