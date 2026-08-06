@@ -28,17 +28,19 @@ Capture starts lazily and can be stopped from Lua. A mirrored screen that a scri
 
 ## Input injection
 
-Input injection into the host desktop uses WayVR's `HidProvider` trait verbatim (`inspiration/wayvr/wayvr/src/subsystem/hid/provider/`). It has three backends, selected by a config switch (`subsystem/input.rs:24`):
+Input injection into the host desktop goes through the `HidProvider` trait, whose shape follows WayVR's (`inspiration/wayvr/wayvr/src/subsystem/hid/provider/mod.rs:8`). There are three providers:
 
-- uinput: the preferred backend. It creates kernel-level virtual devices, so it works on any compositor and on X11, and can position the cursor absolutely given the monitor layout. It requires `/dev/uinput` access, granted by a udev rule or `input` group membership.
-- wl_virtual: a fallback backend, using `zwlr_virtual_pointer` plus `virtual-keyboard`. It requires no special permissions, but requires the host compositor to implement these protocols, and works only on Wayland.
+- uinput: the preferred provider. It creates kernel-level virtual devices, so it works on any compositor and on X11, and can position the cursor absolutely given the monitor layout. It requires `/dev/uinput` access, granted by a udev rule or `input` group membership. Note that the `input` group also grants read access to every input device on the machine.
+- wl_virtual: using `zwlr_virtual_pointer_v1` plus `zwp_virtual_keyboard_v1`. It requires no special permissions, but requires the host compositor to implement these protocols, which only the wlroots family does. KWin and mutter do not.
 - dummy: performs no injection.
 
-uinput is tried first because it works regardless of the host compositor.
+The providers are an ordered chain rather than a switch. uinput is tried first because it works regardless of the host compositor, then `wl_virtual`, then the dummy. Each mechanism is actually attempted, and every failure passed over is kept and reported, so a user is told what was tried and what each attempt said. A configuration override moves a named provider to the front; the rest of the chain still stands behind it. WayVR has no such chain: `HidWrapper::new` (`subsystem/input.rs:22-41`) calls one initialiser and installs the dummy on failure.
 
-libei via the portal's RemoteDesktop interface is the intended long-term replacement and is planned as a future backend.
+A host compositor that goes away degrades the session to the dummy provider with a logged reason. It does not abort lunette.
 
-Keymaps come from the host compositor via xkbcommon (`subsystem/hid/mod.rs:389`), so typing into a mirrored monitor respects the user's real keyboard layout.
+libei via the portal's RemoteDesktop interface is the intended long-term replacement and is planned as a future provider.
+
+Keymaps are a parameter. `lunette-capture` takes a layout in XKB's version 1 text format and uploads it to `zwp_virtual_keyboard_v1`, so typing into a mirrored monitor respects the user's real keyboard layout; reading that layout off the host is the binary's job, not the library's. There is nothing to upload under uinput, which injects raw keycodes below the display server and leaves the layout to the host.
 
 ## The input domain leak
 

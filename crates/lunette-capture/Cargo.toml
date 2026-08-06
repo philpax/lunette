@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# The uinput device: the `input_event` and `uinput_setup` structures, plus
+# `ioctl`, `write`, and `memfd_create`. The ioctl request numbers and the
+# event-type constants are not in `libc` and are written out in
+# `src/hid/evdev.rs`; see that file for why `input-linux` is not taken instead.
+libc.workspace = true
 # The frame queue's lock. Every span under it is a push or a pop with no await
 # and no reentry, which is what the non-poisoning guard is for.
 parking_lot.workspace = true
@@ -19,12 +24,22 @@ smallvec.workspace = true
 # that is not worth handrolling. Already in the tree, so it costs no new crate.
 toml.workspace = true
 tracing.workspace = true
+# The `wl_virtual` input provider talks to the host compositor directly, as a
+# client. Already in the tree beneath wlx-capture, so neither adds a crate.
+wayland-client.workspace = true
+# `zwp_virtual_keyboard_v1`. It lives in the misc set rather than the wlr one
+# because it started as a GNOME-adjacent proposal, but only wlroots implements
+# it, so it travels with `zwlr_virtual_pointer_v1` in practice.
+wayland-protocols-misc = { workspace = true, features = ["client"] }
+# `zwlr_virtual_pointer_v1`.
+wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 
 [features]
-# The scripted portal that stands in for xdg-desktop-portal. Off by default so
-# a release build carries none of it; the crate's own unit tests reach it
-# through `cfg(test)`.
+# The scripted portal that stands in for xdg-desktop-portal, and the recording
+# input provider that stands in for uinput and the host compositor. Off by
+# default so a release build carries none of it; the crate's own unit tests
+# reach them through `cfg(test)`.
 test-fakes = []
 
 [dev-dependencies]

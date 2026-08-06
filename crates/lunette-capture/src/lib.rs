@@ -19,6 +19,7 @@
 //! and it keeps this crate testable without a graphics device — the same
 //! constraint `lunette-compositor` carries, for the same reason.
 
+pub mod hid;
 pub mod monitor;
 pub mod portal;
 pub mod stream;

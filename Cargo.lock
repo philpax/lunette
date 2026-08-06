@@ -573,12 +573,16 @@ dependencies = [
 name = "lunette-capture"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "parking_lot",
  "pretty_assertions",
  "serde",
  "smallvec",
  "toml",
  "tracing",
+ "wayland-client",
+ "wayland-protocols-misc",
+ "wayland-protocols-wlr",
  "wlx-capture",
 ]
 

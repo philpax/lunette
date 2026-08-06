@@ -1,0 +1,744 @@
+//! Linux-only: the key and button codes are Linux's `input-event-codes.h`.
+//!
+//! What lunette can say to the host's keyboard and pointer, as closed sets
+//! rather than as the integers the kernel and the Wayland protocols carry.
+//!
+//! Every value here is an evdev code. That is the vocabulary both providers
+//! want: uinput takes evdev codes directly, and `zwp_virtual_keyboard_v1`'s
+//! `key` request is documented as taking an evdev code as well. WayVR's
+//! `VirtualKey` (`subsystem/hid/mod.rs:81`) is numbered in X11 keycodes instead
+//! and subtracts eight at every call site (`uinput.rs:211`, `wl_virtual.rs:155`);
+//! there is no third consumer that wants the X11 numbering, so the offset is not
+//! reproduced here.
+//!
+//! Nothing in this file does I/O, so all of it is exercised directly.
+
+use std::fmt;
+
+/// One key on a keyboard, named by its Linux evdev code.
+///
+/// A closed set rather than a `u16`, so a caller cannot invent a code the
+/// provider never declared to the kernel: a uinput device only emits the keys
+/// it set a `KEYBIT` for at creation, and a key outside [`VirtualKey::ALL`]
+/// would be dropped silently by the kernel rather than rejected.
+///
+/// The set is the ordinary PC keyboard, including the keys a Japanese or Korean
+/// layout adds, plus the media and browser keys a modern keyboard carries. Keys
+/// outside it — a vendor's macro row, a laptop's fingerprint key — are not
+/// representable, which is why [`Self::from_evdev`] returns [`Option`] rather
+/// than guessing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u16)]
+pub enum VirtualKey {
+    Escape = 1,
+    Digit1 = 2,
+    Digit2 = 3,
+    Digit3 = 4,
+    Digit4 = 5,
+    Digit5 = 6,
+    Digit6 = 7,
+    Digit7 = 8,
+    Digit8 = 9,
+    Digit9 = 10,
+    Digit0 = 11,
+    Minus = 12,
+    Equal = 13,
+    Backspace = 14,
+    Tab = 15,
+    Q = 16,
+    W = 17,
+    E = 18,
+    R = 19,
+    T = 20,
+    Y = 21,
+    U = 22,
+    I = 23,
+    O = 24,
+    P = 25,
+    LeftBrace = 26,
+    RightBrace = 27,
+    Enter = 28,
+    LeftCtrl = 29,
+    A = 30,
+    S = 31,
+    D = 32,
+    F = 33,
+    G = 34,
+    H = 35,
+    J = 36,
+    K = 37,
+    L = 38,
+    Semicolon = 39,
+    Apostrophe = 40,
+    Grave = 41,
+    LeftShift = 42,
+    Backslash = 43,
+    Z = 44,
+    X = 45,
+    C = 46,
+    V = 47,
+    B = 48,
+    N = 49,
+    M = 50,
+    Comma = 51,
+    Dot = 52,
+    Slash = 53,
+    RightShift = 54,
+    KeypadAsterisk = 55,
+    LeftAlt = 56,
+    Space = 57,
+    CapsLock = 58,
+    F1 = 59,
+    F2 = 60,
+    F3 = 61,
+    F4 = 62,
+    F5 = 63,
+    F6 = 64,
+    F7 = 65,
+    F8 = 66,
+    F9 = 67,
+    F10 = 68,
+    NumLock = 69,
+    ScrollLock = 70,
+    Keypad7 = 71,
+    Keypad8 = 72,
+    Keypad9 = 73,
+    KeypadMinus = 74,
+    Keypad4 = 75,
+    Keypad5 = 76,
+    Keypad6 = 77,
+    KeypadPlus = 78,
+    Keypad1 = 79,
+    Keypad2 = 80,
+    Keypad3 = 81,
+    Keypad0 = 82,
+    KeypadDot = 83,
+    ZenkakuHankaku = 85,
+    /// The extra key many non-US layouts place between left shift and `Z`.
+    IntlBackslash = 86,
+    F11 = 87,
+    F12 = 88,
+    /// `KEY_RO`, the Japanese layout's backslash-underscore key.
+    IntlRo = 89,
+    Katakana = 90,
+    Hiragana = 91,
+    Henkan = 92,
+    KatakanaHiragana = 93,
+    Muhenkan = 94,
+    KeypadJpComma = 95,
+    KeypadEnter = 96,
+    RightCtrl = 97,
+    KeypadSlash = 98,
+    SysRq = 99,
+    RightAlt = 100,
+    Home = 102,
+    Up = 103,
+    PageUp = 104,
+    Left = 105,
+    Right = 106,
+    End = 107,
+    Down = 108,
+    PageDown = 109,
+    Insert = 110,
+    Delete = 111,
+    Mute = 113,
+    VolumeDown = 114,
+    VolumeUp = 115,
+    Power = 116,
+    KeypadEqual = 117,
+    Pause = 119,
+    KeypadComma = 121,
+    Hangeul = 122,
+    Hanja = 123,
+    /// `KEY_YEN`, the Japanese layout's yen-pipe key.
+    IntlYen = 124,
+    LeftMeta = 125,
+    RightMeta = 126,
+    Compose = 127,
+    Stop = 128,
+    Again = 129,
+    Undo = 131,
+    Copy = 133,
+    Paste = 135,
+    Find = 136,
+    Cut = 137,
+    Help = 138,
+    Menu = 139,
+    Calculator = 140,
+    Sleep = 142,
+    Mail = 155,
+    Bookmarks = 156,
+    Computer = 157,
+    Back = 158,
+    Forward = 159,
+    NextSong = 163,
+    PlayPause = 164,
+    PreviousSong = 165,
+    StopCd = 166,
+    Record = 167,
+    Rewind = 168,
+    HomePage = 172,
+    Refresh = 173,
+    ScrollUp = 177,
+    ScrollDown = 178,
+    F13 = 183,
+    F14 = 184,
+    F15 = 185,
+    F16 = 186,
+    F17 = 187,
+    F18 = 188,
+    F19 = 189,
+    F20 = 190,
+    F21 = 191,
+    F22 = 192,
+    F23 = 193,
+    F24 = 194,
+    Search = 217,
+    BrightnessDown = 224,
+    BrightnessUp = 225,
+    Media = 226,
+    SwitchVideoMode = 227,
+}
+
+impl VirtualKey {
+    /// Every key a provider declares to the host, in evdev code order.
+    ///
+    /// A uinput device emits nothing it did not declare at creation, so this is
+    /// the list [`crate::hid::uinput`] walks, and it is also what makes
+    /// [`Self::from_evdev`] total over the set.
+    pub const ALL: &'static [Self] = &[
+        Self::Escape,
+        Self::Digit1,
+        Self::Digit2,
+        Self::Digit3,
+        Self::Digit4,
+        Self::Digit5,
+        Self::Digit6,
+        Self::Digit7,
+        Self::Digit8,
+        Self::Digit9,
+        Self::Digit0,
+        Self::Minus,
+        Self::Equal,
+        Self::Backspace,
+        Self::Tab,
+        Self::Q,
+        Self::W,
+        Self::E,
+        Self::R,
+        Self::T,
+        Self::Y,
+        Self::U,
+        Self::I,
+        Self::O,
+        Self::P,
+        Self::LeftBrace,
+        Self::RightBrace,
+        Self::Enter,
+        Self::LeftCtrl,
+        Self::A,
+        Self::S,
+        Self::D,
+        Self::F,
+        Self::G,
+        Self::H,
+        Self::J,
+        Self::K,
+        Self::L,
+        Self::Semicolon,
+        Self::Apostrophe,
+        Self::Grave,
+        Self::LeftShift,
+        Self::Backslash,
+        Self::Z,
+        Self::X,
+        Self::C,
+        Self::V,
+        Self::B,
+        Self::N,
+        Self::M,
+        Self::Comma,
+        Self::Dot,
+        Self::Slash,
+        Self::RightShift,
+        Self::KeypadAsterisk,
+        Self::LeftAlt,
+        Self::Space,
+        Self::CapsLock,
+        Self::F1,
+        Self::F2,
+        Self::F3,
+        Self::F4,
+        Self::F5,
+        Self::F6,
+        Self::F7,
+        Self::F8,
+        Self::F9,
+        Self::F10,
+        Self::NumLock,
+        Self::ScrollLock,
+        Self::Keypad7,
+        Self::Keypad8,
+        Self::Keypad9,
+        Self::KeypadMinus,
+        Self::Keypad4,
+        Self::Keypad5,
+        Self::Keypad6,
+        Self::KeypadPlus,
+        Self::Keypad1,
+        Self::Keypad2,
+        Self::Keypad3,
+        Self::Keypad0,
+        Self::KeypadDot,
+        Self::ZenkakuHankaku,
+        Self::IntlBackslash,
+        Self::F11,
+        Self::F12,
+        Self::IntlRo,
+        Self::Katakana,
+        Self::Hiragana,
+        Self::Henkan,
+        Self::KatakanaHiragana,
+        Self::Muhenkan,
+        Self::KeypadJpComma,
+        Self::KeypadEnter,
+        Self::RightCtrl,
+        Self::KeypadSlash,
+        Self::SysRq,
+        Self::RightAlt,
+        Self::Home,
+        Self::Up,
+        Self::PageUp,
+        Self::Left,
+        Self::Right,
+        Self::End,
+        Self::Down,
+        Self::PageDown,
+        Self::Insert,
+        Self::Delete,
+        Self::Mute,
+        Self::VolumeDown,
+        Self::VolumeUp,
+        Self::Power,
+        Self::KeypadEqual,
+        Self::Pause,
+        Self::KeypadComma,
+        Self::Hangeul,
+        Self::Hanja,
+        Self::IntlYen,
+        Self::LeftMeta,
+        Self::RightMeta,
+        Self::Compose,
+        Self::Stop,
+        Self::Again,
+        Self::Undo,
+        Self::Copy,
+        Self::Paste,
+        Self::Find,
+        Self::Cut,
+        Self::Help,
+        Self::Menu,
+        Self::Calculator,
+        Self::Sleep,
+        Self::Mail,
+        Self::Bookmarks,
+        Self::Computer,
+        Self::Back,
+        Self::Forward,
+        Self::NextSong,
+        Self::PlayPause,
+        Self::PreviousSong,
+        Self::StopCd,
+        Self::Record,
+        Self::Rewind,
+        Self::HomePage,
+        Self::Refresh,
+        Self::ScrollUp,
+        Self::ScrollDown,
+        Self::F13,
+        Self::F14,
+        Self::F15,
+        Self::F16,
+        Self::F17,
+        Self::F18,
+        Self::F19,
+        Self::F20,
+        Self::F21,
+        Self::F22,
+        Self::F23,
+        Self::F24,
+        Self::Search,
+        Self::BrightnessDown,
+        Self::BrightnessUp,
+        Self::Media,
+        Self::SwitchVideoMode,
+    ];
+
+    /// The Linux evdev code for this key.
+    #[must_use]
+    pub const fn evdev_code(self) -> u16 {
+        self as u16
+    }
+
+    /// The key a Linux evdev code names, or `None` when lunette has no name for
+    /// it.
+    ///
+    /// `None` rather than a fallback variant: a code lunette cannot name is a
+    /// code no provider declared, so pretending otherwise would produce a key
+    /// event the kernel discards without saying so.
+    #[must_use]
+    pub fn from_evdev(code: u16) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|key| key.evdev_code() == code)
+    }
+}
+
+impl fmt::Display for VirtualKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?} (evdev {})", self.evdev_code())
+    }
+}
+
+/// A mouse button, named by its Linux evdev code.
+///
+/// Five rather than WayVR's three (`subsystem/hid/mod.rs:36-38`, which declares
+/// `MOUSE_LEFT` through `MOUSE_MIDDLE` and panics on anything else at
+/// `wl_virtual.rs:80`). Back and forward are ordinary buttons on an ordinary
+/// mouse, and a closed set that omits them turns a user's hardware into an
+/// unrepresentable case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u16)]
+pub enum PointerButton {
+    Left = 0x110,
+    Right = 0x111,
+    Middle = 0x112,
+    /// `BTN_SIDE`, which a host desktop usually reads as "back".
+    Side = 0x113,
+    /// `BTN_EXTRA`, which a host desktop usually reads as "forward".
+    Extra = 0x114,
+}
+
+impl PointerButton {
+    /// Every button a provider declares to the host.
+    pub const ALL: &'static [Self] = &[
+        Self::Left,
+        Self::Right,
+        Self::Middle,
+        Self::Side,
+        Self::Extra,
+    ];
+
+    #[must_use]
+    pub const fn evdev_code(self) -> u16 {
+        self as u16
+    }
+
+    #[must_use]
+    pub fn from_evdev(code: u16) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|button| button.evdev_code() == code)
+    }
+}
+
+impl fmt::Display for PointerButton {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?} (evdev {:#x})", self.evdev_code())
+    }
+}
+
+/// Which modifiers lunette is holding down.
+///
+/// The bits are the XKB modifier indices of a standard keymap — shift is bit 0,
+/// lock is bit 1, control bit 2, then `Mod1` through `Mod5` — because
+/// `zwp_virtual_keyboard_v1.modifiers` takes exactly that mask, and a second
+/// numbering would have to be converted at the one call site that matters.
+/// WayVR uses the same bits (`subsystem/hid/mod.rs:67-74`).
+///
+/// A newtype rather than a bare `u8`, so a mask and a key code cannot be
+/// transposed, and so [`Self::changes`] can be the single place that decides
+/// which keys a modifier change implies.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct KeyModifiers(u8);
+
+impl KeyModifiers {
+    pub const NONE: Self = Self(0);
+    pub const SHIFT: Self = Self(0x01);
+    pub const CAPS_LOCK: Self = Self(0x02);
+    pub const CTRL: Self = Self(0x04);
+    pub const ALT: Self = Self(0x08);
+    pub const NUM_LOCK: Self = Self(0x10);
+    pub const SUPER: Self = Self(0x40);
+    pub const ALT_GR: Self = Self(0x80);
+
+    /// The modifiers the host latches rather than holds.
+    ///
+    /// `zwp_virtual_keyboard_v1.modifiers` reports depressed and locked
+    /// modifiers as separate masks, and a lock reported as depressed toggles
+    /// off again on the next update.
+    pub const LOCKED: Self = Self(Self::CAPS_LOCK.0 | Self::NUM_LOCK.0);
+
+    /// Every single-bit modifier, paired with the key that produces it.
+    ///
+    /// Only the left-hand key of each pair: pressing one of the two is what
+    /// sets the modifier, and pressing both would leave the second stuck down
+    /// when the modifier clears.
+    const KEYS: [(Self, VirtualKey); 7] = [
+        (Self::SHIFT, VirtualKey::LeftShift),
+        (Self::CAPS_LOCK, VirtualKey::CapsLock),
+        (Self::CTRL, VirtualKey::LeftCtrl),
+        (Self::ALT, VirtualKey::LeftAlt),
+        (Self::NUM_LOCK, VirtualKey::NumLock),
+        (Self::SUPER, VirtualKey::LeftMeta),
+        (Self::ALT_GR, VirtualKey::RightAlt),
+    ];
+
+    /// Reads a mask, rejecting bits no modifier claims.
+    ///
+    /// `None` rather than masking the unknown bits away: a caller that set one
+    /// meant something by it, and dropping it silently is the kind of loss the
+    /// house rules forbid.
+    #[must_use]
+    pub const fn from_bits(bits: u8) -> Option<Self> {
+        const KNOWN: u8 = KeyModifiers::SHIFT.0
+            | KeyModifiers::CAPS_LOCK.0
+            | KeyModifiers::CTRL.0
+            | KeyModifiers::ALT.0
+            | KeyModifiers::NUM_LOCK.0
+            | KeyModifiers::SUPER.0
+            | KeyModifiers::ALT_GR.0;
+
+        if bits & !KNOWN == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// The mask to report as depressed: everything that is not a lock.
+    #[must_use]
+    pub const fn depressed(self) -> u32 {
+        (self.0 & !Self::LOCKED.0) as u32
+    }
+
+    /// The mask to report as locked.
+    #[must_use]
+    pub const fn locked(self) -> u32 {
+        (self.0 & Self::LOCKED.0) as u32
+    }
+
+    /// The key presses and releases that take the host from `self` to `target`.
+    ///
+    /// The whole of what a provider's `set_modifiers` decides, so both
+    /// providers share it and it is tested without either.
+    ///
+    /// Locks are excluded. A lock toggles on the key press rather than tracking
+    /// it, so replaying a lock change as a press would flip it in whichever
+    /// direction the host happened to be in — the host is told about locks
+    /// through the modifier mask instead.
+    pub fn changes(self, target: Self) -> impl Iterator<Item = (VirtualKey, bool)> {
+        let changed = (self.0 ^ target.0) & !Self::LOCKED.0;
+        Self::KEYS
+            .into_iter()
+            .filter(move |(modifier, _)| changed & modifier.0 != 0)
+            .map(move |(modifier, key)| (key, target.0 & modifier.0 != 0))
+    }
+}
+
+impl fmt::Display for KeyModifiers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 == 0 {
+            return f.write_str("no modifiers");
+        }
+        let mut first = true;
+        for (modifier, key) in Self::KEYS {
+            if self.contains(modifier) {
+                if !first {
+                    f.write_str("+")?;
+                }
+                write!(f, "{key:?}")?;
+                first = false;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A keyboard layout, in XKB's version 1 text format.
+///
+/// Held as text rather than as a compiled `xkbcommon` keymap, because the only
+/// thing a provider does with it is write the bytes into a memfd and hand the
+/// descriptor to `zwp_virtual_keyboard_v1.keymap`. Compiling a layout name into
+/// this format is the caller's job, which also keeps this crate free of
+/// `xkbcommon` and free of any assumption about where a layout comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XkbKeymap(String);
+
+impl XkbKeymap {
+    /// Wraps a keymap, rejecting an empty one.
+    ///
+    /// An empty keymap is one `zwp_virtual_keyboard_v1` treats as a protocol
+    /// error, which disconnects the whole client rather than failing the one
+    /// request.
+    #[must_use]
+    pub fn new(text: impl Into<String>) -> Option<Self> {
+        let text = text.into();
+        (!text.trim().is_empty()).then_some(Self(text))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The bytes to write into the memfd, terminated as the protocol requires.
+    ///
+    /// `zwp_virtual_keyboard_v1.keymap` takes a size that includes the
+    /// terminating NUL, and a compositor that maps the file reads up to it.
+    #[must_use]
+    pub fn as_bytes_with_nul(&self) -> Vec<u8> {
+        let mut bytes = self.0.clone().into_bytes();
+        bytes.push(0);
+        bytes
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn every_key_round_trips_through_its_evdev_code() {
+        for key in VirtualKey::ALL {
+            assert_eq!(
+                VirtualKey::from_evdev(key.evdev_code()),
+                Some(*key),
+                "{key} did not round-trip",
+            );
+        }
+    }
+
+    #[test]
+    fn no_two_keys_share_an_evdev_code() {
+        let codes: BTreeSet<u16> = VirtualKey::ALL.iter().map(|key| key.evdev_code()).collect();
+
+        assert_eq!(codes.len(), VirtualKey::ALL.len());
+    }
+
+    #[test]
+    fn a_code_no_key_claims_is_not_a_key() {
+        // 0 is KEY_RESERVED, 84 is a gap in the table, and 767 is past KEY_MAX.
+        assert_eq!(VirtualKey::from_evdev(0), None);
+        assert_eq!(VirtualKey::from_evdev(84), None);
+        assert_eq!(VirtualKey::from_evdev(767), None);
+    }
+
+    #[test]
+    fn every_button_round_trips_through_its_evdev_code() {
+        for button in PointerButton::ALL {
+            assert_eq!(
+                PointerButton::from_evdev(button.evdev_code()),
+                Some(*button)
+            );
+        }
+        assert_eq!(PointerButton::from_evdev(0x115), None);
+    }
+
+    #[test]
+    fn a_mask_with_a_bit_no_modifier_claims_is_rejected() {
+        assert_eq!(KeyModifiers::from_bits(0x20), None);
+        assert_eq!(
+            KeyModifiers::from_bits(0x05),
+            Some(KeyModifiers::SHIFT.union(KeyModifiers::CTRL)),
+        );
+    }
+
+    #[test]
+    fn pressing_a_modifier_presses_exactly_its_key() {
+        let changes: Vec<_> = KeyModifiers::NONE.changes(KeyModifiers::SHIFT).collect();
+
+        assert_eq!(changes, vec![(VirtualKey::LeftShift, true)]);
+    }
+
+    #[test]
+    fn releasing_a_modifier_releases_exactly_its_key() {
+        let changes: Vec<_> = KeyModifiers::SHIFT.changes(KeyModifiers::NONE).collect();
+
+        assert_eq!(changes, vec![(VirtualKey::LeftShift, false)]);
+    }
+
+    #[test]
+    fn a_modifier_that_did_not_change_produces_no_key() {
+        let held = KeyModifiers::SHIFT.union(KeyModifiers::CTRL);
+        let changes: Vec<_> = held.changes(KeyModifiers::CTRL).collect();
+
+        assert_eq!(changes, vec![(VirtualKey::LeftShift, false)]);
+    }
+
+    #[test]
+    fn a_lock_is_never_replayed_as_a_key_press() {
+        // Caps lock toggles on the press rather than tracking it, so replaying
+        // it would flip the host into whichever state it was not already in.
+        let changes: Vec<_> = KeyModifiers::NONE
+            .changes(KeyModifiers::CAPS_LOCK)
+            .collect();
+
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn a_lock_is_reported_as_locked_rather_than_as_depressed() {
+        let held = KeyModifiers::CAPS_LOCK.union(KeyModifiers::CTRL);
+
+        assert_eq!(held.depressed(), u32::from(KeyModifiers::CTRL.bits()));
+        assert_eq!(held.locked(), u32::from(KeyModifiers::CAPS_LOCK.bits()));
+    }
+
+    #[test]
+    fn changing_nothing_produces_no_keys() {
+        let held = KeyModifiers::SHIFT.union(KeyModifiers::SUPER);
+
+        assert_eq!(held.changes(held).count(), 0);
+        assert_eq!(KeyModifiers::NONE.changes(KeyModifiers::NONE).count(), 0);
+    }
+
+    #[test]
+    fn an_empty_keymap_is_not_a_keymap() {
+        assert_eq!(XkbKeymap::new(""), None);
+        assert_eq!(XkbKeymap::new("  \n"), None);
+        assert!(XkbKeymap::new("xkb_keymap {};").is_some());
+    }
+
+    #[test]
+    fn a_keymap_is_handed_over_nul_terminated() {
+        let keymap = XkbKeymap::new("ab").expect("a non-empty keymap");
+
+        assert_eq!(keymap.as_bytes_with_nul(), b"ab\0");
+    }
+}
