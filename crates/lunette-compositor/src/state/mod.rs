@@ -24,15 +24,13 @@
 //!   fractional scale properly and owns the question.
 //! - **Clipboard, selection, and the keyboard.** `wl_data_device`,
 //!   `zwp_primary_selection`, both data-control protocols, and
-//!   `zwp_relative_pointer` are Phase 5. The seat here has a pointer and no
-//!   keyboard.
-//! - **Popup input routing.** Popup *tracking* is not separable — `PopupManager`
-//!   is committed to on every surface commit — so it is here. Routing input into
-//!   a popup needs the hit test, which is Phase 5.
+//!   `zwp_relative_pointer` are still to come. A seat here has a pointer and no
+//!   keyboard, because `add_keyboard` cannot be called without a keymap.
 
 mod commit;
 mod compositor;
 mod handlers;
+mod input;
 #[cfg(test)]
 mod tests;
 

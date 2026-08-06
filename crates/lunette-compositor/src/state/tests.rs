@@ -24,9 +24,8 @@ use crate::{
     },
     state::{
         DEFAULT_OUTPUT,
-        compositor::{
-            CompositorConfig, DmabufSupport, evdev_button, protocol_state, toplevel_state,
-        },
+        compositor::{CompositorConfig, DmabufSupport, protocol_state, toplevel_state},
+        input::evdev_button,
     },
     test_client::TestClient,
     testing::TestCompositor,

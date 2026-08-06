@@ -37,6 +37,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/comp.rs` (the state and globals), `backend/wayvr/mod.rs` (the globals and output fragments) | `src/state/compositor.rs` |
 | `backend/wayvr/comp.rs` (the handler impls and `delegate_*!`) | `src/state/handlers.rs` |
 | `backend/wayvr/comp.rs` (`CompositorHandler::commit`) | `src/state/commit.rs` |
+| `backend/wayvr/mod.rs` (the seat and pointer command paths), `backend/wayvr/client.rs` (the input methods) | `src/state/input.rs` |
 | `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
 | `backend/wayvr/window.rs`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/window.rs` |
 | `backend/wayvr/mod.rs` (the seat construction fragment), `backend/wayvr/window.rs` (the hover state) | `src/seat.rs` |
