@@ -34,6 +34,8 @@ Control socket over Lua eval, not a typed protocol. awesome's design has held fo
 
 Standard library on disk, not embedded. It should be legible to someone who has the binary and not the source.
 
+Compositor tests connect over a socketpair, not a bound socket. `Connection::from_socket` and `DisplayHandle::insert_client` both take a `UnixStream` directly, so a test gives one end of a `UnixStream::pair()` to each side and the filesystem is never involved. Only the listener's own tests — bind, listen, accept, and socket-path selection — bind a real socket, in a per-test temporary directory, because that is the code under test. The real socket in [Build and development](build-and-development.md#testing) means a real Wayland connection, not a real path on disk.
+
 Dead handles go inert rather than raising errors. This is a compromise, made because it is less disruptive than a race condition taking down the session.
 
 ## Known gaps
