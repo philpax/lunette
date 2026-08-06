@@ -68,7 +68,9 @@ Full XR is ground truth, and soft reload ([The Lua API](lua-api.md#reload)) is w
 
 ## Testing
 
-Tier A, logic headless, is a design constraint rather than an aspiration. The compositor crate, capture, input routing, and process management are tested as ordinary Rust, with a small `smithay-client-toolkit` test client connecting to a real socket. Buffer import is stubbed. This costs nothing beyond the layering discipline already required, and becomes impossible only if the codebase is accidentally coupled to the graphics module.
+Tier A, logic headless, is a design constraint rather than an aspiration. The compositor crate, capture, input routing, and process management are tested as ordinary Rust, with a small `wayland-client` test client speaking the real protocol. Buffer import is stubbed behind a trait, which is the seam the whole tier rests on. This costs nothing beyond the layering discipline already required, and becomes impossible only if the codebase is accidentally coupled to the graphics module.
+
+The client and the compositor talk over a `UnixStream::pair()` rather than a bound socket: one end goes to `DisplayHandle::insert_client`, the other to `Connection::from_socket`. Nothing is bound, no path is written, and `XDG_RUNTIME_DIR` is never read, so two test binaries running at once cannot collide over a display number. `Connection::connect_to_env` is never used — it calls `env::remove_var` internally, and mutating the environment of a multithreaded test binary is unsound.
 
 Tier B, GPU headless, is a nice-to-have. LÖVR runs with no window and no XR, panels render offscreen, and pixels are read back and asserted. `etc/boot.lua` opens a window only when `conf.window` is set, and `lovr.graphics.newReadback` exists, so this tier is available rather than theoretical. It is useful for confirming layout placement and for catching texture-import regressions.
 

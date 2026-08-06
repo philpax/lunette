@@ -1,4 +1,10 @@
 //! Tests for [`crate::state`].
+//!
+//! What a client sees over the protocol — the globals, mapping, retitling,
+//! disconnection, and pointer routing — is covered by the integration suite in
+//! `tests/`, which reaches the crate through its public API. What is here is
+//! everything that needs `pub(crate)` access, plus the command paths a client
+//! cannot drive on its own.
 
 #![expect(
     clippy::expect_used,
@@ -12,44 +18,23 @@ use pretty_assertions::assert_eq;
 use crate::{
     client::XwaylandSatellite,
     protocol::{
-        Argv, Command, Event, PixelPoint, PixelSize, PointerButton, ProcessId, ProcessOutcome,
-        ProcessSignal, SeatId, SpawnRequest as SpawnCommand, Stream, ToplevelState, ToplevelStates,
-        WindowId, WindowSnapshot,
+        Argv, Command, Event, PixelSize, PointerButton, ProcessId, ProcessOutcome, ProcessSignal,
+        SpawnRequest as SpawnCommand, Stream, ToplevelState, ToplevelStates, WindowSnapshot,
     },
     state::{
-        DEFAULT_OUTPUT, DEFAULT_SEAT,
+        DEFAULT_OUTPUT,
         compositor::{CompositorConfig, evdev_button, protocol_state, toplevel_state},
     },
-    surface::ShmFormat,
     test_client::TestClient,
     testing::TestCompositor,
 };
-
-/// Every global lunette advertises, in the order `globals()` sorts them.
-///
-/// `wl_subcompositor` is here because `CompositorState::new` creates it
-/// unconditionally, and `wp_viewporter` because xwayland-satellite refuses
-/// to start without it. Both decoration managers are here so GTK and Qt
-/// clients do not draw their own titlebars inside a panel.
-const EXPECTED_GLOBALS: [&str; 10] = [
-    "org_kde_kwin_server_decoration_manager",
-    "wl_compositor",
-    "wl_output",
-    "wl_seat",
-    "wl_shm",
-    "wl_subcompositor",
-    "wp_viewporter",
-    "xdg_wm_base",
-    "zwp_linux_dmabuf_v1",
-    "zxdg_decoration_manager_v1",
-];
 
 /// A compositor with one mapped window, and the client that owns it.
 fn with_one_window() -> (TestCompositor, TestClient) {
     let mut compositor = TestCompositor::new();
     let mut client = TestClient::connect(&mut compositor);
     client.open_toplevel(&mut compositor);
-    client.attach_buffer(&mut compositor, 640, 480);
+    client.attach_buffer(&mut compositor, PixelSize::new(640, 480));
     (compositor, client)
 }
 
@@ -57,14 +42,6 @@ fn only_window(compositor: &TestCompositor) -> WindowSnapshot {
     let snapshot = compositor.snapshot();
     assert_eq!(snapshot.windows.len(), 1, "expected exactly one window");
     snapshot.windows[0].clone()
-}
-
-#[test]
-fn a_client_sees_every_global_lunette_advertises() {
-    let mut compositor = TestCompositor::new();
-    let client = TestClient::connect(&mut compositor);
-
-    assert_eq!(client.globals(), EXPECTED_GLOBALS);
 }
 
 #[test]
@@ -87,83 +64,6 @@ fn a_toplevel_with_no_buffer_is_not_yet_a_window() {
 }
 
 #[test]
-fn a_mapped_toplevel_is_reported_and_appears_in_the_snapshot() {
-    let (compositor, _client) = with_one_window();
-
-    let events = compositor.drain_events();
-    let opened: Vec<WindowId> = events
-        .iter()
-        .filter_map(|event| match event {
-            Event::WindowOpened { window } => Some(*window),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(opened.len(), 1, "exactly one window opened: {events:?}");
-
-    let window = only_window(&compositor);
-    assert_eq!(window.window, opened[0]);
-    assert_eq!(window.size, PixelSize::new(640, 480));
-    assert_eq!(window.output, Some(DEFAULT_OUTPUT));
-}
-
-#[test]
-fn a_shm_commit_reaches_the_importer_with_the_layout_the_client_declared() {
-    let (compositor, _client) = with_one_window();
-
-    let layouts = compositor.imports().shm_layouts();
-    assert_eq!(layouts.len(), 1, "one commit, one import");
-    assert_eq!(layouts[0].size, PixelSize::new(640, 480));
-    assert_eq!(layouts[0].stride, 640 * 4);
-    assert_eq!(layouts[0].format, ShmFormat::Argb8888);
-    assert_eq!(
-        compositor.imports().dmabuf_count(),
-        0,
-        "a shared-memory client must not reach the dmabuf path"
-    );
-}
-
-#[test]
-fn a_buffer_the_importer_refuses_leaves_the_window_unmapped() {
-    let mut compositor = TestCompositor::new();
-    compositor.imports().refuse("no graphics device");
-    let mut client = TestClient::connect(&mut compositor);
-    client.open_toplevel(&mut compositor);
-    client.attach_buffer(&mut compositor, 640, 480);
-
-    assert!(
-        compositor.snapshot().windows.is_empty(),
-        "a window with no importable content is not shown"
-    );
-}
-
-#[test]
-fn a_title_change_is_reported_once_per_change() {
-    let (mut compositor, mut client) = with_one_window();
-    drop(compositor.drain_events());
-
-    client.set_title(&mut compositor, "a terminal");
-    client.set_title(&mut compositor, "a terminal");
-
-    let titles: Vec<String> = compositor
-        .drain_events()
-        .into_iter()
-        .filter_map(|event| match event {
-            Event::TitleChanged { title, .. } => Some(title),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        titles,
-        ["a terminal"],
-        "setting the same title twice is not a change"
-    );
-    assert_eq!(
-        only_window(&compositor).title.as_deref(),
-        Some("a terminal")
-    );
-}
-
-#[test]
 fn destroying_a_toplevel_reports_the_window_closed_and_removes_it() {
     let (mut compositor, mut client) = with_one_window();
     let window = only_window(&compositor).window;
@@ -178,19 +78,6 @@ fn destroying_a_toplevel_reports_the_window_closed_and_removes_it() {
         "the window that went away is the one reported"
     );
     assert!(compositor.snapshot().windows.is_empty());
-}
-
-#[test]
-fn a_disconnecting_client_takes_its_window_with_it() {
-    let (mut compositor, client) = with_one_window();
-    assert_eq!(compositor.snapshot().windows.len(), 1);
-
-    client.disconnect(&mut compositor);
-
-    assert!(
-        compositor.snapshot().windows.is_empty(),
-        "a client that is gone leaves no windows behind"
-    );
 }
 
 #[test]
@@ -236,52 +123,6 @@ fn closing_a_window_that_is_already_gone_is_not_an_error() {
     client.close_toplevel(&mut compositor);
 
     compositor.send(Command::CloseWindow { window });
-    client.settle_quiet(&mut compositor);
-}
-
-#[test]
-fn input_addressed_to_a_seat_that_does_not_exist_is_refused() {
-    let (mut compositor, mut client) = with_one_window();
-    let sink = only_window(&compositor).sink;
-    let absent = SeatId::new(99).expect("non-zero");
-
-    compositor.send(Command::Pointer {
-        seat: absent,
-        sink,
-        position: PixelPoint::new(1.0, 1.0),
-    });
-    compositor.send(Command::Button {
-        seat: absent,
-        sink,
-        button: PointerButton::Left,
-        pressed: true,
-    });
-    client.settle_quiet(&mut compositor);
-}
-
-#[test]
-fn a_pointer_over_a_window_is_delivered_to_its_surface() {
-    let (mut compositor, mut client) = with_one_window();
-    let sink = only_window(&compositor).sink;
-
-    compositor.send(Command::Pointer {
-        seat: DEFAULT_SEAT,
-        sink,
-        position: PixelPoint::new(12.0, 34.0),
-    });
-    compositor.send(Command::Button {
-        seat: DEFAULT_SEAT,
-        sink,
-        button: PointerButton::Left,
-        pressed: true,
-    });
-    compositor.send(Command::Button {
-        seat: DEFAULT_SEAT,
-        sink,
-        button: PointerButton::Left,
-        pressed: false,
-    });
-    compositor.send(Command::PointerLeave { seat: DEFAULT_SEAT });
     client.settle_quiet(&mut compositor);
 }
 
@@ -430,7 +271,7 @@ fn a_client_that_matches_no_process_is_adopted_as_external() {
     let mut compositor = TestCompositor::new();
     let mut client = TestClient::connect(&mut compositor);
     client.open_toplevel(&mut compositor);
-    client.attach_buffer(&mut compositor, 320, 240);
+    client.attach_buffer(&mut compositor, PixelSize::new(320, 240));
 
     let snapshot = compositor.snapshot();
     assert_eq!(snapshot.processes.len(), 1);
@@ -476,7 +317,7 @@ fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
 
     let mut client = TestClient::connect(&mut compositor);
     client.open_toplevel(&mut compositor);
-    client.attach_buffer(&mut compositor, 320, 240);
+    client.attach_buffer(&mut compositor, PixelSize::new(320, 240));
 
     assert_eq!(only_window(&compositor).process, Some(process));
     assert!(

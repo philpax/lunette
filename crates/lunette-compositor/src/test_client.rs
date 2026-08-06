@@ -16,6 +16,10 @@
 //! `env::remove_var("WAYLAND_SOCKET")` internally, and mutating the environment
 //! of a multithreaded test binary is unsound. `Connection::from_socket` is the
 //! only form.
+//!
+//! Linux-only: the shared-memory buffer is a `memfd`. An anonymous file rather
+//! than a temporary one, so a test writes nothing to the filesystem and cannot
+//! collide with another test over a name.
 
 #![expect(
     clippy::expect_used,
@@ -23,16 +27,25 @@
               module is gated behind `cfg(test)` or the `test-fakes` feature"
 )]
 
-use std::{io, os::unix::net::UnixStream, time::Instant};
+use std::{
+    io,
+    os::{
+        fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
+        unix::net::UnixStream,
+    },
+    time::Instant,
+};
 
 use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy, QueueHandle,
-    backend::WaylandError,
+    backend::{ObjectId, WaylandError},
     delegate_noop,
     protocol::{
         wl_buffer::WlBuffer,
         wl_compositor::WlCompositor,
+        wl_pointer::{self, ButtonState, WlPointer},
         wl_registry::{self, WlRegistry},
+        wl_seat::{self, Capability, WlSeat},
         wl_shm::{self, WlShm},
         wl_shm_pool::WlShmPool,
         wl_surface::WlSurface,
@@ -44,21 +57,25 @@ use wayland_protocols::xdg::shell::client::{
     xdg_wm_base::{self, XdgWmBase},
 };
 
-use crate::testing::{DEADLINE, TestCompositor};
+use crate::{
+    protocol::PixelSize,
+    testing::{DEADLINE, TestCompositor},
+};
 
 /// A connected client and the queue its events arrive on.
-pub(crate) struct TestClient {
+pub struct TestClient {
     connection: Connection,
     queue: EventQueue<Driver>,
     driver: Driver,
     surface: Option<WlSurface>,
     xdg_surface: Option<XdgSurface>,
     toplevel: Option<XdgToplevel>,
+    pointer: Option<WlPointer>,
 }
 
 impl TestClient {
     /// Connects over a socket pair and binds the globals a toplevel needs.
-    pub(crate) fn connect(compositor: &mut TestCompositor) -> Self {
+    pub fn connect(compositor: &mut TestCompositor) -> Self {
         let (stream, _client) = compositor.connect();
         let mut client = Self::from_socket(stream);
         client.settle(compositor, |driver| !driver.globals.is_empty());
@@ -79,11 +96,12 @@ impl TestClient {
             surface: None,
             xdg_surface: None,
             toplevel: None,
+            pointer: None,
         }
     }
 
     /// Every global the compositor advertised, by interface name, sorted.
-    pub(crate) fn globals(&self) -> Vec<String> {
+    pub fn globals(&self) -> Vec<String> {
         let mut names: Vec<String> = self
             .driver
             .globals
@@ -94,12 +112,20 @@ impl TestClient {
         names
     }
 
+    /// What the client has learned so far.
+    #[must_use]
+    pub fn driver(&self) -> &Driver {
+        &self.driver
+    }
+
+    /// The toplevel's surface, for a test asserting that an event named it.
+    #[must_use]
+    pub fn surface_id(&self) -> Option<ObjectId> {
+        self.surface.as_ref().map(Proxy::id)
+    }
+
     /// Runs both ends until `ready` holds, failing at the deadline.
-    pub(crate) fn settle(
-        &mut self,
-        compositor: &mut TestCompositor,
-        ready: impl Fn(&Driver) -> bool,
-    ) {
+    pub fn settle(&mut self, compositor: &mut TestCompositor, ready: impl Fn(&Driver) -> bool) {
         let expiry = Instant::now() + DEADLINE;
 
         loop {
@@ -116,7 +142,7 @@ impl TestClient {
 
     /// Runs both ends a fixed number of rounds, for a test asserting that
     /// something did *not* happen.
-    pub(crate) fn settle_quiet(&mut self, compositor: &mut TestCompositor) {
+    pub fn settle_quiet(&mut self, compositor: &mut TestCompositor) {
         for _ in 0..8 {
             self.pump(compositor);
         }
@@ -147,7 +173,7 @@ impl TestClient {
     /// the first commit carries no buffer, the client waits for
     /// `xdg_surface.configure`, and only then may it attach. Attaching before
     /// the first configure is a protocol error.
-    pub(crate) fn open_toplevel(&mut self, compositor: &mut TestCompositor) {
+    pub fn open_toplevel(&mut self, compositor: &mut TestCompositor) {
         let handle = self.queue.handle();
         let wl_compositor = self.bind::<WlCompositor>(6);
         let wm_base = self.bind::<XdgWmBase>(3);
@@ -165,24 +191,21 @@ impl TestClient {
         self.acknowledge_configure();
     }
 
-    /// Attaches a shared-memory buffer and commits, which is what maps the
-    /// window.
-    pub(crate) fn attach_buffer(
-        &mut self,
-        compositor: &mut TestCompositor,
-        width: i32,
-        height: i32,
-    ) {
+    /// Attaches a shared-memory buffer of `size` and commits, which is what
+    /// maps the window.
+    pub fn attach_buffer(&mut self, compositor: &mut TestCompositor, size: PixelSize) {
         let handle = self.queue.handle();
         let shm = self.bind::<WlShm>(1);
 
+        // The protocol counts in signed pixels; a size that does not fit is a
+        // test asking for something no client could ask for.
+        let width = i32::try_from(size.width).expect("a width the protocol can carry");
+        let height = i32::try_from(size.height).expect("a height the protocol can carry");
         let stride = width * 4;
         let length = stride * height;
-        let file = tempfile::tempfile().expect("a temporary file can be made");
-        file.set_len(u64::try_from(length).expect("a non-negative length"))
-            .expect("the file can be sized");
+        let memory = anonymous_file(i64::from(length));
 
-        let pool = shm.create_pool(file.as_fd_borrowed(), length, &handle, ());
+        let pool = shm.create_pool(memory.as_fd(), length, &handle, ());
         let buffer = pool.create_buffer(
             0,
             width,
@@ -201,8 +224,21 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
+    /// Binds the seat's pointer, so a test can observe what input reaches this
+    /// client.
+    ///
+    /// Waits for the capability rather than assuming it: asking a seat for a
+    /// pointer it has not advertised is a protocol error.
+    pub fn open_pointer(&mut self, compositor: &mut TestCompositor) {
+        let handle = self.queue.handle();
+        let seat = self.bind::<WlSeat>(5);
+        self.settle(compositor, |driver| driver.has_pointer);
+        self.pointer = Some(seat.get_pointer(&handle, ()));
+        self.settle_quiet(compositor);
+    }
+
     /// Sets the toplevel's title.
-    pub(crate) fn set_title(&mut self, compositor: &mut TestCompositor, title: &str) {
+    pub fn set_title(&mut self, compositor: &mut TestCompositor, title: &str) {
         self.toplevel
             .as_ref()
             .expect("a toplevel was opened first")
@@ -211,7 +247,7 @@ impl TestClient {
     }
 
     /// Destroys the toplevel, as a client closing its window would.
-    pub(crate) fn close_toplevel(&mut self, compositor: &mut TestCompositor) {
+    pub fn close_toplevel(&mut self, compositor: &mut TestCompositor) {
         if let Some(toplevel) = self.toplevel.take() {
             toplevel.destroy();
         }
@@ -255,7 +291,7 @@ impl TestClient {
     }
 
     /// The connection, for a test that wants to close it abruptly.
-    pub(crate) fn disconnect(self, compositor: &mut TestCompositor) {
+    pub fn disconnect(self, compositor: &mut TestCompositor) {
         drop(self.connection);
         drop(self.queue);
         for _ in 0..8 {
@@ -266,20 +302,59 @@ impl TestClient {
 
 /// What the client learned from the compositor.
 #[derive(Debug, Default)]
-pub(crate) struct Driver {
-    pub(crate) globals: Vec<Global>,
+pub struct Driver {
+    pub globals: Vec<Global>,
     registry: Option<WlRegistry>,
-    pub(crate) configure_serial: Option<u32>,
-    pub(crate) toplevel_size: Option<(i32, i32)>,
-    pub(crate) closed: bool,
+    pub configure_serial: Option<u32>,
+    pub toplevel_size: Option<(i32, i32)>,
+    pub closed: bool,
+    pub has_pointer: bool,
+    /// Every pointer event delivered, in order.
+    pub pointer: Vec<PointerEvent>,
+}
+
+impl Driver {
+    /// The first pointer enter, if one arrived.
+    #[must_use]
+    pub fn first_enter(&self) -> Option<(&ObjectId, f64, f64)> {
+        self.pointer.iter().find_map(|event| match event {
+            PointerEvent::Enter { surface, x, y } => Some((surface, *x, *y)),
+            _ => None,
+        })
+    }
+
+    /// Every button press and release, in order.
+    #[must_use]
+    pub fn buttons(&self) -> Vec<(u32, bool)> {
+        self.pointer
+            .iter()
+            .filter_map(|event| match event {
+                PointerEvent::Button { button, pressed } => Some((*button, *pressed)),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 /// One entry from the registry.
 #[derive(Clone, Debug)]
-pub(crate) struct Global {
-    pub(crate) name: u32,
-    pub(crate) interface: String,
-    pub(crate) version: u32,
+pub struct Global {
+    pub name: u32,
+    pub interface: String,
+    pub version: u32,
+}
+
+/// A pointer event as the client received it.
+///
+/// Coordinates are surface-local, which is the whole point of asserting on
+/// them: the compositor is what translates a sink-relative position into the
+/// surface's own frame.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PointerEvent {
+    Enter { surface: ObjectId, x: f64, y: f64 },
+    Motion { x: f64, y: f64 },
+    Button { button: u32, pressed: bool },
+    Leave { surface: ObjectId },
 }
 
 impl Dispatch<WlRegistry, ()> for Driver {
@@ -360,19 +435,100 @@ impl Dispatch<XdgToplevel, ()> for Driver {
     }
 }
 
+impl Dispatch<WlSeat, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        _seat: &WlSeat,
+        event: wl_seat::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let wl_seat::Event::Capabilities {
+            capabilities: wayland_client::WEnum::Value(capabilities),
+        } = event
+        {
+            state.has_pointer = capabilities.contains(Capability::Pointer);
+        }
+    }
+}
+
+impl Dispatch<WlPointer, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        _pointer: &WlPointer,
+        event: wl_pointer::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        let recorded = match event {
+            wl_pointer::Event::Enter {
+                surface,
+                surface_x,
+                surface_y,
+                ..
+            } => PointerEvent::Enter {
+                surface: surface.id(),
+                x: surface_x,
+                y: surface_y,
+            },
+            wl_pointer::Event::Motion {
+                surface_x,
+                surface_y,
+                ..
+            } => PointerEvent::Motion {
+                x: surface_x,
+                y: surface_y,
+            },
+            wl_pointer::Event::Button { button, state, .. } => PointerEvent::Button {
+                button,
+                pressed: state == wayland_client::WEnum::Value(ButtonState::Pressed),
+            },
+            wl_pointer::Event::Leave { surface, .. } => PointerEvent::Leave {
+                surface: surface.id(),
+            },
+            // Axis, frame, and the source and stop refinements say nothing
+            // about routing, which is what these tests are about.
+            _ => return,
+        };
+        state.pointer.push(recorded);
+    }
+}
+
 delegate_noop!(Driver: ignore WlCompositor);
 delegate_noop!(Driver: ignore WlSurface);
 delegate_noop!(Driver: ignore WlShm);
 delegate_noop!(Driver: ignore WlShmPool);
 delegate_noop!(Driver: ignore WlBuffer);
 
-/// Borrows a file's descriptor for a protocol request.
-trait AsFdBorrowed {
-    fn as_fd_borrowed(&self) -> std::os::fd::BorrowedFd<'_>;
-}
+/// An anonymous file of `length` bytes, to back a `wl_shm` pool.
+///
+/// A `memfd` rather than a file under `/tmp`: a test that touches the
+/// filesystem is one that can collide with another test, leak on a failure, or
+/// fail on a read-only root. Nothing here needs a name.
+fn anonymous_file(length: i64) -> OwnedFd {
+    let name = c"lunette-test-shm";
+    // SAFETY: `name` is a valid NUL-terminated string that outlives the call,
+    // and `memfd_create` returns an owned descriptor or -1.
+    let descriptor = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC) };
+    assert!(
+        descriptor >= 0,
+        "memfd_create failed: {}",
+        io::Error::last_os_error()
+    );
 
-impl AsFdBorrowed for std::fs::File {
-    fn as_fd_borrowed(&self) -> std::os::fd::BorrowedFd<'_> {
-        std::os::fd::AsFd::as_fd(self)
-    }
+    // SAFETY: `descriptor` is a fresh, owned, non-negative descriptor, and
+    // nothing else holds it.
+    let memory = unsafe { OwnedFd::from_raw_fd(descriptor) };
+
+    // SAFETY: `memory` is a valid descriptor for a writable anonymous file.
+    let sized = unsafe { libc::ftruncate(memory.as_raw_fd(), length) };
+    assert!(
+        sized == 0,
+        "ftruncate failed: {}",
+        io::Error::last_os_error()
+    );
+
+    memory
 }
