@@ -47,16 +47,19 @@ impl<T> MonitorTextures<T> {
         Self::default()
     }
 
-    /// Whether this monitor's texture already wraps `image`.
+    /// Which image this monitor's texture wraps, if it holds one.
     ///
-    /// True is how a frame from a buffer PipeWire is recycling costs nothing:
-    /// the importer would answer with the image already installed, and wrapping
-    /// it again would allocate a texture over memory a texture already covers.
+    /// Two callers, and both of them are about a buffer PipeWire is recycling.
+    /// The frame loop compares it against what the import answered, because
+    /// wrapping the same image again would allocate a texture over memory a
+    /// texture already covers. And the capture importer is told it, because an
+    /// image named here must not be retired: it is what
+    /// [`CaptureImporter::import`] refuses to evict.
+    ///
+    /// [`CaptureImporter::import`]: crate::import::CaptureImporter::import
     #[must_use]
-    pub fn holds(&self, monitor: &MonitorKey, image: ImageHandle) -> bool {
-        self.entries
-            .get(monitor)
-            .is_some_and(|entry| entry.image == image)
+    pub fn image(&self, monitor: &MonitorKey) -> Option<ImageHandle> {
+        self.entries.get(monitor).map(|entry| entry.image)
     }
 
     /// Records a monitor's new texture, returning the one it displaces.
@@ -216,9 +219,8 @@ mod tests {
         let mut textures = MonitorTextures::new();
         textures.install(monitor(1), image(7), 10_u32, description());
 
-        assert!(textures.holds(&monitor(1), image(7)));
-        assert!(!textures.holds(&monitor(1), image(8)));
-        assert!(!textures.holds(&monitor(2), image(7)));
+        assert_eq!(textures.image(&monitor(1)), Some(image(7)));
+        assert_eq!(textures.image(&monitor(2)), None);
     }
 
     #[test]

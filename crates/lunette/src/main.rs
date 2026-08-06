@@ -32,6 +32,10 @@
 //! to the code that creates the socket is the obvious thing to do, and it is
 //! wrong for a reason that is invisible from there.
 //!
+//! The export also has to follow the read of the *host's* `WAYLAND_DISPLAY`,
+//! which is why the two are one function: see
+//! [`read_host_then_export_display`].
+//!
 //! # Why this does not point LÖVR at lunette's own socket
 //!
 //! Setting `WAYLAND_DISPLAY` in a process that is about to open a window of its
@@ -74,9 +78,9 @@ use lunette_capture::{
     mirror::MirrorSet,
     monitor::OutputWatcher,
     portal::{CursorPolicy, WlxPortal},
-    tokens::{self, Loaded},
+    tokens::{self, Loaded, TokenFile},
 };
-use lunette_compositor::client::{XwaylandSatellite, listen};
+use lunette_compositor::client::{DisplayName, XwaylandSatellite, listen};
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
@@ -115,14 +119,6 @@ fn main() -> ExitCode {
 
     info!(path = %config_directory.display(), "loading the configuration");
 
-    // Read before the export below replaces it. Everything that reaches the
-    // *host* compositor — the output enumeration, and the `wl_virtual` input
-    // provider when Phase 5 gives it a keymap — needs the socket the user's own
-    // session is on, and after the export the variable names lunette's.
-    let host_socket = host_wayland_socket(
-        env::var_os(XDG_RUNTIME_DIR).as_deref(),
-        env::var_os(WAYLAND_DISPLAY).as_deref(),
-    );
     let state_directory = state_directory(&StateDirectorySources::from_environment());
 
     // `name` rather than `display`, because `tracing`'s macros bring a function
@@ -139,7 +135,7 @@ fn main() -> ExitCode {
     // runs before anything has spawned a thread — the subscriber is installed,
     // the configuration directory is resolved, and the socket is bound, none of
     // which starts one. Every later reader is in a thread this write precedes.
-    unsafe { env::set_var(WAYLAND_DISPLAY, name.wayland()) };
+    let host_socket = unsafe { read_host_then_export_display(&name) };
 
     info!(
         "connect a client from outside with WAYLAND_DISPLAY={}",
@@ -155,7 +151,7 @@ fn main() -> ExitCode {
         Rc<dyn HostSinks>,
         Option<HostDesktop>,
     ) = match host_socket
-        .as_deref()
+        .path()
         .and_then(|socket| open_host(socket, state_directory.as_deref()))
     {
         Some(host) => (
@@ -218,7 +214,7 @@ struct Host {
     mirrors: Rc<HostMirrors<WlxPortal>>,
     pointer: Rc<HostPointer>,
     outputs: OutputWatcher,
-    tokens: Option<PathBuf>,
+    tokens: Option<TokenFile>,
 }
 
 /// Opens the user's own desktop: its monitors, its screencast portal, and its
@@ -293,8 +289,10 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
 ///
 /// A file written by a later lunette is read for nothing and must not be
 /// rewritten: rendering this version's fields over it would drop the ones this
-/// version does not know about.
-fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<PathBuf>) {
+/// version does not know about. [`Loaded::for_session`] is what decides that,
+/// and a [`TokenFile`] is the only thing `tokens::write` accepts, so the answer
+/// here cannot be a convention this function is trusted to keep.
+fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<TokenFile>) {
     let Some(directory) = state_directory else {
         warn!(
             "state: neither {XDG_STATE_HOME} nor HOME names an absolute path, so screencast \
@@ -304,26 +302,74 @@ fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<Pa
     };
 
     let path = directory.join(TOKEN_FILE);
-    match tokens::read(&path) {
-        Ok(Loaded::Store(store)) => {
-            info!(path = %path.display(), monitors = store.len(), "read the screencast tokens");
-            (store, Some(path))
-        }
-        Ok(Loaded::Absent) => (tokens::TokenStore::new(), Some(path)),
-        Ok(Loaded::FromTheFuture { found, supported }) => {
-            warn!(
-                path = %path.display(),
-                %found,
-                %supported,
-                "the screencast tokens were written by a later lunette, so they are left untouched",
-            );
-            (tokens::TokenStore::new(), None)
-        }
+    let loaded = match tokens::read(&path) {
+        Ok(loaded) => loaded,
         Err(error) => {
             warn!("{error}; the screencast portal will prompt again");
-            (tokens::TokenStore::new(), None)
+            return (tokens::TokenStore::new(), None);
         }
+    };
+
+    match &loaded {
+        Loaded::Store(store) => {
+            info!(path = %path.display(), monitors = store.len(), "read the screencast tokens");
+        }
+        Loaded::Absent => {}
+        Loaded::FromTheFuture { found, supported } => warn!(
+            path = %path.display(),
+            %found,
+            %supported,
+            "the screencast tokens were written by a later lunette, so they are left untouched",
+        ),
     }
+
+    loaded.for_session(path)
+}
+
+/// The host compositor's socket, as it was before lunette's own display name
+/// replaced it in the environment.
+///
+/// Minted only by [`read_host_then_export_display`], so holding one is evidence
+/// that the read happened first.
+#[derive(Debug)]
+struct HostWaylandSocket(Option<PathBuf>);
+
+impl HostWaylandSocket {
+    fn path(&self) -> Option<&Path> {
+        self.0.as_deref()
+    }
+}
+
+/// Reads the host compositor's socket, then points `WAYLAND_DISPLAY` at
+/// lunette's own.
+///
+/// One function because the order between the two is load-bearing and invisible
+/// from either side. Everything that reaches the *host* compositor — the output
+/// enumeration, and the `wl_virtual` input provider when Phase 5 gives it a
+/// keymap — needs the socket the user's own session is on, and after the export
+/// the variable names lunette's. A read that moved below the export would
+/// enumerate lunette's own compositor and report zero monitors, which in the log
+/// is indistinguishable from a machine with no readable screens.
+///
+/// Reading inside the function that performs the export is what makes that
+/// inversion unwritable: there is no `WAYLAND_DISPLAY` export anywhere else, and
+/// no other way to obtain a [`HostWaylandSocket`].
+///
+/// # Safety
+///
+/// The process must still be single-threaded. `std::env::set_var` is unsound
+/// once it is not: a concurrent `getenv` anywhere, including inside a C library,
+/// reads a pointer this write may free.
+unsafe fn read_host_then_export_display(display: &DisplayName) -> HostWaylandSocket {
+    let socket = host_wayland_socket(
+        env::var_os(XDG_RUNTIME_DIR).as_deref(),
+        env::var_os(WAYLAND_DISPLAY).as_deref(),
+    );
+
+    // SAFETY: the caller's guarantee, and the read above has already happened.
+    unsafe { env::set_var(WAYLAND_DISPLAY, display.wayland()) };
+
+    HostWaylandSocket(socket)
 }
 
 /// The host compositor's socket, from the two variables that name it.
@@ -486,10 +532,101 @@ fn absolute_path(value: Option<OsString>) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use tempfile::TempDir;
 
     use super::*;
+
+    /// A state directory holding a token file with `text` in it.
+    fn state_with_tokens(text: &str) -> TempDir {
+        let directory = TempDir::new().expect("a temporary directory can be created");
+        std::fs::write(directory.path().join(TOKEN_FILE), text).expect("the file can be written");
+        directory
+    }
+
+    #[test]
+    fn a_token_file_this_version_wrote_is_read_and_may_be_written_back() {
+        let directory = state_with_tokens(
+            "version = 1\n\
+             [[monitors]]\n\
+             key = { descriptor = \"Acme X24\" }\n\
+             token = \"kept\"\n",
+        );
+
+        let (store, file) = read_tokens(Some(directory.path()));
+
+        assert_eq!(store.len(), 1);
+        assert_eq!(
+            file.map(|file| file.path().to_owned()),
+            Some(directory.path().join(TOKEN_FILE)),
+        );
+    }
+
+    #[test]
+    fn no_token_file_yet_still_names_somewhere_to_write_one() {
+        // The ordinary first run. There is nothing to read and every reason to
+        // be able to record what the first grant returns.
+        let directory = TempDir::new().expect("a temporary directory can be created");
+
+        let (store, file) = read_tokens(Some(directory.path()));
+
+        assert!(store.is_empty());
+        assert!(file.is_some());
+    }
+
+    #[test]
+    fn a_token_file_from_a_later_version_is_neither_read_nor_writable() {
+        // The case that corrupts rather than fails: rendering this version's
+        // fields over it would drop the ones this version does not know about.
+        let directory = state_with_tokens(
+            "version = 2\n\
+             [[monitors]]\n\
+             key = { descriptor = \"Acme X24\" }\n\
+             token = \"kept\"\n\
+             something-later-versions-have = true\n",
+        );
+
+        let (store, file) = read_tokens(Some(directory.path()));
+
+        assert!(store.is_empty());
+        assert_eq!(file, None);
+    }
+
+    #[test]
+    fn a_token_file_this_version_cannot_parse_is_left_alone() {
+        // Including a file at this version carrying a field this version does
+        // not know, which `deny_unknown_fields` refuses: it is either a typo or
+        // a field a later version added without bumping, and writing over
+        // either discards whatever it held.
+        for text in [
+            "this is not toml {{{",
+            "version = 1\n\
+             [[monitors]]\n\
+             key = { descriptor = \"Acme X24\" }\n\
+             token = \"kept\"\n\
+             typoed = 3\n",
+        ] {
+            let directory = state_with_tokens(text);
+
+            let (store, file) = read_tokens(Some(directory.path()));
+
+            assert!(store.is_empty(), "{text}");
+            assert_eq!(file, None, "{text}");
+        }
+    }
+
+    #[test]
+    fn with_no_state_directory_there_is_nothing_to_read_and_nowhere_to_write() {
+        let (store, file) = read_tokens(None);
+
+        assert!(store.is_empty());
+        assert_eq!(file, None);
+    }
 
     fn state_sources(xdg_state_home: Option<&str>, home: Option<&str>) -> StateDirectorySources {
         StateDirectorySources {

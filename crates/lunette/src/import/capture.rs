@@ -18,11 +18,32 @@
 //! changed shape.
 //!
 //! So the built `Dmabuf` is kept, keyed on the buffer object behind plane zero
-//! together with the format it was built for. PipeWire cycles a small fixed pool
-//! per stream, so the map reaches that size and stops. A renegotiation replaces
-//! the pool, which is what [`RETAINED_BUFFERS`] bounds: the oldest entries are
-//! evicted, releasing the descriptors and letting the importer retire the images
-//! behind them.
+//! together with the format it was built for.
+//!
+//! # Why the retention is per stream
+//!
+//! PipeWire negotiates its own pool per stream, so a budget shared across every
+//! mirrored monitor is a budget three eight-buffer pools overrun between them.
+//! Evicting under that pressure releases a buffer that is about to come round
+//! again, so the next frame from it rebuilds the `Dmabuf`, recreates the image,
+//! and re-imports the memory — the exact per-frame cost the retention exists to
+//! avoid, and invisible from outside because every frame still renders. The map
+//! is therefore keyed by [`MonitorKey`] first, each stream carrying its own
+//! [`RETAINED_BUFFERS_PER_STREAM`], and eviction within a stream is
+//! least-recently-used rather than insertion-order.
+//!
+//! # Why an installed image is never evicted
+//!
+//! Dropping a retained `Dmabuf` is what lets [`DmabufImporter`] retire the image
+//! behind it, and a retired image is destroyed two frames later. That is sound
+//! for a client's buffer because the compositor retires one only after the
+//! client destroyed it, which it could only do after committing a replacement.
+//! Nothing of the sort holds here: retirement is driven by lunette's own budget,
+//! not by the producer, so an image a `MonitorTextures` entry still wraps could
+//! be freed underneath a live `VkImageView`. The monitor's installed image is
+//! therefore passed in on every import and is the one entry eviction skips.
+//!
+//! [`MonitorTextures`]: crate::texture::MonitorTextures
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -30,10 +51,13 @@ use std::{
     sync::Arc,
 };
 
-use lunette_capture::stream::{CaptureFormat, CapturedFrame, MAX_PLANES};
-use lunette_compositor::protocol::ImportedImage;
+use lunette_capture::{
+    monitor::MonitorKey,
+    stream::{CaptureFormat, CapturedFrame, MAX_PLANES},
+};
+use lunette_compositor::protocol::{ImageHandle, ImportedImage};
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufFlags};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::import::{
     device::GraphicsDevice,
@@ -47,9 +71,7 @@ use crate::import::{
 /// and destroyed by exactly the same machinery.
 pub struct CaptureImporter {
     dmabuf: DmabufImporter,
-    buffers: HashMap<BufferKey, Dmabuf>,
-    /// Insertion order, so the oldest entry is the one evicted.
-    order: VecDeque<BufferKey>,
+    streams: HashMap<MonitorKey, StreamBuffers>,
 }
 
 impl CaptureImporter {
@@ -61,8 +83,7 @@ impl CaptureImporter {
     pub fn new(device: Arc<GraphicsDevice>, arena: ImageArena) -> Self {
         Self {
             dmabuf: DmabufImporter::new(device, arena),
-            buffers: HashMap::new(),
-            order: VecDeque::new(),
+            streams: HashMap::new(),
         }
     }
 
@@ -73,19 +94,29 @@ impl CaptureImporter {
     /// retained `Dmabuf`, and on a repeat they are released here, which is
     /// correct either way because the buffer behind them is already held.
     ///
+    /// `installed` is the image this monitor's texture currently wraps, or
+    /// `None` while it holds none. It is what the eviction below refuses to
+    /// release, for the reason the module note gives.
+    ///
     /// # Errors
     ///
     /// For a frame whose layout cannot be described, and for anything the
     /// underlying dmabuf import refuses — an unsupported format, a disjoint
     /// buffer, a driver failure.
-    pub fn import(&mut self, frame: CapturedFrame) -> Result<ImportedImage, CaptureImportError> {
+    pub fn import(
+        &mut self,
+        monitor: &MonitorKey,
+        frame: CapturedFrame,
+        installed: Option<ImageHandle>,
+    ) -> Result<ImportedImage, CaptureImportError> {
         let key = BufferKey::of(&frame)?;
+        let stream = self.streams.entry(monitor.clone()).or_default();
 
-        if let Some(dmabuf) = self.buffers.get(&key) {
-            return self
-                .dmabuf
-                .import(dmabuf)
-                .map_err(CaptureImportError::Import);
+        // The stored image rather than a second trip through the importer: the
+        // strong `Dmabuf` held here is what keeps the importer's weak cache
+        // entry alive, so the two cannot disagree while this entry exists.
+        if let Some(image) = stream.touch(&key) {
+            return Ok(image);
         }
 
         let dmabuf = build_dmabuf(frame)?;
@@ -94,48 +125,59 @@ impl CaptureImporter {
             .import(&dmabuf)
             .map_err(CaptureImportError::Import)?;
 
-        self.retain(key, dmabuf);
+        stream.retain(monitor, key, RetainedBuffer { dmabuf, image }, installed);
+        self.dmabuf.evict_gone_buffers();
         Ok(image)
     }
 
-    /// Releases every buffer held for a stream that has stopped.
+    /// Releases every buffer held for one monitor's stream.
     ///
-    /// Dropping the `Dmabuf`s closes their descriptors, which is what lets the
-    /// importer's own weak cache retire the images behind them.
-    pub fn forget_buffers(&mut self) {
+    /// Called from wherever the stream itself is dropped — a dismissed mirror, a
+    /// monitor unplugged — because nothing else makes these collectable: the
+    /// retained `Dmabuf` is a strong reference, so the importer's weak cache
+    /// never sees the buffer go and the image and its imported memory would
+    /// stay in the arena for the rest of the process.
+    ///
+    /// The caller releases the monitor's texture first. Dropping the `Dmabuf`
+    /// retires the image behind it, and an image retired while a live texture
+    /// still wraps it is freed underneath a recorded command buffer.
+    pub fn forget_stream(&mut self, monitor: &MonitorKey) {
+        let Some(stream) = self.streams.remove(monitor) else {
+            return;
+        };
+
         debug!(
-            held = self.buffers.len(),
-            "released the retained capture buffers"
+            %monitor,
+            held = stream.len(),
+            "released the buffers retained for a monitor that stopped producing frames",
         );
-        self.buffers.clear();
-        self.order.clear();
+        drop(stream);
         self.dmabuf.evict_gone_buffers();
     }
 
-    /// How many buffers are held. Diagnostic: a number that only grows means the
-    /// key is not identifying a recurring buffer as the same one.
+    /// Releases every buffer held for every stream. For teardown.
+    pub fn forget_buffers(&mut self) {
+        debug!(held = self.held(), "released the retained capture buffers");
+        self.streams.clear();
+        self.dmabuf.evict_gone_buffers();
+    }
+
+    /// How many buffers are held across every stream.
+    ///
+    /// Diagnostic: a number that only grows means the key is not identifying a
+    /// recurring buffer as the same one. The frame loop logs it beside each
+    /// monitor that produced a new texture.
     #[must_use]
     pub fn held(&self) -> usize {
-        self.buffers.len()
-    }
-
-    fn retain(&mut self, key: BufferKey, dmabuf: Dmabuf) {
-        while self.order.len() >= RETAINED_BUFFERS {
-            if let Some(evicted) = self.order.pop_front() {
-                self.buffers.remove(&evicted);
-            }
-        }
-
-        self.order.push_back(key.clone());
-        self.buffers.insert(key, dmabuf);
-        self.dmabuf.evict_gone_buffers();
+        self.streams.values().map(StreamBuffers::len).sum()
     }
 }
 
 impl fmt::Debug for CaptureImporter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CaptureImporter")
-            .field("held", &self.buffers.len())
+            .field("streams", &self.streams.len())
+            .field("held", &self.held())
             .finish_non_exhaustive()
     }
 }
@@ -154,6 +196,15 @@ pub enum CaptureImportError {
     },
     /// The frame reported none, so there is nothing to import.
     NoPlanes,
+    /// The frame's dimensions are outside what a dmabuf can be built for.
+    ///
+    /// Refused rather than clamped: a buffer created for a smaller extent than
+    /// the one the descriptors cover is read past its rows, which produces a
+    /// picture rather than an error.
+    UnrepresentableSize {
+        width: u32,
+        height: u32,
+    },
     Import(DmabufError),
 }
 
@@ -168,6 +219,10 @@ impl fmt::Display for CaptureImportError {
                 "the frame carries {planes} planes, and a dmabuf holds at most {MAX_PLANES}"
             ),
             Self::NoPlanes => f.write_str("the frame carries no planes"),
+            Self::UnrepresentableSize { width, height } => write!(
+                f,
+                "a frame of {width}x{height} is larger than a dmabuf's extent can describe"
+            ),
             Self::Import(cause) => write!(f, "{cause}"),
         }
     }
@@ -178,17 +233,112 @@ impl std::error::Error for CaptureImportError {
         match self {
             Self::Identify(cause) | Self::Duplicate(cause) => Some(cause),
             Self::Import(cause) => Some(cause),
-            Self::TooManyPlanes { .. } | Self::NoPlanes => None,
+            Self::TooManyPlanes { .. } | Self::NoPlanes | Self::UnrepresentableSize { .. } => None,
         }
     }
 }
 
-/// How many capture buffers are held before the oldest is released.
+/// How many buffers one stream holds before its least recently used is released.
 ///
-/// PipeWire negotiates a small fixed pool per stream, so the map settles well
-/// below this. The bound exists for the renegotiation case, where the whole pool
-/// is replaced and the previous one has to go.
-const RETAINED_BUFFERS: usize = 16;
+/// PipeWire negotiates a small fixed pool per stream — four to eight in
+/// practice — so a stream settles well below this and evicts nothing. The
+/// headroom is for the renegotiation case, where the whole pool is replaced and
+/// the previous one has to age out.
+const RETAINED_BUFFERS_PER_STREAM: usize = 16;
+
+/// The buffers retained for one capture stream.
+///
+/// Pure over plain data. It decides what to release and what to keep, and holds
+/// no device: the whole of the eviction rule — the budget, the recency order,
+/// and the installed image it refuses to release — is exercised by the tests
+/// below with no Vulkan at all.
+#[derive(Default)]
+struct StreamBuffers {
+    entries: HashMap<BufferKey, RetainedBuffer>,
+    /// The keys least recently used first, which is the order eviction walks.
+    order: VecDeque<BufferKey>,
+    /// Whether this stream has already reported an eviction. Once per stream:
+    /// the condition is a pool larger than the budget, which does not resolve,
+    /// so a line per eviction would be a line per frame.
+    reported_eviction: bool,
+}
+
+impl StreamBuffers {
+    /// The image a retained buffer already produced, marking it most recently
+    /// used.
+    fn touch(&mut self, key: &BufferKey) -> Option<ImportedImage> {
+        let image = self.entries.get(key)?.image;
+
+        if let Some(index) = self.order.iter().position(|held| held == key)
+            && let Some(key) = self.order.remove(index)
+        {
+            self.order.push_back(key);
+        }
+        Some(image)
+    }
+
+    /// Records a newly imported buffer, releasing what the budget displaces.
+    fn retain(
+        &mut self,
+        monitor: &MonitorKey,
+        key: BufferKey,
+        buffer: RetainedBuffer,
+        installed: Option<ImageHandle>,
+    ) {
+        while self.entries.len() >= RETAINED_BUFFERS_PER_STREAM {
+            let Some(evicted) = self.take_least_recently_used(installed) else {
+                // Everything left is the installed image, which is never
+                // released here. One entry over budget is better than a frame
+                // drawn from freed memory.
+                break;
+            };
+            self.entries.remove(&evicted);
+
+            if !self.reported_eviction {
+                self.reported_eviction = true;
+                warn!(
+                    %monitor,
+                    budget = RETAINED_BUFFERS_PER_STREAM,
+                    "this monitor cycles more capture buffers than lunette retains, so a recurring \
+                     buffer is imported again each time it comes round",
+                );
+            }
+        }
+
+        self.order.push_back(key.clone());
+        self.entries.insert(key, buffer);
+    }
+
+    /// The least recently used key that is not the installed image.
+    fn take_least_recently_used(&mut self, installed: Option<ImageHandle>) -> Option<BufferKey> {
+        let index = self.order.iter().position(|key| {
+            self.entries
+                .get(key)
+                .is_some_and(|entry| Some(entry.image.image) != installed)
+        })?;
+        self.order.remove(index)
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+/// One retained buffer, and the image it was imported as.
+///
+/// The image is recorded so eviction can tell whether this entry is the one a
+/// monitor's texture wraps. Without it the decision would have to be made from
+/// the `Dmabuf`'s identity, which is not what the texture ledger names.
+struct RetainedBuffer {
+    /// Held for its drop, not for its value: closing the descriptors is what
+    /// lets [`DmabufImporter`]'s weak cache retire the image behind them.
+    #[expect(
+        dead_code,
+        reason = "the field is the strong reference; nothing reads it"
+    )]
+    dmabuf: Dmabuf,
+    image: ImportedImage,
+}
 
 /// What identifies a captured frame's buffer across frames.
 ///
@@ -226,12 +376,20 @@ fn build_dmabuf(frame: CapturedFrame) -> Result<Dmabuf, CaptureImportError> {
     if planes.is_empty() {
         return Err(CaptureImportError::NoPlanes);
     }
+    if planes.len() > MAX_PLANES {
+        return Err(CaptureImportError::TooManyPlanes {
+            planes: planes.len(),
+        });
+    }
 
+    let extent = |value: u32| {
+        i32::try_from(value).map_err(|_| CaptureImportError::UnrepresentableSize {
+            width: format.size.width(),
+            height: format.size.height(),
+        })
+    };
     let mut builder = Dmabuf::builder(
-        (
-            i32::try_from(format.size.width()).unwrap_or(i32::MAX),
-            i32::try_from(format.size.height()).unwrap_or(i32::MAX),
-        ),
+        (extent(format.size.width())?, extent(format.size.height())?),
         format.fourcc,
         format.modifier,
         DmabufFlags::empty(),
@@ -242,7 +400,12 @@ fn build_dmabuf(frame: CapturedFrame) -> Result<Dmabuf, CaptureImportError> {
             .descriptor()
             .try_clone_to_owned()
             .map_err(CaptureImportError::Duplicate)?;
-        let index = u32::try_from(index).unwrap_or(u32::MAX);
+        // Refused rather than clamped, as the extent above is. The check over
+        // `MAX_PLANES` already bounds this, so the failure is unreachable and
+        // is written out rather than asserted away.
+        let index = u32::try_from(index).map_err(|_| CaptureImportError::TooManyPlanes {
+            planes: planes.len(),
+        })?;
 
         if !builder.add_plane(descriptor, index, plane.offset(), plane.stride()) {
             return Err(CaptureImportError::TooManyPlanes {
@@ -262,7 +425,11 @@ fn build_dmabuf(frame: CapturedFrame) -> Result<Dmabuf, CaptureImportError> {
 mod tests {
     use std::os::fd::OwnedFd;
 
-    use lunette_capture::stream::{FrameSize, FrameTransform};
+    use lunette_capture::{
+        monitor::{ConnectorKind, ConnectorName},
+        stream::{FrameSize, FrameTransform},
+    };
+    use lunette_compositor::protocol::PixelSize;
     use pretty_assertions::assert_eq;
     use smithay::backend::allocator::{Buffer as _, Fourcc, Modifier};
 
@@ -298,6 +465,61 @@ mod tests {
         (CapturedFrame::from_parts(format(), parts), owners)
     }
 
+    fn monitor(index: u32) -> MonitorKey {
+        MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, index))
+    }
+
+    fn image(raw: u64) -> ImageHandle {
+        ImageHandle::new(raw).expect("a non-zero image handle")
+    }
+
+    /// A retained entry over a real buffer, and the key identifying it.
+    ///
+    /// The buffer is real because dropping it is what the eviction rule is
+    /// about, and because a real one gives the key a distinct inode. The pipe
+    /// ends come back so the caller can keep them open: a closed pipe's inode
+    /// is reusable, and two entries sharing one would collide.
+    fn retained(handle: u64) -> (BufferKey, RetainedBuffer, Vec<OwnedFd>) {
+        let (captured, owners) = frame(1);
+        let key = BufferKey::of(&captured).expect("a frame with a plane");
+        let dmabuf = build_dmabuf(captured).expect("a well-formed frame");
+
+        (
+            key,
+            RetainedBuffer {
+                dmabuf,
+                image: ImportedImage {
+                    image: image(handle),
+                    size: PixelSize::new(1920, 1080),
+                    format: Fourcc::Argb8888,
+                    modifier: Modifier::Linear,
+                },
+            },
+            owners,
+        )
+    }
+
+    /// Fills a stream to its budget, returning the keys in insertion order and
+    /// the pipe ends keeping the buffers' descriptors alive.
+    ///
+    /// The first entry is image 1, which is what a test naming an installed
+    /// image passes.
+    fn filled(installed: Option<ImageHandle>) -> (StreamBuffers, Vec<BufferKey>, Vec<OwnedFd>) {
+        let mut stream = StreamBuffers::default();
+        let mut keys = Vec::new();
+        let mut owners = Vec::new();
+
+        for index in 0..RETAINED_BUFFERS_PER_STREAM {
+            let handle = u64::try_from(index).expect("a small index") + 1;
+            let (key, buffer, mut held) = retained(handle);
+            stream.retain(&monitor(1), key.clone(), buffer, installed);
+            keys.push(key);
+            owners.append(&mut held);
+        }
+
+        (stream, keys, owners)
+    }
+
     #[test]
     fn a_captured_frame_becomes_a_buffer_with_every_plane_intact() {
         let (captured, _owners) = frame(3);
@@ -327,6 +549,16 @@ mod tests {
         assert!(matches!(
             build_dmabuf(captured),
             Err(CaptureImportError::NoPlanes),
+        ));
+    }
+
+    #[test]
+    fn a_frame_with_more_planes_than_a_dmabuf_holds_is_refused() {
+        let (captured, _owners) = frame(MAX_PLANES + 1);
+
+        assert!(matches!(
+            build_dmabuf(captured),
+            Err(CaptureImportError::TooManyPlanes { planes: 5 }),
         ));
     }
 
@@ -377,5 +609,63 @@ mod tests {
             BufferKey::of(&before).expect("a frame with a plane"),
             BufferKey::of(&after).expect("a frame with a plane"),
         );
+    }
+
+    #[test]
+    fn the_image_a_monitors_texture_wraps_is_never_evicted() {
+        // The use-after-free this rule exists for: releasing the retained
+        // `Dmabuf` retires the image behind it, and an image retired while a
+        // `MonitorTextures` entry still names it is destroyed two frames later
+        // underneath a live `VkImageView`. A paused mirror reaches this without
+        // contrivance — it keeps its texture while producing no frames, so its
+        // buffer is the least recently used one for as long as the pause lasts.
+        let installed = image(1);
+        let (mut stream, keys, _owners) = filled(Some(installed));
+        let oldest = keys.first().expect("the budget is not zero").clone();
+
+        let (key, buffer, _held) = retained(9_999);
+        stream.retain(&monitor(1), key, buffer, Some(installed));
+
+        assert!(
+            stream.entries.contains_key(&oldest),
+            "the least recently used entry is the installed image, and evicting it would free the \
+             image the monitor's texture wraps",
+        );
+        assert_eq!(
+            stream.entries.len(),
+            RETAINED_BUFFERS_PER_STREAM,
+            "one other entry went instead, so the budget still holds",
+        );
+    }
+
+    #[test]
+    fn the_least_recently_used_buffer_is_the_one_released() {
+        // Insertion-order eviction releases the buffer that has been resident
+        // longest, which for a steadily cycling pool is the one about to come
+        // round again.
+        let (mut stream, keys, _owners) = filled(None);
+        let oldest = keys.first().expect("the budget is not zero").clone();
+        let next = keys.get(1).expect("the budget is more than one").clone();
+
+        assert!(stream.touch(&oldest).is_some());
+        let (key, buffer, _held) = retained(9_001);
+        stream.retain(&monitor(1), key, buffer, None);
+
+        assert!(
+            stream.entries.contains_key(&oldest),
+            "it was used most recently, so it is the last thing to release",
+        );
+        assert!(!stream.entries.contains_key(&next));
+    }
+
+    #[test]
+    fn a_recurring_buffer_answers_with_the_image_it_already_produced() {
+        let mut stream = StreamBuffers::default();
+        let (key, buffer, _held) = retained(7);
+        let (absent, _buffer, _held) = retained(8);
+        stream.retain(&monitor(1), key.clone(), buffer, None);
+
+        assert_eq!(stream.touch(&key).map(|held| held.image), Some(image(7)));
+        assert_eq!(stream.touch(&absent).map(|held| held.image), None);
     }
 }

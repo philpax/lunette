@@ -545,21 +545,33 @@ pub fn describe(buffer: &ImportedBuffer) -> TextureDescription {
 ///
 /// # Safety
 ///
-/// This must run once per frame, and after the frame's events have been drained
-/// into the ledger — after every [`TextureLedger::install`], [`mark_dead`], and
-/// [`forget`] the frame is going to perform, and after the texture each of those
-/// handed back has been released. That ordering is what the deferral counts
-/// from: the compositor retires an image only once the client has destroyed the
-/// buffer behind it, which it can only have done after committing a replacement,
-/// so the event installing that replacement is drained in this frame or an
-/// earlier one. LÖVR then retires the view at the end of this tick, and
-/// [`DESTROY_DELAY`] frames of margin follow.
+/// This must run once per frame, and after everything in the frame that can
+/// retire an image has run. There are two such producers, and the deferral is
+/// only sound because both are ordered ahead of this call.
 ///
-/// Calling this before the drain inverts that and frees an image a recorded
-/// command buffer still names.
+/// A **client's buffer** is retired by the compositor only once the client has
+/// destroyed it, which it can only have done after committing a replacement — so
+/// the event installing that replacement is drained in this frame or an earlier
+/// one. This must therefore follow the drain: after every
+/// [`TextureLedger::install`], [`mark_dead`], and [`forget`] the frame is going
+/// to perform, and after the texture each of those handed back has been
+/// released.
+///
+/// A **captured monitor frame** has no such producer. Its image is retired when
+/// [`CaptureImporter`] drops the `Dmabuf` behind it, which lunette's own budget
+/// decides, so the ordering argument above does not carry over. What stands in
+/// for it is that the importer never releases the buffer whose image the
+/// monitor's texture currently wraps, and that a monitor's texture is released
+/// before its stream's buffers are. This must therefore also follow the frame's
+/// capture import and its sweep for mirrors that have stopped.
+///
+/// Given both, LÖVR retires the view at the end of this tick and
+/// [`DESTROY_DELAY`] frames of margin follow. Calling this earlier inverts the
+/// ordering and frees an image a recorded command buffer still names.
 ///
 /// [`mark_dead`]: TextureLedger::mark_dead
 /// [`forget`]: TextureLedger::forget
+/// [`CaptureImporter`]: crate::import::CaptureImporter
 pub unsafe fn destroy_due_images<T>(
     ledger: &mut TextureLedger<T>,
     arena: &ImageArena,

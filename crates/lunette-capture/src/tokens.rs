@@ -20,14 +20,21 @@
 //!   carries no [`TokenStore`] at all. That is the case worth designing for:
 //!   rewriting a file whose fields this version cannot represent would drop
 //!   them, corrupting the file rather than failing on it. There is no store to
-//!   render, so there is nothing to write back.
+//!   render, and [`Loaded::for_session`] mints no [`TokenFile`] for it either —
+//!   so a caller holds nothing [`write`] would accept, and the rule cannot be
+//!   lost to a later refactor that stops matching on the variant.
 //! - Anything else in the file is refused rather than ignored
 //!   (`deny_unknown_fields`), so a typo is reported instead of silently
 //!   discarding a token on the next write.
 //!
 //! Losing this file costs one portal dialog. It is not worth a repair path.
 
-use std::{error::Error, fmt, fs, io, path::Path};
+use std::{
+    error::Error,
+    fmt, fs,
+    io::{self, Write as _},
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -222,17 +229,37 @@ pub enum Loaded {
 }
 
 impl Loaded {
-    /// The store to use this session, which is empty when there is none.
+    /// The store to use this session, and the file it may be written back to.
     ///
-    /// A caller that wants to write back has to match on the variant instead:
-    /// this consumes the distinction that makes writing safe, so it is for
-    /// reading only.
+    /// The only way to obtain a [`TokenFile`], and so the one place the
+    /// write-back rule is decided. [`Self::FromTheFuture`] yields an empty store
+    /// and no file, which leaves a caller holding nothing that [`write`] would
+    /// accept.
     #[must_use]
-    pub fn for_reading(self) -> TokenStore {
+    pub fn for_session(self, path: PathBuf) -> (TokenStore, Option<TokenFile>) {
         match self {
-            Self::Store(store) => store,
-            Self::Absent | Self::FromTheFuture { .. } => TokenStore::new(),
+            Self::Store(store) => (store, Some(TokenFile(path))),
+            Self::Absent => (TokenStore::new(), Some(TokenFile(path))),
+            Self::FromTheFuture { .. } => (TokenStore::new(), None),
         }
+    }
+}
+
+/// A file this version of lunette may render its tokens over.
+///
+/// Minted only by [`Loaded::for_session`], which mints none for a file a later
+/// lunette wrote, and consumed only by [`write`]. Together those two make the
+/// version rule structural rather than remembered: rewriting such a file would
+/// drop the fields this version does not know about, corrupting it rather than
+/// failing on it, and there is no value in the program that would let a caller
+/// do it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenFile(PathBuf);
+
+impl TokenFile {
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.0
     }
 }
 
@@ -260,27 +287,66 @@ pub fn read(path: &Path) -> Result<Loaded, TokenStoreError> {
     TokenStore::parse(&text)
 }
 
-/// Writes the store to a path, replacing whatever was there.
+/// Writes the store to the file, replacing whatever was there.
 ///
 /// Through a sibling temporary file and a rename, so an interrupted write
 /// leaves the previous tokens rather than a truncated file. The cost of losing
 /// the file is one portal dialog, but the cost of half a file is a parse error
 /// on every launch until the user finds and deletes it.
 ///
+/// A [`TokenFile`] rather than a path, so a file written by a later lunette
+/// cannot be passed here: [`Loaded::for_session`] mints none for that case.
+///
 /// # Errors
 ///
-/// When the directory cannot be written to, or the rename fails.
-pub fn write(path: &Path, store: &TokenStore) -> Result<(), TokenStoreError> {
+/// When the directory cannot be written to, when the contents cannot be flushed,
+/// or when the rename fails.
+pub fn write(file: &TokenFile, store: &TokenStore) -> Result<(), TokenStoreError> {
+    let path = file.path();
     let text = store.render()?;
     let scratch = path.with_extension("toml.new");
 
-    let failed = |cause| TokenStoreError::Write {
-        path: path.display().to_string(),
-        cause,
-    };
+    replace_durably(&scratch, path, text.as_bytes()).map_err(|cause| {
+        // The scratch is removed rather than left beside the real file: it has
+        // the state directory's own name with another extension, and a caller
+        // that sees the write fail has no way to know it is there to clean up.
+        // A removal that itself fails changes nothing worth reporting over the
+        // failure that is already being returned.
+        drop(fs::remove_file(&scratch));
+        TokenStoreError::Write {
+            path: path.display().to_string(),
+            cause,
+        }
+    })
+}
 
-    fs::write(&scratch, text).map_err(failed)?;
-    fs::rename(&scratch, path).map_err(failed)
+/// Writes `bytes` to `scratch` and renames it over `path`, flushing both.
+///
+/// The rename is atomic, but only with respect to data the filesystem has
+/// already recorded. Without the flush before it, a crash shortly after the
+/// rename can leave the new name pointing at a file whose contents never
+/// arrived — which is the truncated file the rename exists to rule out, reached
+/// by another route. The directory is flushed afterwards for the same reason:
+/// the rename is a change to the directory, not to either file.
+///
+/// A directory that cannot be opened is not reported. The data is on disk and
+/// the rename has been made; there is nothing a caller could do with the
+/// distinction, and reporting it would turn a successful write into a warning
+/// about the next run prompting.
+fn replace_durably(scratch: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = fs::File::create(scratch)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+
+    fs::rename(scratch, path)?;
+
+    if let Some(parent) = path.parent()
+        && let Ok(directory) = fs::File::open(parent)
+    {
+        drop(directory.sync_all());
+    }
+    Ok(())
 }
 
 /// The file's shape.
@@ -412,6 +478,14 @@ mod tests {
         TokenStore::parse(text).expect("the text is the format")
     }
 
+    /// The store a parsed file yields, which is empty for a file this version
+    /// must not read.
+    fn store_of(loaded: Loaded) -> TokenStore {
+        loaded
+            .for_session(PathBuf::from("/state/lunette/screencast-tokens.toml"))
+            .0
+    }
+
     #[test]
     fn a_store_round_trips_through_its_rendered_form() {
         let mut before = store(&[("X24", "first"), ("Z9", "second")]);
@@ -452,7 +526,7 @@ mod tests {
             GrantedPersistMode::Unstated,
         );
 
-        let after = parsed(&before.render().expect("the store renders")).for_reading();
+        let after = store_of(parsed(&before.render().expect("the store renders")));
 
         assert_eq!(after.token_for(&awkward), Some(&token("t")));
     }
@@ -497,7 +571,13 @@ mod tests {
                 supported: CURRENT_VERSION,
             },
         );
-        assert!(loaded.for_reading().is_empty());
+        let (store, file) =
+            loaded.for_session(PathBuf::from("/state/lunette/screencast-tokens.toml"));
+        assert!(store.is_empty());
+        assert_eq!(
+            file, None,
+            "there is no value here that `write` would accept, so the file cannot be rewritten",
+        );
     }
 
     #[test]
@@ -524,7 +604,7 @@ mod tests {
              key = { descriptor = \"Acme X24\" }\n\
              token = \"kept\"\n",
         );
-        let store = loaded.for_reading();
+        let store = store_of(loaded);
 
         assert_eq!(store.token_for(&descriptor("X24")), Some(&token("kept")));
         assert_eq!(store.persistence_for(&descriptor("X24")), None);
@@ -553,7 +633,7 @@ mod tests {
             GrantedPersistMode::Unstated,
         );
 
-        let after = parsed(&before.render().expect("the store renders")).for_reading();
+        let after = store_of(parsed(&before.render().expect("the store renders")));
 
         assert_eq!(after.token_for(&connector), Some(&token("by-port")));
         assert_eq!(after.token_for(&lookalike), Some(&token("by-model")));

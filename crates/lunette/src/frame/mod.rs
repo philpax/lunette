@@ -24,9 +24,10 @@
 //! 4. Refresh the stabilised copies, and record an acquire barrier over every
 //!    texture the frame may sample.
 //! 5. Destroy the images whose deferral has elapsed. This is last because
-//!    [`destroy_due_images`] is only sound after the frame's events have been
-//!    drained and the textures they displaced have been released, which is
-//!    step 3.
+//!    [`destroy_due_images`] is only sound once everything that can retire an
+//!    image has run: the drain at step 3, which releases the textures a
+//!    client's commits displaced, and the capture import and the sweep for
+//!    stopped mirrors, which are what release a mirrored monitor's.
 //!
 //! At frame end: record the release barriers, then hand the frame's queued
 //! commands to the compositor.
@@ -49,13 +50,13 @@
 #[cfg(test)]
 mod tests;
 
-use std::{error::Error, fmt, path::PathBuf, rc::Rc, sync::Arc};
+use std::{error::Error, fmt, rc::Rc, sync::Arc};
 
 use lunette_capture::{
     mirror::PipewireStreams,
     monitor::{MonitorKey, OutputWatcher},
     stream::DrmFormat,
-    tokens,
+    tokens::{self, TokenFile},
 };
 use lunette_compositor::{
     client::{DisplayName, WaylandSocket, XwaylandSatellite},
@@ -116,7 +117,7 @@ pub struct HostDesktop {
     /// is is its knowledge, and absent when the file on disk was written by a
     /// later lunette — rendering this version's fields over it would drop the
     /// ones this version does not know about.
-    pub tokens: Option<PathBuf>,
+    pub tokens: Option<TokenFile>,
 }
 
 impl fmt::Debug for HostDesktop {
@@ -415,16 +416,16 @@ impl FrameDriver {
         let Some(host) = &self.host else {
             return;
         };
-        let Some(path) = &host.tokens else {
+        let Some(file) = &host.tokens else {
             return;
         };
         let Some(store) = host.mirrors.take_changed_tokens() else {
             return;
         };
 
-        match tokens::write(path, &store) {
+        match tokens::write(file, &store) {
             Ok(()) => info!(
-                path = %path.display(),
+                path = %file.path().display(),
                 monitors = store.len(),
                 "recorded the screencast restore tokens",
             ),
@@ -447,7 +448,15 @@ impl FrameDriver {
 
         for (monitor, frame) in host.mirrors.take_frames() {
             let size = frame.format().size;
-            let image = match compositor.capture.import(frame) {
+            // Read before the import, because the importer needs it: the image
+            // a monitor's texture wraps is the one entry its buffer retention
+            // must not release, and releasing it would free the image out from
+            // under a live view.
+            let installed = self
+                .session
+                .with_monitor_textures(|textures| textures.image(&monitor));
+
+            let image = match compositor.capture.import(&monitor, frame, installed) {
                 Ok(image) => image,
                 Err(error) => {
                     warn!(%monitor, %error, "a mirrored monitor's frame could not be imported");
@@ -460,10 +469,7 @@ impl FrameDriver {
             // the first few frames this is the branch that runs, and wrapping
             // the image again would allocate a texture over memory a texture
             // already covers.
-            if self
-                .session
-                .with_monitor_textures(|textures| textures.holds(&monitor, image.image))
-            {
+            if installed == Some(image.image) {
                 continue;
             }
 
@@ -478,7 +484,12 @@ impl FrameDriver {
                 }
             };
 
-            debug!(%monitor, %size, "a mirrored monitor produced a new texture");
+            debug!(
+                %monitor,
+                %size,
+                retained = compositor.capture.held(),
+                "a mirrored monitor produced a new texture",
+            );
             let description = crate::texture::describe(&ImportedBuffer::Image(image));
             let displaced = self.session.with_monitor_textures(|textures| {
                 textures.install(monitor.clone(), image.image, texture, description)
@@ -498,7 +509,7 @@ impl FrameDriver {
     ///
     /// A paused mirror keeps its texture on purpose: pausing is for a panel that
     /// has left the user's view, and resuming it is meant to cost nothing.
-    fn drop_stopped_mirrors(&self) {
+    fn drop_stopped_mirrors(&mut self) {
         let held = self
             .session
             .with_monitor_textures(|textures| textures.monitors());
@@ -516,13 +527,28 @@ impl FrameDriver {
         }
     }
 
-    /// Drops the texture held for a monitor that is no longer producing frames.
-    fn forget_monitor_texture(&self, monitor: &MonitorKey) {
+    /// Drops everything held for a monitor that is no longer producing frames.
+    ///
+    /// The texture first and the retained capture buffers second, in that order.
+    /// Releasing the texture is what puts LÖVR's view of the image into its own
+    /// morgue; dropping the buffers is what lets the image behind it be retired
+    /// and, two frames later, destroyed. The other order frees an image a live
+    /// view still names.
+    ///
+    /// The buffers have to be dropped here and not left to the process exit:
+    /// the retained `Dmabuf` is a strong reference, so nothing else ever makes
+    /// the importer's cache entry collectable, and a dismissed screen would keep
+    /// its image and its imported memory for the rest of the session.
+    fn forget_monitor_texture(&mut self, monitor: &MonitorKey) {
         let released = self
             .session
             .with_monitor_textures(|textures| textures.forget(monitor));
         if let Some(texture) = released {
             texture.release_ref();
+        }
+
+        if let Some(compositor) = &mut self.compositor {
+            compositor.capture.forget_stream(monitor);
         }
     }
 
