@@ -13,13 +13,18 @@
 //! the path that produces it needs a live LÖVR Lua thread that only the real
 //! boot sequence can create. The fixtures below switch off the audio,
 //! graphics, and headset modules and open no window, so no display, no XR
-//! runtime, and no sound device are needed; nothing here sleeps, touches the
-//! network, or writes to disk.
+//! runtime, and no sound device are needed; nothing here sleeps or touches the
+//! network. The one thing it does write is LÖVR's save directory, which
+//! `lovr.filesystem.setIdentity` creates unconditionally; each run points
+//! `XDG_DATA_HOME` at its own temporary directory, so that write lands there
+//! and is removed when the test ends.
 
 use std::{
     path::{Path, PathBuf},
     process::Command,
 };
+
+use tempfile::TempDir;
 
 #[test]
 fn a_quit_status_reaches_the_process_exit_status() {
@@ -46,6 +51,18 @@ fn assert_exit_status(fixture: &str, expected: i32) {
         "the {fixture} fixture is missing its main.lua"
     );
 
+    // `boot.lua` calls `lovr.filesystem.setIdentity` on every run, which creates
+    // `$XDG_DATA_HOME/LOVR/<identity>` and fails the boot when it cannot. Left
+    // to the default that directory is shared, so two of these tests running in
+    // parallel race to create the same leaf and the loser exits 1. A temporary
+    // directory per run gives each its own tree, and also removes the
+    // dependency on `HOME` — which is unset below — and on `getpwuid` having an
+    // entry for the running uid, which a container need not provide.
+    let data_directory = match TempDir::with_prefix("lunette-exit-status-") {
+        Ok(directory) => directory,
+        Err(error) => panic!("a temporary data directory could not be created: {error}"),
+    };
+
     let run = Command::new(env!("CARGO_BIN_EXE_lunette"))
         // The fixture directory holds a `lunette` subdirectory, which is what
         // `$XDG_CONFIG_HOME/lunette` resolves to. `HOME` is removed so that the
@@ -53,6 +70,7 @@ fn assert_exit_status(fixture: &str, expected: i32) {
         // ever mislaid, which would otherwise turn a missing fixture into a
         // confusing pass.
         .env("XDG_CONFIG_HOME", &directory)
+        .env("XDG_DATA_HOME", data_directory.path())
         .env_remove("HOME")
         .output();
     let output = match run {
@@ -65,6 +83,14 @@ fn assert_exit_status(fixture: &str, expected: i32) {
         Some(expected),
         "the {fixture} fixture should have exited {expected}; stderr was:\n{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    // A run that ignored `XDG_DATA_HOME` would write its save directory into
+    // the developer's own data directory instead, and would still pass every
+    // assertion above.
+    assert!(
+        data_directory.path().join("LOVR").is_dir(),
+        "the {fixture} run should have written its save directory into {}",
+        data_directory.path().display()
     );
 }
 

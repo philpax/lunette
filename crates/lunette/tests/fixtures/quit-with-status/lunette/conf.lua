@@ -8,7 +8,10 @@
 -- as it does on a headless machine.
 
 function lovr.conf(t)
-  t.identity = 'lunette-exit-status'
+  -- Distinct from the other fixture's identity: boot.lua creates
+  -- $XDG_DATA_HOME/LOVR/<identity> on every run, and two runs sharing a leaf
+  -- race to create it.
+  t.identity = 'lunette-quit-with-status'
 
   t.window = nil
   t.modules.audio = false
