@@ -5,3 +5,19 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+lunette-lovr = { path = "../lunette-lovr" }
+mlua = { workspace = true, features = ["luajit"] }
+# `mlua-sys` is a direct dependency purely to reach its `external` feature,
+# which mlua's own feature table does not re-export. With `external` set,
+# mlua-sys emits no link directives and never calls `probe_lua()`, leaving
+# lunette-lovr's build script as the sole source of link flags. Without it,
+# mlua either vendors its own LuaJIT or probes for a system one, and collides
+# with the LuaJIT that LOVR already builds.
+mlua-sys = { workspace = true, features = ["external"] }
+tracing.workspace = true
+# `env-filter` is not in the default feature set, and without it the binary's
+# log level cannot be changed through `RUST_LOG`.
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dev-dependencies]
+pretty_assertions.workspace = true
