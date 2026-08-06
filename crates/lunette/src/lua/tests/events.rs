@@ -321,17 +321,19 @@ fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
     poll(&lua, &sink);
     run::<()>(&lua, "seen = {}");
 
-    // One boundary, in which the second claim outranks the first and takes the
-    // only layer there is.
+    // The second claim outranks the first and takes the only layer there is.
+    // The revocation lands at that boundary and the grant at the one after the
+    // recycled layer has been copied into, which is why this settles rather
+    // than resolving once.
     run::<()>(&lua, "held[2]:setPriority(9)");
-    session.resolve_layers();
+    settle(&session, &registry);
     poll(&lua, &sink);
 
     (session, lua)
 }
 
 #[test]
-fn a_displaced_claim_and_its_displacer_are_announced_at_the_same_boundary() {
+fn a_displaced_claim_is_revoked_before_its_displacer_is_granted() {
     let (_session, lua) = contending(
         "seen = {}
          function lovr.lunlayergranted(event)
@@ -358,7 +360,7 @@ fn a_displaced_claim_and_its_displacer_are_announced_at_the_same_boundary() {
     assert_eq!(
         run::<u64>(&lua, "return held[2].id"),
         granted,
-        "revoking is what frees the layer the grant in the same boundary takes"
+        "revoking is what frees the layer the grant takes"
     );
 }
 

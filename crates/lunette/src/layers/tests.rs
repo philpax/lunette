@@ -283,8 +283,9 @@ fn a_revoked_layer_is_reused_by_the_next_claim_of_the_same_key_with_no_allocatio
     assert_eq!(outcome.revoked, vec![first]);
     assert_eq!(
         outcome.granted,
-        vec![second],
-        "a recycled layer has already been blitted, so it is grantable at once"
+        Vec::new(),
+        "the recycled layer holds the first claim's pixels until the second claim's own copy is \
+         issued"
     );
     assert_eq!(
         harness.created(),
@@ -292,6 +293,12 @@ fn a_revoked_layer_is_reused_by_the_next_claim_of_the_same_key_with_no_allocatio
         "the second claim allocated where it should have recycled"
     );
     assert_eq!(harness.destroyed(), 0);
+
+    assert!(harness.pool.note_blit_issued(second));
+    let next = harness.resolve();
+
+    assert_eq!(next.granted, vec![second]);
+    assert_eq!(harness.created(), 1, "the grant allocated nothing either");
 }
 
 #[test]
@@ -430,7 +437,7 @@ fn equal_priorities_do_not_reorder_between_frames() {
 }
 
 #[test]
-fn raising_a_priority_moves_the_grant_at_the_next_boundary() {
+fn raising_a_priority_moves_the_layer_at_the_next_boundary() {
     let mut harness = Harness::new(LayerBudget::SHARE);
 
     let held = harness.pool.claim(key(512, 512), priority(5.0));
@@ -441,7 +448,15 @@ fn raising_a_priority_moves_the_grant_at_the_next_boundary() {
     let outcome = harness.resolve();
 
     assert_eq!(outcome.revoked, vec![held]);
-    assert_eq!(outcome.granted, vec![wanting]);
+    assert_eq!(
+        outcome.granted,
+        Vec::new(),
+        "the layer that moved carries the other claim's pixels until this one is copied in"
+    );
+
+    assert!(harness.pool.note_blit_issued(wanting));
+
+    assert_eq!(harness.resolve().granted, vec![wanting]);
 }
 
 #[test]

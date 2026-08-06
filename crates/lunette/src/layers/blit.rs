@@ -176,6 +176,19 @@ impl Blitted {
     pub const fn copied(self) -> bool {
         matches!(self, Self::Copied)
     }
+
+    /// Whether this is worth a line every frame it happens.
+    ///
+    /// True only for the outcomes a later frame can answer differently. A
+    /// device that cannot blit answers the same way for the rest of the
+    /// session and its claim is never granted, so it is never dropped from the
+    /// pool's held list either — reporting [`Blitted::Unsupported`] here would
+    /// be ninety identical lines a second for as long as the claim lives.
+    /// [`BlitLedger`] reports that one once per claim instead.
+    #[must_use]
+    pub const fn worth_reporting_every_frame(self) -> bool {
+        matches!(self, Self::NotAcquired | Self::Refused)
+    }
 }
 
 /// What the blit path decided about one claim, before anything was recorded.
@@ -415,7 +428,7 @@ mod tests {
     use super::*;
     use crate::{
         import::formats::Alpha,
-        layers::{LayerKey, LayerProperties, LayerSize, Priority},
+        layers::{LayerBudget, LayerKey, LayerProperties, LayerSize, Priority},
         texture::{CopyableTexture, TextureDescription},
     };
 
@@ -443,6 +456,8 @@ mod tests {
     #[derive(Debug)]
     struct FakeLayers {
         next: u64,
+        /// What the runtime reports, not what the pool will spend.
+        limit: u32,
         /// Shared with the harness, because the pool owns the backend and an
         /// accessor through the pool would be production code only tests call.
         submitted: Rc<RefCell<Vec<Vec<u64>>>>,
@@ -452,7 +467,7 @@ mod tests {
         type Layer = FakeLayer;
 
         fn layer_limit(&self) -> u32 {
-            GENEROUS
+            self.limit
         }
 
         fn create(&mut self, _key: LayerKey) -> Option<Self::Layer> {
@@ -535,10 +550,17 @@ mod tests {
 
     impl Harness {
         fn new() -> Self {
+            Self::with_limit(GENEROUS)
+        }
+
+        /// `limit` is what the runtime reports, which is four times what the
+        /// pool will spend.
+        fn with_limit(limit: u32) -> Self {
             let submitted = Rc::new(RefCell::new(Vec::new()));
             Self {
                 pool: LayerPool::new(FakeLayers {
                     next: 0,
+                    limit,
                     submitted: Rc::clone(&submitted),
                 }),
                 blitter: FakeBlitter::default(),
@@ -552,13 +574,18 @@ mod tests {
         }
 
         fn claim(&mut self, surface: SurfaceId) -> ClaimId {
+            self.claim_at(surface, 1.0)
+        }
+
+        fn claim_at(&mut self, surface: SurfaceId, priority: f64) -> ClaimId {
             let key = LayerKey::new(
                 LayerSize::quantized(PixelSize::new(512, 512)).expect("a positive size has a rung"),
                 LayerProperties::PANEL,
             );
-            let claim = self
-                .pool
-                .claim(key, Priority::new(1.0).expect("a number is a priority"));
+            let claim = self.pool.claim(
+                key,
+                Priority::new(priority).expect("a number is a priority"),
+            );
             self.sources.push((claim, surface));
             claim
         }
@@ -676,6 +703,41 @@ mod tests {
     }
 
     #[test]
+    fn a_recycled_layer_is_not_submitted_until_the_new_claim_has_been_copied_into_it() {
+        // The layer's swapchain still holds the previous claimant's window.
+        // Submitting it for a claim whose own source has committed nothing puts
+        // one window's pixels inside another window's panel, for as long as the
+        // new source stays sourceless.
+        let mut harness = Harness::with_limit(LayerBudget::SHARE);
+        let first = harness.claim(surface(1));
+        harness.commit(surface(1));
+        harness.frame();
+        harness.frame();
+        assert_eq!(
+            harness.last_submitted(),
+            vec![1],
+            "the first claim is on it"
+        );
+
+        let second = harness.claim_at(surface(2), 2.0);
+
+        assert_eq!(harness.frame(), vec![(second, Blitted::NoSource)]);
+        assert_eq!(
+            harness.last_submitted(),
+            Vec::<u64>::new(),
+            "the recycled layer still holds the first claim's window"
+        );
+        assert!(harness.pool.layer(second).is_some());
+        assert!(harness.pool.layer(first).is_none());
+
+        // And it is submitted as soon as the new claim has pixels of its own.
+        harness.commit(surface(2));
+        assert_eq!(harness.frame(), vec![(second, Blitted::Copied)]);
+        harness.frame();
+        assert_eq!(harness.last_submitted(), vec![1]);
+    }
+
+    #[test]
     fn a_frame_that_skips_the_copy_still_submits_the_layer() {
         // Leaving an unchanged layer out of the list makes its panel disappear
         // rather than hold still.
@@ -706,6 +768,17 @@ mod tests {
             Vec::<u64>::new(),
             "a layer nothing could be copied into is never grantable"
         );
+    }
+
+    #[test]
+    fn a_device_that_cannot_blit_is_reported_once_rather_than_on_every_frame() {
+        // The claim is never granted, so it is never dropped from the pool's
+        // held list, so this outcome recurs for as long as the claim lives. The
+        // ledger's own report is the once-per-claim one.
+        assert!(!Blitted::Unsupported.worth_reporting_every_frame());
+        assert!(!Blitted::NoSource.worth_reporting_every_frame());
+        assert!(Blitted::NotAcquired.worth_reporting_every_frame());
+        assert!(Blitted::Refused.worth_reporting_every_frame());
     }
 
     #[test]

@@ -331,11 +331,6 @@ impl<B: LayerBackend> LayerPool<B> {
 
             let key = self.claims[index].key;
             if let Some(free) = self.take_free(key) {
-                // A layer already blitted once is grantable the moment it is
-                // reused, which is what makes a revoke-then-regrant free.
-                if free.state == HeldState::Granted {
-                    outcome.granted.push(self.claims[index].id);
-                }
                 self.claims[index].held = Some(free);
                 continue;
             }
@@ -591,12 +586,20 @@ impl<B: LayerBackend> LayerPool<B> {
     }
 
     /// Takes a matching layer off the free list, most recently freed first.
+    ///
+    /// The layer comes back as [`HeldState::AwaitingFirstBlit`] however far
+    /// along it was when it was freed. Its swapchain still holds the pixels the
+    /// previous claim put there, and a claim on a window that has committed
+    /// nothing — or whose client has just died — has no blit to overwrite them
+    /// with, so granting on reuse would submit one window's content inside
+    /// another window's panel. The cost is one frame of grant latency on a
+    /// reuse, and no allocation, which is what the recycling is for.
     fn take_free(&mut self, key: LayerKey) -> Option<Held<B::Layer>> {
         let index = self.free.iter().rposition(|entry| entry.key == key)?;
         let entry = self.free.swap_remove(index);
         Some(Held {
             layer: entry.layer,
-            state: entry.state,
+            state: HeldState::AwaitingFirstBlit,
         })
     }
 
@@ -613,7 +616,6 @@ impl<B: LayerBackend> LayerPool<B> {
         self.free.push(FreeLayer {
             key,
             layer: held.layer,
-            state: held.state,
             idle_since: self.resolved,
         });
     }
@@ -660,14 +662,15 @@ struct Held<L> {
 }
 
 /// A layer nobody holds.
+///
+/// How far along it was when it was freed is deliberately not carried. The
+/// layer's swapchain holds the previous claim's pixels, so the next claim to
+/// take it starts at [`HeldState::AwaitingFirstBlit`] and has to have its own
+/// copy issued before anything is submitted; see [`LayerPool::take_free`].
 #[derive(Debug)]
 struct FreeLayer<L> {
     key: LayerKey,
     layer: L,
-    /// Carried across the free list, so that a layer already blitted once is
-    /// grantable the moment it is reused. Losing this would make every reuse
-    /// wait a frame for a blit it does not need.
-    state: HeldState,
     idle_since: FrameGeneration,
 }
 

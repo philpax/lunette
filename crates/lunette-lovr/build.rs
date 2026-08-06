@@ -284,6 +284,10 @@ fn generate_bindings(
         // layer blits both go through it, so the `syncStream` barriers are
         // emitted from a single place.
         .allowlist_function("lovrTextureCopy")
+        // The floor under the copy. The size ladder rounds up, so a copy
+        // usually covers only part of a layer's swapchain image, and the rest
+        // of that image is memory nothing has written.
+        .allowlist_function("lovrTextureClear")
         // The most composition layers the runtime accepts in one `xrEndFrame`,
         // which is the ceiling the layer pool's own budget sits below. It is
         // not `MAX_LAYERS`: that is LÖVR's compile-time array bound, while this

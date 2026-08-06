@@ -201,11 +201,17 @@ Neither has been observed, and neither has been ruled out.
 
 ### The margin around a source smaller than its layer
 
-A known gap rather than a defect fixed here.
+The size ladder quantises upwards, so an 800x600 window is served by a 1024x1024 layer. The blit copies the source into that image and writes nothing else, so the margin holds whatever that swapchain image last had — which for an image nothing has written is uninitialised Vulkan memory. `lovrLayerCreate` sets `subImage.imageRect` to the whole image (`headset.c:3148`), so without a viewport the runtime composites the margin too, and a clear at creation would not answer it either: a swapchain holds up to `MAX_IMAGES` images and each frame acquires a different one.
 
-The size ladder quantises upwards, so an 800x600 window is served by a 1024x1024 layer. The blit copies the source into that image and writes nothing else, so the margin holds whatever the swapchain image last had. Composited without a viewport, it is uninitialised memory on screen.
+The blit clears the destination before a copy that does not cover it, so what composites is transparent black. The clear costs a full-image clear on each frame that copies into an oversized layer, and only such a copy pays it.
 
-`claim.width` and `claim.height` report the layer's dimensions, and [lua-api.md](lua-api.md) documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. The pool deliberately does not set the viewport itself: it is one of the per-panel properties that let a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would remove the mechanism a panel needs to place a source inside a larger layer. Phase 6 writes mullion's panel and owns it, and it is recorded in [phase 6](implementation-plans/2026-08-05-lunette-v1/phase_06.md) as a fact the panel is built against.
+That is a safety floor rather than the layout answer. `claim.width` and `claim.height` report the layer's dimensions, and [lua-api.md](lua-api.md) documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. The pool deliberately does not set the viewport itself: it is one of the per-panel properties that let a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would remove the mechanism a panel needs to place a source inside a larger layer. Phase 6 writes mullion's panel and owns that, and it is recorded in [phase 6](implementation-plans/2026-08-05-lunette-v1/phase_06.md) as a fact the panel is built against.
+
+### A recycled layer is not granted until it has been copied into
+
+A layer coming off the free list still holds the pixels the previous claim put there. It is therefore handed to the new claim awaiting its first blit, exactly as a newly created one is, and neither granted nor submitted until that claim's own copy has been issued.
+
+Granting on reuse would be a frame cheaper and would put one window's content inside another window's panel whenever the new claim has nothing to copy — a window that has not committed a buffer yet, a window whose client has just died, or a device that cannot blit the format. The reuse itself is untouched: no allocation happens either way, which is what AC2.4 is about.
 
 ## Outstanding
 

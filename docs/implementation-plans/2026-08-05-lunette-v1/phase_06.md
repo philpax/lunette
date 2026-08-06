@@ -69,7 +69,9 @@ Signals and ray-quad intersection are correctly mullion's own work, not gaps. `d
 
 ### A layer is usually larger than its source, and the margin is the panel's to exclude
 
-Phase 3's size ladder quantises upwards, so a claim for an 800x600 window is served by a 1024x1024 layer. The blit copies the source into the corner of the swapchain image and writes nothing else, which leaves the rest of the image holding whatever the runtime last had there. Composited without a viewport, that margin is uninitialised memory on screen.
+Phase 3's size ladder quantises upwards, so a claim for an 800x600 window is served by a 1024x1024 layer. The blit copies the source into the corner of the swapchain image, and the rest of the image is memory nothing has written.
+
+Phase 3 put a floor under that rather than leaving it to this phase: the blit clears the destination before a copy that would not cover it, so the margin composites as transparent black instead of as uninitialised memory. The floor is a safety property, not a layout one — it makes the margin blank, not correct.
 
 `claim.width` and `claim.height` report the layer's dimensions rather than the size asked for, and `docs/lua-api.md` documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. Phase 3 considered enforcing it in the pool and did not: the viewport is one of the per-panel properties that make a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would take away the mechanism a panel needs to place a source inside a larger layer at all.
 
@@ -360,7 +362,7 @@ Claim a layer through `lunette.claimLayer` with a Lua-chosen priority. When gran
 
 Both paths must be live from the start. `docs/rendering.md` treats in-scene as the fallback, not as a degraded mode, and AC2.3 requires the panel to keep rendering after revocation.
 
-Set the viewport on every grant, to the source's pixel extent within the layer `claim.width` by `claim.height` describes. A layer is usually larger than its source and the margin holds uninitialised swapchain memory otherwise; the reasoning is above, under [a layer is usually larger than its source](#a-layer-is-usually-larger-than-its-source-and-the-margin-is-the-panels-to-exclude). A test covers it: a granted claim whose source is smaller than its layer sets a viewport matching the source.
+Set the viewport on every grant, to the source's pixel extent within the layer `claim.width` by `claim.height` describes. A layer is usually larger than its source, and the blit's clear only makes the margin blank rather than making the panel the right shape; the reasoning is above, under [a layer is usually larger than its source](#a-layer-is-usually-larger-than-its-source-and-the-margin-is-the-panels-to-exclude). A test covers it: a granted claim whose source is smaller than its layer sets a viewport matching the source.
 
 **Step 4: Never cache the texture**
 

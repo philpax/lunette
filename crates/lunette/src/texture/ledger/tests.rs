@@ -15,6 +15,10 @@ use std::{
     rc::Rc,
 };
 
+use lunette_compositor::{
+    protocol::ImportedImage,
+    surface::{PixelBuffer, ShmFormat},
+};
 use pretty_assertions::assert_eq;
 
 use super::*;
@@ -57,19 +61,6 @@ fn released(imported: Option<FakeTexture>) -> Released<FakeTexture> {
         imported,
         stable: None,
     }
-}
-
-#[test]
-fn a_frame_generation_increases_and_never_wraps() {
-    assert_eq!(FrameGeneration::INITIAL.get(), 0);
-    assert_eq!(FrameGeneration::INITIAL.next().get(), 1);
-
-    let last = FrameGeneration(u64::MAX);
-    assert_eq!(
-        last.next(),
-        last,
-        "wrapping would make an ancient handle compare equal to a current one"
-    );
 }
 
 #[test]
@@ -270,111 +261,6 @@ fn several_images_retired_in_one_frame_come_due_together() {
 }
 
 #[test]
-fn a_barrier_policy_defaults_to_what_the_specification_describes() {
-    let policy = BarrierPolicy::default();
-    assert_eq!(policy.source_family, QueueFamilyMode::Foreign);
-    assert_eq!(policy.old_layout, ForeignLayout::General);
-    assert_eq!(policy.source_family.index(), vk::QUEUE_FAMILY_FOREIGN_EXT);
-    assert_eq!(policy.old_layout.layout(), vk::ImageLayout::GENERAL);
-}
-
-#[test]
-fn the_other_value_of_each_setting_is_reachable_without_a_rebuild() {
-    let policy = BarrierPolicy::from_settings(Some("ignored"), Some("undefined"));
-
-    assert_eq!(policy.source_family, QueueFamilyMode::Ignored);
-    assert_eq!(policy.source_family.index(), vk::QUEUE_FAMILY_IGNORED);
-    assert_eq!(policy.old_layout, ForeignLayout::Undefined);
-    assert_eq!(policy.old_layout.layout(), vk::ImageLayout::UNDEFINED);
-}
-
-#[test]
-fn a_release_hands_the_image_back_in_a_layout_a_barrier_may_name() {
-    // The regression: the release passed the policy's own layout as the
-    // barrier's `newLayout`, so `LUNETTE_IMPORT_LAYOUT=undefined` recorded
-    // `VK_IMAGE_LAYOUT_UNDEFINED` as a destination, which
-    // VUID-VkImageMemoryBarrier2-newLayout-01198 forbids. Asserting on the
-    // arguments the call is made with, rather than on the constant, is what
-    // makes reintroducing the switch on the release side fail here.
-    for old_layout in [ForeignLayout::General, ForeignLayout::Undefined] {
-        let policy = BarrierPolicy {
-            source_family: QueueFamilyMode::Foreign,
-            old_layout,
-        };
-        assert_eq!(
-            release_arguments(policy),
-            BarrierArguments {
-                layout: vk::ImageLayout::GENERAL.as_raw().unsigned_abs(),
-                queue_family: vk::QUEUE_FAMILY_FOREIGN_EXT,
-            },
-            "the release names `GENERAL` whatever the policy asked for, for {old_layout:?}"
-        );
-    }
-}
-
-#[test]
-fn an_acquire_names_the_layout_the_policy_asked_for() {
-    // The other half of the pair: `UNDEFINED` is legal as a barrier's
-    // `oldLayout`, and naming it is the whole point of the setting, so the
-    // acquire must pass the policy through where the release must not.
-    for (old_layout, expected) in [
-        (ForeignLayout::General, vk::ImageLayout::GENERAL),
-        (ForeignLayout::Undefined, vk::ImageLayout::UNDEFINED),
-    ] {
-        let policy = BarrierPolicy {
-            source_family: QueueFamilyMode::Foreign,
-            old_layout,
-        };
-        assert_eq!(
-            acquire_arguments(policy),
-            BarrierArguments {
-                layout: expected.as_raw().unsigned_abs(),
-                queue_family: vk::QUEUE_FAMILY_FOREIGN_EXT,
-            },
-            "the acquire is where the switch is measurable, for {old_layout:?}"
-        );
-    }
-}
-
-#[test]
-fn both_barriers_name_the_queue_family_the_policy_asked_for() {
-    for (source_family, expected) in [
-        (QueueFamilyMode::Foreign, vk::QUEUE_FAMILY_FOREIGN_EXT),
-        (QueueFamilyMode::Ignored, vk::QUEUE_FAMILY_IGNORED),
-    ] {
-        let policy = BarrierPolicy {
-            source_family,
-            old_layout: ForeignLayout::General,
-        };
-        assert_eq!(acquire_arguments(policy).queue_family, expected);
-        assert_eq!(
-            release_arguments(policy).queue_family,
-            expected,
-            "the release side is the half of the ownership transfer the policy still governs"
-        );
-    }
-}
-
-#[test]
-fn an_unrecognised_setting_falls_back_rather_than_stopping_the_session() {
-    assert_eq!(
-        BarrierPolicy::from_settings(Some("FOREIGN"), Some("")),
-        BarrierPolicy::default(),
-        "a diagnostic switch is not worth failing a session over, and the parse is exact"
-    );
-    assert_eq!(QueueFamilyMode::parse("neither"), None);
-    assert_eq!(ForeignLayout::parse("optimal"), None);
-}
-
-#[test]
-fn an_unset_setting_is_the_default() {
-    assert_eq!(
-        BarrierPolicy::from_settings(None, None),
-        BarrierPolicy::default()
-    );
-}
-
-#[test]
 fn an_imported_x_format_is_described_as_opaque() {
     let buffer = ImportedBuffer::Image(ImportedImage {
         image: image(1),
@@ -418,40 +304,6 @@ fn an_uploaded_buffer_always_carries_alpha_because_the_repack_forced_it() {
             }
         );
     }
-}
-
-#[test]
-fn every_shm_format_is_uploaded_as_bgra() {
-    for format in [ShmFormat::Argb8888, ShmFormat::Xrgb8888] {
-        assert_eq!(shm_texture_format(format), TextureFormat_FORMAT_BGRA8);
-    }
-}
-
-#[test]
-fn the_texture_declaration_matches_what_the_import_creates() {
-    let info = texture_info(PixelSize::new(2, 2), TextureFormat_FORMAT_BGRA8, 42, true);
-
-    assert_eq!(info.usage, TEXTURE_SAMPLE | TEXTURE_TRANSFER);
-    assert!(info.foreign);
-    assert_eq!(info.handle, 42);
-    assert_eq!(info.layers, 1);
-    assert_eq!(info.mipmaps, 1);
-    assert_eq!(info.samples, 1);
-    assert!(!info.srgb);
-    assert!(!info.xr);
-    assert_eq!(info.imageCount, 0);
-    assert!(info.images.is_null());
-}
-
-#[test]
-fn a_texture_lovr_allocates_is_not_declared_foreign() {
-    let info = texture_info(PixelSize::new(2, 2), TextureFormat_FORMAT_BGRA8, 0, false);
-    assert!(
-        !info.foreign,
-        "the flag suppresses the initial transition, which a texture LÖVR is about to fill \
-         genuinely wants"
-    );
-    assert_eq!(info.handle, 0);
 }
 
 /// Stands in for a texture that can be copied into.

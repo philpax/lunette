@@ -60,7 +60,7 @@ use tracing::{error, info, warn};
 use crate::{
     events::LuaEvent,
     import::{DeviceError, GraphicsDevice, ImageArena, Importer},
-    layers::{BlitLedger, Blitted, LovrBlits, LovrLayers},
+    layers::{BlitLedger, LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session},
     texture::{BarrierPolicy, LovrTexture, Released, TextureLedger, destroy_due_images},
 };
@@ -330,13 +330,12 @@ impl FrameDriver {
                 );
 
                 for (claim, outcome) in report {
-                    match outcome {
-                        Blitted::Copied | Blitted::Unchanged | Blitted::NoSource => {}
-                        // Reported every frame rather than once: unlike a device
-                        // that cannot blit, which the blit ledger reports once
-                        // because it never changes, these are transient and a
-                        // panel stuck on one is stuck showing an old frame.
-                        other => warn!(%claim, ?other, "a layer was not updated this frame"),
+                    // Which outcomes those are is `Blitted`'s to say: a
+                    // device that cannot blit answers the same way for the
+                    // rest of the session, and the blit ledger has already
+                    // reported that one once per claim.
+                    if outcome.worth_reporting_every_frame() {
+                        warn!(%claim, ?outcome, "a layer was not updated this frame");
                     }
                 }
             });
