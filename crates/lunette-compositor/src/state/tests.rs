@@ -87,6 +87,117 @@ fn a_surface_falling_back_to_shared_memory_releases_the_dmabuf_it_held() {
     );
 }
 
+/// The surface an event names, for the events that name one.
+fn surface_of(event: &Event) -> Option<crate::protocol::SurfaceId> {
+    match event {
+        Event::BufferImported { surface, .. }
+        | Event::SurfaceDamaged { surface }
+        | Event::SurfaceGone { surface } => Some(*surface),
+        _ => None,
+    }
+}
+
+#[test]
+fn destroying_a_surface_that_is_not_a_window_reports_it_gone() {
+    // The regression: a cursor surface, a popup, and a subsurface all commit
+    // buffers, so each becomes a texture on the frame thread. Only a toplevel
+    // is ever reported closed, so without this event the frame thread held a
+    // texture over an image the compositor had already retired.
+    let (mut compositor, mut client) = with_one_window();
+    let cursor = client.open_plain_surface(&mut compositor, PixelSize::new(24, 24));
+
+    let imported = compositor
+        .drain_events()
+        .iter()
+        .filter_map(|event| match event {
+            Event::BufferImported { surface, .. } => Some(*surface),
+            _ => None,
+        })
+        .next_back()
+        .expect("the plain surface's buffer was imported");
+
+    client.destroy_surface(&mut compositor, &cursor);
+
+    assert!(
+        compositor
+            .drain_events()
+            .iter()
+            .any(|event| matches!(event, Event::SurfaceGone { surface } if *surface == imported)),
+        "the frame thread has a texture for this surface and nothing else would tell it to \
+         release it"
+    );
+}
+
+#[test]
+fn a_disconnecting_client_reports_its_surfaces_gone() {
+    let (mut compositor, client) = with_one_window();
+    let surface = compositor
+        .drain_events()
+        .iter()
+        .find_map(surface_of)
+        .expect("the toplevel's buffer was imported");
+
+    client.disconnect(&mut compositor);
+
+    assert!(
+        compositor
+            .drain_events()
+            .iter()
+            .any(|event| matches!(event, Event::SurfaceGone { surface: gone } if *gone == surface)),
+        "a client that vanishes leaves its textures for the frame thread to release"
+    );
+}
+
+#[test]
+fn unmapping_a_window_reports_the_surface_gone_after_the_window_closed() {
+    let (mut compositor, mut client) = with_one_window();
+    drop(compositor.drain_events());
+
+    // A null buffer unmaps a toplevel, and the protocol lets the client map it
+    // again by committing another.
+    client.detach_buffer(&mut compositor);
+
+    let events = compositor.drain_events();
+    let closed = events
+        .iter()
+        .position(|event| matches!(event, Event::WindowClosed { .. }))
+        .expect("unmapping closes the window");
+    let gone = events
+        .iter()
+        .position(|event| matches!(event, Event::SurfaceGone { .. }))
+        .expect("unmapping takes the surface's content with it");
+
+    assert!(
+        closed < gone,
+        "the window dies before its texture is dropped, so a handler reading the closure still \
+         sees what the ledger knew"
+    );
+}
+
+#[test]
+fn a_dispatch_sweeps_the_importer_even_though_it_imported_nothing() {
+    // Retirement was driven by imports alone, so a client that disconnected —
+    // or fell quiet — left its images held for the life of the process, and
+    // the live count the shutdown path logs described buffers freed long
+    // before.
+    let (mut compositor, client) = with_one_window();
+    let imports = compositor.imports();
+    let (sweeps, dmabufs) = (imports.sweep_count(), imports.dmabuf_count());
+
+    client.disconnect(&mut compositor);
+
+    assert!(
+        imports.sweep_count() > sweeps,
+        "dropping the retained buffer is what makes its image collectable, and only a sweep \
+         notices"
+    );
+    assert_eq!(
+        imports.dmabuf_count(),
+        dmabufs,
+        "nothing was imported, which is the case an import-driven sweep cannot cover"
+    );
+}
+
 #[test]
 fn a_toplevel_with_no_buffer_is_not_yet_a_window() {
     let mut compositor = TestCompositor::new();

@@ -50,7 +50,7 @@ use std::{error::Error, fmt, rc::Rc, sync::Arc};
 
 use lunette_compositor::{
     client::{DisplayName, WaylandSocket, XwaylandSatellite},
-    protocol::{Event, ImportedBuffer, Snapshot, SurfaceId},
+    protocol::{Event, ImportedBuffer, Snapshot, SurfaceId, WindowId},
     state::CompositorConfig,
     thread::{self, CompositorHandle, PanicPolicy, StartError},
 };
@@ -277,33 +277,25 @@ impl FrameDriver {
         }
     }
 
-    /// What one compositor event means to the textures the frame can hand out.
-    ///
-    /// Exhaustive so that a variant added to the protocol has to be given an
-    /// answer here rather than silently doing nothing.
+    /// Applies to the ledger what one compositor event asks of it.
     fn apply(&self, event: &Event) {
-        match event {
-            Event::BufferImported { surface, buffer } => self.install(*surface, buffer),
-            Event::WindowClosed { window } => {
-                // The window is already absent from this frame's snapshot —
-                // that is what the event reports — so the surface is read from
-                // the frame before, which the session still holds.
-                if let Some(window) = self.session.window(*window) {
-                    let released = self
-                        .session
-                        .with_textures(|ledger| ledger.mark_dead(window.surface));
-                    release(released);
-                }
+        // The window in a `WindowClosed` is already absent from this frame's
+        // snapshot — that is what the event reports — so its surface is read
+        // from the frame before, which the session still holds.
+        let surface_of = |window| self.session.window(window).map(|window| window.surface);
+
+        match ledger_change(event, surface_of) {
+            LedgerChange::Install { surface, buffer } => self.install(surface, buffer),
+            LedgerChange::MarkDead(surface) => {
+                release(
+                    self.session
+                        .with_textures(|ledger| ledger.mark_dead(surface)),
+                );
             }
-            // Nothing to do on this side. A window opening or retitling is the
-            // snapshot's business, damage is already recorded by the install
-            // that accompanies it, and the process events never touch a
-            // texture.
-            Event::WindowOpened { .. }
-            | Event::TitleChanged { .. }
-            | Event::SurfaceDamaged { .. }
-            | Event::ProcessExited { .. }
-            | Event::ProcessOutput { .. } => {}
+            LedgerChange::Forget(surface) => {
+                release(self.session.with_textures(|ledger| ledger.forget(surface)));
+            }
+            LedgerChange::Nothing => {}
         }
     }
 
@@ -340,6 +332,61 @@ impl FrameDriver {
             .session
             .with_textures(|ledger| ledger.install(surface, texture, description));
         release(released);
+    }
+}
+
+/// What one compositor event asks of the texture ledger.
+///
+/// A separate step from performing it so that the decision is a pure function of
+/// the event: turning a buffer into a texture needs a graphics device and this
+/// does not, which is what makes the mapping testable.
+#[derive(Debug, PartialEq, Eq)]
+enum LedgerChange<'a> {
+    /// The surface committed a buffer, which becomes its new texture.
+    Install {
+        surface: SurfaceId,
+        buffer: &'a ImportedBuffer,
+    },
+    /// The surface's client is gone. Its textures are handed back and the
+    /// description survives, so reads keep answering with last-known values.
+    MarkDead(SurfaceId),
+    /// The surface itself is gone. Everything the ledger holds for it is handed
+    /// back, and the entry with it.
+    ///
+    /// This is what keeps a popup, a subsurface, or a cursor surface from
+    /// leaving a texture behind. Every `wl_surface` mints a [`SurfaceId`] and so
+    /// every one can hold a texture, but only a toplevel is ever reported
+    /// closed — so without this the ledger would name a freed image in the
+    /// frame's barriers for the rest of the session.
+    Forget(SurfaceId),
+    /// Nothing the textures care about. A window opening or retitling is the
+    /// snapshot's business, damage is already recorded by the install that
+    /// accompanies it, and the process events never touch a texture.
+    Nothing,
+}
+
+/// Reads an event as a change to the ledger.
+///
+/// Exhaustive so that a variant added to the protocol has to be given an answer
+/// here rather than silently doing nothing.
+fn ledger_change<'a>(
+    event: &'a Event,
+    surface_of: impl FnOnce(WindowId) -> Option<SurfaceId>,
+) -> LedgerChange<'a> {
+    match event {
+        Event::BufferImported { surface, buffer } => LedgerChange::Install {
+            surface: *surface,
+            buffer,
+        },
+        Event::WindowClosed { window } => {
+            surface_of(*window).map_or(LedgerChange::Nothing, LedgerChange::MarkDead)
+        }
+        Event::SurfaceGone { surface } => LedgerChange::Forget(*surface),
+        Event::WindowOpened { .. }
+        | Event::TitleChanged { .. }
+        | Event::SurfaceDamaged { .. }
+        | Event::ProcessExited { .. }
+        | Event::ProcessOutput { .. } => LedgerChange::Nothing,
     }
 }
 
@@ -424,11 +471,17 @@ impl Error for StartupError {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
-    use lunette_compositor::protocol::PixelSize;
+    use lunette_compositor::{
+        protocol::PixelSize,
+        surface::{PixelBuffer, ShmFormat},
+    };
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::texture::{FrameGeneration, TextureDescription, TextureRef, TextureUnavailable};
+    use crate::{
+        import::formats::Alpha,
+        texture::{FrameGeneration, TextureDescription, TextureRef, TextureUnavailable},
+    };
 
     /// A texture that is a counter, so the ledger's bookkeeping can be
     /// exercised without a graphics device.
@@ -452,7 +505,134 @@ mod tests {
     fn description() -> TextureDescription {
         TextureDescription {
             size: PixelSize::new(4, 4),
-            alpha: crate::import::formats::Alpha::Present,
+            alpha: Alpha::Present,
+        }
+    }
+
+    fn window_id(raw: u64) -> WindowId {
+        WindowId::new(raw).expect("non-zero")
+    }
+
+    #[test]
+    fn a_surface_going_away_takes_its_texture_out_of_the_ledger() {
+        // The regression: every `wl_surface` mints an identifier and can hold
+        // a texture, and only a toplevel is ever reported closed. A popup or a
+        // cursor surface that was never forgotten left a texture naming an
+        // image the compositor had already retired.
+        assert_eq!(
+            ledger_change(
+                &Event::SurfaceGone {
+                    surface: surface(1)
+                },
+                |_| unreachable!("a surface event names its surface directly")
+            ),
+            LedgerChange::Forget(surface(1))
+        );
+    }
+
+    #[test]
+    fn forgetting_a_surface_hands_back_both_of_its_textures_and_stops_naming_them() {
+        let mut ledger = TextureLedger::<Counted>::new();
+        ledger.install(surface(1), Counted(1), description());
+        ledger
+            .stabilize(
+                TextureRef::new(surface(1), FrameGeneration::INITIAL),
+                FrameGeneration::INITIAL,
+            )
+            .expect("a live surface can be stabilised");
+
+        let released = ledger.forget(surface(1));
+
+        assert_eq!(released.imported, Some(Counted(1)));
+        assert_eq!(released.stable, Some(Counted(1001)));
+        assert_eq!(
+            ledger.textures().count(),
+            0,
+            "a texture the frame no longer holds must not be named in a barrier"
+        );
+        assert_eq!(
+            ledger.lookup(
+                TextureRef::new(surface(1), FrameGeneration::INITIAL),
+                FrameGeneration::INITIAL
+            ),
+            Err(TextureUnavailable::Unknown)
+        );
+    }
+
+    #[test]
+    fn a_window_closing_marks_its_surface_dead_rather_than_forgetting_it() {
+        assert_eq!(
+            ledger_change(
+                &Event::WindowClosed {
+                    window: window_id(3)
+                },
+                |window| (window == window_id(3)).then(|| surface(9))
+            ),
+            LedgerChange::MarkDead(surface(9))
+        );
+    }
+
+    #[test]
+    fn a_window_no_snapshot_in_reach_describes_changes_nothing() {
+        assert_eq!(
+            ledger_change(
+                &Event::WindowClosed {
+                    window: window_id(3)
+                },
+                |_| None
+            ),
+            LedgerChange::Nothing
+        );
+    }
+
+    #[test]
+    fn an_imported_buffer_installs_against_the_surface_it_arrived_for() {
+        let buffer = ImportedBuffer::Pixels(
+            PixelBuffer::new(
+                PixelSize::new(1, 1),
+                ShmFormat::Argb8888,
+                vec![0, 0, 0, 255],
+            )
+            .expect("one pixel"),
+        );
+        let event = Event::BufferImported {
+            surface: surface(2),
+            buffer,
+        };
+
+        let Event::BufferImported { buffer, .. } = &event else {
+            unreachable!("the event was just built as an import")
+        };
+        assert_eq!(
+            ledger_change(&event, |_| unreachable!(
+                "a buffer names its surface directly"
+            )),
+            LedgerChange::Install {
+                surface: surface(2),
+                buffer,
+            }
+        );
+    }
+
+    #[test]
+    fn the_reports_that_touch_no_texture_change_nothing() {
+        for event in [
+            Event::WindowOpened {
+                window: window_id(1),
+            },
+            Event::TitleChanged {
+                window: window_id(1),
+                title: "htop".to_owned(),
+            },
+            Event::SurfaceDamaged {
+                surface: surface(1),
+            },
+        ] {
+            assert_eq!(
+                ledger_change(&event, |_| None),
+                LedgerChange::Nothing,
+                "{event:?} has nothing to do with what the frame may sample"
+            );
         }
     }
 

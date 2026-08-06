@@ -756,6 +756,18 @@ impl CompositorState {
         self.dirty = true;
     }
 
+    /// Lets the importer release what the clients no longer hold.
+    ///
+    /// Called once per dispatch, because a dispatch is the only thing that can
+    /// have made an import collectable: the strong reference to a client's
+    /// dmabuf is the `wl_buffer` this side retains, and it is dropped either
+    /// when the client destroys the buffer or when the compositor forgets the
+    /// surface. Driving retirement from imports alone holds every image of a
+    /// client that has disconnected or fallen quiet, since neither performs one.
+    pub(crate) fn sweep_imports(&mut self) {
+        self.importer.sweep();
+    }
+
     pub(super) fn report(&self, event: Event) {
         if self.events.send(event).is_err() {
             debug!("the main thread is gone; dropping an event");

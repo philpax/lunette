@@ -167,6 +167,16 @@ pub enum Event {
         surface: SurfaceId,
         buffer: ImportedBuffer,
     },
+    /// A surface's content is gone: the surface was destroyed, or it unmapped
+    /// by attaching a null buffer.
+    ///
+    /// Reported for every `wl_surface`, not only for a toplevel — a popup, a
+    /// subsurface, and a cursor surface all commit buffers and so all become
+    /// textures on the frame thread. The frame thread drops what it holds for
+    /// the surface when it sees this. Without it a texture whose image the
+    /// compositor is about to retire would stay in the ledger, and the frame
+    /// after next would record a barrier over freed memory.
+    SurfaceGone { surface: SurfaceId },
     /// A spawned process ended, or never started.
     ProcessExited {
         process: ProcessId,

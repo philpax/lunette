@@ -176,6 +176,17 @@ pub trait BufferImporter: Send {
     /// the frame thread finishes the job.
     fn import_shm(&mut self, pixels: &[u8], layout: ShmLayout)
     -> Result<PixelBuffer, ImportFailed>;
+
+    /// Releases whatever the implementation holds for buffers the client has
+    /// destroyed.
+    ///
+    /// An implementation that caches imports keys the cache weakly, so an entry
+    /// becomes collectable once the compositor drops the `wl_buffer` it retained
+    /// — but nothing notices that on its own. The compositor calls this whenever
+    /// a surface's content goes away and once per dispatch, so a client that
+    /// disconnects or falls quiet does not leave its images held for the life of
+    /// the process.
+    fn sweep(&mut self);
 }
 
 /// Tightly packed pixels, on their way to a texture upload.

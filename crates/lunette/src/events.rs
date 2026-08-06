@@ -145,10 +145,14 @@ impl LuaEvent {
                 stream: *stream,
                 bytes: bytes.clone(),
             }),
-            // Both are the frame loop's: one decides whether a stabilised copy
-            // is refreshed, the other becomes a texture. Neither is something
-            // the configuration can act on.
-            CompositorEvent::SurfaceDamaged { .. } | CompositorEvent::BufferImported { .. } => None,
+            // All three are the frame loop's: one decides whether a stabilised
+            // copy is refreshed, one becomes a texture, and one releases it
+            // again. None of them is something the configuration can act on —
+            // a surface is not a window, and a window going away has its own
+            // event.
+            CompositorEvent::SurfaceDamaged { .. }
+            | CompositorEvent::BufferImported { .. }
+            | CompositorEvent::SurfaceGone { .. } => None,
         }
     }
 }
@@ -668,6 +672,11 @@ mod tests {
                 buffer: ImportedBuffer::Pixels(pixels),
             }),
             None
+        );
+        assert_eq!(
+            LuaEvent::from_compositor(&CompositorEvent::SurfaceGone { surface }),
+            None,
+            "a surface is not a window; a window going away is reported on its own"
         );
     }
 

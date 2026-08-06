@@ -406,6 +406,10 @@ fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>)
     // between events, and waking on a timer would burn a wakeup per tick for a
     // compositor that is usually idle.
     let outcome = event_loop.run(None, &mut data, |data| {
+        // After the dispatch rather than before: a client that destroyed a
+        // buffer did so during it, and this is where the import holding that
+        // buffer's image becomes collectable.
+        data.state.sweep_imports();
         data.state.send_frame_callbacks();
         data.state.publish_if_dirty();
         if let Err(error) = data.display.flush_clients() {

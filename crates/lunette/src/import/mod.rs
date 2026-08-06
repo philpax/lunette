@@ -77,4 +77,10 @@ impl BufferImporter for Importer {
     ) -> Result<PixelBuffer, ImportFailed> {
         shm::repack(pixels, layout).map_err(|error| ImportFailed::new(error.to_string()))
     }
+
+    /// Only the dmabuf path holds anything: a shared-memory buffer is copied out
+    /// and released within the import that read it.
+    fn sweep(&mut self) {
+        self.dmabuf.evict_gone_buffers();
+    }
 }

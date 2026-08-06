@@ -289,27 +289,39 @@ impl CompositorState {
     /// says the client may then re-map it by committing again. So the window is
     /// reported closed but keeps its identifier, and re-mapping reports it
     /// opened rather than creating a second one.
+    ///
+    /// [`Event::SurfaceGone`] is reported after the window's own closure, so the
+    /// frame thread sees the window die before the surface's texture is dropped
+    /// — the order the two events describe the same moment in.
     pub(super) fn unmap_surface(&mut self, id: SurfaceId) {
         self.buffers.forget(id);
         self.contents.remove(&id);
         self.touch();
 
-        let Some(window) = self.windows.by_surface_mut(id) else {
-            return;
-        };
-        if window.unmap() {
+        if let Some(window) = self.windows.by_surface_mut(id)
+            && window.unmap()
+        {
             let window = window.id();
             self.report(Event::WindowClosed { window });
         }
+
+        self.report(Event::SurfaceGone { surface: id });
     }
 
     /// Forgets everything keyed on a surface that is going away.
+    ///
+    /// Dropping the retained `wl_buffer` is what makes the client's dmabuf
+    /// collectable. Noticing that is the sweep the thread runs after every
+    /// dispatch, and this happens inside one.
     pub(super) fn forget_surface(&mut self, surface: &WlSurface) {
         self.frame_callbacks.remove(&surface.id());
-        if let Some(id) = self.surfaces.forget(surface) {
-            self.buffers.forget(id);
-            self.contents.remove(&id);
-        }
+        let Some(id) = self.surfaces.forget(surface) else {
+            return;
+        };
+
+        self.buffers.forget(id);
+        self.contents.remove(&id);
+        self.report(Event::SurfaceGone { surface: id });
     }
 }
 

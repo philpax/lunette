@@ -231,7 +231,8 @@ impl TestClient {
         params.destroy();
 
         let id = buffer.id();
-        self.attach(compositor, &buffer, width, height);
+        let surface = self.surface.clone().expect("a toplevel was opened first");
+        self.attach_to(compositor, &surface, &buffer, width, height);
         self.buffers.push(buffer);
         id
     }
@@ -239,19 +240,63 @@ impl TestClient {
     /// Attaches a shared-memory buffer of `size` and commits, which is what
     /// maps the window.
     pub fn attach_buffer(&mut self, compositor: &mut TestCompositor, size: PixelSize) {
+        let buffer = self.shm_buffer(size);
+        let (width, height) = protocol_size(size);
+        let surface = self.surface.clone().expect("a toplevel was opened first");
+
+        self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+    }
+
+    /// Creates a surface with no role, commits a buffer to it, and hands it
+    /// back.
+    ///
+    /// The shape of a cursor surface, a popup, and a subsurface: it mints a
+    /// `SurfaceId` and its buffer is imported, and it is never a window. A test
+    /// destroys the returned surface to drive what happens when one goes away.
+    pub fn open_plain_surface(
+        &mut self,
+        compositor: &mut TestCompositor,
+        size: PixelSize,
+    ) -> WlSurface {
+        let handle = self.queue.handle();
+        let surface = self.bind::<WlCompositor>(6).create_surface(&handle, ());
+        let buffer = self.shm_buffer(size);
+        let (width, height) = protocol_size(size);
+
+        self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+        surface
+    }
+
+    /// Attaches a null buffer to the toplevel's surface, which unmaps it.
+    ///
+    /// The protocol lets the client map it again by committing another buffer,
+    /// which is why this is not the same as destroying the surface.
+    pub fn detach_buffer(&mut self, compositor: &mut TestCompositor) {
+        let surface = self.surface.clone().expect("a toplevel was opened first");
+        surface.attach(None, 0, 0);
+        surface.commit();
+        self.settle_quiet(compositor);
+    }
+
+    /// Destroys a surface this client made and lets the compositor notice.
+    pub fn destroy_surface(&mut self, compositor: &mut TestCompositor, surface: &WlSurface) {
+        surface.destroy();
+        self.settle_quiet(compositor);
+    }
+
+    /// A shared-memory buffer of `size`, in the format a test attaches.
+    fn shm_buffer(&mut self, size: PixelSize) -> WlBuffer {
         let handle = self.queue.handle();
         let shm = self.bind::<WlShm>(1);
-
-        // The protocol counts in signed pixels; a size that does not fit is a
-        // test asking for something no client could ask for.
-        let width = i32::try_from(size.width).expect("a width the protocol can carry");
-        let height = i32::try_from(size.height).expect("a height the protocol can carry");
+        let (width, height) = protocol_size(size);
         let stride = width * 4;
         let length = stride * height;
         let memory = anonymous_file(i64::from(length));
 
         let pool = shm.create_pool(memory.as_fd(), length, &handle, ());
-        let buffer = pool.create_buffer(
+        pool.create_buffer(
             0,
             width,
             height,
@@ -259,22 +304,19 @@ impl TestClient {
             wl_shm::Format::Argb8888,
             &handle,
             (),
-        );
-
-        self.attach(compositor, &buffer, width, height);
-        self.buffers.push(buffer);
+        )
     }
 
-    /// Attaches a buffer to the client's surface, damages all of it, and
-    /// commits.
-    fn attach(
+    /// Attaches a buffer to one of the client's surfaces, damages all of it,
+    /// and commits.
+    fn attach_to(
         &mut self,
         compositor: &mut TestCompositor,
+        surface: &WlSurface,
         buffer: &WlBuffer,
         width: i32,
         height: i32,
     ) {
-        let surface = self.surface.clone().expect("a toplevel was opened first");
         surface.attach(Some(buffer), 0, 0);
         surface.damage(0, 0, width, height);
         surface.commit();
@@ -578,6 +620,17 @@ delegate_noop!(Driver: ignore WlShm);
 delegate_noop!(Driver: ignore WlShmPool);
 delegate_noop!(Driver: ignore ZwpLinuxDmabufV1);
 delegate_noop!(Driver: ignore ZwpLinuxBufferParamsV1);
+
+/// A size as the protocol counts it, which is in signed pixels.
+///
+/// A size that does not fit is a test asking for something no client could ask
+/// for.
+fn protocol_size(size: PixelSize) -> (i32, i32) {
+    (
+        i32::try_from(size.width).expect("a width the protocol can carry"),
+        i32::try_from(size.height).expect("a height the protocol can carry"),
+    )
+}
 
 /// An anonymous file of `length` bytes, to back a `wl_shm` pool.
 ///

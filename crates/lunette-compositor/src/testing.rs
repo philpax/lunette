@@ -159,9 +159,13 @@ impl TestCompositor {
     /// The wait is what lets a timer inside the compositor — the one that reaps
     /// spawned processes — fire without the test sleeping.
     pub fn step_for(&mut self, timeout: Duration) {
+        // The body of `thread::run`'s loop callback, in its order, so a test
+        // sees what a running compositor does rather than an approximation of
+        // it.
         self.event_loop
             .dispatch(timeout, &mut self.data)
             .expect("the event loop dispatches");
+        self.data.state.sweep_imports();
         self.data.state.send_frame_callbacks();
         self.data.state.publish_if_dirty();
         drop(self.data.display.flush_clients());
@@ -243,12 +247,20 @@ pub struct ImportLog {
     /// When set, every import is refused with this message. Lets a test drive
     /// the path where a client's buffer cannot be imported.
     refusal: Arc<Mutex<Option<String>>>,
+    sweeps: Arc<AtomicU64>,
 }
 
 impl ImportLog {
     #[must_use]
     pub fn dmabuf_count(&self) -> u64 {
         self.dmabufs.load(Ordering::Relaxed)
+    }
+
+    /// How many times the importer has been asked to release what the clients
+    /// no longer hold.
+    #[must_use]
+    pub fn sweep_count(&self) -> u64 {
+        self.sweeps.load(Ordering::Relaxed)
     }
 
     #[must_use]
@@ -351,6 +363,13 @@ impl BufferImporter for RecordingImporter {
         ];
         PixelBuffer::new(layout.size, layout.format, blank)
             .ok_or_else(|| ImportFailed::new("the fake importer packed a buffer of the wrong size"))
+    }
+
+    /// Counted rather than acted on: the fake holds no images, so there is
+    /// nothing to release, and what a test needs to see is that the compositor
+    /// asked.
+    fn sweep(&mut self) {
+        self.log.sweeps.fetch_add(1, Ordering::Relaxed);
     }
 }
 
