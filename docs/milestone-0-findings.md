@@ -2,7 +2,7 @@
 
 Milestone 0 exists to de-risk two unknowns before a standard library is written on top of them: the LÖVR Vulkan patch, and the compositor-thread split with the snapshot model it forces on Lua. [Roadmap](roadmap.md) states both. This document records what the two actually did, so phases 4 to 8 are detailed against measurement rather than against the design's expectations.
 
-Eight acceptance criteria are human gates and are not recorded here as passed: two from milestone 0, one from the composition-layer work that follows it, and five from the monitor-mirroring work after that. They are listed under [Outstanding](#outstanding), together with the two measurements that have to be taken.
+Thirteen acceptance criteria are human gates and are not recorded here as passed: two from milestone 0, one from the composition-layer work that follows it, five from the monitor-mirroring work after that, and five from the keyboard, seat, and clipboard work after that. They are listed under [Outstanding](#outstanding), together with the two measurements that have to be taken.
 
 ## The machine
 
@@ -27,16 +27,18 @@ All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `n
 | `cargo +nightly fmt --all -- --check` | clean |
 | `cargo clippy --all-targets --all-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
 | `cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
-| `cargo test --workspace` | 623 passed, 0 failed, 0 ignored |
-| `cargo test --workspace --no-default-features` | 623 passed, 0 failed, 0 ignored |
+| `cargo test --workspace` | 780 passed, 0 failed, 0 ignored |
+| `cargo test --workspace --no-default-features` | 780 passed, 0 failed, 0 ignored |
 
-The 623 are 256 in `lunette`, 18 in its binary target, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 234 in `lunette-capture`, 96 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, and 4 in `tests/pointer_routing.rs`. The compositor's 106 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`, and the monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 234 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`.
+The 780 are 299 in `lunette`, 23 in its binary target, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 239 in `lunette-capture`, 158 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, 16 in `tests/clipboard.rs`, 4 in `tests/pointer_routing.rs`, 13 in `tests/seats.rs`, 5 in `tests/surface_routing.rs`, and 8 in `tests/type_text.rs`. The compositor's 210 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`, the monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 239 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`, and the keyboard, seat, and clipboard work under [keyboard, seats, and clipboard](#keyboard-seats-and-clipboard) is 157 of it.
+
+Two test binaries print xkbcommon compilation errors to stderr and still pass. The errors come from the negative cases — a keymap string that is not a keymap, and a layout name no `xkeyboard-config` carries — which are `a_layout_that_does_not_exist_is_refused_rather_than_silently_defaulted` and `text_that_is_not_a_keymap_is_refused` in `keymap.rs`, and the refused-layout case again in `tests/seats.rs`. libxkbcommon writes to stderr through its own log handler before returning the failure lunette then asserts on, and suppressing it would mean installing a process-global handler for the benefit of three tests.
 
 No dependency in the tree names `async-std` or `ashpd`: `cargo tree | rg -c 'async-std|ashpd'` counts zero. Both would arrive with the published wlx-capture 0.5.4, and the pin is the 0.6.0 in the WayVR monorepo at `98f800c6` for that reason.
 
 ## Provenance
 
-Every file in `crates/lunette-compositor/src/` either carries the WayVR header or is lunette's own. The check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/`, compared against the list of original files in [crates/lunette-compositor/PROVENANCE.md](../crates/lunette-compositor/PROVENANCE.md). Seven files are headerless and all seven are on that list.
+Every file in `crates/lunette-compositor/src/` either carries the WayVR header or is lunette's own. The check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/`, compared against the list of original files in [crates/lunette-compositor/PROVENANCE.md](../crates/lunette-compositor/PROVENANCE.md). Sixteen files are headerless and all sixteen are on that list.
 
 `vendor/lovr` carries three patches on top of upstream `fdf1669f`, touching `src/core/gpu.h`, `src/core/gpu_vk.c`, `src/modules/graphics/graphics.c`, and `src/modules/graphics/graphics.h`. None adds a file. Upstream carries per-file copyright headers only under `src/lib/`, which is its own vendored third-party code, so the four patched files inherit the repository's MIT `LICENSE` and a per-file header would be a departure from upstream rather than a match to it.
 
@@ -261,9 +263,65 @@ A rotated monitor is unresolved in two directions. `monitor.width` and `monitor.
 
 uinput has never issued `UI_DEV_CREATE` to a kernel. The device setup, the axis setup, and the teardown are written and unit-tested over a recording fake, and no test has opened `/dev/uinput`.
 
+## Keyboard, seats, and clipboard
+
+These come out of phase 5. As with phase 4, every acceptance criterion the phase carries is a human gate and none has been performed, for the same reason: the machine runs at a bare TTY, with `XDG_SESSION_TYPE=tty` and neither `DISPLAY` nor `WAYLAND_DISPLAY` set. There is no host compositor to bridge a clipboard with and no headset to put two hands in. What is recorded below is what could be established without either, and what could not is under [Outstanding](#the-five-keyboard-seat-and-clipboard-gates).
+
+The phase added 157 tests, and the compositor crate now carries 210 of the workspace's 780. All 210 pass with no Vulkan ICD visible, which is the check the crate boundary rests on: `cargo tree -p lunette-compositor` names no GPU crate, and the only entry in it that reads as one is `drm-fourcc`, which is a table of format codes and links nothing.
+
+### Multi-seat
+
+One `wl_seat` per hand, held in a `SeatRegistry`, with the pointer position, the hovered window, the keyboard focus, the modifier state, the cursor image, and the selection all per seat. The cursor image is the one WayVR got wrong under multi-seat — its `SeatHandler::cursor_image` ignores the `seat` argument and writes one field on the application — and it now lives in `Seat::user_data()`, which is where smithay keeps everything else that is per-seat. The `SerialCounter` moved the other way, out of the per-seat struct and onto the compositor state, because serials are global in smithay and duplicating them would have been the bug.
+
+`tests/seats.rs` establishes the independence directly: a key sent to an unfocused seat reaches nobody, and a button is refused on a seat whose pointer is somewhere else. What has not happened is two hands in a headset, which is AC4.1.
+
+### The reverse keymap lookup, which libxkbcommon does not offer
+
+There is no libxkbcommon call for "which key and modifiers produce this keysym". The forward direction is `xkb_state_key_get_syms`, and the reverse is left to the caller.
+
+`keymap.rs` builds the table once, when the keymap is compiled, by enumerating the modifier combinations that select a shift level, walking every keycode under each, and inverting the result. `LEVEL_MODIFIERS` is six combinations: nothing, shift, `Mod5`, shift with `Mod5`, `Mod3`, and shift with `Mod3`. Control, alt, and the logo key are absent because they do not select a level in any ordinary layout — they are what a client turns into a binding, and a binding is not a character. `NumLock` is absent because it would make the keypad's digits compete with the number row for the same keysyms, and the number row is what a caller asking for a digit means.
+
+The combination loop is outermost, so the first entry written for a keysym is the cheapest way to type it. That is what makes an unshifted letter never report as needing shift, and a digit resolve to the number row.
+
+### Typing text the layout cannot express
+
+`typeText` is planned as a pure function from text and a keymap to a list of chunks, and executed by the seat. A chunk is one temporary keymap's worth: text needing more keysyms than one synthetic layout holds is split into runs that fit rather than refused, so a paragraph of emoji arrives as several keymap changes, which is legal.
+
+Text the active layout can already type takes the ordinary path and uploads nothing. A `wl_keyboard.keymap` event makes every toolkit recompile a layout, and doing that to type `ls` would be absurd.
+
+The second clause of AC4.3 — that the client's own keymap handling works afterwards — is verified directly rather than by inspection. `text_the_layout_cannot_express_arrives_and_the_keymap_is_restored` compares the keymap the client holds after typing against the one it held before, and `a_client_can_still_type_normally_after_text_was_entered_for_it` types under the restored layout. The restore runs even when a chunk fails, because a client left holding a synthetic layout has a keyboard on which every key types the wrong thing.
+
+AC3.3, deferred out of phase 4, now has a Lua path. `sink:key` sets the keymap and then sends, which is what a `zwp_virtual_keyboard_v1` needs: a virtual keyboard is disconnected by its first key if no keymap preceded it. What remains of AC3.3 is hardware, and it is recorded as such under [the five monitor-mirroring gates](#the-five-monitor-mirroring-gates).
+
+### Routing to popups and subsurfaces
+
+`hit_test.rs` ports across without its two couplings. The `Arc<ImageView>` on `RenderedSurface` was read only for a size, so the size arrives as a value and the image stays with whoever draws it — which is what keeps this crate free of a graphics dependency. `PointerHit`, the UV transform, and the panel layer go entirely, because Lua performs the ray intersection and hands down pixel coordinates. All three `Rc<[…]>` sites became `Arc<[…]>`, because the hit-test result crosses to the compositor thread, and two upstream `unwrap` calls were dropped rather than carried.
+
+AC4.4 is verified end to end by `a_click_over_a_popup_is_delivered_to_the_popup_in_surface_local_coordinates`: a real `wayland-client` opens a popup at `(100, 80)`, a click lands at `(110, 100)`, and the popup's own surface receives it at `(10, 20)`. The neighbouring cases are covered too — a click beside a popup still reaches the window, a click over a subsurface arrives in the subsurface's coordinates, and moving from the window onto a popup leaves one and enters the other.
+
+### The clipboard bridge
+
+All four selection protocols are served to lunette's own clients: `wl_data_device`, `zwp_primary_selection_v1`, `zwlr_data_control_v1`, and `ext_data_control_v1`. The bridge to the host runs over data control in the client direction, `ext_data_control_v1` preferred and `zwlr_data_control_v1` as the fallback, through one designated bridge seat.
+
+lunette never reads or writes a selection pipe. Both directions are descriptor passing: a lunette client's read descriptor is handed to the host's offer, and a host read of lunette's selection is a descriptor handed to the lunette client that owns the data. So neither the compositor thread nor the frame thread can block on a peer that opened a pipe and did not write to it, which is the failure mode a copying bridge has.
+
+A host without either data-control protocol is a warning rather than a failure: `HostStartError::NoDataControl` is logged as "the host clipboard will not be bridged this session" and the session continues. Which hosts take that path is unverified, and the two expectations recorded during the phase disagree with what is known of the implementations, so the disagreement is left standing rather than settled from memory. mutter has no data-control implementation, so GNOME is expected to warn and bridge nothing. KWin has carried `zwlr_data_control_v1` for several releases, which would make KDE bridge rather than warn. A gate on each is what decides it, and either way a clipboard that does not cross is a limitation to report rather than a defect to chase.
+
+MIME matching is strict, with no substitution. A lunette client asking for `text/plain` when the host offers only `text/plain;charset=utf-8` gets an empty paste. That is deliberate — silently substituting one type for another is the kind of guess that corrupts a paste of something that is not text — but it is the rule most likely to look like a bug on a real desktop, and it is worth watching for once a gate is performed.
+
+### Gaps this phase leaves
+
+`selection/data_control.rs` is the only file in the crate that talks to a real host compositor, and it has never been run against one. Everything else in the phase is exercised by a real `wayland-client` against lunette's own compositor over a socket pair; this file's peer is a host that has not existed on this machine.
+
+The echo suppression assumes an ordering the specification does not state. Publishing a selection to the host makes the host announce that selection back, because a data-control device sees every selection including its own, so a `selection` event arriving while lunette owns a live source for that kind is discarded. That is safe only if the host cancels a source before announcing the one replacing it. smithay's `set_clipboard_selection` does, and wlroots does, both established by reading the source rather than by observing a running compositor. A host that delivered `selection` before `cancelled` would make lunette miss one selection change.
+
+wlr primary selection is gated at `zwlr_data_control_v1` version 2, which is the version that gained it. A version 1 host bridges the clipboard and not the primary selection, and says so at debug level.
+
+`Command::CreateSeat` boxes its `keyboard` field. `KeyboardConfig` pushed `Command` past clippy's `result_large_err` threshold, and the box is the fix rather than an `allow`.
+
 ## Outstanding
 
-Ten items are unfinished: eight human gates, and two measurements that have to be taken.
+Fifteen items are unfinished: thirteen human gates, and two measurements that have to be taken.
 
 ### The two human gates
 
@@ -294,6 +352,16 @@ None of the five has been performed, and none of them can be performed on the ma
 - Dismissing a mirror stops its stream, and re-adding it restarts capture without re-prompting (AC3.5). The decisions are tested against a fake portal; the stream actually stopping is not.
 
 The four questions [phase 4](implementation-plans/2026-08-05-lunette-v1/phase_04.md) asks to be recorded are the same four, restated: which portal backend was tested and what it put in `mapping_id`, whether restore avoided a prompt on the second run, whether the uinput mapping was correct on a scaled or rotated display, and the GNOME result. All four are open. What is known about the backend without a grant is under [the portal on this machine](#the-portal-on-this-machine).
+
+### The five keyboard, seat, and clipboard gates
+
+None of the five has been performed, and none of them can be performed on the machine this document records. Two of them need a headset and a pair of hands, and three need a host desktop session, which a bare TTY does not have. They are phase 5's acceptance criteria, all five human gates.
+
+- Two hands hover two different windows simultaneously, each with its own cursor (AC4.1). The seat independence is established by `tests/seats.rs` against a real client; what has not happened is a person putting two hands in a scene and watching two cursors move apart.
+- Typing reaches the focused sink with the correct layout (AC4.2). The keymap arithmetic is unit-tested against the US and German layouts, and a synthetic keymap reaching a client is covered in `tests/type_text.rs`. No key has been pressed on real hardware and read out of a real terminal.
+- `typeText` enters text the layout cannot express, and the client's keyboard works normally afterwards (AC4.3). The second clause is verified in tests, as recorded above. The first clause is verified in tests too, against lunette's own test client; what is untested is a real toolkit — GTK, Qt, a terminal — recompiling a synthetic layout twice in quick succession and behaving.
+- A popup menu receives clicks at the right coordinates (AC4.4). This is the gate with the most direct automated evidence: `a_click_over_a_popup_is_delivered_to_the_popup_in_surface_local_coordinates` establishes the whole path through a real client. What remains is a person opening a real menu in a real application and clicking an item.
+- Text copied on the host pastes into a lunette terminal, and text copied there pastes on the host, for both the clipboard and the primary selection (AC4.5). Nothing about this is established. `selection/data_control.rs` has never spoken to a host compositor, and the bridge's behaviour on any particular desktop is unknown. This gate also settles which hosts take the `NoDataControl` path, and it is where the strict MIME rule would first show itself.
 
 ### The GNOME pointer-mapping unknown
 

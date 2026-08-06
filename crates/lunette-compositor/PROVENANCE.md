@@ -58,11 +58,13 @@ off it, and the commit path answer different questions.
 
 `mod.rs` is 1391 lines of which only fragments are wanted, so it lands in several files rather than one. Each names the fragments it took.
 
-Eight files carry no header, and the check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/` against this list.
+Sixteen files carry no header, and the check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/` against this list.
 
-- `src/protocol.rs`, `src/thread.rs`, `src/testing.rs`, and `src/test_client.rs` are lunette's own. WayVR has no equivalent: its compositor runs on the caller's thread, driven per-tick from `mod.rs`, and it has no cross-thread protocol to define.
+- `src/protocol.rs`, `src/thread.rs`, `src/testing.rs`, `src/test_client/mod.rs`, and `src/test_client/selection.rs` are lunette's own. WayVR has no equivalent: its compositor runs on the caller's thread, driven per-tick from `mod.rs`, and it has no cross-thread protocol to define.
 - `src/lib.rs` declares the crate's modules and states its boundary. It takes no code from upstream.
-- `src/process/tests.rs`, `src/state/tests.rs`, and `src/hit_test/tests.rs` are lunette's tests for ported code. WayVR ships none.
+- `src/keymap.rs` and `src/type_text.rs` are new. WayVR's keymap handling is forward-only and draws key legends; it has no reverse lookup and nothing that synthesises a keymap for arbitrary text.
+- `src/selection/mod.rs`, `src/selection/host.rs`, `src/selection/data_control.rs`, and `src/state/selection.rs` are new. WayVR serves the same four selection protocols to its own clients — the `SelectionHandler`, `DataDeviceHandler`, and `PrimarySelectionHandler` impls in `src/state/handlers.rs` are ported and carry the header — but it never speaks data control to the host, so nothing bridges a selection across the boundary upstream.
+- `src/process/tests.rs`, `src/state/tests.rs`, `src/hit_test/tests.rs`, and `src/selection/tests.rs` are lunette's tests for ported and new code alike. WayVR ships none.
 
 `MouseIndex` (`mod.rs:154`) is not ported. `protocol::PointerButton` covers it and covers the two side buttons WayVR omits.
 
