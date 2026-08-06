@@ -20,6 +20,7 @@
 //! constraint `lunette-compositor` carries, for the same reason.
 
 pub mod hid;
+pub mod mirror;
 pub mod monitor;
 pub mod portal;
 pub mod stream;

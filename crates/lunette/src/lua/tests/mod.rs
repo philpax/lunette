@@ -16,6 +16,7 @@
 
 mod events;
 mod layers;
+mod monitors;
 
 use std::{ffi::OsStr, rc::Rc, sync::Arc};
 
@@ -33,7 +34,11 @@ use crate::{
     events::RecordingEventSink,
     import::formats::Alpha,
     layers::LayerPool,
-    lua::{LuaTexture, PoolRegistry, Session, install, tests::layers::FakeLayers},
+    lua::{
+        LuaTexture, PoolRegistry, Session, install,
+        tests::{layers::FakeLayers, monitors::FakeMirrors},
+    },
+    mirrors::NoMonitors,
     texture::{CopyableTexture, TextureDescription, TextureRef},
 };
 
@@ -130,9 +135,30 @@ fn layered_session(
 ) {
     let sink = RecordingEventSink::default();
     let registry = Rc::new(PoolRegistry::new(LayerPool::new(FakeLayers::new(limit))));
-    let session = Session::new(Box::new(sink.clone()), Rc::clone(&registry) as Rc<_>);
+    let session = Session::new(
+        Box::new(sink.clone()),
+        Rc::clone(&registry) as Rc<_>,
+        Rc::new(NoMonitors) as Rc<_>,
+    );
     session.begin(snapshot(windows, Vec::new()));
     (session, sink, registry)
+}
+
+/// A session whose monitors are reachable, for the tests about them.
+fn mirrored_session(
+    monitors: Rc<FakeMirrors>,
+) -> (TestSession, RecordingEventSink, Rc<FakeMirrors>) {
+    let sink = RecordingEventSink::default();
+    let registry = Rc::new(PoolRegistry::new(LayerPool::new(FakeLayers::new(
+        GENEROUS_LAYER_LIMIT,
+    ))));
+    let session = Session::new(
+        Box::new(sink.clone()),
+        registry as Rc<_>,
+        Rc::clone(&monitors) as Rc<_>,
+    );
+    session.begin(snapshot(Vec::new(), Vec::new()));
+    (session, sink, monitors)
 }
 
 /// A runtime limit generous enough that the pool is never the reason a test
@@ -896,6 +922,7 @@ fn the_module_exposes_only_what_this_phase_implements() {
         names,
         vec![
             "claimLayer".to_owned(),
+            "monitors".to_owned(),
             "spawn".to_owned(),
             "windows".to_owned(),
         ],

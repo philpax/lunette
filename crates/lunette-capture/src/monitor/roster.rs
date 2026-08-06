@@ -14,7 +14,7 @@ use std::cmp::Ordering;
 use tracing::warn;
 
 use crate::monitor::{
-    geometry::{LogicalGeometry, LogicalPosition, LogicalSize},
+    geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent},
     name::{MonitorKey, MonitorName},
 };
 
@@ -23,6 +23,7 @@ use crate::monitor::{
 pub struct Monitor {
     name: MonitorName,
     geometry: LogicalGeometry,
+    pixels: PixelExtent,
     key: MonitorKey,
 }
 
@@ -49,6 +50,16 @@ impl Monitor {
     #[must_use]
     pub const fn size(&self) -> LogicalSize {
         self.geometry.size
+    }
+
+    /// The monitor's resolution, which is the size a captured frame arrives at.
+    ///
+    /// Zero on both axes for a monitor whose mode the source could not read.
+    /// Reported rather than guessed from the logical size and a scale factor:
+    /// the two are only related by an integer on an unscaled display.
+    #[must_use]
+    pub const fn pixels(&self) -> PixelExtent {
+        self.pixels
     }
 
     /// How this monitor is recorded across restarts.
@@ -89,7 +100,7 @@ impl Roster {
     /// earlier one keeps the descriptor and the later one loses it. lunette has
     /// no serial to separate them with, so this is commoner here than in niri
     /// rather than rarer.
-    pub fn add(&mut self, name: MonitorName, geometry: LogicalGeometry) {
+    pub fn add(&mut self, name: MonitorName, geometry: LogicalGeometry, pixels: PixelExtent) {
         let name = if self.carries_descriptor_of(&name) {
             warn!(
                 monitor = %name,
@@ -113,6 +124,7 @@ impl Roster {
         self.monitors.push(Monitor {
             name,
             geometry,
+            pixels,
             key,
         });
     }
@@ -186,6 +198,14 @@ mod tests {
         LogicalPosition::new(x, 0)
     }
 
+    /// A resolution the identity rules do not depend on.
+    ///
+    /// Identity is decided from the name and the position alone, so every
+    /// monitor here reports the same mode; a test that cared would say so.
+    fn resolution() -> PixelExtent {
+        PixelExtent::new(1920, 1080)
+    }
+
     fn keys(roster: &Roster) -> Vec<MonitorKey> {
         roster
             .monitors()
@@ -197,7 +217,7 @@ mod tests {
     #[test]
     fn a_monitor_reporting_no_make_or_model_is_identified_by_its_connector() {
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), None, None), at(0));
+        roster.add(named(Some("DP-1"), None, None), at(0), resolution());
 
         assert_eq!(
             keys(&roster),
@@ -211,8 +231,16 @@ mod tests {
     #[test]
     fn two_identical_monitors_are_separated_by_their_connectors() {
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), Some("Acme"), Some("X24")), at(0));
-        roster.add(named(Some("DP-2"), Some("Acme"), Some("X24")), at(1920));
+        roster.add(
+            named(Some("DP-1"), Some("Acme"), Some("X24")),
+            at(0),
+            resolution(),
+        );
+        roster.add(
+            named(Some("DP-2"), Some("Acme"), Some("X24")),
+            at(1920),
+            resolution(),
+        );
 
         let keys = keys(&roster);
         assert_eq!(keys[0].strength(), KeyStrength::Descriptor);
@@ -226,8 +254,16 @@ mod tests {
     #[test]
     fn the_earlier_of_two_identical_monitors_keeps_the_descriptor() {
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), Some("Acme"), Some("X24")), at(0));
-        roster.add(named(Some("DP-2"), Some("Acme"), Some("X24")), at(1920));
+        roster.add(
+            named(Some("DP-1"), Some("Acme"), Some("X24")),
+            at(0),
+            resolution(),
+        );
+        roster.add(
+            named(Some("DP-2"), Some("Acme"), Some("X24")),
+            at(1920),
+            resolution(),
+        );
 
         let monitors = roster.monitors();
         assert!(monitors[0].name().descriptor().is_some());
@@ -237,8 +273,16 @@ mod tests {
     #[test]
     fn a_descriptor_key_reaches_exactly_one_of_two_identical_monitors() {
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), Some("Acme"), Some("X24")), at(0));
-        roster.add(named(Some("DP-2"), Some("Acme"), Some("X24")), at(1920));
+        roster.add(
+            named(Some("DP-1"), Some("Acme"), Some("X24")),
+            at(0),
+            resolution(),
+        );
+        roster.add(
+            named(Some("DP-2"), Some("Acme"), Some("X24")),
+            at(1920),
+            resolution(),
+        );
 
         let found = roster
             .find(&keys(&roster)[0])
@@ -252,9 +296,21 @@ mod tests {
         // The check is incremental, so it has to compare against every monitor
         // already added rather than only the previous one.
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), Some("Acme"), Some("X24")), at(0));
-        roster.add(named(Some("DP-2"), Some("Acme"), Some("X24")), at(1920));
-        roster.add(named(Some("DP-3"), Some("Acme"), Some("X24")), at(3840));
+        roster.add(
+            named(Some("DP-1"), Some("Acme"), Some("X24")),
+            at(0),
+            resolution(),
+        );
+        roster.add(
+            named(Some("DP-2"), Some("Acme"), Some("X24")),
+            at(1920),
+            resolution(),
+        );
+        roster.add(
+            named(Some("DP-3"), Some("Acme"), Some("X24")),
+            at(3840),
+            resolution(),
+        );
 
         assert_eq!(
             keys(&roster)[2],
@@ -266,8 +322,12 @@ mod tests {
     fn two_identical_monitors_with_no_connectors_fall_back_to_position() {
         // GNOME or KDE, whose portal backends supply no usable connector name.
         let mut roster = Roster::new();
-        roster.add(named(None, Some("Acme"), Some("X24")), at(0));
-        roster.add(named(None, Some("Acme"), Some("X24")), at(1920));
+        roster.add(named(None, Some("Acme"), Some("X24")), at(0), resolution());
+        roster.add(
+            named(None, Some("Acme"), Some("X24")),
+            at(1920),
+            resolution(),
+        );
 
         let keys = keys(&roster);
         assert_eq!(keys[0].strength(), KeyStrength::Descriptor);
@@ -277,7 +337,7 @@ mod tests {
     #[test]
     fn a_monitor_reporting_nothing_at_all_is_identified_by_position() {
         let mut roster = Roster::new();
-        roster.add(named(None, None, None), at(1920));
+        roster.add(named(None, None, None), at(1920), resolution());
 
         assert_eq!(keys(&roster), vec![MonitorKey::Position(origin(1920))]);
     }
@@ -286,12 +346,20 @@ mod tests {
     fn a_recorded_key_finds_its_monitor_after_the_connector_changes() {
         let recorded = {
             let mut roster = Roster::new();
-            roster.add(named(Some("DP-1"), Some("Acme"), Some("X24")), at(0));
+            roster.add(
+                named(Some("DP-1"), Some("Acme"), Some("X24")),
+                at(0),
+                resolution(),
+            );
             keys(&roster)[0].clone()
         };
 
         let mut after_reboot = Roster::new();
-        after_reboot.add(named(Some("HDMI-A-2"), Some("Acme"), Some("X24")), at(1920));
+        after_reboot.add(
+            named(Some("HDMI-A-2"), Some("Acme"), Some("X24")),
+            at(1920),
+            resolution(),
+        );
 
         assert!(after_reboot.find(&recorded).is_some());
     }
@@ -303,7 +371,7 @@ mod tests {
 
         assert!(roster.find(&recorded).is_none());
 
-        roster.add(named(Some("DP-1"), None, None), at(0));
+        roster.add(named(Some("DP-1"), None, None), at(0), resolution());
 
         assert!(roster.find(&recorded).is_some());
     }
@@ -312,7 +380,11 @@ mod tests {
     fn a_key_recorded_before_the_monitor_reported_a_descriptor_upgrades_on_reattach() {
         let recorded = MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, 1));
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), Some("Acme"), Some("X24")), at(0));
+        roster.add(
+            named(Some("DP-1"), Some("Acme"), Some("X24")),
+            at(0),
+            resolution(),
+        );
 
         let monitor = roster.find(&recorded).expect("the monitor is attached");
         let upgraded = recorded.upgraded(monitor.name(), monitor.position());
@@ -325,7 +397,11 @@ mod tests {
         let arrangement = |order: [(&str, &str); 3]| {
             let mut roster = Roster::new();
             for (connector, model) in order {
-                roster.add(named(Some(connector), Some("Acme"), Some(model)), at(0));
+                roster.add(
+                    named(Some(connector), Some("Acme"), Some(model)),
+                    at(0),
+                    resolution(),
+                );
             }
             roster
                 .sorted()
@@ -343,8 +419,16 @@ mod tests {
     #[test]
     fn monitors_sort_by_descriptor_rather_than_by_connector() {
         let mut roster = Roster::new();
-        roster.add(named(Some("DP-1"), Some("Acme"), Some("Z9")), at(0));
-        roster.add(named(Some("DP-2"), Some("Acme"), Some("A1")), at(1920));
+        roster.add(
+            named(Some("DP-1"), Some("Acme"), Some("Z9")),
+            at(0),
+            resolution(),
+        );
+        roster.add(
+            named(Some("DP-2"), Some("Acme"), Some("A1")),
+            at(1920),
+            resolution(),
+        );
 
         let order: Vec<String> = roster
             .sorted()

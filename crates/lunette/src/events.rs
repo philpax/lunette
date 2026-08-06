@@ -56,8 +56,9 @@
 use std::cell::RefCell;
 use std::{collections::VecDeque, ffi::c_char, fmt, mem, ptr, rc::Rc};
 
+use lunette_capture::monitor::MonitorKey;
 use lunette_compositor::protocol::{
-    Event as CompositorEvent, OutputId, ProcessId, ProcessOutcome, Stream, WindowId,
+    Event as CompositorEvent, ProcessId, ProcessOutcome, Stream, WindowId,
 };
 use lunette_lovr::raw::{CustomEvent, Event as LovrEvent, EventType_EVENT_CUSTOM, lovrEventPush};
 use mlua::{Function, Lua, Table};
@@ -65,7 +66,7 @@ use tracing::error;
 
 use crate::{
     layers::ClaimId,
-    lua::{Claim, LuaTexture, Process, Session, Window},
+    lua::{Claim, LuaTexture, Monitor, Process, Session, Window},
 };
 
 /// A report the Lua configuration is given a callback for.
@@ -84,12 +85,14 @@ pub enum LuaEvent {
     WindowClosed { window: WindowId },
     /// `lovr.luntitlechanged{ window = …, title = … }`.
     TitleChanged { window: WindowId, title: String },
-    /// `lovr.lunmonitoradded{ id = … }`.
+    /// `lovr.lunmonitoradded{ id = …, monitor = … }`.
     ///
-    /// Nothing produces one yet. It is declared here so that the set of `lun*`
-    /// events is defined in one place rather than growing a second home when
-    /// the monitors arrive.
-    MonitorAdded { output: OutputId },
+    /// One of the *host's* screens, not a compositor output: the identity is the
+    /// key `lunette-capture` resolved, and the handle is what
+    /// `lunette.monitors()` hands out. Pushed by the frame loop whenever the
+    /// mirror lifecycle reports a monitor it had not seen, which includes every
+    /// monitor present when lunette started.
+    MonitorAdded { monitor: MonitorKey },
     /// `lovr.lunprocessexited{ process = …, outcome = …, … }`.
     ///
     /// The only report a caller of `lunette.spawn` gets for a program that
@@ -444,8 +447,14 @@ fn payload<T: LuaTexture>(
             // diff against what it stored needs the new value in hand.
             payload.set("title", title.as_str())?;
         }
-        LuaEvent::MonitorAdded { output } => {
-            payload.set("id", output.get())?;
+        LuaEvent::MonitorAdded { monitor } => {
+            // The identity always, and the handle only while the monitor is
+            // still attached: a screen unplugged between the report and the
+            // dispatch has nothing left to hand over but its name.
+            payload.set("id", monitor.to_string())?;
+            if let Some(state) = session.mirrors().state(monitor) {
+                payload.set("monitor", Monitor::new(Rc::clone(session), state))?;
+            }
         }
         LuaEvent::ProcessExited { process, outcome } => {
             payload.set("process", Process::new(Rc::clone(session), *process))?;

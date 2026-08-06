@@ -152,6 +152,14 @@ impl FrameDriver {
 
         self.drain_events();
 
+        // After the snapshot, for the reason the compositor's events are: a
+        // handler reading `lunette.monitors()` has to see the monitor it was
+        // handed. This is also what carries a portal exchange forward, so a
+        // dialog the user has not answered costs one non-blocking poll a frame.
+        for monitor in self.session.mirrors().poll() {
+            self.session.push_event(LuaEvent::MonitorAdded { monitor });
+        }
+
         // The frame boundary the pool decides on. Before `boot.lua` polls and
         // so before `lovr.update`, which is what lets a callback read a claim's
         // realisation and have it hold for the whole of the frame it draws.

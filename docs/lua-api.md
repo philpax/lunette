@@ -29,7 +29,7 @@ The native layer pushes events through LÖVR's own event queue, so lunette event
 function lovr.lunwindowopened(event) end   -- window.
 function lovr.lunwindowclosed(event) end   -- window.
 function lovr.luntitlechanged(event) end   -- window, title.
-function lovr.lunmonitoradded(event) end   -- id.
+function lovr.lunmonitoradded(event) end   -- id, monitor.
 function lovr.lunprocessexited(event) end  -- process, outcome, and one of code, signal, message.
 function lovr.lunprocessoutput(event) end  -- process, stream, text.
 function lovr.lunlayergranted(event) end   -- claim, layer.
@@ -77,6 +77,41 @@ Both return `false` on a dead handle, without raising. Both are requests, so nei
 `win.opaque` reports that the window's current buffer has no alpha channel, so its fourth component is padding a caller forces to one rather than sampling. It is a property of the buffer and changes when the client renegotiates its format, so it is read each frame alongside the texture. [Rendering](rendering.md#alpha) states what a consumer does with it, and why premultiplied blending is the other half of the same subject.
 
 `win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
+
+## Monitors
+
+`lunette.monitors()` returns the user's own screens, which lunette mirrors through the screencast portal rather than hosting. They are not compositor windows and they are not outputs; a window belongs to a client lunette runs, and a monitor belongs to the machine lunette runs on.
+
+```lua
+for _, monitor in ipairs(lunette.monitors()) do
+    print(monitor.id)              -- the saved identity, stable across a restart.
+    print(monitor.name)            -- as a user would recognise it: 'Acme X24 on DP-1'.
+    print(monitor.width, monitor.height)               -- the resolution, in pixels.
+    print(monitor.x, monitor.y)                        -- where it sits, in logical coordinates.
+    print(monitor.logicalWidth, monitor.logicalHeight) -- how large it is there.
+    print(monitor.mirrored)        -- whether a capture stream is running.
+    print(monitor.pending)         -- whether one has been asked for and not arrived.
+    monitor:mirror()               -- start capturing; may prompt.
+    monitor:setPaused(true)        -- stop the stream, keep the node.
+    monitor:dismiss()              -- stop capturing; no ongoing cost.
+end
+```
+
+The list is ordered by identity rather than by the order the host enumerated the screens, so an arrangement derived from it does not change when a cable is replugged and nothing else has.
+
+`monitor.id` is the identity described in [Host desktop](host-desktop.md#identity-and-lifecycle): the make and model where the host reports one, a connector name where it does not, and the monitor's logical position where neither is available. It survives a restart and survives the monitor moving to a different port, so it is what a table of per-monitor state is keyed by.
+
+`monitor.width` and `monitor.height` are pixels — the size a captured frame arrives at. `monitor.logicalWidth` and `monitor.logicalHeight` are the compositor's logical coordinates, which differ from pixels by the scale factor on a scaled display. Pointer positions are in the logical space; a texture is in the pixel one.
+
+`monitor:mirror()` is a request. It returns immediately, and may put a portal dialog on the user's screen: nothing waits for one, because a frame cannot. `monitor.pending` is true while a request is outstanding, and `monitor.mirrored` becomes true some frames later — or never, if the user declines. A configuration that treats mirroring as synchronous draws an empty panel. It returns `false` only when the monitor is gone or the portal could not be asked at all.
+
+Capture starts lazily. Nothing is requested of the portal until the first `monitor:mirror()`, so a configuration that mirrors nothing never prompts.
+
+`monitor:dismiss()` stops the capture for real: the stream is torn down, so a dismissed monitor has no ongoing cost. The portal session is kept, so mirroring the monitor again does not prompt a second time. It returns `false` when nothing was running, which is not an error — dismissing twice is how a configuration says "make sure this is off".
+
+`monitor:setPaused(paused)` is the middle case, for a panel that has left the user's view. The stream stops producing but is not given up, so resuming costs nothing. Reach for `dismiss` when the user closed the panel, and for `setPaused` when they merely turned away.
+
+`lovr.lunmonitoradded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
 
 ## Layer claims
 

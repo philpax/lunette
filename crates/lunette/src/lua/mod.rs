@@ -44,6 +44,7 @@
 //! handler reports. Nothing here swallows an error to keep a frame alive.
 
 mod claim;
+mod monitor;
 mod process;
 mod sink;
 #[cfg(test)]
@@ -69,13 +70,15 @@ use mlua::{Lua, Table, Value};
 
 pub use crate::lua::{
     claim::{Claim, ClaimRegistry, LuaLayer, PoolRegistry},
+    monitor::Monitor,
     process::Process,
     sink::Sink,
     window::Window,
 };
 use crate::{
     events::{EventName, EventQueue, EventSink, LuaEvent, install_dispatchers},
-    lua::claim::claim_layer,
+    lua::{claim::claim_layer, monitor::monitors},
+    mirrors::MirrorRegistry,
     texture::{CopyableTexture, FrameGeneration, LovrTexture, TextureLedger},
 };
 
@@ -152,11 +155,19 @@ pub struct Session<T> {
     /// the sink is, and shared rather than owned because the frame loop drives
     /// the blit and the submit through the same pool.
     claims: Rc<dyn ClaimRegistry>,
+    /// Which of the host's monitors are mirrored. Behind a trait and shared for
+    /// the same reasons the pool is: the frame loop advances the portal exchange
+    /// through the same lifecycle Lua mirrors and dismisses through.
+    mirrors: Rc<dyn MirrorRegistry>,
 }
 
 impl<T> Session<T> {
     #[must_use]
-    pub fn new(sink: Box<dyn EventSink>, claims: Rc<dyn ClaimRegistry>) -> Rc<Self> {
+    pub fn new(
+        sink: Box<dyn EventSink>,
+        claims: Rc<dyn ClaimRegistry>,
+        mirrors: Rc<dyn MirrorRegistry>,
+    ) -> Rc<Self> {
         let empty = Arc::new(Snapshot::default());
         Rc::new(Self {
             frame: RefCell::new(Frame {
@@ -170,6 +181,7 @@ impl<T> Session<T> {
             events: RefCell::new(EventQueue::default()),
             sink,
             claims,
+            mirrors,
         })
     }
 
@@ -177,6 +189,12 @@ impl<T> Session<T> {
     #[must_use]
     pub fn claims(&self) -> &dyn ClaimRegistry {
         self.claims.as_ref()
+    }
+
+    /// The host's monitors, for the handles that read them.
+    #[must_use]
+    pub fn mirrors(&self) -> &dyn MirrorRegistry {
+        self.mirrors.as_ref()
     }
 
     /// Assigns the pool's layers for this frame, announcing what changed.
@@ -377,6 +395,12 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     module.set(
         "spawn",
         lua.create_function(move |_, options: Table| spawn(&spawn_session, &options))?,
+    )?;
+
+    let monitors_session = Rc::clone(session);
+    module.set(
+        "monitors",
+        lua.create_function(move |lua, ()| monitors(lua, &monitors_session))?,
     )?;
 
     let claim_session = Rc::clone(session);

@@ -24,7 +24,13 @@ This is an improvement over WayVR's approach and is a candidate for contributing
 
 Monitors receive stable identities, so Lua layout rules survive a replug or a reboot. The identity is the make and model reported in `wl_output.geometry`, falling back to a connector name such as `DP-2` where one is available, and to the monitor's logical position where neither is. The descriptor comes first because it survives a monitor moving to a different port. A Wayland client cannot read a serial, so two monitors of the same model are indistinguishable by descriptor; the second of them is identified by its connector alone, and lunette says so rather than picking one silently.
 
-Capture starts lazily and can be stopped from Lua. A mirrored screen that a script has dismissed has no ongoing cost.
+Capture starts lazily and can be stopped from Lua. Nothing is asked of the portal until the first `monitor:mirror()`, so a configuration that mirrors nothing never prompts.
+
+Stopping and pausing are separate operations, because they cost different things. `monitor:setPaused(true)` deactivates the PipeWire stream but keeps it, for a panel that has left the user's view; resuming costs nothing. `monitor:dismiss()` drops the stream entirely, which stops PipeWire's thread and closes its descriptors, so a dismissed screen has no ongoing cost at all. The portal session survives a dismissal, so mirroring the monitor again does not prompt a second time; only a session the user revokes, or one the backend loses, produces another dialog.
+
+WayVR does not make this distinction. Dismissal there maps to visibility alone (`backend/openxr/overlay.rs:208-223`), and `pause()` is an empty no-op in three of its four capture backends — only the PipeWire one honours it, by deactivating the stream (`pipewire/capture.rs:144`). There is no way to stop a capture and release its resources.
+
+[The Lua API](lua-api.md#monitors) states the surface: `lunette.monitors()`, and the fields and operations on a monitor handle.
 
 ## Input injection
 

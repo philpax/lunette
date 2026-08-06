@@ -65,6 +65,7 @@ use lunette::{
     frame::Startup,
     layers::{LayerPool, LovrLayers},
     lua::{PoolRegistry, Session},
+    mirrors::NoMonitors,
     texture::BarrierPolicy,
 };
 use lunette_compositor::client::{XwaylandSatellite, listen};
@@ -157,7 +158,27 @@ fn main() -> ExitCode {
     // which is dyn-safe and hides the backend; the blit and the submit need the
     // backend's own `Layer` type, so they hold it concretely.
     let layers = Rc::new(PoolRegistry::new(LayerPool::new(backend)));
-    let session = Session::new(Box::new(LovrEventSink), Rc::clone(&layers) as _);
+
+    // `NoMonitors` rather than `HostMirrors`, because two things the lifecycle
+    // needs do not exist yet and neither is this file's to invent.
+    //
+    // Nothing enumerates the host's `wl_output`s, so a `HostMirrors` would hold
+    // an empty roster and refuse every monitor a configuration named. And a
+    // capture stream negotiates against the DRM formats the importer accepts,
+    // which are not known until LÖVR has made a graphics device — several steps
+    // into `boot::run`, and the same reason the compositor thread starts from
+    // the frame loop rather than from here.
+    //
+    // `lunette.monitors()` is therefore empty in this build, which is the honest
+    // answer for a lunette that cannot see the host's screens. Swapping this for
+    // `HostMirrors::new(MirrorSet::new(WlxPortal::connect()?, …))` is what makes
+    // it live, and needs no change above this line.
+    let mirrors = Rc::new(NoMonitors);
+    let session = Session::new(
+        Box::new(LovrEventSink),
+        Rc::clone(&layers) as _,
+        mirrors as _,
+    );
     boot::run(config_directory, &session, &layers, startup)
 }
 

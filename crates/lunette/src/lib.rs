@@ -13,7 +13,9 @@
 //! configuration through, and [`events`] is how the configuration is told that
 //! something happened rather than having to look. [`layers`] decides which
 //! panels are promoted onto OpenXR composition layers, over the ladder of
-//! discrete steps [`scale`] defines. [`frame`] is what runs the rest in the
+//! discrete steps [`scale`] defines. [`mirrors`] is the other half of what Lua
+//! can point at: the user's own screens, mirrored through the screencast portal
+//! rather than hosted by the compositor. [`frame`] is what runs the rest in the
 //! order they require, once per frame, and is the only thing that starts the
 //! compositor thread.
 
@@ -22,5 +24,6 @@ pub mod frame;
 pub mod import;
 pub mod layers;
 pub mod lua;
+pub mod mirrors;
 pub mod scale;
 pub mod texture;

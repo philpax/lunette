@@ -65,6 +65,43 @@ impl fmt::Display for LogicalSize {
     }
 }
 
+/// A monitor's resolution, in pixels.
+///
+/// Deliberately not [`LogicalSize`]. On a scaled display the two differ by the
+/// scale factor, and they answer different questions: a pointer is placed in
+/// logical coordinates, and a captured frame arrives at this size. A single type
+/// for both is a transposition waiting to happen.
+///
+/// Zero is representable for the same reason [`LogicalSize`] allows it: a
+/// monitor whose mode has not been set reports one, and that is a monitor
+/// nothing can be done with rather than a state this type can rule out.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct PixelExtent {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PixelExtent {
+    #[must_use]
+    pub const fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+}
+
+impl fmt::Display for PixelExtent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}x{} pixels", self.width, self.height)
+    }
+}
+
 /// Where a monitor sits and how large it is, as one value.
 ///
 /// The two travel together everywhere they are used, and a function taking them
