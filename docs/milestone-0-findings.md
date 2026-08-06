@@ -2,7 +2,7 @@
 
 Milestone 0 exists to de-risk two unknowns before a standard library is written on top of them: the LÖVR Vulkan patch, and the compositor-thread split with the snapshot model it forces on Lua. [Roadmap](roadmap.md) states both. This document records what the two actually did, so phases 4 to 8 are detailed against measurement rather than against the design's expectations.
 
-Two of the milestone's acceptance criteria are human gates and are not recorded here as passed. They are listed under [Outstanding](#outstanding), together with the one measurement that has to be taken again.
+Three acceptance criteria are human gates and are not recorded here as passed: two from milestone 0, and one from the composition-layer work that follows it. They are listed under [Outstanding](#outstanding), together with the one measurement that has to be taken again.
 
 ## The machine
 
@@ -27,10 +27,10 @@ All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `n
 | `cargo +nightly fmt --all -- --check` | clean |
 | `cargo clippy --all-targets --all-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
 | `cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
-| `cargo test --workspace` | 266 passed, 0 failed, 0 ignored |
-| `cargo test --workspace --no-default-features` | 266 passed, 0 failed, 0 ignored |
+| `cargo test --workspace` | 340 passed, 0 failed, 0 ignored |
+| `cargo test --workspace --no-default-features` | 340 passed, 0 failed, 0 ignored |
 
-The 266 are 146 in `lunette`, 11 in its binary target, 3 in `tests/exit_status.rs`, 96 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, and 4 in `tests/pointer_routing.rs`. The compositor's 106 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`.
+The 340 are 220 in `lunette`, 11 in its binary target, 3 in `tests/exit_status.rs`, 96 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, and 4 in `tests/pointer_routing.rs`. The compositor's 106 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`.
 
 ## Provenance
 
@@ -147,9 +147,69 @@ A restart drops the compositor and does not bring it back. `lovr.event.restart` 
 
 [compositor.md](compositor.md) documented a socket named `lunette-0`. Task 7 implemented WayVR's scheme instead, probing `wayland-20` through `wayland-40` for a free name, and the document was changed to match the code. Whether `lunette-0` was the real intent is an open question. A distinctive name is easier to recognise in `WAYLAND_DISPLAY`; WayVR's range is what existing tooling and habits expect. This was resolved in favour of the code without a decision being taken, and it should be settled deliberately.
 
+## Composition layers
+
+These come out of phase 3, which is past milestone 0 proper. They are recorded here because they are measurements of the same machine and the same runtime, and splitting them into a second document would separate them from the driver description they have to be read against.
+
+Two of the four questions phase 3 set out to answer are unresolved, and the reason is the same for both: no session has yet granted a layer to a real panel. What is recorded below is what the runtime reported, what a scratch configuration did with it, and what the automated tests establish about the pool's decisions. The pool's arithmetic is thoroughly tested against a fake backend and barely exercised against a real one.
+
+### The layer limit, which is not one number
+
+Two Monado configurations reported two limits, and the difference is large enough that neither should be quoted on its own.
+
+| Configuration | `lovrHeadsetGetLayerLimit()` | Budget it yields |
+|---|---|---|
+| Monado with the simulated HMD, `SIMULATED_ENABLE=1` | 128 | 12 slots, which is `LayerBudget::CEILING` |
+| Monado headless with the null compositor, `XRT_COMPOSITOR_NULL=1` | 0 | 0 slots |
+
+128 is `XRT_MAX_LAYERS` on Linux, which is what a Monado carrying a real compositor reports whatever the hardware is. Against it the budget is `limit / SHARE` capped at `CEILING`, so 32 capped to 12.
+
+A scratch configuration created 12 layers, above LÖVR's old ceiling of 10, drew into each through `getPass`, and submitted all 12 for 60 frames. It exited 0 with no OpenXR error, which is what the vendored LÖVR bump was made to establish. That configuration predates the pool and drove LÖVR directly, so it says nothing about the pool's own behaviour.
+
+The null compositor is the more interesting row. A limit of 0 yields a budget of 0 slots, so nothing is granted and nothing is attempted — which is correct, and is the path `nothing_is_granted_before_the_runtime_reports_a_limit` covers. Forcing the limit to 64 in a scratch build to get past that reached `lovrLayerCreate`, which returned NULL on every frame: the null compositor does not implement quad layers at all. The degradation was as designed. No crash, no stall, `claim.granted` stayed false, and the Lua configuration went on drawing its in-scene quad.
+
+That run did expose a defect, now fixed. The refusal was warned about on every frame of every retry, which is thousands of identical lines a second and buries everything else in the log. It is now reported once per claim, and again after a session is lost and rebuilt, which is the treatment `BlitLedger` already gave the unsupported-device warning.
+
+### Free-list hit rate and the size ladder
+
+Unresolved, and honestly so. Every free-list measurement available is against `FakeLayers`, where a hit is asserted by the test that arranged it. `a_revoked_layer_is_reused_by_the_next_claim_of_the_same_key_with_no_allocation` and `two_sizes_the_ladder_rounds_together_share_one_layer` establish that the mechanism works; neither is a rate, because the claims in a test are the ones the test made.
+
+A rate needs a session with panels being promoted and demoted as a person looks around, which needs the sharpness gate under [outstanding](#the-sharpness-gate) to have happened first. The ladder's steps are in the same position: whether the rungs are the right ones is a question about what sizes real panels ask for, and the only real sizes seen so far are one terminal at 800x600, which the ladder rounds to 1024x1024.
+
+### Format conversion, which is the ordinary case rather than the exception
+
+Conversion is needed on every copy, and the device supports it.
+
+A layer's swapchain image is `FORMAT_RGBA8` with sRGB. A client's window is `FORMAT_BGRA8` without, because `Argb8888` and `Xrgb8888` both map to `FORMAT_BGRA8`, and phase 2 recorded Alacritty negotiating `AR24` — which is `Argb8888`. So the two formats differ in both channel order and colour space on the only real client observed, `lovrTextureCopy` degrades to `lovrTextureBlit`, and the blit path is the normal path rather than a fallback.
+
+`GPU_FEATURE_BLIT` is present. `vkGetPhysicalDeviceFormatProperties` was read directly on this machine for the four formats the copy can involve, and every one of them carries `BLIT_SRC` and `BLIT_DST` in `optimalTilingFeatures` on all three physical devices the loader offers.
+
+| Format | NVIDIA GB202 | RADV Raphael | llvmpipe |
+|---|---|---|---|
+| `B8G8R8A8_UNORM` | blit source and destination | the same | the same |
+| `B8G8R8A8_SRGB` | the same | the same | the same |
+| `R8G8B8A8_UNORM` | the same | the same | the same |
+| `R8G8B8A8_SRGB` | the same | the same | the same |
+
+That is a Vulkan-level answer rather than a LÖVR-level one. LÖVR derives `GPU_FEATURE_BLIT` from the same `optimalTilingFeatures` bits, so the two should agree, but `lovrGraphicsGetFormatSupport` was not read against a live layer because no live layer has existed. `Blitted::Unsupported` has therefore never been observed outside a test, and the fallback it drives is unexercised on real hardware.
+
+### The creation cap and stalls
+
+Neither has been observed, and neither has been ruled out.
+
+`CREATIONS_PER_FRAME` is 1, and `at_most_one_layer_is_created_a_frame` establishes that the pool honours it. Whether it binds in practice is a question about how many panels appear at once, and no session has created a layer through the pool at all. The same is true of a stall: `lovrLayerCreate` ends in `xrWaitSwapchainImage` with `XR_INFINITE_DURATION` inside a retry loop with no escape, which is why the cap exists, but nothing has yet timed a real call. Under the null compositor the call returned NULL immediately rather than blocking, which is the opposite of the case the cap guards against.
+
+### The margin around a source smaller than its layer
+
+A known gap rather than a defect fixed here.
+
+The size ladder quantises upwards, so an 800x600 window is served by a 1024x1024 layer. The blit copies the source into that image and writes nothing else, so the margin holds whatever the swapchain image last had. Composited without a viewport, it is uninitialised memory on screen.
+
+`claim.width` and `claim.height` report the layer's dimensions, and [lua-api.md](lua-api.md) documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. The pool deliberately does not set the viewport itself: it is one of the per-panel properties that let a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would remove the mechanism a panel needs to place a source inside a larger layer. Phase 6 writes mullion's panel and owns it, and it is recorded in [phase 6](implementation-plans/2026-08-05-lunette-v1/phase_06.md) as a fact the panel is built against.
+
 ## Outstanding
 
-Three items are unfinished: two human gates, and one measurement that has to be taken again.
+Four items are unfinished: three human gates, and one measurement that has to be taken again.
 
 ### The two human gates
 
@@ -160,6 +220,14 @@ The first gate is that a terminal spawned by lunette appears on a quad in the de
 The second gate is that the same build runs as an overlay under Monado alongside another OpenXR application, compositing over it with undrawn areas transparent. Nothing in this document bears on it. It requires a running Monado, a second OpenXR application, and a person to judge the compositing.
 
 Both gates should be performed before phase 3 begins, because phase 3 is the composition-layer work and it is detailed against the assumption that the overlay session behaves as designed.
+
+### The sharpness gate
+
+Not performed. It is phase 3's `lunette-v1.AC2.2`: a text-heavy terminal is visibly sharper rendered on a composition layer than the same terminal rendered in-scene. Nobody has looked, and no part of it has been observed indirectly either — unlike the two gates above, whose constituent parts have each been seen separately. No session has granted a layer to a panel at all, which is why the two unresolved questions under [composition layers](#composition-layers) are unresolved.
+
+It has to be checked under Monado in service mode. Overlay sessions do not work in monolithic mode: `multi_compositor_create` never initialises `z_order` from the session create-info, and only the IPC server calls `set_z_order`.
+
+Performing it also answers, or begins to answer, three things this document currently records as open: the free-list hit rate, whether the ladder's rungs are the right ones, and whether `lovrLayerCreate` stalls.
 
 ### The two `undefined` rows of the queue-family measurement
 

@@ -67,6 +67,14 @@ Investigation found six things this phase needs that `docs/` does not document. 
 
 Signals and ray-quad intersection are correctly mullion's own work, not gaps. `docs/lua-api.md:44` says signals are pure Lua over flat events, and `docs/input.md:18-22` says mullion ships the quad intersection.
 
+### A layer is usually larger than its source, and the margin is the panel's to exclude
+
+Phase 3's size ladder quantises upwards, so a claim for an 800x600 window is served by a 1024x1024 layer. The blit copies the source into the corner of the swapchain image and writes nothing else, which leaves the rest of the image holding whatever the runtime last had there. Composited without a viewport, that margin is uninitialised memory on screen.
+
+`claim.width` and `claim.height` report the layer's dimensions rather than the size asked for, and `docs/lua-api.md` documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. Phase 3 considered enforcing it in the pool and did not: the viewport is one of the per-panel properties that make a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would take away the mechanism a panel needs to place a source inside a larger layer at all.
+
+This phase owns it. A panel that drives the layer path sets the viewport to the source's pixel extent every time it is granted a layer, and again whenever the source resizes.
+
 ### LÖVR has no ray-plane intersection
 
 `Mat4`'s method table (`src/api/l_math_mat4.c:442-465`) has no intersection method. The only raycasts in LÖVR are physics: `World:raycast` (`src/api/l_physics_world.c:362`) and `Shape:raycast` (`l_physics_shapes.c:361`), both segment-based and both requiring a physics world and a collider — which a panel is not.
@@ -351,6 +359,8 @@ Handle the degenerate cases explicitly: a ray parallel to the plane has no inter
 Claim a layer through `lunette.claimLayer` with a Lua-chosen priority. When granted, drive the returned `Layer` with `setPose`, `setDimensions`, and friends. When revoked — `lovr.lunlayerrevoked` — fall back to drawing an in-scene quad with `Pass:plane` and a material bound to the source's texture.
 
 Both paths must be live from the start. `docs/rendering.md` treats in-scene as the fallback, not as a degraded mode, and AC2.3 requires the panel to keep rendering after revocation.
+
+Set the viewport on every grant, to the source's pixel extent within the layer `claim.width` by `claim.height` describes. A layer is usually larger than its source and the margin holds uninitialised swapchain memory otherwise; the reasoning is above, under [a layer is usually larger than its source](#a-layer-is-usually-larger-than-its-source-and-the-margin-is-the-panels-to-exclude). A test covers it: a granted claim whose source is smaller than its layer sets a viewport matching the source.
 
 **Step 4: Never cache the texture**
 
