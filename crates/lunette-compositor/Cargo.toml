@@ -6,6 +6,9 @@ license.workspace = true
 
 [dependencies]
 arc-swap.workspace = true
+# Only for `dev_t` and `makedev`: `DmabufFeedbackBuilder::new` takes a device
+# number, and naming the C type is better than assuming it is `u64` here.
+libc.workspace = true
 smallvec.workspace = true
 # `desktop` supplies `Window` and `PopupManager`. `backend_vulkan` stays off:
 # it exists to create and own a device, which is the one thing lunette must not
@@ -17,5 +20,17 @@ smallvec.workspace = true
 smithay = { workspace = true, features = ["desktop", "wayland_frontend"] }
 tracing.workspace = true
 
+[features]
+# The in-process compositor and the fake importer that stand in for a graphics
+# device. Off by default so a release build carries neither; integration tests
+# turn it on, and the crate's own unit tests get it through `cfg(test)`.
+test-fakes = []
+
 [dev-dependencies]
 pretty_assertions.workspace = true
+tempfile.workspace = true
+# A real client, so the tests exercise the protocol rather than the handlers
+# directly. Pinned to the versions smithay's `wayland-server` shares a
+# `wayland-backend` with; a split would make the two halves unable to talk.
+wayland-client.workspace = true
+wayland-protocols = { workspace = true, features = ["client"] }

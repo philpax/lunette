@@ -13,4 +13,10 @@
 //! direction the coupling would otherwise grow.
 
 pub mod protocol;
+pub mod state;
+pub mod surface;
+#[cfg(test)]
+mod test_client;
+#[cfg(any(test, feature = "test-fakes"))]
+pub mod testing;
 pub mod thread;

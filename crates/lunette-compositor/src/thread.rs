@@ -16,12 +16,12 @@
 //!
 //! # How much is wired up
 //!
-//! The loop dispatches clients, drains commands, publishes snapshots, and
-//! flushes. It advertises no globals and accepts no connections yet: the
-//! listening socket, its name, and the surface handlers arrive with the ported
-//! compositor state. Of the commands, only [`Command::Shutdown`] has a handler;
-//! the rest are logged as unhandled, and [`crate::protocol`] records which
-//! phase each is waiting on.
+//! The loop dispatches clients, drains commands, answers frame callbacks,
+//! publishes snapshots, and flushes. Every global is advertised, and
+//! [`crate::state`] serves them. It accepts no connections yet: the listening
+//! socket and client attribution arrive with the ported client module. Of the
+//! commands, only [`Command::Shutdown`] has a handler; the rest are logged as
+//! unhandled, and [`crate::protocol`] records which phase each is waiting on.
 
 use std::{
     error::Error,
@@ -32,15 +32,17 @@ use std::{
 
 use arc_swap::ArcSwap;
 use smithay::reexports::{
-    calloop::{
-        self, EventLoop, Interest, LoopSignal, Mode, PostAction, channel::Channel, generic::Generic,
-    },
+    calloop::{self, EventLoop, Interest, Mode, PostAction, channel::Channel, generic::Generic},
     wayland_server::Display,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
-use crate::protocol::{
-    Command, Event, Generation, OutputSnapshot, ProcessSnapshot, Snapshot, WindowSnapshot,
+use crate::{
+    protocol::{
+        Command, Event, Generation, OutputSnapshot, ProcessSnapshot, Snapshot, WindowSnapshot,
+    },
+    state::{CompositorConfig, CompositorState},
+    surface::BufferImporter,
 };
 
 /// How many commands may be queued before a sender waits.
@@ -48,13 +50,13 @@ use crate::protocol::{
 /// A frame's worth of Lua mutations is a handful; this leaves room for a burst
 /// — a configuration that opens a dozen windows at once — without letting an
 /// unresponsive compositor accumulate work indefinitely.
-const COMMAND_CAPACITY: usize = 256;
+pub(crate) const COMMAND_CAPACITY: usize = 256;
 
 /// How many events may be queued before the compositor waits.
 ///
 /// Larger than the command capacity because a single client can produce many
 /// events in one dispatch batch, and the main thread only drains once a frame.
-const EVENT_CAPACITY: usize = 1024;
+pub(crate) const EVENT_CAPACITY: usize = 1024;
 
 const THREAD_NAME: &str = "lunette-compositor";
 
@@ -64,7 +66,10 @@ const THREAD_NAME: &str = "lunette-compositor";
 /// thread. Construction happens on the new thread and its outcome is reported
 /// back, so a failure to build the event loop or the display surfaces here
 /// rather than as a thread that quietly is not running.
-pub fn spawn() -> Result<CompositorHandle, StartError> {
+pub fn spawn(
+    config: CompositorConfig,
+    importer: Box<dyn BufferImporter>,
+) -> Result<CompositorHandle, StartError> {
     let (commands, command_channel) = calloop::channel::sync_channel(COMMAND_CAPACITY);
     let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
     let (snapshots, reader) = snapshot_channel();
@@ -75,11 +80,15 @@ pub fn spawn() -> Result<CompositorHandle, StartError> {
         .spawn(move || {
             abort_on_panic(THREAD_NAME, || {
                 run(
-                    command_channel,
-                    EventSender {
-                        queue: event_sender,
+                    Ingredients {
+                        config,
+                        importer,
+                        commands: command_channel,
+                        events: EventSender {
+                            queue: event_sender,
+                        },
+                        snapshots,
                     },
-                    snapshots,
                     &started,
                 );
             });
@@ -154,7 +163,7 @@ impl CompositorHandle {
 /// The main thread's end of the command channel.
 #[derive(Clone, Debug)]
 pub struct CommandSender {
-    queue: calloop::channel::SyncSender<Command>,
+    pub(crate) queue: calloop::channel::SyncSender<Command>,
 }
 
 impl CommandSender {
@@ -181,7 +190,7 @@ impl CommandSender {
 /// The main thread's end of the event channel.
 #[derive(Debug)]
 pub struct EventReceiver {
-    queue: mpsc::Receiver<Event>,
+    pub(crate) queue: mpsc::Receiver<Event>,
 }
 
 impl EventReceiver {
@@ -196,24 +205,19 @@ impl EventReceiver {
 
 /// The compositor thread's end of the event channel.
 #[derive(Debug)]
-struct EventSender {
-    queue: mpsc::SyncSender<Event>,
+pub(crate) struct EventSender {
+    pub(crate) queue: mpsc::SyncSender<Event>,
 }
 
 impl EventSender {
     /// Reports an event, waiting for room if the channel is full.
-    #[expect(
-        dead_code,
-        reason = "the handlers that report events arrive with the ported compositor state; the \
-                  sender is held now so the receiver the main thread owns is not disconnected"
-    )]
-    fn send(&self, event: Event) -> Result<(), Disconnected> {
+    pub(crate) fn send(&self, event: Event) -> Result<(), Disconnected> {
         self.queue.send(event).map_err(|_| Disconnected)
     }
 }
 
 /// Creates the snapshot slot and its two ends.
-fn snapshot_channel() -> (SnapshotPublisher, SnapshotReader) {
+pub(crate) fn snapshot_channel() -> (SnapshotPublisher, SnapshotReader) {
     let latest = Arc::new(ArcSwap::from_pointee(Snapshot::default()));
     (
         SnapshotPublisher {
@@ -230,14 +234,14 @@ fn snapshot_channel() -> (SnapshotPublisher, SnapshotReader) {
 /// caller, is what makes the counter monotonic by construction: there is one
 /// publisher, and it is the only thing that can stamp a snapshot.
 #[derive(Debug)]
-struct SnapshotPublisher {
+pub(crate) struct SnapshotPublisher {
     latest: Arc<ArcSwap<Snapshot>>,
     published: Generation,
 }
 
 impl SnapshotPublisher {
     /// Replaces the published snapshot with a newer generation.
-    fn publish(
+    pub(crate) fn publish(
         &mut self,
         windows: Vec<WindowSnapshot>,
         processes: Vec<ProcessSnapshot>,
@@ -300,14 +304,19 @@ impl Drop for AbortGuard {
     }
 }
 
+/// Everything `run` needs to build the compositor, bundled so the thread body
+/// takes one argument rather than six.
+pub(crate) struct Ingredients {
+    pub(crate) config: CompositorConfig,
+    pub(crate) importer: Box<dyn BufferImporter>,
+    pub(crate) commands: Channel<Command>,
+    pub(crate) events: EventSender,
+    pub(crate) snapshots: SnapshotPublisher,
+}
+
 /// Builds the compositor, reports whether it started, and then runs it.
-fn run(
-    commands: Channel<Command>,
-    events: EventSender,
-    snapshots: SnapshotPublisher,
-    started: &mpsc::Sender<Result<(), StartError>>,
-) {
-    let (mut event_loop, mut data) = match build(commands, events, snapshots) {
+fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>) {
+    let (mut event_loop, mut data) = match build(ingredients) {
         Ok(built) => {
             drop(started.send(Ok(())));
             built
@@ -324,7 +333,8 @@ fn run(
     // between events, and waking on a timer would burn a wakeup per tick for a
     // compositor that is usually idle.
     let outcome = event_loop.run(None, &mut data, |data| {
-        data.publish_if_dirty();
+        data.state.send_frame_callbacks();
+        data.state.publish_if_dirty();
         if let Err(error) = data.display.flush_clients() {
             warn!(%error, "could not flush clients");
         }
@@ -341,13 +351,17 @@ fn run(
     }
 }
 
-type CompositorLoop = EventLoop<'static, LoopData>;
+pub(crate) type CompositorLoop = EventLoop<'static, LoopData>;
 
-fn build(
-    commands: Channel<Command>,
-    events: EventSender,
-    mut snapshots: SnapshotPublisher,
-) -> Result<(CompositorLoop, LoopData), StartError> {
+pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopData), StartError> {
+    let Ingredients {
+        config,
+        importer,
+        commands,
+        events,
+        snapshots,
+    } = ingredients;
+
     let event_loop = CompositorLoop::try_new().map_err(StartError::CreateEventLoop)?;
     let handle = event_loop.handle();
 
@@ -388,27 +402,21 @@ fn build(
             cause: error.error,
         })?;
 
-    // Published before the caller is told the thread started, so a caller that
-    // reads a snapshot immediately after `spawn` sees a real one rather than
-    // the empty placeholder.
-    snapshots.publish(Vec::new(), Vec::new(), Vec::new());
+    let mut state = CompositorState::new(
+        &display.handle(),
+        config,
+        importer,
+        events,
+        snapshots,
+        event_loop.get_signal(),
+    );
 
-    let signal = event_loop.get_signal();
-    Ok((
-        event_loop,
-        LoopData {
-            display,
-            state: CompositorState {
-                events,
-                snapshots,
-                signal,
-                windows: Vec::new(),
-                processes: Vec::new(),
-                outputs: Vec::new(),
-                dirty: false,
-            },
-        },
-    ))
+    // Published before the caller is told the thread started, so a caller that
+    // reads a snapshot immediately after `spawn` sees a real one — with the
+    // output already described — rather than the empty placeholder.
+    state.publish_if_dirty();
+
+    Ok((event_loop, LoopData { display, state }))
 }
 
 /// What the event loop's callbacks are handed.
@@ -416,82 +424,9 @@ fn build(
 /// The display and the state are separate fields of one owner because
 /// `dispatch_clients` takes the state by mutable reference while borrowing the
 /// display, so a single struct holding both cannot be passed to it.
-struct LoopData {
-    display: Display<CompositorState>,
-    state: CompositorState,
-}
-
-impl LoopData {
-    fn publish_if_dirty(&mut self) {
-        if !self.state.dirty {
-            return;
-        }
-        self.state.dirty = false;
-        self.state.snapshots.publish(
-            self.state.windows.clone(),
-            self.state.processes.clone(),
-            self.state.outputs.clone(),
-        );
-    }
-}
-
-/// Everything the compositor thread owns that is not the display itself.
-struct CompositorState {
-    #[expect(
-        dead_code,
-        reason = "the handlers that report events arrive with the ported compositor state; the \
-                  sender is held now so the receiver the main thread owns is not disconnected"
-    )]
-    events: EventSender,
-    snapshots: SnapshotPublisher,
-    signal: LoopSignal,
-    windows: Vec<WindowSnapshot>,
-    processes: Vec<ProcessSnapshot>,
-    outputs: Vec<OutputSnapshot>,
-    /// Whether something changed since the last publication. A snapshot is
-    /// republished only when it would differ, so an idle compositor costs no
-    /// allocations.
-    dirty: bool,
-}
-
-impl CompositorState {
-    fn stop(&self) {
-        self.signal.stop();
-    }
-
-    /// Applies one command.
-    ///
-    /// The match is exhaustive on purpose. A variant that gains a handler in a
-    /// later phase has to be moved out of the unhandled arm deliberately, and a
-    /// variant added to the protocol fails to compile here until someone
-    /// decides what it does.
-    fn handle(&mut self, command: Command) {
-        match command {
-            Command::Shutdown => {
-                debug!("shutting down at the main thread's request");
-                self.stop();
-            }
-            Command::Spawn(_)
-            | Command::SignalProcess { .. }
-            | Command::CloseWindow { .. }
-            | Command::ConfigureWindow { .. }
-            | Command::Pointer { .. }
-            | Command::PointerLeave { .. }
-            | Command::Button { .. }
-            | Command::Scroll { .. }
-            | Command::Key { .. }
-            | Command::Modifiers { .. }
-            | Command::TypeText { .. }
-            | Command::CreateSeat { .. }
-            | Command::DestroySeat { .. }
-            | Command::CreateOutput { .. }
-            | Command::ReconfigureOutput { .. }
-            | Command::DestroyOutput { .. }
-            | Command::SetFramePacing { .. } => {
-                warn!(?command, "no handler for this command yet; ignoring it");
-            }
-        }
-    }
+pub(crate) struct LoopData {
+    pub(crate) display: Display<CompositorState>,
+    pub(crate) state: CompositorState,
 }
 
 /// The channel's other end is gone, so the message cannot be delivered.
@@ -615,6 +550,15 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::testing::{ImportLog, recording_importer};
+
+    fn test_compositor_thread() -> CompositorHandle {
+        spawn(
+            CompositorConfig::default(),
+            recording_importer(ImportLog::default()),
+        )
+        .expect("the compositor thread starts")
+    }
 
     /// Long enough that a loaded machine does not fail the test, short enough
     /// that a genuine hang is reported rather than waited on for ever. Nothing
@@ -749,7 +693,7 @@ mod tests {
 
     #[test]
     fn the_thread_starts_publishes_and_stops() {
-        let compositor = spawn().expect("the compositor thread starts");
+        let compositor = test_compositor_thread();
 
         let snapshot = compositor.snapshots().load();
         assert_eq!(
@@ -764,7 +708,7 @@ mod tests {
 
     #[test]
     fn dropping_the_handle_stops_the_thread() {
-        let compositor = spawn().expect("the compositor thread starts");
+        let compositor = test_compositor_thread();
         let snapshots = compositor.snapshots().clone();
         drop(compositor);
 
@@ -775,7 +719,7 @@ mod tests {
 
     #[test]
     fn the_loop_keeps_draining_commands_it_has_no_handler_for() {
-        let compositor = spawn().expect("the compositor thread starts");
+        let compositor = test_compositor_thread();
         let commands = compositor.commands();
         let unhandled = || Command::CloseWindow {
             window: crate::protocol::WindowId::new(1).expect("non-zero"),

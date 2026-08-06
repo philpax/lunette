@@ -34,13 +34,19 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 
 | Upstream | lunette |
 |---|---|
-| `backend/wayvr/comp.rs` | `src/state.rs` |
-| `backend/wayvr/mod.rs` (surface and environment fragments) | `src/surface.rs` |
+| `backend/wayvr/comp.rs`, `backend/wayvr/mod.rs` (the globals and output fragments) | `src/state.rs` |
+| `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
 | `backend/wayvr/window.rs`, `backend/wayvr/time.rs` | `src/window.rs` |
-| `backend/wayvr/process.rs` | `src/process.rs` |
-| `backend/wayvr/client.rs` | `src/client.rs` |
+| `backend/wayvr/process.rs`, `backend/wayvr/mod.rs` (the spawn and attribution fragments) | `src/process.rs` |
+| `backend/wayvr/client.rs`, `backend/wayvr/mod.rs` (`WaylandEnv`, `ExternalProcessRequest`) | `src/client.rs` |
 | `backend/wayvr/hit_test.rs` | `src/hit_test.rs` |
 | `backend/wayvr/image_importer.rs` | `crates/lunette/src/import/shm.rs` |
+
+`mod.rs` is 1391 lines of which only fragments are wanted, so it lands in several files rather than one. Each names the fragments it took.
+
+`src/protocol.rs`, `src/thread.rs`, `src/testing.rs`, and `src/test_client.rs` are lunette's own and carry no header. WayVR has no equivalent: its compositor runs on the caller's thread, driven per-tick from `mod.rs`, and it has no cross-thread protocol to define.
+
+`MouseIndex` (`mod.rs:154`) is not ported. `protocol::PointerButton` covers it and covers the two side buttons WayVR omits.
 
 `image_importer.rs` is the exception to the rule that ported code lives here. Its dmabuf path is replaced by lunette's own `ash` import, and its `wl_shm` path lands in `crates/lunette`, because this crate must not gain a GPU dependency.
 
