@@ -456,6 +456,37 @@ fn leaving_a_window_sink_withdraws_the_pointer_without_touching_focus() {
 }
 
 #[test]
+fn type_text_on_a_window_sink_queues_the_text_for_the_compositor() {
+    let session = us_session(vec![window(1, "term", "foot", PixelSize::new(800, 600))]);
+    let lua = lua(&session);
+
+    run::<()>(&lua, "lunette.windows()[1].sink:typeText('ls \u{2603}')");
+
+    match session.flush().as_slice() {
+        [Command::TypeText { seat, text }] => {
+            assert_eq!(*seat, DEFAULT_SEAT);
+            assert_eq!(text, "ls \u{2603}");
+        }
+        other => panic!("expected one typeText command, got {other:?}"),
+    }
+}
+
+#[test]
+fn type_text_is_refused_on_a_host_sink() {
+    let (session, _, host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
+    let lua = lua(&session);
+
+    let typed: bool = run(&lua, "return lunette.monitors()[1].sink:typeText('hello')");
+
+    assert!(
+        !typed,
+        "the technique needs a keymap lunette can take back, and the host's is not lunette's"
+    );
+    assert_eq!(host.events(), Vec::new());
+}
+
+#[test]
 fn a_host_sink_cannot_be_focused() {
     let (session, _, _) = mirrored_session(Vec::new(), FakeMirrors::one());
     session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));

@@ -28,8 +28,9 @@
 //! [`Command::SignalProcess`], [`Command::CloseWindow`],
 //! [`Command::ConfigureWindow`], [`Command::Pointer`],
 //! [`Command::PointerLeave`], [`Command::Button`], [`Command::Key`],
-//! [`Command::Modifiers`], [`Command::Focus`], [`Command::CreateSeat`],
-//! [`Command::DestroySeat`], and [`Command::Shutdown`].
+//! [`Command::Modifiers`], [`Command::Focus`], [`Command::TypeText`],
+//! [`Command::CreateSeat`], [`Command::DestroySeat`], and
+//! [`Command::Shutdown`].
 //!
 //! One field of a handled command is not: [`SpawnRequest::output`] is accepted
 //! and ignored, because a window is not placed on an output until the outputs
@@ -37,8 +38,7 @@
 //!
 //! Accepted and logged, but otherwise inert until the phase named:
 //!
-//! - [`Command::Scroll`] and [`Command::TypeText`] — the rest of the keyboard
-//!   phase.
+//! - [`Command::Scroll`] — the rest of the keyboard phase.
 //! - [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
 //!   [`Command::DestroyOutput`], and [`Command::SetFramePacing`] — the outputs
 //!   and pacing phase. Until then one output exists with the default mode, and

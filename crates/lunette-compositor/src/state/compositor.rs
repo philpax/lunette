@@ -410,8 +410,8 @@ impl CompositorState {
             Command::Key { seat, key, pressed } => self.press_key(seat, key, pressed),
             Command::Modifiers { seat, modifiers } => self.set_modifiers(seat, &modifiers),
             Command::Focus { seat, sink } => self.set_focus(seat, sink),
+            Command::TypeText { seat, text } => self.type_text(seat, &text),
             Command::Scroll { .. }
-            | Command::TypeText { .. }
             | Command::CreateOutput { .. }
             | Command::ReconfigureOutput { .. }
             | Command::DestroyOutput { .. }

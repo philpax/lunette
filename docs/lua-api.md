@@ -134,6 +134,7 @@ sink:scroll(dx, dy)            -- a continuous distance, in surface-local pixels
 sink:scrollDiscrete(dx, dy)    -- whole wheel notches.
 sink:key(keycode, true)        -- an evdev keycode; false releases.
 sink:modifiers{ 'shift' }      -- the modifiers held from now on.
+sink:typeText('café')          -- text, whether or not the layout can express it.
 ```
 
 A window sink's events go to that client through its seat, so each window has independent focus and its own cursor. A host sink's go to the user's desktop through lunette's input provider, and every host sink shares one cursor and one keyboard focus, because the host has one of each. Two hands pointing at two mirrored monitors cannot produce two cursors. [Host desktop](host-desktop.md#the-input-domain-leak) states why that is surfaced rather than papered over.
@@ -149,6 +150,8 @@ The two scroll methods are separate because the protocol keeps the two sources a
 `sink:key(keycode, pressed)` takes an evdev keycode, which is what `wl_keyboard` carries and what `seat:strokeFor` hands back. On a window sink it goes to the seat's keyboard and so reaches whichever client that seat is focused on; a seat with no focus delivers to nobody. On a host sink it reaches whatever the host compositor currently focuses, and lunette does not choose what that is. A keycode outside the set lunette's host provider declared is refused with `false` rather than sent, because the kernel would otherwise drop it without a word.
 
 `sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. The names are `shift`, `capsLock`, `control`, `alt`, `numLock`, `mod3`, `logo`, and `mod5`; an unrecognised one raises. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
+
+`sink:typeText(text)` is an escape hatch, and explicitly stateful. Text the active layout can type goes down the ordinary path and changes nothing; the rest makes lunette generate a temporary keymap, upload it, type against it, and put the client's own back. So it must not be interleaved with `sink:key` on the same seat, and a client may see its keymap change while it runs — which is legal, and is the price of entering text no layout binds. Text needing more distinct keysyms than one keymap holds is split into runs that fit rather than refused. It is refused on a host sink, because lunette does not own the host's keyboard well enough to promise the layout it took can be given back.
 
 Every one of these methods takes an optional trailing seat. Leaving it off addresses the seat every session starts with, which is what a configuration that never calls `lunette.newSeat` wants. A host sink ignores the argument: the host has one cursor and one keyboard focus however many hands point at it.
 

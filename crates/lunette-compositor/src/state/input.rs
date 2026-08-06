@@ -13,10 +13,13 @@
 //! seat happens to exist. That is the whole difference from WayVR, where one
 //! seat is reached directly and a second hand has nowhere to go.
 
+use std::sync::Arc;
+
 use smithay::{
     backend::input::{ButtonState, KeyState},
     input::{
-        keyboard::{FilterResult, KeyboardTarget, Keycode as XkbKeycode},
+        Seat,
+        keyboard::{FilterResult, KeyboardHandle, KeyboardTarget, Keycode as XkbKeycode},
         pointer::{ButtonEvent, MotionEvent},
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -30,6 +33,7 @@ use crate::{
     protocol::{KeyboardConfig, Keycode, ModifierState, PixelPoint, PointerButton, SeatId, SinkId},
     seat::{self, MouseState, SeatEntry},
     state::compositor::CompositorState,
+    type_text::{self, TypeStep},
     window::Window,
 };
 
@@ -127,15 +131,118 @@ impl CompositorState {
         let keyboard = entry.keyboard();
         let handle = entry.seat().clone();
 
-        if keyboard.set_modifier_state(seat::modifiers_state(modifiers)) == 0 {
+        self.apply_modifiers(&keyboard, &handle, modifiers);
+        self.touch();
+    }
+
+    /// Types text the seat's layout may not be able to express.
+    ///
+    /// Stateful, and documented as such: it uploads a temporary layout and puts
+    /// the seat's own back, so interleaving it with [`Command::Key`] on the same
+    /// seat would drive keys against whichever layout happened to be loaded.
+    ///
+    /// The restore is unconditional. `lunette-v1.AC4.3` requires the client's own
+    /// keymap handling to work afterwards, and a client left holding lunette's
+    /// synthetic layout has a keyboard on which every key types the wrong thing
+    /// — which is worse than whatever failure produced it. This is the one place
+    /// in the phase where a failure path does not simply propagate.
+    ///
+    /// [`Command::Key`]: crate::protocol::Command::Key
+    pub(super) fn type_text(&mut self, seat: SeatId, text: &str) {
+        let Some(entry) = self.seats.get(seat) else {
+            warn!(%seat, "text was addressed to a seat that does not exist");
+            return;
+        };
+        let keyboard = entry.keyboard();
+        let handle = entry.seat().clone();
+        let original = Arc::clone(entry.keymap().text());
+        let held = seat::held(keyboard.modifier_state());
+
+        let plan = match type_text::plan(text, entry.keymap(), type_text::SPARE_KEYCODES) {
+            Ok(plan) => plan,
+            Err(error) => {
+                warn!(%seat, %error, "text could not be typed");
+                return;
+            }
+        };
+        if plan.is_empty() {
             return;
         }
 
+        // Whether a synthetic layout is loaded right now. The restore is driven
+        // off this rather than off reaching the end of the loop, so every way
+        // out of the loop — including a chunk that failed — passes through it.
+        let mut synthetic = false;
+
+        for chunk in plan.chunks() {
+            let wanted = chunk.keymap().unwrap_or(&original);
+            if chunk.keymap().is_some() || synthetic {
+                match keyboard.set_keymap_from_string(self, wanted.as_str().to_owned()) {
+                    Ok(()) => synthetic = chunk.keymap().is_some(),
+                    Err(error) => {
+                        warn!(%seat, %error, "a layout could not be uploaded while typing");
+                        break;
+                    }
+                }
+            }
+
+            for step in chunk.steps() {
+                match step {
+                    TypeStep::Modifiers(modifiers) => {
+                        self.apply_modifiers(&keyboard, &handle, modifiers);
+                    }
+                    TypeStep::Tap(key) => self.tap(&keyboard, *key),
+                }
+            }
+        }
+
+        if synthetic
+            && let Err(error) = keyboard.set_keymap_from_string(self, original.as_str().to_owned())
+        {
+            warn!(%seat, %error, "the seat's own layout could not be restored");
+        }
+        self.apply_modifiers(&keyboard, &handle, &held);
+        self.touch();
+    }
+
+    /// Presses and releases one key, with a serial and a timestamp of its own.
+    ///
+    /// Two serials rather than one: a serial identifies an event, and a client
+    /// that sees a press and a release quoting the same number cannot tell them
+    /// apart when it quotes one back.
+    fn tap(&mut self, keyboard: &KeyboardHandle<Self>, key: Keycode) {
+        for state in [KeyState::Pressed, KeyState::Released] {
+            let serial = self.serials.next_serial();
+            let time = self.millis();
+            keyboard.input::<(), _>(
+                self,
+                XkbKeycode::new(key.evdev().saturating_add(XKB_KEYCODE_OFFSET)),
+                state,
+                serial,
+                time,
+                |_, _, _| FilterResult::Forward,
+            );
+        }
+    }
+
+    /// Brings a seat's modifiers to a set and tells its focused client.
+    ///
+    /// The same two halves [`Self::set_modifiers`] performs, factored out
+    /// because typing changes modifiers many times per call and the seat has
+    /// already been resolved by then.
+    fn apply_modifiers(
+        &mut self,
+        keyboard: &KeyboardHandle<Self>,
+        handle: &Seat<Self>,
+        modifiers: &ModifierState,
+    ) {
+        if keyboard.set_modifier_state(seat::modifiers_state(modifiers)) == 0 {
+            return;
+        }
         if let Some(focus) = keyboard.current_focus() {
             let serial = self.serials.next_serial();
-            KeyboardTarget::modifiers(&focus, &handle, self, keyboard.modifier_state(), serial);
+            KeyboardTarget::modifiers(&focus, handle, self, keyboard.modifier_state(), serial);
         }
-        self.touch();
     }
 
     /// Destroys a seat, after taking its pointer off whatever it was over.

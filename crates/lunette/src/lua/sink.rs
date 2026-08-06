@@ -274,6 +274,18 @@ impl<T: LuaTexture> UserData for Sink<T> {
         );
 
         methods.add_method(
+            "typeText",
+            |_, sink, (text, seat): (mlua::LuaString, Option<mlua::AnyUserData>)| {
+                let text = text.to_str()?.to_owned();
+                let seat = seat_of::<T>(seat.as_ref())?;
+                if !sink.alive() {
+                    return Ok(false);
+                }
+                Ok(type_text(sink, seat, text))
+            },
+        );
+
+        methods.add_method(
             "modifiers",
             |_, sink, (names, seat): (Option<Table>, Option<mlua::AnyUserData>)| {
                 let modifiers = read_modifiers(names.as_ref())?;
@@ -476,6 +488,28 @@ fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) ->
             }
             sink.session.host().modifiers(modifiers)
         }
+    }
+}
+
+/// `sink:typeText(text, seat)`: enters text the active layout may not express.
+///
+/// An escape hatch, and explicitly stateful: it generates and uploads a
+/// temporary keymap, so it must not be interleaved with `sink:key` on the same
+/// seat. `docs/input.md:58-62` records what it is for — clipboard-less paste,
+/// dictation, and `lunctl` telling a terminal to run a command.
+///
+/// Refused on a host sink. The technique needs a keymap that can be uploaded
+/// and then taken back, and lunette does not own the host's keyboard well
+/// enough to promise the second half: another application may set its own
+/// layout in between, and a host left holding lunette's synthetic one is a
+/// desktop whose keyboard has stopped working.
+fn type_text<T>(sink: &Sink<T>, seat: SeatId, text: String) -> bool {
+    match &sink.target {
+        SinkTarget::Window(_) => {
+            sink.session.queue(Command::TypeText { seat, text });
+            true
+        }
+        SinkTarget::Host(_) => false,
     }
 }
 

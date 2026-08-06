@@ -25,4 +25,5 @@ pub mod test_client;
 #[cfg(any(test, feature = "test-fakes"))]
 pub mod testing;
 pub mod thread;
+pub(crate) mod type_text;
 pub mod window;
