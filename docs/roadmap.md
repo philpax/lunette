@@ -20,7 +20,7 @@ An unfavourable result for either unknown changes the downstream design.
 The point at which the system is usable for daily work. Each step is usable on its own.
 
 1. Composition layers and the claim pool. The point at which text becomes legible. Layer recycling, priority claims, grant/revoke events, degradation to in-scene quads. ([Rendering](rendering.md#the-layer-pool))
-2. Monitor mirroring and host input injection. The point at which the system becomes useful: the user can see and drive the real desktop from inside VR. Portal capture with `mapping_id` identification, uinput injection. ([Host desktop](host-desktop.md))
+2. Monitor mirroring and host input injection. The point at which the system becomes useful: the user can see and drive the real desktop from inside VR. Portal capture with streams correlated to outputs by logical geometry, uinput injection. ([Host desktop](host-desktop.md))
 3. Keyboard, seats, clipboard. Typing works, two hands work, copy-paste crosses the boundary. ([Input](input.md), [Host desktop](host-desktop.md#clipboard))
 4. Panel standard library. Tiers 1 through 3: panels, interaction, layouts and rules. ([Standard library](stdlib.md))
 5. Reload, `lunctl`, error handling. The iteration loop closes; the window manager becomes inspectable from a shell. ([The Lua API](lua-api.md))
@@ -43,5 +43,5 @@ Roughly WayVR's feature surface, plus the items this architecture makes easier.
 ## Upstream work, opportunistically
 
 - LÖVR: external-memory device extensions, foreign image import, configurable `MAX_LAYERS`.
-- `wlx-capture`: portal `mapping_id` identification, `ext-image-copy-capture-v1`.
+- `wlx-capture`: selecting every monitor in one portal dialog and correlating the returned streams to outputs by logical geometry, `ext-image-copy-capture-v1`.
 - WayVR: anything from the above that applies to it.

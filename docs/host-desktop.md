@@ -14,7 +14,7 @@ This backend requires a portal permission dialog on first use. A restore token i
 
 ### One divergence: monitor identification
 
-WayVR's onboarding asks the user to select screens in a prescribed order, because the portal hands out anonymous streams. Modern portals expose a `mapping_id` per stream that ties it to a `wl_output`, allowing monitors to identify themselves. lunette implements this, with manual mapping as a fallback where the portal does not provide it.
+WayVR's onboarding asks the user to select screens in a prescribed order, because the portal hands out anonymous streams. lunette requests every monitor in one dialog and correlates each returned stream to a `wl_output` by comparing the stream's `position` and `size` against the output's logical geometry. That works on every portal backend, and it is what wlx-overlay-s does on X11. The portal's `mapping_id` is read opportunistically and taken as a connector name when it is one, which is the case on xdg-desktop-portal-wlr; it is not the mechanism, because two of the three backends do not supply a usable one. [Decisions](decisions.md#recorded-decisions) records the evidence.
 
 This is an improvement over WayVR's approach and is a candidate for contributing upstream.
 
@@ -22,7 +22,7 @@ This is an improvement over WayVR's approach and is a candidate for contributing
 
 ### Identity and lifecycle
 
-Monitors receive stable identities, connector names such as `DP-2` where available, so Lua layout rules survive a replug or a reboot.
+Monitors receive stable identities, so Lua layout rules survive a replug or a reboot. The identity is the make and model reported in `wl_output.geometry`, falling back to a connector name such as `DP-2` where one is available, and to the monitor's logical position where neither is. The descriptor comes first because it survives a monitor moving to a different port. A Wayland client cannot read a serial, so two monitors of the same model are indistinguishable by descriptor; the second of them is identified by its connector alone, and lunette says so rather than picking one silently.
 
 Capture starts lazily and can be stopped from Lua. A mirrored screen that a script has dismissed has no ongoing cost.
 
