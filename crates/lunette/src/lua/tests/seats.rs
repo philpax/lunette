@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use lunette_compositor::{
     keymap::Keymap,
-    protocol::{Command, KeyModifier, KeymapConfig, ModifierState, SeatSnapshot},
+    protocol::{Command, KeyModifier, KeymapConfig, KeymapDefaults, ModifierState, SeatSnapshot},
 };
 use pretty_assertions::assert_eq;
 
@@ -25,14 +25,16 @@ const KEY_A: u32 = 30;
 
 /// A seat carrying an explicitly named layout.
 ///
-/// Named rather than defaulted, because the default is whatever the machine's
-/// `XKB_DEFAULT_LAYOUT` says and a test that depends on that passes according
-/// to who runs it.
+/// Named rather than defaulted, so the assertions below hold whatever the
+/// compositor's inherited default is.
 fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
-    let keymap = Keymap::compile(&KeymapConfig {
-        layout: Some(layout.to_owned()),
-        ..KeymapConfig::default()
-    })
+    let keymap = Keymap::compile(
+        &KeymapConfig {
+            layout: Some(layout.to_owned()),
+            ..KeymapConfig::default()
+        },
+        &KeymapDefaults::default(),
+    )
     .expect("the layout compiles");
 
     SeatSnapshot {

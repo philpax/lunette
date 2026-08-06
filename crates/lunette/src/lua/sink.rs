@@ -52,8 +52,8 @@ use lunette_capture::{
 };
 use lunette_compositor::{
     protocol::{
-        Command, InputDomain, Keycode, ModifierState, PixelPoint, PointerButton, ScrollAxis,
-        ScrollDelta, SeatId, SinkId,
+        Command, InputDomain, Keycode, ModifierState, PixelPoint, PointerButton,
+        SURFACE_UNITS_PER_DETENT, ScrollAxis, ScrollDelta, SeatId, SinkId,
     },
     state::DEFAULT_SEAT,
 };
@@ -429,18 +429,15 @@ fn is_still(delta: ScrollDelta) -> bool {
 
 /// A scroll delta in the detents the host provider counts in.
 ///
-/// `wl_pointer.axis` carries ten surface-local units per detent, which is the
-/// convention every toolkit reads a continuous scroll under, so a continuous
-/// distance divides by that. A discrete count is already detents.
+/// The inverse of what the compositor does to a discrete count on its way to a
+/// client, so it divides by the same constant that path multiplies by. A
+/// discrete count is already detents.
 fn detents(delta: ScrollDelta) -> f64 {
     match delta {
         ScrollDelta::Continuous(distance) => distance / SURFACE_UNITS_PER_DETENT,
         ScrollDelta::Discrete(steps) => f64::from(steps),
     }
 }
-
-/// How many surface-local units `wl_pointer.axis` carries per wheel detent.
-const SURFACE_UNITS_PER_DETENT: f64 = 10.0;
 
 /// `sink:key(keycode, pressed, seat)`: presses or releases a key.
 ///

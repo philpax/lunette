@@ -23,11 +23,12 @@ mod harness;
 
 use harness::WINDOW_SIZE;
 use lunette_compositor::{
+    keymap::Keymap,
     protocol::{
-        Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, ModifierState, PixelPoint,
-        PointerButton, SeatId, WindowSnapshot,
+        Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, KeymapDefaults, ModifierState,
+        PixelPoint, PointerButton, SeatId, WindowSnapshot,
     },
-    state::DEFAULT_SEAT,
+    state::{CompositorConfig, DEFAULT_SEAT},
     test_client::{Driver, PointerEvent, TestClient},
     testing::{CursorImage, TestCompositor},
 };
@@ -40,9 +41,8 @@ const KEY_A: Keycode = Keycode::from_evdev(30);
 
 /// A keyboard on an explicitly named layout.
 ///
-/// Named rather than defaulted, because the default is whatever the machine's
-/// `XKB_DEFAULT_LAYOUT` says, and a test that depends on that passes or fails
-/// according to who is running it.
+/// Named rather than defaulted, so the assertions below hold whatever the
+/// compositor's inherited default is.
 fn keyboard() -> Box<KeyboardConfig> {
     Box::new(KeyboardConfig {
         keymap: KeymapConfig {
@@ -537,6 +537,43 @@ fn a_seat_whose_layout_does_not_compile_is_not_created() {
         seat_globals(&client),
         1,
         "a seat whose keymap failed to compile was advertised anyway",
+    );
+}
+
+#[test]
+fn the_default_seat_exists_when_the_desktop_default_names_two_layouts() {
+    // The regression: `us,de` is what a NixOS session exports from
+    // `services.xserver.xkb.layout`, and refusing it took the default seat away
+    // — no keyboard, no pointer, no clipboard — from a user who had written no
+    // layout line at all. The inherited list is narrowed to its first entry
+    // instead, and the seat is created.
+    let mut compositor = TestCompositor::with_config(CompositorConfig {
+        keymap_defaults: KeymapDefaults::new(KeymapConfig {
+            layout: Some("us,de".to_owned()),
+            ..KeymapConfig::default()
+        }),
+        ..CompositorConfig::default()
+    });
+    let mut client = open_window(&mut compositor);
+    client.settle_quiet(&mut compositor);
+
+    assert_eq!(seat_globals(&client), 1, "the default seat was not created");
+
+    let published = compositor
+        .snapshot()
+        .seats
+        .iter()
+        .find(|seat| seat.seat == DEFAULT_SEAT)
+        .expect("the default seat is published")
+        .keymap
+        .clone();
+    let keymap = Keymap::from_text(&published).expect("the published layout compiles");
+
+    assert_eq!(
+        keymap.layouts().len(),
+        1,
+        "the seat was given both groups: {:?}",
+        keymap.layouts(),
     );
 }
 

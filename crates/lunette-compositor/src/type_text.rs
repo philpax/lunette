@@ -413,13 +413,16 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::protocol::{KeyModifier, KeymapConfig};
+    use crate::protocol::{KeyModifier, KeymapConfig, KeymapDefaults};
 
     fn us() -> Keymap {
-        Keymap::compile(&KeymapConfig {
-            layout: Some("us".to_owned()),
-            ..KeymapConfig::default()
-        })
+        Keymap::compile(
+            &KeymapConfig {
+                layout: Some("us".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &KeymapDefaults::default(),
+        )
         .expect("the us layout compiles")
     }
 

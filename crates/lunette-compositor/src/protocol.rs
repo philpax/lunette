@@ -743,6 +743,16 @@ pub enum ScrollDelta {
     Discrete(i32),
 }
 
+/// How many surface-local units `wl_pointer.axis` carries per wheel detent.
+///
+/// The convention every toolkit reads a continuous scroll under, and the one
+/// number both directions of the conversion depend on: the compositor
+/// multiplies a discrete count by it on the way to a client, and the host
+/// pointer divides a continuous distance by it on the way to a wheel provider.
+/// Two copies that drifted apart would make one direction stop inverting the
+/// other, so there is one.
+pub const SURFACE_UNITS_PER_DETENT: f64 = 10.0;
+
 /// A key, in the Linux evdev numbering that `wl_keyboard` uses.
 ///
 /// xkb numbers the same keys eight higher. Nothing here performs that
@@ -942,9 +952,9 @@ impl KeymapText {
 /// Which layout a seat's keyboard is compiled from.
 ///
 /// The five RMLVO names `xkb_keymap_new_from_names` takes. Every one is
-/// optional, and absent means the system default — which is what libxkbcommon
-/// resolves from its own environment variables, and is what a user who has
-/// configured a layout for their desktop expects lunette to inherit.
+/// optional, and absent means the name is taken from [`KeymapDefaults`] — the
+/// desktop's own configuration, which is what a user who has configured a
+/// layout for their session expects lunette to inherit.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct KeymapConfig {
     /// How the remaining four names are interpreted; `"evdev"` on Linux.
@@ -956,6 +966,45 @@ pub struct KeymapConfig {
     pub variant: Option<String>,
     /// A comma-separated list of options, such as which key switches layout.
     pub options: Option<String>,
+}
+
+/// The names a [`KeymapConfig`] falls back to for a field it leaves absent.
+///
+/// libxkbcommon resolves an empty RMLVO name from the `XKB_DEFAULT_*`
+/// environment variables. A library does not read the environment, so the
+/// desktop's own names arrive here as a parameter instead, and the binary is
+/// where they are read. That is not only house style: the defaults have to be
+/// *nameable* for a multi-layout default to be narrowed to its first entry,
+/// and libxkbcommon offers no way to ask a compiled keymap which RMLVO layout
+/// it came from.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct KeymapDefaults(KeymapConfig);
+
+impl KeymapDefaults {
+    #[must_use]
+    pub const fn new(names: KeymapConfig) -> Self {
+        Self(names)
+    }
+
+    #[must_use]
+    pub const fn names(&self) -> &KeymapConfig {
+        &self.0
+    }
+}
+
+impl Default for KeymapDefaults {
+    /// libxkbcommon's own compiled-in layout, spelled out.
+    ///
+    /// Spelled rather than left absent so that a caller which has not read the
+    /// environment — every test, and any embedder that does not want the
+    /// desktop's configuration — gets the same single-group keymap on every
+    /// machine. The binary replaces this with what it read from `XKB_DEFAULT_*`.
+    fn default() -> Self {
+        Self(KeymapConfig {
+            layout: Some("us".to_owned()),
+            ..KeymapConfig::default()
+        })
+    }
 }
 
 /// How long a held key waits, and how fast it then repeats.

@@ -82,6 +82,7 @@ use lunette_capture::{
 };
 use lunette_compositor::{
     client::{DisplayName, XwaylandSatellite, listen},
+    protocol::{KeymapConfig, KeymapDefaults},
     selection::DataControlSource,
 };
 use tracing::{error, info, warn};
@@ -189,6 +190,7 @@ fn main() -> ExitCode {
         // no portal, or a portal the user refused — still has a clipboard, and
         // bridging it needs nothing but the socket.
         clipboard: host_socket.path().map(DataControlSource::new),
+        keymap_defaults: keymap_defaults_from_environment(),
     };
 
     // SAFETY: this is the thread that runs the LÖVR boot sequence below and
@@ -393,6 +395,32 @@ fn host_wayland_socket(runtime_dir: Option<&OsStr>, display: Option<&OsStr>) -> 
     Some(absolute_path(runtime_dir.map(OsStr::to_owned))?.join(display))
 }
 
+/// The desktop's own keyboard layout, from the variables libxkbcommon reads.
+///
+/// Read here rather than left to libxkbcommon for two reasons. A library does
+/// not read the environment, and — the practical one — a default naming several
+/// layouts has to be narrowed to its first entry, which needs the name it was
+/// written under. libxkbcommon offers no way to ask a compiled keymap which
+/// RMLVO layout produced it, so a keymap compiled from an empty name cannot be
+/// cut down afterwards.
+///
+/// An unset or empty variable stays absent, which leaves that name to
+/// libxkbcommon's own compiled-in default rather than guessing at what the
+/// installation patched it to.
+fn keymap_defaults_from_environment() -> KeymapDefaults {
+    fn name(variable: &str) -> Option<String> {
+        env::var(variable).ok().filter(|value| !value.is_empty())
+    }
+
+    KeymapDefaults::new(KeymapConfig {
+        rules: name(XKB_DEFAULT_RULES),
+        model: name(XKB_DEFAULT_MODEL),
+        layout: name(XKB_DEFAULT_LAYOUT),
+        variant: name(XKB_DEFAULT_VARIANT),
+        options: name(XKB_DEFAULT_OPTIONS),
+    })
+}
+
 /// The environment values the state directory is resolved from.
 #[derive(Debug)]
 struct StateDirectorySources {
@@ -445,6 +473,15 @@ const XDG_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 
 /// The XDG base directory for what a program learns rather than what it is told.
 const XDG_STATE_HOME: &str = "XDG_STATE_HOME";
+
+/// The five names libxkbcommon resolves an unnamed layout from. A desktop
+/// exports them for its session; NixOS writes `XKB_DEFAULT_LAYOUT` from
+/// `services.xserver.xkb.layout`, and sway and Hyprland export it too.
+const XKB_DEFAULT_RULES: &str = "XKB_DEFAULT_RULES";
+const XKB_DEFAULT_MODEL: &str = "XKB_DEFAULT_MODEL";
+const XKB_DEFAULT_LAYOUT: &str = "XKB_DEFAULT_LAYOUT";
+const XKB_DEFAULT_VARIANT: &str = "XKB_DEFAULT_VARIANT";
+const XKB_DEFAULT_OPTIONS: &str = "XKB_DEFAULT_OPTIONS";
 
 /// The file the screencast portal's restore tokens are kept in.
 const TOKEN_FILE: &str = "screencast-tokens.toml";

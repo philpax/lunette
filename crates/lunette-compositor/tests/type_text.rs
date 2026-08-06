@@ -24,7 +24,7 @@ mod harness;
 use harness::WINDOW_SIZE;
 use lunette_compositor::{
     keymap::Keymap,
-    protocol::{Command, KeymapConfig, ModifierState, SinkId},
+    protocol::{Command, KeymapConfig, KeymapDefaults, ModifierState, SinkId},
     state::DEFAULT_SEAT,
     test_client::TestClient,
     testing::TestCompositor,
@@ -234,6 +234,37 @@ fn a_restore_that_failed_is_made_good_by_the_next_call_rather_than_assumed_away(
 }
 
 #[test]
+fn a_restore_that_failed_is_made_good_even_by_a_call_that_types_nothing() {
+    // A call with nothing to type still repairs a seat left synthetic. The
+    // repair used to sit below the two early returns, so empty text and text
+    // that could not be planned both left the client holding a layout that is
+    // not its own until something else happened to type.
+    let mut compositor = TestCompositor::new();
+    let (mut client, keyboard) = typing_client(&mut compositor);
+    let before = keymaps(&client, &keyboard);
+
+    compositor.fail_keymap_uploads(1, 1);
+    compositor.send(Command::TypeText {
+        seat: DEFAULT_SEAT,
+        text: "\u{2603}".to_owned(),
+    });
+    client.settle_quiet(&mut compositor);
+
+    compositor.send(Command::TypeText {
+        seat: DEFAULT_SEAT,
+        text: String::new(),
+    });
+    client.settle_quiet(&mut compositor);
+
+    let after = keymaps(&client, &keyboard);
+    assert_eq!(
+        after.last(),
+        before.first(),
+        "typing nothing left the stale synthetic layout in place: {after:?}",
+    );
+}
+
+#[test]
 fn a_client_can_still_type_normally_after_text_was_entered_for_it() {
     let mut compositor = TestCompositor::new();
     let (mut client, keyboard) = typing_client(&mut compositor);
@@ -343,9 +374,11 @@ fn typing_on_a_seat_that_does_not_exist_changes_nothing() {
 #[test]
 fn the_default_seat_types_under_the_layout_it_was_created_with() {
     // Not a tautology: it establishes that the seat this test drives is on the
-    // layout the rest of the assertions assume, so a machine whose
-    // `XKB_DEFAULT_LAYOUT` is not `us` fails here rather than confusingly
-    // further down.
+    // layout the rest of the assertions assume, so a seat that inherited
+    // something else fails here rather than confusingly further down. Both
+    // sides resolve against `KeymapDefaults::default()`, which names its layout
+    // rather than leaving it to the environment, so the answer does not depend
+    // on the machine.
     let compositor = TestCompositor::new();
     let published = compositor
         .snapshot()
@@ -357,6 +390,7 @@ fn the_default_seat_types_under_the_layout_it_was_created_with() {
         .clone();
     let keymap = Keymap::from_text(&published).expect("the published layout compiles");
 
-    let system = Keymap::compile(&KeymapConfig::default()).expect("the system layout compiles");
+    let system = Keymap::compile(&KeymapConfig::default(), &KeymapDefaults::default())
+        .expect("the inherited layout compiles");
     assert_eq!(keymap.layouts(), system.layouts());
 }

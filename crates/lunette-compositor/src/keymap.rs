@@ -42,13 +42,22 @@
 //! So a keymap carrying more than one group is refused at compile rather than
 //! answered for the first. `docs/decisions.md` records the choice and what it
 //! would take to lift it.
+//!
+//! That refusal is scoped to a layout the configuration named. A desktop whose
+//! own default is `us,de` — an ordinary arrangement, and the one NixOS writes
+//! from `services.xserver.xkb.layout` — is narrowed to its first entry instead,
+//! because a seat that does not exist has no keyboard, no pointer, and no
+//! clipboard, and a user who never wrote a layout line did not ask for any of
+//! that to be taken away.
 
 use std::{collections::HashMap, error::Error, fmt, sync::Arc};
 
+use tracing::warn;
 use xkbcommon::xkb;
 
 use crate::protocol::{
-    KeyModifier, Keycode, KeymapConfig, KeymapText, Keysym, LayoutName, ModifierState,
+    KeyModifier, Keycode, KeymapConfig, KeymapDefaults, KeymapText, Keysym, LayoutName,
+    ModifierState,
 };
 
 /// A compiled keyboard layout, with the queries `docs/input.md:50-52` asks for.
@@ -64,21 +73,40 @@ pub struct Keymap {
 }
 
 impl Keymap {
-    /// Compiles the layout a caller named.
-    ///
-    /// A field left absent resolves to libxkbcommon's own default, which is
-    /// what a user who configured a layout for their desktop expects to
-    /// inherit. Everything else about this crate takes its configuration as a
-    /// parameter; this one call defers to the library because "the system
-    /// default layout" has no other spelling.
+    /// Compiles the layout a caller named, falling back to the desktop's own
+    /// names for each field the caller left absent.
     ///
     /// # Errors
     ///
     /// [`KeymapError`] when the names do not compile, which is what a mistyped
-    /// layout looks like.
-    pub fn compile(config: &KeymapConfig) -> Result<Self, KeymapError> {
+    /// layout looks like, or when the configuration itself named several
+    /// layouts.
+    pub fn compile(config: &KeymapConfig, defaults: &KeymapDefaults) -> Result<Self, KeymapError> {
+        Self::compile_resolved(&resolve(config, defaults))
+    }
+
+    /// Compiles names already resolved against the defaults.
+    ///
+    /// Seat creation resolves once and compiles twice — here and in smithay's
+    /// own context — so that both copies hold the same layout. Resolving in
+    /// each of them would be two chances to disagree.
+    ///
+    /// # Errors
+    ///
+    /// As [`Keymap::compile`].
+    pub(crate) fn compile_resolved(resolved: &ResolvedNames) -> Result<Self, KeymapError> {
+        if let LayoutOrigin::Narrowed { from } = &resolved.origin {
+            warn!(
+                inherited = %from,
+                using = resolved.names.layout.as_deref().unwrap_or_default(),
+                "the desktop's default names several layouts and a seat carries one, so the first \
+                 was taken; a second layout wants a second seat",
+            );
+        }
+
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let name = |value: &Option<String>| value.clone().unwrap_or_default();
+        let config = &resolved.names;
 
         let keymap = xkb::Keymap::new_from_names(
             &context,
@@ -95,6 +123,32 @@ impl Keymap {
             },
         })?;
 
+        let count = keymap.num_layouts();
+        if count > 1 {
+            match resolved.origin {
+                // The configuration asked for this, so it is told no.
+                LayoutOrigin::Configured => {
+                    return Err(KeymapError {
+                        kind: KeymapErrorKind::ManyLayouts { count },
+                    });
+                }
+                // Nothing asked for it. Narrowing needs a default layout to take
+                // the first entry of, and the caller named none, so
+                // libxkbcommon resolved several from its own environment and
+                // there is no name left to cut down. Every query then answers
+                // for group zero, which is wrong the moment the user switches. A
+                // refusal here would take the seat away from someone who
+                // configured nothing, and no input at all is worse than input on
+                // the first layout.
+                LayoutOrigin::Inherited | LayoutOrigin::Narrowed { .. } => warn!(
+                    count,
+                    "the inherited layout carries several groups and no default layout was named \
+                     to narrow it to; queries will answer for the first group whichever one the \
+                     seat is on",
+                ),
+            }
+        }
+
         Self::from_xkb(&keymap)
     }
 
@@ -105,7 +159,10 @@ impl Keymap {
     ///
     /// # Errors
     ///
-    /// [`KeymapError`] when the text is not a keymap libxkbcommon accepts.
+    /// [`KeymapError`] when the text is not a keymap libxkbcommon accepts, or
+    /// when it carries more than one layout group. Text is refused rather than
+    /// narrowed because a compiled keymap cannot be cut down to one group: only
+    /// the RMLVO names it came from can, and text does not carry them.
     pub fn from_text(text: &KeymapText) -> Result<Self, KeymapError> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let keymap = xkb::Keymap::new_from_string(
@@ -117,6 +174,13 @@ impl Keymap {
         .ok_or(KeymapError {
             kind: KeymapErrorKind::Text,
         })?;
+
+        let count = keymap.num_layouts();
+        if count > 1 {
+            return Err(KeymapError {
+                kind: KeymapErrorKind::ManyLayouts { count },
+            });
+        }
 
         Self::from_xkb(&keymap)
     }
@@ -187,18 +251,6 @@ impl Keymap {
     /// and a keymap whose text cannot be produced is one no client can be told
     /// about and one `typeText` could never restore.
     fn from_xkb(keymap: &xkb::Keymap) -> Result<Self, KeymapError> {
-        // Every query below resolves against layout group zero, and nothing in
-        // lunette can read or set the active group. A keymap carrying several
-        // would answer for the first whichever one the seat is actually on, so
-        // it is refused rather than answered wrongly. `docs/decisions.md`
-        // records the choice.
-        let count = keymap.num_layouts();
-        if count > 1 {
-            return Err(KeymapError {
-                kind: KeymapErrorKind::ManyLayouts { count },
-            });
-        }
-
         let text = KeymapText::new(keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)).ok_or(
             KeymapError {
                 kind: KeymapErrorKind::Serialisation,
@@ -282,6 +334,90 @@ impl fmt::Display for KeymapError {
 }
 
 impl Error for KeymapError {}
+
+/// The names a keymap compiles from, and where its layout came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedNames {
+    pub(crate) names: KeymapConfig,
+    pub(crate) origin: LayoutOrigin,
+}
+
+/// Which side of the configuration decided the layout.
+///
+/// The distinction is the whole reason this exists: a configuration that names
+/// several layouts is refused, and an inherited default that carries several is
+/// narrowed. The same compiled keymap means opposite things depending on which
+/// of the two produced it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LayoutOrigin {
+    /// The configuration named the layout.
+    Configured,
+    /// The layout came from the defaults, unchanged.
+    Inherited,
+    /// The default named several layouts and was cut to its first entry.
+    Narrowed { from: String },
+}
+
+/// Combines a configuration with the desktop's own names.
+///
+/// A field the configuration leaves absent takes the default's, with one
+/// exception: the variant follows the layout rather than being inherited
+/// separately, because a variant belongs to the layout it was written for and
+/// pairing the desktop's variant with a configuration's layout describes a
+/// keyboard nobody has.
+///
+/// Pure, and the whole decision is here: [`Keymap::compile_resolved`] only acts
+/// on what this returns.
+pub(crate) fn resolve(config: &KeymapConfig, defaults: &KeymapDefaults) -> ResolvedNames {
+    let fallback = defaults.names();
+    let inherited = |named: &Option<String>, default: &Option<String>| {
+        named.clone().or_else(|| default.clone())
+    };
+
+    let mut names = KeymapConfig {
+        rules: inherited(&config.rules, &fallback.rules),
+        model: inherited(&config.model, &fallback.model),
+        layout: config.layout.clone(),
+        variant: config.variant.clone(),
+        options: inherited(&config.options, &fallback.options),
+    };
+
+    if config.layout.is_some() {
+        return ResolvedNames {
+            names,
+            origin: LayoutOrigin::Configured,
+        };
+    }
+
+    names.layout = fallback.layout.clone();
+    names.variant = inherited(&config.variant, &fallback.variant);
+
+    let Some(layout) = names.layout.clone().filter(|layout| layout.contains(',')) else {
+        return ResolvedNames {
+            names,
+            origin: LayoutOrigin::Inherited,
+        };
+    };
+
+    names.layout = Some(first_entry(&layout));
+    // The variant list is positional, so the first layout's variant is the
+    // first entry of it — including the empty entry a list like `,neo` has,
+    // which says the first layout has no variant.
+    names.variant = names.variant.as_deref().map(first_entry);
+
+    ResolvedNames {
+        names,
+        origin: LayoutOrigin::Narrowed { from: layout },
+    }
+}
+
+/// The first entry of a comma-separated RMLVO list.
+///
+/// Trimmed, because a list written by hand may have a space after the comma and
+/// libxkbcommon would look for a layout whose name begins with one.
+fn first_entry(list: &str) -> String {
+    list.split(',').next().unwrap_or_default().trim().to_owned()
+}
 
 /// The modifier combinations a reverse lookup is built over.
 ///
@@ -440,19 +576,25 @@ mod tests {
     /// A layout every machine's xkb data carries, named explicitly so the tests
     /// do not depend on whatever the machine's default happens to be.
     fn us() -> Keymap {
-        Keymap::compile(&KeymapConfig {
-            layout: Some("us".to_owned()),
-            ..KeymapConfig::default()
-        })
+        Keymap::compile(
+            &KeymapConfig {
+                layout: Some("us".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &KeymapDefaults::default(),
+        )
         .expect("the us layout compiles")
     }
 
     /// A layout whose third level is populated, so the AltGr paths are real.
     fn german() -> Keymap {
-        Keymap::compile(&KeymapConfig {
-            layout: Some("de".to_owned()),
-            ..KeymapConfig::default()
-        })
+        Keymap::compile(
+            &KeymapConfig {
+                layout: Some("de".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &KeymapDefaults::default(),
+        )
         .expect("the de layout compiles")
     }
 
@@ -612,10 +754,13 @@ mod tests {
         // Every query resolves against group zero and nothing can read or set
         // the active group, so `us,de` would type `zy` for `yz` the moment the
         // user switched to German. Refusing says so; answering does not.
-        let error = Keymap::compile(&KeymapConfig {
-            layout: Some("us,de".to_owned()),
-            ..KeymapConfig::default()
-        })
+        let error = Keymap::compile(
+            &KeymapConfig {
+                layout: Some("us,de".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &KeymapDefaults::default(),
+        )
         .expect_err("two layout groups are more than lunette serves");
 
         assert!(error.to_string().starts_with("keymap: "));
@@ -625,12 +770,162 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_layout_that_does_not_exist_is_refused_rather_than_silently_defaulted() {
-        let error = Keymap::compile(&KeymapConfig {
-            layout: Some("this-is-not-a-layout".to_owned()),
+    /// The desktop default this whole distinction exists for: two layouts the
+    /// user configured for their session and never mentioned to lunette.
+    fn two_inherited_layouts() -> KeymapDefaults {
+        KeymapDefaults::new(KeymapConfig {
+            layout: Some("us,de".to_owned()),
             ..KeymapConfig::default()
         })
+    }
+
+    #[test]
+    fn an_inherited_default_naming_several_layouts_is_narrowed_rather_than_refused() {
+        // The regression this guards: refusing here took the default seat away
+        // from every user whose desktop is configured with two layouts, which
+        // is the ordinary arrangement on NixOS and common under sway. The
+        // defaults are named rather than read from the environment, so this
+        // says the same thing on every machine.
+        let keymap = Keymap::compile(&KeymapConfig::default(), &two_inherited_layouts())
+            .expect("an inherited two-layout default is narrowed, not refused");
+
+        assert_eq!(keymap.layouts().len(), 1);
+        assert!(
+            keymap.layouts()[0].as_str().contains("US"),
+            "the first entry of the inherited list is the one kept, not {}",
+            keymap.layouts()[0],
+        );
+        assert_eq!(
+            keymap.stroke_for('ß'),
+            None,
+            "the German half is not loaded"
+        );
+    }
+
+    #[test]
+    fn a_configuration_naming_several_layouts_is_still_refused() {
+        // The inherited case is narrowed and the configured case is not, so a
+        // user who writes `us,de` is told that lunette serves one layout per
+        // seat rather than quietly given half of what they asked for.
+        let error = Keymap::compile(
+            &KeymapConfig {
+                layout: Some("us,de".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &two_inherited_layouts(),
+        )
+        .expect_err("a configuration that names two layouts is refused");
+
+        assert!(error.to_string().contains("layout groups"));
+    }
+
+    #[test]
+    fn a_configured_layout_wins_over_the_inherited_one() {
+        let keymap = Keymap::compile(
+            &KeymapConfig {
+                layout: Some("de".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &two_inherited_layouts(),
+        )
+        .expect("the configured layout compiles");
+
+        assert!(keymap.stroke_for('ß').is_some());
+    }
+
+    #[test]
+    fn resolution_takes_each_absent_name_from_the_defaults() {
+        let resolved = resolve(
+            &KeymapConfig {
+                model: Some("pc105".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &KeymapDefaults::new(KeymapConfig {
+                rules: Some("evdev".to_owned()),
+                model: Some("pc104".to_owned()),
+                layout: Some("de".to_owned()),
+                variant: Some("neo".to_owned()),
+                options: Some("grp:alt_shift_toggle".to_owned()),
+            }),
+        );
+
+        assert_eq!(
+            resolved,
+            ResolvedNames {
+                names: KeymapConfig {
+                    rules: Some("evdev".to_owned()),
+                    model: Some("pc105".to_owned()),
+                    layout: Some("de".to_owned()),
+                    variant: Some("neo".to_owned()),
+                    options: Some("grp:alt_shift_toggle".to_owned()),
+                },
+                origin: LayoutOrigin::Inherited,
+            },
+        );
+    }
+
+    #[test]
+    fn narrowing_takes_the_variant_that_belongs_to_the_layout_it_kept() {
+        let resolved = resolve(
+            &KeymapConfig::default(),
+            &KeymapDefaults::new(KeymapConfig {
+                layout: Some("us, de".to_owned()),
+                variant: Some("dvorak,neo".to_owned()),
+                ..KeymapConfig::default()
+            }),
+        );
+
+        assert_eq!(resolved.names.layout.as_deref(), Some("us"));
+        assert_eq!(resolved.names.variant.as_deref(), Some("dvorak"));
+        assert_eq!(
+            resolved.origin,
+            LayoutOrigin::Narrowed {
+                from: "us, de".to_owned()
+            },
+        );
+    }
+
+    #[test]
+    fn a_configured_layout_does_not_inherit_the_desktops_variant() {
+        // A variant belongs to the layout it was written for: `neo` is a German
+        // layout, and pairing it with a configured `us` describes a keyboard
+        // nobody has.
+        let resolved = resolve(
+            &KeymapConfig {
+                layout: Some("us".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &KeymapDefaults::new(KeymapConfig {
+                layout: Some("de".to_owned()),
+                variant: Some("neo".to_owned()),
+                ..KeymapConfig::default()
+            }),
+        );
+
+        assert_eq!(resolved.names.variant, None);
+        assert_eq!(resolved.origin, LayoutOrigin::Configured);
+    }
+
+    #[test]
+    fn resolution_is_idempotent_on_the_names_it_produced() {
+        // Resolving twice must not narrow something already narrowed, because
+        // the seat path resolves once and compiles the result twice.
+        let once = resolve(&KeymapConfig::default(), &two_inherited_layouts());
+        let twice = resolve(&once.names, &two_inherited_layouts());
+
+        assert_eq!(twice.names, once.names);
+        assert_eq!(twice.origin, LayoutOrigin::Configured);
+    }
+
+    #[test]
+    fn a_layout_that_does_not_exist_is_refused_rather_than_silently_defaulted() {
+        let error = Keymap::compile(
+            &KeymapConfig {
+                layout: Some("this-is-not-a-layout".to_owned()),
+                ..KeymapConfig::default()
+            },
+            &KeymapDefaults::default(),
+        )
         .expect_err("a nonexistent layout does not compile");
 
         assert!(error.to_string().starts_with("keymap: "));

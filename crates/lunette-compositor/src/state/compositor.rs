@@ -57,9 +57,9 @@ use crate::{
         DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
     },
     protocol::{
-        Command, Event, KeyboardConfig, OutputId, OutputMode, OutputScale, OutputSnapshot, Pid,
-        PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
-        SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
+        Command, Event, KeyboardConfig, KeymapDefaults, OutputId, OutputMode, OutputScale,
+        OutputSnapshot, Pid, PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate,
+        SeatId, SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
     },
     seat::SeatRegistry,
     selection::{HostEvents, HostSelectionSource, SelectionBridge},
@@ -117,6 +117,9 @@ pub struct CompositorConfig {
     /// Where to find xwayland-satellite. Absent means X11 clients are not
     /// served, which is a session worth having.
     pub satellite: Option<XwaylandSatellite>,
+    /// The desktop's own keyboard layout, which a seat that names none inherits.
+    /// The binary reads it from the environment; nothing in this crate does.
+    pub keymap_defaults: KeymapDefaults,
 }
 
 impl Default for CompositorConfig {
@@ -134,6 +137,7 @@ impl Default for CompositorConfig {
             host_selection: None,
             display: None,
             satellite: None,
+            keymap_defaults: KeymapDefaults::default(),
         }
     }
 }
@@ -182,7 +186,7 @@ impl RenderNode {
 /// protocol traffic into.
 pub(crate) struct CompositorState {
     pub(super) display: DisplayHandle,
-    config: CompositorConfig,
+    pub(super) config: CompositorConfig,
     /// What a spawned client is told about how to reach lunette, derived once
     /// from the display name rather than rebuilt per spawn.
     environment: DisplayEnvironment,
@@ -298,6 +302,7 @@ impl CompositorState {
             DEFAULT_SEAT,
             SEAT_NAME,
             &KeyboardConfig::default(),
+            &config.keymap_defaults,
         ) {
             warn!(
                 %error,

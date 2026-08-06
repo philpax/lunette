@@ -408,8 +408,9 @@ const SECOND: (SeatId, &str) = (
 
 /// A keyboard on an explicitly named layout.
 ///
-/// Named rather than defaulted, because the default is whatever the machine's
-/// `XKB_DEFAULT_LAYOUT` says, and a seat that fails to compile never appears.
+/// Named rather than defaulted, so these seats do not depend on the
+/// compositor's inherited default, and a seat that fails to compile never
+/// appears.
 fn keyboard() -> Box<KeyboardConfig> {
     Box::new(KeyboardConfig {
         keymap: KeymapConfig {

@@ -674,8 +674,12 @@ impl Host {
 
     /// Records a MIME type against the offer that advertised it.
     fn offered(&mut self, offer: &Offer, mime: String) {
-        let Some(mime) = MimeType::new(mime) else {
-            debug!("the host offered an empty mime type; ignoring it");
+        let Some(mime) = MimeType::new(mime.as_str()) else {
+            debug!(
+                mime,
+                "the host offered a mime type that is empty or padded with whitespace, and \
+                 nothing would ever ask for it; ignoring it"
+            );
             return;
         };
 
@@ -769,8 +773,12 @@ impl Host {
             debug!("the host asked a clipboard source lunette no longer owns for data");
             return;
         };
-        let Some(mime) = MimeType::new(mime) else {
-            debug!("the host asked for an empty mime type; refusing it");
+        let Some(mime) = MimeType::new(mime.as_str()) else {
+            debug!(
+                mime,
+                "the host asked for a mime type that is empty or padded with whitespace, which no \
+                 source can have advertised; refusing it"
+            );
             return;
         };
         self.events.report(HostEvent::Send { kind, mime, pipe });

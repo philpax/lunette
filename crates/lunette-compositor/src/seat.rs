@@ -55,10 +55,10 @@ use smithay::{
 };
 
 use crate::{
-    keymap::{Keymap, KeymapError},
+    keymap::{self, Keymap, KeymapError},
     protocol::{
-        KeyModifier, KeyboardConfig, KeymapText, ModifierState, PixelPoint, SeatId, SeatSnapshot,
-        WindowId,
+        KeyModifier, KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText, ModifierState,
+        PixelPoint, SeatId, SeatSnapshot, WindowId,
     },
     state::CompositorState,
 };
@@ -80,7 +80,9 @@ impl SeatRegistry {
     /// from the same RMLVO names. That is not waste: smithay's copy lives
     /// behind its own context because libxkbcommon is not thread-safe, and this
     /// crate's copy is what answers the queries `docs/input.md:50-52` asks for
-    /// and what `typeText` restores.
+    /// and what `typeText` restores. The names are resolved against `defaults`
+    /// once, before either compile, so a default that had to be narrowed is
+    /// narrowed in both copies rather than only in the one that noticed.
     ///
     /// # Errors
     ///
@@ -95,6 +97,7 @@ impl SeatRegistry {
         id: SeatId,
         name: &str,
         keyboard: &KeyboardConfig,
+        defaults: &KeymapDefaults,
     ) -> Result<&SeatEntry, SeatError> {
         if self.get(id).is_some() {
             return Err(SeatError {
@@ -111,7 +114,8 @@ impl SeatRegistry {
             });
         }
 
-        let keymap = Keymap::compile(&keyboard.keymap).map_err(|error| SeatError {
+        let resolved = keymap::resolve(&keyboard.keymap, defaults);
+        let keymap = Keymap::compile_resolved(&resolved).map_err(|error| SeatError {
             seat: id,
             kind: SeatErrorKind::Keymap { error },
         })?;
@@ -120,7 +124,7 @@ impl SeatRegistry {
         let pointer = seat.add_pointer();
         let handle = seat
             .add_keyboard(
-                xkb_config(keyboard),
+                xkb_config(&resolved.names),
                 keyboard.repeat.delay.millis(),
                 keyboard.repeat.rate.get(),
             )
@@ -424,20 +428,20 @@ impl Error for SeatError {
 
 /// The RMLVO names smithay compiles its own copy of the layout from.
 ///
-/// The same five names [`Keymap::compile`] uses, so the two copies agree. An
-/// absent field becomes the empty string, which is how libxkbcommon spells "the
-/// default".
-fn xkb_config(keyboard: &KeyboardConfig) -> XkbConfig<'_> {
+/// The resolved names, so the two copies agree — including on a default that
+/// was narrowed to one layout. An absent field becomes the empty string, which
+/// is how libxkbcommon spells "the default".
+fn xkb_config(keymap: &KeymapConfig) -> XkbConfig<'_> {
     fn name(value: &Option<String>) -> &str {
         value.as_deref().unwrap_or_default()
     }
 
     XkbConfig {
-        rules: name(&keyboard.keymap.rules),
-        model: name(&keyboard.keymap.model),
-        layout: name(&keyboard.keymap.layout),
-        variant: name(&keyboard.keymap.variant),
-        options: keyboard.keymap.options.clone(),
+        rules: name(&keymap.rules),
+        model: name(&keymap.model),
+        layout: name(&keymap.layout),
+        variant: name(&keymap.variant),
+        options: keymap.options.clone(),
     }
 }
 

@@ -31,22 +31,26 @@ use crate::{
     hit_test::{self, HitTarget},
     keymap::XKB_KEYCODE_OFFSET,
     protocol::{
-        KeyboardConfig, Keycode, KeymapText, ModifierState, PixelPoint, PointerButton, ScrollAxis,
-        ScrollDelta, SeatId, SinkId,
+        KeyboardConfig, Keycode, KeymapText, ModifierState, PixelPoint, PointerButton,
+        SURFACE_UNITS_PER_DETENT, ScrollAxis, ScrollDelta, SeatId, SinkId,
     },
     seat::{self, MouseState, SeatEntry},
     state::compositor::CompositorState,
-    type_text::{self, TypeStep},
+    type_text::{self, TypePlan, TypeStep},
     window::Window,
 };
 
 impl CompositorState {
     /// Creates a seat with its own pointer, keyboard, focus, and hover.
     pub(super) fn create_seat(&mut self, seat: SeatId, name: &str, keyboard: &KeyboardConfig) {
-        match self
-            .seats
-            .create(&mut self.seat_state, &self.display, seat, name, keyboard)
-        {
+        match self.seats.create(
+            &mut self.seat_state,
+            &self.display,
+            seat,
+            name,
+            keyboard,
+            &self.config.keymap_defaults,
+        ) {
             Ok(entry) => {
                 info!(seat = %entry.id(), name, "a seat was created");
                 self.touch();
@@ -161,26 +165,29 @@ impl CompositorState {
         let original = Arc::clone(entry.keymap().text());
         let held = seat::held(keyboard.modifier_state());
 
-        let plan = match type_text::plan(text, entry.keymap(), type_text::SPARE_KEYCODES) {
-            Ok(plan) => plan,
-            Err(error) => {
-                warn!(%seat, %error, "text could not be typed");
-                return;
-            }
-        };
-        if plan.is_empty() {
-            return;
-        }
-
         // The synthetic layout smithay is holding, which is not assumed to be
         // absent: a restore that failed on an earlier call left one loaded, and
         // a native chunk run against it would type whatever that layout binds.
-        // Every way out of the loop — including a chunk that failed — passes
-        // through the restore below, and what is recorded afterwards is what
-        // smithay actually holds rather than what was asked for.
+        // Every way out of this function — a plan that could not be made, a plan
+        // with nothing in it, and a chunk that failed — passes through the
+        // restore below, and what is recorded afterwards is what smithay
+        // actually holds rather than what was asked for.
         let mut loaded: Option<Arc<KeymapText>> = entry.uploaded().map(Arc::clone);
 
-        for chunk in plan.chunks() {
+        let plan = match type_text::plan(text, entry.keymap(), type_text::SPARE_KEYCODES) {
+            Ok(plan) => (!plan.is_empty()).then_some(plan),
+            Err(error) => {
+                warn!(%seat, %error, "text could not be typed");
+                None
+            }
+        };
+
+        // Nothing to type, and nothing left synthetic to repair.
+        if plan.is_none() && loaded.is_none() {
+            return;
+        }
+
+        for chunk in plan.iter().flat_map(TypePlan::chunks) {
             let wanted = chunk.keymap().map(|text| Arc::new(text.clone()));
             if loaded != wanted {
                 let text = wanted.as_deref().unwrap_or(&original);
@@ -495,12 +502,6 @@ impl CompositorState {
         }
     }
 }
-
-/// How many surface-local units `wl_pointer.axis` carries per wheel detent.
-///
-/// The convention every toolkit reads a continuous scroll under, and what the
-/// Lua side divides by when it converts the other way.
-const SURFACE_UNITS_PER_DETENT: f64 = 10.0;
 
 /// What `wl_pointer.axis_value120` counts per wheel detent.
 ///

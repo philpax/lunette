@@ -60,7 +60,7 @@ use lunette_capture::{
 };
 use lunette_compositor::{
     client::{DisplayName, WaylandSocket, XwaylandSatellite},
-    protocol::{Event, ImportedBuffer, Snapshot, SurfaceId, WindowId},
+    protocol::{Event, ImportedBuffer, KeymapDefaults, Snapshot, SurfaceId, WindowId},
     selection::DataControlSource,
     state::CompositorConfig,
     thread::{self, CompositorHandle, PanicPolicy, StartError},
@@ -105,6 +105,10 @@ pub struct Startup {
     /// cannot be captured: a session with no screencast portal still has a
     /// clipboard worth bridging.
     pub clipboard: Option<DataControlSource>,
+    /// The desktop's own keyboard layout, which a seat that names none
+    /// inherits. Read from `XKB_DEFAULT_*` by the entry point, because the
+    /// compositor crate is a library and libraries do not read the environment.
+    pub keymap_defaults: KeymapDefaults,
 }
 
 /// The host desktop the entry point opened, for the frame loop to drive.
@@ -823,6 +827,7 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
         // is not consumed by it.
         host: _,
         clipboard,
+        keymap_defaults,
     } = startup;
 
     // SAFETY: the caller has established that LÖVR's graphics module is
@@ -837,6 +842,7 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
         display: Some(name),
         satellite,
         host_selection: clipboard.map(|source| Box::new(source) as _),
+        keymap_defaults,
         ..CompositorConfig::default()
     };
 
