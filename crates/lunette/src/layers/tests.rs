@@ -564,6 +564,29 @@ fn the_first_boundary_after_recovery_grants_a_new_layer_rather_than_a_stale_one(
 }
 
 #[test]
+fn an_immutable_key_is_never_created() {
+    // LÖVR raises "Static Layers can only be updated once" on the second
+    // acquire of one, and a pooled layer is reused by definition — so the blit
+    // path would stop updating a layer the pool went on granting.
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(
+        LayerKey::new(
+            LayerSize::quantized(PixelSize::new(512, 512)).expect("a positive size has a rung"),
+            LayerProperties {
+                immutable: true,
+                ..LayerProperties::PANEL
+            },
+        ),
+        priority(1.0),
+    );
+
+    harness.settle();
+
+    assert_eq!(harness.created(), 0);
+    assert!(harness.pool.layer(claim).is_none());
+}
+
+#[test]
 fn the_submitted_list_holds_every_granted_layer_and_nothing_else() {
     let mut harness = Harness::new(GENEROUS);
     let claim = harness.pool.claim(key(512, 512), priority(1.0));

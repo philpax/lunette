@@ -335,6 +335,21 @@ impl<B: LayerBackend> LayerPool<B> {
                 continue;
             }
 
+            // Checked here rather than assumed, because the whole of the
+            // pool's arithmetic is wrong for such a layer and nothing else
+            // would notice. `lovrSwapchainAcquire` answers "Static Layers can
+            // only be updated once" on the second acquire of an immutable
+            // swapchain, so the blit path would silently stop updating a layer
+            // the pool went on granting and recycling.
+            if key.properties().immutable {
+                warn!(
+                    %key,
+                    "the pool does not serve immutable layers, because a pooled layer is by \
+                     definition reused and LÖVR refuses the second acquire of an immutable one"
+                );
+                continue;
+            }
+
             if created >= Self::CREATIONS_PER_FRAME {
                 continue;
             }

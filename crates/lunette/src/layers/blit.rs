@@ -31,14 +31,14 @@
 //! [`LayerPool::submit`](crate::layers::LayerPool::submit) is what does that, and
 //! it runs whatever this module decided.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use lunette_compositor::protocol::SurfaceId;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{
     layers::{ClaimId, backend::LayerBackend, pool::LayerPool},
-    texture::{SurfaceCommit, TextureLedger},
+    texture::{FrameGeneration, SurfaceCommit, TextureLedger},
 };
 
 /// The seam between the blit decision and LÖVR.
@@ -59,7 +59,8 @@ pub trait LayerBlitter {
     /// `lovrLayerGetTexture` calls `lovrSwapchainAcquire`, and the release at
     /// the end of every submit sets the swapchain's index back to `~0`, so a
     /// call in a later frame genuinely re-acquires and may answer with a
-    /// different image.
+    /// different image. That is why the caller wraps the result in a
+    /// [`LayerTexture`], which carries the frame it was obtained in.
     ///
     /// `None` when the runtime refused. An immutable layer asked for a second
     /// image is one such case, and the reason the pool never creates one.
@@ -77,6 +78,74 @@ pub trait LayerBlitter {
     /// Records the copy, reporting whether LÖVR accepted it.
     fn copy(&mut self, source: &Self::Texture, destination: &Self::Texture) -> bool;
 }
+
+/// A layer's swapchain image, as acquired in one frame.
+///
+/// The same hazard `window:getTexture()` carries, and the same treatment. A
+/// swapchain hands out a different image each time it is acquired, and it is
+/// re-acquired on the first ask of every frame — so a handle kept from an
+/// earlier frame names an image the runtime has since composited from and handed
+/// back. Copying into it produces content from the wrong frame, intermittently,
+/// which is among the hardest things to diagnose from a headset. The generation
+/// travels with the handle and is checked at every use rather than being
+/// documented and hoped for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LayerTexture<T> {
+    texture: T,
+    generation: FrameGeneration,
+}
+
+impl<T> LayerTexture<T> {
+    #[must_use]
+    pub const fn new(texture: T, generation: FrameGeneration) -> Self {
+        Self {
+            texture,
+            generation,
+        }
+    }
+
+    /// The image, if this is still the frame it was acquired in.
+    ///
+    /// # Errors
+    ///
+    /// See [`StaleLayerTexture`].
+    pub fn get(&self, current: FrameGeneration) -> Result<&T, StaleLayerTexture> {
+        if self.generation == current {
+            Ok(&self.texture)
+        } else {
+            Err(StaleLayerTexture {
+                obtained: self.generation,
+                current,
+            })
+        }
+    }
+
+    #[must_use]
+    pub const fn generation(&self) -> FrameGeneration {
+        self.generation
+    }
+}
+
+/// A layer's swapchain image, used in a frame after the one that acquired it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StaleLayerTexture {
+    pub obtained: FrameGeneration,
+    pub current: FrameGeneration,
+}
+
+impl fmt::Display for StaleLayerTexture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { obtained, current } = self;
+        write!(
+            f,
+            "layer: the swapchain image was acquired in frame {obtained} and this is frame \
+             {current}; a layer's swapchain rotates its images as the runtime composites them, so \
+             acquire again rather than caching one"
+        )
+    }
+}
+
+impl std::error::Error for StaleLayerTexture {}
 
 /// What the blit path did about one claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,16 +209,33 @@ pub fn decide(last: Option<SurfaceCommit>, source: Option<SurfaceCommit>) -> Dec
     }
 }
 
-/// What each claim has had copied into its layer.
-#[derive(Debug, Default)]
-pub struct BlitLedger {
+/// What each claim has had copied into its layer, and which swapchain image this
+/// frame acquired for it.
+///
+/// The acquired images are cached because acquiring is an FFI call a frame may
+/// make more than once. The cache is also what makes [`LayerTexture`]'s
+/// generation load-bearing rather than decorative: an entry outlives the frame
+/// that put it there, and has to be refused rather than reused.
+#[derive(Debug)]
+pub struct BlitLedger<T> {
     copied: HashMap<ClaimId, SurfaceCommit>,
+    acquired: HashMap<ClaimId, LayerTexture<T>>,
     /// Claims whose source the device cannot copy into a layer, so the refusal
     /// is reported once rather than on every frame for the rest of the session.
     reported: Vec<ClaimId>,
 }
 
-impl BlitLedger {
+impl<T> Default for BlitLedger<T> {
+    fn default() -> Self {
+        Self {
+            copied: HashMap::new(),
+            acquired: HashMap::new(),
+            reported: Vec::new(),
+        }
+    }
+}
+
+impl<T> BlitLedger<T> {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -166,12 +252,13 @@ impl BlitLedger {
     /// `source` maps a claim onto the surface whose pixels it carries. The pool
     /// does not know that — a layer of a given key serves any source wanting
     /// that key — and neither does this ledger, so it arrives as a function.
-    pub fn run<B, S, T>(
+    pub fn run<B, S>(
         &mut self,
         pool: &mut LayerPool<B>,
         blitter: &mut S,
         textures: &TextureLedger<T>,
         source: impl Fn(ClaimId) -> Option<SurfaceId>,
+        now: FrameGeneration,
     ) -> Vec<(ClaimId, Blitted)>
     where
         B: LayerBackend,
@@ -189,7 +276,7 @@ impl BlitLedger {
             let outcome = match decide(self.copied.get(&claim).copied(), commit) {
                 Decision::Skip(outcome) => outcome,
                 Decision::Copy(commit) => {
-                    let outcome = self.copy(pool, blitter, textures, &source, claim);
+                    let outcome = self.copy(pool, blitter, textures, &source, claim, now);
                     if outcome.copied() {
                         self.copied.insert(claim, commit);
                         pool.note_blit_issued(claim);
@@ -206,11 +293,13 @@ impl BlitLedger {
 
     /// Forgets every claim not in `held`.
     ///
-    /// A claim that lost its layer must not keep the counter it last had
-    /// copied: the layer it holds next comes off the free list, and that
-    /// layer's swapchain holds whatever its previous holder put there.
+    /// Both maps are keyed by claim, and a claim that lost its layer must not
+    /// keep the counter it last had copied: the layer it holds next comes off
+    /// the free list, and that layer's swapchain holds whatever its previous
+    /// holder put there.
     pub fn forget_absent(&mut self, held: &[ClaimId]) {
         self.copied.retain(|claim, _| held.contains(claim));
+        self.acquired.retain(|claim, _| held.contains(claim));
         self.reported.retain(|claim| held.contains(claim));
     }
 
@@ -218,6 +307,7 @@ impl BlitLedger {
     /// gone.
     pub fn clear(&mut self) {
         self.copied.clear();
+        self.acquired.clear();
         self.reported.clear();
     }
 
@@ -228,13 +318,14 @@ impl BlitLedger {
     }
 
     /// Records one claim's copy.
-    fn copy<B, S, T>(
+    fn copy<B, S>(
         &mut self,
         pool: &LayerPool<B>,
         blitter: &mut S,
         textures: &TextureLedger<T>,
         source: &impl Fn(ClaimId) -> Option<SurfaceId>,
         claim: ClaimId,
+        now: FrameGeneration,
     ) -> Blitted
     where
         B: LayerBackend,
@@ -246,18 +337,21 @@ impl BlitLedger {
         let Some(layer) = pool.layer(claim) else {
             return Blitted::NoSource;
         };
-        let Some(destination) = blitter.acquire(layer) else {
-            return Blitted::NotAcquired;
-        };
 
-        let outcome = if blitter.can_copy(pixels, &destination) {
-            if blitter.copy(pixels, &destination) {
-                Blitted::Copied
-            } else {
-                Blitted::Refused
+        if !self.acquire(blitter, claim, layer, now) {
+            return Blitted::NotAcquired;
+        }
+
+        let outcome = match self.acquired.get(&claim).map(|image| image.get(now)) {
+            Some(Ok(destination)) if !blitter.can_copy(pixels, destination) => Blitted::Unsupported,
+            Some(Ok(destination)) => {
+                if blitter.copy(pixels, destination) {
+                    Blitted::Copied
+                } else {
+                    Blitted::Refused
+                }
             }
-        } else {
-            Blitted::Unsupported
+            _ => Blitted::NotAcquired,
         };
 
         if outcome == Blitted::Unsupported && !self.reported.contains(&claim) {
@@ -270,6 +364,37 @@ impl BlitLedger {
         }
 
         outcome
+    }
+
+    /// Puts this frame's swapchain image for `claim` in the cache, reporting
+    /// whether there is one.
+    ///
+    /// An entry from an earlier frame is discarded rather than reused: the
+    /// runtime has composited from that image and handed it back, so a copy into
+    /// it lands nowhere the next `xrEndFrame` looks.
+    fn acquire<S>(
+        &mut self,
+        blitter: &mut S,
+        claim: ClaimId,
+        layer: &S::Layer,
+        now: FrameGeneration,
+    ) -> bool
+    where
+        S: LayerBlitter<Texture = T>,
+    {
+        if let Some(image) = self.acquired.get(&claim) {
+            match image.get(now) {
+                Ok(_) => return true,
+                Err(stale) => debug!(%claim, %stale, "re-acquiring a layer's swapchain image"),
+            }
+        }
+
+        let Some(texture) = blitter.acquire(layer) else {
+            self.acquired.remove(&claim);
+            return false;
+        };
+        self.acquired.insert(claim, LayerTexture::new(texture, now));
+        true
     }
 }
 
@@ -291,7 +416,7 @@ mod tests {
     use crate::{
         import::formats::Alpha,
         layers::{LayerKey, LayerProperties, LayerSize, Priority},
-        texture::{CopyableTexture, FrameGeneration, TextureDescription},
+        texture::{CopyableTexture, TextureDescription},
     };
 
     /// A texture that is a number, so the decision can be exercised without a
@@ -401,7 +526,7 @@ mod tests {
         pool: LayerPool<FakeLayers>,
         blitter: FakeBlitter,
         textures: TextureLedger<Counted>,
-        ledger: BlitLedger,
+        ledger: BlitLedger<Counted>,
         submitted: Rc<RefCell<Vec<Vec<u64>>>>,
         sources: Vec<(ClaimId, SurfaceId)>,
         frame: FrameGeneration,
@@ -459,14 +584,18 @@ mod tests {
             self.blitter.image.set(self.blitter.image.get() + 1);
 
             let sources = self.sources.clone();
-            let report =
-                self.ledger
-                    .run(&mut self.pool, &mut self.blitter, &self.textures, |claim| {
-                        sources
-                            .iter()
-                            .find(|(known, _)| *known == claim)
-                            .map(|(_, surface)| *surface)
-                    });
+            let report = self.ledger.run(
+                &mut self.pool,
+                &mut self.blitter,
+                &self.textures,
+                |claim| {
+                    sources
+                        .iter()
+                        .find(|(known, _)| *known == claim)
+                        .map(|(_, surface)| *surface)
+                },
+                self.frame,
+            );
 
             self.pool.submit();
             report
@@ -609,6 +738,21 @@ mod tests {
             "the second copy went into the image the first frame acquired"
         );
         assert_eq!(harness.blitter.acquires.get(), 2);
+    }
+
+    #[test]
+    fn a_layer_texture_from_an_earlier_frame_is_refused() {
+        let obtained = FrameGeneration::INITIAL.next();
+        let texture = LayerTexture::new(Counted(7), obtained);
+
+        assert_eq!(texture.get(obtained), Ok(&Counted(7)));
+        assert_eq!(
+            texture.get(obtained.next()),
+            Err(StaleLayerTexture {
+                obtained,
+                current: obtained.next(),
+            })
+        );
     }
 
     #[test]

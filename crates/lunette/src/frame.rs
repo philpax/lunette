@@ -96,7 +96,7 @@ pub struct FrameDriver {
     /// which no dyn-safe trait can hand back.
     layers: Rc<PoolRegistry<LovrLayers>>,
     blits: LovrBlits,
-    blitted: BlitLedger,
+    blitted: BlitLedger<LovrTexture>,
     /// Consumed by the first successful or failed start.
     startup: Option<Startup>,
     compositor: Option<Compositor>,
@@ -308,19 +308,26 @@ impl FrameDriver {
     /// leaving it out of the list would make its panel disappear rather than
     /// hold still.
     fn blit_layers(&mut self) {
+        let now = self.session.generation();
         let session = Rc::clone(&self.session);
         let blits = &mut self.blits;
         let blitted = &mut self.blitted;
 
         self.layers.with_pool(|pool| {
             session.with_textures(|textures| {
-                let report = blitted.run(pool, blits, textures, |claim| {
-                    session
-                        .claims()
-                        .source(claim)
-                        .and_then(|window| session.window(window))
-                        .map(|window| window.surface)
-                });
+                let report = blitted.run(
+                    pool,
+                    blits,
+                    textures,
+                    |claim| {
+                        session
+                            .claims()
+                            .source(claim)
+                            .and_then(|window| session.window(window))
+                            .map(|window| window.surface)
+                    },
+                    now,
+                );
 
                 for (claim, outcome) in report {
                     match outcome {
