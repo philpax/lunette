@@ -5,7 +5,7 @@
 //! own `main` is excluded from the shared build, so there is no collision to
 //! resolve; what has to be reproduced is the ordering, which LÖVR depends on.
 //!
-//! Two things depart from a literal replication, both deliberately.
+//! Three things depart from a literal replication, all deliberately.
 //!
 //! The `arg` table places the configuration directory at `arg[1]`, where
 //! `src/main.c:43-46` places only `argv[0]` at `arg[0]`. See [`arg_entries`].
@@ -14,6 +14,12 @@
 //! returns the status up to `main` instead. Observable behaviour is identical
 //! today; the seam is what lets the compositor and control threads be torn
 //! down in order once they exist.
+//!
+//! The exit status is read from stack index 1, where `src/main.c:21` reads
+//! index -1. `vendor/lovr/etc/boot.lua:374` returns `result, cookie`, so a
+//! finished coroutine leaves two values behind and index -1 is the nil cookie.
+//! Upstream's `lua_tointeger` on that nil yields 0, which makes every exit
+//! report success. See [`step`]; do not "correct" this back to match `main.c`.
 
 use std::{
     env,
@@ -209,17 +215,27 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 
         // The type is checked before reading, because `lua_tolstring` converts
         // a number to a string in place and that would corrupt the status the
-        // exit path reads back at index -1. `src/main.c:18` checks first too.
+        // exit path reads back at the same index. `src/main.c:18` checks first
+        // too.
         if lua::lua_type(thread, 1) == lua::LUA_TSTRING
             && string_bytes(thread, 1) == Some(b"restart".as_slice())
         {
             return Step::Restart;
         }
 
+        // Index 1, not the -1 that `src/main.c:21` uses.
+        // `vendor/lovr/etc/boot.lua:374` finishes with `return result, cookie`,
+        // so the resumed coroutine leaves two values on its stack: the status
+        // at index 1 and the restart cookie at index 2. Index -1 is therefore
+        // the cookie, which is nil on the exit path, and `lua_tointeger` on nil
+        // is 0 — upstream reports success for every exit. The restart check
+        // above already reads index 1, and `run_steps` already reads the cookie
+        // at index 2, so index 1 is the only reading consistent with both.
+        //
         // `src/main.c:25` passes this to `exit()`, which narrows it to the low
         // byte before the kernel sees it. Narrowing here is the same value.
         Step::Exit {
-            status: lua::lua_tointeger(thread, -1) as u8,
+            status: lua::lua_tointeger(thread, 1) as u8,
         }
     }
 }

@@ -73,7 +73,7 @@ fn build() -> Result<(), BuildError> {
 
     let cmake_out = build_lovr(&lovr_dir, &jolt_source);
     let lovr_build = find_lovr_build(&cmake_out)?;
-    emit_link_directives(&lovr_build)?;
+    emit_link_directives(&lovr_build);
     stage_boot_lua(&lovr_dir, &out_dir)?;
     generate_bindings(&manifest_dir, &lovr_dir, &out_dir)
 }
@@ -124,7 +124,7 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
 /// the Lua C API symbols mlua declares need a link-time provider, so it is named
 /// alongside LÖVR itself. Its `SONAME` is plain `libluajit.so`, not the
 /// versioned `libluajit-5.1.so` a distribution package would carry.
-fn emit_link_directives(build: &LovrBuild) -> Result<(), BuildError> {
+fn emit_link_directives(build: &LovrBuild) {
     let library_dir = build.library_dir.display();
     let staged_dir = build.staged_dir.display();
 
@@ -147,8 +147,6 @@ fn emit_link_directives(build: &LovrBuild) -> Result<(), BuildError> {
 
     println!("cargo::metadata=library_dir={library_dir}");
     println!("cargo::metadata=staged_dir={staged_dir}");
-
-    Ok(())
 }
 
 /// Copies `etc/boot.lua` into `OUT_DIR` for the crate to embed.

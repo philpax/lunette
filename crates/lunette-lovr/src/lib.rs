@@ -40,6 +40,11 @@ pub const BOOT_LUA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/boot.lua")
 /// The signature LÖVR hands log lines to; `vendor/lovr/src/util.h:67`.
 ///
 /// `luax_vlog` has exactly this shape, which is what the boot sequence installs.
+///
+/// x86_64-only: `raw::__va_list_tag` is the name bindgen gives the System V
+/// x86_64 `va_list`. Other architectures spell it differently — on aarch64
+/// clang's is `struct __va_list` — so this alias has to change with them, which
+/// is why `flake.nix` declares `x86_64-linux` alone.
 pub type LogCallback = unsafe extern "C" fn(
     context: *mut c_void,
     level: c_int,

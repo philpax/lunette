@@ -15,16 +15,35 @@ use std::{
     process::ExitCode,
 };
 
-use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
+use tracing::{error, info, warn};
+use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 fn main() -> ExitCode {
+    // The parse failure is held rather than discarded, because reporting it
+    // needs the subscriber the filter is being built for. A typo in the
+    // variable otherwise looks exactly like the variable being unset.
+    let (filter, filter_error) = match EnvFilter::builder()
+        .with_default_directive(DEFAULT_LOG_LEVEL.into())
+        .from_env()
+    {
+        Ok(filter) => (filter, None),
+        Err(error) => (
+            EnvFilter::default().add_directive(DEFAULT_LOG_LEVEL.into()),
+            Some(error),
+        ),
+    };
+
     tracing_subscriber::fmt()
         .with_writer(io::stderr)
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+        .with_env_filter(filter)
         .init();
+
+    if let Some(error) = filter_error {
+        warn!(
+            "logging: {} could not be parsed, falling back to {DEFAULT_LOG_LEVEL}: {error}",
+            EnvFilter::DEFAULT_ENV
+        );
+    }
 
     let candidates = config_directory_candidates(&ConfigDirectorySources::from_environment());
     let Some(config_directory) = select_config_directory(&candidates) else {
@@ -35,6 +54,10 @@ fn main() -> ExitCode {
     info!(path = %config_directory.display(), "loading the configuration");
     boot::run(config_directory)
 }
+
+/// The verbosity applied when `RUST_LOG` names none, or names something that
+/// does not parse.
+const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::INFO;
 
 /// The install-time system configuration directory.
 ///

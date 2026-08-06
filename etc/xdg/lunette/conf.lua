@@ -6,8 +6,10 @@
 function lovr.conf(t)
   t.identity = 'lunette'
 
-  -- The desktop simulator only opens a window when this table is set, so
-  -- omitting it gives a running process with no visible output.
+  -- boot.lua ships a populated window table of its own
+  -- (vendor/lovr/etc/boot.lua:63-71) and opens a window whenever conf.window is
+  -- set (:171), so these fields customise the default rather than enable it.
+  -- Setting t.window = nil is what suppresses the window.
   t.window.title = 'lunette'
   t.window.width = 1280
   t.window.height = 800
