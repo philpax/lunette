@@ -17,7 +17,7 @@ The workspace builds, links LÖVR, and opens a window running a Lua configuratio
 The layout is recorded in [docs/build-and-development.md](docs/build-and-development.md). In summary:
 
 ```
-crates/lunette/              the binary: main(), Lua injection, frame orchestration
+crates/lunette/              the binaries: lunette and lunctl, Lua injection, frame orchestration
 crates/lunette-compositor/   smithay; vendored fork of WayVR's backend/wayvr
 crates/lunette-lovr/         cmake build and FFI surface for LÖVR
 crates/lunette-capture/      wrappers over wlx-capture and HidProvider

@@ -8,7 +8,7 @@ lunette/
   Makefile                        the install rule
   Cargo.toml                      workspace
   crates/
-    lunette/                      the binary: main(), Lua injection, frame orchestration
+    lunette/                      the binaries: lunette and lunctl, Lua injection, frame orchestration
     lunette-compositor/           smithay; vendored fork of WayVR's backend/wayvr
     lunette-lovr/                 cmake build + FFI surface for LÖVR
     lunette-capture/              wrappers over wlx-capture and HidProvider
@@ -20,6 +20,8 @@ lunette/
 ```
 
 `lunette-compositor` must not depend on `lunette-lovr`. This is what keeps logic-headless testing reachable.
+
+`lunctl` is a second binary target in `crates/lunette` rather than a crate of its own. It needs the control socket's wire format, which lives in `crates/lunette/src/control`, and a separate crate would either depend on `lunette` anyway or carry a second copy of the codec — a protocol with two implementations that have to agree is a defect waiting for the first version bump.
 
 ## Building
 
@@ -48,7 +50,8 @@ This follows awesome, which installs Lua to `$PREFIX/share/awesome/lib` and its 
 | Standard library | `$PREFIX/share/lunette/lua/` |
 | Default config | `$SYSCONFDIR/xdg/lunette/main.lua` |
 | User config | `~/.config/lunette/main.lua` |
-| Control socket | `$XDG_RUNTIME_DIR/lunette/lunette-0.sock` |
+| Control socket | `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, mode 0600 in a 0700 directory |
+| Binaries | `$PREFIX/bin/lunette` and `$PREFIX/bin/lunctl` |
 | Saved state | LÖVR's save directory |
 
 The standard library is kept on disk rather than embedded in the binary, so it stays legible to anyone who needs to read it without cloning the source. There are two candidates and no third: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [Decisions](decisions.md#recorded-decisions) records why there is no `./lua` fallback and how the mount is installed.
