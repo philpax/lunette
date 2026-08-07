@@ -1,4 +1,5 @@
--- The fakes the panel specs share, and the module under test.
+-- The fakes the panel, interaction, and laser specs share, and the panel module
+-- under test.
 --
 -- The panel's one native call is `lunette.claimLayer`, so `lunette` is faked:
 -- the real one would hand back a claim against a layer pool with no headset
@@ -60,13 +61,86 @@ function fixture.newSource(width, height, options)
   return source
 end
 
+-- A sink that records what it was told, in order.
+--
+-- Every method takes the trailing seat the native ones take, and records it: a
+-- pointer that forgot to pass its own seat would address the seat the session
+-- started with, so two hands would share one cursor and one focus. That is the
+-- defect two seats exist to avoid, and it is invisible unless a spec looks.
+function fixture.newSink()
+  local sink = { calls = {}, seats = {} }
+
+  local function record(name)
+    return function(self, ...)
+      local arguments = { ... }
+      self.calls[#self.calls + 1] = { name = name, arguments = arguments }
+      self.seats[#self.seats + 1] = arguments[#arguments]
+      return true
+    end
+  end
+
+  sink.pointer = record 'pointer'
+  sink.button = record 'button'
+  sink.leave = record 'leave'
+  sink.scroll = record 'scroll'
+  sink.key = record 'key'
+  sink.modifiers = record 'modifiers'
+  sink.typeText = record 'typeText'
+
+  return sink
+end
+
+-- A window source with a recording sink and the native property store.
+function fixture.newWindow(width, height)
+  local window = fixture.newSource(width, height)
+  window.sink = fixture.newSink()
+  window.stored = {}
+
+  function window:setProperty(key, value)
+    if self.dead then
+      return false
+    end
+    self.stored[key] = value
+    return true
+  end
+
+  function window:getProperty(key)
+    return self.stored[key]
+  end
+
+  return window
+end
+
+-- The names of a sink's calls, in order, as one string. A spec asserting the
+-- whole sequence catches a call that should not have happened as well as one
+-- that should have.
+function fixture.sequence(sink)
+  local names = {}
+  for index, call in ipairs(sink.calls) do
+    names[index] = call.name
+  end
+  return table.concat(names, ',')
+end
+
+-- The last call of `name` a sink took, or nothing.
+function fixture.lastCall(sink, name)
+  for index = #sink.calls, 1, -1 do
+    if sink.calls[index].name == name then
+      return sink.calls[index]
+    end
+  end
+  return nil
+end
+
 -- A LÖVR `Pass` that records what it was asked to draw.
 --
--- The panel calls `plane`, `text`, `setMaterial`, `setColor`, and
--- `setBlendMode`, so those are all this carries: a call the panel makes and
--- this does not have raises, which is the report wanted.
+-- A call the code under test makes and this does not have raises, which is the
+-- report wanted: a fake that answered every call would let a typo through.
+--
+-- `lines` and `spheres` keep their arguments, because where a laser drew its
+-- beam is the whole of what a laser's drawing does.
 function fixture.newPass()
-  local pass = { planes = 0, texts = 0, material = nil }
+  local pass = { planes = 0, texts = 0, lines = {}, spheres = {}, material = nil }
 
   function pass:plane()
     self.planes = self.planes + 1
@@ -74,6 +148,14 @@ function fixture.newPass()
 
   function pass:text()
     self.texts = self.texts + 1
+  end
+
+  function pass:line(...)
+    self.lines[#self.lines + 1] = { ... }
+  end
+
+  function pass:sphere(...)
+    self.spheres[#self.spheres + 1] = { ... }
   end
 
   function pass:setMaterial(material)

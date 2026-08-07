@@ -21,6 +21,12 @@ The mount is read-only. A configuration that could overwrite the standard librar
 | `mullion.teardown` | The hook registry a soft reload runs. Hooks are keyed by name and run in reverse registration order. |
 | `mullion.error` | The `lovr.errhand` replacement [The Lua API](lua-api.md#errors) puts here, and the rate limiter it reports through. |
 | `mullion.panel` | Tier 1. A source bound to a pose and a metre size, on a composition layer or an in-scene quad, with `rayQuadHit` for turning a ray into a pixel coordinate. |
+| `mullion.pose` | A `mat4` as a string, and back. The property store refuses a table and a file on disk holds text, so both want the same sixteen numbers. |
+| `mullion.interaction` | Tier 2. A pointer over a set of panels: what it hovers, what it clicks, what it scrolls, and what it has grabbed. It reads no device and draws nothing. |
+| `mullion.laser` | Tier 2. One per hand. It reads a pointer device, drives an interaction pointer with what it read, owns that hand's seat, and draws the beam. |
+| `mullion.keyboard` | Tier 2. A virtual keyboard whose legends and keycodes come from a seat's own keymap rather than from a table of its own. |
+
+`mullion.interaction` and `mullion.laser` are one tier split in two because one of them can be tested and the other cannot. Everything that decides — which panel a ray hits, where a grab puts a panel, what a thumbstick deflection is worth in surface pixels — is in `mullion.interaction`, which is handed its input and reaches for no device. `mullion.laser` is the shell around it: `lovr.headset`, `lunette.newSeat`, and `Pass`.
 
 Two of these are here rather than with the reload mechanism that calls them, and both for the same reason: every module registers a teardown hook, so the registry has to exist before the first module does, and the error handler is stated to be `mullion` code.
 
@@ -45,6 +51,10 @@ Grab-to-move, grab-to-resize, laser pointers with per-hand cursors, hover and fo
 This tier is tuning-heavy. Feel accounts for most of the work.
 
 Minimum viable: one laser per hand, hover highlight, trigger-to-click, grab-to-move, and a keyboard that can type into the focused sink.
+
+Grab-to-resize is deferred rather than dropped. It is in the description above and not in the minimum viable line, and it shares every constant grab-to-move has: the dead zone that decides when a hand movement is deliberate, the reach, and the haptics. Tuning both at once means tuning neither, so resize lands once move has been used in a headset.
+
+Hover and focus stay separate here for the reason [Input](input.md#seats) gives for keeping them separate in the compositor. A laser hovering a panel sends `sink:pointer` and takes `sink:leave` off whatever it left; only a click calls `seat:setFocus`. Inferring focus from pointer motion in Lua would be the heuristic the native layer deliberately does not have, one language further out.
 
 ## Tier 3 — layout and policy
 

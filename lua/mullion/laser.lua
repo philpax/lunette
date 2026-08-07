@@ -1,0 +1,310 @@
+-- Lasers: one pointing device per hand, with a seat of its own.
+--
+-- docs/stdlib.md's tier 2, the half that touches the outside world. A laser
+-- reads a hand's pointer device, owns the seat that hand's input is delivered
+-- through, hands a frame of input to a `mullion.interaction` pointer, and draws
+-- the beam. Everything that decides what the input means is over there, so that
+-- it can be tested without a headset.
+--
+-- The device is `hand/left/point` rather than `hand/left`. The two are
+-- different poses: the second is where the controller is and the first is where
+-- the runtime says the user is aiming, which is what every runtime's own
+-- pointer uses and what a user expects a laser to follow. The difference is
+-- obvious the moment a controller is held at an angle.
+--
+-- One seat per hand, because a `wl_seat` carries one pointer and one keyboard
+-- (docs/input.md#seats). Two hands sharing a seat is WayVR's arrangement, where
+-- pointing the off hand at a window takes hover from the main hand; two seats is
+-- what makes dragging a slider with one hand while scrolling with the other
+-- expressible at all.
+--
+-- The device is read through `options.readInput`, defaulting to
+-- `laser.headsetInput`. That seam is what lets a spec drive a laser through a
+-- grab, and it is also how a configuration points at panels with something that
+-- is not a hand — a gaze ray, a simulated mouse, a scripted demo.
+
+local lunette = require 'lunette'
+local interaction = require 'mullion.interaction'
+local teardown = require 'mullion.teardown'
+
+local laser = {}
+
+-- Declared here and defined below the public API, so the file reads
+-- surface-first. The metatable is a table rather than a forward-declared local
+-- because `new` reads it before the methods below are filled in.
+local methods = {}
+local metatable = { __index = methods }
+local remove
+
+-- Every live laser, in creation order. Rebuilt when this file runs, so a soft
+-- reload starts with none.
+local lasers = {}
+
+-- The hands `attach` makes a laser for, in the order it makes them.
+laser.HANDS = { 'left', 'right' }
+
+-- The pointer-ray pose of each hand, which is what a laser follows, and the
+-- controller each hand's buttons and axes are read from.
+laser.DEVICES = { left = 'hand/left/point', right = 'hand/right/point' }
+laser.CONTROLLERS = { left = 'hand/left', right = 'hand/right' }
+
+-- Everything the look and the feel of a laser is tuned by, in one table.
+--
+-- The same reason `mullion.interaction` keeps one: this tier is tuning-heavy,
+-- and a tuning pass should be a diff to one table rather than a hunt through
+-- functions for a number.
+laser.STYLE = {
+  -- How far the beam is drawn when it meets nothing, in metres. Shorter than
+  -- the pointer's reach on purpose: a beam that ends in mid-air reads as
+  -- "pointing at nothing" where one that runs to the horizon reads as a bug.
+  length = 1.5,
+  color = { 0.55, 0.7, 1, 0.5 },
+  -- What the beam takes while it is over something.
+  hoverColor = { 0.75, 0.9, 1, 0.9 },
+  -- The dot drawn where the beam meets a panel, in metres.
+  cursorRadius = 0.006,
+  -- The nudge felt when the beam arrives at a panel or leaves one. Short, and
+  -- weak: it is an acknowledgement, and a strong one makes sweeping across a
+  -- row of panels feel like dragging a stick along a fence.
+  hapticStrength = 0.2,
+  hapticDuration = 0.01,
+}
+
+-- A laser for one hand.
+--
+-- `options` takes `seat`, a seat to use instead of making one; `name`, what a
+-- made seat is called; `readInput`, the device seam; `tuning`, passed to the
+-- pointer; and `style`.
+function laser.new(hand, options)
+  local device = laser.DEVICES[hand]
+  if not device then
+    error("mullion.laser: '" .. tostring(hand) .. "' is not a hand a laser is made for", 2)
+  end
+  options = options or {}
+
+  -- A borrowed seat is not destroyed with the laser: whoever made it decides
+  -- when it goes, and a session's first seat refuses to be destroyed at all.
+  local seat = options.seat or lunette.newSeat(options.name or ('mullion.' .. hand))
+
+  local created = setmetatable({
+    hand = hand,
+    device = device,
+    controller = laser.CONTROLLERS[hand],
+    seat = seat,
+    ownsSeat = options.seat == nil,
+    readInput = options.readInput or laser.headsetInput,
+    pointer = interaction.newPointer { seat = seat, tuning = options.tuning },
+    style = options.style or laser.STYLE,
+    -- The last frame's input, kept for `draw`: the beam is drawn where the ray
+    -- was when it was tested, and reading the device a second time in the draw
+    -- would put the beam somewhere the hit test never happened.
+    input = nil,
+    dead = false,
+  }, metatable)
+
+  lasers[#lasers + 1] = created
+  return created
+end
+
+-- One laser per hand, and the lasers that already existed for hands that have
+-- one.
+--
+-- Safe to call twice, which is what makes it usable from a configuration that
+-- is reloaded: a hand that already has a live laser keeps it.
+function laser.attach(options)
+  local attached = {}
+  for _, hand in ipairs(laser.HANDS) do
+    attached[#attached + 1] = laser.forHand(hand) or laser.new(hand, options)
+  end
+  return attached
+end
+
+-- The live laser for `hand`, or nothing.
+function laser.forHand(hand)
+  for _, existing in ipairs(lasers) do
+    if not existing.dead and existing.hand == hand then
+      return existing
+    end
+  end
+  return nil
+end
+
+-- Every live laser, in creation order, as a fresh table.
+function laser.all()
+  local live = {}
+  for _, existing in ipairs(lasers) do
+    if not existing.dead then
+      live[#live + 1] = existing
+    end
+  end
+  return live
+end
+
+-- Brings every laser up to date against `panels`. Called once per frame, from
+-- `lovr.update`.
+--
+-- `panels` is passed in rather than taken from `mullion.panel`, so that a
+-- configuration can point at one tag's worth, or at objects of its own.
+function laser.update(panels)
+  for _, existing in ipairs(laser.all()) do
+    existing:update(panels)
+  end
+end
+
+-- Draws every laser.
+function laser.draw(pass)
+  for _, existing in ipairs(laser.all()) do
+    existing:draw(pass)
+  end
+end
+
+-- Destroys every laser. Registered as this module's teardown hook, because a
+-- reload that left the old state's lasers behind would leave two per hand, each
+-- with a seat, each moving panels.
+function laser.teardown()
+  for _, existing in ipairs(laser.all()) do
+    existing:destroy()
+  end
+  lasers = {}
+end
+
+-- A frame of input from `lovr.headset`, or nothing when the hand is not being
+-- tracked.
+--
+-- The default `readInput`, and the one part of this module a spec cannot reach:
+-- it is `lovr.headset` and nothing else, so it is a human gate.
+function laser.headsetInput(hand)
+  local headset = lovr.headset
+  if not headset then
+    return nil
+  end
+
+  local device = laser.DEVICES[hand]
+  if not headset.isTracked(device) then
+    return nil
+  end
+
+  local controller = laser.CONTROLLERS[hand]
+  local scrollX, scrollY = headset.getAxis(controller, 'thumbstick')
+  return {
+    -- Permanent rather than temporary: a grab keeps the pose it was handed for
+    -- the length of the grab, and LÖVR drains its temporaries at the frame
+    -- boundary.
+    pose = lovr.math.newMat4(headset.getPose(device)),
+    origin = { headset.getPosition(device) },
+    direction = { headset.getDirection(device) },
+    trigger = headset.isDown(controller, 'trigger') or false,
+    grip = headset.isDown(controller, 'grip') or false,
+    scrollX = scrollX or 0,
+    scrollY = scrollY or 0,
+    dt = headset.getDeltaTime(),
+  }
+end
+
+-- Reads the device and hands what it read to the pointer.
+function methods:update(panels)
+  if self.dead then
+    return
+  end
+
+  local input = self.readInput(self.hand)
+  self.input = input
+
+  -- A hand that stopped being tracked points at nothing. Withdrawing rather
+  -- than leaving the pointer alone is what stops a panel staying highlighted,
+  -- and a client holding a button, after a controller is put down.
+  if not input then
+    self.pointer:withdraw()
+    return
+  end
+
+  local before = self.pointer.hovered
+  self.pointer:update(input, panels)
+  if self.pointer.hovered ~= before then
+    self:vibrate()
+  end
+end
+
+-- Draws the beam, and a dot where it meets a panel.
+--
+-- Nothing is drawn before the first update, or while the hand is untracked:
+-- there is no ray to draw, and drawing the last one would leave a beam hanging
+-- in the air from a controller that has been put down.
+function methods:draw(pass)
+  if self.dead or not self.input then
+    return
+  end
+
+  local originX, originY, originZ =
+    interaction.components(self.input.origin, 'the ray origin')
+  local x, y, z = interaction.components(self.input.direction, 'the ray direction')
+  local length = math.sqrt(x * x + y * y + z * z)
+  if not (length > 0) then
+    return
+  end
+
+  local style = self.style
+  local hovered = self.pointer.hovered
+  local distance = hovered and self.pointer.distance or style.length
+  local endX = originX + x / length * distance
+  local endY = originY + y / length * distance
+  local endZ = originZ + z / length * distance
+
+  local color = hovered and style.hoverColor or style.color
+  pass:setColor(color[1], color[2], color[3], color[4])
+  pass:line(originX, originY, originZ, endX, endY, endZ)
+  if hovered then
+    pass:sphere(endX, endY, endZ, style.cursorRadius)
+  end
+  pass:setColor(1, 1, 1, 1)
+end
+
+-- A short nudge, when the runtime has one to give.
+function methods:vibrate()
+  local headset = lovr.headset
+  if not headset or not headset.vibrate then
+    return false
+  end
+  return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration)
+    and true
+end
+
+-- Withdraws the laser: destroys its pointer, destroys the seat it made, and
+-- takes itself out of the list.
+--
+-- A seat it was handed is left alone. Destroying a borrowed seat would withdraw
+-- the keyboard from whatever else was using it.
+function methods:destroy()
+  if self.dead then
+    return false
+  end
+
+  self.dead = true
+  self.pointer:destroy()
+  if self.ownsSeat and not self.seat.dead then
+    self.seat:destroy()
+  end
+  remove(self)
+  return true
+end
+
+-- Takes a laser out of the list, so that a long session does not accumulate
+-- dead entries.
+function remove(destroyed)
+  for index = 1, #lasers do
+    if lasers[index] == destroyed then
+      table.remove(lasers, index)
+      return
+    end
+  end
+end
+
+-- Registered by name, so that a module body running a second time — which is
+-- what a soft reload does — leaves one hook rather than two.
+--
+-- Registered after `mullion.interaction`'s, so it runs before it: a laser has
+-- to destroy its pointer while there is still a pointer registry to take it out
+-- of.
+teardown.register('mullion.laser', laser.teardown)
+
+return laser
