@@ -22,6 +22,7 @@
 
 local lunette = require 'lunette'
 
+local adopt = require 'mullion.adopt'
 local arc = require 'mullion.layout.arc'
 local errors = require 'mullion.error'
 local laser = require 'mullion.laser'
@@ -93,6 +94,26 @@ local function saveArrangement()
   end
 end
 
+-- Makes the panel for a window and files it under whichever source placed it.
+--
+-- Shared by `lovr.lunwindowopened` and the adoption below, because a window that
+-- was already open when this file ran and one that opens a moment later should
+-- end up in the same place. A reload is what makes the two happen in one
+-- session.
+local function place(window)
+  local created, properties = rules.place(window, { tags = { WORKSPACE } })
+
+  -- Saved arrangements and hand placements are written to disk as they happen,
+  -- so that a session that is killed rather than quit still comes back where it
+  -- was.
+  signal.connect(created, 'dropped', saveArrangement)
+
+  if properties.pose == nil then
+    unplaced[#unplaced + 1] = created
+  end
+  return created
+end
+
 -- Puts the panels the arc is responsible for back on the arc, dropping the ones
 -- whose windows have gone.
 local function arrange()
@@ -140,24 +161,35 @@ function lovr.load()
   -- configuration says the rules should.
   persist.install(persist.load())
 
+  -- The third source, above both, and the reason a reload does not scramble a
+  -- hand-arranged workspace: a panel the user dragged wrote its pose to the
+  -- native property store, which outlives the Lua state, and this is what reads
+  -- it back.
+  adopt.install()
+
   -- One laser per hand, each with its own seat, so two hands work independently.
   laser.attach()
 
-  spawnNextTerminal()
+  -- After the sources are installed, and after a reload the only way this file
+  -- hears about the windows that are still open: `lovr.lunwindowopened` was
+  -- delivered to the state that has gone. On the first run of a session there is
+  -- nothing to adopt yet, and this does nothing.
+  for _, window in ipairs(adopt.windows()) do
+    place(window)
+  end
+  arrange()
+
+  -- Only when the adoption found nothing, which is what a session starting for
+  -- the first time looks like. A reload runs this callback again, and one that
+  -- spawned another terminal each time would fill the room by the third edit.
+  if #panel.all() == 0 then
+    spawnNextTerminal()
+  end
 end
 
 function lovr.lunwindowopened(event)
-  local created, properties = rules.place(event.window, { tags = { WORKSPACE } })
-
-  -- Saved arrangements and hand placements are written to disk as they happen,
-  -- so that a session that is killed rather than quit still comes back where it
-  -- was.
-  signal.connect(created, 'dropped', saveArrangement)
-
-  if properties.pose == nil then
-    unplaced[#unplaced + 1] = created
-    arrange()
-  end
+  place(event.window)
+  arrange()
 end
 
 function lovr.lunwindowclosed()

@@ -32,14 +32,29 @@ fixture.claims = {}
 -- comparison would be asserting the order the operations were written in.
 fixture.TOLERANCE = 1e-4
 
+-- What the fake `lunette.windows()` answers, which is what `mullion.adopt`
+-- re-enumerates. A fresh array each call, as the native one hands back.
+fixture.windows = {}
+
 local previousLunette = package.loaded.lunette
 package.loaded.lunette = {
   claimLayer = function(options)
     return newClaim(options)
   end,
+  windows = function()
+    local listed = {}
+    for index, window in ipairs(fixture.windows) do
+      listed[index] = window
+    end
+    return listed
+  end,
 }
 package.loaded['mullion.panel'] = nil
+package.loaded['mullion.adopt'] = nil
 fixture.panel = require 'mullion.panel'
+-- Required inside the same window, so the `lunette` it captures is this fake
+-- and the `mullion.panel` it captures is the one above.
+fixture.adopt = require 'mullion.adopt'
 package.loaded.lunette = previousLunette
 
 -- A pixel source. Windows and monitors both carry these fields, which is what
@@ -93,11 +108,18 @@ function fixture.newSink()
   return sink
 end
 
+-- How many windows this fixture has made, which is where their identifiers come
+-- from. A window carries one in a session and `mullion.panel.forSource` matches
+-- on it, so a fixture window without one would make two windows look like one.
+local minted = 0
+
 -- A window source with a recording sink and the native property store.
 function fixture.newWindow(width, height)
   local window = fixture.newSource(width, height)
   window.sink = fixture.newSink()
   window.stored = {}
+  minted = minted + 1
+  window.id = minted
 
   function window:setProperty(key, value)
     if self.dead then
@@ -193,6 +215,7 @@ end
 function fixture.reset()
   fixture.panel.teardown()
   fixture.claims = {}
+  fixture.windows = {}
 end
 
 -- A claim that holds no layer until a case grants it one.

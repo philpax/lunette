@@ -31,6 +31,7 @@ local COVERAGE = {
   -- assert, and `crates/lunette/tests/standard_library.rs` requires it from a
   -- real session to check the mount.
   ['init.lua'] = false,
+  ['adopt.lua'] = 'adopt_spec.lua',
   ['error.lua'] = 'error_spec.lua',
   ['interaction.lua'] = 'interaction_spec.lua',
   ['keyboard.lua'] = 'keyboard_spec.lua',

@@ -147,6 +147,29 @@ fn the_default_configuration_loads_against_the_standard_library() {
         registered,
         "lovr.load should register the saved arrangement as a rules source"
     );
+
+    // The store source is the other half, and the one AC5.4 rests on: without
+    // it a reload places every surviving window by rule and a hand-arranged
+    // workspace comes back scrambled.
+    let sources: Vec<String> = match lua
+        .load(
+            "local rules = require 'mullion.rules'\nlocal names = {}\nfor _, source in \
+             ipairs(rules.sources()) do names[#names + 1] = source.name end\nreturn names",
+        )
+        .eval::<Vec<String>>()
+    {
+        Ok(sources) => sources,
+        Err(error) => panic!("the registered sources could not be read: {error}"),
+    };
+    assert_eq!(
+        sources,
+        vec![
+            "mullion.rules".to_owned(),
+            "mullion.persist".to_owned(),
+            "mullion.adopt".to_owned(),
+        ],
+        "the sources should compose from the rules table up to the live property store"
+    );
 }
 
 /// A `lovr` global and a `require` that answer with fresh empty tables.
@@ -209,6 +232,12 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
             process.set("id", 1)?;
             Ok(process)
         })?,
+    )?;
+    // Empty, which is what a session that has just started has: the adoption
+    // this drives is for the windows a *reload* found already open.
+    lunette.set(
+        "windows",
+        lua.create_function(|lua, ()| lua.create_table())?,
     )?;
     let loaded: Table = package.get("loaded")?;
     loaded.set("lunette", lunette)?;

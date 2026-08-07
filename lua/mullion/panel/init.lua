@@ -140,6 +140,39 @@ function panel.all()
   return live
 end
 
+-- The live panel over `source`, or nothing.
+--
+-- Matched on `source.id` rather than on the handle itself. `lunette.windows()`
+-- mints a fresh handle on every call, so the handle a panel was made with and
+-- the handle a later enumeration answers with are two tables describing one
+-- window and are not equal to each other. The identifier is what is stable, and
+-- it is stable across a soft reload too
+-- (docs/lua-api.md#per-window-properties), which is what makes re-adoption
+-- possible at all.
+--
+-- A linear scan rather than an index: a session has tens of panels rather than
+-- thousands, and an index would be another thing every destroy had to keep in
+-- step with.
+function panel.forSource(source)
+  if source == nil then
+    return nil
+  end
+
+  local identity = source.id
+  if identity == nil then
+    return nil
+  end
+  for _, existing in ipairs(panels) do
+    -- A window's identifier is a number and a monitor's is a string, so two
+    -- kinds cannot collide on one value; the kinds are not compared because a
+    -- source alone does not say which it is.
+    if not existing.dead and existing.source.id == identity then
+      return existing
+    end
+  end
+  return nil
+end
+
 -- Brings every live panel up to date. Called once per frame, from `lovr.update`.
 function panel.update()
   -- Over a copy: a panel whose source has died removes itself from the list
