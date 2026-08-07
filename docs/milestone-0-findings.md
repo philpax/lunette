@@ -427,37 +427,62 @@ Every acceptance criterion of this phase is a human gate, and none was performed
 
 ## Outstanding
 
-Twenty-eight items are unfinished: twenty-one human gates, of which one is half-taken, and seven measurements. Groups A and C of the test plan have been run; see [what they returned](#what-groups-a-and-c-returned) below.
+Group A, C1, E1, D13, and D3's recorded half have been taken; see [what the test plan has returned](#what-the-test-plan-has-returned) below. C2 was attempted and is void. The rest of groups B and D are untouched.
 
 [The human test plan](test-plans/2026-08-05-lunette-v1.md) is the procedure for all of them, grouped by what each needs — a repository, a desktop session, a GPU, or the headset powered on. Results come back here.
 
-### What groups A and C returned
+### What the test plan has returned
 
-Run on 2026-08-07 against monado-service with `XRT_COMPOSITOR_NULL=1`, no headset and no display.
+Groups A and C were first run on 2026-08-07 with no XR session, and that run is void. The OpenXR loader reads `$XDG_CONFIG_HOME/openxr/1/active_runtime.json`, and pointing `XDG_CONFIG_HOME` at a fixture configuration directory moves it somewhere with no runtime in it. LÖVR then starts with no headset and reports no driver, no session, and a layer limit of zero, which is indistinguishable from a runtime that offers nothing. Every gate below was retaken with `XR_RUNTIME_JSON` naming the runtime explicitly, which the loader honours whatever `XDG_CONFIG_HOME` says.
+
+The headset is a Bigscreen Beyond on Monado in service mode, 3561x3561 per eye at 74.7Hz.
 
 | Step | Criterion | Outcome |
 |---|---|---|
 | A1 | AC9.2 | Pass. The tests pass in both feature configurations, with no formatting diff and no clippy warning. |
-| A2 | AC9.4 | Pass. The compositor tests pass with no Vulkan ICD visible, and the crate's tree carries no `lunette-lovr` and no GPU crate. `drm-fourcc` is the only format-adjacent entry, and it links nothing. |
-| A3 | AC9.3 | Pass, after one correction. The headerless files and `PROVENANCE.md` reconcile exactly. The LÖVR patches add no file and modify only existing MIT-licensed ones, so they inherit that licence. `CREDITS.md` said LÖVR is linked statically, which it is not; the sweep that removed that claim from `docs/` and `CONTRIBUTING.md` was scoped to those two paths and did not reach the repository root. |
-| A4 | AC9.1 | Half. The offline build passes: a clean tree builds in a network namespace with no interfaces, cmake fetching nothing, producing `liblovr.so`, its five siblings, and both binaries. The publication half fails, and cannot pass yet. See [the submodule nobody else can clone](#the-unpublished-submodule-commit). |
-| C1 | AC5.5 | Pass. Numbers below. |
-| C2 | — | Pass. A claim held for ten seconds across 171,999 frames reported no grant, with no layer granted, none attempted, and not one refusal logged. The regression this guards against would have logged once per frame. |
+| A2 | AC9.4 | Pass. The compositor tests pass with no Vulkan ICD visible, and the crate's tree carries no `lunette-lovr` and no GPU crate. |
+| A3 | AC9.3 | Pass, after one correction. The headerless files and `PROVENANCE.md` reconcile exactly. The LÖVR patches add no file and modify only existing MIT-licensed ones. `CREDITS.md` said LÖVR is linked statically, which it is not. |
+| A4 | AC9.1 | Half. The offline build passes. The publication half cannot pass yet: see [the unpublished submodule commit](#the-unpublished-submodule-commit). |
+| C1 | AC5.5 | Pass, after a fix. The restart segfaulted against a live session; see [the restart that faulted](#the-restart-that-faulted). Numbers below. |
+| C2 | — | Void, not taken. It read a layer limit of zero as the null compositor refusing layers, and that zero was the absent session. It needs monado restarted with `XRT_COMPOSITOR_NULL=1`. |
+| D3 | AC2.2 | The recorded half only. Numbers below; the sharpness verdict still needs eyes. |
+| D13 | AC7.1 | Pass. Mean frame time was 13.393ms over 448 frames before a client was stopped with `SIGSTOP` and 13.364ms over 449 after it. The difference is noise, the panel held its content, and 13.4ms is the display's own rate. |
+| E1 | AC6.1 | Pass. A primary application held its session; lunette created an overlay session alongside it, spawned a client, and ran 2247 frames; the primary was still running afterwards. WayVR was running throughout, so three OpenXR applications shared the runtime rather than the two the criterion asks for. |
+
+### What the layer path did with a real panel
+
+D3's recorded half, and the first layer this project has granted to a real window.
+
+| Question | Answer |
+|---|---|
+| The limit Monado reports | 128, which is `XRT_MAX_LAYERS`. `LayerBudget::from_runtime_limit` makes that 12 slots, the ceiling. |
+| The ladder rung an 800x600 window takes | 832x640. The plan expected 1024x1024, so the ladder is finer than it assumed and the rung is a closer fit than the estimate. |
+| Whether `lovrLayerCreate` stalled | No. The first grant arrived 26.5ms after the claim, which is two frames at this rate. The retry loop ending in `xrWaitSwapchainImage` with `XR_INFINITE_DURATION` was not reached. |
+| The free list | It works and it is worth having. A release followed immediately by a claim of the same size was granted in 13.5ms, one frame, against 26.5ms for the first. |
+| Whether format conversion was needed | Not observable. Nothing logs it, and the answer needs instrumentation the blit path does not have. The client committed `AR24`, so the conversion the plan predicts is likely, but this is not evidence of it. |
+
+### The restart that faulted
+
+`lunette.restart()` segfaulted against a live XR session, and passed without one, which is why nothing had caught it: no test has an XR session.
+
+The validation layer named the cause. `xrDestroySession` frees the runtime's client-side swapchain command buffers while they are still pending, and destroys a timeline semaphore still in use by the queue. This file and `crate::restart` both recorded `gpu_destroy`'s `vkDeviceWaitIdle` as the wait that covers the teardown. It is real, and it runs inside LÖVR's own finalizer chain, after the XR session has already been destroyed. Nothing drained the device before that point.
+
+`tear_down_device` now waits on the device first. The step is guarded on the graphics module being initialised, because `lovrGraphicsWait` submits before it waits and aborts when there is no device to submit to; the exit-status fixtures switch graphics off and caught that immediately.
 
 ### The restart measurements
 
-Phase 7 asks for four numbers about a restart, and C1 has now taken them, driven the way the test plan specifies: two clients connected, the restart arriving over `lunctl`, under the Khronos validation layer.
+Phase 7 asks for four numbers about a restart. C1 takes them, driven the way the test plan specifies: two clients connected, the restart arriving over `lunctl`, under the Khronos validation layer, against a live session.
 
 | Number | Result |
 |---|---|
-| Whether the quiesce covered every GPU object | Yes, to the extent the recorded LÖVR limitation allows. `vkDestroyDevice` reported twelve leaked objects at the restart: six `VkImage` and six `VkDeviceMemory`, one pair per abandoned image, against exactly six imports made before it. It reported four at the final exit, one pair per surviving client. Every one is under `VUID-vkDestroyDevice-device-05137`. No other validation message appeared anywhere in the run. |
-| Whether re-import succeeded for every retained dmabuf | Yes. Both surviving clients re-imported, the first within 346ms of the restart being asked for. |
-| Whether any client noticed | No. Both clients were present before and after, with no protocol error and no disconnection. |
-| The end-to-end duration | 346ms from the restart being asked for to the first re-import. The compositor's own release of the graphics device took 114µs and discarded no events. |
+| Whether the quiesce covered every GPU object | Yes, to the extent the recorded LÖVR limitation allows. `vkDestroyDevice` reported twelve leaked objects at the restart: six `VkImage` and six `VkDeviceMemory`, one pair per abandoned image. It reported four at the final exit, one pair per surviving client. Every one is under `VUID-vkDestroyDevice-device-05137`, and no other validation message appeared. |
+| Whether re-import succeeded for every retained dmabuf | Yes. Both surviving clients re-imported. |
+| Whether any client noticed | No. Both were present before and after, and the session generation moved from 1 to 2, so the XR session was genuinely replaced under them. |
+| The end-to-end duration | The compositor released the graphics device in 127µs, discarding no events. |
 
-The two expected leaks behave exactly as [decisions.md](decisions.md) predicts: LÖVR's morgue is emptied only by `gpu_destroy`, so an imported image is forgotten rather than destroyed. What the layer does not do is emit the separate per-object `OBJTRACK` message the test plan anticipated; validation 1.4.350 folds the object list into the one `05137` message instead. That is a layer-version difference, and the pairing it reports is what the criterion is about.
+The two expected leaks behave as [decisions.md](decisions.md) predicts: LÖVR's morgue is emptied only by `gpu_destroy`, so an imported image is forgotten rather than destroyed. Validation 1.4.350 folds the object list into the one `05137` message rather than emitting the separate `OBJTRACK` message the test plan anticipated. That is a layer-version difference.
 
-The validation layer is not in the flake's devshell and had to be brought in for the run. Adding it is worth doing before the next time this gate is taken.
+The validation layer is not in the flake's devshell and had to be brought in for the run. Adding it is worth doing.
 
 ### The unpublished submodule commit
 
