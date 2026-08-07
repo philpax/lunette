@@ -469,6 +469,8 @@ impl CompositorState {
                 axis,
                 delta,
             } => self.scroll(seat, sink, axis, delta),
+            Command::ReleaseGraphics => self.release_graphics(),
+            Command::AdoptGraphics { importer } => self.adopt_graphics(importer),
             Command::CreateOutput { .. }
             | Command::ReconfigureOutput { .. }
             | Command::DestroyOutput { .. }

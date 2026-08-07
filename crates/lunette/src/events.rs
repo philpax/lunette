@@ -177,6 +177,13 @@ impl LuaEvent {
             CompositorEvent::SurfaceDamaged { .. }
             | CompositorEvent::BufferImported { .. }
             | CompositorEvent::SurfaceGone { .. } => None,
+            // The restart handshake's two halves. Neither reaches Lua: the Lua
+            // state that asked for the restart is gone by the time the first
+            // arrives, and the state that replaces it observes the outcome as
+            // windows with textures again rather than as an event. `lunette`
+            // driving its own graphics device is mechanism, and mechanism does
+            // not need a policy hook.
+            CompositorEvent::GraphicsReleased | CompositorEvent::GraphicsAdopted { .. } => None,
         }
     }
 }

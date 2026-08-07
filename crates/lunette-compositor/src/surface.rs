@@ -114,17 +114,38 @@ impl<B> Default for RetainedBuffers<B> {
     }
 }
 
-impl<B: ReleasableBuffer> RetainedBuffers<B> {
+impl<B: ReleasableBuffer + PartialEq> RetainedBuffers<B> {
     /// Takes ownership of a surface's new buffer and releases the one it
     /// replaces.
     ///
     /// The release happens here rather than at the call site because a caller
     /// that forgets it produces a client drawing into a buffer lunette is
     /// sampling, which shows up as tearing rather than as an error.
+    ///
+    /// Retaining the buffer already held is a no-op rather than a release.
+    /// Two paths reach it: a client that commits the same `wl_buffer` twice
+    /// without changing it, and the re-import a restart performs against the
+    /// buffers it kept. Releasing there would tell the client it may draw into
+    /// a buffer lunette is still sampling, which is the exact failure the rule
+    /// exists to prevent.
     pub(crate) fn retain(&mut self, surface: SurfaceId, buffer: B) {
-        if let Some(previous) = self.retained.insert(surface, buffer) {
+        let Some(previous) = self.retained.insert(surface, buffer) else {
+            return;
+        };
+        if self.retained.get(&surface) != Some(&previous) {
             previous.release();
         }
+    }
+
+    /// Every buffer still held, by the surface it belongs to.
+    ///
+    /// For the re-import a restart performs: these are the buffers whose
+    /// content survived the graphics device being destroyed, and re-importing
+    /// them is what stops every client having to redraw.
+    pub(crate) fn entries(&self) -> impl Iterator<Item = (SurfaceId, &B)> {
+        self.retained
+            .iter()
+            .map(|(surface, buffer)| (*surface, buffer))
     }
 
     /// Releases a surface's buffer and stops tracking it.
@@ -153,7 +174,7 @@ impl<B: ReleasableBuffer> RetainedBuffers<B> {
 /// The compositor thread calls this, so an implementation may create images and
 /// allocate memory but must not submit work to a queue: the queue belongs to
 /// the frame thread.
-pub trait BufferImporter: Send {
+pub trait BufferImporter: Send + std::fmt::Debug {
     /// Imports a client's dmabuf.
     ///
     /// The `Dmabuf` owns its file descriptors and closes them when it drops, so
@@ -177,6 +198,19 @@ pub trait BufferImporter: Send {
     fn import_shm(&mut self, pixels: &[u8], layout: ShmLayout)
     -> Result<PixelBuffer, ImportFailed>;
 
+    /// Whether an import can succeed at all.
+    ///
+    /// False only while a restart has taken the graphics device away. The
+    /// distinction is not cosmetic: `zwp_linux_buffer_params_v1.create_immed`
+    /// answers a failed import with a protocol error, which disconnects the
+    /// client, so a compositor with no device must accept a client's buffer
+    /// object and refuse it later at the commit — where refusing costs the
+    /// client a redraw rather than its connection.
+    ///
+    /// Answered by the importer rather than tracked beside it, so there is one
+    /// source of truth for whether a device is lent.
+    fn accepts_imports(&self) -> bool;
+
     /// Releases whatever the implementation holds for buffers the client has
     /// destroyed.
     ///
@@ -188,6 +222,47 @@ pub trait BufferImporter: Send {
     /// the process.
     fn sweep(&mut self);
 }
+
+/// An importer that refuses everything, for the window in which lunette has no
+/// graphics device.
+///
+/// A restart destroys the `VkDevice` the real importer was built against, so
+/// between [`Command::ReleaseGraphics`] and [`Command::AdoptGraphics`] there is
+/// nothing to import into. Refusing is the correct answer rather than a
+/// degraded one: the commit path releases a buffer it could not import, the
+/// surface keeps the content it already had, and the client is free to draw
+/// again.
+///
+/// A `None` importer would say the same thing, but every call site would then
+/// have to remember which of the two states it is in. This says it once.
+///
+/// [`Command::ReleaseGraphics`]: crate::protocol::Command::ReleaseGraphics
+/// [`Command::AdoptGraphics`]: crate::protocol::Command::AdoptGraphics
+#[derive(Debug)]
+pub(crate) struct NoGraphics;
+
+impl BufferImporter for NoGraphics {
+    fn accepts_imports(&self) -> bool {
+        false
+    }
+
+    fn import_dmabuf(&mut self, _dmabuf: &Dmabuf) -> Result<ImportedImage, ImportFailed> {
+        Err(ImportFailed::new(NO_DEVICE))
+    }
+
+    fn import_shm(
+        &mut self,
+        _pixels: &[u8],
+        _layout: ShmLayout,
+    ) -> Result<PixelBuffer, ImportFailed> {
+        Err(ImportFailed::new(NO_DEVICE))
+    }
+
+    /// Nothing is held, so there is nothing to release.
+    fn sweep(&mut self) {}
+}
+
+const NO_DEVICE: &str = "lunette has no graphics device while a restart is in progress";
 
 /// Tightly packed pixels, on their way to a texture upload.
 ///
@@ -432,7 +507,7 @@ mod tests {
 
     /// Records which buffers were released, in order, so a test can assert the
     /// rule rather than the protocol call.
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, PartialEq)]
     struct CountedBuffer {
         name: &'static str,
         released: Rc<RefCell<Vec<&'static str>>>,
@@ -484,6 +559,48 @@ mod tests {
             1,
             "only the newest buffer is held, whatever the client's cycle length"
         );
+    }
+
+    /// Telling a client it may reuse a buffer lunette is still sampling is the
+    /// failure the retention rule exists to prevent, and retaining the same
+    /// buffer twice is the way to reach it without a second buffer existing.
+    #[test]
+    fn retaining_the_buffer_already_held_releases_nothing() {
+        let released = Rc::new(RefCell::new(Vec::new()));
+        let mut buffers = RetainedBuffers::default();
+        let buffer = CountedBuffer {
+            name: "held",
+            released: Rc::clone(&released),
+        };
+
+        buffers.retain(surface(1), buffer.clone());
+        buffers.retain(surface(1), buffer);
+
+        assert!(
+            released.borrow().is_empty(),
+            "the buffer is still being sampled, so the client must not be told it is free"
+        );
+        assert_eq!(buffers.len(), 1);
+    }
+
+    #[test]
+    fn the_retained_buffers_can_be_enumerated_for_re_import() {
+        let released = Rc::new(RefCell::new(Vec::new()));
+        let mut buffers = RetainedBuffers::default();
+        let buffer = |name| CountedBuffer {
+            name,
+            released: Rc::clone(&released),
+        };
+
+        buffers.retain(surface(1), buffer("one"));
+        buffers.retain(surface(2), buffer("two"));
+
+        let mut named: Vec<_> = buffers
+            .entries()
+            .map(|(surface, buffer)| (surface, buffer.name))
+            .collect();
+        named.sort_unstable();
+        assert_eq!(named, [(surface(1), "one"), (surface(2), "two")]);
     }
 
     #[test]

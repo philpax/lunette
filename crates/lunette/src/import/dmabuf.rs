@@ -369,6 +369,32 @@ impl ImageArena {
         }
     }
 
+    /// Forgets every image without destroying it, reporting how many there
+    /// were.
+    ///
+    /// For a restart, and only for a restart. The device these images were
+    /// created against is destroyed immediately afterwards, and
+    /// `vkDestroyDevice` frees what the device still owns — so the memory is
+    /// not leaked. Destroying them here instead would be the invalid case
+    /// `crates/lunette/src/texture/lovr.rs` records: LÖVR retires an imported
+    /// texture's *view* through a morgue that only `gpu_destroy` empties, and
+    /// `vkDestroyImage` on an image that still has a view is not allowed. There
+    /// are no further frames to defer into, because the ones that would run are
+    /// the next session's and its device is a different device.
+    ///
+    /// What this does buy is the thing that matters: no handle from the old
+    /// device survives into the new one's lifetime. A retained handle would be
+    /// destroyed later against a device that never created it, which is a
+    /// use-after-free rather than a leak.
+    #[must_use]
+    pub fn abandon_all(&self) -> usize {
+        let mut inner = self.0.lock();
+        inner.retired.clear();
+        let abandoned = inner.live.len();
+        inner.live.clear();
+        abandoned
+    }
+
     /// How many images are still alive. Diagnostic: a number that only grows is
     /// how a leak in the retirement path shows up.
     #[must_use]

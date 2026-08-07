@@ -118,7 +118,7 @@ impl CompositorState {
     /// as long as lunette samples it, which is the rule
     /// `SurfaceBufWithImageContainer` implements upstream; shared memory is
     /// copied out and released immediately.
-    fn import_dmabuf(
+    pub(super) fn import_dmabuf(
         &mut self,
         id: SurfaceId,
         buffer: &WlBuffer,

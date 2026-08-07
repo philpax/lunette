@@ -780,11 +780,17 @@ fn ledger_change<'a>(
             surface_of(*window).map_or(LedgerChange::Nothing, LedgerChange::MarkDead)
         }
         Event::SurfaceGone { surface } => LedgerChange::Forget(*surface),
+        // The restart acknowledgements say nothing about a texture. The images
+        // are `crate::restart`'s, which drives the exchange, and the re-imports
+        // a `GraphicsAdopted` follows arrive as their own `BufferImported`
+        // reports and are installed by the arm above.
         Event::WindowOpened { .. }
         | Event::TitleChanged { .. }
         | Event::SurfaceDamaged { .. }
         | Event::ProcessExited { .. }
-        | Event::ProcessOutput { .. } => LedgerChange::Nothing,
+        | Event::ProcessOutput { .. }
+        | Event::GraphicsReleased
+        | Event::GraphicsAdopted { .. } => LedgerChange::Nothing,
     }
 }
 

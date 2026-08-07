@@ -170,6 +170,22 @@ impl DmabufHandler for CompositorState {
         dmabuf: Dmabuf,
         notifier: ImportNotifier,
     ) {
+        // Accepted without being imported while a restart holds the device.
+        // `create_immed` answers a failed import with `INVALID_WL_BUFFER`,
+        // which disconnects the client — and `lunette-v1.AC5.5` is precisely
+        // that a restart disconnects nobody. The buffer object is valid either
+        // way; what it cannot yet do is become an image, and the commit that
+        // asks it to is where that is answered survivably.
+        if !self.importer.accepts_imports() {
+            debug!(
+                "accepting a client dmabuf unimported: lunette has no device until the restart finishes"
+            );
+            if notifier.successful::<Self>().is_err() {
+                debug!("a client withdrew a dmabuf before its import was answered");
+            }
+            return;
+        }
+
         // `ImportNotifier` is `#[must_use]` and one-shot: exactly one of its
         // methods must be called, and dropping it logs a compositor bug.
         match self.importer.import_dmabuf(&dmabuf) {

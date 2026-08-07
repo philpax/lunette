@@ -28,6 +28,7 @@
 
 mod commit;
 mod compositor;
+mod graphics;
 mod handlers;
 mod input;
 mod selection;

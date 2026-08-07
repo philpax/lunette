@@ -18,7 +18,10 @@
 //! rather than hosted by the compositor, and [`host`] is where a sink pointed at
 //! one of them delivers. [`properties`] is the one piece of per-window state
 //! Rust keeps on the configuration's behalf, because a soft reload throws the
-//! Lua state away and something has to survive it. [`safe_mode`] is the
+//! Lua state away and something has to survive it. [`restart`] is the harder
+//! sibling of [`reload`]: it throws the Vulkan device away too, so the
+//! compositor is told to let go of that device before it is destroyed and given
+//! a new one afterwards. [`safe_mode`] is the
 //! configuration the session falls back to when the user's will not load,
 //! embedded rather than installed so that nothing on disk can take it away.
 //! [`frame`] is what runs the
@@ -35,6 +38,7 @@ pub mod lua;
 pub mod mirrors;
 pub mod properties;
 pub mod reload;
+pub mod restart;
 pub mod safe_mode;
 pub mod scale;
 pub mod texture;

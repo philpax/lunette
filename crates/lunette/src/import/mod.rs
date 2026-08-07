@@ -74,6 +74,13 @@ impl Importer {
 }
 
 impl BufferImporter for Importer {
+    /// Always. An `Importer` exists only while the device it was built against
+    /// does; a restart replaces it with the compositor crate's inert one rather
+    /// than leaving this one holding a destroyed device.
+    fn accepts_imports(&self) -> bool {
+        true
+    }
+
     fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> Result<ImportedImage, ImportFailed> {
         self.dmabuf
             .import(dmabuf)

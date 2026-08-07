@@ -38,6 +38,7 @@ use std::{
     fmt, io,
     sync::{Arc, mpsc},
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use arc_swap::ArcSwap;
@@ -257,7 +258,48 @@ impl EventReceiver {
     pub fn drain(&self) -> mpsc::TryIter<'_, Event> {
         self.queue.try_iter()
     }
+
+    /// Waits up to `timeout` for one event.
+    ///
+    /// The only blocking read in the protocol, and it exists for one caller:
+    /// the restart quiesce, which must not destroy the graphics device until
+    /// the compositor has said it has let go of it.
+    ///
+    /// It does not reintroduce the cycle this module's documentation describes.
+    /// The deadlock there needs both directions to wait; a caller of this is by
+    /// construction *receiving*, so a compositor blocked in [`EventSender::send`]
+    /// is released by the very call that is waiting on it. A caller must still
+    /// reach the command channel only through [`CommandSender::try_send`].
+    pub fn wait(&self, timeout: Duration) -> Result<Event, WaitError> {
+        self.queue
+            .recv_timeout(timeout)
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => WaitError::TimedOut,
+                mpsc::RecvTimeoutError::Disconnected => WaitError::Disconnected,
+            })
+    }
 }
+
+/// Why waiting for an event produced none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaitError {
+    /// Nothing arrived within the bound. The compositor may still be working.
+    TimedOut,
+    /// The compositor thread is gone, so nothing will ever arrive.
+    Disconnected,
+}
+
+impl fmt::Display for WaitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "compositor: ")?;
+        match self {
+            Self::TimedOut => write!(f, "no event arrived within the bound"),
+            Self::Disconnected => write!(f, "the thread is no longer running"),
+        }
+    }
+}
+
+impl Error for WaitError {}
 
 /// The compositor thread's end of the event channel.
 #[derive(Debug)]
@@ -582,7 +624,10 @@ impl fmt::Display for Disconnected {
 impl Error for Disconnected {}
 
 /// Why a command could not be queued without waiting.
-#[derive(Clone, Debug)]
+///
+/// Carries the command back rather than dropping it, and so is no more
+/// cloneable than [`Command`] is.
+#[derive(Debug)]
 pub enum TrySendError {
     /// The channel is full. The command is returned unsent.
     Full(Command),

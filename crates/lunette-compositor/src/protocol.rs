@@ -59,7 +59,7 @@ use std::{
 use smallvec::SmallVec;
 use smithay::backend::allocator::{Fourcc, Modifier};
 
-use crate::surface::PixelBuffer;
+use crate::surface::{BufferImporter, PixelBuffer};
 
 /// A request from the main thread to the compositor thread.
 ///
@@ -67,7 +67,12 @@ use crate::surface::PixelBuffer;
 /// result: what the compositor did is observed through [`Event`] and
 /// [`Snapshot`], because the protocol underneath is asynchronous and an API
 /// that pretended otherwise would have to break later.
-#[derive(Clone, Debug)]
+/// Deliberately not `Clone`. [`Command::AdoptGraphics`] hands over the sole
+/// importer, which is an owned window onto a graphics device and cannot be
+/// duplicated; nothing in lunette clones a command, and a derive that forced
+/// the handover into a shared cell would make the transfer of ownership
+/// invisible at the call site.
+#[derive(Debug)]
 pub enum Command {
     /// Starts a process and attributes its clients to it.
     Spawn(SpawnRequest),
@@ -166,6 +171,35 @@ pub enum Command {
         surface: SurfaceId,
         pacing: FramePacing,
     },
+    /// Releases every graphics object the compositor holds, so that the device
+    /// they were created against can be destroyed.
+    ///
+    /// The first half of the restart quiesce. `lunette.restart()` closes the Lua
+    /// state, and closing it destroys LÖVR's graphics module and the `VkDevice`
+    /// the importer borrowed — so the importer has to be given up while that
+    /// device is still alive. The compositor answers with
+    /// [`Event::GraphicsReleased`] and imports nothing until
+    /// [`Command::AdoptGraphics`] arrives.
+    ///
+    /// Nothing else about the compositor stops. The Wayland display, the
+    /// listening socket, every client connection, and every retained
+    /// `wl_buffer` are untouched, which is what lets clients stay connected
+    /// across a restart: the compositor never speaks Vulkan to a client, it
+    /// imports descriptors.
+    ReleaseGraphics,
+    /// Hands the compositor an importer built against a new device, and
+    /// re-imports the buffers the clients still hold.
+    ///
+    /// The second half. The compositor answers with [`Event::GraphicsAdopted`],
+    /// preceded by one [`Event::BufferImported`] per surface whose retained
+    /// buffer imported again — so the frame thread rebuilds its textures
+    /// through the path a commit already takes.
+    AdoptGraphics {
+        /// The sole window onto the new device. Owned rather than shared: two
+        /// importers against one device would each keep their own cache, and an
+        /// image would be created twice for one buffer.
+        importer: Box<dyn BufferImporter>,
+    },
     /// Stops the compositor thread. Clients are disconnected as the display
     /// drops.
     Shutdown,
@@ -216,6 +250,28 @@ pub enum Event {
         process: ProcessId,
         stream: Stream,
         bytes: Vec<u8>,
+    },
+    /// The compositor holds no graphics object, so the device may be destroyed.
+    ///
+    /// The acknowledgement [`Command::ReleaseGraphics`] asks for, and the one
+    /// event the main thread ever waits on. Nothing the compositor reports after
+    /// it names an image, until [`Event::GraphicsAdopted`].
+    GraphicsReleased,
+    /// The compositor imports against a new device again.
+    ///
+    /// Reported after the [`Event::BufferImported`] for every retained buffer
+    /// that could be re-imported, so a consumer that sees this has already seen
+    /// everything the restart restored.
+    GraphicsAdopted {
+        /// How many surfaces got their content back without the client having
+        /// drawn anything.
+        restored: usize,
+        /// How many retained buffers could not be imported against the new
+        /// device. Each of those clients was told its buffer is free, so the
+        /// surface is blank until the client draws again. A failure here is not
+        /// fatal to the restart: one surface losing its content is a better
+        /// outcome than the session ending.
+        failed: usize,
     },
 }
 

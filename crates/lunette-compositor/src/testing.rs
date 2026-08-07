@@ -346,6 +346,7 @@ pub fn recording_importer(log: ImportLog) -> Box<dyn BufferImporter> {
 /// real image. Nothing in this crate dereferences the handle — that is the
 /// whole point of it crossing the protocol as an opaque integer — so a
 /// fabricated one is indistinguishable from a real one here.
+#[derive(Debug)]
 struct RecordingImporter {
     log: ImportLog,
 }
@@ -363,6 +364,12 @@ impl RecordingImporter {
 }
 
 impl BufferImporter for RecordingImporter {
+    /// Always. A test that wants the no-device path uses the real `NoGraphics`,
+    /// by releasing the graphics as a restart does.
+    fn accepts_imports(&self) -> bool {
+        true
+    }
+
     fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> Result<ImportedImage, ImportFailed> {
         if let Some(refusal) = self.log.refused() {
             return Err(refusal);
