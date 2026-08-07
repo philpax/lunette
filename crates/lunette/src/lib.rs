@@ -18,7 +18,10 @@
 //! rather than hosted by the compositor, and [`host`] is where a sink pointed at
 //! one of them delivers. [`properties`] is the one piece of per-window state
 //! Rust keeps on the configuration's behalf, because a soft reload throws the
-//! Lua state away and something has to survive it. [`frame`] is what runs the
+//! Lua state away and something has to survive it. [`safe_mode`] is the
+//! configuration the session falls back to when the user's will not load,
+//! embedded rather than installed so that nothing on disk can take it away.
+//! [`frame`] is what runs the
 //! rest in the order they require, once per frame, and is the only thing that
 //! starts the compositor thread.
 
@@ -31,5 +34,6 @@ pub mod layers;
 pub mod lua;
 pub mod mirrors;
 pub mod properties;
+pub mod safe_mode;
 pub mod scale;
 pub mod texture;

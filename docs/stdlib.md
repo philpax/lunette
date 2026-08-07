@@ -86,6 +86,8 @@ Minimum viable: the default config spawns a terminal, shows it on a panel, and p
 
 `etc/xdg/lunette/main.lua` is that config, and it is the source of truth for what ships. It declares one tag, attaches a laser to each hand, spawns the first terminal emulator it finds, places each window through `mullion.rules` and arranges the ones no source gave a pose to on an arc, and binds a reload key on the desktop window. It carries two things past the line above, both because an acceptance criterion is about them: a rules table matched on `appId`, and a saved arrangement installed as a second source and written back when a panel is dropped or the session quits.
 
+Safe mode deliberately resembles it and shares no code with it. It is compiled into the binary and requires `lunette` alone, because a broken `mullion` is one of the reasons the user's configuration may have failed; [The Lua API](lua-api.md#errors) and [Decisions](decisions.md#recorded-decisions) state the rest.
+
 ## 2D widgets
 
 Deferred. Titlebars and menus need some form of widget support, but the ambition is deliberately low: a thin immediate-mode helper over LÖVR's `Pass`, not a widget toolkit with a layout engine.

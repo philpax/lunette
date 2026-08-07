@@ -287,6 +287,8 @@ The handler itself is `mullion` code and can be replaced wholesale, since `lovr.
 
 The native layer owns exactly one failure path: if `main.lua` fails to load, safe mode starts. This is a minimal built-in configuration with a laser, one panel, a way to spawn a terminal, and a reload key. Without this fallback, a configuration error would produce a black headset with no way to recover, requiring the user to remove the headset and edit Lua at a desk every time.
 
+Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never `mullion`, since a broken standard library is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](decisions.md#recorded-decisions) records why the duplication is deliberate.
+
 ## lunctl
 
 `lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette-0.sock`, mode 0600. The chunk is evaluated on the Lua thread between frames within a wall-clock budget, and the result is serialised back.
