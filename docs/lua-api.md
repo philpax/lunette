@@ -303,6 +303,8 @@ The panel is `mullion.error.panel`, which wraps `mullion.error`'s `report` seam 
 
 The native layer owns exactly one failure path: if `main.lua` fails to load, safe mode starts. This is a minimal built-in configuration with a laser, one panel, a way to spawn a terminal, and a reload key. Without this fallback, a configuration error would produce a black headset with no way to recover, requiring the user to remove the headset and edit Lua at a desk every time.
 
+The trigger is a wrapper around `lovr.boot`, installed after `boot.lua`'s chunk has run and before its coroutine is first resumed. `lovr.boot` is the one function whose failure means the configuration did not load: a source that will not mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, and an error at the top level of `main.lua` all raise inside it, and everything that is not a load failure happens after it has returned the frame loop. `lovr.errhand` would be the wrong hook, because it is reached by every error that escaped a callback boundary and because it belongs to the configuration. Safe mode replaces the callbacks a half-run `main.lua` installed, so a configuration that raised partway through does not keep running alongside it, and the load error is shown on the panel rather than only logged.
+
 Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never `mullion`, since a broken standard library is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](decisions.md#recorded-decisions) records why the duplication is deliberate.
 
 ## lunctl

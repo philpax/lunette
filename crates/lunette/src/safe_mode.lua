@@ -18,6 +18,12 @@
 
 local lunette = require 'lunette'
 
+-- Why the configuration did not load, as crates/lunette/src/safe_mode.rs was
+-- given it. Shown on the panel rather than only logged: a user in a headset
+-- reading "the configuration did not load" and nothing else has to take it off
+-- to find out what happened, which is the loop safe mode exists to avoid.
+local loadError = ...
+
 -- Where the panel sits, in metres, and how tall it is. Fixed and axis-aligned:
 -- a pose the user could move is a panel with a grab, and a grab is a feature
 -- safe mode does not have. Being axis-aligned is also why the intersection below
@@ -31,6 +37,12 @@ local DEFAULT_ASPECT = 16 / 9
 
 -- Where the notes are drawn, and how tall, when there is no window to show.
 local NOTE_HEIGHT = 0.07
+
+-- How many characters of the load error fit on a line, and how many lines of it
+-- are shown. A traceback is long and a headset is not a terminal; the log has
+-- the rest.
+local ERROR_COLUMNS = 72
+local ERROR_LINES = 5
 
 -- How far a beam is drawn when it meets nothing, in metres.
 local BEAM_LENGTH = 1.5
@@ -125,6 +137,37 @@ local function hit(window, originX, originY, originZ, directionX, directionY, di
     (height / 2 - y) / height * pixelHeight,
     distance
 end
+
+-- The load error broken into lines short enough to read, or nothing.
+--
+-- Computed once rather than per frame: it never changes, and a `draw` that
+-- allocated a table of strings every frame would be the one thing in safe mode
+-- that costs anything.
+--
+-- The cut is on width and not on words. A load error is mostly paths, line
+-- numbers, and a traceback, none of which have useful word boundaries, and
+-- word-aware wrapping is a page of code safe mode should not be carrying.
+local function errorLines(text)
+  if not text then
+    return {}
+  end
+
+  local lines = {}
+  for paragraph in (tostring(text) .. '\n'):gmatch('([^\n]*)\n') do
+    local remaining = paragraph
+    repeat
+      if #lines >= ERROR_LINES then
+        lines[#lines + 1] = '…'
+        return lines
+      end
+      lines[#lines + 1] = remaining:sub(1, ERROR_COLUMNS)
+      remaining = remaining:sub(ERROR_COLUMNS + 1)
+    until #remaining == 0
+  end
+  return lines
+end
+
+local errorText = errorLines(loadError)
 
 local function spawnNextTerminal()
   attempt = attempt + 1
@@ -249,13 +292,20 @@ end
 function lovr.draw(pass)
   local window = firstWindow()
 
+  local top = PANEL_Y + PANEL_HEIGHT / 2 + NOTE_HEIGHT * (#errorText + 1)
   pass:text(
-    'lunette: safe mode. The configuration did not load; see the log.',
+    'lunette: safe mode. The configuration did not load. Press '
+      .. RELOAD_KEY
+      .. ' to try again.',
     PANEL_X,
-    PANEL_Y + PANEL_HEIGHT / 2 + NOTE_HEIGHT,
+    top,
     PANEL_Z,
     NOTE_HEIGHT
   )
+
+  for index, line in ipairs(errorText) do
+    pass:text(line, PANEL_X, top - index * NOTE_HEIGHT, PANEL_Z, NOTE_HEIGHT * 0.7)
+  end
 
   -- Never cached across frames: the texture rotates as the client cycles its
   -- buffers, and is false while the client has committed nothing.

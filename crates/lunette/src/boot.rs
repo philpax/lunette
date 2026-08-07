@@ -45,6 +45,7 @@ use lunette::{
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install_on_state},
+    safe_mode,
     texture::LovrTexture,
 };
 use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback};
@@ -225,6 +226,19 @@ fn run_session(
         if thread.is_null() {
             error!("lua: boot.lua did not return a coroutine");
             return Outcome::LoadFailed;
+        }
+
+        // After the chunk, which is what creates the `lovr` table, and before
+        // the first resume, which is when `boot.lua` reads `lovr.boot` back.
+        // There is no other moment: the coroutine boots the modules and runs
+        // `main.lua` on the same resume.
+        //
+        // SAFETY: `state` is live until the `luax_close` below, and the
+        // reference mlua constructs over it is consumed inside this call.
+        if let Err(error) = safe_mode::install_trigger(Lua::get_or_init_from_ptr(state)) {
+            // Not fatal. The session still boots; what it loses is the fallback
+            // if it turns out the configuration does not load.
+            error!("lua: safe mode could not be armed: {error}");
         }
 
         // SAFETY: `thread` stays alive until the `luax_close` below, and the

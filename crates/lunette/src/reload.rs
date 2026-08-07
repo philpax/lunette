@@ -268,7 +268,12 @@ fn teardown_failures(lua: &Lua) -> mlua::Result<Vec<String>> {
 ///
 /// A state with no `lovr` table is not an error: the module is reachable from a
 /// Lua state that never ran `boot.lua`, and a reload there has nothing to clear.
-fn clear_user_callbacks(globals: &Table) -> mlua::Result<()> {
+///
+/// [`crate::safe_mode`] calls it for the same reason a reload does, at the other
+/// end of the same problem: a `main.lua` that raised halfway through has already
+/// installed some of its callbacks, and safe mode running with a broken
+/// configuration's `lovr.draw` still bound would be safe mode in name only.
+pub(crate) fn clear_user_callbacks(globals: &Table) -> mlua::Result<()> {
     let Some(lovr) = globals.get::<Option<Table>>("lovr")? else {
         return Ok(());
     };
