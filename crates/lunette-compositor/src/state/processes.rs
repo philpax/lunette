@@ -1,3 +1,6 @@
+//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/client.rs (`accept_connection` and `cleanup_clients`) and backend/wayvr/mod.rs (the spawn fragment), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
+//!
 //! The processes lunette starts, and which client belongs to which.
 //!
 //! Two halves of one question. Spawning is a `ProcessSpawner` call and a timer
@@ -7,7 +10,10 @@
 //! to is a process lunette has lost track of, and an attribution with nothing
 //! to attribute to is an adopted client.
 //!
-//! Split out of `compositor.rs` as a self-contained concern.
+//! Split out of `compositor.rs` as a self-contained concern, and the header
+//! travels with it: `attach_client` and `prune_clients` are the halves of
+//! WayVR's `accept_connection` and `cleanup_clients` that did not go to
+//! [`crate::client`].
 
 use std::time::Duration;
 

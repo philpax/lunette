@@ -38,7 +38,9 @@ No dependency in the tree names `async-std` or `ashpd`: `cargo tree | rg -c 'asy
 
 ## Provenance
 
-Every file in `crates/lunette-compositor/src/` either carries the WayVR header or is lunette's own. The check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/`, compared against the list of original files in [crates/lunette-compositor/PROVENANCE.md](../crates/lunette-compositor/PROVENANCE.md). Sixteen files are headerless and all sixteen are on that list.
+Every file in `crates/lunette-compositor/src/` either carries the WayVR header or is lunette's own. The check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/`, compared against the list of original files in [crates/lunette-compositor/PROVENANCE.md](../crates/lunette-compositor/PROVENANCE.md). Twenty-six files are headerless and all twenty-six are on that list.
+
+The list went stale once, between the file-size sweep that split six oversized files and the phases that followed it, and the check named eleven files the list did not. `PROVENANCE.md` now records a verdict per file for the three method groups carved out of the header-carrying `state/compositor.rs`: `state/processes.rs` took `accept_connection` and `cleanup_clients` with it and carries the header, and `state/outputs.rs` and `state/pacing.rs` do not, because virtual monitors and frame pacing have no upstream counterpart. `CompositorState::millis` is the one thing in the latter that does, and it is a contrast rather than a port — WayVR reads a wall clock, lunette an `Instant`, and Wayland's timestamps must be monotonic.
 
 `vendor/lovr` carries three patches on top of upstream `fdf1669f`, touching `src/core/gpu.h`, `src/core/gpu_vk.c`, `src/modules/graphics/graphics.c`, and `src/modules/graphics/graphics.h`. None adds a file. Upstream carries per-file copyright headers only under `src/lib/`, which is its own vendored third-party code, so the four patched files inherit the repository's MIT `LICENSE` and a per-file header would be a departure from upstream rather than a match to it.
 
