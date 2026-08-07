@@ -171,6 +171,19 @@ impl<B: LayerBackend> PoolRegistry<B> {
     pub fn session_lost(&self) -> PoolOutcome {
         self.pool.borrow_mut().session_lost()
     }
+
+    /// Discards every claim, because the Lua state that made them is gone.
+    ///
+    /// Called by [`FrameDriver::quiesce`] after the layers have been destroyed,
+    /// which is the only moment at which a claim can be certain to be an orphan:
+    /// a soft reload keeps the claims deliberately, because the handles Lua
+    /// holds survive it.
+    ///
+    /// [`FrameDriver::quiesce`]: crate::frame::FrameDriver::quiesce
+    pub fn forget_claims(&self) {
+        self.pool.borrow_mut().forget_claims();
+        self.sources.borrow_mut().clear();
+    }
 }
 
 impl<B> ClaimRegistry for PoolRegistry<B>

@@ -79,13 +79,18 @@ pub struct SessionPaths<'a> {
 /// LÖVR has a graphics device to lend, which is why it travels this far rather
 /// than being used in `main`.
 ///
-/// # A restart does not bring the compositor back
+/// # A restart keeps the compositor and its clients
 ///
 /// `lovr.event.restart` closes the Lua state, and closing it destroys LÖVR's
-/// graphics module and the `VkDevice` the compositor borrowed. So the compositor
-/// is stopped before the state closes and is not started again: its socket went
-/// with it. `lunette::reload` is the path that keeps clients across a
-/// reconfiguration, and it works by not discarding anything native at all.
+/// graphics module and the `VkDevice` the compositor borrowed. The compositor
+/// thread survives that, because the device is taken back from it before the
+/// state closes and a new one is lent to it afterwards. [`crate::restart`] is
+/// that protocol and states the ordering; the Wayland socket, the connections,
+/// and the clients' buffers are untouched throughout, which is what
+/// `lunette-v1.AC5.5` asks for.
+///
+/// `lunette::reload` is the cheaper path for a reconfiguration, and it works by
+/// not discarding anything native at all.
 pub fn run(
     paths: SessionPaths<'_>,
     session: &Rc<Session<LovrTexture>>,
@@ -256,7 +261,17 @@ unsafe fn run_steps(
             // between frames; `os_sleep` touches no Lua state.
             Step::Continue => unsafe { raw::os_sleep(0.0) },
             Step::Restart => {
-                driver.shutdown();
+                // Before the cookie is read and long before `luax_close`, and
+                // that ordering is the whole of this path's correctness.
+                // `luax_close` runs LÖVR's finalizer chain, which reaches
+                // `gpu_destroy` — `vkDeviceWaitIdle`, `vkDestroyDevice`,
+                // `vkDestroyInstance` — and `lovrHeadsetDestroy`'s
+                // `xrDestroySession`. Every imported image, every allocation
+                // behind one, and every composition layer was created against
+                // those. `crate::restart` sets out the sequence this drives; it
+                // is deliberately not a `luax_atexit` finalizer, and that module
+                // records why.
+                driver.quiesce();
                 // SAFETY: `boot.lua` leaves the cookie at index 2 of the thread
                 // when it yields "restart"; `src/main.c:68` reads it there.
                 unsafe {

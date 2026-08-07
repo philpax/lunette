@@ -101,7 +101,7 @@ A property is a number, a string, or a boolean. A table raises, with the key nam
 
 Entries live as long as the window and not as long as the Lua state. A reload leaves them untouched; a window closing drops them.
 
-`win.id` is stable for the window's whole life, and a soft reload does not change it. The compositor thread is not restarted by one — that is what a soft reload is — so the identifiers it minted are the identifiers it keeps, and re-associating with a window after a reload is a matter of reading `win.id` again. A hard restart is a different matter: it stops the compositor, and identifiers from before it name nothing. Anything that has to survive that is keyed on something the compositor did not mint, such as `win.appId` or a monitor's identity.
+`win.id` is stable for the window's whole life, and a soft reload does not change it. The compositor thread is not restarted by one — that is what a soft reload is — so the identifiers it minted are the identifiers it keeps, and re-associating with a window after a reload is a matter of reading `win.id` again. A hard restart does not change this either. It destroys the graphics device and the XR session, but the compositor thread survives both, so the identifiers stay valid across it — see [LÖVR integration](lovr-integration.md#restart-semantics). What does not survive a restart is the Lua state, so anything the configuration wants to carry across is written to the property store or keyed on something durable such as `win.appId` or a monitor's identity.
 
 Writing any of this to disk is the standard library's own business. The store is live state; what of it is worth keeping across a restart is a decision `mullion` makes.
 

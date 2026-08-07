@@ -123,3 +123,15 @@ No sandboxing. Spawned applications are as privileged as lunette.
 2D widget toolkit. Deferred, and may end up as a recommended separate library rather than part of `mullion`. Ambitious UI should be a real Wayland client, spawned rather than built in.
 
 Layout algorithms. There is no prior implementation to copy and no comparable system to consult.
+
+## Imported images are abandoned at a restart, not destroyed
+
+Decided 2026-08-07, building Phase 7 Task 3.
+
+A restart destroys the `VkDevice` every imported image was created against, so the images have to be dealt with before `luax_close` runs. They are forgotten rather than destroyed.
+
+Destroying them there would be invalid. LÖVR retires an imported texture's image *view* through its own morgue, and that morgue is emptied only by `gpu_destroy`; `vkDestroyImage` on an image that still has a view is not allowed. The deferral that makes this work in an ordinary frame counts in frames, and a restart has no further frames of that device to count. This is the same reasoning Phase 2 recorded for shutdown, and the answer is the same.
+
+Nothing is leaked: `vkDestroyDevice` frees what the device still owns, and it runs moments later. What forgetting buys is the thing that would otherwise be a defect rather than an untidiness — no handle from the old device survives into the new one's lifetime, where destroying it would be a use-after-free against a device that never created it.
+
+The alternative considered was flushing LÖVR's morgue before the teardown. LÖVR exposes no way to do that, and adding one would be a behavioural patch to an existing path, which `CONTRIBUTING.md` rules out for the fork.

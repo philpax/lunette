@@ -46,6 +46,15 @@
 //! longer bound, and the failures that can occur here — a device without the
 //! import extensions, a thread that cannot be spawned — do not become true
 //! later.
+//!
+//! # Why the same is true after a restart
+//!
+//! `lunette.restart()` destroys the device and builds another, and the
+//! compositor thread outlives both. So the readiness test above runs for every
+//! device rather than only the first: [`FrameDriver::quiesce`] takes the device
+//! back before the Lua state closes, and the first frame of the next session at
+//! which LÖVR has one again lends it out. [`crate::restart`] states the ordering
+//! that makes the exchange safe, and it is the exacting part of this module.
 
 #[cfg(test)]
 mod tests;
@@ -60,10 +69,10 @@ use lunette_capture::{
 };
 use lunette_compositor::{
     client::{DisplayName, WaylandSocket, XwaylandSatellite},
-    protocol::{Event, ImportedBuffer, KeymapDefaults, Snapshot, SurfaceId, WindowId},
+    protocol::{Command, Event, ImportedBuffer, KeymapDefaults, Snapshot, SurfaceId, WindowId},
     selection::DataControlSource,
     state::CompositorConfig,
-    thread::{self, CompositorHandle, PanicPolicy, StartError},
+    thread::{self, CompositorHandle, PanicPolicy, StartError, TrySendError},
 };
 use lunette_lovr::raw::lovrGraphicsIsInitialized;
 use tracing::{debug, error, info, warn};
@@ -75,6 +84,7 @@ use crate::{
     layers::{BlitLedger, LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session},
     mirrors::MirrorFrames,
+    restart,
     texture::{
         BarrierPolicy, LovrTexture, MonitorTextures, Released, TextureLedger, destroy_due_images,
     },
@@ -168,10 +178,42 @@ pub struct FrameDriver {
     empty: Arc<Snapshot>,
 }
 
-/// A running compositor and the two things shared with its thread.
+/// A running compositor, and whatever graphics state it currently shares with
+/// its thread.
+///
+/// The two are separate because they have different lifetimes. The thread, its
+/// socket, and its clients last for the whole process; the device does not,
+/// because `lunette.restart()` destroys it and builds another. See
+/// [`crate::restart`].
 #[derive(Debug)]
 struct Compositor {
     handle: CompositorHandle,
+    graphics: GraphicsState,
+}
+
+/// Whether the compositor has a device to import against.
+///
+/// An explicit state rather than an `Option`, because the two absent cases are
+/// answered differently: one is waiting for a device that is being built, and
+/// the other has given up on ever having one.
+#[derive(Debug)]
+enum GraphicsState {
+    /// A device is lent to the compositor and imports are running.
+    Held(Graphics),
+    /// The device has been given up for a restart, and the next session's has
+    /// not arrived. The compositor refuses imports and releases the buffers it
+    /// is offered, so a client that commits now redraws later.
+    Quiesced,
+    /// No device could be borrowed, so no client can be served for the rest of
+    /// the session. Terminal: nothing retries, because the failures that reach
+    /// here — a device without the import extensions, a graphics module that
+    /// never initialised — do not become false later.
+    Unavailable,
+}
+
+/// The graphics state one device's lifetime owns.
+#[derive(Debug)]
+struct Graphics {
     /// Borrowed from LÖVR. Held here because destroying an image needs it, and
     /// destruction happens on this side.
     device: Arc<GraphicsDevice>,
@@ -180,6 +222,23 @@ struct Compositor {
     /// beside the compositor because it needs the same device and the same
     /// arena, and both arrive at the same moment.
     capture: CaptureImporter,
+}
+
+impl Compositor {
+    /// The device and its arena, when one is lent.
+    fn graphics(&self) -> Option<&Graphics> {
+        match &self.graphics {
+            GraphicsState::Held(graphics) => Some(graphics),
+            GraphicsState::Quiesced | GraphicsState::Unavailable => None,
+        }
+    }
+
+    fn graphics_mut(&mut self) -> Option<&mut Graphics> {
+        match &mut self.graphics {
+            GraphicsState::Held(graphics) => Some(graphics),
+            GraphicsState::Quiesced | GraphicsState::Unavailable => None,
+        }
+    }
 }
 
 impl FrameDriver {
@@ -277,12 +336,15 @@ impl FrameDriver {
         // Last, and only here: `destroy_due_images` is sound only after the
         // frame's events have been drained into the ledger and the textures
         // they displaced have been released, which the drain above did.
-        if let Some(compositor) = &self.compositor {
+        if let Some(graphics) = self.compositor.as_ref().and_then(Compositor::graphics) {
             let now = self.session.generation();
             self.session.with_textures(|ledger| {
                 // SAFETY: the ordering the function documents is the ordering
-                // of this method, stated in the module note above.
-                unsafe { destroy_due_images(ledger, &compositor.arena, &compositor.device, now) };
+                // of this method, stated in the module note above. The arena and
+                // the device are one lifetime's: a restart replaces both
+                // together, so a handle from an older device is unreachable
+                // from here.
+                unsafe { destroy_due_images(ledger, &graphics.arena, &graphics.device, now) };
             });
         }
     }
@@ -384,15 +446,111 @@ impl FrameDriver {
         let Some(mut compositor) = self.compositor.take() else {
             return;
         };
-        compositor.capture.forget_buffers();
+        let live = match &mut compositor.graphics {
+            GraphicsState::Held(graphics) => {
+                graphics.capture.forget_buffers();
+                graphics.arena.live()
+            }
+            GraphicsState::Quiesced | GraphicsState::Unavailable => 0,
+        };
 
-        let live = compositor.arena.live();
         if let Err(error) = compositor.handle.shutdown() {
             error!(%error, "the compositor thread did not stop cleanly");
         }
         info!(
             images = live,
             "compositor stopped; its images are freed with the graphics device"
+        );
+    }
+
+    /// Prepares for the Lua state and the graphics device to be destroyed, and
+    /// leaves the compositor running.
+    ///
+    /// The restart counterpart of [`FrameDriver::shutdown`]. What separates them
+    /// is that there are further frames after this one: the next session borrows
+    /// a new device and [`FrameDriver::start_if_ready`] hands it to the
+    /// compositor, which re-imports the buffers its clients still hold. That is
+    /// what `lunette-v1.AC5.5` means by clients staying connected.
+    ///
+    /// The order below is [`crate::restart`]'s, and it is the whole of this
+    /// method's correctness. Reordering any two of these steps produces a
+    /// use-after-free on the GPU rather than a failure anything reports.
+    ///
+    /// # When the compositor does not answer
+    ///
+    /// It is stopped, and every client with it. That is a severe outcome for a
+    /// restart, and it is the correct one: the alternative is destroying a
+    /// device the compositor thread may be inside `vkCreateImage` on. A restart
+    /// that loses the clients is recoverable by the user; a driver that faults is
+    /// not.
+    pub fn quiesce(&mut self) {
+        // First, and waiting: nothing below may run while the compositor can
+        // still create an image against the device that is about to go.
+        let acknowledged = self
+            .compositor
+            .as_ref()
+            .map(|compositor| restart::quiesce(&compositor.handle, restart::QUIESCE_TIMEOUT));
+        match acknowledged {
+            None => (),
+            Some(Ok(quiesced)) => info!(
+                took = ?quiesced.took,
+                discarded = quiesced.discarded,
+                "the compositor released the graphics device",
+            ),
+            Some(Err(error)) => {
+                error!(
+                    "{error}; stopping the compositor rather than destroying a device it may \
+                     still be using, so every client is disconnected by this restart"
+                );
+                self.shutdown();
+                return;
+            }
+        }
+
+        // While the XR session still exists, because destroying a `Layer` calls
+        // `xrDestroySwapchain` inline on a handle `xrDestroySession` would
+        // invalidate.
+        self.session.claims().shutdown();
+        // The claims themselves go with the Lua state that made them. Left
+        // behind they would contend for the next session's layer budget on
+        // behalf of panels that no longer exist.
+        self.layers.forget_claims();
+        self.blitted.clear();
+
+        // Releasing a texture retires LÖVR's view of the image into LÖVR's own
+        // morgue, which `gpu_destroy` empties. The images themselves are
+        // abandoned below rather than destroyed, for the reason
+        // `ImageArena::abandon_all` records.
+        let released = self.session.with_textures(TextureLedger::take_all);
+        for texture in released {
+            texture.release_ref();
+        }
+        let released = self
+            .session
+            .with_monitor_textures(MonitorTextures::take_all);
+        for texture in released {
+            texture.release_ref();
+        }
+
+        let Some(compositor) = &mut self.compositor else {
+            return;
+        };
+        let previous = std::mem::replace(&mut compositor.graphics, GraphicsState::Quiesced);
+        let GraphicsState::Held(mut graphics) = previous else {
+            return;
+        };
+
+        // The retained capture buffers are dropped rather than carried across.
+        // A mirrored monitor produces a frame every tick, so the next one
+        // re-imports against the new device on its own; keeping the old ones
+        // would only hold descriptors open for content that is already stale.
+        graphics.capture.forget_buffers();
+        let abandoned = graphics.arena.abandon_all();
+        drop(graphics);
+
+        info!(
+            images = abandoned,
+            "abandoned the imported images; the device teardown frees them"
         );
     }
 
@@ -454,7 +612,10 @@ impl FrameDriver {
     /// every Vulkan import in the process happens here, on the main thread,
     /// through the same dmabuf path a client's buffer takes.
     fn import_capture_frames(&mut self) {
-        let (Some(host), Some(compositor)) = (&self.host, &mut self.compositor) else {
+        let (Some(host), Some(graphics)) = (
+            &self.host,
+            self.compositor.as_mut().and_then(Compositor::graphics_mut),
+        ) else {
             return;
         };
 
@@ -468,7 +629,7 @@ impl FrameDriver {
                 .session
                 .with_monitor_textures(|textures| textures.image(&monitor));
 
-            let image = match compositor.capture.import(&monitor, frame, installed) {
+            let image = match graphics.capture.import(&monitor, frame, installed) {
                 Ok(image) => image,
                 Err(error) => {
                     warn!(%monitor, %error, "a mirrored monitor's frame could not be imported");
@@ -499,7 +660,7 @@ impl FrameDriver {
             debug!(
                 %monitor,
                 %size,
-                retained = compositor.capture.held(),
+                retained = graphics.capture.held(),
                 "a mirrored monitor produced a new texture",
             );
             let description = crate::texture::describe(&ImportedBuffer::Image(image));
@@ -532,7 +693,8 @@ impl FrameDriver {
         let retaining = self
             .compositor
             .as_ref()
-            .map(|compositor| compositor.capture.streams())
+            .and_then(Compositor::graphics)
+            .map(|graphics| graphics.capture.streams())
             .unwrap_or_default();
 
         let stopped = {
@@ -569,16 +731,26 @@ impl FrameDriver {
             texture.release_ref();
         }
 
-        if let Some(compositor) = &mut self.compositor {
-            compositor.capture.forget_stream(monitor);
+        if let Some(graphics) = self.compositor.as_mut().and_then(Compositor::graphics_mut) {
+            graphics.capture.forget_stream(monitor);
         }
     }
 
-    /// Starts the compositor once LÖVR has a device to lend it.
+    /// Starts the compositor once LÖVR has a device to lend it, or lends it the
+    /// new one after a restart.
+    ///
+    /// Both cases wait on the same signal and neither can be done earlier, so
+    /// they share the readiness test rather than being two call sites that both
+    /// have to remember it.
     fn start_if_ready(&mut self) {
-        if self.compositor.is_some() || self.startup.is_none() {
-            return;
-        }
+        let wanted = match &self.compositor {
+            None if self.startup.is_some() => Readiness::Start,
+            Some(compositor) => match compositor.graphics {
+                GraphicsState::Quiesced => Readiness::Adopt,
+                GraphicsState::Held(_) | GraphicsState::Unavailable => return,
+            },
+            None => return,
+        };
 
         // SAFETY: the call reads a flag on LÖVR's graphics state and touches no
         // Rust memory. It is safe before initialisation, which is the whole
@@ -587,31 +759,123 @@ impl FrameDriver {
             return;
         }
 
+        match wanted {
+            Readiness::Start => self.start_compositor(),
+            Readiness::Adopt => self.adopt_graphics(),
+        }
+    }
+
+    /// Borrows LÖVR's device, starts the compositor thread against it, and
+    /// points monitor capture at the formats it can import.
+    fn start_compositor(&mut self) {
         let Some(startup) = self.startup.take() else {
             return;
         };
 
-        match start(startup) {
-            Ok(compositor) => {
-                // The same moment, and for the same reason: a capture stream
-                // negotiates against the DRM formats the importer accepts, and
-                // those are a property of the device that has only now appeared.
-                if let Some(host) = &self.host {
-                    let formats = capture_formats(&compositor.device);
-                    info!(
-                        formats = formats.len(),
-                        "monitor capture can now negotiate a dmabuf"
-                    );
-                    host.mirrors
-                        .set_streams(Box::new(PipewireStreams::new(formats)));
-                }
-                self.compositor = Some(compositor);
+        let graphics = match borrow_graphics() {
+            Ok(graphics) => graphics,
+            Err(error) => {
+                error!(
+                    "{error}; lunette will run with no compositor, so no client can connect for \
+                     the rest of this session"
+                );
+                return;
+            }
+        };
+
+        match start(startup, &graphics) {
+            Ok(handle) => {
+                self.negotiate_capture_formats(&graphics.device);
+                self.compositor = Some(Compositor {
+                    handle,
+                    graphics: GraphicsState::Held(graphics),
+                });
             }
             Err(error) => error!(
                 "{error}; lunette will run with no compositor, so no client can connect for the \
                  rest of this session"
             ),
         }
+    }
+
+    /// Hands the compositor a device borrowed from the session that came up
+    /// after a restart.
+    ///
+    /// The compositor has been idle since it acknowledged the quiesce, holding
+    /// its clients and their buffers. Adopting is what lets it import again, and
+    /// it re-imports every retained buffer as it does — so a client that has
+    /// drawn nothing since the restart gets its content back regardless.
+    ///
+    /// Nothing is waited on here. The re-imports arrive as ordinary
+    /// [`Event::BufferImported`] reports and are drained by the next frame
+    /// through the path a commit already takes.
+    fn adopt_graphics(&mut self) {
+        let graphics = match borrow_graphics() {
+            Ok(graphics) => graphics,
+            Err(error) => {
+                error!(
+                    "{error}; the compositor has no device to import against, so no client can be \
+                     drawn for the rest of this session"
+                );
+                if let Some(compositor) = &mut self.compositor {
+                    compositor.graphics = GraphicsState::Unavailable;
+                }
+                return;
+            }
+        };
+
+        let importer = Importer::new(Arc::clone(&graphics.device), graphics.arena.clone());
+        let Some(compositor) = &mut self.compositor else {
+            return;
+        };
+
+        // `try_send` and not a wait, for the reason the whole protocol uses it:
+        // a main thread that blocked filling this channel could deadlock against
+        // a compositor blocked filling the event channel. A full queue here is a
+        // frame's worth of commands ahead of us and is drained by the frame that
+        // follows, so the retry is the next frame's.
+        let offered = compositor
+            .handle
+            .commands()
+            .try_send(Command::AdoptGraphics {
+                importer: Box::new(importer),
+            });
+        match offered {
+            Ok(()) => compositor.graphics = GraphicsState::Held(graphics),
+            Err(TrySendError::Full(_)) => {
+                debug!("the compositor's queue was full; offering it the new device next frame");
+                return;
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                error!("the compositor thread is gone, so the restart cannot restore its clients");
+                compositor.graphics = GraphicsState::Unavailable;
+                return;
+            }
+        }
+
+        let device = match &compositor.graphics {
+            GraphicsState::Held(graphics) => Arc::clone(&graphics.device),
+            GraphicsState::Quiesced | GraphicsState::Unavailable => return,
+        };
+        self.negotiate_capture_formats(&device);
+    }
+
+    /// Tells monitor capture which DRM formats the new device can import.
+    ///
+    /// Re-run for every device rather than once at startup: a capture stream
+    /// negotiates against what the importer accepts, and that is a property of a
+    /// particular device.
+    fn negotiate_capture_formats(&self, device: &GraphicsDevice) {
+        let Some(host) = &self.host else {
+            return;
+        };
+        let formats = capture_formats(device);
+        info!(
+            formats = formats.len(),
+            "monitor capture can now negotiate a dmabuf"
+        );
+        host.mirrors
+            .set_streams(Box::new(PipewireStreams::new(formats)));
     }
 
     /// Copies each claim's window into the layer it holds, and hands the
@@ -781,9 +1045,9 @@ fn ledger_change<'a>(
         }
         Event::SurfaceGone { surface } => LedgerChange::Forget(*surface),
         // The restart acknowledgements say nothing about a texture. The images
-        // are `crate::restart`'s, which drives the exchange, and the re-imports
-        // a `GraphicsAdopted` follows arrive as their own `BufferImported`
-        // reports and are installed by the arm above.
+        // are handled by `FrameDriver::quiesce`, which drives the exchange, and
+        // the re-imports a `GraphicsAdopted` follows arrive as their own
+        // `BufferImported` reports and are installed by the arm above.
         Event::WindowOpened { .. }
         | Event::TitleChanged { .. }
         | Event::SurfaceDamaged { .. }
@@ -822,8 +1086,40 @@ fn stopped_monitors(
         .collect()
 }
 
-/// Borrows LÖVR's device and starts the compositor against it.
-fn start(startup: Startup) -> Result<Compositor, StartupError> {
+/// Which half of [`FrameDriver::start_if_ready`] the state calls for.
+#[derive(Clone, Copy, Debug)]
+enum Readiness {
+    /// There is no compositor yet.
+    Start,
+    /// There is one, quiesced by a restart, waiting for a device.
+    Adopt,
+}
+
+/// Borrows LÖVR's device and builds the state one device's lifetime owns.
+///
+/// Called at startup and again after every restart, which is why it is separate
+/// from [`start`]: the thread is started once and the device is borrowed as many
+/// times as the session is rebuilt.
+///
+/// # Safety of the borrow
+///
+/// The caller must have established that LÖVR's graphics module is initialised,
+/// and the device stays valid until either [`FrameDriver::shutdown`] has stopped
+/// the thread that borrows it or [`FrameDriver::quiesce`] has taken it back.
+fn borrow_graphics() -> Result<Graphics, StartupError> {
+    // SAFETY: the caller's guarantee, stated above.
+    let device = unsafe { GraphicsDevice::borrow_from_lovr() }.map_err(StartupError::Device)?;
+    let arena = ImageArena::new();
+
+    Ok(Graphics {
+        capture: CaptureImporter::new(Arc::clone(&device), arena.clone()),
+        device,
+        arena,
+    })
+}
+
+/// Starts the compositor thread against a device that has just been borrowed.
+fn start(startup: Startup, graphics: &Graphics) -> Result<CompositorHandle, StartupError> {
     let Startup {
         socket,
         display: name,
@@ -836,15 +1132,9 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
         keymap_defaults,
     } = startup;
 
-    // SAFETY: the caller has established that LÖVR's graphics module is
-    // initialised, and it stays initialised until `FrameDriver::shutdown` has
-    // stopped the thread that borrows the device.
-    let device = unsafe { GraphicsDevice::borrow_from_lovr() }.map_err(StartupError::Device)?;
-
-    let arena = ImageArena::new();
-    let importer = Importer::new(Arc::clone(&device), arena.clone());
+    let importer = Importer::new(Arc::clone(&graphics.device), graphics.arena.clone());
     let config = CompositorConfig {
-        dmabuf: device.dmabuf_support(),
+        dmabuf: graphics.device.dmabuf_support(),
         display: Some(name),
         satellite,
         host_selection: clipboard.map(|source| Box::new(source) as _),
@@ -859,12 +1149,7 @@ fn start(startup: Startup) -> Result<Compositor, StartupError> {
 
     info!(%name, "compositor running; clients may connect");
 
-    Ok(Compositor {
-        capture: CaptureImporter::new(Arc::clone(&device), arena.clone()),
-        handle,
-        device,
-        arena,
-    })
+    Ok(handle)
 }
 
 /// The DRM formats a capture stream may negotiate.

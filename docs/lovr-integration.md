@@ -87,9 +87,11 @@ Config resolution: `~/.config/lunette/main.lua` if it exists, otherwise `$SYSCON
 
 ## Restart semantics
 
-`lovr.event.restart` returns to `main.c`'s outer loop, which closes the entire Lua state and builds a fresh one in the same process, passing a `cookie` variant across. LÖVR's module state is anchored in that Lua state, so restart tears down graphics and the XR session too. Imported textures die and re-import, and Monado sees the overlay session leave and return.
+`lovr.event.restart` returns to `main.c`'s outer loop, which closes the entire Lua state and builds a fresh one in the same process, passing a `cookie` variant across. LÖVR's module state is anchored in that Lua state, so restart tears down graphics and the XR session too. Monado sees the overlay session leave and return.
 
-Wayland clients survive, because they are owned by Rust outside the Lua state.
+Imported textures die and re-import, and that is a protocol rather than a consequence. Closing the Lua state runs `gpu_destroy`, which destroys the `VkDevice` every imported image was created against, and the compositor thread holds a window onto that device. So the device is taken back from the compositor and its acknowledgement waited for before the state closes, and a new one is lent to it afterwards; the compositor then re-imports the buffers its clients still hold. `crates/lunette/src/restart.rs` states the ordering, which is exacting: performing the steps in another order is a use-after-free on the GPU rather than anything that reports itself.
+
+Wayland clients survive, because they are owned by Rust outside the Lua state and because the compositor never speaks Vulkan to one — it imports descriptors, and a descriptor outlives the device it was imported into. A client that has drawn nothing since the restart gets its content back without redrawing. A shared-memory client is the exception: its pixels are copied out and its buffer released at import time, so there is nothing retained to re-import and the surface is restored by the client's next commit.
 
 This is why two reload paths exist ([The Lua API](lua-api.md#reload)): soft reload for the common case, hard restart for when soft reload is not enough.
 

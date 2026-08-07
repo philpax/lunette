@@ -687,6 +687,74 @@ fn session_loss_gives_up_every_layer_and_revokes_every_grant() {
     assert_eq!(harness.pool.budget().slots(), 0);
 }
 
+/// A restart is the one thing that invalidates a claim without Lua releasing
+/// it: the handles that named them go with the state being closed, and the
+/// state that replaces them knows none of their identifiers.
+#[test]
+fn a_restart_leaves_the_pool_with_no_claims_and_no_layers() {
+    let mut harness = Harness::new(GENEROUS);
+    let held = harness.pool.claim(key(512, 512), priority(2.0));
+    let freed = harness.pool.claim(key(1024, 1024), priority(1.0));
+    harness.settle();
+    harness.pool.release_claim(freed);
+    assert!(harness.pool.state(held).is_some());
+
+    // What `FrameDriver::quiesce` does, in its order: the layers go while the
+    // XR session still exists, and then the claims go with the Lua state.
+    harness.pool.shutdown();
+    harness.pool.forget_claims();
+
+    assert_eq!(
+        harness.destroyed(),
+        2,
+        "a restart destroys the layers rather than abandoning them, because the session that owns \
+         their swapchains is still alive when it runs"
+    );
+    assert_eq!(harness.abandoned(), Vec::<u64>::new());
+    assert_eq!(harness.pool.free_layers(), 0);
+    assert_eq!(
+        harness.pool.state(held),
+        None,
+        "a claim from the discarded Lua state must not contend for the next session's budget"
+    );
+}
+
+/// The next session claims from scratch, and gets served from an empty pool
+/// rather than from anything the last one left behind.
+#[test]
+fn the_session_after_a_restart_claims_from_an_empty_pool() {
+    let mut harness = Harness::new(GENEROUS);
+    harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+    harness.pool.shutdown();
+    harness.pool.forget_claims();
+
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+    let outcome = harness.settle();
+
+    assert_eq!(outcome.granted, vec![claim]);
+    assert_eq!(
+        harness.created(),
+        2,
+        "the layer the previous session held was destroyed, so this one is new"
+    );
+}
+
+/// The step order matters, so the case where it is wrong is stated rather than
+/// left to be discovered: a claim forgotten while it still holds a layer keeps
+/// the layer rather than dropping it on the floor.
+#[test]
+fn forgetting_a_claim_that_still_holds_a_layer_returns_it_to_the_free_list() {
+    let mut harness = Harness::new(GENEROUS);
+    harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+
+    harness.pool.forget_claims();
+
+    assert_eq!(harness.pool.free_layers(), 1);
+    assert_eq!(harness.destroyed(), 0);
+}
+
 #[test]
 fn a_layer_is_never_destroyed_once_its_session_is_gone() {
     // `lovrLayerDestroy` calls `xrDestroySwapchain` inline, and after

@@ -442,6 +442,28 @@ impl<B: LayerBackend> LayerPool<B> {
         }
     }
 
+    /// Discards every claim, because the Lua state that made them is gone.
+    ///
+    /// A restart's counterpart to [`LayerPool::shutdown`], and run immediately
+    /// after it. `shutdown` gives up the layers while the XR session that owns
+    /// their swapchains still exists; this gives up the claims, which are
+    /// identifiers held by handles in a Lua state that is about to be closed.
+    /// Kept, they would contend for the next session's budget on behalf of
+    /// panels that no longer exist, and never be released — nothing in the new
+    /// state knows their identifiers.
+    ///
+    /// A claim still holding a layer is returned to the free list rather than
+    /// dropped, so a caller that reaches here without having destroyed the
+    /// layers first leaks nothing. In the restart path there are none: the
+    /// shutdown that precedes this took them all.
+    pub fn forget_claims(&mut self) {
+        for claim in std::mem::take(&mut self.claims) {
+            if let Some(held) = claim.held {
+                self.release_layer(claim.key, held);
+            }
+        }
+    }
+
     /// The layer a claim holds, whether or not it has been reported granted.
     ///
     /// The blit path wants this rather than [`LayerPool::submitted`]: a layer
