@@ -48,7 +48,7 @@ This follows awesome, which installs Lua to `$PREFIX/share/awesome/lib` and its 
 | Standard library | `$PREFIX/share/lunette/lua/` |
 | Default config | `$SYSCONFDIR/xdg/lunette/main.lua` |
 | User config | `~/.config/lunette/main.lua` |
-| Control socket | `$XDG_RUNTIME_DIR/lunette-0.sock` |
+| Control socket | `$XDG_RUNTIME_DIR/lunette/lunette-0.sock` |
 | Saved state | LÖVR's save directory |
 
 The standard library is kept on disk rather than embedded in the binary, so it stays legible to anyone who needs to read it without cloning the source. There are two candidates and no third: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [Decisions](decisions.md#recorded-decisions) records why there is no `./lua` fallback and how the mount is installed.

@@ -303,7 +303,9 @@ Safe mode is compiled into the binary rather than installed, and `crates/lunette
 
 ## lunctl
 
-`lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette-0.sock`, mode 0600. The chunk is evaluated on the Lua thread between frames within a wall-clock budget, and the result is serialised back.
+`lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, mode 0600 inside a directory lunette creates at 0700. The chunk is evaluated on the Lua thread between frames within a wall-clock budget, and the result is serialised back.
+
+The directory is what makes the 0600 requirement enforceable, and reproducing the path without it would reintroduce a race. `UnixListener::bind` creates the inode with `0777 & ~umask` and offers no pre-creation hook; `fchmod` on the listener's descriptor does nothing on Linux, because for a socket the descriptor refers to the socket object rather than to the inode; binding and then widening the permissions leaves a window in which a connection can be accepted and stays valid afterwards; and `umask` is process-global and not thread-safe. A directory only the owner can traverse closes all of that, whatever the socket's own mode says. `$XDG_RUNTIME_DIR` is checked for the same property at startup rather than trusted, because the specification that mandates it is not an enforcement.
 
 ```console
 $ lunctl 'return #lunette.windows()'
@@ -322,7 +324,9 @@ Three things learned from awesome's version (`inspiration/awesome/lib/awful/remo
 - awesome enables remote control unintentionally. The manpage implies it is opt-in, but `lib/awful/init.lua:28` requires `awful.remote` unconditionally, so every configuration that calls `require("awful")` has arbitrary code execution enabled. lunctl is enabled deliberately, documented as equivalent to root access on the user's session, with a switch to disable it.
 - awesome's serialisation is limited to booleans, numbers, and strings; every other value is converted with `tostring`. This is adequate for a REPL but insufficient for tooling. lunctl serialises nested tables, and represents handles as opaque ids.
 
-No network transport is provided.
+No network transport is provided. The type is a Unix listener and nothing accepts a host or a port, so there is no configuration that makes this listen on a network address.
+
+`LUNETTE_CONTROL=off` is the switch that disables it. It defaults to on, because in-headset iteration is what it exists for; a value that is neither `on` nor `off` leaves it on and warns, since the failure worth protecting against is one that silently opens the endpoint rather than one that silently closes it.
 
 ## Bindings
 

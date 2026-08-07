@@ -12,6 +12,8 @@ license.workspace = true
 # itself. `linked` is deliberately not used — it would put a build-time
 # dependency on a Vulkan SDK in the way of a build that needs no device.
 ash.workspace = true
+# `geteuid`, for the check that the control socket's directory is this user's.
+libc.workspace = true
 lunette-capture = { path = "../lunette-capture" }
 lunette-compositor = { path = "../lunette-compositor" }
 lunette-lovr = { path = "../lunette-lovr" }

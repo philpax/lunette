@@ -556,6 +556,7 @@ name = "lunette"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "libc",
  "lunette-capture",
  "lunette-compositor",
  "lunette-lovr",

@@ -24,10 +24,13 @@
 //! a new one afterwards. [`safe_mode`] is the
 //! configuration the session falls back to when the user's will not load,
 //! embedded rather than installed so that nothing on disk can take it away.
-//! [`frame`] is what runs the
+//! [`control`] is how something
+//! outside the session reaches into it: a Unix socket carrying Lua chunks the
+//! main thread evaluates between frames. [`frame`] is what runs the
 //! rest in the order they require, once per frame, and is the only thing that
 //! starts the compositor thread.
 
+pub mod control;
 pub mod events;
 pub mod frame;
 pub mod host;
