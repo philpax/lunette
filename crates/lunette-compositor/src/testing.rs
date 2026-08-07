@@ -25,10 +25,11 @@ use std::{
     io,
     os::unix::net::UnixStream,
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
+    thread,
     time::Duration,
 };
 
@@ -51,8 +52,8 @@ use crate::{
     state::{ClientState, CompositorConfig},
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
     thread::{
-        COMMAND_CAPACITY, CommandSender, CompositorLoop, EVENT_CAPACITY, EventReceiver,
-        EventSender, Ingredients, LoopData, SnapshotReader, build, snapshot_channel,
+        COMMAND_CAPACITY, CommandSender, CompositorHandle, CompositorLoop, EVENT_CAPACITY,
+        EventReceiver, EventSender, Ingredients, LoopData, SnapshotReader, build, snapshot_channel,
     },
 };
 
@@ -61,6 +62,77 @@ use crate::{
 /// Nothing here waits for a duration. This is only the point at which waiting
 /// for a condition stops being patience and starts being a hang.
 pub const DEADLINE: Duration = Duration::from_secs(5);
+
+/// A compositor thread that accepts every command and answers none.
+///
+/// The shape of a compositor wedged behind a flooding client: the command
+/// channel has room, so a send succeeds, and nothing ever comes back. It is the
+/// only way to reach the timeout branch of the restart quiesce, which is the
+/// path a degraded restart takes and therefore the one a caller most needs to
+/// have exercised.
+///
+/// The thread holds the far ends of all three channels, so the handle sees a
+/// live compositor rather than a disconnected one, and parks until
+/// [`SilentCompositor::stop`] releases it — so `CompositorHandle::shutdown`
+/// joins rather than hanging, and no thread outlives the test.
+#[must_use]
+pub fn silent_compositor() -> (CompositorHandle, SilentCompositor) {
+    let (commands, command_channel) = calloop::channel::sync_channel(COMMAND_CAPACITY);
+    let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
+    let (snapshots, reader) = snapshot_channel();
+
+    let stop = Arc::new((Mutex::new(false), Condvar::new()));
+    let parked = Arc::clone(&stop);
+    let thread = thread::Builder::new()
+        .name("silent-compositor".to_owned())
+        .spawn(move || {
+            // Held for the thread's whole life. Dropping any of them would close
+            // a channel, and a closed channel is the *other* failure — a
+            // compositor that has gone — which this is deliberately not.
+            let _channels = (
+                command_channel,
+                EventSender {
+                    queue: event_sender,
+                },
+                snapshots,
+            );
+
+            let (flag, released) = &*parked;
+            let mut stopped = flag.lock().expect("the stop flag is not poisoned");
+            while !*stopped {
+                stopped = released
+                    .wait(stopped)
+                    .expect("the stop flag is not poisoned");
+            }
+        })
+        .expect("the silent compositor thread starts");
+
+    (
+        CompositorHandle::from_parts(
+            CommandSender { queue: commands },
+            EventReceiver { queue: events },
+            reader,
+            thread,
+        ),
+        SilentCompositor(stop),
+    )
+}
+
+/// Releases the thread [`silent_compositor`] parked.
+///
+/// Not a `Drop`: the handle's `shutdown` joins the thread, so the release has to
+/// be something a test can perform *before* it joins rather than something that
+/// happens when the guard falls out of scope.
+pub struct SilentCompositor(Arc<(Mutex<bool>, Condvar)>);
+
+impl SilentCompositor {
+    /// Lets the thread return, so that a join can complete.
+    pub fn stop(self) {
+        let (flag, released) = &*self.0;
+        *flag.lock().expect("the stop flag is not poisoned") = true;
+        released.notify_all();
+    }
+}
 
 /// A compositor stepped by the caller rather than by a thread.
 pub struct TestCompositor {

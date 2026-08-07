@@ -203,12 +203,14 @@ enum GraphicsState {
     /// The device has been given up for a restart, and the next session's has
     /// not arrived. The compositor refuses imports and releases the buffers it
     /// is offered, so a client that commits now redraws later.
+    ///
+    /// There is deliberately no third state for "no device, ever again". A
+    /// compositor that can never import refuses every commit and releases the
+    /// buffer, and a client answers a released buffer by drawing another — so
+    /// the clients would spin for the rest of the process. The answer to a
+    /// device that cannot be borrowed is [`FrameDriver::stop_compositor`], which
+    /// disconnects them instead.
     Quiesced,
-    /// No device could be borrowed, so no client can be served for the rest of
-    /// the session. Terminal: nothing retries, because the failures that reach
-    /// here — a device without the import extensions, a graphics module that
-    /// never initialised — do not become false later.
-    Unavailable,
 }
 
 /// The graphics state one device's lifetime owns.
@@ -229,14 +231,14 @@ impl Compositor {
     fn graphics(&self) -> Option<&Graphics> {
         match &self.graphics {
             GraphicsState::Held(graphics) => Some(graphics),
-            GraphicsState::Quiesced | GraphicsState::Unavailable => None,
+            GraphicsState::Quiesced => None,
         }
     }
 
     fn graphics_mut(&mut self) -> Option<&mut Graphics> {
         match &mut self.graphics {
             GraphicsState::Held(graphics) => Some(graphics),
-            GraphicsState::Quiesced | GraphicsState::Unavailable => None,
+            GraphicsState::Quiesced => None,
         }
     }
 }
@@ -410,7 +412,7 @@ impl FrameDriver {
         }
     }
 
-    /// Stops the compositor and releases every texture the session held.
+    /// Stops the compositor and releases every GPU object the session held.
     ///
     /// Called before the Lua state closes, because closing it destroys LÖVR's
     /// graphics module and with it the device the compositor thread borrowed.
@@ -421,46 +423,7 @@ impl FrameDriver {
     /// view is invalid. There are no further frames to defer into, so the
     /// images are left for the device teardown that follows immediately.
     pub fn shutdown(&mut self) {
-        // While the XR session still exists, because destroying a `Layer` calls
-        // `xrDestroySwapchain` inline.
-        self.session.claims().shutdown();
-        // The cached swapchain images name textures the layers own, and those
-        // go with the layers.
-        self.blitted.clear();
-
-        let released = self.session.with_textures(TextureLedger::take_all);
-        for texture in released {
-            texture.release_ref();
-        }
-
-        // The mirrors first, because dropping the lifecycle stops PipeWire's
-        // threads, and a stream still delivering into a queue nothing drains is
-        // a descriptor held open for the rest of the teardown.
-        let released = self
-            .session
-            .with_monitor_textures(MonitorTextures::take_all);
-        for texture in released {
-            texture.release_ref();
-        }
-
-        let Some(mut compositor) = self.compositor.take() else {
-            return;
-        };
-        let live = match &mut compositor.graphics {
-            GraphicsState::Held(graphics) => {
-                graphics.capture.forget_buffers();
-                graphics.arena.live()
-            }
-            GraphicsState::Quiesced | GraphicsState::Unavailable => 0,
-        };
-
-        if let Err(error) = compositor.handle.shutdown() {
-            error!(%error, "the compositor thread did not stop cleanly");
-        }
-        info!(
-            images = live,
-            "compositor stopped; its images are freed with the graphics device"
-        );
+        tear_down_device(self, Disposal::StopCompositor);
     }
 
     /// Prepares for the Lua state and the graphics device to be destroyed, and
@@ -472,9 +435,9 @@ impl FrameDriver {
     /// compositor, which re-imports the buffers its clients still hold. That is
     /// what `lunette-v1.AC5.5` means by clients staying connected.
     ///
-    /// The order below is [`crate::restart`]'s, and it is the whole of this
-    /// method's correctness. Reordering any two of these steps produces a
-    /// use-after-free on the GPU rather than a failure anything reports.
+    /// Both spend the same [`tear_down_device`], whose order is
+    /// [`crate::restart`]'s and is the whole of this method's correctness.
+    /// They differ only in [`Disposal`], the last step.
     ///
     /// # When the compositor does not answer
     ///
@@ -483,6 +446,10 @@ impl FrameDriver {
     /// device the compositor thread may be inside `vkCreateImage` on. A restart
     /// that loses the clients is recoverable by the user; a driver that faults is
     /// not.
+    ///
+    /// The teardown still runs in full on that path. It is the one the next
+    /// session inherits the consequences of, so leaving a layer or a claim
+    /// behind there is worse than leaving one behind at exit, not better.
     pub fn quiesce(&mut self) {
         // First, and waiting: nothing below may run while the compositor can
         // still create an image against the device that is about to go.
@@ -490,48 +457,36 @@ impl FrameDriver {
             .compositor
             .as_ref()
             .map(|compositor| restart::quiesce(&compositor.handle, restart::QUIESCE_TIMEOUT));
-        match acknowledged {
-            None => (),
-            Some(Ok(quiesced)) => info!(
-                took = ?quiesced.took,
-                discarded = quiesced.discarded,
-                "the compositor released the graphics device",
-            ),
+        let disposal = match acknowledged {
+            None => Disposal::Abandon,
+            Some(Ok(quiesced)) => {
+                info!(
+                    took = ?quiesced.took,
+                    discarded = quiesced.discarded,
+                    "the compositor released the graphics device",
+                );
+                Disposal::Abandon
+            }
             Some(Err(error)) => {
                 error!(
                     "{error}; stopping the compositor rather than destroying a device it may \
                      still be using, so every client is disconnected by this restart"
                 );
-                self.shutdown();
-                return;
+                Disposal::StopCompositor
             }
-        }
+        };
 
-        // While the XR session still exists, because destroying a `Layer` calls
-        // `xrDestroySwapchain` inline on a handle `xrDestroySession` would
-        // invalidate.
-        self.session.claims().shutdown();
-        // The claims themselves go with the Lua state that made them. Left
-        // behind they would contend for the next session's layer budget on
-        // behalf of panels that no longer exist.
-        self.layers.forget_claims();
-        self.blitted.clear();
+        tear_down_device(self, disposal);
+    }
 
-        // Releasing a texture retires LÖVR's view of the image into LÖVR's own
-        // morgue, which `gpu_destroy` empties. The images themselves are
-        // abandoned below rather than destroyed, for the reason
-        // `ImageArena::abandon_all` records.
-        let released = self.session.with_textures(TextureLedger::take_all);
-        for texture in released {
-            texture.release_ref();
-        }
-        let released = self
-            .session
-            .with_monitor_textures(MonitorTextures::take_all);
-        for texture in released {
-            texture.release_ref();
-        }
-
+    /// Forgets every imported image without destroying it, and leaves the
+    /// compositor running with no device.
+    ///
+    /// [`ImageArena::abandon_all`] records why they are forgotten rather than
+    /// destroyed, and `docs/decisions.md` records what that costs.
+    ///
+    /// [`ImageArena::abandon_all`]: crate::import::ImageArena::abandon_all
+    fn abandon_images(&mut self) {
         let Some(compositor) = &mut self.compositor else {
             return;
         };
@@ -551,6 +506,37 @@ impl FrameDriver {
         info!(
             images = abandoned,
             "abandoned the imported images; the device teardown frees them"
+        );
+    }
+
+    /// Stops the compositor thread, which disconnects every client.
+    ///
+    /// Terminal for the session: [`FrameDriver::start_if_ready`] starts a
+    /// compositor only while [`FrameDriver::startup`] is unspent, and it is spent
+    /// by the first start. Every caller reaches here having decided that no
+    /// client can be served again, and disconnecting is what tells the clients
+    /// so — one that stays connected to a compositor that can never import
+    /// redraws, is refused, and redraws again for the rest of the process.
+    ///
+    /// [`FrameDriver::startup`]: FrameDriver#structfield.startup
+    fn stop_compositor(&mut self) {
+        let Some(mut compositor) = self.compositor.take() else {
+            return;
+        };
+        let live = match &mut compositor.graphics {
+            GraphicsState::Held(graphics) => {
+                graphics.capture.forget_buffers();
+                graphics.arena.live()
+            }
+            GraphicsState::Quiesced => 0,
+        };
+
+        if let Err(error) = compositor.handle.shutdown() {
+            error!(%error, "the compositor thread did not stop cleanly");
+        }
+        info!(
+            images = live,
+            "compositor stopped; its images are freed with the graphics device"
         );
     }
 
@@ -747,7 +733,7 @@ impl FrameDriver {
             None if self.startup.is_some() => Readiness::Start,
             Some(compositor) => match compositor.graphics {
                 GraphicsState::Quiesced => Readiness::Adopt,
-                GraphicsState::Held(_) | GraphicsState::Unavailable => return,
+                GraphicsState::Held(_) => return,
             },
             None => return,
         };
@@ -813,13 +799,17 @@ impl FrameDriver {
         let graphics = match borrow_graphics() {
             Ok(graphics) => graphics,
             Err(error) => {
+                // Stopped rather than left running with no device. A compositor
+                // that cannot import refuses every commit and releases the
+                // buffer, and a client answers a released buffer by drawing
+                // another — so the clients would spin for the rest of the
+                // process. Disconnecting says so, and the failures that reach
+                // here do not become false later.
                 error!(
-                    "{error}; the compositor has no device to import against, so no client can be \
-                     drawn for the rest of this session"
+                    "{error}; the compositor has no device to import against, so it is stopped and \
+                     its clients are disconnected"
                 );
-                if let Some(compositor) = &mut self.compositor {
-                    compositor.graphics = GraphicsState::Unavailable;
-                }
+                self.stop_compositor();
                 return;
             }
         };
@@ -848,14 +838,17 @@ impl FrameDriver {
             }
             Err(TrySendError::Disconnected(_)) => {
                 error!("the compositor thread is gone, so the restart cannot restore its clients");
-                compositor.graphics = GraphicsState::Unavailable;
+                // The thread has already gone; this joins it and drops the
+                // handle, so nothing keeps offering a device to a channel with
+                // no reader.
+                self.stop_compositor();
                 return;
             }
         }
 
         let device = match &compositor.graphics {
             GraphicsState::Held(graphics) => Arc::clone(&graphics.device),
-            GraphicsState::Quiesced | GraphicsState::Unavailable => return,
+            GraphicsState::Quiesced => return,
         };
         self.negotiate_capture_formats(&device);
     }
@@ -994,6 +987,97 @@ impl FrameDriver {
             .session
             .with_textures(|ledger| ledger.install(surface, texture, description));
         release(released);
+    }
+}
+
+/// Gives up everything the graphics device owns, in the one order that is safe.
+///
+/// [`crate::restart`] states the sequence and the reasoning; this performs it,
+/// and both [`FrameDriver::shutdown`] and [`FrameDriver::quiesce`] spend it. The
+/// short version of each step:
+///
+/// 1. A `Layer` is destroyed by `xrDestroySwapchain`, so the layers go while the
+///    XR session that owns their swapchains still exists.
+/// 2. A claim is an identifier held by a Lua handle. The state that made them is
+///    about to go, and a claim left behind contends for the next session's layer
+///    budget on behalf of a panel that no longer exists, forever.
+/// 3. The blit ledger caches swapchain images the layers own, so it cannot
+///    outlive them.
+/// 4. Releasing a texture retires LÖVR's view of the image into LÖVR's own
+///    morgue, which only `gpu_destroy` empties. It has to precede the images
+///    being given up, because a view still names each one.
+/// 5. What becomes of the images themselves, which is the only step the two
+///    callers answer differently.
+///
+/// A free function over a trait rather than a method, because the order is the
+/// deliverable and a method's statement order is asserted nowhere: reordering
+/// two lines of it compiles and passes. `tests.rs` implements [`DeviceTeardown`]
+/// against a recorder, so a reordering fails.
+fn tear_down_device(target: &mut impl DeviceTeardown, disposal: Disposal) {
+    target.destroy_layers();
+    target.forget_claims();
+    target.forget_blits();
+    target.release_textures();
+    target.give_up_images(disposal);
+}
+
+/// The steps [`tear_down_device`] runs, as a seam.
+///
+/// Each is documented at the call above rather than here, because what matters
+/// about them is the order and the order is there.
+trait DeviceTeardown {
+    fn destroy_layers(&mut self);
+    fn forget_claims(&mut self);
+    fn forget_blits(&mut self);
+    fn release_textures(&mut self);
+    fn give_up_images(&mut self, disposal: Disposal);
+}
+
+/// What becomes of the imported images once no texture names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Disposal {
+    /// A restart. The compositor keeps running and keeps its clients, so it must
+    /// be left holding no handle from the device that is about to be destroyed;
+    /// the images are forgotten rather than destroyed, for the reason
+    /// [`FrameDriver::abandon_images`] gives.
+    Abandon,
+    /// The compositor stops and its clients are disconnected. A session ending,
+    /// or a restart the compositor did not acknowledge.
+    StopCompositor,
+}
+
+impl DeviceTeardown for FrameDriver {
+    fn destroy_layers(&mut self) {
+        self.session.claims().shutdown();
+    }
+
+    fn forget_claims(&mut self) {
+        self.layers.forget_claims();
+    }
+
+    fn forget_blits(&mut self) {
+        self.blitted.clear();
+    }
+
+    fn release_textures(&mut self) {
+        let released = self.session.with_textures(TextureLedger::take_all);
+        for texture in released {
+            texture.release_ref();
+        }
+
+        let released = self
+            .session
+            .with_monitor_textures(MonitorTextures::take_all);
+        for texture in released {
+            texture.release_ref();
+        }
+    }
+
+    fn give_up_images(&mut self, disposal: Disposal) {
+        match disposal {
+            Disposal::Abandon => self.abandon_images(),
+            Disposal::StopCompositor => self.stop_compositor(),
+        }
     }
 }
 

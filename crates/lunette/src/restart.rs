@@ -208,7 +208,7 @@ impl Error for QuiesceError {}
 mod tests {
     use lunette_compositor::{
         state::CompositorConfig,
-        testing::{FakeInspector, FakeSpawner, ImportLog, recording_importer},
+        testing::{FakeInspector, FakeSpawner, ImportLog, recording_importer, silent_compositor},
         thread::{PanicPolicy, spawn_with},
     };
     use pretty_assertions::assert_eq;
@@ -306,5 +306,54 @@ mod tests {
             error.to_string().starts_with("restart: "),
             "an error's context prefix names the subsystem: {error}"
         );
+    }
+
+    /// A compositor that takes the command and never answers is reported rather
+    /// than waited on forever, which is what the bound is for. This is the path
+    /// a restart takes when the compositor is wedged behind a flooding client,
+    /// and the caller answers it by stopping the thread rather than destroying a
+    /// device it may still be inside `vkCreateImage` on.
+    #[test]
+    fn a_compositor_that_never_acknowledges_is_reported_when_the_bound_passes() {
+        let (compositor, silent) = silent_compositor();
+
+        let started = Instant::now();
+        let error = quiesce(&compositor, RETRY_SLICE)
+            .expect_err("a compositor that answers nothing cannot be quiesced");
+
+        assert_eq!(error, QuiesceError::TimedOut { after: RETRY_SLICE });
+        assert!(
+            started.elapsed() >= RETRY_SLICE,
+            "the wait ended after {:?}, which is less than the bound it was given",
+            started.elapsed(),
+        );
+        assert!(
+            error.to_string().starts_with("restart: "),
+            "an error's context prefix names the subsystem: {error}"
+        );
+
+        silent.stop();
+        compositor.shutdown().expect("the thread stops cleanly");
+    }
+
+    /// The command is delivered rather than refused, so the timeout is about the
+    /// answer and not about the send. A quiesce that reported a timeout because
+    /// it never managed to ask would be reporting the wrong thing.
+    #[test]
+    fn a_quiesce_that_times_out_still_delivered_its_command() {
+        let (compositor, silent) = silent_compositor();
+
+        let _ = quiesce(&compositor, RETRY_SLICE);
+
+        assert!(
+            matches!(
+                compositor.commands().try_send(Command::ReleaseGraphics),
+                Ok(())
+            ),
+            "the channel should still be live, so the earlier send was taken rather than refused"
+        );
+
+        silent.stop();
+        compositor.shutdown().expect("the thread stops cleanly");
     }
 }

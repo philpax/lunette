@@ -193,6 +193,27 @@ impl CompositorHandle {
         &self.snapshots
     }
 
+    /// Assembles a handle over channels whose far ends the caller owns.
+    ///
+    /// For [`crate::testing`], which builds a thread that is not a compositor so
+    /// that a caller's behaviour against one that never answers can be driven.
+    /// Production reaches a handle only through [`spawn_with`], which is the one
+    /// place able to promise that the thread on the other end is running `run`.
+    #[cfg(any(test, feature = "test-fakes"))]
+    pub(crate) fn from_parts(
+        commands: CommandSender,
+        events: EventReceiver,
+        snapshots: SnapshotReader,
+        thread: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            commands,
+            events,
+            snapshots,
+            thread,
+        }
+    }
+
     /// Stops the compositor and waits for the thread to finish.
     ///
     /// Clients are disconnected as the display drops. Dropping the handle

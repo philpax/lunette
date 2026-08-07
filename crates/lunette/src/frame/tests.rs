@@ -1,8 +1,10 @@
 //! What one compositor event asks of the texture ledger, what the ledger does
-//! with it, and which monitors the sweep for stopped mirrors releases.
+//! with it, which monitors the sweep for stopped mirrors releases, and the order
+//! the device teardown gives up what it holds.
 //!
-//! Every case here is a pure mapping or a ledger operation, so none of it needs
-//! a graphics device: the texture is a counter.
+//! Every case here is a pure mapping, a ledger operation, or a recorded call
+//! sequence, so none of it needs a graphics device: the texture is a counter and
+//! the teardown target is a list.
 
 #![expect(
     clippy::expect_used,
@@ -16,7 +18,9 @@ use lunette_compositor::{
 };
 use pretty_assertions::assert_eq;
 
-use super::{LedgerChange, ledger_change, stopped_monitors};
+use super::{
+    DeviceTeardown, Disposal, LedgerChange, ledger_change, stopped_monitors, tear_down_device,
+};
 use crate::{
     import::formats::Alpha,
     texture::{FrameGeneration, TextureDescription, TextureLedger, TextureRef, TextureUnavailable},
@@ -304,5 +308,98 @@ fn teardown_hands_back_every_texture_once() {
             FrameGeneration::INITIAL
         ),
         Err(TextureUnavailable::Unknown)
+    );
+}
+
+/// One step of the device teardown, so that the order can be compared rather
+/// than described.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    DestroyLayers,
+    ForgetClaims,
+    ForgetBlits,
+    ReleaseTextures,
+    GiveUpImages(Disposal),
+}
+
+/// A teardown target that records what it was asked to do, in order.
+///
+/// The real target is `FrameDriver`, whose steps each need an XR session, a
+/// graphics device, or both. What is under test is not what a step does — the
+/// pool, the ledger, and the arena each have their own cases — but the order
+/// they are asked in, and that is a property of `tear_down_device` alone.
+#[derive(Debug, Default)]
+struct Recorder(Vec<Step>);
+
+impl DeviceTeardown for Recorder {
+    fn destroy_layers(&mut self) {
+        self.0.push(Step::DestroyLayers);
+    }
+
+    fn forget_claims(&mut self) {
+        self.0.push(Step::ForgetClaims);
+    }
+
+    fn forget_blits(&mut self) {
+        self.0.push(Step::ForgetBlits);
+    }
+
+    fn release_textures(&mut self) {
+        self.0.push(Step::ReleaseTextures);
+    }
+
+    fn give_up_images(&mut self, disposal: Disposal) {
+        self.0.push(Step::GiveUpImages(disposal));
+    }
+}
+
+fn torn_down(disposal: Disposal) -> Vec<Step> {
+    let mut recorder = Recorder::default();
+    tear_down_device(&mut recorder, disposal);
+    recorder.0
+}
+
+/// The ordering `crate::restart` documents, which reordering produces a
+/// use-after-free on the GPU rather than a failure anything reports. A layer is
+/// destroyed by `xrDestroySwapchain` and so goes while the XR session lives; a
+/// released texture retires LÖVR's image view, which has to happen before the
+/// image it names is given up.
+#[test]
+fn the_device_teardown_destroys_layers_then_releases_textures_then_gives_up_the_images() {
+    assert_eq!(
+        torn_down(Disposal::Abandon),
+        vec![
+            Step::DestroyLayers,
+            Step::ForgetClaims,
+            Step::ForgetBlits,
+            Step::ReleaseTextures,
+            Step::GiveUpImages(Disposal::Abandon),
+        ]
+    );
+}
+
+/// The restart the compositor did not acknowledge, and the session ending, run
+/// the same teardown. The regression: the failed-quiesce path took a shortcut
+/// that skipped the claims, leaving the next session's layer budget spoken for
+/// by panels from a Lua state that had been closed.
+#[test]
+fn a_teardown_that_stops_the_compositor_gives_up_everything_the_restart_does() {
+    let abandoning = torn_down(Disposal::Abandon);
+    let stopping = torn_down(Disposal::StopCompositor);
+
+    assert_eq!(
+        stopping,
+        vec![
+            Step::DestroyLayers,
+            Step::ForgetClaims,
+            Step::ForgetBlits,
+            Step::ReleaseTextures,
+            Step::GiveUpImages(Disposal::StopCompositor),
+        ]
+    );
+    assert_eq!(
+        stopping[..stopping.len() - 1],
+        abandoning[..abandoning.len() - 1],
+        "the two teardowns differ in what becomes of the images and in nothing else"
     );
 }
