@@ -37,7 +37,10 @@ use lunette_compositor::{
 };
 use mlua::{Lua, Table, UserData, UserDataFields, UserDataMethods, Value};
 
-use crate::lua::{LuaTexture, Session, Sink, reject_unknown_options};
+use crate::{
+    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
+    lua::{LuaTexture, Session, Sink, reject_unknown_options},
+};
 
 /// One `wl_seat`, as Lua holds it.
 #[derive(Debug)]
@@ -107,6 +110,13 @@ impl<T> Seat<T> {
 
 impl<T: LuaTexture> UserData for Seat<T> {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // How `lunctl` recognises a handle. A metafield rather than a field,
+        // so it is invisible to `pairs` and to ordinary indexing; the
+        // serialiser reads it off the metatable and refuses any other
+        // userdata, which is how a LÖVR `Texture` comes to be reported rather
+        // than stringified.
+        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Seat.as_str());
+
         // The compositor's identifier for this seat.
         fields.add_field_method_get("id", |_, seat| Ok(seat.id.get()));
 

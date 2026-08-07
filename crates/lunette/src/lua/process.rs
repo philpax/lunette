@@ -10,7 +10,10 @@ use std::{cell::RefCell, rc::Rc};
 use lunette_compositor::protocol::{Pid, ProcessId, ProcessSnapshot};
 use mlua::{UserData, UserDataFields};
 
-use crate::lua::Session;
+use crate::{
+    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
+    lua::Session,
+};
 
 /// A process lunette started, or adopted from outside.
 #[derive(Debug)]
@@ -72,6 +75,13 @@ impl From<&ProcessSnapshot> for Known {
 
 impl<T: 'static> UserData for Process<T> {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // How `lunctl` recognises a handle. A metafield rather than a field,
+        // so it is invisible to `pairs` and to ordinary indexing; the
+        // serialiser reads it off the metatable and refuses any other
+        // userdata, which is how a LÖVR `Texture` comes to be reported rather
+        // than stringified.
+        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Process.as_str());
+
         fields.add_field_method_get("id", |_, process| Ok(process.id.get()));
 
         fields.add_field_method_get("alive", |_, process| Ok(process.refresh()));

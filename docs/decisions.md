@@ -147,3 +147,19 @@ JIT-compiled code does not call debug hooks. A trace in a tight loop never retur
 Even interpreted, the bound stays advisory. An `error()` raised from a hook is catchable, so a `pcall` inside the user's own chunk swallows it; and a loop inside a C function, or a blocking FFI call, is uninterruptible by any hook.
 
 A hard bound would need a watchdog outside Lua. Since the chunk holds the Lua thread, the only thing such a watchdog could do is abort the process — turning a bad `lunctl` command into a crash that takes every connected client with it. That is worse than the hang it prevents, so it is not built. `lunette-v1.AC8.2`'s first clause is stated as best-effort in the design plan for the same reason, and the tests assert the escape as the behaviour it is rather than as an aspiration.
+
+## lunctl refuses what it cannot represent
+
+Decided 2026-08-07, building Phase 7 Task 7.
+
+A serialiser meets values with no wire form: functions, coroutines, userdata that is not a lunette handle, and table or function keys. It errors on each, naming the path to the offending value, rather than falling back to `tostring`. Dropping content silently is a correctness bug per `CONTRIBUTING.md`, and the `tostring` fallback is exactly what [the Lua API](lua-api.md#lunctl) criticises awesome's remote control for.
+
+Three further cases needed an answer, and each is a source of silent corruption if left implicit.
+
+**A cycle is an error, not a back-reference.** A back-reference would be more faithful, and it would make the value tree a graph that every consumer — including `lunctl`'s own renderer — has to be total over. A `lunctl` chunk that wants to inspect a cyclic structure can break the cycle itself; a renderer that has to guard against one cannot.
+
+**Shared subtables are duplicated, and identity is not preserved.** That follows from the choice above: without back-references there is nothing to share with. The node cap is what keeps a wide directed acyclic graph from expanding without bound, and it produces a clean error rather than an allocation failure.
+
+**Metamethods are not honoured.** Traversal is raw, so what is serialised is what the table actually holds. `__index` can fabricate fields that do not exist and `__pairs` can hide ones that do, and a wire format whose contents depend on which of those a caller happened to install is not an inspection tool.
+
+A handle serialises as its kind and the identity the session keys it on, never as `tostring(handle)`. Addresses are reused after collection, so an id derived from one could come to refer to a different object — a defect that appears only under memory pressure. The identity is `win.id` and its siblings, which Phase 6 recorded as the stable thing; the userdata itself is minted fresh on every read and is not identity-stable at all.

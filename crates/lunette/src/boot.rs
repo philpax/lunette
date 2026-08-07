@@ -41,12 +41,14 @@ use std::{
 };
 
 use lunette::{
+    control::{Budget, CHUNKS_PER_FRAME, ChunkQueue, answer},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install_on_state},
     texture::LovrTexture,
 };
 use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback};
+use mlua::Lua;
 use mlua_sys as lua;
 use tracing::{error, warn};
 
@@ -74,6 +76,10 @@ pub struct SessionPaths<'a> {
 /// another; the session, the clients, and their textures are untouched by that,
 /// which is the whole reason it is owned out here.
 ///
+/// `control` is where `lunctl` chunks arrive, or `None` when the session was
+/// started without a control socket. It outlives every Lua state for the reason
+/// the session does: the socket and its thread are not disturbed by a restart.
+///
 /// `startup` is what the entry point resolved while the process was still
 /// single-threaded. The compositor is built from it on the first frame at which
 /// LÖVR has a graphics device to lend, which is why it travels this far rather
@@ -95,6 +101,7 @@ pub fn run(
     paths: SessionPaths<'_>,
     session: &Rc<Session<LovrTexture>>,
     layers: &Rc<PoolRegistry<LovrLayers>>,
+    control: Option<&ChunkQueue>,
     startup: Startup,
 ) -> ExitCode {
     let platform = match Platform::init() {
@@ -121,7 +128,7 @@ pub fn run(
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
 
     let status = loop {
-        match run_session(paths, session, &mut driver, &mut cookie) {
+        match run_session(paths, session, &mut driver, control, &mut cookie) {
             Outcome::Restart => (),
             Outcome::Exit { status } => break status,
             Outcome::LoadFailed => break FAILURE_STATUS,
@@ -162,6 +169,7 @@ fn run_session(
     paths: SessionPaths<'_>,
     session: &Rc<Session<LovrTexture>>,
     driver: &mut FrameDriver,
+    control: Option<&ChunkQueue>,
     cookie: &mut raw::Variant,
 ) -> Outcome {
     // SAFETY: this is the sequence at `vendor/lovr/src/main.c:34-74`, in the
@@ -224,7 +232,7 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        run_steps(state, thread, driver, cookie)
+        run_steps(state, thread, driver, control, cookie)
     }
 }
 
@@ -239,6 +247,7 @@ unsafe fn run_steps(
     state: *mut lua::lua_State,
     thread: *mut lua::lua_State,
     driver: &mut FrameDriver,
+    control: Option<&ChunkQueue>,
     cookie: &mut raw::Variant,
 ) -> Outcome {
     loop {
@@ -257,9 +266,26 @@ unsafe fn run_steps(
         driver.end_frame();
 
         match step {
-            // SAFETY: yielding to the platform is what `src/main.c:66` does
-            // between frames; `os_sleep` touches no Lua state.
-            Step::Continue => unsafe { raw::os_sleep(0.0) },
+            Step::Continue => {
+                // Between two frames, which is the whole of what makes a chunk
+                // safe: `lovr.update` and `lovr.draw` have both finished and the
+                // next frame has not begun, so a chunk touching the same state a
+                // callback touches has nobody to race.
+                //
+                // SAFETY: `state` is live — nothing above closes it on this arm
+                // — and the reference mlua constructs over it is consumed
+                // inside the closure rather than held across a frame.
+                if let Some(control) = control {
+                    control.drain(CHUNKS_PER_FRAME, |chunk| {
+                        let lua = unsafe { Lua::get_or_init_from_ptr(state) };
+                        answer(lua, chunk, Budget::DEFAULT)
+                    });
+                }
+
+                // SAFETY: yielding to the platform is what `src/main.c:66` does
+                // between frames; `os_sleep` touches no Lua state.
+                unsafe { raw::os_sleep(0.0) };
+            }
             Step::Restart => {
                 // Before the cookie is read and long before `luax_close`, and
                 // that ordering is the whole of this path's correctness.

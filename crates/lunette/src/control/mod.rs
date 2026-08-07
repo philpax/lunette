@@ -3,7 +3,9 @@
 //! `lunctl` hands the running session a Lua chunk and gets the values back
 //! ([the Lua API](../../../docs/lua-api.md#lunctl)). This module is the transport
 //! and the queue; [`eval`] is what the main thread does with a chunk once it has one,
-//! and [`wire`] is what travels over the socket.
+//! [`serialise`] is what turns
+//! the results into something a socket carries, and [`wire`] is what travels over
+//! it.
 //!
 //! # The thread does not touch Lua
 //!
@@ -36,6 +38,7 @@
 //! bounded.
 
 pub mod eval;
+pub mod serialise;
 pub mod socket;
 pub mod wire;
 
@@ -53,15 +56,25 @@ use std::{
     time::Duration,
 };
 
+use mlua::Lua;
 use tracing::{debug, info, warn};
 
+use crate::control::eval::{Evaluation, evaluate};
 pub use crate::control::{
+    eval::Budget,
     socket::{BindError, ControlSocket},
     wire::Reply,
 };
 
 /// How many chunks may be waiting for the session at once.
 const QUEUE_DEPTH: usize = 4;
+
+/// How many chunks one frame boundary answers.
+///
+/// A bound on how much of a boundary a flood of chunks may take, rather than on
+/// how many can be waiting: the rest stay queued and are answered at the next
+/// boundary, a frame later.
+pub const CHUNKS_PER_FRAME: usize = 4;
 
 /// How long the control thread waits for the session to answer one chunk.
 ///
@@ -245,6 +258,27 @@ impl ChunkQueue {
     }
 }
 
+/// Evaluates one chunk against the Lua state and renders the answer.
+///
+/// Called from the frame loop, between two frames, on the thread that owns the
+/// state. Everything it obtains from Lua is consumed before it returns.
+#[must_use]
+pub fn answer(lua: &Lua, chunk: &str, budget: Budget) -> Reply {
+    match evaluate(lua, chunk, budget, serialise::render) {
+        Evaluation::Returned(values) => Reply::Returned(values),
+        Evaluation::LoadFailed(message) => Reply::LoadError(message),
+        Evaluation::Raised(message) => Reply::RuntimeError(message),
+        Evaluation::Abandoned { after } => Reply::Abandoned { after },
+        Evaluation::Unrepresentable(error) => Reply::Unrepresentable(error.to_string()),
+        // Structurally unreachable from here — the frame loop is the only caller
+        // and it is not itself inside a chunk — and answered rather than
+        // asserted, because a client waiting on a socket deserves a reason.
+        Evaluation::Reentered => {
+            Reply::RuntimeError("lunctl: a chunk cannot be evaluated from inside one".to_owned())
+        }
+    }
+}
+
 /// One chunk, and the channel its answer goes back down.
 #[derive(Debug)]
 struct Request {
@@ -377,7 +411,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::control::wire::Value;
+    use crate::control::wire::{Key, TableValue, Value};
 
     /// A runtime directory of the shape the XDG specification requires.
     fn runtime() -> TempDir {
@@ -428,6 +462,66 @@ mod tests {
             asking.join().expect("the client thread finishes"),
             Reply::Returned(vec![Value::Integer(2)]),
         );
+    }
+
+    /// The whole path `lunette-v1.AC8.1` asks for: a chunk over the socket, an
+    /// evaluation on the thread that owns the state, and a nested table back.
+    #[test]
+    fn a_chunk_over_the_socket_is_evaluated_and_its_nested_table_comes_back() {
+        let runtime = runtime();
+        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
+        let path = thread.path().to_owned();
+
+        let asking =
+            thread::spawn(move || ask(&path, "return { count = 2, names = { 'a', 'b' } }"));
+
+        // The frame loop's part, on the thread that owns the state.
+        let lua = Lua::new();
+        until(|| {
+            queue.drain(CHUNKS_PER_FRAME, |chunk| {
+                answer(&lua, chunk, Budget::DEFAULT)
+            }) > 0
+        });
+
+        assert_eq!(
+            asking.join().expect("the client thread finishes"),
+            Reply::Returned(vec![Value::Table(TableValue {
+                array: Vec::new(),
+                entries: vec![
+                    (Key::String(b"count".to_vec()), Value::Integer(2)),
+                    (
+                        Key::String(b"names".to_vec()),
+                        Value::Table(TableValue {
+                            array: vec![Value::String(b"a".to_vec()), Value::String(b"b".to_vec()),],
+                            entries: Vec::new(),
+                        })
+                    ),
+                ],
+            })]),
+        );
+    }
+
+    /// A chunk that never finishes must not hold the frame loop, and the client
+    /// must be told what happened rather than left waiting.
+    #[test]
+    fn a_chunk_that_overruns_its_budget_is_answered_rather_than_stalling_the_loop() {
+        let runtime = runtime();
+        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
+        let path = thread.path().to_owned();
+
+        let asking = thread::spawn(move || ask(&path, "while true do end"));
+
+        // The budget is what is under test here, so this duration is the
+        // measurement rather than a wait for something else to happen.
+        let lua = Lua::new();
+        let budget = Budget::of(Duration::from_millis(50));
+        until(|| queue.drain(CHUNKS_PER_FRAME, |chunk| answer(&lua, chunk, budget)) > 0);
+
+        let reply = asking.join().expect("the client thread finishes");
+        let Reply::Abandoned { after } = reply else {
+            panic!("expected the budget to end it, and lunctl answered {reply:?}");
+        };
+        assert!(after >= Duration::from_millis(50), "{after:?}");
     }
 
     #[test]

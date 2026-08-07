@@ -40,6 +40,7 @@ use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Layer};
 use mlua::{Lua, Table, UserData, UserDataFields, UserDataMethods, Value};
 
 use crate::{
+    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
     layers::{
         ClaimId, ClaimState, LayerBackend, LayerKey, LayerPool, LayerProperties, LayerSize,
         LovrLayer, PoolOutcome, Priority,
@@ -303,6 +304,13 @@ impl From<ClaimState> for Known {
 
 impl<T: LuaTexture> UserData for Claim<T> {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // How `lunctl` recognises a handle. A metafield rather than a field,
+        // so it is invisible to `pairs` and to ordinary indexing; the
+        // serialiser reads it off the metatable and refuses any other
+        // userdata, which is how a LÖVR `Texture` comes to be reported rather
+        // than stringified.
+        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Claim.as_str());
+
         // Stable for the claim's whole life, so it is what a Lua table of
         // per-claim state is keyed by.
         fields.add_field_method_get("id", |_, claim| Ok(claim.id.get()));

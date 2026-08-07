@@ -20,6 +20,7 @@ use lunette_compositor::protocol::{
 use mlua::{UserData, UserDataFields, UserDataMethods, Value};
 
 use crate::{
+    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
     import::formats::Alpha,
     lua::{LuaTexture, Session, pixel_size, sink::Sink},
     properties::{PropertyError, PropertyKey, PropertyValue},
@@ -124,6 +125,13 @@ impl From<&WindowSnapshot> for Known {
 
 impl<T: LuaTexture> UserData for Window<T> {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // How `lunctl` recognises a handle. A metafield rather than a field,
+        // so it is invisible to `pairs` and to ordinary indexing; the
+        // serialiser reads it off the metatable and refuses any other
+        // userdata, which is how a LÖVR `Texture` comes to be reported rather
+        // than stringified.
+        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Window.as_str());
+
         // Stable for the window's whole life, so it is the identifier a Lua
         // table of per-window state is keyed by, and what `lunctl` serialises
         // a handle as. A soft reload does not restart the compositor thread and

@@ -60,6 +60,7 @@ use lunette_compositor::{
 use mlua::{Table, UserData, UserDataFields, UserDataMethods};
 
 use crate::{
+    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
     host::{host_button, host_key, host_modifiers},
     lua::{
         LuaTexture, Monitor, POINTER_BUTTONS, Seat, Session, Window, pointer_button,
@@ -144,6 +145,13 @@ impl<T> Sink<T> {
 
 impl<T: LuaTexture> UserData for Sink<T> {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // How `lunctl` recognises a handle. A metafield rather than a field,
+        // so it is invisible to `pairs` and to ordinary indexing; the
+        // serialiser reads it off the metatable and refuses any other
+        // userdata, which is how a LÖVR `Texture` comes to be reported rather
+        // than stringified.
+        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Sink.as_str());
+
         // Which pipeline this sink's events travel: 'window' or 'host'. Read
         // rather than inferred from the handle it came from, so a panel library
         // holding a list of sinks can report what each one reaches.

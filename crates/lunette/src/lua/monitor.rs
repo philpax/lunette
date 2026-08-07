@@ -25,6 +25,7 @@ use mlua::{Table, UserData, UserDataFields, UserDataMethods, Value};
 use tracing::warn;
 
 use crate::{
+    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
     lua::{LuaTexture, Session, Sink},
     mirrors::MonitorState,
 };
@@ -63,6 +64,13 @@ impl<T> Monitor<T> {
 
 impl<T: LuaTexture> UserData for Monitor<T> {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // How `lunctl` recognises a handle. A metafield rather than a field,
+        // so it is invisible to `pairs` and to ordinary indexing; the
+        // serialiser reads it off the metatable and refuses any other
+        // userdata, which is how a LÖVR `Texture` comes to be reported rather
+        // than stringified.
+        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Monitor.as_str());
+
         // The saved identity, and what a Lua table of per-monitor state is keyed
         // by. Stable across a restart and across the monitor moving to another
         // port, which is what `lunette-v1.AC3.4` asks for.

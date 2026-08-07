@@ -66,6 +66,7 @@ use std::{
 
 use boot::SessionPaths;
 use lunette::{
+    control::{self, ControlSwitch},
     events::LovrEventSink,
     frame::{HostDesktop, Startup},
     host::{HostPointer, HostSinks, NoHostSinks},
@@ -128,6 +129,37 @@ fn main() -> ExitCode {
     info!(path = %standard_library.display(), "mounting the standard library");
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
+
+    // Before anything spawns a thread, so that the failure to bind is reported
+    // among the other startup failures rather than after a headset has come up.
+    // A session without a control socket is still a session, so a failure here
+    // is a warning: the user loses `lunctl`, not their windows.
+    let control = match absolute_path(env::var_os(XDG_RUNTIME_DIR)) {
+        Some(runtime_directory) => {
+            let switch = ControlSwitch::from_setting(env::var(LUNETTE_CONTROL).ok().as_deref());
+            match control::start(switch, &runtime_directory) {
+                Ok(started) => started,
+                Err(error) => {
+                    warn!("{error}; this session cannot be reached with lunctl");
+                    None
+                }
+            }
+        }
+        None => {
+            warn!(
+                "lunctl: {XDG_RUNTIME_DIR} does not name an absolute path, so there is nowhere \
+                 private to put the control socket; this session cannot be reached with lunctl"
+            );
+            None
+        }
+    };
+    // The thread is held for the life of the process and stopped when it goes.
+    // The queue travels down to the frame loop, which is the only thing that may
+    // touch the Lua state.
+    let (_control_thread, chunks) = match control {
+        Some((thread, queue)) => (Some(thread), Some(queue)),
+        None => (None, None),
+    };
 
     // `name` rather than `display`, because `tracing`'s macros bring a function
     // of that name into scope and a local would shadow it.
@@ -225,6 +257,7 @@ fn main() -> ExitCode {
         },
         &session,
         &layers,
+        chunks.as_ref(),
         startup,
     )
 }
@@ -480,8 +513,16 @@ const WAYLAND_DISPLAY: &str = "WAYLAND_DISPLAY";
 /// The AppImage runtime's own root, when lunette is running from one.
 const APPDIR: &str = "APPDIR";
 
-/// Where a relative `WAYLAND_DISPLAY` is resolved against.
+/// Where a relative `WAYLAND_DISPLAY` is resolved against, and where the control
+/// socket's private directory is created.
 const XDG_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
+
+/// The switch that turns the control socket off.
+///
+/// `lunctl` is equivalent to root access on the user's session, so a user who
+/// wants no evaluation endpoint must be able to have none. `off` is the only
+/// value that disables it; `docs/lua-api.md` states the rest.
+const LUNETTE_CONTROL: &str = "LUNETTE_CONTROL";
 
 /// The XDG base directory for what a program learns rather than what it is told.
 const XDG_STATE_HOME: &str = "XDG_STATE_HOME";
