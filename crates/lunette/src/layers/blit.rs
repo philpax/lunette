@@ -438,7 +438,9 @@ mod tests {
     use super::*;
     use crate::{
         import::formats::Alpha,
-        layers::{LayerBudget, LayerKey, LayerProperties, LayerSize, Priority, SessionPresence},
+        layers::{
+            LayerBudget, LayerKey, LayerProperties, LayerSize, Priority, SessionId, SessionPresence,
+        },
         scene::SceneRendering,
         texture::{CopyableTexture, TextureDescription},
     };
@@ -481,10 +483,10 @@ mod tests {
             self.limit
         }
 
-        /// Always present. These tests are about the blit, and a pool with no
-        /// session holds nothing to blit into.
+        /// The same session throughout. These tests are about the blit, and a
+        /// pool with no session holds nothing to blit into.
         fn session(&self) -> SessionPresence {
-            SessionPresence::Present
+            SessionPresence::Present(SessionId::new(1).expect("one is not zero"))
         }
 
         fn create(&mut self, _key: LayerKey) -> Option<Self::Layer> {

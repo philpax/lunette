@@ -7,13 +7,13 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use lunette_lovr::raw::{
-    Layer, LayerInfo, lovrHeadsetGetLayerLimit, lovrHeadsetIsActive, lovrHeadsetSetLayers,
-    lovrLayerCreate, lovrLayerDestroy, lovrLayerGetTexture, lovrRelease,
+    Layer, LayerInfo, lovrHeadsetGetLayerLimit, lovrHeadsetGetSessionGeneration,
+    lovrHeadsetSetLayers, lovrLayerCreate, lovrLayerDestroy, lovrLayerGetTexture, lovrRelease,
 };
 
 use crate::{
     layers::{
-        backend::{LayerBackend, SessionPresence},
+        backend::{LayerBackend, SessionId, SessionPresence},
         blit::LayerBlitter,
         key::LayerKey,
     },
@@ -69,14 +69,15 @@ impl LayerBackend for LovrLayers {
         unsafe { lovrHeadsetGetLayerLimit() }
     }
 
+    /// The generation rather than `lovrHeadsetIsActive`, because the boolean is
+    /// the same on both sides of a `lovr.headset.stop()` and
+    /// `lovr.headset.start()` in one callback, while every swapchain the pool
+    /// held died in between.
     fn session(&self) -> SessionPresence {
-        // SAFETY: the thread guarantee above. The call reads one field of the
+        // SAFETY: the thread guarantee above. The call reads two fields of the
         // headset module's state and allocates nothing.
-        if unsafe { lovrHeadsetIsActive() } {
-            SessionPresence::Present
-        } else {
-            SessionPresence::Absent
-        }
+        let generation = unsafe { lovrHeadsetGetSessionGeneration() };
+        SessionId::new(generation).map_or(SessionPresence::Absent, SessionPresence::Present)
     }
 
     fn create(&mut self, key: LayerKey) -> Option<Self::Layer> {

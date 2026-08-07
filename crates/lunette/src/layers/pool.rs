@@ -190,11 +190,14 @@ pub struct LayerPool<B: LayerBackend> {
     /// The frame the most recent [`LayerPool::resolve`] ran for, which is what
     /// a layer freed between boundaries is counted idle from.
     resolved: FrameGeneration,
-    /// What the previous [`LayerPool::resolve`] found of the session.
+    /// Which session the previous [`LayerPool::resolve`] found, if it found
+    /// one.
     ///
     /// Losing one is a transition rather than a state: the layers are given up
     /// once, at the boundary that observes the loss, and the boundaries that
-    /// follow it have nothing left to give up.
+    /// follow it have nothing left to give up. Held as an identity rather than
+    /// a flag so that a session replaced between two boundaries is such a
+    /// transition too.
     session: SessionPresence,
 }
 
@@ -314,28 +317,41 @@ impl<B: LayerBackend> LayerPool<B> {
     /// promote, then sweep: revoking first is what lets a layer freed by one
     /// claim be reused by another in the same boundary with no allocation.
     ///
-    /// This is also where a lost session is observed, because it is the one
-    /// call the pool makes at every boundary and the layers must be given up
-    /// before anything asks the backend to do something with one. See
-    /// [`LayerPool::session_lost`].
+    /// This is also where a session the pool's layers no longer belong to is
+    /// observed, because it is the one call the pool makes at every boundary
+    /// and the layers must be given up before anything asks the backend to do
+    /// something with one. See [`LayerPool::session_lost`].
     pub fn resolve(&mut self, now: FrameGeneration) -> PoolOutcome {
         self.resolved = now;
 
         let session = self.backend.session();
-        if session == SessionPresence::Absent {
+        match (mem::replace(&mut self.session, session), session) {
+            (SessionPresence::Present(_), SessionPresence::Absent) => {
+                info!("the xr session is gone; every layer the pool held is given up");
+                return self.session_lost();
+            }
+            (SessionPresence::Present(before), SessionPresence::Present(after))
+                if before != after =>
+            {
+                // A stop and a start inside one Lua callback. Both boundaries
+                // around it see a session, and only the identity says it is not
+                // the one the pool's layers belong to. Given up here for the
+                // same reason a loss gives them up, and the new session is
+                // served from the boundary after this one — which is what an
+                // absence the pool comes back from already does.
+                info!(%before, %after, "the xr session was replaced; every layer the pool held is given up");
+                return self.session_lost();
+            }
             // Nothing can be ranked, created, or submitted without a session,
             // so this returns before the budget is read: the limit is answered
             // off the system, which outlives the session, and acting on it here
             // would spend a budget against swapchains that no longer exist.
-            return match mem::replace(&mut self.session, session) {
-                SessionPresence::Present => {
-                    info!("the xr session is gone; every layer the pool held is given up");
-                    self.session_lost()
-                }
-                SessionPresence::Absent => PoolOutcome::default(),
-            };
+            (SessionPresence::Absent, SessionPresence::Absent) => return PoolOutcome::default(),
+            (
+                SessionPresence::Absent | SessionPresence::Present(_),
+                SessionPresence::Present(_),
+            ) => {}
         }
-        self.session = session;
 
         self.budget = LayerBudget::from_runtime_limit(self.backend.layer_limit());
 
@@ -425,9 +441,10 @@ impl<B: LayerBackend> LayerPool<B> {
     /// their swapchains is gone.
     ///
     /// Called by [`LayerPool::resolve`], at the first frame boundary that finds
-    /// the session [`SessionPresence::Absent`]. This is a teardown lunette
-    /// observes rather than one it performs: a restart is the other case, and
-    /// it runs [`LayerPool::shutdown`] while the session still exists.
+    /// the session [`SessionPresence::Absent`] or finds a different one in its
+    /// place. This is a teardown lunette observes rather than one it performs:
+    /// a restart is the other case, and it runs [`LayerPool::shutdown`] while
+    /// the session still exists.
     ///
     /// `lovrHeadsetStop` releases every layer and zeroes the layer count before
     /// `xrDestroySession`, so nothing the pool holds names anything afterwards,

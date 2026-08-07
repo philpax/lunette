@@ -25,7 +25,7 @@ use tracing_subscriber::{filter::LevelFilter, fmt::MakeWriter};
 use crate::{
     layers::{
         ClaimId, LayerBackend, LayerBudget, LayerKey, LayerPool, LayerProperties, LayerSize,
-        PoolOutcome, Priority, SessionPresence,
+        PoolOutcome, Priority, SessionId, SessionPresence,
     },
     scene::SceneRendering,
     texture::FrameGeneration,
@@ -53,11 +53,14 @@ struct FakeLayers {
     /// because a runtime is entitled to report a different one to the session
     /// that replaces a lost one.
     limit: Rc<Cell<u32>>,
-    /// Whether a session exists, which the harness takes away and gives back.
+    /// Which session exists, which the harness takes away, gives back, and
+    /// replaces.
     ///
     /// Separate from `limit` because LÖVR's two answers are separate: the limit
     /// is read off the system and survives the session, so a session going away
-    /// is not a limit going to zero.
+    /// is not a limit going to zero. An identity rather than a flag because a
+    /// session replaced between two boundaries is a session the pool's layers
+    /// no longer belong to, and nothing about presence says so.
     session: Rc<Cell<SessionPresence>>,
     /// Whether creation is refused, standing in for a runtime that will not
     /// allocate another swapchain. Shared rather than owned, because the pool
@@ -110,6 +113,9 @@ struct Harness {
     refusing: Rc<Cell<bool>>,
     limit: Rc<Cell<u32>>,
     session: Rc<Cell<SessionPresence>>,
+    /// The generation the next session to come up carries, so that a session
+    /// the harness gives back is never the one it took away.
+    next_session: u32,
     frame: FrameGeneration,
 }
 
@@ -124,7 +130,7 @@ impl Harness {
         let calls = Rc::new(RefCell::new(Calls::default()));
         let refusing = Rc::new(Cell::new(false));
         let limit = Rc::new(Cell::new(limit));
-        let session = Rc::new(Cell::new(SessionPresence::Present));
+        let session = Rc::new(Cell::new(SessionPresence::Present(session_id(1))));
         let backend = FakeLayers {
             limit: Rc::clone(&limit),
             session: Rc::clone(&session),
@@ -139,6 +145,7 @@ impl Harness {
             refusing,
             limit,
             session,
+            next_session: 2,
             frame: FrameGeneration::INITIAL,
         }
     }
@@ -209,8 +216,22 @@ impl Harness {
     }
 
     /// A session comes back, which is the state a rebuilt one leaves behind.
+    ///
+    /// Never the session that went away: `lovr.headset.start()` creates one,
+    /// and LÖVR's generation counter never answers with a number a previous
+    /// session had.
     fn regain_session(&mut self) {
-        self.session.set(SessionPresence::Present);
+        self.session
+            .set(SessionPresence::Present(session_id(self.next_session)));
+        self.next_session += 1;
+    }
+
+    /// `lovr.headset.stop()` and `lovr.headset.start()` inside one Lua
+    /// callback: the pool never sees the moment there was no session, only that
+    /// the session at this boundary is not the one at the last.
+    fn replace_session(&mut self) -> PoolOutcome {
+        self.regain_session();
+        self.resolve()
     }
 }
 
@@ -331,6 +352,10 @@ fn stereo_key(width: u32, height: u32) -> LayerKey {
 
 fn priority(value: f64) -> Priority {
     Priority::new(value).expect("a number is a priority")
+}
+
+fn session_id(generation: u32) -> SessionId {
+    SessionId::new(generation).expect("a session's generation is never zero")
 }
 
 /// A runtime limit generous enough that the ceiling is what binds.
@@ -718,6 +743,80 @@ fn a_session_that_goes_away_is_observed_at_the_next_boundary() {
     assert_eq!(outcome.revoked, vec![claim]);
     assert_eq!(harness.abandoned().len(), 1);
     assert_eq!(harness.limit.get(), GENEROUS, "the limit is not the signal");
+}
+
+/// A session that is stopped and started again inside one Lua callback never
+/// looks absent from a frame boundary, and every swapchain the pool held died
+/// in the middle of it. `lovr.headset.stop()` and `lovr.headset.start()` are
+/// both bound, and reconfiguring the session is the most ordinary reason to
+/// call the pair — so this is the case a presence flag cannot see, and the one
+/// the identity exists for.
+#[test]
+fn a_session_replaced_between_two_boundaries_is_given_up_like_a_lost_one() {
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+    let stale = harness
+        .pool
+        .layer(claim)
+        .expect("the claim holds a layer")
+        .0;
+
+    let outcome = harness.replace_session();
+
+    assert_eq!(outcome.revoked, vec![claim]);
+    assert_eq!(
+        harness.abandoned(),
+        vec![stale],
+        "the layer belongs to the session that was destroyed, and destroying it would call \
+         xrDestroySwapchain on an invalidated handle"
+    );
+    assert_eq!(harness.destroyed(), 0);
+    assert!(harness.pool.layer(claim).is_none());
+    assert_eq!(harness.pool.budget().slots(), 0);
+}
+
+/// The claim survives the replacement holding nothing, and is served against
+/// the new session from a pool with nothing of the old one left in it.
+#[test]
+fn the_session_that_replaced_one_is_served_from_an_empty_pool() {
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+    let stale = harness
+        .pool
+        .layer(claim)
+        .expect("the claim holds a layer")
+        .0;
+    harness.replace_session();
+
+    let outcome = harness.settle();
+
+    assert_eq!(outcome.granted, vec![claim]);
+    let live = harness.pool.layer(claim).expect("the claim holds a layer");
+    assert_ne!(
+        live.0, stale,
+        "a layer created against the destroyed session was handed back out"
+    );
+    assert_eq!(harness.created(), 2);
+}
+
+/// The same session across two boundaries is not a replacement. A pool that
+/// compared anything but the identity would give up every layer every frame,
+/// and no panel would ever stay granted.
+#[test]
+fn a_session_that_stays_the_same_gives_up_nothing() {
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+
+    for _ in 0..3 {
+        let outcome = harness.resolve();
+        assert_eq!(outcome.revoked, Vec::new());
+    }
+
+    assert!(harness.pool.layer(claim).is_some());
+    assert_eq!(harness.abandoned(), Vec::<u64>::new());
 }
 
 /// The layers are given up once. A boundary that reported the same revocation

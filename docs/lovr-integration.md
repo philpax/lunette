@@ -47,6 +47,12 @@ This is a safety requirement rather than a convenience. The specification requir
 
 Monado reports 128 with a simulated HMD on Linux, which is `XRT_MAX_LAYERS`.
 
+### 5. Expose which session is running
+
+`lovrHeadsetIsActive` answers whether a session exists, and nothing answers which one. The patch adds `lovrHeadsetGetSessionGeneration`, and `lovr.headset.getSessionGeneration` on the Lua side: a counter incremented in `lovrHeadsetStart` when `xrCreateSession` succeeds, answered as zero while there is no session. The counter lives outside the headset module's state struct, which `lovrHeadsetDestroy` zeroes, so a session after a module restart cannot carry a number an earlier one had.
+
+The boolean cannot answer the question anything holding session-owned objects has to ask. `lovr.headset.stop()` and `lovr.headset.start()` are both bound, and a configuration that calls the pair inside one callback — to reconfigure the session, which is the ordinary reason to call `stop` at all — destroys every swapchain in between while `isActive` reads true on both sides of it. lunette's layer pool reads the generation at every frame boundary for that reason, and treats a changed one as a session loss ([Rendering](rendering.md)).
+
 ### Rejected: a static library target
 
 LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Adding one would not produce a single binary. LuaJIT, glfw, msdfgen, phonon, and joltc are each built shared, through `BUILD_SHARED_LIBS`, `GLFW_LIBRARY_TYPE`, or `JPH_BUILD_SHARED` depending on the dependency, so a statically linked `lunette` would still ship those libraries beside itself and would still need the rpath handling a static link is meant to remove. The single-binary property costs more than one build option, which is why v1 links LÖVR dynamically ([Build and development](build-and-development.md#building)). Revisit when packaging demands it.
