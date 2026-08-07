@@ -95,6 +95,60 @@ fn the_default_configuration_defines_the_callbacks_the_session_calls() {
     }
 }
 
+/// `lovr.load` runs against the real standard library.
+///
+/// The stub run above deliberately reaches no module body, which leaves the one
+/// place every `mullion` call in this configuration lives — `lovr.load` — with
+/// no coverage at all. A configuration that passed the wrong kind of value to a
+/// module would compile, define its callbacks, and raise on the first frame of
+/// every fresh installation, which is the exact case safe mode exists for.
+///
+/// So this one resolves `require` through the repository's `lua/` tree and runs
+/// the callback. The only fakes are the two things a module reaches the outside
+/// world through: `lunette`, whose real seat and spawn calls want a compositor,
+/// and `lovr`, whose filesystem here holds no saved arrangement. Everything
+/// between them is the code a session runs.
+#[test]
+fn the_default_configuration_loads_against_the_standard_library() {
+    let lua = Lua::new();
+    let path = configuration_directory().join("main.lua");
+    let source = match fs::read_to_string(&path) {
+        Ok(source) => source,
+        Err(error) => panic!("{} could not be read: {error}", path.display()),
+    };
+
+    let lovr = match session_environment(&lua) {
+        Ok(lovr) => lovr,
+        Err(error) => panic!("the session environment could not be built: {error}"),
+    };
+
+    if let Err(error) = lua.load(&source).set_name("main.lua").exec() {
+        panic!("{} did not run: {error}", path.display());
+    }
+
+    let load: Function = match lovr.get("load") {
+        Ok(load) => load,
+        Err(error) => panic!("lovr.load could not be read: {error}"),
+    };
+    if let Err(error) = load.call::<()>(()) {
+        panic!("lovr.load raised: {error}");
+    }
+
+    // The arrangement source is what `lovr.load` had to reach `mullion.persist`
+    // to register, so its absence would mean the callback ran and did nothing.
+    let registered: bool = match lua
+        .load("local rules = require 'mullion.rules'\nfor _, source in ipairs(rules.sources()) do\n  if source.name == 'mullion.persist' then return true end\nend\nreturn false")
+        .eval()
+    {
+        Ok(registered) => registered,
+        Err(error) => panic!("the registered sources could not be read: {error}"),
+    };
+    assert!(
+        registered,
+        "lovr.load should register the saved arrangement as a rules source"
+    );
+}
+
 /// A `lovr` global and a `require` that answer with fresh empty tables.
 ///
 /// Every field read of one of those tables answers `nil`, which is enough for a
@@ -112,12 +166,83 @@ fn stub_environment(lua: &Lua) -> mlua::Result<Table> {
     Ok(lovr)
 }
 
+/// A `lovr` global and a `require` that resolve the real standard library.
+///
+/// `require` is left alone and `package.path` is pointed at the repository's
+/// `lua/` tree instead, so the modules that load are the installed ones. Two
+/// fakes stand in for the outside world, and nothing else is stubbed:
+///
+/// - `lunette`, whose `newSeat` and `spawn` want a compositor. A seat that
+///   answered nothing would be a laser holding nil, so the fake answers the
+///   shape the real one does.
+/// - `lovr`, whose `filesystem` holds no saved arrangement, which is what a
+///   fresh installation has.
+fn session_environment(lua: &Lua) -> mlua::Result<Table> {
+    let package: Table = lua.globals().get("package")?;
+    let root = standard_library();
+    package.set(
+        "path",
+        format!("{root}/?.lua;{root}/?/init.lua", root = root.display()),
+    )?;
+
+    let lunette = lua.create_table()?;
+    lunette.set(
+        "newSeat",
+        lua.create_function(|lua, _: mlua::MultiValue| {
+            let seat = lua.create_table()?;
+            seat.set("dead", false)?;
+            seat.set(
+                "setFocus",
+                lua.create_function(|_, _: mlua::MultiValue| Ok(true))?,
+            )?;
+            seat.set(
+                "destroy",
+                lua.create_function(|_, _: mlua::MultiValue| Ok(true))?,
+            )?;
+            Ok(seat)
+        })?,
+    )?;
+    lunette.set(
+        "spawn",
+        lua.create_function(|lua, _: mlua::MultiValue| {
+            let process = lua.create_table()?;
+            process.set("id", 1)?;
+            Ok(process)
+        })?,
+    )?;
+    let loaded: Table = package.get("loaded")?;
+    loaded.set("lunette", lunette)?;
+
+    let filesystem = lua.create_table()?;
+    filesystem.set(
+        "read",
+        lua.create_function(|_, _: mlua::MultiValue| Ok(mlua::Value::Nil))?,
+    )?;
+    filesystem.set(
+        "getSaveDirectory",
+        lua.create_function(|_, ()| Ok("/a/save/directory"))?,
+    )?;
+    let lovr = lua.create_table()?;
+    lovr.set("filesystem", filesystem)?;
+    lua.globals().set("lovr", &lovr)?;
+    Ok(lovr)
+}
+
 /// Where the shipped configuration is, in the working tree this test was built
 /// from.
 fn configuration_directory() -> PathBuf {
+    workspace_root().join("etc").join("xdg").join("lunette")
+}
+
+/// Where the `mullion` standard library is, in the same tree.
+fn standard_library() -> PathBuf {
+    workspace_root().join("lua")
+}
+
+fn workspace_root() -> PathBuf {
     // `crates/lunette` up two levels to the workspace root.
     let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) else {
         panic!("the workspace root could not be derived from the manifest directory");
     };
-    root.join("etc").join("xdg").join("lunette")
+    root.to_path_buf()
 }

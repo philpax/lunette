@@ -183,6 +183,22 @@ spec('an entry with a slot that is not a number takes the first slot', function(
   expect.equal(entry.slot, 1, 'the slot')
 end)
 
+spec('a load and an arrangement are told apart', function()
+  -- The two are what a caller holding the wrong one confuses, and the shipped
+  -- configuration hands a load where an arrangement is wanted. Telling them
+  -- apart is what lets that be unwrapped rather than raised on.
+  local loaded = format.empty()
+  local file = loaded:forSession()
+
+  expect.equal(format.isLoaded(loaded), true, 'a load')
+  expect.equal(format.isFile(loaded), false, 'a load as an arrangement')
+  expect.equal(format.isFile(file), true, 'an arrangement')
+  expect.equal(format.isLoaded(file), false, 'an arrangement as a load')
+  expect.equal(format.isLoaded(format.broken 'x'), true, 'a broken load')
+  expect.equal(format.isLoaded { kind = 'arrangement' }, false, 'a plain table shaped like one')
+  expect.equal(format.isLoaded(nil), false, 'nothing at all')
+end)
+
 spec('an empty load carries an arrangement with nothing in it', function()
   local loaded = format.empty()
 

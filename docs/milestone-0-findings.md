@@ -341,7 +341,9 @@ The check is a grep against `docs/lua-api.md`. `mullion` reaches for `lunette.cl
 
 One module exceeded the threshold and was split. `mullion.panel` reached 587 lines, and the seam was the one its specs already used: the ray-quad intersection is arithmetic over a matrix and reaches for nothing but `lovr.math`, while the rest is claims, layers, sources, and draw calls. It moved to `mullion.panel.raycast`, re-exported as `panel.rayQuadHit`, which is the name the documents give it, and a spec asserts the re-export so a later split cannot drop it silently. What is left is 511 lines, which is over the threshold by a rounding error and is one cohesive concern; splitting it further would be splitting at a line count rather than at a seam.
 
-Every other module is under it, the largest being `mullion.interaction` at 499 and `mullion.keyboard` at 458. The largest spec file is `spec/mullion/panel/panel_spec.lua` at 520, which is the same rounding error and the same answer.
+`mullion.interaction` is the other module over, at 512, and the answer is the same one: what a pointer picks, what it scrolls, and what it has grabbed are one concern, and the seam that exists in it — the arithmetic — is already `mullion.panel.raycast`. Every other module is under, the largest being `mullion.keyboard` at 458.
+
+The largest spec file is `spec/mullion/panel/panel_spec.lua` at 520, which is the same rounding error again. `spec/mullion/persist` did pass the threshold and was split, along the seam `mullion.persist` itself has: `arrangement_spec.lua` is capture, restore, and the rules source, `file_spec.lua` is the path, the load, and the save, and the fakes they share are `spec/mullion/persist/fixture.lua`. The coverage table takes an array where a module's specs were split, so a module covered by two is still a module named once.
 
 ### The API gaps the standard library ran into
 

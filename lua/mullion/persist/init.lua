@@ -32,13 +32,16 @@
 -- assumed.
 --
 -- This module holds no arrangement of its own — a file is a value a caller keeps
--- — so it registers no teardown hook. The rules source it installs is
--- `mullion.rules`'s to discard, and that module's hook does.
+-- — but it does remember whether the last load could be used, which is what
+-- stops a save built from live panels overwriting a file this version cannot
+-- read. That memory is what its teardown hook discards. The rules source it
+-- installs is `mullion.rules`'s to discard, and that module's hook does.
 
 local format = require 'mullion.persist.format'
 local pose = require 'mullion.pose'
 local rules = require 'mullion.rules'
 local tag = require 'mullion.tag'
+local teardown = require 'mullion.teardown'
 
 local persist = {}
 
@@ -46,11 +49,26 @@ local persist = {}
 -- surface-first.
 local sourceKey, slotsFor, slotKey
 
+-- Why the last load could not be used, or nothing.
+--
+-- The from-the-future guard is a type as far as a load is concerned: a load from
+-- a later version carries no arrangement, so there is nothing to hand `save`.
+-- But `capture` is a second constructor of one, and it builds from live panels
+-- rather than from what was read — so a session that declined a newer file and
+-- then quit would write this version's arrangement over it, which is the
+-- old-writer-with-new-data corruption arriving through the back door. This is
+-- the memory that refusal needs.
+--
+-- Cleared by a load that could be used, so a user who moves the newer file away
+-- has saving back on the next start rather than for the rest of time.
+local declined = nil
+
 -- The format's surface, so that a configuration requires one module. The
 -- versions and the text are documented in `mullion.persist.format`.
 persist.CURRENT_VERSION = format.CURRENT_VERSION
 persist.newFile = format.newFile
 persist.isFile = format.isFile
+persist.isLoaded = format.isLoaded
 persist.entries = format.entries
 persist.read = format.read
 persist.render = format.render
@@ -80,6 +98,30 @@ persist.SOURCE = 'mullion.persist'
 -- The default writes to stderr, because stdout is for a program's own output.
 function persist.report(message)
   io.stderr:write(message, '\n')
+end
+
+-- The arrangement in `value`, which is an arrangement, a load, or nothing.
+--
+-- `load` answers a load and the functions that place panels want the
+-- arrangement inside it, so the unwrapping happens here rather than at every
+-- call site. `persist.install(persist.load())` is the shape a configuration
+-- reaches for, and one made to spell out `:forSession() or persist.newFile {}`
+-- is one that drops the `or` and raises on the first file it cannot read.
+--
+-- A load carrying no arrangement — broken, or from a later version — answers an
+-- empty one. There is nothing to restore from a file this version cannot read,
+-- and a session that starts with nothing saved is the ordinary first run.
+function persist.arrangementOf(value)
+  if value == nil then
+    return format.newFile {}
+  end
+  if format.isFile(value) then
+    return value
+  end
+  if format.isLoaded(value) then
+    return value:forSession() or format.newFile {}
+  end
+  error('mullion.persist: an arrangement is one this module made, not a ' .. type(value), 2)
 end
 
 -- The arrangement `panels` are in.
@@ -171,7 +213,8 @@ end
 -- this ran; this is for the panels a configuration made itself, which is every
 -- monitor panel.
 function persist.restore(file, panels)
-  local available = slotsFor(file)
+  local arrangement = persist.arrangementOf(file)
+  local available = slotsFor(arrangement)
 
   local restored, matched, counts = {}, {}, {}
   for _, target in ipairs(panels) do
@@ -191,7 +234,7 @@ function persist.restore(file, panels)
   end
 
   local stale = {}
-  for _, entry in ipairs(format.entries(file)) do
+  for _, entry in ipairs(format.entries(arrangement)) do
     if not matched[entry] then
       stale[#stale + 1] = entry
       persist.report(
@@ -209,6 +252,8 @@ end
 -- `win.id` is stable for a window's whole life and across a soft reload
 -- (docs/lua-api.md#per-window-properties); it names nothing across a restart,
 -- which is why the file is keyed on `appId` and not on it.
+--
+-- `file` is an arrangement, a load, or nothing, per `persist.arrangementOf`.
 function persist.source(file)
   local available = slotsFor(file)
   local assigned, counts = {}, {}
@@ -238,6 +283,9 @@ function persist.source(file)
 end
 
 -- Registers the restore source with `mullion.rules`.
+--
+-- `file` is an arrangement, a load, or nothing, per `persist.arrangementOf`, so
+-- that `persist.install(persist.load())` is what a configuration writes.
 --
 -- `precedence` defaults to `persist.PRECEDENCE`, which is above the rules table.
 -- Passing a lower one is how a configuration says that its rules should beat
@@ -269,22 +317,24 @@ function persist.load(filesystem)
 
   local text = filesystem.read(persist.FILE)
   if not text then
+    declined = nil
     return format.empty()
   end
 
   local loaded = format.read(text)
   if loaded.kind == 'broken' then
-    persist.report('mullion.persist: ' .. persist.path(filesystem) .. ' could not be read: ' .. loaded.message)
+    declined = persist.path(filesystem) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
+    persist.report('mullion.persist: ' .. declined)
   elseif loaded.kind == 'fromTheFuture' then
-    persist.report(
-      'mullion.persist: '
-        .. persist.path(filesystem)
-        .. ' was written by version '
-        .. loaded.found
-        .. ', and this mullion writes version '
-        .. loaded.supported
-        .. ', so it is left alone'
-    )
+    declined = persist.path(filesystem)
+      .. ' was written by version '
+      .. loaded.found
+      .. ', and this mullion writes version '
+      .. loaded.supported
+      .. ', so it is left alone'
+    persist.report('mullion.persist: ' .. declined)
+  else
+    declined = nil
   end
   for _, message in ipairs(loaded.skipped) do
     persist.report('mullion.persist: ' .. message)
@@ -292,19 +342,53 @@ function persist.load(filesystem)
   return loaded
 end
 
+-- Why a save would be refused, or nothing.
+--
+-- Set by the last `load` that could not use what was on disk, and readable so
+-- that a configuration can say so in its own words, or ask the user, rather than
+-- only discovering it from a save that answered false.
+function persist.declined()
+  return declined
+end
+
 -- Writes an arrangement to the save directory.
 --
 -- Takes an arrangement rather than a table, so a load from a later version —
--- which yields none — has nothing to pass here. That is the whole of the
+-- which yields none — has nothing to pass here. That is half of the
 -- old-writer-with-new-data guard, and it is a type rather than a check.
-function persist.save(file, filesystem)
+--
+-- The other half is this refusal, which the type cannot make: `capture` builds
+-- an arrangement out of live panels and knows nothing about what was read, so a
+-- session that declined a newer file and then saved on quit would overwrite it
+-- with what this version can represent. `options.force` is how a caller that has
+-- decided to overwrite it anyway says so, and it is deliberately a word rather
+-- than a second load.
+function persist.save(file, filesystem, options)
   filesystem = filesystem or lovr.filesystem
+
+  -- Checked before the refusal, so a caller holding the wrong kind of value
+  -- hears about that rather than about a file it never looked at.
+  if not format.isFile(file) then
+    error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
+  end
+  if declined and not (options and options.force) then
+    return false, declined
+  end
 
   local text = format.render(file)
   if not filesystem.write(persist.FILE, text) then
     return false, persist.path(filesystem) .. ' could not be written'
   end
   return true
+end
+
+-- Forgets which load was declined.
+--
+-- Registered as this module's teardown hook. A soft reload discards the Lua
+-- state and re-runs the configuration, which loads the file again; the refusal
+-- is re-armed by that load rather than inherited from the old state's.
+function persist.teardown()
+  declined = nil
 end
 
 -- What a panel's source is known by across a restart, or nothing.
@@ -334,7 +418,7 @@ end
 -- Every entry, keyed by kind, key, and slot.
 function slotsFor(file)
   local available = {}
-  for _, entry in ipairs(format.entries(file)) do
+  for _, entry in ipairs(format.entries(persist.arrangementOf(file))) do
     available[slotKey(entry.kind, entry.key, entry.slot)] = entry
   end
   return available
@@ -346,5 +430,9 @@ end
 function slotKey(kind, key, slot)
   return kind .. '\0' .. key .. '\0' .. slot
 end
+
+-- Registered by name, so that a module body running a second time — which is
+-- what a soft reload does — leaves one hook rather than two.
+teardown.register('mullion.persist', persist.teardown)
 
 return persist

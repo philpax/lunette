@@ -1,16 +1,17 @@
--- Covers lua/mullion/persist/init.lua.
+-- Covers the arrangement half of lua/mullion/persist/init.lua: the entries a set
+-- of panels is captured as, the panels an arrangement is restored onto, and the
+-- `mullion.rules` source it is installed as.
 --
--- The acceptance criterion this module carries is that a saved arrangement is
--- restored after a restart, so one case writes a real file into
--- `lovr.filesystem`'s save directory, reads its bytes back off disk, and
--- restores from what it read. A table copied in memory would satisfy a weaker
--- test and none of the criterion.
+-- The other half — the file on disk, the load, and the save — is
+-- `spec/mullion/persist/file_spec.lua`. The seam is the module's own: one half
+-- is arrangements and panels, the other is bytes and a filesystem.
 --
--- The panel fixture is required first, so that the `mullion.panel` this reaches
--- through is the one holding the fake `lunette`.
+-- The fakes both halves build are `spec.mullion.persist.fixture`, which requires
+-- the panel fixture, so that the `mullion.panel` this reaches through is the one
+-- holding the fake `lunette`.
 
 local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.panel.fixture'
+local fixture = require 'spec.mullion.persist.fixture'
 local suite = require 'spec.suite'
 
 local persist = require 'mullion.persist'
@@ -18,79 +19,13 @@ local pose = require 'mullion.pose'
 local rules = require 'mullion.rules'
 local tag = require 'mullion.tag'
 
-local spec = suite.new 'mullion.persist'
+local spec = suite.new 'mullion.persist.arrangement'
 
-local TOLERANCE = 1e-5
-
--- What `persist.report` was told, so that a case can assert an entry was
--- reported rather than let it print into the run's output.
-local reported = {}
-
-local function reset()
-  rules.teardown()
-  tag.teardown()
-  fixture.reset()
-  reported = {}
-  persist.report = function(message)
-    reported[#reported + 1] = message
-  end
-end
-
--- A window panel over a source with the given application identifier.
-local function newWindowPanel(appId, options)
-  local window = fixture.newWindow(800, 600)
-  window.appId = appId
-  window.id = appId .. '-' .. tostring(options and options.id or 1)
-  return fixture.panel.fromWindow(window, options)
-end
-
--- A monitor panel over a screen with the given saved identity.
-local function newMonitorPanel(id, options)
-  local monitor = fixture.newSource(1920, 1080)
-  monitor.id = id
-  return fixture.panel.fromMonitor(monitor, options)
-end
-
--- A filesystem that holds one file in memory, so that the cases about an absent
--- or unwritable file do not depend on the state of a real directory.
-local function newFilesystem(text)
-  local filesystem = { text = text, writes = 0, writable = true }
-
-  function filesystem.getSaveDirectory()
-    return '/a/save/directory'
-  end
-
-  function filesystem.read()
-    return filesystem.text
-  end
-
-  function filesystem.write(_, contents)
-    if not filesystem.writable then
-      return false
-    end
-    filesystem.writes = filesystem.writes + 1
-    filesystem.text = contents
-    return true
-  end
-
-  return filesystem
-end
-
-local function newEntry(overrides)
-  local entry = {
-    kind = 'window',
-    key = 'terminal',
-    slot = 1,
-    pose = pose.encode(lovr.math.newMat4():translate(1, 1.5, -2)),
-    width = 1.2,
-    height = 0.7,
-    tags = { 'main' },
-  }
-  for key, value in pairs(overrides or {}) do
-    entry[key] = value
-  end
-  return entry
-end
+local TOLERANCE = fixture.TOLERANCE
+local reset = fixture.reset
+local newEntry = fixture.newEntry
+local newWindowPanel = fixture.newWindowPanel
+local newMonitorPanel = fixture.newMonitorPanel
 
 spec('capture keys a window on its appId and a slot', function()
   reset()
@@ -141,8 +76,8 @@ spec('a source with no identity is reported rather than saved', function()
   local entries = persist.entries(persist.capture { nameless })
 
   expect.equal(#entries, 0, 'the entries')
-  expect.equal(#reported, 1, 'the reports')
-  expect.truthy(reported[1]:find 'no identity', 'what was reported')
+  expect.equal(#fixture.reported, 1, 'the reports')
+  expect.truthy(fixture.reported[1]:find 'no identity', 'what was reported')
 end)
 
 spec('a destroyed panel is not captured', function()
@@ -176,8 +111,8 @@ spec('restore puts a monitor panel back and reports what did not match', functio
   expect.near(screen.width, 1.2, TOLERANCE, 'the metre width')
   expect.equal(#stale, 1, 'the stale entries')
   expect.equal(stale[1].key, 'a screen that is unplugged', 'the stale key')
-  expect.equal(#reported, 1, 'the reports')
-  expect.truthy(reported[1]:find 'nothing matched', 'what was reported')
+  expect.equal(#fixture.reported, 1, 'the reports')
+  expect.truthy(fixture.reported[1]:find 'nothing matched', 'what was reported')
 end)
 
 spec('restore puts a panel back on the tags it was on', function()
@@ -305,9 +240,7 @@ spec('a restored pose beats the rule that would have placed the window', functio
   }
   persist.install(file)
 
-  local window = fixture.newWindow(800, 600)
-  window.appId, window.id = 'terminal', 1
-  local created = rules.place(window)
+  local created = rules.place(fixture.newWindow 'terminal')
 
   local x, y, z = created.pose:getPosition()
   expect.near(x, 3, TOLERANCE, 'x')
@@ -325,133 +258,55 @@ spec('a configuration can declare that the rules beat the restore instead', func
   }
   persist.install(file, rules.DEFAULT_PRECEDENCE - 1)
 
-  local window = fixture.newWindow(800, 600)
-  window.appId, window.id = 'terminal', 1
-  local created = rules.place(window)
+  local created = rules.place(fixture.newWindow 'terminal')
 
   local _, _, z = created.pose:getPosition()
   expect.near(z, -1, TOLERANCE, 'z')
 end)
 
-spec('an absent save file is an empty arrangement rather than an error', function()
+spec('install accepts what load returns, as the default configuration passes it', function()
   reset()
-  local loaded = persist.load(newFilesystem(nil))
+  -- `etc/xdg/lunette/main.lua` writes `persist.install(persist.load())`, which
+  -- is the shape a configuration reaches for. A load and an arrangement are two
+  -- different things, and an install that only took the second raises here — on
+  -- the first frame of every fresh installation.
+  local saved = persist.newFile {
+    newEntry { pose = pose.encode(lovr.math.newMat4():translate(3, 3, -3)) },
+  }
+  persist.install(persist.load(fixture.newFilesystem(persist.render(saved))))
 
-  expect.equal(loaded.kind, 'arrangement', 'the kind')
-  expect.equal(#persist.entries(loaded:forSession()), 0, 'the entries')
-  expect.equal(#reported, 0, 'the reports')
+  local created = rules.place(fixture.newWindow 'terminal')
+
+  local x, y, z = created.pose:getPosition()
+  expect.near(x, 3, TOLERANCE, 'x')
+  expect.near(y, 3, TOLERANCE, 'y')
+  expect.near(z, -3, TOLERANCE, 'z')
+  -- The entry named a tag nothing declared, which `mullion.rules` creates and
+  -- reports. Asserted so that the report is a decision rather than noise.
+  expect.equal(#fixture.ruleReports, 1, 'what mullion.rules reported')
+  expect.truthy(fixture.ruleReports[1]:find 'nothing declared the tag', 'what was reported')
 end)
 
-spec('a load from a later version is left on disk rather than overwritten', function()
+spec('install accepts a load carrying no arrangement at all', function()
   reset()
-  local newer = 'return { version = ' .. (persist.CURRENT_VERSION + 1) .. ', entries = {}, curvature = 0.3 }'
-  local filesystem = newFilesystem(newer)
+  -- `forSession` answers nothing for a load this version cannot read, so a
+  -- configuration passing a load through without an `or` hands nil onwards. That
+  -- is a session with nothing to restore, not a session that fails to start.
+  persist.install(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())))
+  persist.install(nil, rules.DEFAULT_PRECEDENCE + 1)
 
-  local loaded = persist.load(filesystem)
-
-  expect.equal(loaded.kind, 'fromTheFuture', 'the kind')
-  expect.equal(filesystem.text, newer, 'the file on disk')
-  expect.equal(filesystem.writes, 0, 'the writes')
-  expect.equal(#reported, 1, 'the reports')
-  expect.truthy(reported[1]:find 'written by version', 'what was reported')
+  expect.equal(next(rules.resolve(fixture.newWindow 'terminal')), nil, 'the properties an empty restore contributed')
 end)
 
-spec('a broken file on disk is reported rather than raising', function()
+spec('restore of a load carrying no arrangement places nothing rather than raising', function()
   reset()
-  local loaded = persist.load(newFilesystem 'return {')
+  local screen = newMonitorPanel 'a screen'
 
-  expect.equal(loaded.kind, 'broken', 'the kind')
-  expect.equal(#reported, 1, 'the reports')
-  expect.truthy(reported[1]:find 'could not be read', 'what was reported')
-end)
+  local restored, stale =
+    persist.restore(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())), { screen })
 
-spec('an entry the format skipped is reported by the load', function()
-  reset()
-  local text = "return { version = 1, entries = { { kind = 'nothing', key = 'x', pose = 'y' } } }"
-
-  persist.load(newFilesystem(text))
-
-  expect.equal(#reported, 1, 'the reports')
-  expect.truthy(reported[1]:find 'window or a monitor', 'what was reported')
-end)
-
-spec('save refuses anything that is not an arrangement this module made', function()
-  reset()
-
-  expect.raises(function()
-    persist.save({ version = 1, entries = {} }, newFilesystem())
-  end, 'an arrangement is one this module made', 'a plain table')
-end)
-
-spec('a save that could not be written says so rather than reporting success', function()
-  reset()
-  local filesystem = newFilesystem(nil)
-  filesystem.writable = false
-
-  local saved, message = persist.save(persist.newFile {}, filesystem)
-
-  expect.equal(saved, false, 'the outcome')
-  expect.truthy(message:find 'could not be written', 'the message')
-end)
-
-spec('the save path is under the save directory rather than the source', function()
-  reset()
-  local path = persist.path()
-
-  expect.equal(path, lovr.filesystem.getSaveDirectory() .. '/' .. persist.FILE, 'the path')
-  -- Not the configuration directory: the save directory derives from the
-  -- identity and the source is the config, so a path that was assumed rather
-  -- than asked for would write into the user's configuration.
-  expect.falsy(path:find(lovr.filesystem.getSource() or 'nothing', 1, true), 'the source in the save path')
-  -- No `.lua`, so a session cannot write something the require path resolves.
-  expect.falsy(persist.FILE:find '%.lua$', 'a module extension')
-end)
-
-spec('an arrangement written to the save directory is restored by a later load', function()
-  reset()
-  -- The criterion is that a saved arrangement survives a restart, so this goes
-  -- through a real file: `persist.save` writes into `lovr.filesystem`'s save
-  -- directory, the bytes are read back off disk, and the restore is from what
-  -- was read rather than from the table that was written.
-  local placed = lovr.math.newMat4():translate(-0.5, 1.75, -2.25)
-  local screen = newMonitorPanel('Acme X24 on DP-1', { pose = placed, width = 1.6 })
-  local main = tag.new 'main'
-  main:add(screen)
-
-  expect.equal(persist.save(persist.capture { screen }), true, 'the save')
-  expect.truthy(lovr.filesystem.isFile(persist.FILE), 'the file in the save directory')
-
-  -- Everything the session held, gone: the panels, the tags, and the arrangement
-  -- object. What comes back has to come back off disk.
-  fixture.reset()
-  tag.teardown()
-
-  local recovered = persist.load():forSession()
-  expect.truthy(recovered, 'the arrangement read back')
-
-  local reopened = newMonitorPanel 'Acme X24 on DP-1'
-  local restored, stale = persist.restore(recovered, { reopened })
-
-  expect.equal(#restored, 1, 'the panels restored')
+  expect.equal(#restored, 0, 'the panels restored')
   expect.equal(#stale, 0, 'the stale entries')
-  local x, y, z = reopened.pose:getPosition()
-  expect.near(x, -0.5, TOLERANCE, 'x')
-  expect.near(y, 1.75, TOLERANCE, 'y')
-  expect.near(z, -2.25, TOLERANCE, 'z')
-  expect.near(reopened.width, 1.6, TOLERANCE, 'the metre width')
-  expect.equal(tag.find('main'):has(reopened), true, 'the tag it was on')
-
-  lovr.filesystem.remove(persist.FILE)
-end)
-
-spec('the bytes on disk are the arrangement this version renders', function()
-  reset()
-  local file = persist.newFile { newEntry() }
-
-  expect.equal(persist.save(file), true, 'the save')
-  expect.equal(lovr.filesystem.read(persist.FILE), persist.render(file), 'the bytes written')
-
-  lovr.filesystem.remove(persist.FILE)
 end)
 
 return spec

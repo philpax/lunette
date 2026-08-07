@@ -20,8 +20,9 @@ local spec = suite.new 'mullion.coverage'
 -- Where the specs covering the standard library are, under `spec.SPEC_ROOT`.
 local MULLION_SPECS = 'spec/mullion'
 
--- What covers each module, as a spec path under `spec/mullion`, or `false` with
--- the reason it is exempt.
+-- What covers each module: a spec path under `spec/mullion`, an array of them
+-- for a module whose specs were split along a seam, or `false` with the reason
+-- it is exempt.
 --
 -- Keyed by the path under `mullion/`, so it reads as the tree does.
 local COVERAGE = {
@@ -39,7 +40,9 @@ local COVERAGE = {
   ['panel/init.lua'] = 'panel/panel_spec.lua',
   ['panel/raycast.lua'] = 'panel/raycast_spec.lua',
   ['persist/format.lua'] = 'persist/format_spec.lua',
-  ['persist/init.lua'] = 'persist/arrangement_spec.lua',
+  -- Split along the module's own seam: one half is arrangements and panels, the
+  -- other is the file on disk.
+  ['persist/init.lua'] = { 'persist/arrangement_spec.lua', 'persist/file_spec.lua' },
   ['pose.lua'] = 'pose_spec.lua',
   ['rules.lua'] = 'rules_spec.lua',
   ['signal.lua'] = 'signal_spec.lua',
@@ -58,6 +61,18 @@ local ABOUT_THE_SUITE = {
 -- The path under `mullion/` that `path` names.
 local function relative(path)
   return (path:gsub('^' .. tree.MODULE_ROOT .. '/', ''))
+end
+
+-- The spec paths a coverage entry names, as an array, so that a module covered
+-- by one and a module covered by two read the same to the checks below.
+local function covering(entry)
+  if not entry then
+    return {}
+  end
+  if type(entry) == 'string' then
+    return { entry }
+  end
+  return entry
 end
 
 spec('every module is named in the coverage table', function()
@@ -99,9 +114,11 @@ spec('every spec the coverage table names exists', function()
   end
 
   local missing = {}
-  for module, covering in pairs(COVERAGE) do
-    if covering and not present[MULLION_SPECS .. '/' .. covering] then
-      missing[#missing + 1] = module .. ' -> ' .. covering
+  for module, entry in pairs(COVERAGE) do
+    for _, path in ipairs(covering(entry)) do
+      if not present[MULLION_SPECS .. '/' .. path] then
+        missing[#missing + 1] = module .. ' -> ' .. path
+      end
     end
   end
   table.sort(missing)
@@ -111,9 +128,9 @@ end)
 
 spec('every spec covers a module or is about the suite', function()
   local claimed = {}
-  for _, covering in pairs(COVERAGE) do
-    if covering then
-      claimed[MULLION_SPECS .. '/' .. covering] = true
+  for _, entry in pairs(COVERAGE) do
+    for _, path in ipairs(covering(entry)) do
+      claimed[MULLION_SPECS .. '/' .. path] = true
     end
   end
 

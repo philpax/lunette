@@ -74,6 +74,15 @@ function format.isFile(value)
   return type(value) == 'table' and getmetatable(value) == fileMetatable
 end
 
+-- Whether `value` is a load `read`, `empty`, or `broken` produced.
+--
+-- A load and an arrangement are two different things and a caller holding the
+-- wrong one is the mistake worth naming, so the two are told apart by their
+-- metatables rather than by which fields happen to be present.
+function format.isLoaded(value)
+  return type(value) == 'table' and getmetatable(value) == loadedMetatable
+end
+
 -- An arrangement's entries, as a fresh array.
 function format.entries(file)
   if not format.isFile(file) then
