@@ -83,9 +83,18 @@ install-binary: build
 
 # `lua/spec/` is deliberately not installed: the tests cover the standard library
 # and are not part of it.
+#
+# The tree is walked rather than listed, so a module added under a new
+# subdirectory is installed without this rule being remembered. A file the rule
+# missed resolves in the working tree — where LUNETTE_STDLIB_PATH points during
+# development — and is absent from an installed session, which is the worst shape
+# a defect can take.
 install-lua:
-	$(INSTALL) -d $(luadir)/mullion
-	$(INSTALL_DATA) lua/mullion/*.lua $(luadir)/mullion/
+	@set -e; \
+	cd lua && find mullion -type f -name '*.lua' | while read -r file; do \
+		$(INSTALL) -d "$(luadir)/$$(dirname "$$file")"; \
+		$(INSTALL_DATA) "$$file" "$(luadir)/$$file"; \
+	done
 
 install-config:
 	$(INSTALL) -d $(confdir)
