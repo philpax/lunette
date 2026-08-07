@@ -265,6 +265,8 @@ fn generate_bindings(
         .allowlist_function("lovrRelease")
         // The texture surface the import path is written against.
         .allowlist_function("lovrGraphicsIsInitialized")
+        // Drains the GPU before a restart tears the XR session down.
+        .allowlist_function("lovrGraphicsWait")
         .allowlist_function("lovrGraphicsGetFeatures")
         // Whether the device can blit a format. The layer swapchain is
         // `FORMAT_RGBA8` with sRGB and a client's window is usually

@@ -317,6 +317,7 @@ fn teardown_hands_back_every_texture_once() {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     DestroyLayers,
+    DrainGpu,
     ForgetClaims,
     ForgetBlits,
     ReleaseTextures,
@@ -333,6 +334,10 @@ enum Step {
 struct Recorder(Vec<Step>);
 
 impl DeviceTeardown for Recorder {
+    fn drain_gpu(&mut self) {
+        self.0.push(Step::DrainGpu);
+    }
+
     fn destroy_layers(&mut self) {
         self.0.push(Step::DestroyLayers);
     }
@@ -370,6 +375,7 @@ fn the_device_teardown_destroys_layers_then_releases_textures_then_gives_up_the_
     assert_eq!(
         torn_down(Disposal::Abandon),
         vec![
+            Step::DrainGpu,
             Step::DestroyLayers,
             Step::ForgetClaims,
             Step::ForgetBlits,
@@ -391,6 +397,7 @@ fn a_teardown_that_stops_the_compositor_gives_up_everything_the_restart_does() {
     assert_eq!(
         stopping,
         vec![
+            Step::DrainGpu,
             Step::DestroyLayers,
             Step::ForgetClaims,
             Step::ForgetBlits,

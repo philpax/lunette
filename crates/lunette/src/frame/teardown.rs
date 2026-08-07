@@ -6,7 +6,8 @@
 //! at the end. [`crate::restart`] states the reasoning, and
 //! [`tear_down_device`] performs it.
 
-use tracing::{error, info};
+use lunette_lovr::raw::{lovrGraphicsIsInitialized, lovrGraphicsWait};
+use tracing::{error, info, warn};
 
 use crate::{
     frame::{FrameDriver, GraphicsState},
@@ -137,6 +138,12 @@ impl FrameDriver {
 /// two lines of it compiles and passes. `tests.rs` implements [`DeviceTeardown`]
 /// against a recorder, so a reordering fails.
 pub(super) fn tear_down_device(target: &mut impl DeviceTeardown, disposal: Disposal) {
+    // First, and the reason is not LÖVR's own objects. `xrDestroySession` frees
+    // the runtime's client-side command buffers and timeline semaphore, and it
+    // does so with no wait of its own, so a frame still in flight makes every
+    // step below operate on objects the GPU is reading. Monado faults rather
+    // than reporting it.
+    target.drain_gpu();
     target.destroy_layers();
     target.forget_claims();
     target.forget_blits();
@@ -149,6 +156,7 @@ pub(super) fn tear_down_device(target: &mut impl DeviceTeardown, disposal: Dispo
 /// Each is documented at the call above rather than here, because what matters
 /// about them is the order and the order is there.
 pub(super) trait DeviceTeardown {
+    fn drain_gpu(&mut self);
     fn destroy_layers(&mut self);
     fn forget_claims(&mut self);
     fn forget_blits(&mut self);
@@ -170,6 +178,30 @@ pub(super) enum Disposal {
 }
 
 impl DeviceTeardown for FrameDriver {
+    fn drain_gpu(&mut self) {
+        // A configuration may switch the graphics module off, and the teardown
+        // still runs. `lovrGraphicsWait` submits before it waits, which aborts
+        // when there is no device to submit to.
+        //
+        // SAFETY: both are called on the thread that owns the graphics device,
+        // between frames, with no pass open.
+        if !unsafe { lovrGraphicsIsInitialized() } {
+            return;
+        }
+
+        // SAFETY: as above. `lovrGraphicsWait` submits whatever is pending and
+        // waits on the device.
+        if !unsafe { lovrGraphicsWait() } {
+            // Reported and not fatal. The teardown below is more dangerous to
+            // skip than to run against a device that would not drain, and a
+            // restart that stops here leaves the session with no way forward.
+            warn!(
+                "the graphics device did not drain before the restart; the teardown continues, \
+                 and the xr runtime may fault on objects still in use"
+            );
+        }
+    }
+
     fn destroy_layers(&mut self) {
         self.session.claims().shutdown();
     }
