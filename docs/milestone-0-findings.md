@@ -495,6 +495,16 @@ Nothing in lunette can intercept it. `os_glfw.h:144` writes the message with `pr
 
 Two conditions are needed together, and either alone is harmless. `GLFW_BUILD_WAYLAND` is `OFF` in `vendor/lovr/CMakeLists.txt:113`, so LÖVR's GLFW is X11-only and a Wayland session without `DISPLAY` reaches no display at all.
 
+### The window texture carries the client, and this is now shown rather than argued
+
+A window's texture was read back through `Texture:newReadback`, encoded, and looked at. It carries the client's pixels: the text the spawned shell printed, at 800x600, in the right orientation, with the right colours. The path from a client's dmabuf through the Vulkan import to a LÖVR texture is therefore end-to-end correct, which AC1.2 asked for and which nothing had previously demonstrated with pixels.
+
+The texture's format is `bgra8`. That is the non-sRGB BGRA the layer chapter predicts a client commits, so the conversion described there applies and D3's open question about format conversion is answered in the affirmative for this client.
+
+A readback is served when the graphics module next submits and polls. lunette's frame loop submits through its own path, so a configuration taking one calls `lovr.graphics.submit()` and waits on the readback rather than expecting a flush.
+
+Reading `lovr.headset.getTexture()` the same way does not work and is recorded so it is not retried. Called from `lovr.update`, it returns the image for a frame whose draw pass has not run, and the readback is uniformly zero. A capture of what the headset is shown has to be taken after the frame is submitted, against the image that frame used.
+
 ### The unpublished submodule commit
 
 `vendor/lovr` is pinned to a commit on the local `lunette` branch, and that branch has never been pushed. A recursive clone from anywhere else fails on it: `upload-pack: not our ref 43715f87`. AC9.1 is unreachable by anyone but the machine holding the branch until the submodule is repointed at a lunette-owned fork, which is the pre-push task [CONTRIBUTING.md](../CONTRIBUTING.md) records. The offline-build half above had to be measured with the local checkout substituted for that one submodule.
