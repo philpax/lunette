@@ -237,6 +237,43 @@ fn destroying_an_output_with_two_clients_on_two_outputs_does_not_cross_them() {
 }
 
 #[test]
+fn destroying_an_output_two_clients_share_does_not_cross_them() {
+    // An assignment is many-to-one, so recording a surface against the one
+    // output its client is shown still leaves two clients in the same entry.
+    // Withdrawing it walks instances against surfaces, and without the client
+    // filter in `OutputRegistry::destroy` the product pairs one client's
+    // `wl_output` with the other's surface — a backend abort rather than a
+    // protocol error.
+    let mut compositor = with_three_outputs();
+    let (first_stream, _first_client) = compositor.connect_assigned(THIRD_OUTPUT);
+    let (second_stream, _second_client) = compositor.connect_assigned(THIRD_OUTPUT);
+    let mut first = TestClient::from_stream(first_stream, &mut compositor);
+    let mut second = TestClient::from_stream(second_stream, &mut compositor);
+
+    for client in [&mut first, &mut second] {
+        drop(client.bind_outputs(&mut compositor));
+        client.open_toplevel(&mut compositor);
+        client.attach_buffer(&mut compositor, PixelSize::new(320, 240));
+    }
+
+    compositor.send(Command::DestroyOutput {
+        output: THIRD_OUTPUT,
+    });
+    compositor.step();
+    first.settle_quiet(&mut compositor);
+    second.settle_quiet(&mut compositor);
+
+    assert!(
+        !first.is_disconnected(),
+        "withdrawing a shared output is not a protocol error against either client"
+    );
+    assert!(
+        !second.is_disconnected(),
+        "withdrawing a shared output is not a protocol error against either client"
+    );
+}
+
+#[test]
 fn a_client_whose_output_is_destroyed_falls_back_to_the_default() {
     // The assignment named an output that no longer exists, and `sees_output`
     // answers `assigned == output` — so without clearing it the client matches

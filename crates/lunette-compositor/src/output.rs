@@ -158,11 +158,16 @@ impl OutputRegistry {
         let entry = self.outputs.remove(index);
         for instance in &entry.instances {
             for surface in entry.live_surfaces() {
-                // The same client check the other three paths make. Structurally
-                // redundant since `enter` records a surface only against the
-                // output its own client is shown, and kept because the cost of
-                // it being wrong is not a protocol error a client can survive
-                // but a backend abort that takes the compositor thread with it
+                // The same client check the other three paths make, and here it
+                // is load-bearing. `enter` recording against the one output the
+                // client is shown rules out the unrelated-client pairing — a
+                // client that cannot see this output at all holds no surface on
+                // it. It does not rule out the shared-output pairing: an
+                // assignment is many-to-one, so two clients on this output each
+                // contribute surfaces and instances to this entry, and the
+                // unfiltered product crosses them. The cost of getting that
+                // wrong is not a protocol error a client can survive but a
+                // backend abort that takes the compositor thread with it
                 // (`wayland-backend/src/rs/server_impl/client.rs:194`).
                 if surface.client().as_ref() == instance.client().as_ref() {
                     surface.leave(instance);
@@ -274,8 +279,12 @@ impl OutputRegistry {
     /// holding surfaces belonging to clients that cannot see it is what makes a
     /// cross-client `wl_surface.leave` reachable from
     /// [`OutputRegistry::destroy`], which the backend answers by aborting rather
-    /// than by raising a protocol error. Recording against the one output makes
-    /// that pairing impossible rather than guarded against.
+    /// than by raising a protocol error. Recording against the one output
+    /// removes the unrelated-client case, where the surface's client cannot see
+    /// the entry at all. It does not remove the shared-output case: an
+    /// assignment is many-to-one, so two clients shown the same output both
+    /// land in the same entry. [`OutputRegistry::destroy`] filters by client for
+    /// that one, and it is the guard that keeps the pairing out.
     ///
     /// An output that does not exist records nothing. The only caller derives
     /// the identifier from the client's assignment, which `assign_output`
