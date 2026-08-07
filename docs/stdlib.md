@@ -29,6 +29,8 @@ The mount is read-only. A configuration that could overwrite the standard librar
 | `mullion.tag` | Tier 3. Named groups of panels. A panel belongs to a set of tags and selection is multi, so `mullion.tag.current` answers tags rather than one tag. |
 | `mullion.layout.arc` | Tier 3. Panels on a curve around the user, facing inwards. Callable, because [The Lua API](lua-api.md) attests it as a call. |
 | `mullion.rules` | Tier 3. What a window should look like, decided before anything draws it. Several sources compose with a declared precedence, and the `appId` table is one of them. |
+| `mullion.persist` | Tier 3. Arrangements that outlive the process. It captures panels, writes them to the save directory, and restores them as one of `mullion.rules`'s sources. |
+| `mullion.persist.format` | The arrangement file's text and its versions. Pure, and separate because the version matrix is worth reasoning about without a filesystem in the way. |
 
 `mullion.interaction` and `mullion.laser` are one tier split in two because one of them can be tested and the other cannot. Everything that decides — which panel a ray hits, where a grab puts a panel, what a thumbstick deflection is worth in surface pixels — is in `mullion.interaction`, which is handed its input and reaches for no device. `mullion.laser` is the shell around it: `lovr.headset`, `lunette.newSeat`, and `Pass`.
 
@@ -67,6 +69,10 @@ The awesome-derived part. Tags and workspaces, layout algorithms (an arc around 
 Layout in 3D has no useful ancestor. awesome's algorithms are two-dimensional and GPLv2, so this tier is reimplemented from scratch regardless. The open question is what "tiling" means when the walls are wherever the user decided they are.
 
 Minimum viable: one layout function that arranges the current tag's panels in an arc at a comfortable radius, a rules table matched on `appId`, and layout save/restore to `lovr.filesystem`'s save directory.
+
+Rules and restore are separate sources composed with a declared precedence, rather than one list. After a restart a window that was hand-placed should come back where it was, and a window opening fresh should be placed by rule; as one list, whichever the configuration happened to write second wins, and which of the two cases is wrong depends on that ordering. `mullion.persist` registers above the rules table by default, and a configuration that wants its rules to win says so with a number.
+
+The arrangement is written to `lovr.filesystem.getSaveDirectory()`, which derives from the identity rather than from the source — so it is not the configuration directory and is asked for rather than assumed. The file carries no `.lua` extension, so that a session cannot write something the require path would resolve as a module. A file written by a later version is left alone rather than parsed and rewritten, because rewriting it would drop the fields this version cannot represent.
 
 ## Tier 4 — furniture
 
