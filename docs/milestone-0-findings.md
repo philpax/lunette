@@ -429,6 +429,8 @@ Every acceptance criterion of this phase is a human gate, and none was performed
 
 Thirty-three items are unfinished: twenty-five human gates, and eight measurements that have to be taken.
 
+[The human test plan](test-plans/2026-08-05-lunette-v1.md) is the procedure for all of them, grouped by what each needs — a repository, a desktop session, a GPU, or the headset powered on. Results come back here.
+
 ### The two human gates
 
 Neither gate has been performed. Both are in [phase 2](implementation-plans/2026-08-05-lunette-v1/phase_02.md) as acceptance criteria, and neither is automatable.
