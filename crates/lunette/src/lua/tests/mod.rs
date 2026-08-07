@@ -339,6 +339,64 @@ fn a_coordinate_that_is_not_a_number_is_reported() {
     assert!(session.flush().is_empty());
 }
 
+/// AC5.5's entry point. A restart is asked for through LÖVR's own event, which
+/// `vendor/lovr/etc/boot.lua:196` reads out of the queue at the end of the
+/// frame, so what this checks is that the call reaches that function.
+#[test]
+fn a_restart_is_asked_for_through_lovrs_own_event() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "restarts = 0
+         lovr.event = { restart = function() restarts = restarts + 1 end }",
+    );
+
+    run::<()>(&lua, "lunette.restart()");
+
+    assert_eq!(
+        run::<i64>(&lua, "return restarts"),
+        1,
+        "the call should have reached lovr.event.restart exactly once"
+    );
+}
+
+/// Nothing is performed by the call, so a configuration that asks twice in one
+/// frame is asking for the same restart twice rather than recursing the way a
+/// reload from inside a reload would.
+#[test]
+fn a_restart_asked_for_twice_is_not_refused() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "restarts = 0
+         lovr.event = { restart = function() restarts = restarts + 1 end }",
+    );
+
+    run::<()>(&lua, "lunette.restart() lunette.restart()");
+
+    assert_eq!(
+        run::<i64>(&lua, "return restarts"),
+        2,
+        "there is no re-entry guard, because the event is read after the frame"
+    );
+}
+
+/// A LÖVR without the event module is a broken build rather than a mistake in
+/// the configuration, so it is reported as such instead of as a nil call.
+#[test]
+fn a_restart_with_no_event_module_is_reported() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    let message = error(&lua, "lunette.restart()");
+    assert!(
+        message.contains("lovr.event.restart could not be reached"),
+        "unhelpful message: {message}"
+    );
+}
+
 #[test]
 fn the_module_exposes_only_what_this_phase_implements() {
     let session = session(Vec::new());
@@ -359,6 +417,7 @@ fn the_module_exposes_only_what_this_phase_implements() {
             "newSeat".to_owned(),
             "outputs".to_owned(),
             "reload".to_owned(),
+            "restart".to_owned(),
             "scaleSteps".to_owned(),
             "sceneEnabled".to_owned(),
             "seats".to_owned(),

@@ -95,6 +95,7 @@ use crate::{
     mirrors::MirrorRegistry,
     properties::WindowProperties,
     reload::reload_from_lua,
+    restart::restart_from_lua,
     scale::{STEPS, ScaleStep},
     scene::{Gate, SceneRendering, install_gate},
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
@@ -658,6 +659,14 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     module.set(
         "reload",
         lua.create_function(|lua, ()| reload_from_lua(lua))?,
+    )?;
+
+    // Captures nothing, for the same reason `reload` does not: the restart is
+    // asked for by pushing LÖVR's own event, and the teardown that follows it
+    // belongs to the frame loop rather than to anything reachable from here.
+    module.set(
+        "restart",
+        lua.create_function(|lua, ()| restart_from_lua(lua))?,
     )?;
 
     // Here rather than in `install`, because `boot.lua:345` creates

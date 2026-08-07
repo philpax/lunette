@@ -73,7 +73,54 @@ use lunette_compositor::{
     protocol::{Command, Event},
     thread::{CompositorHandle, TrySendError, WaitError},
 };
-use tracing::debug;
+use mlua::{Function, Lua, Table};
+use tracing::{debug, info};
+
+/// `lunette.restart()`: asks for a hard restart.
+///
+/// Nothing here performs one. The call pushes LÖVR's own restart event and
+/// returns; `vendor/lovr/etc/boot.lua:196` reads it out of the queue once the
+/// frame's callbacks have returned, ends the boot coroutine, and [`crate::boot`]
+/// answers with the quiesce this module documents.
+///
+/// # Why there is no re-entry guard
+///
+/// [`crate::reload::reload`] refuses a reload asked for from inside one,
+/// because it re-runs `main.lua` inline and a configuration that reloads as it
+/// loads would recurse until the stack ran out. This recurses into nothing: the
+/// event is read after the frame, so a restart asked for from `lovr.load`, from
+/// inside a reload, or twice in the same frame is one restart at the end of the
+/// frame rather than a nested call.
+///
+/// `lovr.event.restart` is reached through the globals at each call rather than
+/// held, so the module keeps no Lua value between calls and a configuration that
+/// replaced the event module is honoured rather than bypassed.
+///
+/// # Errors
+///
+/// If `lovr.event.restart` cannot be reached. That is a LÖVR built without the
+/// event module, or a configuration that replaced `lovr.event` with something
+/// that is not one, rather than anything about the restart itself.
+pub(crate) fn restart_from_lua(lua: &Lua) -> mlua::Result<()> {
+    let restart = lovr_event_restart(lua).map_err(|error| {
+        mlua::Error::runtime(format!(
+            "restart: lovr.event.restart could not be reached, so a restart cannot be asked for: \
+             {error}"
+        ))
+    })?;
+
+    restart.call::<()>(())?;
+    info!("a restart was asked for; it is taken at the end of this frame");
+    Ok(())
+}
+
+/// LÖVR's own `lovr.event.restart`, as `boot.lua:336` reaches it.
+fn lovr_event_restart(lua: &Lua) -> mlua::Result<Function> {
+    lua.globals()
+        .get::<Table>("lovr")?
+        .get::<Table>("event")?
+        .get("restart")
+}
 
 /// How long the frame thread waits for the compositor to give up the device.
 ///
