@@ -47,6 +47,7 @@ local COVERAGE = {
   ['persist/init.lua'] = { 'persist/arrangement_spec.lua', 'persist/file_spec.lua' },
   ['pose.lua'] = 'pose_spec.lua',
   ['rules.lua'] = 'rules_spec.lua',
+  ['scale.lua'] = 'scale_spec.lua',
   ['signal.lua'] = 'signal_spec.lua',
   ['tag.lua'] = 'tag_spec.lua',
   ['teardown.lua'] = 'teardown_spec.lua',

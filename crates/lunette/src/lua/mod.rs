@@ -95,6 +95,7 @@ use crate::{
     mirrors::MirrorRegistry,
     properties::WindowProperties,
     reload::reload_from_lua,
+    scale::{STEPS, ScaleStep},
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
 
@@ -552,6 +553,13 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
         lua.create_function(move |lua, ()| outputs(lua, &outputs_session))?,
     )?;
 
+    // Captures nothing: the ladder is a constant of the build, not a property of
+    // a session.
+    module.set(
+        "scaleSteps",
+        lua.create_function(|lua, ()| scale_steps(lua))?,
+    )?;
+
     // Captures nothing. A reload is entirely a matter of the Lua state — the
     // compositor, the clients, and their textures are not touched by one — so
     // this reaches for no session and holds no Lua value between calls.
@@ -579,6 +587,28 @@ fn windows<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<T
     }
 
     Ok(windows)
+}
+
+/// `lunette.scaleSteps()`: the scale ladder, ascending, as plain numbers.
+///
+/// The same ladder [`crate::scale`] quantises a layer's requested size against.
+/// One ladder rather than two, so that a panel whose scale Lua raises asks the
+/// pool for a size the free list already holds instead of forcing an allocation
+/// — and an allocation blocks on `XR_INFINITE_DURATION`.
+///
+/// A fresh table each call rather than one shared table, so a configuration that
+/// writes into what it was handed cannot change what the next caller reads.
+fn scale_steps(lua: &Lua) -> mlua::Result<Table> {
+    let steps = lua.create_table_with_capacity(STEPS.len(), 0)?;
+
+    for (index, step) in (1..).zip(STEPS) {
+        steps.set(
+            index,
+            f64::from(step.in_120ths()) / f64::from(ScaleStep::DENOMINATOR),
+        )?;
+    }
+
+    Ok(steps)
 }
 
 /// `lunette.spawn{ argv = …, env = …, cwd = …, xwayland = … }`.

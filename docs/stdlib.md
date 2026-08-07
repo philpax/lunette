@@ -28,6 +28,7 @@ The mount is read-only. A configuration that could overwrite the standard librar
 | `mullion.laser` | Tier 2. One per hand. It reads a pointer device, drives an interaction pointer with what it read, owns that hand's seat, and draws the beam. |
 | `mullion.keycodes` | Where the keys are, in evdev keycodes, and which of them are modifiers. A description of a physical keyboard, with no layout in it. |
 | `mullion.keyboard` | Tier 2. A virtual keyboard whose legends and keycodes come from a seat's own keymap rather than from a table of its own. |
+| `mullion.scale` | Which scale an output is set to, chosen from `lunette.scaleSteps()` with hysteresis. Pure: a chooser is handed a distance and answers with a scale. |
 | `mullion.tag` | Tier 3. Named groups of panels. A panel belongs to a set of tags and selection is multi, so `mullion.tag.current` answers tags rather than one tag. |
 | `mullion.layout.arc` | Tier 3. Panels on a curve around the user, facing inwards. Callable, because [The Lua API](lua-api.md) attests it as a call. |
 | `mullion.rules` | Tier 3. What a window should look like, decided before anything draws it. Several sources compose with a declared precedence, and the `appId` table is one of them. |

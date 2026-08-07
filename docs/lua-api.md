@@ -111,6 +111,7 @@ An output is a virtual monitor lunette shows to the clients assigned to it. It i
 
 ```lua
 local out = lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }
+local steps = lunette.scaleSteps()   -- the scale ladder, ascending.
 
 for _, output in ipairs(lunette.outputs()) do
     print(output.id)                     -- the compositor's identifier.
@@ -132,6 +133,8 @@ end
 Refresh is advertisement, not pacing. It is what a client reads off `wl_output.mode` and reasons about; how often the compositor actually answers a surface's frame callbacks is `surface:setFrameRate`, which is separate.
 
 `output:setMode` keeps the fields it was not given, so `setMode{ scale = 2 }` changes the scale alone. Clients reallocate their buffers and re-lay-out in response, and some — GTK in particular — do it aggressively, so a configuration that adjusts this continuously will see them struggle. `mullion` moves between discrete steps with hysteresis for that reason.
+
+`lunette.scaleSteps()` answers with the scale ladder, ascending, as plain numbers. It is the same ladder a claimed layer's requested size is quantised against ([Rendering](rendering.md#the-layer-pool)), and it is one ladder rather than two so that raising a panel's scale asks the pool for a rung the free list already holds instead of forcing an allocation. Each call returns its own table, so writing into what one call handed back does not change what the next reads. `mullion.scale` moves along it with hysteresis; a configuration that wants different steps is choosing among these, not adding to them.
 
 `lunette.spawn{ output = out }` is how a client is assigned one, and it takes an output handle rather than an identifier so that a number in range cannot be mistaken for one. The assignment is made at spawn and lasts the client's life; there is no way to move a running client to another output, because the filter is only consulted when a client reads the registry or binds, so a change would have to withdraw the global and create a new one — which the client experiences as a monitor unplugged and replugged. Changing the mode of the output a client is already on is the supported operation.
 

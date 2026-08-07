@@ -329,3 +329,38 @@ fn a_spawn_output_naming_another_handle_kind_is_refused() {
         "a seat handle was accepted where an output was wanted"
     );
 }
+
+#[test]
+fn the_scale_ladder_reaches_lua_as_the_one_the_layer_pool_keys_on() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    let steps: Vec<f64> = run(&lua, "return lunette.scaleSteps()");
+
+    let expected: Vec<f64> = crate::scale::STEPS
+        .iter()
+        .map(|step| f64::from(step.in_120ths()) / f64::from(crate::scale::ScaleStep::DENOMINATOR))
+        .collect();
+    assert_eq!(steps, expected);
+    // The two ends the ladder declares, so a change to one that forgets the
+    // other is caught here rather than by a panel allocating per frame.
+    assert_eq!(steps.first(), Some(&1.0));
+    assert_eq!(steps.last(), Some(&3.0));
+}
+
+#[test]
+fn each_call_for_the_ladder_answers_with_its_own_table() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    // A configuration that writes into what it was handed must not change what
+    // the next caller reads.
+    let untouched: f64 = run(
+        &lua,
+        "local first = lunette.scaleSteps()
+         first[1] = 99
+         return lunette.scaleSteps()[1]",
+    );
+
+    assert_eq!(untouched, 1.0);
+}

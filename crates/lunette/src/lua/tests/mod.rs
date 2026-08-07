@@ -940,6 +940,7 @@ fn the_module_exposes_only_what_this_phase_implements() {
             "newSeat".to_owned(),
             "outputs".to_owned(),
             "reload".to_owned(),
+            "scaleSteps".to_owned(),
             "seats".to_owned(),
             "spawn".to_owned(),
             "windows".to_owned(),
