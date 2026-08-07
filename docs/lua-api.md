@@ -377,8 +377,12 @@ The directory is what makes the 0600 requirement enforceable, and reproducing th
 $ lunctl 'return #lunette.windows()'
 3
 $ lunctl 'for _, w in ipairs(lunette.windows()) do print(w.appId, w.title) end'
-$ lunctl 'mullion.layout.arc(mullion.tag.current())'
+$ lunctl "local arc = require 'mullion.layout.arc' arc(require('mullion.tag').current())"
 ```
+
+A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
+
+`mullion`'s submodules are not reachable through the root, here or anywhere. The root deliberately re-exports nothing, so `mullion.layout.arc` is `nil` and the submodule is required by its own path.
 
 This is the most significant inheritance from awesome, more significant than any layout algorithm. awesome's design allows the whole window manager to be inspected and mutated from a shell prompt while it runs, which is a substantial part of its usability. `lunctl` also serves as the end-to-end test harness: it spawns a client, evaluates assertions, and tears down.
 

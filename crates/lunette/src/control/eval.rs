@@ -135,6 +135,14 @@ pub fn evaluate<R>(
         Err(error) => return Evaluation::LoadFailed(error.to_string()),
     };
 
+    // Reported rather than ignored: a chunk evaluated against the bare globals
+    // instead fails as though the user misspelled a name.
+    if let Err(error) = scope_to_modules(lua, &function) {
+        return Evaluation::Raised(format!(
+            "lunctl: the chunk's environment could not be built, so it was not run: {error}"
+        ));
+    }
+
     disable_jit(lua, &function);
 
     let started = Instant::now();
@@ -197,6 +205,66 @@ const HOOK_INSTRUCTIONS: u32 = 10_000;
 /// It reaches the user only when their own `pcall` catches it, so it says what
 /// happened rather than naming an internal.
 const OVERRUN_MESSAGE: &str = "lunctl: the chunk ran past its time budget and was abandoned";
+
+/// Gives `function` an environment in which a module resolves by its own name.
+///
+/// `docs/lua-api.md` documents `lunctl 'return #lunette.windows()'`. A
+/// configuration reaches the API through `local lunette = require 'lunette'`, so
+/// the name is a local and is not a global anywhere. Without this, every
+/// documented example indexes a nil.
+///
+/// Globals are consulted first, so a module cannot displace a name the session
+/// set.
+///
+/// Only a loaded or preloaded name resolves. Calling `require` for every missed
+/// global would turn the `nil` Lua specifies into a module-not-found error.
+///
+/// Assignment writes through to the globals, because the documented
+/// `$(lunctl 'return win.title')` reads what an earlier chunk stored.
+fn scope_to_modules(lua: &Lua, function: &Function) -> mlua::Result<()> {
+    let environment = lua.create_table()?;
+    let metatable = lua.create_table()?;
+
+    let globals = lua.globals();
+    let resolve = lua.load(
+        r"
+        local globals, package, require = ...
+        return function(_, name)
+          local value = globals[name]
+          if value ~= nil then
+            return value
+          end
+
+          local loaded = package.loaded[name]
+          if loaded ~= nil then
+            return loaded
+          end
+
+          if package.preload[name] ~= nil then
+            return require(name)
+          end
+
+          return nil
+        end
+        ",
+    );
+
+    let package = globals.get::<Table>("package")?;
+    let require = globals.get::<Function>("require")?;
+    let index = resolve.set_name("=lunctl environment").call::<Function>((
+        globals.clone(),
+        package,
+        require,
+    ))?;
+
+    metatable.set("__index", index)?;
+    metatable.set("__newindex", globals)?;
+    environment.set_metatable(Some(metatable))?;
+
+    function.set_environment(environment)?;
+
+    Ok(())
+}
 
 /// Forces `function` to run interpreted.
 ///
@@ -316,6 +384,113 @@ mod tests {
             Evaluation::Returned(values) => values,
             other => panic!("expected a return, and the chunk {other:?}"),
         }
+    }
+
+    /// A state holding a preloaded module and no global naming it.
+    ///
+    /// The shape a real session has: `crate::lua` registers the module in
+    /// `package.preload`, and a configuration binds it to a local. The test
+    /// helper in `crate::lua::tests` assigns the global instead, which is why
+    /// the defect these tests cover survived it.
+    fn with_preloaded_module() -> Lua {
+        let lua = Lua::new();
+        lua.load(
+            r"
+            package.preload['pretend'] = function()
+              return { answer = function() return 42 end }
+            end
+            ",
+        )
+        .exec()
+        .expect("the preload registers");
+        lua
+    }
+
+    #[test]
+    fn a_chunk_reaches_a_preloaded_module_by_its_bare_name() {
+        // Every example in docs/lua-api.md takes this form.
+        let lua = with_preloaded_module();
+
+        assert_eq!(
+            returned(evaluate(
+                &lua,
+                "return pretend.answer()",
+                Budget::DEFAULT,
+                scalars
+            )),
+            vec!["42"],
+        );
+    }
+
+    #[test]
+    fn a_module_does_not_displace_a_global_of_the_same_name() {
+        let lua = with_preloaded_module();
+        lua.load("pretend = { answer = function() return 7 end }")
+            .exec()
+            .expect("the global assigns");
+
+        assert_eq!(
+            returned(evaluate(
+                &lua,
+                "return pretend.answer()",
+                Budget::DEFAULT,
+                scalars
+            )),
+            vec!["7"],
+        );
+    }
+
+    #[test]
+    fn an_unknown_name_is_nil_rather_than_a_module_that_could_not_be_found() {
+        // Requiring every missed global would break the ordinary
+        // `if somethingOptional then` shape.
+        let lua = with_preloaded_module();
+
+        assert_eq!(
+            returned(evaluate(
+                &lua,
+                "return nothingIsNamedThis",
+                Budget::DEFAULT,
+                scalars
+            )),
+            vec!["nil"],
+        );
+    }
+
+    #[test]
+    fn a_name_a_chunk_sets_is_visible_to_the_next_chunk() {
+        // docs/lua-api.md's `$(lunctl 'return win.title')` reads what an earlier
+        // chunk stored.
+        let lua = Lua::new();
+
+        returned(evaluate(&lua, "remembered = 5", Budget::DEFAULT, scalars));
+
+        assert_eq!(
+            returned(evaluate(
+                &lua,
+                "return remembered",
+                Budget::DEFAULT,
+                scalars
+            )),
+            vec!["5"],
+        );
+    }
+
+    #[test]
+    fn a_chunk_still_reaches_the_standard_library() {
+        // The environment replaces the globals table, so the fallback to it
+        // carries the rest of the language.
+        let lua = Lua::new();
+
+        assert_eq!(
+            returned(evaluate(
+                &lua,
+                "return tostring(math.floor(3.7)) .. '/' .. string.upper('ok')",
+                Budget::DEFAULT,
+                scalars
+            )),
+            vec!["3/OK"],
+        );
     }
 
     #[test]
