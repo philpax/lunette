@@ -22,6 +22,16 @@
 //! of the swapchain image holding an older frame, because the swapchain rotates
 //! and the image acquired this frame is not the one written last frame.
 //!
+//! # What a stale claim costs
+//!
+//! Nothing. A claim whose source has not committed since its last copy — which
+//! `docs/rendering.md` calls a stale claim — reaches [`Decision::Skip`] before
+//! anything touches the device: no `lovrLayerGetTexture`, so no
+//! `lovrSwapchainAcquire` and no `xrWaitSwapchainImage`, and no copy recorded
+//! into LÖVR's stream. That is the whole of the saving, and it is why the
+//! decision is taken from two counters rather than from anything the layer
+//! itself has to be asked for.
+//!
 //! # What is not skipped
 //!
 //! The submit. Every grantable layer goes to the runtime every frame, copied
@@ -749,6 +759,74 @@ mod tests {
 
         assert_eq!(harness.frame(), vec![(claim, Blitted::Unchanged)]);
         assert_eq!(harness.last_submitted(), vec![1]);
+    }
+
+    #[test]
+    fn a_stale_claim_asks_the_device_for_nothing_at_all() {
+        // The saving is the acquire as much as the copy. `lovrLayerGetTexture`
+        // calls `lovrSwapchainAcquire`, which waits on the image the runtime
+        // hands back, so a skip that still acquired would pay most of the cost
+        // it was meant to avoid.
+        let mut harness = Harness::new();
+        harness.claim(surface(1));
+        harness.commit(surface(1));
+        harness.frame();
+
+        for _ in 0..10 {
+            harness.frame();
+        }
+
+        assert_eq!(harness.blitter.acquires.get(), 1);
+        assert_eq!(harness.copies(), 1);
+    }
+
+    #[test]
+    fn a_run_of_frames_copies_once_per_commit_and_submits_on_every_one() {
+        // The two halves of the rule, over an arbitrary schedule rather than a
+        // pair of frames: a copy happens exactly when the source committed, and
+        // the submitted list is the same whether the frame copied or not.
+        const COMMITTING: [bool; 16] = [
+            true, false, false, true, true, false, false, false, true, false, true, true, false,
+            false, false, false,
+        ];
+
+        let mut harness = Harness::new();
+        let claim = harness.claim(surface(1));
+        let mut copies = 0;
+
+        for (frame, committing) in (1..).zip(COMMITTING) {
+            if committing {
+                harness.commit(surface(1));
+                copies += 1;
+            }
+
+            let report = harness.frame();
+
+            assert_eq!(report, vec![(claim, expected(committing, frame))]);
+            assert_eq!(harness.copies(), copies, "frame {frame}");
+            assert_eq!(
+                harness.blitter.acquires.get(),
+                copies as u64,
+                "a frame that copied nothing acquired nothing either, at frame {frame}"
+            );
+            // The first copy lands in frame 1 and the grant at the boundary
+            // after it, so every frame from the second on submits the layer
+            // whether or not it was copied into.
+            let submitted = if frame >= 2 { vec![1] } else { Vec::new() };
+            assert_eq!(harness.last_submitted(), submitted, "frame {frame}");
+        }
+    }
+
+    /// What the schedule above expects of one frame.
+    ///
+    /// The first frame is the only one that can report anything but a copy or a
+    /// skip: nothing has committed before it.
+    fn expected(committing: bool, frame: u32) -> Blitted {
+        match (committing, frame) {
+            (true, _) => Blitted::Copied,
+            (false, 1) => Blitted::NoSource,
+            (false, _) => Blitted::Unchanged,
+        }
     }
 
     #[test]
