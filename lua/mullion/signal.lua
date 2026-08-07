@@ -23,6 +23,8 @@
 -- when that matters, and a panel connecting to something that outlives it is
 -- exactly the case.
 
+local teardown = require 'mullion.teardown'
+
 local signal = {}
 
 -- Declared here and defined below the public API, so that the file reads
@@ -187,8 +189,9 @@ end
 
 -- Discards every connection.
 --
--- Registered with `mullion.teardown` so that a soft reload does not leave the
--- old state's handlers connected to objects the new one is about to reach.
+-- Registered below with `mullion.teardown`, so that a soft reload does not
+-- leave the old state's handlers connected to objects the new one is about to
+-- reach.
 function signal.teardown()
   connections = setmetatable({}, { __mode = 'k' })
 end
@@ -255,5 +258,9 @@ function prune(records)
     records[index] = nil
   end
 end
+
+-- Registered by name, so that a module body running a second time — which is
+-- what a soft reload does — leaves one hook rather than two.
+teardown.register('mullion.signal', signal.teardown)
 
 return signal

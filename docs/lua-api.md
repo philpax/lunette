@@ -283,7 +283,7 @@ Wayland clients survive both, because Rust holds the socket outside the Lua stat
 
 Every user callback runs under `xpcall` with a traceback. An error is logged, emits `lovr.lunerror`, and displays a floating error panel; execution then continues. Identical repeated errors are rate-limited, so an error recurring every frame does not fill the display.
 
-The handler itself is `mullion` code and can be replaced wholesale, since `lovr.errhand` is overridable.
+The handler itself is `mullion` code and can be replaced wholesale, since `lovr.errhand` is overridable. It is `mullion.error`, and the two boundaries it serves are not the same one. A callback that raises is caught at the callback boundary, reported, and the frame continues. An error that escaped every callback boundary reaches `lovr.errhand`, by which point LÖVR has already unwound the frame loop and wants a replacement one back; there is no frame left to continue, so the handler reports and hands the loop decision on.
 
 The native layer owns exactly one failure path: if `main.lua` fails to load, safe mode starts. This is a minimal built-in configuration with a laser, one panel, a way to spawn a terminal, and a reload key. Without this fallback, a configuration error would produce a black headset with no way to recover, requiring the user to remove the headset and edit Lua at a desk every time.
 

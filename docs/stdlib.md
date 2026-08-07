@@ -12,6 +12,19 @@ The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua
 
 The mount is read-only. A configuration that could overwrite the standard library it is running on top of could make a session unbootable in a way a reload cannot repair, since the reload would read the overwritten copy.
 
+## What the tree holds
+
+| Module | What it is |
+|---|---|
+| `mullion` | The root. It re-exports nothing and holds no state. |
+| `mullion.signal` | `connect`, `weakConnect`, `disconnect`, `emit`, and `setProperty`, which announces `property::<key>`. |
+| `mullion.teardown` | The hook registry a soft reload runs. Hooks are keyed by name and run in reverse registration order. |
+| `mullion.error` | The `lovr.errhand` replacement [The Lua API](lua-api.md#errors) puts here, and the rate limiter it reports through. |
+
+Two of these are here rather than with the reload mechanism that calls them, and both for the same reason: every module registers a teardown hook, so the registry has to exist before the first module does, and the error handler is stated to be `mullion` code.
+
+`lua/spec/` mirrors the tree and holds the specs. It is not installed: it covers the standard library and is not part of it. The specs run inside the binary, through `cargo test`, because the tree they are required through is LÖVR's virtual filesystem rather than the process's.
+
 ## Tier 1 — surfaces and panels
 
 The irreducible core. A panel binds a pixel source to a pose and a size in metres, decides between a composition layer and in-scene geometry, converts ray hits to pixel coordinates, and draws chrome.
