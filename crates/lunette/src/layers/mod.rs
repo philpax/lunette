@@ -34,7 +34,7 @@ mod pool;
 mod tests;
 
 pub use self::{
-    backend::LayerBackend,
+    backend::{LayerBackend, SessionPresence},
     blit::{BlitLedger, Blitted, Decision, LayerBlitter, LayerTexture, StaleLayerTexture, decide},
     key::{LayerKey, LayerProperties, LayerSize},
     lovr::{LovrBlits, LovrLayer, LovrLayers},

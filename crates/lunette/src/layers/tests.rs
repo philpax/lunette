@@ -25,7 +25,7 @@ use tracing_subscriber::{filter::LevelFilter, fmt::MakeWriter};
 use crate::{
     layers::{
         ClaimId, LayerBackend, LayerBudget, LayerKey, LayerPool, LayerProperties, LayerSize,
-        PoolOutcome, Priority,
+        PoolOutcome, Priority, SessionPresence,
     },
     scene::SceneRendering,
     texture::FrameGeneration,
@@ -50,9 +50,15 @@ struct FakeLayer(u64);
 #[derive(Debug)]
 struct FakeLayers {
     /// Shared with the harness for the same reason `refusing` is, and mutable
-    /// because a session being lost and rebuilt is a limit going to zero and
-    /// back.
+    /// because a runtime is entitled to report a different one to the session
+    /// that replaces a lost one.
     limit: Rc<Cell<u32>>,
+    /// Whether a session exists, which the harness takes away and gives back.
+    ///
+    /// Separate from `limit` because LÖVR's two answers are separate: the limit
+    /// is read off the system and survives the session, so a session going away
+    /// is not a limit going to zero.
+    session: Rc<Cell<SessionPresence>>,
     /// Whether creation is refused, standing in for a runtime that will not
     /// allocate another swapchain. Shared rather than owned, because the pool
     /// owns the backend and a test that could reach into it through the pool
@@ -67,6 +73,10 @@ impl LayerBackend for FakeLayers {
 
     fn layer_limit(&self) -> u32 {
         self.limit.get()
+    }
+
+    fn session(&self) -> SessionPresence {
+        self.session.get()
     }
 
     fn create(&mut self, key: LayerKey) -> Option<Self::Layer> {
@@ -99,6 +109,7 @@ struct Harness {
     calls: Rc<RefCell<Calls>>,
     refusing: Rc<Cell<bool>>,
     limit: Rc<Cell<u32>>,
+    session: Rc<Cell<SessionPresence>>,
     frame: FrameGeneration,
 }
 
@@ -113,8 +124,10 @@ impl Harness {
         let calls = Rc::new(RefCell::new(Calls::default()));
         let refusing = Rc::new(Cell::new(false));
         let limit = Rc::new(Cell::new(limit));
+        let session = Rc::new(Cell::new(SessionPresence::Present));
         let backend = FakeLayers {
             limit: Rc::clone(&limit),
+            session: Rc::clone(&session),
             refusing: Rc::clone(&refusing),
             next: 0,
             calls: Rc::clone(&calls),
@@ -125,6 +138,7 @@ impl Harness {
             calls,
             refusing,
             limit,
+            session,
             frame: FrameGeneration::INITIAL,
         }
     }
@@ -182,10 +196,21 @@ impl Harness {
             .map(|(_, scene)| *scene)
     }
 
-    /// The session goes away, taking every swapchain with it.
+    /// The session goes away, taking every swapchain with it, and the pool
+    /// observes it at the next boundary.
+    ///
+    /// The limit is left where it was, because that is what LÖVR does: it is
+    /// read off the system, which `lovr.headset.stop()` does not touch. A
+    /// harness that zeroed it as well would let a pool that never noticed the
+    /// session pass this.
     fn lose_session(&mut self) -> PoolOutcome {
-        self.limit.set(0);
-        self.pool.session_lost()
+        self.session.set(SessionPresence::Absent);
+        self.resolve()
+    }
+
+    /// A session comes back, which is the state a rebuilt one leaves behind.
+    fn regain_session(&mut self) {
+        self.session.set(SessionPresence::Present);
     }
 }
 
@@ -665,12 +690,54 @@ fn a_new_session_reports_a_refusal_the_old_one_had_already_reported() {
         harness.resolve();
 
         harness.lose_session();
-        harness.limit.set(GENEROUS);
+        harness.regain_session();
         harness.resolve();
         harness.resolve();
     });
 
     assert_eq!(warnings.mentioning(REFUSAL), 2);
+}
+
+/// The pool observes the loss itself, at the boundary it already runs. Nothing
+/// outside it is told a session went away, so a pool that waited to be told
+/// would keep handing out `Layer` handles naming destroyed swapchains.
+///
+/// The limit is deliberately left where it was, because LÖVR reads it off the
+/// system and the system survives `lovr.headset.stop()`. A pool that inferred
+/// loss from a zero limit would see nothing here.
+#[test]
+fn a_session_that_goes_away_is_observed_at_the_next_boundary() {
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+    assert!(harness.pool.layer(claim).is_some());
+
+    harness.session.set(SessionPresence::Absent);
+    let outcome = harness.resolve();
+
+    assert_eq!(outcome.revoked, vec![claim]);
+    assert_eq!(harness.abandoned().len(), 1);
+    assert_eq!(harness.limit.get(), GENEROUS, "the limit is not the signal");
+}
+
+/// The layers are given up once. A boundary that reported the same revocation
+/// every frame would have Lua tearing down a panel it had already torn down.
+#[test]
+fn a_session_that_stays_away_is_reported_once() {
+    let mut harness = Harness::new(GENEROUS);
+    harness.pool.claim(key(512, 512), priority(1.0));
+    harness.settle();
+
+    harness.lose_session();
+    let again = harness.resolve();
+
+    assert_eq!(again.revoked, Vec::new());
+    assert_eq!(again.granted, Vec::new());
+    assert_eq!(
+        harness.abandoned().len(),
+        1,
+        "the second boundary has nothing left to give up"
+    );
 }
 
 #[test]
@@ -790,7 +857,7 @@ fn the_first_boundary_after_recovery_grants_a_new_layer_rather_than_a_stale_one(
     assert!(harness.pool.layer(claim).is_none());
     assert_eq!(harness.created(), 1);
 
-    harness.limit.set(GENEROUS);
+    harness.regain_session();
     let after = harness.settle();
 
     assert_eq!(after.granted, vec![claim]);

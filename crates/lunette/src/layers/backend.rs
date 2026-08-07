@@ -10,6 +10,24 @@ use std::fmt;
 
 use crate::{layers::key::LayerKey, scene::SceneRendering};
 
+/// Whether the XR session that owns the pool's swapchains exists.
+///
+/// Not derivable from [`LayerBackend::layer_limit`], which is why it is asked
+/// separately. LÖVR reads the limit off the *system* rather than off the
+/// session (`headset.c:980-982`), and the system survives a session being
+/// stopped — so a pool that inferred loss from a zero limit would miss the one
+/// case that matters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionPresence {
+    /// A session exists. Layers can be created, submitted, and destroyed.
+    Present,
+    /// There is no session. Every layer the pool holds names a swapchain
+    /// `xrDestroySession` invalidated, so they are given up through
+    /// [`LayerBackend::abandon`] rather than destroyed, and no new one can be
+    /// created until a session comes back.
+    Absent,
+}
+
 /// What the pool needs of LÖVR.
 pub trait LayerBackend {
     /// A reference to a live `Layer`.
@@ -21,10 +39,21 @@ pub trait LayerBackend {
 
     /// The most composition layers the runtime accepts in one `xrEndFrame`.
     ///
-    /// Zero before a session exists, which is why the pool reads it every frame
-    /// rather than once: a session that has not started yet and a session that
-    /// was lost look the same from here, and both mean no layer can be held.
+    /// Zero before a system has been found, which is why the pool reads it
+    /// every frame rather than once. It is not an answer about the session:
+    /// [`LayerBackend::session`] is the one that reports whether the swapchains
+    /// the pool holds still name anything.
     fn layer_limit(&self) -> u32;
+
+    /// Whether the session that owns the pool's layers exists.
+    ///
+    /// Read at every frame boundary. A session can go away underneath a live
+    /// Lua state — `lovr.headset.stop()` releases every layer and calls
+    /// `xrDestroySession` (`headset.c:1248-1297`) — and the pool answers a
+    /// transition to [`SessionPresence::Absent`] by giving up everything it
+    /// holds, because a layer that outlived its session names an invalidated
+    /// swapchain.
+    fn session(&self) -> SessionPresence;
 
     /// Creates a layer with the properties `key` fixes.
     ///

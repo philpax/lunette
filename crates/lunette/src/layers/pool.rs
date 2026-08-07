@@ -1,12 +1,15 @@
 //! The pool: which claim holds a `Layer`, and what happens to the ones nobody
 //! holds.
 
-use std::{cmp::Ordering, fmt, num::NonZeroU64};
+use std::{cmp::Ordering, fmt, mem, num::NonZeroU64};
 
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{
-    layers::{backend::LayerBackend, key::LayerKey},
+    layers::{
+        backend::{LayerBackend, SessionPresence},
+        key::LayerKey,
+    },
     scene::SceneRendering,
     texture::FrameGeneration,
 };
@@ -187,6 +190,12 @@ pub struct LayerPool<B: LayerBackend> {
     /// The frame the most recent [`LayerPool::resolve`] ran for, which is what
     /// a layer freed between boundaries is counted idle from.
     resolved: FrameGeneration,
+    /// What the previous [`LayerPool::resolve`] found of the session.
+    ///
+    /// Losing one is a transition rather than a state: the layers are given up
+    /// once, at the boundary that observes the loss, and the boundaries that
+    /// follow it have nothing left to give up.
+    session: SessionPresence,
 }
 
 impl<B: LayerBackend> LayerPool<B> {
@@ -217,6 +226,7 @@ impl<B: LayerBackend> LayerPool<B> {
             // real without anything having to notice — which is also how the
             // pool comes back after a session is lost and rebuilt.
             budget: LayerBudget::from_runtime_limit(backend.layer_limit()),
+            session: backend.session(),
             backend,
             free: Vec::new(),
             claims: Vec::new(),
@@ -303,8 +313,30 @@ impl<B: LayerBackend> LayerPool<B> {
     /// Runs once, at a frame boundary. The order is revoke, then serve, then
     /// promote, then sweep: revoking first is what lets a layer freed by one
     /// claim be reused by another in the same boundary with no allocation.
+    ///
+    /// This is also where a lost session is observed, because it is the one
+    /// call the pool makes at every boundary and the layers must be given up
+    /// before anything asks the backend to do something with one. See
+    /// [`LayerPool::session_lost`].
     pub fn resolve(&mut self, now: FrameGeneration) -> PoolOutcome {
         self.resolved = now;
+
+        let session = self.backend.session();
+        if session == SessionPresence::Absent {
+            // Nothing can be ranked, created, or submitted without a session,
+            // so this returns before the budget is read: the limit is answered
+            // off the system, which outlives the session, and acting on it here
+            // would spend a budget against swapchains that no longer exist.
+            return match mem::replace(&mut self.session, session) {
+                SessionPresence::Present => {
+                    info!("the xr session is gone; every layer the pool held is given up");
+                    self.session_lost()
+                }
+                SessionPresence::Absent => PoolOutcome::default(),
+            };
+        }
+        self.session = session;
+
         self.budget = LayerBudget::from_runtime_limit(self.backend.layer_limit());
 
         let mut outcome = PoolOutcome::default();
@@ -392,6 +424,11 @@ impl<B: LayerBackend> LayerPool<B> {
     /// Discards every layer the pool holds, because the session that owned
     /// their swapchains is gone.
     ///
+    /// Called by [`LayerPool::resolve`], at the first frame boundary that finds
+    /// the session [`SessionPresence::Absent`]. This is a teardown lunette
+    /// observes rather than one it performs: a restart is the other case, and
+    /// it runs [`LayerPool::shutdown`] while the session still exists.
+    ///
     /// `lovrHeadsetStop` releases every layer and zeroes the layer count before
     /// `xrDestroySession`, so nothing the pool holds names anything afterwards,
     /// granted or free. The state is discarded rather than reconciled: no
@@ -402,7 +439,7 @@ impl<B: LayerBackend> LayerPool<B> {
     /// claim that had been reported granted is reported revoked here, so Lua
     /// falls back to in-scene quads by the path exhaustion already defines and
     /// never holds a `Layer` that names a destroyed swapchain.
-    pub fn session_lost(&mut self) -> PoolOutcome {
+    fn session_lost(&mut self) -> PoolOutcome {
         let mut outcome = PoolOutcome::default();
 
         for index in 0..self.claims.len() {

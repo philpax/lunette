@@ -293,6 +293,10 @@ fn generate_bindings(
         // not `MAX_LAYERS`: that is LÖVR's compile-time array bound, while this
         // is what the runtime honours, and neither implies the other.
         .allowlist_function("lovrHeadsetGetLayerLimit")
+        // Whether a session exists at all, which is not what the layer limit
+        // answers: the limit is read off the *system*, which survives
+        // `lovr.headset.stop()`, while every swapchain the pool holds does not.
+        .allowlist_function("lovrHeadsetIsActive")
         // The two ends of a pooled layer's life. `lovrLayerDestroy` is named
         // only to be handed to `lovrRelease` as the destructor; calling it
         // directly would bypass the reference count rather than decrement it.

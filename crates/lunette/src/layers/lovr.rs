@@ -7,12 +7,16 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use lunette_lovr::raw::{
-    Layer, LayerInfo, lovrHeadsetGetLayerLimit, lovrHeadsetSetLayers, lovrLayerCreate,
-    lovrLayerDestroy, lovrLayerGetTexture, lovrRelease,
+    Layer, LayerInfo, lovrHeadsetGetLayerLimit, lovrHeadsetIsActive, lovrHeadsetSetLayers,
+    lovrLayerCreate, lovrLayerDestroy, lovrLayerGetTexture, lovrRelease,
 };
 
 use crate::{
-    layers::{backend::LayerBackend, blit::LayerBlitter, key::LayerKey},
+    layers::{
+        backend::{LayerBackend, SessionPresence},
+        blit::LayerBlitter,
+        key::LayerKey,
+    },
     scene::SceneRendering,
     texture::{CopyableTexture, LovrTexture},
 };
@@ -61,8 +65,18 @@ impl LayerBackend for LovrLayers {
     fn layer_limit(&self) -> u32 {
         // SAFETY: holding a `LovrLayers` is the guarantee that this is the
         // thread that owns the headset module. The call reads one field of it
-        // and is answered with zero when there is no session.
+        // and is answered with zero when there is no system.
         unsafe { lovrHeadsetGetLayerLimit() }
+    }
+
+    fn session(&self) -> SessionPresence {
+        // SAFETY: the thread guarantee above. The call reads one field of the
+        // headset module's state and allocates nothing.
+        if unsafe { lovrHeadsetIsActive() } {
+            SessionPresence::Present
+        } else {
+            SessionPresence::Absent
+        }
     }
 
     fn create(&mut self, key: LayerKey) -> Option<Self::Layer> {

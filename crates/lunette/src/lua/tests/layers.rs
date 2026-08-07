@@ -12,7 +12,7 @@ use mlua::{Lua, Value};
 use pretty_assertions::assert_eq;
 
 use crate::{
-    layers::{ClaimId, LayerBackend, LayerBudget, LayerKey},
+    layers::{ClaimId, LayerBackend, LayerBudget, LayerKey, SessionPresence},
     lua::{
         LuaLayer, PoolRegistry,
         tests::{TestSession, error, layered_session, lua, run, window},
@@ -52,6 +52,12 @@ impl LayerBackend for FakeLayers {
 
     fn layer_limit(&self) -> u32 {
         self.limit
+    }
+
+    /// Always present. Nothing here is about a session going away; the pool's
+    /// own tests cover that.
+    fn session(&self) -> SessionPresence {
+        SessionPresence::Present
     }
 
     fn create(&mut self, _key: LayerKey) -> Option<Self::Layer> {

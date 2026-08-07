@@ -164,15 +164,6 @@ impl<B: LayerBackend> PoolRegistry<B> {
         body(&mut self.pool.borrow_mut())
     }
 
-    /// Discards every layer the pool holds, because the session that owned
-    /// their swapchains is gone.
-    ///
-    /// Every claim that had been reported granted is reported revoked, so Lua
-    /// falls back to in-scene quads by the path exhaustion already defines.
-    pub fn session_lost(&self) -> PoolOutcome {
-        self.pool.borrow_mut().session_lost()
-    }
-
     /// Discards every claim, because the Lua state that made them is gone.
     ///
     /// Called by [`FrameDriver::quiesce`] after the layers have been destroyed,
