@@ -1,9 +1,9 @@
 //! Linux-only: turning what the compositor reports into `lovr.lun*` callbacks.
 //!
 //! Eight of the nine events `docs/lua-api.md` specifies are delivered from
-//! here. `lunerror` arrives with the error handler, and is absent rather than
-//! stubbed, because a callback that is registered and never fired is a promise
-//! the build does not keep.
+//! here. `lunerror` is the ninth and is not one of them: it is not pushed onto
+//! LÖVR's queue at all, because an error is reported where it happened rather
+//! than a frame later. [`crate::callback_error`] is where it is emitted from.
 //!
 //! Six of the eight are the compositor's, and are drained from its channel at
 //! frame start. The two layer events are lunette's own: nothing outside the
@@ -48,9 +48,9 @@
 //! And an error raised by a handler dispatched straight from `boot.lua`'s poll
 //! loop unwinds the loop, so the rest of the frame's events are never
 //! delivered. The dispatcher calls the handler through mlua, which is a
-//! protected call, and reports what comes back. The reporting is deliberately
-//! minimal: the error panel, the rate limiting, and `lovr.lunerror` are the
-//! error handler's, and arrive with it.
+//! protected call, and hands what comes back to [`crate::callback_error`]. The
+//! error panel, the rate limiting, and the wording of a report are
+//! `mullion.error`'s, and that module is where they are decided.
 
 #[cfg(test)]
 use std::cell::RefCell;
@@ -62,9 +62,9 @@ use lunette_compositor::protocol::{
 };
 use lunette_lovr::raw::{CustomEvent, Event as LovrEvent, EventType_EVENT_CUSTOM, lovrEventPush};
 use mlua::{Function, Lua, Table};
-use tracing::error;
 
 use crate::{
+    callback_error::report,
     layers::ClaimId,
     lua::{Claim, LuaTexture, Monitor, Process, Session, Window},
 };
@@ -424,12 +424,14 @@ fn dispatch<T: LuaTexture>(
 
     let payload = payload(lua, session, &event)?;
 
-    // mlua calls through `lua_pcall`, so an error arrives here rather than
-    // unwinding `boot.lua`'s poll loop and taking the frame's remaining events
-    // with it. Reported and dropped: the panel and `lovr.lunerror` belong to the
-    // error handler, and this is the floor beneath it.
+    // mlua calls through `lua_pcall` with `luaL_traceback` as the message
+    // handler, so an error arrives here with its traceback rather than unwinding
+    // `boot.lua`'s poll loop and taking the frame's remaining events with it.
+    // `crate::callback_error` is what happens to it next: the rate limiting, the
+    // wording, and the panel are `mullion.error`'s, and this is the boundary
+    // that hands the error over.
     if let Err(error) = handler.call::<()>(payload) {
-        error!("lua: {name} raised: {error}");
+        report(lua, &format!("lovr.{name}"), &error);
     }
 
     Ok(())

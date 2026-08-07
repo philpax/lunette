@@ -25,6 +25,7 @@ local lunette = require 'lunette'
 local adopt = require 'mullion.adopt'
 local arc = require 'mullion.layout.arc'
 local errors = require 'mullion.error'
+local errorPanel = require 'mullion.error.panel'
 local laser = require 'mullion.laser'
 local panel = require 'mullion.panel'
 local persist = require 'mullion.persist'
@@ -133,6 +134,13 @@ function lovr.load()
   -- its own `lovr.errhand` instead of calling this.
   errors.install()
 
+  -- The panel the reports are shown on. Separate from the handler because
+  -- drawing needs a Pass and reporting does not, and it is drawn from
+  -- `lovr.draw` below: a session that reported an error only to the log would
+  -- be one where the user has to take the headset off to find out why nothing
+  -- moved.
+  errorPanel.install()
+
   -- Found before it is made, so that `lovr.load` running a second time — which
   -- is what a soft reload does — does not raise on a name it declared itself.
   workspace = tag.find(WORKSPACE) or tag.new(WORKSPACE, { selected = true })
@@ -237,6 +245,9 @@ function lovr.draw(pass)
   if #panel.all() == 0 then
     pass:text('lunette: no windows yet', NOTE_X, NOTE_Y, NOTE_Z, NOTE_HEIGHT)
   end
+
+  -- Last, so it is drawn over whatever it is in front of.
+  errorPanel.draw(pass)
 end
 
 function lovr.quit()

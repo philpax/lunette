@@ -30,6 +30,7 @@
 //! rest in the order they require, once per frame, and is the only thing that
 //! starts the compositor thread.
 
+pub mod callback_error;
 pub mod control;
 pub mod events;
 pub mod frame;

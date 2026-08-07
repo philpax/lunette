@@ -9,6 +9,7 @@ use mlua::{Table, Value};
 use pretty_assertions::assert_eq;
 
 use crate::{
+    callback_error::install_standard_library_handler,
     events::LuaEvent,
     lua::tests::{
         layered_session,
@@ -414,6 +415,98 @@ fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
         (false, true),
         "both had already happened in Rust before either handler ran"
     );
+}
+
+/// `lunette-v1.AC8.3`'s first half at the boundary it applies to: an error a
+/// configuration's handler raised reaches the standard library's handler, with
+/// its traceback, and the configuration's `lovr.lunerror` after it.
+#[test]
+fn a_handlers_error_is_reported_through_the_standard_library_and_lunerror() {
+    let (session, sink) =
+        recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+    install_standard_library_handler(&lua);
+    run::<()>(
+        &lua,
+        "seen = {}
+         function lovr.lunerror(event) seen[#seen + 1] = event end
+         function lovr.lunwindowopened() error('a defect in the configuration') end",
+    );
+
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(1),
+    });
+    poll(&lua, &sink);
+
+    let (reported, delivered, message, traceback): (usize, usize, String, String) = run(
+        &lua,
+        "return #reports, #seen, seen[1].message, seen[1].traceback",
+    );
+    assert_eq!((reported, delivered), (1, 1));
+    assert!(
+        message.contains("lovr.lunwindowopened") && message.contains("a defect"),
+        "the report should name the callback and what it said: {message}"
+    );
+    assert!(
+        traceback.contains("stack traceback:"),
+        "a message without a traceback is nearly useless for a callback invoked from native code: \
+         {traceback}"
+    );
+}
+
+/// `lunette-v1.AC8.3`'s second half, by raising the same error every frame for
+/// two hundred frames rather than by asserting that a limiter exists.
+#[test]
+fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues() {
+    let (session, sink) =
+        recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+    install_standard_library_handler(&lua);
+    run::<()>(
+        &lua,
+        "frames = 0
+         function lovr.luntitlechanged() frames = frames + 1 error('every frame') end",
+    );
+
+    for _ in 0..200 {
+        session.push_event(LuaEvent::TitleChanged {
+            window: window_id(1),
+            title: "htop".to_owned(),
+        });
+        poll(&lua, &sink);
+    }
+
+    let (frames, reported): (usize, usize) = run(&lua, "return frames, #reports");
+    assert_eq!(
+        frames, 200,
+        "every frame's event should still have been delivered"
+    );
+    assert_eq!(
+        reported, 1,
+        "an error recurring every frame should not fill the display with copies of itself"
+    );
+}
+
+/// A session that never loaded the standard library still hears about the
+/// error, because `lovr.lunerror` is the configuration's and not `mullion`'s.
+#[test]
+fn a_handlers_error_reaches_lunerror_with_no_standard_library_loaded() {
+    let (session, sink) =
+        recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "seen = 0
+         function lovr.lunerror() seen = seen + 1 end
+         function lovr.lunwindowopened() error('a defect in the configuration') end",
+    );
+
+    session.push_event(LuaEvent::WindowOpened {
+        window: window_id(1),
+    });
+    poll(&lua, &sink);
+
+    assert_eq!(run::<usize>(&lua, "return seen"), 1);
 }
 
 #[test]

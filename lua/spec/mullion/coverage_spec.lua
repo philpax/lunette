@@ -32,7 +32,8 @@ local COVERAGE = {
   -- real session to check the mount.
   ['init.lua'] = false,
   ['adopt.lua'] = 'adopt_spec.lua',
-  ['error.lua'] = 'error_spec.lua',
+  ['error/init.lua'] = 'error/handler_spec.lua',
+  ['error/panel.lua'] = 'error/panel_spec.lua',
   ['interaction.lua'] = 'interaction_spec.lua',
   ['keyboard.lua'] = 'keyboard_spec.lua',
   ['keycodes.lua'] = 'keycodes_spec.lua',

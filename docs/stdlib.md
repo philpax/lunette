@@ -19,7 +19,8 @@ The mount is read-only. A configuration that could overwrite the standard librar
 | `mullion` | The root. It re-exports nothing and holds no state. |
 | `mullion.signal` | `connect`, `weakConnect`, `disconnect`, `emit`, and `setProperty`, which announces `property::<key>`. |
 | `mullion.teardown` | The hook registry a soft reload runs. Hooks are keyed by name and run in reverse registration order. |
-| `mullion.error` | The `lovr.errhand` replacement [The Lua API](lua-api.md#errors) puts here, and the rate limiter it reports through. |
+| `mullion.error` | The `lovr.errhand` replacement [The Lua API](lua-api.md#errors) puts here, and the rate limiter it reports through. `crates/lunette/src/callback_error.rs` finds it in `package.loaded` and hands it every error a `lovr.lun*` handler raised. |
+| `mullion.error.panel` | The floating panel a report is shown on. It wraps `mullion.error`'s `report` seam, and is separate because drawing needs a `Pass` and a session with no graphics module still wants the handler. |
 | `mullion.panel` | Tier 1. A source bound to a pose and a metre size, on a composition layer or an in-scene quad, with `rayQuadHit` for turning a ray into a pixel coordinate. The quad path draws with premultiplied blending, and through `panel.opaqueShader` for a source whose buffer has no alpha channel ([Rendering](rendering.md#alpha)). |
 | `mullion.panel.raycast` | Where a ray meets a quad, in the quad's own pixels. Pure, and separate because a panel's realisation and a matrix inversion have nothing in common. `mullion.panel` re-exports `hit` as `rayQuadHit`. |
 | `mullion.pose` | A `mat4` as a string, and back. The property store refuses a table and a file on disk holds text, so both want the same sixteen numbers. |

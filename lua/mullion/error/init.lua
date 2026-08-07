@@ -9,12 +9,18 @@
 -- Two boundaries, and they are not the same one.
 --
 -- A callback boundary. crates/lunette/src/events.rs calls each `lun*` handler
--- through a protected call and reports what comes back, so an error raised
--- there does not take the frame's remaining events with it. `errors.handle` is
--- what such a boundary reports through: it rate-limits, reports once, and hands
--- the error to the configuration's `lovr.lunerror`. Routing the native
--- dispatcher's own reports through here is Phase 7's, and until it lands those
--- reach the log and not this module.
+-- through a protected call and hands what comes back to
+-- crates/lunette/src/callback_error.rs, which finds this module in
+-- `package.loaded` and calls `errors.handle`. That is what such a boundary
+-- reports through: it rate-limits, reports once, and hands the error to the
+-- configuration's `lovr.lunerror`. A session without this module loaded gets
+-- the log and a direct `lovr.lunerror` instead, and no rate limiting, because
+-- the limiter is here.
+--
+-- The panel `docs/lua-api.md#errors` describes is `mullion.error.panel`, which
+-- wraps `errors.report` rather than being wired in from here: a report is a
+-- string and drawing one needs a `Pass`, and a session with no graphics module
+-- should not be made to load a module that wants one.
 --
 -- The frame loop. `lovr.errhand` is reached only by an error that escaped every
 -- callback boundary, at which point `vendor/lovr/etc/boot.lua:369` has already
