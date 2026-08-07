@@ -66,6 +66,16 @@ local DEMONSTRATION_TERMINALS = { 'foot', 'weston-terminal', 'alacritty', 'kitty
 local workspace = nil
 local unplaced = {}
 
+-- Whether this session has already tried to open its demonstration terminal.
+--
+-- A global, deliberately. A soft reload discards this file's locals along with
+-- everything else it loaded, and keeps globals
+-- (docs/lua-api.md#reload) — so a local here would be nil again on every reload
+-- and the session would open another terminal each time the user pressed F5.
+-- Asking whether any panels exist instead answers the wrong question: a user who
+-- closed every window and then reloaded would get a fresh one.
+lunetteDemonstrationSpawned = lunetteDemonstrationSpawned or false
+
 -- Which terminal candidate is being tried, and the handle it was tried with. A
 -- spawn that never started arrives as lovr.lunprocessexited with an outcome of
 -- 'spawnFailed', and that is the only report a missing program produces, so the
@@ -187,10 +197,11 @@ function lovr.load()
   end
   arrange()
 
-  -- Only when the adoption found nothing, which is what a session starting for
-  -- the first time looks like. A reload runs this callback again, and one that
-  -- spawned another terminal each time would fill the room by the third edit.
-  if #panel.all() == 0 then
+  -- Once per session, and not once per `lovr.load`. A reload runs this callback
+  -- again, and one that opened another terminal each time would fill the room by
+  -- the third edit.
+  if not lunetteDemonstrationSpawned then
+    lunetteDemonstrationSpawned = true
     spawnNextTerminal()
   end
 end
