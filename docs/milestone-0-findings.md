@@ -447,6 +447,7 @@ The headset is a Bigscreen Beyond on Monado in service mode, 3561x3561 per eye a
 | C2 | — | Void, not taken. It read a layer limit of zero as the null compositor refusing layers, and that zero was the absent session. It needs monado restarted with `XRT_COMPOSITOR_NULL=1`. |
 | D3 | AC2.2 | The recorded half only. Numbers below; the sharpness verdict still needs eyes. |
 | D13 | AC7.1 | Pass. Mean frame time was 13.393ms over 448 frames before a client was stopped with `SIGSTOP` and 13.364ms over 449 after it. The difference is noise, the panel held its content, and 13.4ms is the display's own rate. |
+| D9 | AC5.4 | Pass. Ten reloads of the shipped configuration left one window, a live session, no error, and a 5.2K log. |
 | E1 | AC6.1 | Pass. A primary application held its session; lunette created an overlay session alongside it, spawned a client, and ran 2247 frames; the primary was still running afterwards. WayVR was running throughout, so three OpenXR applications shared the runtime rather than the two the criterion asks for. |
 
 ### What the layer path did with a real panel
@@ -483,6 +484,16 @@ Phase 7 asks for four numbers about a restart. C1 takes them, driven the way the
 The two expected leaks behave as [decisions.md](decisions.md) predicts: LÖVR's morgue is emptied only by `gpu_destroy`, so an imported image is forgotten rather than destroyed. Validation 1.4.350 folds the object list into the one `05137` message rather than emitting the separate `OBJTRACK` message the test plan anticipated. That is a layer-version difference.
 
 The validation layer is not in the flake's devshell and had to be brought in for the run. Adding it is worth doing.
+
+### A failed window fills the disk
+
+A session that can reach neither a display nor an XR runtime writes an unbounded stream of `GLFW error 65537: The GLFW library is not initialized` to stdout. One observed run produced 112MB in roughly seventy seconds. The trigger is a misconfigured environment rather than ordinary use, but the consequence is a long-running session filling a disk, so it is recorded rather than dismissed.
+
+The chain is `lovr.headset.getViewAngles`, which `boot.lua` calls every frame on the simulator path, reaching `lovrHeadsetGetDisplayDimensions`, which falls through to `lovrSystemGetWindowSize` and `os_window_get_size` when the headset driver is the desktop fallback. With no window that call raises `GLFW_NOT_INITIALIZED`, once per frame.
+
+Nothing in lunette can intercept it. `os_glfw.h:144` writes the message with `printf`, so it bypasses the `lovrSetLogCallback` lunette installs, goes to stdout rather than stderr, and carries no level a filter could act on. The fix belongs upstream: an error callback in a library routes through the library's own log. That is a change to an existing path rather than an addition, so it is a pull request to open and discuss rather than a patch to carry.
+
+Two conditions are needed together, and either alone is harmless. `GLFW_BUILD_WAYLAND` is `OFF` in `vendor/lovr/CMakeLists.txt:113`, so LÖVR's GLFW is X11-only and a Wayland session without `DISPLAY` reaches no display at all.
 
 ### The unpublished submodule commit
 
