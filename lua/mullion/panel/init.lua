@@ -25,8 +25,14 @@
 -- and nothing else (docs/lua-api.md#layer-claims), so a mirrored screen has no
 -- way to ask for one and draws as a quad. That is a gap in the native API
 -- rather than a decision made here.
+--
+-- The ray-quad intersection lives in `mullion.panel.raycast` and is re-exported
+-- here as `panel.rayQuadHit`, which is the name docs/stdlib.md gives it. It is
+-- pure arithmetic over a matrix and this file is claims, sources, and draw
+-- calls, so the two were split when this one outgrew the size threshold.
 
 local lunette = require 'lunette'
+local raycast = require 'mullion.panel.raycast'
 local signal = require 'mullion.signal'
 local teardown = require 'mullion.teardown'
 
@@ -37,7 +43,7 @@ local panel = {}
 -- because `create` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
-local create, readVector, sourceSize, remove
+local create, sourceSize, remove
 
 -- Every panel, in creation order. Rebuilt when this file runs, so a soft reload
 -- starts with none.
@@ -97,6 +103,12 @@ panel.OPAQUE_FRAGMENT = [[
 -- The aspect a panel falls back to when its source reports no size, which a
 -- handle that has not yet seen its source in a snapshot does.
 panel.DEFAULT_ASPECT = 16 / 9
+
+-- Where a ray meets a quad, in the quad's own pixels.
+--
+-- `mullion.panel.raycast` holds it, and this is the name it is documented
+-- under. A caller wanting it without the rest of this module requires that one.
+panel.rayQuadHit = raycast.hit
 
 -- A panel over a window lunette hosts.
 --
@@ -176,72 +188,6 @@ function panel.teardown()
   panels = {}
 end
 
--- Where a ray meets a quad, in the quad's own pixels.
---
--- Returns the pixel coordinate and the distance along the ray, or nothing. The
--- pixel origin is the quad's top-left corner, because that is where a surface's
--- pixels start and what `sink:pointer` takes.
---
--- LÖVR has no ray-plane intersection to call: `Mat4` has no intersection
--- method, and the only raycasts in it are physics-world ones needing a
--- collider, which a panel has not got. So the maths is here, which
--- docs/input.md:22 says is where it belongs.
---
--- `quad` carries `pose`, a `Mat4`; `width` and `height` in metres;
--- `pixelWidth` and `pixelHeight`; and `backFace`, which allows a hit from
--- behind and is off by default. `origin` and `direction` are `Vec3`s or arrays
--- of three numbers. The direction need not be normalised, but the distance is
--- then in units of it rather than in metres.
-function panel.rayQuadHit(quad, origin, direction)
-  if quad.width <= 0 or quad.height <= 0 or quad.pixelWidth <= 0 or quad.pixelHeight <= 0 then
-    return nil
-  end
-
-  local originX, originY, originZ = readVector(origin, 'the ray origin')
-  local directionX, directionY, directionZ = readVector(direction, 'the ray direction')
-
-  -- Into the quad's own space, where the quad is the rectangle at z = 0. The
-  -- pose is copied first: `invert` writes in place, and inverting the panel's
-  -- own pose would destroy it.
-  local inverse = lovr.math.mat4(quad.pose):invert()
-  local localOriginX, localOriginY, localOriginZ = inverse:mul(originX, originY, originZ, 1)
-  -- With w = 0, so the translation does not apply: this is a direction.
-  local localDirectionX, localDirectionY, localDirectionZ =
-    inverse:mul(directionX, directionY, directionZ, 0)
-
-  -- A ray parallel to the plane meets it nowhere, and one travelling away from
-  -- the viewer's side meets the back. A quad faces +z, as `Pass:plane` draws
-  -- one, so a ray approaching the front travels towards -z.
-  if localDirectionZ == 0 then
-    return nil
-  end
-  if localDirectionZ > 0 and not quad.backFace then
-    return nil
-  end
-
-  local distance = -localOriginZ / localDirectionZ
-  -- Behind the ray's origin rather than in front of it. Zero is excluded too: a
-  -- ray starting exactly on the plane is pointing along it as far as a panel is
-  -- concerned.
-  if not (distance > 0) then
-    return nil
-  end
-
-  local hitX = localOriginX + distance * localDirectionX
-  local hitY = localOriginY + distance * localDirectionY
-
-  local halfWidth, halfHeight = quad.width / 2, quad.height / 2
-  if hitX < -halfWidth or hitX > halfWidth or hitY < -halfHeight or hitY > halfHeight then
-    return nil
-  end
-
-  -- Metres to pixels. The vertical axis flips: the quad's +y is up and a
-  -- surface's +y is down.
-  local pixelX = (hitX + halfWidth) / quad.width * quad.pixelWidth
-  local pixelY = (halfHeight - hitY) / quad.height * quad.pixelHeight
-  return pixelX, pixelY, distance
-end
-
 -- Moves the panel. `pose` is a `Mat4`, and is copied rather than kept: a caller
 -- reusing a temporary would otherwise move every panel it placed.
 function methods:setPose(pose)
@@ -286,7 +232,7 @@ function methods:raycast(origin, direction, backFace)
     return nil
   end
 
-  return panel.rayQuadHit({
+  return raycast.hit({
     pose = self.pose,
     width = self.width,
     height = self.height,
@@ -547,28 +493,6 @@ function sourceSize(source)
     return nil
   end
   return source.width, source.height
-end
-
--- Three numbers out of a `Vec3` or an array of three.
---
--- Both, because `lovr.headset.getPosition` is wrapped in a `Vec3` and a
--- configuration that computed a ray itself is as likely to have three numbers
--- in a table. Anything else is a defect in the caller rather than a value to
--- guess at.
-function readVector(value, name)
-  local kind = type(value)
-  if kind == 'userdata' or kind == 'cdata' then
-    return value:unpack()
-  end
-  if kind == 'table' then
-    if value.unpack then
-      return value:unpack()
-    end
-    if type(value[1]) == 'number' and type(value[2]) == 'number' and type(value[3]) == 'number' then
-      return value[1], value[2], value[3]
-    end
-  end
-  error('mullion.panel: ' .. name .. ' is a Vec3 or three numbers, not a ' .. kind, 3)
 end
 
 -- Takes a panel out of the list, so that a long session does not accumulate

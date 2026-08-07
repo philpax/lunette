@@ -1,14 +1,14 @@
--- Covers lua/mullion/panel.lua, apart from the ray-quad intersection, which
--- lua/spec/mullion/panel_raycast_spec.lua covers.
+-- Covers lua/mullion/panel/init.lua, apart from the ray-quad intersection,
+-- which lua/spec/mullion/panel/raycast_spec.lua covers.
 --
--- The fakes and the module under test come from `spec.mullion.panel_fixture`,
+-- The fakes and the module under test come from `spec.mullion.panel.fixture`,
 -- which states why `lunette` is faked and why both specs share one install.
 
 local expect = require 'spec.expect'
 local suite = require 'spec.suite'
 
 local signal = require 'mullion.signal'
-local fixture = require 'spec.mullion.panel_fixture'
+local fixture = require 'spec.mullion.panel.fixture'
 
 local spec = suite.new 'mullion.panel'
 

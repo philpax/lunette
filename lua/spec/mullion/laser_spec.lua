@@ -7,13 +7,13 @@
 -- headset, is the part this cannot reach and is a human gate.
 --
 -- The seats come from `spec.mullion.laser_fixture`, which states why `lunette`
--- is faked. The panels are real, from `spec.mullion.panel_fixture`.
+-- is faked. The panels are real, from `spec.mullion.panel.fixture`.
 
 local expect = require 'spec.expect'
 local suite = require 'spec.suite'
 
 local interaction = require 'mullion.interaction'
-local fixture = require 'spec.mullion.panel_fixture'
+local fixture = require 'spec.mullion.panel.fixture'
 local lasers = require 'spec.mullion.laser_fixture'
 
 local spec = suite.new 'mullion.laser'

@@ -15,7 +15,7 @@ local suite = require 'spec.suite'
 local interaction = require 'mullion.interaction'
 local keyboard = require 'mullion.keyboard'
 local keycodes = require 'mullion.keycodes'
-local fixture = require 'spec.mullion.panel_fixture'
+local fixture = require 'spec.mullion.panel.fixture'
 
 local spec = suite.new 'mullion.keyboard'
 

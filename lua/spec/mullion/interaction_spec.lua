@@ -1,6 +1,6 @@
 -- Covers lua/mullion/interaction.lua.
 --
--- The panels are real ones, from `spec.mullion.panel_fixture`: the module under
+-- The panels are real ones, from `spec.mullion.panel.fixture`: the module under
 -- test raycasts through `panel:raycast` and moves panels through
 -- `panel:setPose`, and a hand-written stand-in for those would be asserting the
 -- stand-in's arithmetic rather than the panel's. The sinks and the seat are
@@ -16,7 +16,7 @@ local suite = require 'spec.suite'
 
 local interaction = require 'mullion.interaction'
 local pose = require 'mullion.pose'
-local fixture = require 'spec.mullion.panel_fixture'
+local fixture = require 'spec.mullion.panel.fixture'
 
 local spec = suite.new 'mullion.interaction'
 
@@ -29,7 +29,7 @@ local TOLERANCE = fixture.TOLERANCE
 
 -- A seat that records the sinks it was focused on.
 --
--- The sinks and the window come from `spec.mullion.panel_fixture`, which holds
+-- The sinks and the window come from `spec.mullion.panel.fixture`, which holds
 -- the fakes the panel, interaction, and laser specs share.
 local function newSeat()
   return {

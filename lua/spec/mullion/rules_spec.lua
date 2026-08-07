@@ -11,7 +11,7 @@
 -- real `lunette.claimLayer` would want a layer pool with no headset behind it.
 
 local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.panel_fixture'
+local fixture = require 'spec.mullion.panel.fixture'
 local suite = require 'spec.suite'
 
 local rules = require 'mullion.rules'

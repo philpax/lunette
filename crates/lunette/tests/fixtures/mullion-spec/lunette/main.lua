@@ -12,8 +12,8 @@
 
 -- Where the specs are, as a path in the virtual filesystem and as the module
 -- prefix that path is reached by.
-local SPEC_DIRECTORY = 'spec/mullion'
-local SPEC_PREFIX = 'spec.mullion.'
+local SPEC_DIRECTORY = 'spec'
+local SPEC_PREFIX = 'spec.'
 
 -- Quit statuses. Distinct from each other so that the run says what went wrong
 -- rather than only that something did.
