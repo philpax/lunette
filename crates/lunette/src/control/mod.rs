@@ -483,21 +483,39 @@ mod tests {
             }) > 0
         });
 
-        assert_eq!(
-            asking.join().expect("the client thread finishes"),
-            Reply::Returned(vec![Value::Table(TableValue {
-                array: Vec::new(),
-                entries: vec![
-                    (Key::String(b"count".to_vec()), Value::Integer(2)),
-                    (
-                        Key::String(b"names".to_vec()),
-                        Value::Table(TableValue {
-                            array: vec![Value::String(b"a".to_vec()), Value::String(b"b".to_vec()),],
-                            entries: Vec::new(),
-                        })
-                    ),
-                ],
-            })]),
+        let Reply::Returned(values) = asking.join().expect("the client thread finishes") else {
+            panic!("the chunk returns a value");
+        };
+        let Value::Table(table) = &values[0] else {
+            panic!("{:?} is not a table", values[0]);
+        };
+
+        // Membership rather than order: a hash part has no order of its own, and
+        // LuaJIT seeds its string hash per state, so two runs can traverse the
+        // same table two ways. The wire preserves whichever order it was given,
+        // and that is all it promises.
+        assert!(
+            table.array.is_empty(),
+            "the chunk returned no array part: {:?}",
+            table.array
+        );
+        assert!(
+            table
+                .entries
+                .contains(&(Key::String(b"count".to_vec()), Value::Integer(2))),
+            "{:?}",
+            table.entries
+        );
+        assert!(
+            table.entries.contains(&(
+                Key::String(b"names".to_vec()),
+                Value::Table(TableValue {
+                    array: vec![Value::String(b"a".to_vec()), Value::String(b"b".to_vec())],
+                    entries: Vec::new(),
+                })
+            )),
+            "a nested table arrives nested: {:?}",
+            table.entries
         );
     }
 
