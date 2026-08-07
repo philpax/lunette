@@ -133,6 +133,22 @@ spec('a forced save overwrites a file this version could not read', function()
   expect.equal(filesystem.text, persist.render(persist.newFile {}), 'the file on disk')
 end)
 
+spec('a forced save clears the refusal it overrode', function()
+  reset()
+  local filesystem = newFilesystem(fromTheFutureText())
+  persist.load(filesystem)
+
+  expect.equal(persist.save(persist.newFile {}, filesystem, { force = true }), true, 'the forced save')
+
+  -- The write is this module's own proof of what is on disk, so a refusal about
+  -- a newer file that no longer exists would refuse every later save in the
+  -- session and report a condition that has gone.
+  expect.falsy(persist.declined(), 'the refusal after the forced save')
+  expect.equal(persist.save(persist.newFile { newEntry() }, filesystem), true, 'the save after it')
+  expect.equal(filesystem.writes, 2, 'the writes')
+  expect.equal(filesystem.text, persist.render(persist.newFile { newEntry() }), 'the file on disk')
+end)
+
 spec('a load that could be used allows saving again', function()
   reset()
   local filesystem = newFilesystem(fromTheFutureText())
@@ -145,6 +161,23 @@ spec('a load that could be used allows saving again', function()
   persist.load(filesystem)
 
   expect.falsy(persist.declined(), 'the refusal after the file went')
+  expect.equal(persist.save(persist.newFile {}, filesystem), true, 'the save')
+end)
+
+spec('a load of a readable file in place of a newer one allows saving again', function()
+  reset()
+  local filesystem = newFilesystem(fromTheFutureText())
+  persist.load(filesystem)
+  expect.truthy(persist.declined(), 'the refusal after the newer file')
+
+  -- The other way out: the newer file is replaced by one this version reads,
+  -- rather than removed. The load that reads it is what clears the refusal, and
+  -- the absent-file path above never runs.
+  filesystem.text = persist.render(persist.newFile {})
+  local loaded = persist.load(filesystem)
+
+  expect.equal(loaded.kind, 'arrangement', 'the kind')
+  expect.falsy(persist.declined(), 'the refusal after the readable file')
   expect.equal(persist.save(persist.newFile {}, filesystem), true, 'the save')
 end)
 

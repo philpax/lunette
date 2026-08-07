@@ -379,6 +379,11 @@ function persist.save(file, filesystem, options)
   if not filesystem.write(persist.FILE, text) then
     return false, persist.path(filesystem) .. ' could not be written'
   end
+  -- A write is this module's own proof of what is on disk, which is the same
+  -- evidence a load that could be used supplies. Without this a forced save
+  -- leaves the refusal armed, so every later save in the session is refused over
+  -- a newer file this one has already overwritten.
+  declined = nil
   return true
 end
 
