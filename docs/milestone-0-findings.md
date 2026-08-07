@@ -27,10 +27,10 @@ All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `n
 | `cargo +nightly fmt --all -- --check` | clean |
 | `cargo clippy --all-targets --all-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
 | `cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
-| `cargo test --workspace` | 1013 passed, 0 failed, 0 ignored |
-| `cargo test --workspace --no-default-features` | 1013 passed, 0 failed, 0 ignored |
+| `cargo test --workspace` | 1125 passed, 0 failed, 0 ignored |
+| `cargo test --workspace --no-default-features` | 1125 passed, 0 failed, 0 ignored |
 
-The 1013 are 459 in `lunette`, 17 in the `lunctl` binary target, 27 in the `lunette` binary target, 3 in `tests/default_configuration.rs`, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 7 in `tests/lunctl.rs`, 1 in `tests/mullion_spec.rs`, 3 in `tests/reload.rs`, 3 in `tests/safe_mode.rs`, 4 in `tests/standard_library.rs`, 239 in `lunette-capture`, 170 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, 20 in `tests/clipboard.rs`, 8 in `tests/pointer_routing.rs`, 6 in `tests/restart.rs`, 14 in `tests/seats.rs`, 6 in `tests/surface_routing.rs`, and 11 in `tests/type_text.rs`. The compositor's 241 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`, the monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 239 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`, the keyboard, seat, and clipboard work under [keyboard, seats, and clipboard](#keyboard-seats-and-clipboard) is 157 of it, the standard library under [the mullion standard library](#the-mullion-standard-library) is the 69 the workspace grew by after that, and the reload, `lunctl`, and error-handling work is the 164 the workspace grew by after that. The single test in `tests/mullion_spec.rs` runs 353 Lua cases, which are not counted in the 1013.
+The 1125 are 514 in `lunette`, 17 in the `lunctl` binary target, 27 in the `lunette` binary target, 3 in `tests/default_configuration.rs`, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 9 in `tests/lunctl.rs`, 1 in `tests/mullion_spec.rs`, 3 in `tests/reload.rs`, 3 in `tests/safe_mode.rs`, 4 in `tests/standard_library.rs`, 239 in `lunette-capture`, 189 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, 20 in `tests/clipboard.rs`, 5 in `tests/content_type.rs`, 8 in `tests/fractional_scale.rs`, 8 in `tests/frame_pacing.rs`, 14 in `tests/outputs.rs`, 8 in `tests/pointer_routing.rs`, 7 in `tests/restart.rs`, 14 in `tests/seats.rs`, 6 in `tests/surface_routing.rs`, and 11 in `tests/type_text.rs`. The compositor's 296 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`, and they are re-run with no Vulkan ICD visible at the end of each phase to keep it that way. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`, the monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 239 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`, the keyboard, seat, and clipboard work under [keyboard, seats, and clipboard](#keyboard-seats-and-clipboard) is 157 of it, the standard library under [the mullion standard library](#the-mullion-standard-library) is the 69 the workspace grew by after that, the reload, `lunctl`, and error-handling work is the 164 after that, and the outputs, scale, and pacing work under [outputs, scale, and pacing](#outputs-scale-and-pacing) is the 112 after that. The single test in `tests/mullion_spec.rs` runs the Lua cases, which are not counted in the 1125.
 
 Two test binaries print xkbcommon compilation errors to stderr and still pass. The errors come from the negative cases — a keymap string that is not a keymap, and a layout name no `xkeyboard-config` carries — which are `a_layout_that_does_not_exist_is_refused_rather_than_silently_defaulted` and `text_that_is_not_a_keymap_is_refused` in `keymap.rs`, and the refused-layout case again in `tests/seats.rs`. libxkbcommon writes to stderr through its own log handler before returning the failure lunette then asserts on, and suppressing it would mean installing a process-global handler for the benefit of three tests.
 
@@ -393,9 +393,39 @@ The restart path has never destroyed a real device. The quiesce is covered again
 
 No end-to-end test spawns a client. A headless fixture switches the graphics module off, the compositor thread starts only once there is a device to lend it, and so nothing can connect to the socket the session bound. That is why the end-to-end tests are the frame loop with no client, and the compositor crate's tests are a client with no frame loop.
 
+## Outputs, scale, and pacing
+
+### What is established without a headset
+
+The whole of this phase's mechanism is exercised over the socketpair harness or over a real Lua state, and none of it needs a device. Per-client output filtering is checked by binding a real client and reading its registry; the fractional-scale preference, the `wl_output.scale` that accompanies it, and the toplevel configure are checked as the events a client receives; frame-callback throttling runs against a fake clock, so a surface at 10 Hz is checked by advancing time rather than by waiting for it.
+
+The check suite passes at 1125 Rust tests, and the mullion spec suite passes as one `cargo test` case.
+
+### Skipping the projection layer, and the flush nobody would have noticed
+
+`setLayers{ main = false }` saves almost nothing on its own: it leaves the `XrCompositionLayerProjection` out of `XrFrameEndInfo::layers` (`headset.c:3055`), by which point the pass has been rendered and resolved. The colour swapchain is acquired lazily inside `lovrHeadsetGetTexture` and `lovrHeadsetGetPass` (`:2844`, `:2869`), so the saving is in not calling those — which is why lunette gates the two functions rather than the flag.
+
+That gating uncovered something the plan did not anticipate. `boot.lua:218` reads `if headset or window then lovr.graphics.submit(headset, window) end`, and `lovrGraphicsSubmit` is the only thing that submits `state.stream` — `lovrGraphicsPresent` does not touch it. The frame's layer copies are recorded into that stream. So a frame with no desktop window open and no headset pass would leave every copy unsubmitted while `lovr.headset.submit` went on releasing each layer's swapchain image, and the runtime would composite from an image whose copy was still queued. lunette therefore submits the stream itself on a skipped frame that recorded copies. Nothing about this is visible without a device, which is what makes it worth recording: the failure it prevents would have looked like intermittently stale panels.
+
+### The plan's claim about the run loop, which was wrong
+
+`phase_08.md` states that "lunette owns its own run loop and must skip that call itself". It does not: `crates/lunette-lovr/build.rs` stages `vendor/lovr/etc/boot.lua` verbatim and `crates/lunette/src/boot.rs` runs it, so `lovr.run` is LÖVR's own — which is what `docs/lovr-integration.md` says lunette keeps. The wrap of `package.preload['lovr.headset']` is what replaces the loop change the plan assumed.
+
+### The file-size check
+
+Six files were over the 1000-line Rust threshold and each was split along a seam it already had. `state/compositor.rs` gave up its outputs, its processes, and its pacing to three siblings, which is the shape `state/commit.rs` already established; `test_client/mod.rs` gave up `Driver` and every `Dispatch` implementation, so the sending half and the recording half are separate files; `protocol.rs` became a folder with the input, keymap, and process types in their own modules; `frame/mod.rs` gave up mirroring and device teardown; `selection/data_control.rs` gave up the enums that stand for two protocols at once, along with their dispatch; and `lua/tests/mod.rs` gave up its window and spawn cases to submodules beside the ones that were already there.
+
+Two of the splits needed visibility plumbing, both because the type stayed where it was and its methods moved to a sibling: `CompositorState`'s pacing, process, and clock fields became `pub(super)`, and `Driver`'s selection fields did the same. A move into a child module needs none, which is why `frame/mirroring.rs` and `frame/teardown.rs` cost nothing.
+
+Nothing is over the threshold now. The largest are `crates/lunette/src/main.rs` at 986 and `crates/lunette/src/layers/blit.rs` at 985.
+
+### Gaps this phase leaves
+
+Every acceptance criterion of this phase is a human gate, and none was performed. `wp_fractional_scale_v1` and `wp_content_type_v1` are both client hints whose value is what real toolkits do with them, and this machine has no toolkit to ask. The pacing floor's whole purpose — that a throttled client keeps processing input rather than appearing hung — is a statement about client event loops, and lunette's test client is not one. And the cost of an idle frame with scene rendering skipped is a measurement, not an assertion.
+
 ## Outstanding
 
-Twenty-five items are unfinished: twenty-one human gates, and four measurements that have to be taken.
+Thirty-three items are unfinished: twenty-five human gates, and eight measurements that have to be taken.
 
 ### The two human gates
 
@@ -456,6 +486,15 @@ None of the four has been performed, and none of them can be performed on the ma
 - `lunette.restart()` rebuilds the Lua state and the XR session while clients stay connected, with the expected visible hitch and brief blackness (AC5.5). The quiesce protocol is covered against a real compositor thread and the re-import against a fake importer, and no restart has ever destroyed a real `VkDevice` with a real client's images imported against it. **Watch for a Vulkan validation error at teardown**: this machine has no validation layer installed, so the one instrument that would catch a quiesce that missed something is absent, and a driver tolerating the miss would look like a pass. Installing the layers before performing this gate would make it worth much more.
 - An error in a callback shows a panel and the session continues, and an error repeating every frame is rate-limited (AC8.3). Both halves are established without a headset: `lua::tests::events` raises the same error through the real dispatcher for two hundred frames and asserts one report, and `mullion.error.panel`'s specs assert what the panel says. What has not happened is a person seeing the panel in a scene and judging whether it is legible, whether it sits where it should, and whether the truncation cuts somewhere useful.
 - A syntactically invalid `main.lua` produces safe mode with a laser, a panel, and a reload key, not a black headset (AC8.4). `tests/safe_mode.rs` breaks two configurations for real and asserts a running session that `lunctl` can talk to, and the laser, the panel, and the ray-plane solve are covered against fakes. What has not happened is a person putting the headset on with a broken configuration and finding something there.
+
+### The four output, scale, and pacing gates
+
+None of the four has been performed, and none of them can be performed on the machine this document records: two need a headset and an XR runtime, and all four need a real client with a real toolkit under it. They are phase 8's acceptance criteria.
+
+- A client reports only its own output (AC2.5, first half). What the client sees in the registry is covered against lunette's own test client, which binds what it is told to bind and nothing else. What has not happened is `wayland-info` run inside a spawned client's environment, listing one `wl_output` and no others, and a toolkit behaving normally with only one monitor to lay out against.
+- Approaching a panel raises its scale, the client re-renders sharper, and the layer samples the new buffer (AC2.5). The events are covered — the preferred scale as `round(scale * 120)`, the `wl_output.scale` that accompanies it, and the toplevel configure at the matching logical size — and every one of them is what lunette sends rather than what a client does with it. Record while performing this: **which clients honoured `wp_fractional_scale_v1` and which ignored it**, and **whether the scale ladder's steps were the right ones in practice** or whether the rungs are too far apart to be worth the re-render.
+- A backgrounded panel's client stops redrawing at full rate while remaining responsive to input (AC7.3). The throttle is covered against a fake clock, and the half that matters is the second: click a throttled window and confirm it reacts. A rate of zero would pass the first half and fail this one, which is why the floor is approximately 1 Hz. Record while performing this: **whether any client set `wp_content_type_v1` at all**, which decides how much of the video exemption rests on the commit-rate heuristic instead.
+- An idle lunette with only layers drawn issues no render pass (AC7.4). Confirm it with a GPU profiler or LÖVR's own timing rather than inferring it from a frame rate, because the flag and the skip are separable and only the skip saves anything. This gate needs a configuration whose scene is genuinely empty; the shipped one draws chrome around every panel and a laser for every hand, so it never is. Record while performing this: **the measured cost of an idle frame with scene rendering skipped**, against the same frame with it drawn.
 
 ### The socket, which is not a gate
 
