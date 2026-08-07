@@ -284,15 +284,22 @@ mod tests {
             .try_send(Command::Shutdown)
             .expect("the queue has room");
 
-        // `Shutdown` is queued ahead of the release and the channel is ordered,
-        // so the loop stops before it handles one. Asking twice all the same,
-        // bounded rather than open-ended: a quiesce that somehow succeeded must
-        // not turn this case into a hang.
-        let mut outcome = quiesce(&compositor, QUIESCE_TIMEOUT);
-        if outcome.is_ok() {
-            outcome = quiesce(&compositor, QUIESCE_TIMEOUT);
-        }
-        let error = outcome.expect_err("the thread is gone, so nothing can acknowledge");
+        // `Shutdown` is queued ahead of the release, but *when* the loop reaches
+        // it is the thread's business: a quiesce sent before it does is answered
+        // rather than refused. So this waits for the condition — a thread that
+        // has gone — rather than for a fixed number of tries, which is the same
+        // race under a different name.
+        let deadline = Instant::now() + QUIESCE_TIMEOUT;
+        let error = loop {
+            match quiesce(&compositor, RETRY_SLICE) {
+                Err(QuiesceError::Disconnected) => break QuiesceError::Disconnected,
+                outcome => assert!(
+                    Instant::now() < deadline,
+                    "the compositor thread did not stop within {QUIESCE_TIMEOUT:?}; the last \
+                     quiesce answered {outcome:?}"
+                ),
+            }
+        };
 
         assert_eq!(error, QuiesceError::Disconnected);
         assert!(
