@@ -84,8 +84,8 @@ pub struct SessionPaths<'a> {
 /// `lovr.event.restart` closes the Lua state, and closing it destroys LÖVR's
 /// graphics module and the `VkDevice` the compositor borrowed. So the compositor
 /// is stopped before the state closes and is not started again: its socket went
-/// with it. The soft reload that keeps clients across a reconfiguration is a
-/// later phase's, and it works by not discarding the graphics module at all.
+/// with it. `lunette::reload` is the path that keeps clients across a
+/// reconfiguration, and it works by not discarding anything native at all.
 pub fn run(
     paths: SessionPaths<'_>,
     session: &Rc<Session<LovrTexture>>,

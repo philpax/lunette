@@ -91,6 +91,7 @@ use crate::{
     },
     mirrors::MirrorRegistry,
     properties::WindowProperties,
+    reload::reload_from_lua,
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
 
@@ -520,6 +521,14 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     module.set(
         "seats",
         lua.create_function(move |lua, ()| seats(lua, &seats_session))?,
+    )?;
+
+    // Captures nothing. A reload is entirely a matter of the Lua state — the
+    // compositor, the clients, and their textures are not touched by one — so
+    // this reaches for no session and holds no Lua value between calls.
+    module.set(
+        "reload",
+        lua.create_function(|lua, ()| reload_from_lua(lua))?,
     )?;
 
     // Here rather than in `install`, because `boot.lua:345` creates

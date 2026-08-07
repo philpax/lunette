@@ -98,6 +98,12 @@ mod tests {
             recorded.spawns[#recorded.spawns + 1] = options.argv[1]
             return { id = #recorded.spawns }
           end,
+          -- Faked rather than real: the real one re-runs `main.lua`, and the
+          -- `main.lua` that would not load is why safe mode is running.
+          reload = function()
+            recorded.reloads = recorded.reloads + 1
+            return recorded.reloaded, recorded.reloadMessage
+          end,
         }
       end
 
@@ -145,6 +151,9 @@ mod tests {
       recorded.direction = { 0, 0, -1 }
       recorded.trigger = false
       recorded.showWindow = false
+      recorded.reloads = 0
+      recorded.reloaded = true
+      recorded.reloadMessage = nil
       return recorded
     "#;
 
@@ -410,15 +419,38 @@ mod tests {
         assert!(!buttons[1].3, "losing tracking should release the button");
     }
 
-    /// The reload key does not stop the session on a build whose reload
-    /// mechanism is not there yet, and safe mode is the one configuration that
-    /// has to survive everything else being broken.
+    /// The reload key is how a user leaves safe mode without taking the headset
+    /// off, so it is the one binding safe mode has.
     #[test]
-    fn the_reload_key_does_not_raise_without_a_reload_mechanism() {
+    fn the_reload_key_reloads_and_no_other_key_does() {
         let lua = started();
 
         call(&lua, "keypressed", "f5");
         call(&lua, "keypressed", "a");
+
+        let reloads: i64 = recorder(&lua)
+            .get("reloads")
+            .expect("reloads should be counted");
+        assert_eq!(reloads, 1, "only the reload key should reload");
+    }
+
+    /// A second broken configuration leaves safe mode running and says why.
+    /// Safe mode is the one configuration that has to survive everything else
+    /// being broken, so a reload that failed must not stop it.
+    #[test]
+    fn a_reload_that_fails_leaves_safe_mode_running() {
+        let lua = started();
+        lua.load("recorded.reloaded = false recorded.reloadMessage = 'a deliberate defect'")
+            .exec()
+            .expect("the reload should be made to fail");
+
+        call(&lua, "keypressed", "f5");
+
+        // The frame after still runs, which is what "leaves safe mode running"
+        // means from in here.
+        call(&lua, "update", ());
+        let pass: Table = recorder(&lua).get("pass").expect("the pass should exist");
+        call(&lua, "draw", pass);
     }
 
     /// Every module `package.loaded` holds, by name.

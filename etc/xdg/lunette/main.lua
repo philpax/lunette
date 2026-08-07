@@ -184,13 +184,12 @@ function lovr.keypressed(key)
     return
   end
 
-  -- `lunette.reload` arrives with the reload mechanism, which is not built yet.
-  -- Guarded rather than assumed, so that the key says what it would have done
-  -- instead of stopping the session with an error about a nil value.
-  if lunette.reload then
-    lunette.reload()
-  else
-    print('lunette: reload is not implemented yet')
+  -- Answers false and the message rather than raising, so a configuration with
+  -- a typo in it leaves the session running and says so. The clients are not
+  -- disturbed either way: a soft reload is a matter of the Lua state alone.
+  local reloaded, message = lunette.reload()
+  if not reloaded then
+    print('lunette: the configuration was not reloaded: ' .. tostring(message))
   end
 end
 

@@ -7,7 +7,9 @@
 -- defect. This is what makes that checkable rather than aspirational: a module
 -- registers a hook, and reload runs them.
 --
--- Phase 7 builds the caller. This is the registry and the contract.
+-- `lunette.reload()` is the caller, and runs the hooks before it clears
+-- anything, so a hook still has the modules and callbacks it is tearing down.
+-- This is the registry and the contract.
 --
 -- Hooks are keyed by name and run in reverse registration order, so a module
 -- tears down before whatever it depends on: `mullion.panel` registered after

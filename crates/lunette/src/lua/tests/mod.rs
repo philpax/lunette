@@ -935,6 +935,7 @@ fn the_module_exposes_only_what_this_phase_implements() {
             "claimLayer".to_owned(),
             "monitors".to_owned(),
             "newSeat".to_owned(),
+            "reload".to_owned(),
             "seats".to_owned(),
             "spawn".to_owned(),
             "windows".to_owned(),

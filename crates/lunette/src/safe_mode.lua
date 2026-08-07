@@ -216,13 +216,15 @@ function lovr.keypressed(key)
     return
   end
 
-  -- Guarded rather than assumed: safe mode has to keep working on a build whose
-  -- reload mechanism is not there yet, and saying so beats stopping on a nil
-  -- value in the one configuration that exists to be recovered from.
-  if lunette.reload then
-    lunette.reload()
-  else
-    print('lunette: safe mode cannot reload; reload is not implemented yet')
+  -- This is the whole point of safe mode: the user fixes the file at a desk or
+  -- through an editor they can reach, presses the key, and the session they were
+  -- in comes back without the headset coming off.
+  --
+  -- A reload that fails answers false and the message rather than raising, so a
+  -- second broken configuration leaves safe mode running and says why.
+  local reloaded, message = lunette.reload()
+  if not reloaded then
+    print('lunette: the configuration still does not load: ' .. tostring(message))
   end
 end
 

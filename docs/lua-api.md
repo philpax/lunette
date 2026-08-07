@@ -273,7 +273,19 @@ There are two reload paths, both of which preserve running applications.
 
 `lunette.reload()` performs a soft reload. It clears `package.loaded` for user and standard-library namespaces and re-runs `main.lua`. The LÖVR modules, XR session, GPU objects, compositor, and clients all remain running. The reload is effectively instant, with no visual disruption. It is the default reload path. Iterating on layout code in-headset with sub-second reloads is a significant benefit of this design.
 
-The risk of soft reload is that timers, signal connections, coroutines, and stashed handles from the old configuration persist unless something tears them down. `mullion` provides an explicit teardown hook that soft reload calls to address this.
+The risk of soft reload is that timers, signal connections, coroutines, and stashed handles from the old configuration persist unless something tears them down. `mullion` provides an explicit teardown hook that soft reload calls to address this. The hooks run first, before anything is cleared, so a hook still has the modules and callbacks it is tearing down. One raising is reported and does not stop the rest, which is the registry's own contract.
+
+The order is: teardown hooks, then the callbacks `main.lua` owns, then `package.loaded`, then `main.lua`, then `lovr.load`. `lovr.load` runs because `main.lua` conventionally defines callbacks and does its setup there, so a reload that ran only the file would install the new callbacks and never run the new setup. It receives the same `arg` it is given at startup.
+
+What survives is stated as roots rather than as a list of what goes, so that a module added later is cleared without the mechanism being updated. `lovr.*` and the interpreter's own modules — `string`, `table`, `math`, `os`, `package`, `coroutine`, `io`, `debug`, `bit`, `jit`, `ffi` — are kept; everything else goes. `crates/lunette/src/reload.rs` is the source of truth for both that set and the callbacks cleared, which deliberately exclude the ones `boot.lua` defines defaults for: `boot.lua` runs once per Lua state, and a soft reload does not make a new one, so clearing `lovr.log` would remove a default nothing would put back.
+
+The Lua state itself is not closed. Globals survive; what goes is what `main.lua` owns. A configuration that must carry something across a reload has the global table and the per-window property store; `lunette.restart()` is the operation that discards everything.
+
+Clearing the callbacks matters for the case the file no longer mentions them. Re-running `main.lua` redefines the callbacks it still defines, but a callback the user *deleted* would otherwise stay bound to the old function and keep being called, so a reload would silently keep executing code that is no longer in the file.
+
+`lunette.reload()` answers `true`, or `false` and a message. It does not raise, and it does not fall into safe mode: safe mode is for a `main.lua` that fails to load at startup, and a reload that fails leaves the session running so the user can fix the file and reload again. A reload that reached `main.lua` and failed there has already torn the previous configuration down, so the session continues with whatever the failed run installed before it raised.
+
+A reload asked for from inside a reload is refused with that message rather than performed. A configuration that reloads as it loads would otherwise recurse until the stack ran out, and taking the process down takes every connected client with it. In practice this means `lovr.load` is not a place to call it from; a key binding or a `lunctl` chunk is.
 
 `lunette.restart()` performs a hard restart, using LÖVR's `lovr.event.restart`. This closes the entire Lua state and rebuilds it, tearing down graphics and the XR session with it. See [LÖVR integration](lovr-integration.md#restart-semantics). The result is a clean slate, with a visible hitch and brief blackness in the headset. It is used when a soft reload is not sufficient.
 

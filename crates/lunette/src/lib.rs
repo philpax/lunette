@@ -34,6 +34,7 @@ pub mod layers;
 pub mod lua;
 pub mod mirrors;
 pub mod properties;
+pub mod reload;
 pub mod safe_mode;
 pub mod scale;
 pub mod texture;
