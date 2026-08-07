@@ -52,6 +52,9 @@ function fixture.newSource(width, height, options)
     title = 'a source',
     sink = { name = 'a sink' },
     texture = options and options.texture or nil,
+    -- A buffer whose fourth component is padding rather than alpha, which the
+    -- quad path corrects with a shader instead of sampling.
+    opaque = options and options.opaque or nil,
   }
 
   function source:getTexture()
@@ -140,7 +143,7 @@ end
 -- `lines` and `spheres` keep their arguments, because where a laser drew its
 -- beam is the whole of what a laser's drawing does.
 function fixture.newPass()
-  local pass = { planes = 0, texts = 0, lines = {}, spheres = {}, material = nil }
+  local pass = { planes = 0, texts = 0, lines = {}, spheres = {}, material = nil, shaders = {} }
 
   function pass:plane()
     self.planes = self.planes + 1
@@ -168,6 +171,13 @@ function fixture.newPass()
 
   function pass:setColor() end
   function pass:setBlendMode() end
+
+  -- Every shader set and every clear, in order: a draw that set one and did not
+  -- clear it would leave it on the pass for whatever the configuration draws
+  -- next, and a spec that only looked at the last value would not see that.
+  function pass:setShader(shader)
+    self.shaders[#self.shaders + 1] = shader or false
+  end
 
   return pass
 end

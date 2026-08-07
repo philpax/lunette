@@ -43,6 +43,13 @@ local create, readVector, sourceSize, remove
 -- starts with none.
 local panels = {}
 
+-- The shader `opaqueShader` builds on first use, and nothing before it: the
+-- graphics module does not exist while a configuration is being loaded, and a
+-- module body that reached for it would make requiring this file depend on when
+-- it was required. Dropped when this file runs again, so a soft reload builds
+-- one against the state that will draw with it.
+local opaqueShader = nil
+
 -- Everything a panel's appearance is tuned by, in one table.
 --
 -- Feel accounts for most of the work at this tier (docs/stdlib.md:27), so a
@@ -72,6 +79,20 @@ panel.DEFAULT_PRIORITY = 10
 
 -- The metre height a panel takes when its options give neither dimension.
 panel.DEFAULT_HEIGHT = 0.8
+
+-- The fragment stage a source whose buffer has no alpha channel is drawn with.
+--
+-- An X-variant fourcc such as XR24 has no Vulkan format of its own, so it is
+-- imported as the alpha-carrying format with the same component order and the
+-- client's padding byte arrives as alpha. Most renderers leave that byte at
+-- zero, so sampling it draws the window fully invisible. `source.opaque` is what
+-- says the byte means nothing, and docs/rendering.md#alpha says a consumer
+-- forces alpha to one rather than sampling it. This is that consumer.
+panel.OPAQUE_FRAGMENT = [[
+  vec4 lovrmain() {
+    return vec4((Color * getPixel(ColorTexture, UV)).rgb, Color.a);
+  }
+]]
 
 -- The aspect a panel falls back to when its source reports no size, which a
 -- handle that has not yet seen its source in a snapshot does.
@@ -121,6 +142,28 @@ function panel.draw(pass)
   for _, existing in ipairs(panel.all()) do
     existing:draw(pass)
   end
+end
+
+-- The shader an opaque source is drawn with, or nothing when there is no
+-- graphics module to build one from.
+--
+-- Public because a configuration drawing a source itself needs the same
+-- correction, and because a spec asserting the quad path has to know which
+-- shader it is looking at.
+function panel.opaqueShader()
+  if opaqueShader then
+    return opaqueShader
+  end
+  -- Nothing when the graphics module is switched off, which is what the
+  -- headless spec run does. A panel then draws without the correction, which is
+  -- the same as drawing nothing at all in a session that has no pass to draw
+  -- into.
+  if not (lovr and lovr.graphics and lovr.graphics.newShader) then
+    return nil
+  end
+
+  opaqueShader = lovr.graphics.newShader('unlit', panel.OPAQUE_FRAGMENT)
+  return opaqueShader
 end
 
 -- Destroys every panel. Registered as this module's teardown hook, because a
@@ -357,6 +400,15 @@ function methods:draw(pass)
   -- A client's buffer holds premultiplied alpha; LÖVR's default alpha mode
   -- would multiply by it a second time and darken a translucent window twice.
   pass:setBlendMode('alpha', 'premultiplied')
+
+  -- Read each frame alongside the texture rather than cached: `opaque` is a
+  -- property of the buffer and changes when the client renegotiates its format
+  -- (docs/rendering.md#alpha).
+  local shader = self.source.opaque and panel.opaqueShader() or nil
+  if shader then
+    pass:setShader(shader)
+  end
+
   pass:setMaterial(texture)
   -- The size rides in the transform. `luax_readmat4` consumes a whole `Mat4`
   -- and reads the argument after it as the draw style, so a plane placed by
@@ -364,6 +416,9 @@ function methods:draw(pass)
   -- arguments.
   pass:plane(lovr.math.mat4(self.pose):scale(self.width, self.height, 1))
   pass:setMaterial()
+  if shader then
+    pass:setShader()
+  end
   pass:setBlendMode('alpha', 'alphamultiply')
 end
 

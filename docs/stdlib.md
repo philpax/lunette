@@ -20,7 +20,7 @@ The mount is read-only. A configuration that could overwrite the standard librar
 | `mullion.signal` | `connect`, `weakConnect`, `disconnect`, `emit`, and `setProperty`, which announces `property::<key>`. |
 | `mullion.teardown` | The hook registry a soft reload runs. Hooks are keyed by name and run in reverse registration order. |
 | `mullion.error` | The `lovr.errhand` replacement [The Lua API](lua-api.md#errors) puts here, and the rate limiter it reports through. |
-| `mullion.panel` | Tier 1. A source bound to a pose and a metre size, on a composition layer or an in-scene quad, with `rayQuadHit` for turning a ray into a pixel coordinate. |
+| `mullion.panel` | Tier 1. A source bound to a pose and a metre size, on a composition layer or an in-scene quad, with `rayQuadHit` for turning a ray into a pixel coordinate. The quad path draws with premultiplied blending, and through `panel.opaqueShader` for a source whose buffer has no alpha channel ([Rendering](rendering.md#alpha)). |
 | `mullion.pose` | A `mat4` as a string, and back. The property store refuses a table and a file on disk holds text, so both want the same sixteen numbers. |
 | `mullion.interaction` | Tier 2. A pointer over a set of panels: what it hovers, what it clicks, what it scrolls, and what it has grabbed. It reads no device and draws nothing. |
 | `mullion.laser` | Tier 2. One per hand. It reads a pointer device, drives an interaction pointer with what it read, owns that hand's seat, and draws the beam. |
@@ -83,6 +83,8 @@ Most of WayVR's code lives at this tier, and it is the most opinionated part of 
 It ships as the default `main.lua` and example modules, not as library code. Tiers 1 through 3 are things every user needs and would write identically; tier 4 is the user's desktop, and it should be readable Lua sitting in the user's config, forked without ceremony.
 
 Minimum viable: the default config spawns a terminal, shows it on a panel, and provides a laser and a reload key. Nothing more.
+
+`etc/xdg/lunette/main.lua` is that config, and it is the source of truth for what ships. It declares one tag, attaches a laser to each hand, spawns the first terminal emulator it finds, places each window through `mullion.rules` and arranges the ones no source gave a pose to on an arc, and binds a reload key on the desktop window. It carries two things past the line above, both because an acceptance criterion is about them: a rules table matched on `appId`, and a saved arrangement installed as a second source and written back when a panel is dropped or the session quits.
 
 ## 2D widgets
 

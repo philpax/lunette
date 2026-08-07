@@ -25,6 +25,30 @@ local function fresh()
   return fixture.claims
 end
 
+-- What `panel.opaqueShader` answers while a case is drawing with one available.
+-- The spec run has no graphics module, so there is no real shader to build and
+-- a case about the shader has to supply its own.
+local OPAQUE_SHADER = 'the opaque shader'
+
+-- Draws `created` with a shader available, and answers the pass it drew into.
+--
+-- The stub is put back whether or not the draw raised, so that a failure here
+-- does not leave every later case drawing through it.
+local function drawWithOpaqueShader(created)
+  local pass = newPass()
+  local previous = panel.opaqueShader
+  panel.opaqueShader = function()
+    return OPAQUE_SHADER
+  end
+
+  local ok, raised = pcall(created.draw, created, pass)
+  panel.opaqueShader = previous
+  if not ok then
+    error(raised, 0)
+  end
+  return pass
+end
+
 spec('a panel takes its width from the source aspect', function()
   fresh()
   local created = panel.fromWindow(newSource(1600, 900), { height = 1 })
@@ -295,6 +319,58 @@ spec('a source with no texture yet draws no quad', function()
   created:draw(pass)
 
   expect.equal(pass.planes, 0, 'planes drawn')
+end)
+
+-- A source reporting `opaque` has a padding byte where alpha would be, and most
+-- clients leave it at zero, so a panel that sampled it would draw the window
+-- fully invisible. docs/rendering.md#alpha makes forcing it to one the
+-- consumer's job, and the shader is how the quad path does it.
+spec('an opaque source is drawn through the opaque shader, which is then cleared', function()
+  fresh()
+  local source = newSource(800, 600, { texture = 'a texture', opaque = true })
+  local created = panel.fromWindow(source, { height = 1, chrome = false })
+
+  local pass = drawWithOpaqueShader(created)
+
+  expect.equal(#pass.shaders, 2, 'shader calls')
+  expect.equal(pass.shaders[1], OPAQUE_SHADER, 'the shader set')
+  expect.equal(pass.shaders[2], false, 'the shader cleared')
+end)
+
+-- Drawn with a shader available, so that a panel setting one for every source
+-- rather than for an opaque one is caught. Without the stub this case passes on
+-- a run with no graphics module whatever the panel does, because there would be
+-- no shader to set either way.
+spec('a source that is not opaque sets no shader', function()
+  fresh()
+  local source = newSource(800, 600, { texture = 'a texture' })
+  local created = panel.fromWindow(source, { height = 1, chrome = false })
+
+  local pass = drawWithOpaqueShader(created)
+
+  expect.equal(#pass.shaders, 0, 'shader calls')
+  expect.equal(pass.planes, 1, 'planes drawn')
+end)
+
+-- The spec run switches the graphics module off, so there is nothing to build a
+-- shader from. A panel then draws without the correction rather than raising,
+-- which is what keeps a session with no graphics module — this one — able to
+-- call `draw` at all.
+spec('the opaque shader is nothing when there is no graphics module', function()
+  expect.falsy(lovr.graphics, 'the graphics module')
+  expect.equal(panel.opaqueShader(), nil, 'the shader')
+end)
+
+spec('an opaque source with no shader available still draws its quad', function()
+  fresh()
+  local source = newSource(800, 600, { texture = 'a texture', opaque = true })
+  local created = panel.fromWindow(source, { height = 1, chrome = false })
+
+  local pass = newPass()
+  created:draw(pass)
+
+  expect.equal(#pass.shaders, 0, 'shader calls')
+  expect.equal(pass.planes, 1, 'planes drawn')
 end)
 
 spec('a dead source destroys the panel and releases its claim', function()
