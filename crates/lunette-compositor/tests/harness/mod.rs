@@ -26,13 +26,15 @@ use lunette_compositor::{
 ///
 /// `wl_subcompositor` is here because `CompositorState::new` creates it
 /// unconditionally, and `wp_viewporter` because xwayland-satellite refuses to
-/// start without it. Both decoration managers are here so GTK and Qt clients do
+/// start without it — and because `wp_fractional_scale_manager_v1` is useless
+/// without it, a client landing a fractionally scaled buffer at the right
+/// logical size through `wp_viewport.set_destination`. Both decoration managers are here so GTK and Qt clients do
 /// not draw their own titlebars inside a panel.
 ///
 /// The four selection globals are all advertised whether or not a host desktop
 /// is reachable: a session with no host still has a clipboard, it just does not
 /// leave lunette.
-pub const EXPECTED_GLOBALS: [&str; 14] = [
+pub const EXPECTED_GLOBALS: [&str; 15] = [
     "ext_data_control_manager_v1",
     "org_kde_kwin_server_decoration_manager",
     "wl_compositor",
@@ -41,6 +43,7 @@ pub const EXPECTED_GLOBALS: [&str; 14] = [
     "wl_seat",
     "wl_shm",
     "wl_subcompositor",
+    "wp_fractional_scale_manager_v1",
     "wp_viewporter",
     "xdg_wm_base",
     "zwlr_data_control_manager_v1",

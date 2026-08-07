@@ -165,6 +165,28 @@ impl OutputRegistry {
         self.outputs.iter().find(|entry| entry.id == id)
     }
 
+    /// Every live surface the registry has been told about, without repeats.
+    ///
+    /// Not filtered by output, because the entries are not partitioned by one:
+    /// [`OutputRegistry::enter`] records a surface against every output and
+    /// leaves the filtering to which client owns which `wl_output` instance. A
+    /// caller that wants one output's surfaces asks the client assignment,
+    /// which is [`crate::state`]'s question rather than this module's.
+    ///
+    /// Collected rather than borrowed, so the caller may hold `&mut self` while
+    /// it walks the result.
+    pub(crate) fn surfaces(&self) -> Vec<WlSurface> {
+        let mut surfaces: Vec<WlSurface> = Vec::new();
+        for entry in &self.outputs {
+            for surface in entry.live_surfaces() {
+                if !surfaces.contains(&surface) {
+                    surfaces.push(surface);
+                }
+            }
+        }
+        surfaces
+    }
+
     /// Every output, as the main thread reads them.
     pub(crate) fn snapshot(&self) -> Vec<OutputSnapshot> {
         self.outputs
@@ -284,6 +306,11 @@ pub(crate) struct OutputEntry {
 }
 
 impl OutputEntry {
+    /// The resolution, scale, and refresh rate this output is advertising.
+    pub(crate) const fn mode(&self) -> OutputMode {
+        self.mode
+    }
+
     /// The mode in smithay's logical coordinate space, which is what a toplevel
     /// is configured in.
     pub(crate) fn logical_size(&self) -> Size<i32, Logical> {
@@ -420,7 +447,11 @@ fn send_configuration(entry: &OutputEntry, instance: &WlOutput) {
 /// `wp_fractional_scale_v1` and `wp_viewporter`; this is the whole-number answer
 /// the protocol has had since version 2, and rounding it down would tell a
 /// client on a 1.5 scale that its monitor is unscaled.
-fn integer_scale(scale: OutputScale) -> i32 {
+///
+/// The same number rides on `wl_surface.preferred_buffer_scale`, which is what
+/// a client too old for `wp_fractional_scale_v1` renders at, so
+/// [`crate::state`] reaches for this too.
+pub(crate) fn integer_scale(scale: OutputScale) -> i32 {
     #[expect(
         clippy::cast_possible_truncation,
         reason = "OutputScale is finite and positive, and a scale beyond two billion is not one any \

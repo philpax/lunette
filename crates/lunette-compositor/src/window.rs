@@ -136,6 +136,18 @@ impl WindowManager {
         self.windows.iter().filter(|window| window.mapped)
     }
 
+    /// Every window shown on one output, including the ones not yet mapped.
+    ///
+    /// Unmapped windows are included because the thing this exists for is
+    /// reconfiguring an output's windows after its mode changed, and a toplevel
+    /// still waiting to attach its first buffer is the one that most wants the
+    /// new size before it does.
+    pub(crate) fn on_output(&mut self, output: OutputId) -> impl Iterator<Item = &mut Window> {
+        self.windows
+            .iter_mut()
+            .filter(move |window| window.output == output)
+    }
+
     fn index_of(&self, toplevel: &ToplevelSurface) -> Option<usize> {
         self.windows
             .iter()

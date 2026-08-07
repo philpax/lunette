@@ -15,13 +15,6 @@
 //!   at `comp.rs:285-304` and delegates the global at `:693`, but never
 //!   constructs `SinglePixelBufferState`, so no client can ever bind it and the
 //!   branch is unreachable. Porting dead code carries its bugs forward.
-//! - **`wp_fractional_scale_v1`.** WayVR calls `with_fractional_scale` at
-//!   `comp.rs:125` and `:145`. Those calls write to surface user data no client
-//!   can read, because `FractionalScaleManagerState` is never constructed
-//!   there either, and the write is thread-affine besides
-//!   (`smithay-0.7.0/src/wayland/fractional_scale/mod.rs:253-263` is a
-//!   `get_or_insert`, which records the calling thread). Phase 8 implements
-//!   fractional scale properly and owns the question.
 //! - **`zwp_relative_pointer`.** A pointer driven by a hand has an absolute
 //!   position, and relative motion is what a client that has captured the
 //!   pointer wants; nothing asks for it yet.

@@ -31,6 +31,7 @@ use smithay::{
     wayland::{
         compositor::{self, CompositorClientState, send_surface_state, with_states},
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
+        fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
         selection::{
             data_device::DataDeviceState,
             ext_data_control::DataControlState as ExtDataControlState,
@@ -52,7 +53,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     client::{DisplayName, Satellite, XwaylandSatellite},
-    output::OutputRegistry,
+    output::{OutputEntry, OutputRegistry, integer_scale},
     process::{
         DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
     },
@@ -226,6 +227,8 @@ pub(crate) struct CompositorState {
     xdg_decoration: XdgDecorationState,
     #[expect(dead_code, reason = "held so the global stays advertised")]
     viewporter: ViewporterState,
+    #[expect(dead_code, reason = "held so the global stays advertised")]
+    fractional_scale: FractionalScaleManagerState,
 
     pub(super) importer: Box<dyn BufferImporter>,
     spawner: Box<dyn ProcessSpawner>,
@@ -288,13 +291,28 @@ impl CompositorState {
             loop_handle,
             host_selection,
         } = parts;
-        let compositor = compositor::CompositorState::new::<Self>(display);
+        // Version 6 rather than the 5 `CompositorState::new` defaults to
+        // (`smithay-0.7.0/src/wayland/compositor/mod.rs:680-685`). Six is the
+        // version that carries `wl_surface.preferred_buffer_scale`, which is
+        // how a client learns the whole-number scale of the output it is on
+        // without binding a `wl_output` at all — and binding one is exactly what
+        // lunette's filter may refuse it. Below six, `send_surface_state`
+        // returns without sending anything
+        // (`compositor/mod.rs:409-412`), so the call would be dead.
+        let compositor = compositor::CompositorState::new_v6::<Self>(display);
         let xdg_shell = XdgShellState::new::<Self>(display);
         // An empty extra-format list, as WayVR passes at `mod.rs:185`, so only
         // `wl_shm`'s two mandatory formats are advertised. Anything further is
         // a format the importer would have to be taught.
         let shm = ShmState::new::<Self>(display, Vec::new());
         let viewporter = ViewporterState::new::<Self>(display);
+        // Paired with the viewporter above, and useless without it: a client
+        // told to render at 1.5 lands the buffer at the right logical size by
+        // setting an integer `wl_surface.set_buffer_scale` and correcting with
+        // `wp_viewport.set_destination`. WayVR advertises the viewporter and not
+        // this, which is why its own `with_fractional_scale` calls write user
+        // data no client can read.
+        let fractional_scale = FractionalScaleManagerState::new::<Self>(display);
         let xdg_decoration = XdgDecorationState::new::<Self>(display);
         let kde_decoration = KdeDecorationState::new::<Self>(
             display,
@@ -382,6 +400,7 @@ impl CompositorState {
             dmabuf_feedback,
             xdg_decoration,
             viewporter,
+            fractional_scale,
             importer,
             spawner,
             inspector,
@@ -494,9 +513,18 @@ impl CompositorState {
         }
     }
 
+    /// Changes an output's mode, and tells everything on it.
+    ///
+    /// The `wl_output` events are the registry's; the per-surface scales and the
+    /// toplevel configures are [`CompositorState::rescale_output`]'s. A client
+    /// told its monitor changed and not told its own new scale keeps rendering
+    /// at the old one.
     fn reconfigure_output(&mut self, output: OutputId, mode: OutputMode) {
         match self.outputs.reconfigure(output, mode) {
-            Ok(()) => self.touch(),
+            Ok(()) => {
+                self.rescale_output(output);
+                self.touch();
+            }
             Err(error) => warn!(%error, "could not reconfigure an output"),
         }
     }
@@ -836,15 +864,86 @@ impl CompositorState {
     }
 
     /// Tells a newly created surface which output it is on and at what scale.
-    ///
-    /// WayVR also calls `with_fractional_scale` here (`comp.rs:145`). That is
-    /// not ported: see this module's documentation.
     pub(super) fn send_initial_surface_state(&mut self, surface: &WlSurface) {
         self.outputs.enter(surface);
+        self.send_surface_scale(surface);
+    }
+
+    /// Tells one surface the scale of the output its client is shown.
+    ///
+    /// Both numbers, because a client is owed both. `wp_fractional_scale_v1`
+    /// carries the exact scale in 120ths, which is what a client renders at;
+    /// `wl_surface.preferred_buffer_scale` carries the whole number a client
+    /// without the fractional protocol renders at, and it is the ceiling rather
+    /// than the floor so that a client on a 1.5 scale is not told its monitor is
+    /// unscaled. The matching logical size travels separately, as an xdg-toplevel
+    /// configure; sending a scale without one produces sharp content at the
+    /// wrong size, which reads as a bug in the client.
+    ///
+    /// Set whether or not the client has asked for a `wp_fractional_scale_v1`
+    /// yet. smithay replays a pre-set value when the object is created
+    /// (`fractional_scale/mod.rs:160-166`), so pre-setting is what avoids a
+    /// first frame at the wrong scale.
+    ///
+    /// # Thread affinity
+    ///
+    /// `with_fractional_scale` inserts into the surface's user data with the
+    /// non-threadsafe `get_or_insert` (`fractional_scale/mod.rs:253-263`), which
+    /// records the calling thread and answers `None` to every other one — so a
+    /// second thread would insert a second entry and the two would diverge in
+    /// silence. Everything here runs on the compositor thread, which is the only
+    /// thing that dispatches [`CompositorState`].
+    pub(super) fn send_surface_scale(&self, surface: &WlSurface) {
+        let mode = self.mode_of(self.output_of(surface));
 
         with_states(surface, |states| {
-            send_surface_state(surface, states, 1, Transform::Normal);
+            send_surface_state(
+                surface,
+                states,
+                integer_scale(mode.scale),
+                Transform::Normal,
+            );
+            with_fractional_scale(states, |fractional| {
+                fractional.set_preferred_scale(mode.scale.get());
+            });
         });
+    }
+
+    /// Tells everything on an output that its mode changed.
+    ///
+    /// Three things travel together, and a client that gets only some of them
+    /// renders at the wrong size: the scales, through
+    /// [`CompositorState::send_surface_scale`]; the size limits, which are
+    /// clamped against the output and so move with it; and a configure at the
+    /// new logical bounds.
+    ///
+    /// Each window is reconfigured at the size it last committed, clamped into
+    /// the new bounds. So an output that shrank — which is what raising the
+    /// scale of a fixed resolution does — pulls its windows in, and an output
+    /// that grew leaves them where Lua put them.
+    fn rescale_output(&mut self, output: OutputId) {
+        for surface in self.outputs.surfaces() {
+            if self.output_of(&surface) == output {
+                self.send_surface_scale(&surface);
+            }
+        }
+
+        let bounds = self.output_bounds(output);
+        for window in self.windows.on_output(output) {
+            window.refresh_constraints(bounds);
+            let size = logical_size(window.size());
+            window.request_size(size, bounds);
+        }
+    }
+
+    /// The mode an output is advertising, or the default output's when it has
+    /// been destroyed, which is the fallback [`CompositorState::output_bounds`]
+    /// takes for the same reason.
+    fn mode_of(&self, output: OutputId) -> OutputMode {
+        self.outputs
+            .get(output)
+            .or_else(|| self.outputs.get(DEFAULT_OUTPUT))
+            .map_or(self.config.output, OutputEntry::mode)
     }
 
     pub(super) fn popups_commit(&mut self, surface: &WlSurface) {
@@ -857,9 +956,7 @@ impl CompositorState {
             return;
         }
 
-        with_states(surface, |states| {
-            send_surface_state(surface, states, 1, Transform::Normal);
-        });
+        self.send_surface_scale(surface);
 
         if let Err(error) = popup.send_configure() {
             warn!(%error, "could not send a popup's initial configure");

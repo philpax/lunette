@@ -64,6 +64,10 @@ use wayland_client::{
 };
 use wayland_protocols::{
     wp::{
+        fractional_scale::v1::client::{
+            wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1,
+            wp_fractional_scale_v1::{self, WpFractionalScaleV1},
+        },
         linux_dmabuf::zv1::client::{
             zwp_linux_buffer_params_v1::{Flags as DmabufFlags, ZwpLinuxBufferParamsV1},
             zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
@@ -113,6 +117,10 @@ pub struct TestClient {
     /// destroyed `wl_buffer` cannot be released, and release is what the
     /// retention tests are about.
     buffers: Vec<WlBuffer>,
+    /// Every `wp_fractional_scale_v1` the client asked for, held so none is
+    /// destroyed early. A destroyed object is removed from the surface's state
+    /// and stops being sent anything.
+    fractional_scales: Vec<WpFractionalScaleV1>,
 }
 
 impl TestClient {
@@ -155,6 +163,7 @@ impl TestClient {
             subsurfaces: Vec::new(),
             pointer: None,
             buffers: Vec::new(),
+            fractional_scales: Vec::new(),
         }
     }
 
@@ -679,6 +688,25 @@ impl TestClient {
         bound
     }
 
+    /// Asks the compositor for the `wp_fractional_scale_v1` of one surface.
+    ///
+    /// Does not settle: whether the compositor answers, and with what, is the
+    /// thing a caller is asserting about, so waiting for an answer here would
+    /// hide the case where there is none.
+    pub fn request_fractional_scale(&mut self, surface: &WlSurface) -> WpFractionalScaleV1 {
+        let handle = self.queue.handle();
+        let manager = self.bind::<WpFractionalScaleManagerV1>(1);
+        let scale = manager.get_fractional_scale(surface, &handle, ());
+        self.fractional_scales.push(scale.clone());
+        scale
+    }
+
+    /// The client's own toplevel surface, for a caller that needs to name it.
+    #[must_use]
+    pub fn surface(&self) -> Option<&WlSurface> {
+        self.surface.as_ref()
+    }
+
     /// Binds one `wl_output` by the registry name of its global, without
     /// checking that the compositor advertised it.
     ///
@@ -848,6 +876,13 @@ pub struct Driver {
     /// rather than a set so that a duplicate enter is visible rather than
     /// absorbed.
     surface_outputs: Vec<(ObjectId, Vec<ObjectId>)>,
+    /// Every `wl_surface.preferred_buffer_scale` a surface was sent, in order.
+    /// In order rather than latest-only, because the protocol sends one only
+    /// when the value changes and a test asserting that needs to count them.
+    surface_buffer_scales: Vec<(ObjectId, Vec<i32>)>,
+    /// Every `wp_fractional_scale_v1.preferred_scale` an object was sent, in
+    /// 120ths, in order. Kept whole for the reason the buffer scales are.
+    fractional_scales: Vec<(ObjectId, Vec<u32>)>,
 
     // The selection half, in `selection.rs`. The fields live here because that
     // is where the struct is, and everything that reads them is in the submodule.
@@ -908,6 +943,26 @@ impl Driver {
             .iter()
             .find(|(target, _)| target == surface)
             .map_or_else(Vec::new, |(_, outputs)| outputs.clone())
+    }
+
+    /// Every `preferred_buffer_scale` a surface has been sent, in order.
+    #[must_use]
+    pub fn buffer_scales(&self, surface: &ObjectId) -> Vec<i32> {
+        self.surface_buffer_scales
+            .iter()
+            .find(|(target, _)| target == surface)
+            .map_or_else(Vec::new, |(_, scales)| scales.clone())
+    }
+
+    /// Every `preferred_scale` a `wp_fractional_scale_v1` has been sent, in
+    /// 120ths, in order.
+    #[must_use]
+    pub fn preferred_scales(&self, scale: &WpFractionalScaleV1) -> Vec<u32> {
+        let id = scale.id();
+        self.fractional_scales
+            .iter()
+            .find(|(target, _)| *target == id)
+            .map_or_else(Vec::new, |(_, scales)| scales.clone())
     }
 
     /// The name a seat advertised on `wl_seat.name`, once it has.
@@ -1202,7 +1257,8 @@ impl Dispatch<WlRegistry, ()> for Driver {
 }
 
 /// `wl_surface.enter` and `wl_surface.leave` are what a client learns its
-/// output from, so the surface cannot be a no-op the way the rest of its events
+/// output from, and `preferred_buffer_scale` is what it learns the whole-number
+/// scale from, so the surface cannot be a no-op the way the rest of its events
 /// are.
 impl Dispatch<WlSurface, ()> for Driver {
     fn event(
@@ -1214,25 +1270,50 @@ impl Dispatch<WlSurface, ()> for Driver {
         _handle: &QueueHandle<Self>,
     ) {
         let id = surface.id();
-        let entry = match state
-            .surface_outputs
-            .iter_mut()
-            .find(|(target, _)| *target == id)
-        {
-            Some((_, outputs)) => outputs,
-            None => {
-                state.surface_outputs.push((id, Vec::new()));
-                let last = state.surface_outputs.len() - 1;
-                &mut state.surface_outputs[last].1
-            }
-        };
 
         match event {
-            wl_surface::Event::Enter { output } => entry.push(output.id()),
-            wl_surface::Event::Leave { output } => entry.retain(|held| held != &output.id()),
+            wl_surface::Event::Enter { output } => {
+                entry_for(&mut state.surface_outputs, id).push(output.id());
+            }
+            wl_surface::Event::Leave { output } => {
+                entry_for(&mut state.surface_outputs, id).retain(|held| held != &output.id());
+            }
+            wl_surface::Event::PreferredBufferScale { factor } => {
+                entry_for(&mut state.surface_buffer_scales, id).push(factor);
+            }
             _ => {}
         }
     }
+}
+
+impl Dispatch<WpFractionalScaleV1, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        scale: &WpFractionalScaleV1,
+        event: wp_fractional_scale_v1::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let wp_fractional_scale_v1::Event::PreferredScale { scale: preferred } = event {
+            entry_for(&mut state.fractional_scales, scale.id()).push(preferred);
+        }
+    }
+}
+
+/// The list an object's events accumulate into, appending an empty one on the
+/// first sighting.
+///
+/// A `Vec` of pairs rather than a map for the reason [`Driver`]'s other keyed
+/// records are: the counts are in the single digits, and a test reading one out
+/// wants the order it arrived in.
+fn entry_for<T>(records: &mut Vec<(ObjectId, Vec<T>)>, id: ObjectId) -> &mut Vec<T> {
+    if let Some(index) = records.iter().position(|(target, _)| *target == id) {
+        return &mut records[index].1;
+    }
+    records.push((id, Vec::new()));
+    let last = records.len() - 1;
+    &mut records[last].1
 }
 
 impl Dispatch<WlOutput, ()> for Driver {
@@ -1548,6 +1629,7 @@ delegate_noop!(Driver: ignore ZwpLinuxDmabufV1);
 delegate_noop!(Driver: ignore ZwpLinuxBufferParamsV1);
 delegate_noop!(Driver: ignore WlRegion);
 delegate_noop!(Driver: ignore WlSubcompositor);
+delegate_noop!(Driver: ignore WpFractionalScaleManagerV1);
 delegate_noop!(Driver: ignore WlSubsurface);
 delegate_noop!(Driver: ignore XdgPositioner);
 // An `xdg_popup` carries its own configure and a `popup_done`; neither says

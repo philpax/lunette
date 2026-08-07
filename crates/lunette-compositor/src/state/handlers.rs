@@ -13,8 +13,9 @@ use std::os::fd::OwnedFd;
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
     delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf,
-    delegate_ext_data_control, delegate_kde_decoration, delegate_primary_selection, delegate_seat,
-    delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_ext_data_control, delegate_fractional_scale, delegate_kde_decoration,
+    delegate_primary_selection, delegate_seat, delegate_shm, delegate_viewporter,
+    delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{
         PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy,
         find_popup_root_surface,
@@ -44,6 +45,7 @@ use smithay::{
         buffer::BufferHandler,
         compositor::{self, CompositorClientState},
         dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
+        fractional_scale::FractionalScaleHandler,
         selection::{
             SelectionHandler, SelectionSource, SelectionTarget,
             data_device::{
@@ -123,6 +125,23 @@ impl compositor::CompositorHandler for CompositorState {
 
 impl BufferHandler for CompositorState {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
+}
+
+impl FractionalScaleHandler for CompositorState {
+    /// Re-sends the scale a surface was already told, which is a no-op for
+    /// almost every surface that reaches here.
+    ///
+    /// `send_initial_surface_state` pre-sets the preferred scale at surface
+    /// creation, and smithay replays a pre-set value when the client creates its
+    /// `wp_fractional_scale_v1` (`fractional_scale/mod.rs:160-166`) — so by the
+    /// time this runs the client already has the right number and
+    /// `set_preferred_scale` sends nothing. What it covers is a surface whose
+    /// client was reassigned, or one that reached the compositor by some path
+    /// that did not go through surface creation: answering with the scale the
+    /// output currently advertises is right in every case, and cheap.
+    fn new_fractional_scale(&mut self, surface: WlSurface) {
+        self.send_surface_scale(&surface);
+    }
 }
 
 /// Every method here is handed the seat the call is about, because `SeatHandler`
@@ -560,6 +579,7 @@ delegate_data_control!(CompositorState);
 delegate_data_device!(CompositorState);
 delegate_dmabuf!(CompositorState);
 delegate_ext_data_control!(CompositorState);
+delegate_fractional_scale!(CompositorState);
 delegate_kde_decoration!(CompositorState);
 // No `delegate_output!`. It routes `GlobalDispatch<WlOutput, WlOutputData>` to
 // smithay's `OutputManagerState`, whose `can_view` cannot be overridden and
