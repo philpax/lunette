@@ -13,11 +13,15 @@
 
 use smithay::{
     backend::renderer::{BufferType, buffer_type},
-    reexports::wayland_server::protocol::{
-        wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface,
+    reexports::{
+        wayland_protocols::wp::content_type::v1::server::wp_content_type_v1,
+        wayland_server::protocol::{
+            wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface,
+        },
     },
     wayland::{
         compositor::{BufferAssignment, SurfaceAttributes, with_states},
+        content_type::ContentTypeSurfaceCachedState,
         dmabuf::get_dmabuf,
         shm::with_buffer_contents,
     },
@@ -25,7 +29,7 @@ use smithay::{
 use tracing::warn;
 
 use crate::{
-    protocol::{Event, ImportedBuffer, PixelSize, SurfaceId},
+    protocol::{ContentType, Event, ImportedBuffer, PixelSize, SurfaceId},
     state::compositor::CompositorState,
     surface::{BufferScale, BufferTransform, ShmFormat, ShmLayout, SurfaceContent},
 };
@@ -38,6 +42,18 @@ impl CompositorState {
     /// happens while the lock is held.
     pub(super) fn apply_commit(&mut self, surface: &WlSurface) {
         let committed = with_states(surface, |states| {
+            // Read inside the same `with_states` as the attributes, and from
+            // `current()` rather than `pending()`: `wp_content_type_v1` is
+            // double-buffered like everything else a client sets, so the value
+            // that takes effect is the one this commit promoted.
+            let content_type = content_type(
+                *states
+                    .cached_state
+                    .get::<ContentTypeSurfaceCachedState>()
+                    .current()
+                    .content_type(),
+            );
+
             let mut guard = states.cached_state.get::<SurfaceAttributes>();
             let attributes = guard.current();
             Committed {
@@ -45,6 +61,7 @@ impl CompositorState {
                 transform: attributes.buffer_transform,
                 scale: attributes.buffer_scale,
                 callbacks: std::mem::take(&mut attributes.frame_callbacks),
+                content_type,
             }
         });
 
@@ -65,7 +82,22 @@ impl CompositorState {
             None => {}
         }
 
+        self.remember_content_type(id, committed.content_type);
         self.remember_committed_size(id);
+    }
+
+    /// Records what the client says a surface is drawing.
+    ///
+    /// Reported through the snapshot rather than acted on. The hint is thinly
+    /// adopted, so a client playing video may set nothing at all; Lua combines
+    /// it with a commit-rate heuristic and decides what to exempt from
+    /// throttling.
+    fn remember_content_type(&mut self, id: SurfaceId, content_type: ContentType) {
+        if let Some(window) = self.windows.by_surface_mut(id)
+            && window.remember_content_type(content_type)
+        {
+            self.touch();
+        }
     }
 
     /// Imports a newly attached buffer and takes ownership of it.
@@ -338,4 +370,20 @@ struct Committed {
     transform: smithay::reexports::wayland_server::protocol::wl_output::Transform,
     scale: i32,
     callbacks: Vec<WlCallback>,
+    content_type: ContentType,
+}
+
+/// The protocol's content-type hint as lunette's own closed set.
+///
+/// `wp_content_type_v1::Type` is `#[non_exhaustive]`, so a variant added to the
+/// protocol later arrives here as a value this match does not name. It is
+/// reported as [`ContentType::None`], which is the protocol's own default and
+/// the honest answer: lunette does not know what the client meant.
+fn content_type(reported: wp_content_type_v1::Type) -> ContentType {
+    match reported {
+        wp_content_type_v1::Type::Photo => ContentType::Photo,
+        wp_content_type_v1::Type::Video => ContentType::Video,
+        wp_content_type_v1::Type::Game => ContentType::Game,
+        _ => ContentType::None,
+    }
 }

@@ -38,7 +38,8 @@ use smithay::{
 use tracing::debug;
 
 use crate::protocol::{
-    OutputId, PixelSize, ProcessId, SinkId, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+    ContentType, OutputId, PixelSize, ProcessId, SinkId, SurfaceId, ToplevelStates, WindowId,
+    WindowSnapshot,
 };
 
 /// The smallest size lunette will configure a window to.
@@ -93,6 +94,7 @@ impl WindowManager {
             max_size,
             pending_configure_size: None,
             states: ToplevelStates::new(),
+            content_type: ContentType::None,
             mapped: false,
         });
         id
@@ -178,6 +180,9 @@ pub(crate) struct Window {
     /// The size of the configure the client has not yet answered.
     pending_configure_size: Option<Size<i32, Logical>>,
     states: ToplevelStates,
+    /// What the client last said it is drawing. A hint, double-buffered by the
+    /// protocol, so it is read at commit alongside the buffer.
+    content_type: ContentType,
     /// Whether content has ever been committed.
     mapped: bool,
 }
@@ -307,7 +312,16 @@ impl Window {
             // the phase that has something to do with it.
             parent: None,
             states: self.states.clone(),
+            content_type: self.content_type,
         }
+    }
+
+    /// Records what the client says it is drawing, reporting whether it
+    /// changed.
+    pub(crate) fn remember_content_type(&mut self, content_type: ContentType) -> bool {
+        let changed = self.content_type != content_type;
+        self.content_type = content_type;
+        changed
     }
 }
 

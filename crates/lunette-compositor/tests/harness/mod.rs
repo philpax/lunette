@@ -31,10 +31,15 @@ use lunette_compositor::{
 /// logical size through `wp_viewport.set_destination`. Both decoration managers are here so GTK and Qt clients do
 /// not draw their own titlebars inside a panel.
 ///
+/// `wp_content_type_manager_v1` is here because a client's own statement of
+/// what it is drawing is the strongest signal there is for whether throttling
+/// it would be noticed. It is a hint with no events and thin adoption, so it is
+/// reported to Lua rather than acted on.
+///
 /// The four selection globals are all advertised whether or not a host desktop
 /// is reachable: a session with no host still has a clipboard, it just does not
 /// leave lunette.
-pub const EXPECTED_GLOBALS: [&str; 15] = [
+pub const EXPECTED_GLOBALS: [&str; 16] = [
     "ext_data_control_manager_v1",
     "org_kde_kwin_server_decoration_manager",
     "wl_compositor",
@@ -43,6 +48,7 @@ pub const EXPECTED_GLOBALS: [&str; 15] = [
     "wl_seat",
     "wl_shm",
     "wl_subcompositor",
+    "wp_content_type_manager_v1",
     "wp_fractional_scale_manager_v1",
     "wp_viewporter",
     "xdg_wm_base",

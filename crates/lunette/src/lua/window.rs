@@ -15,8 +15,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::protocol::{
-    Command, FramePacing, FrameRate, PixelSize, SinkId, SurfaceId, ToplevelStates, WindowId,
-    WindowSnapshot,
+    Command, ContentType, FramePacing, FrameRate, PixelSize, SinkId, SurfaceId, ToplevelStates,
+    WindowId, WindowSnapshot,
 };
 use mlua::{UserData, UserDataFields, UserDataMethods, Value};
 
@@ -105,6 +105,7 @@ struct Known {
     title: Option<String>,
     app_id: Option<String>,
     size: PixelSize,
+    content_type: ContentType,
     /// Carried so that a resize can restate them. A configure replaces the
     /// state set wholesale, so sending one without them would take a window out
     /// of maximised or fullscreen as a side effect of changing its size.
@@ -119,6 +120,7 @@ impl From<&WindowSnapshot> for Known {
             title: window.title.clone(),
             app_id: window.app_id.clone(),
             size: window.size,
+            content_type: window.content_type,
             states: window.states.clone(),
         }
     }
@@ -176,6 +178,18 @@ impl<T: LuaTexture> UserData for Window<T> {
         // False for a window with no texture yet, which is the answer that
         // makes an unanswerable question harmless: there is nothing to draw.
         fields.add_field_method_get("opaque", |_, window| Ok(is_opaque(window)));
+
+        // What the client says it is drawing, as one of 'none', 'photo',
+        // 'video', or 'game'. A hint and nothing more: `wp_content_type_v1` has
+        // no events and thin adoption, so a client playing video may well
+        // report 'none'. `mullion.pacing` combines it with a commit-rate
+        // heuristic rather than trusting it, which is why the heuristic is
+        // there and not here.
+        fields.add_field_method_get("contentType", |_, window| {
+            window.refresh();
+            let content_type = window.known.borrow().content_type;
+            Ok(content_type.as_str())
+        });
 
         // Where input for this window goes. A fresh handle each read: it holds
         // an identifier and an `Rc`, so there is nothing to gain by caching one

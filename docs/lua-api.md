@@ -60,6 +60,7 @@ print(win.title)             -- last frame's value.
 print(win.appId)             -- the client's application identifier.
 print(win.width, win.height) -- the surface's size in pixels.
 print(win.opaque)            -- true when the buffer's fourth component is padding, not alpha.
+print(win.contentType)       -- 'none', 'photo', 'video', or 'game': what the client says it draws.
 win:resize(1920, 1080)       -- a configure request; the client may ignore it.
 win:setFrameRate(10)         -- how often this client is let draw; nil for unthrottled.
 win:close()                  -- a close request, not a kill; watch for lovr.lunwindowclosed.
@@ -83,6 +84,8 @@ The rate is a ceiling with a floor under it. A rate below approximately 1 Hz is 
 `win:stabilize()` is described in [Rendering](rendering.md#windowstabilize).
 
 `win.opaque` reports that the window's current buffer has no alpha channel, so its fourth component is padding a caller forces to one rather than sampling. It is a property of the buffer and changes when the client renegotiates its format, so it is read each frame alongside the texture. [Rendering](rendering.md#alpha) states what a consumer does with it, and why premultiplied blending is the other half of the same subject.
+
+`win.contentType` is `wp_content_type_v1`, and is a hint rather than a fact. The protocol has no events and no way to ask, and adoption is thin and uneven: a client playing video commonly reports `'none'`, and one reporting `'video'` may be paused on a still frame. It is reported rather than acted on, and `mullion.pacing` combines it with an observed commit rate to decide what is exempt from throttling. A configuration that wants a different rule has both halves.
 
 `win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
 

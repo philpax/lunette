@@ -26,9 +26,9 @@ use std::{ffi::OsStr, rc::Rc, sync::Arc};
 
 use lunette_compositor::{
     protocol::{
-        Command, FramePacing, PixelSize, PointerButton, ProcessId, ProcessSnapshot, ScrollAxis,
-        ScrollDelta, SeatId, SinkId, Snapshot, SurfaceId, ToplevelState, ToplevelStates, WindowId,
-        WindowSnapshot,
+        Command, ContentType, FramePacing, PixelSize, PointerButton, ProcessId, ProcessSnapshot,
+        ScrollAxis, ScrollDelta, SeatId, SinkId, Snapshot, SurfaceId, ToplevelState,
+        ToplevelStates, WindowId, WindowSnapshot,
     },
     state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
@@ -109,6 +109,7 @@ fn window(raw: u64, title: &str, app_id: &str, size: PixelSize) -> WindowSnapsho
         max_size: None,
         parent: None,
         states: ToplevelStates::new(),
+        content_type: ContentType::None,
     }
 }
 
@@ -556,6 +557,31 @@ fn resizing_restates_the_states_the_window_is_already_in() {
         ),
         other => panic!("expected a configure command, got {other:?}"),
     }
+}
+
+#[test]
+fn a_window_reports_the_content_type_its_client_set() {
+    let mut playing = window(1, "mpv", "mpv", PixelSize::new(64, 32));
+    playing.content_type = ContentType::Video;
+    let session = session(vec![playing]);
+    let lua = lua(&session);
+
+    assert_eq!(
+        run::<String>(&lua, "return lunette.windows()[1].contentType"),
+        "video"
+    );
+}
+
+#[test]
+fn a_window_whose_client_said_nothing_reports_none() {
+    let session = session(vec![window(1, "foot", "foot", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    assert_eq!(
+        run::<String>(&lua, "return lunette.windows()[1].contentType"),
+        "none",
+        "the protocol's own default, and what most clients report"
+    );
 }
 
 #[test]

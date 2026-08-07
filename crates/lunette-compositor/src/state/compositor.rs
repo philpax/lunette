@@ -30,6 +30,7 @@ use smithay::{
     utils::{Logical, Rectangle, Size, Transform},
     wayland::{
         compositor::{self, CompositorClientState, send_surface_state, with_states},
+        content_type::ContentTypeState,
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
         selection::{
@@ -229,6 +230,8 @@ pub(crate) struct CompositorState {
     #[expect(dead_code, reason = "held so the global stays advertised")]
     viewporter: ViewporterState,
     #[expect(dead_code, reason = "held so the global stays advertised")]
+    content_type: ContentTypeState,
+    #[expect(dead_code, reason = "held so the global stays advertised")]
     fractional_scale: FractionalScaleManagerState,
 
     pub(super) importer: Box<dyn BufferImporter>,
@@ -334,6 +337,12 @@ impl CompositorState {
         // this, which is why its own `with_fractional_scale` calls write user
         // data no client can read.
         let fractional_scale = FractionalScaleManagerState::new::<Self>(display);
+        // A client hint and nothing more: there is no handler trait and no
+        // events, and a client that plays video may set nothing at all. So it
+        // is reported to Lua rather than acted on, and Lua decides what counts
+        // as video — `docs/rendering.md` exempts video from throttling, and a
+        // heuristic in this crate would be policy in the mechanism layer.
+        let content_type = ContentTypeState::new::<Self>(display);
         let xdg_decoration = XdgDecorationState::new::<Self>(display);
         let kde_decoration = KdeDecorationState::new::<Self>(
             display,
@@ -421,6 +430,7 @@ impl CompositorState {
             dmabuf_feedback,
             xdg_decoration,
             viewporter,
+            content_type,
             fractional_scale,
             importer,
             spawner,

@@ -39,6 +39,7 @@ local COVERAGE = {
   ['keycodes.lua'] = 'keycodes_spec.lua',
   ['laser.lua'] = 'laser_spec.lua',
   ['layout/arc.lua'] = 'layout/arc_spec.lua',
+  ['pacing.lua'] = 'pacing_spec.lua',
   ['panel/init.lua'] = 'panel/panel_spec.lua',
   ['panel/raycast.lua'] = 'panel/raycast_spec.lua',
   ['persist/format.lua'] = 'persist/format_spec.lua',

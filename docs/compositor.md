@@ -11,6 +11,7 @@ The protocol set starts from WayVR's (`inspiration/wayvr/wayvr/src/backend/wayvr
 Additions:
 
 - `wp_fractional_scale_v1`. WayVR does not implement it; lunette requires it. Panel resolution and physical size are decoupled in VR, and a panel the user leans toward should render sharper. Viewporter, its prerequisite, is already present.
+- `wp_content_type_v1`. A client's own statement of what it is drawing is the strongest single signal for whether throttling it would be noticed. It is a hint with no events and no way to ask, and adoption is thin, so it is reported to Lua as `win.contentType` rather than acted on natively; `mullion.pacing` combines it with an observed commit rate and decides. A heuristic in the compositor would be policy in the mechanism layer.
 - `linux-drm-syncobj-v1`, eventually, for explicit sync.
 
 ## Outputs

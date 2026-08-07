@@ -12,8 +12,8 @@ use std::os::fd::OwnedFd;
 
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
-    delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf,
-    delegate_ext_data_control, delegate_fractional_scale, delegate_kde_decoration,
+    delegate_compositor, delegate_content_type, delegate_data_control, delegate_data_device,
+    delegate_dmabuf, delegate_ext_data_control, delegate_fractional_scale, delegate_kde_decoration,
     delegate_primary_selection, delegate_seat, delegate_shm, delegate_viewporter,
     delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{
@@ -587,6 +587,7 @@ delegate_kde_decoration!(CompositorState);
 // hand-written in [`crate::output`], along with the filter that makes each
 // client see only its own monitors. The macro's other four lines are
 // xdg-output, which lunette does not advertise.
+delegate_content_type!(CompositorState);
 delegate_primary_selection!(CompositorState);
 delegate_seat!(CompositorState);
 delegate_shm!(CompositorState);

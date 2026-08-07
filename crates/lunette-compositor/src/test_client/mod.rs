@@ -65,6 +65,10 @@ use wayland_client::{
 };
 use wayland_protocols::{
     wp::{
+        content_type::v1::client::{
+            wp_content_type_manager_v1::WpContentTypeManagerV1,
+            wp_content_type_v1::{self, WpContentTypeV1},
+        },
         fractional_scale::v1::client::{
             wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1,
             wp_fractional_scale_v1::{self, WpFractionalScaleV1},
@@ -86,9 +90,20 @@ use wayland_protocols::{
 
 pub use crate::test_client::selection::{ClientSource, SelectionDevices, read_to_end};
 use crate::{
-    protocol::{PixelSize, ScrollAxis},
+    protocol::{ContentType, PixelSize, ScrollAxis},
     testing::{DEADLINE, TestCompositor},
 };
+
+/// lunette's content type as the protocol spells it, so a test names the domain
+/// type and the wire form stays here.
+fn protocol_content_type(content_type: ContentType) -> wp_content_type_v1::Type {
+    match content_type {
+        ContentType::None => wp_content_type_v1::Type::None,
+        ContentType::Photo => wp_content_type_v1::Type::Photo,
+        ContentType::Video => wp_content_type_v1::Type::Video,
+        ContentType::Game => wp_content_type_v1::Type::Game,
+    }
+}
 
 /// `DRM_FORMAT_ARGB8888`, which is the format a test advertises and attaches.
 const ARGB8888: u32 = smithay::backend::allocator::Fourcc::Argb8888 as u32;
@@ -122,6 +137,11 @@ pub struct TestClient {
     /// destroyed early. A destroyed object is removed from the surface's state
     /// and stops being sent anything.
     fractional_scales: Vec<WpFractionalScaleV1>,
+    /// The `wp_content_type_v1` of each surface that has one, by surface. One
+    /// per surface is all the protocol allows — a second `get_surface_content
+    /// _type` is a protocol error — and held so none is destroyed early, since
+    /// destroying one resets its surface's content type to none.
+    content_types: Vec<(ObjectId, WpContentTypeV1)>,
 }
 
 impl TestClient {
@@ -165,6 +185,7 @@ impl TestClient {
             pointer: None,
             buffers: Vec::new(),
             fractional_scales: Vec::new(),
+            content_types: Vec::new(),
         }
     }
 
@@ -700,6 +721,52 @@ impl TestClient {
         let scale = manager.get_fractional_scale(surface, &handle, ());
         self.fractional_scales.push(scale.clone());
         scale
+    }
+
+    /// Tells the compositor what this surface is drawing, and commits.
+    ///
+    /// `wp_content_type_v1` is double-buffered like everything else a client
+    /// sets, so the value takes effect at the commit rather than at the
+    /// request; a caller establishing that passes `commit: false` and commits
+    /// itself.
+    pub fn set_content_type(
+        &mut self,
+        compositor: &mut TestCompositor,
+        surface: &WlSurface,
+        content_type: ContentType,
+        commit: bool,
+    ) {
+        let object = self.content_type_of(surface);
+        object.set_content_type(protocol_content_type(content_type));
+
+        if commit {
+            surface.commit();
+        }
+        self.settle_quiet(compositor);
+    }
+
+    /// The surface's `wp_content_type_v1`, creating it on first use.
+    ///
+    /// One per surface: a second `get_surface_content_type` for the same
+    /// surface is a protocol error, so a client changing its mind reuses the
+    /// object it already has.
+    fn content_type_of(&mut self, surface: &WlSurface) -> WpContentTypeV1 {
+        let id = surface.id();
+        if let Some((_, object)) = self.content_types.iter().find(|(held, _)| *held == id) {
+            return object.clone();
+        }
+
+        let handle = self.queue.handle();
+        let manager = self.bind::<WpContentTypeManagerV1>(1);
+        let object = manager.get_surface_content_type(surface, &handle, ());
+        self.content_types.push((id, object.clone()));
+        object
+    }
+
+    /// Commits a surface without attaching anything new to it.
+    pub fn commit(&mut self, compositor: &mut TestCompositor, surface: &WlSurface) {
+        surface.commit();
+        self.settle_quiet(compositor);
     }
 
     /// Asks for a frame callback on a surface and commits, which is what a
@@ -1681,6 +1748,8 @@ impl Dispatch<WlBuffer, ()> for Driver {
     }
 }
 
+delegate_noop!(Driver: ignore WpContentTypeManagerV1);
+delegate_noop!(Driver: ignore WpContentTypeV1);
 delegate_noop!(Driver: ignore WlCompositor);
 delegate_noop!(Driver: ignore WlShm);
 delegate_noop!(Driver: ignore WlShmPool);
