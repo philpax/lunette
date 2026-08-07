@@ -8,6 +8,7 @@
 # Three sets ship:
 #
 #   $(PREFIX)/bin/lunette              the binary
+#   $(PREFIX)/bin/lunctl               the control client
 #   $(PREFIX)/lib/lunette/             LOVR and the shared libraries it needs
 #   $(PREFIX)/share/lunette/lua/       the mullion standard library
 #   $(SYSCONFDIR)/xdg/lunette/         the default configuration
@@ -78,6 +79,7 @@ install-binary: build
 		{ echo "make: liblovr.so was not found under $(build_dir)/build; run make build first" >&2; exit 1; }
 	$(INSTALL) -d $(bindir) $(libdir)
 	$(INSTALL_PROGRAM) $(build_dir)/lunette $(bindir)/lunette
+	$(INSTALL_PROGRAM) $(build_dir)/lunctl $(bindir)/lunctl
 	$(INSTALL_PROGRAM) $(lovr_build)/liblovr.so $(libdir)/liblovr.so
 	$(INSTALL_PROGRAM) $(lovr_build)/bin/* $(libdir)/
 

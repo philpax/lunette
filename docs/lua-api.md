@@ -318,6 +318,12 @@ This is the most significant inheritance from awesome, more significant than any
 
 A caller that wants a typed protocol can build one in Lua on top of this mechanism.
 
+`lunctl` has three modes, which is awesome-client's shape: a chunk as an argument, a chunk on standard input, and an interactive prompt when standard input is a terminal. It has no line editing of its own; `rlwrap lunctl` supplies it. `--socket PATH` names a socket other than the resolved one, which is what the end-to-end tests drive.
+
+The exit status says what happened, so a script can branch on it: `0` the chunk ran, `1` it raised, `2` it did not compile, `3` it ran past its time budget and was abandoned, `4` it returned something the protocol cannot carry, `5` the session did not evaluate it, `6` the session could not be reached, and `64` `lunctl` was invoked wrongly. A load error and a runtime error stay apart because a caller acts differently on each; awesome collapses both into one string.
+
+A top-level string prints without quotes and a string inside a table prints with them. The top level is what a shell captures, so `$(lunctl 'return win.title')` is the title rather than the title in quotes. A handle prints as `<window 3>`: its kind and the identity the session keys it on, and nothing a client could dereference.
+
 Three things learned from awesome's version (`inspiration/awesome/lib/awful/remote.lua`):
 
 - awesome's remote control is exposed on the session D-Bus, reachable by every process in the session, including Flatpak applications granted `--socket=session-bus`. This makes it possible for a sandboxed application to ask the window manager to run arbitrary Lua. A 0600 socket in `$XDG_RUNTIME_DIR` provides the same capability with a smaller attack surface.
