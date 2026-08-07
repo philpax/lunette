@@ -56,16 +56,18 @@
 //! which LÖVR has one again lends it out. [`crate::restart`] states the ordering
 //! that makes the exchange safe, and it is the exacting part of this module.
 
+mod mirroring;
+mod teardown;
+
 #[cfg(test)]
 mod tests;
 
 use std::{collections::HashSet, error::Error, fmt, rc::Rc, sync::Arc};
 
 use lunette_capture::{
-    mirror::PipewireStreams,
     monitor::{MonitorKey, OutputWatcher},
     stream::DrmFormat,
-    tokens::{self, TokenFile},
+    tokens::TokenFile,
 };
 use lunette_compositor::{
     client::{DisplayName, WaylandSocket, XwaylandSatellite},
@@ -84,10 +86,7 @@ use crate::{
     layers::{BlitLedger, LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session},
     mirrors::MirrorFrames,
-    restart,
-    texture::{
-        BarrierPolicy, LovrTexture, MonitorTextures, Released, TextureLedger, destroy_due_images,
-    },
+    texture::{BarrierPolicy, LovrTexture, Released, destroy_due_images},
 };
 
 /// What the entry point resolved before any thread existed, for the compositor
@@ -412,103 +411,6 @@ impl FrameDriver {
         }
     }
 
-    /// Stops the compositor and releases every GPU object the session held.
-    ///
-    /// Called before the Lua state closes, because closing it destroys LÖVR's
-    /// graphics module and with it the device the compositor thread borrowed.
-    ///
-    /// The images themselves are deliberately not destroyed. LÖVR retires an
-    /// imported texture's image *view* through its own morgue, which is emptied
-    /// only by `gpu_destroy`, and `vkDestroyImage` on an image that still has a
-    /// view is invalid. There are no further frames to defer into, so the
-    /// images are left for the device teardown that follows immediately.
-    pub fn shutdown(&mut self) {
-        tear_down_device(self, Disposal::StopCompositor);
-    }
-
-    /// Prepares for the Lua state and the graphics device to be destroyed, and
-    /// leaves the compositor running.
-    ///
-    /// The restart counterpart of [`FrameDriver::shutdown`]. What separates them
-    /// is that there are further frames after this one: the next session borrows
-    /// a new device and [`FrameDriver::start_if_ready`] hands it to the
-    /// compositor, which re-imports the buffers its clients still hold. That is
-    /// what `lunette-v1.AC5.5` means by clients staying connected.
-    ///
-    /// Both spend the same [`tear_down_device`], whose order is
-    /// [`crate::restart`]'s and is the whole of this method's correctness.
-    /// They differ only in [`Disposal`], the last step.
-    ///
-    /// # When the compositor does not answer
-    ///
-    /// It is stopped, and every client with it. That is a severe outcome for a
-    /// restart, and it is the correct one: the alternative is destroying a
-    /// device the compositor thread may be inside `vkCreateImage` on. A restart
-    /// that loses the clients is recoverable by the user; a driver that faults is
-    /// not.
-    ///
-    /// The teardown still runs in full on that path. It is the one the next
-    /// session inherits the consequences of, so leaving a layer or a claim
-    /// behind there is worse than leaving one behind at exit, not better.
-    pub fn quiesce(&mut self) {
-        // First, and waiting: nothing below may run while the compositor can
-        // still create an image against the device that is about to go.
-        let acknowledged = self
-            .compositor
-            .as_ref()
-            .map(|compositor| restart::quiesce(&compositor.handle, restart::QUIESCE_TIMEOUT));
-        let disposal = match acknowledged {
-            None => Disposal::Abandon,
-            Some(Ok(quiesced)) => {
-                info!(
-                    took = ?quiesced.took,
-                    discarded = quiesced.discarded,
-                    "the compositor released the graphics device",
-                );
-                Disposal::Abandon
-            }
-            Some(Err(error)) => {
-                error!(
-                    "{error}; stopping the compositor rather than destroying a device it may \
-                     still be using, so every client is disconnected by this restart"
-                );
-                Disposal::StopCompositor
-            }
-        };
-
-        tear_down_device(self, disposal);
-    }
-
-    /// Forgets every imported image without destroying it, and leaves the
-    /// compositor running with no device.
-    ///
-    /// [`ImageArena::abandon_all`] records why they are forgotten rather than
-    /// destroyed, and `docs/decisions.md` records what that costs.
-    ///
-    /// [`ImageArena::abandon_all`]: crate::import::ImageArena::abandon_all
-    fn abandon_images(&mut self) {
-        let Some(compositor) = &mut self.compositor else {
-            return;
-        };
-        let previous = std::mem::replace(&mut compositor.graphics, GraphicsState::Quiesced);
-        let GraphicsState::Held(mut graphics) = previous else {
-            return;
-        };
-
-        // The retained capture buffers are dropped rather than carried across.
-        // A mirrored monitor produces a frame every tick, so the next one
-        // re-imports against the new device on its own; keeping the old ones
-        // would only hold descriptors open for content that is already stale.
-        graphics.capture.forget_buffers();
-        let abandoned = graphics.arena.abandon_all();
-        drop(graphics);
-
-        info!(
-            images = abandoned,
-            "abandoned the imported images; the device teardown frees them"
-        );
-    }
-
     /// Stops the compositor thread, which disconnects every client.
     ///
     /// Terminal for the session: [`FrameDriver::start_if_ready`] starts a
@@ -538,188 +440,6 @@ impl FrameDriver {
             images = live,
             "compositor stopped; its images are freed with the graphics device"
         );
-    }
-
-    /// Reads what the host compositor has said about its outputs, and applies it.
-    ///
-    /// Both consumers are updated together and from the one roster: the mirror
-    /// lifecycle, so a monitor that has gone loses its stream, and the pointer
-    /// mapping, so the desktop's bounding box follows the monitor that moved.
-    /// Splitting them would let the two disagree about what is attached, which
-    /// is how a pointer ends up on a screen that is no longer there.
-    fn attach_outputs(&mut self) {
-        let Some(host) = &mut self.host else {
-            return;
-        };
-        let Some(roster) = host.outputs.poll() else {
-            return;
-        };
-
-        host.pointer.attach(&roster);
-        let change = host.mirrors.attach(roster);
-        for monitor in change.removed {
-            // A monitor that has gone produces no further frames, so a texture
-            // left behind is a still picture that looks live.
-            self.forget_monitor_texture(&monitor);
-        }
-    }
-
-    /// Writes the portal's restore tokens when a grant has changed them.
-    ///
-    /// Best-effort, and reported rather than fatal: the cost of failing is one
-    /// dialog on the next run, which is not worth ending a session over.
-    fn persist_tokens(&mut self) {
-        let Some(host) = &self.host else {
-            return;
-        };
-        let Some(file) = &host.tokens else {
-            return;
-        };
-        let Some(store) = host.mirrors.take_changed_tokens() else {
-            return;
-        };
-
-        match tokens::write(file, &store) {
-            Ok(()) => info!(
-                path = %file.path().display(),
-                monitors = store.len(),
-                "recorded the screencast restore tokens",
-            ),
-            Err(error) => warn!(
-                %error,
-                "the screencast restore tokens were not recorded, so the next run will prompt",
-            ),
-        }
-    }
-
-    /// Turns each mirror's newest frame into the texture Lua samples.
-    ///
-    /// The frames arrive as plain descriptors from PipeWire's own thread, and
-    /// every Vulkan import in the process happens here, on the main thread,
-    /// through the same dmabuf path a client's buffer takes.
-    fn import_capture_frames(&mut self) {
-        let (Some(host), Some(graphics)) = (
-            &self.host,
-            self.compositor.as_mut().and_then(Compositor::graphics_mut),
-        ) else {
-            return;
-        };
-
-        for (monitor, frame) in host.mirrors.take_frames() {
-            let size = frame.format().size;
-            // Read before the import, because the importer needs it: the image
-            // a monitor's texture wraps is the one entry its buffer retention
-            // must not release, and releasing it would free the image out from
-            // under a live view.
-            let installed = self
-                .session
-                .with_monitor_textures(|textures| textures.image(&monitor));
-
-            let image = match graphics.capture.import(&monitor, frame, installed) {
-                Ok(image) => image,
-                Err(error) => {
-                    warn!(%monitor, %error, "a mirrored monitor's frame could not be imported");
-                    continue;
-                }
-            };
-
-            // The importer answers a recurring PipeWire buffer with the image it
-            // already made, and PipeWire cycles a small fixed pool — so after
-            // the first few frames this is the branch that runs, and wrapping
-            // the image again would allocate a texture over memory a texture
-            // already covers.
-            if installed == Some(image.image) {
-                continue;
-            }
-
-            // SAFETY: this is the frame thread and LÖVR's graphics module is
-            // initialised, because the device the import ran against is the one
-            // LÖVR created. The handle names an image the arena holds.
-            let texture = match unsafe { LovrTexture::import(&image) } {
-                Ok(texture) => texture,
-                Err(error) => {
-                    warn!(%monitor, %error, "a mirrored monitor's frame could not become a texture");
-                    continue;
-                }
-            };
-
-            debug!(
-                %monitor,
-                %size,
-                retained = graphics.capture.held(),
-                "a mirrored monitor produced a new texture",
-            );
-            let description = crate::texture::describe(&ImportedBuffer::Image(image));
-            let displaced = self.session.with_monitor_textures(|textures| {
-                textures.install(monitor.clone(), image.image, texture, description)
-            });
-            if let Some(displaced) = displaced {
-                displaced.release_ref();
-            }
-        }
-    }
-
-    /// Releases the texture of every monitor whose mirror has stopped.
-    ///
-    /// `monitor:dismiss()` tears the stream down from Lua, and nothing after
-    /// that refreshes what the texture holds. Leaving it would leave a panel
-    /// showing whatever the screen last displayed, which is worse than showing
-    /// nothing because it looks live.
-    ///
-    /// A paused mirror keeps its texture on purpose: pausing is for a panel that
-    /// has left the user's view, and resuming it is meant to cost nothing.
-    ///
-    /// Driven from everything lunette holds for a monitor rather than from the
-    /// texture ledger alone, for the reason [`stopped_monitors`] gives: a
-    /// monitor can retain capture buffers while holding no texture at all.
-    fn drop_stopped_mirrors(&mut self) {
-        let holding = self
-            .session
-            .with_monitor_textures(|textures| textures.monitors());
-        let retaining = self
-            .compositor
-            .as_ref()
-            .and_then(Compositor::graphics)
-            .map(|graphics| graphics.capture.streams())
-            .unwrap_or_default();
-
-        let stopped = {
-            let mirrors = self.session.mirrors();
-            // `None` is a monitor that has been unplugged, which stops
-            // producing for the same reason and is answered the same way.
-            stopped_monitors(holding, retaining, |monitor| {
-                mirrors.state(monitor).is_some_and(|state| state.mirrored)
-            })
-        };
-
-        for monitor in &stopped {
-            self.forget_monitor_texture(monitor);
-        }
-    }
-
-    /// Drops everything held for a monitor that is no longer producing frames.
-    ///
-    /// The texture first and the retained capture buffers second, in that order.
-    /// Releasing the texture is what puts LÖVR's view of the image into its own
-    /// morgue; dropping the buffers is what lets the image behind it be retired
-    /// and, two frames later, destroyed. The other order frees an image a live
-    /// view still names.
-    ///
-    /// The buffers have to be dropped here and not left to the process exit:
-    /// the retained `Dmabuf` is a strong reference, so nothing else ever makes
-    /// the importer's cache entry collectable, and a dismissed screen would keep
-    /// its image and its imported memory for the rest of the session.
-    fn forget_monitor_texture(&mut self, monitor: &MonitorKey) {
-        let released = self
-            .session
-            .with_monitor_textures(|textures| textures.forget(monitor));
-        if let Some(texture) = released {
-            texture.release_ref();
-        }
-
-        if let Some(graphics) = self.compositor.as_mut().and_then(Compositor::graphics_mut) {
-            graphics.capture.forget_stream(monitor);
-        }
     }
 
     /// Starts the compositor once LÖVR has a device to lend it, or lends it the
@@ -853,24 +573,6 @@ impl FrameDriver {
         self.negotiate_capture_formats(&device);
     }
 
-    /// Tells monitor capture which DRM formats the new device can import.
-    ///
-    /// Re-run for every device rather than once at startup: a capture stream
-    /// negotiates against what the importer accepts, and that is a property of a
-    /// particular device.
-    fn negotiate_capture_formats(&self, device: &GraphicsDevice) {
-        let Some(host) = &self.host else {
-            return;
-        };
-        let formats = capture_formats(device);
-        info!(
-            formats = formats.len(),
-            "monitor capture can now negotiate a dmabuf"
-        );
-        host.mirrors
-            .set_streams(Box::new(PipewireStreams::new(formats)));
-    }
-
     /// Copies each claim's window into the layer it holds, and hands the
     /// runtime the list to composite.
     ///
@@ -998,97 +700,6 @@ impl FrameDriver {
             .session
             .with_textures(|ledger| ledger.install(surface, texture, description));
         release(released);
-    }
-}
-
-/// Gives up everything the graphics device owns, in the one order that is safe.
-///
-/// [`crate::restart`] states the sequence and the reasoning; this performs it,
-/// and both [`FrameDriver::shutdown`] and [`FrameDriver::quiesce`] spend it. The
-/// short version of each step:
-///
-/// 1. A `Layer` is destroyed by `xrDestroySwapchain`, so the layers go while the
-///    XR session that owns their swapchains still exists.
-/// 2. A claim is an identifier held by a Lua handle. The state that made them is
-///    about to go, and a claim left behind contends for the next session's layer
-///    budget on behalf of a panel that no longer exists, forever.
-/// 3. The blit ledger caches swapchain images the layers own, so it cannot
-///    outlive them.
-/// 4. Releasing a texture retires LÖVR's view of the image into LÖVR's own
-///    morgue, which only `gpu_destroy` empties. It has to precede the images
-///    being given up, because a view still names each one.
-/// 5. What becomes of the images themselves, which is the only step the two
-///    callers answer differently.
-///
-/// A free function over a trait rather than a method, because the order is the
-/// deliverable and a method's statement order is asserted nowhere: reordering
-/// two lines of it compiles and passes. `tests.rs` implements [`DeviceTeardown`]
-/// against a recorder, so a reordering fails.
-fn tear_down_device(target: &mut impl DeviceTeardown, disposal: Disposal) {
-    target.destroy_layers();
-    target.forget_claims();
-    target.forget_blits();
-    target.release_textures();
-    target.give_up_images(disposal);
-}
-
-/// The steps [`tear_down_device`] runs, as a seam.
-///
-/// Each is documented at the call above rather than here, because what matters
-/// about them is the order and the order is there.
-trait DeviceTeardown {
-    fn destroy_layers(&mut self);
-    fn forget_claims(&mut self);
-    fn forget_blits(&mut self);
-    fn release_textures(&mut self);
-    fn give_up_images(&mut self, disposal: Disposal);
-}
-
-/// What becomes of the imported images once no texture names them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Disposal {
-    /// A restart. The compositor keeps running and keeps its clients, so it must
-    /// be left holding no handle from the device that is about to be destroyed;
-    /// the images are forgotten rather than destroyed, for the reason
-    /// [`FrameDriver::abandon_images`] gives.
-    Abandon,
-    /// The compositor stops and its clients are disconnected. A session ending,
-    /// or a restart the compositor did not acknowledge.
-    StopCompositor,
-}
-
-impl DeviceTeardown for FrameDriver {
-    fn destroy_layers(&mut self) {
-        self.session.claims().shutdown();
-    }
-
-    fn forget_claims(&mut self) {
-        self.layers.forget_claims();
-    }
-
-    fn forget_blits(&mut self) {
-        self.blitted.clear();
-    }
-
-    fn release_textures(&mut self) {
-        let released = self.session.with_textures(TextureLedger::take_all);
-        for texture in released {
-            texture.release_ref();
-        }
-
-        let released = self
-            .session
-            .with_monitor_textures(MonitorTextures::take_all);
-        for texture in released {
-            texture.release_ref();
-        }
-    }
-
-    fn give_up_images(&mut self, disposal: Disposal) {
-        match disposal {
-            Disposal::Abandon => self.abandon_images(),
-            Disposal::StopCompositor => self.stop_compositor(),
-        }
     }
 }
 

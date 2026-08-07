@@ -24,6 +24,9 @@ mod compositor;
 mod graphics;
 mod handlers;
 mod input;
+mod outputs;
+mod pacing;
+mod processes;
 mod selection;
 #[cfg(test)]
 mod tests;

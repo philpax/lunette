@@ -19,7 +19,8 @@ use lunette_compositor::{
 use pretty_assertions::assert_eq;
 
 use super::{
-    DeviceTeardown, Disposal, LedgerChange, ledger_change, stopped_monitors, tear_down_device,
+    LedgerChange, ledger_change, stopped_monitors,
+    teardown::{DeviceTeardown, Disposal, tear_down_device},
 };
 use crate::{
     import::formats::Alpha,

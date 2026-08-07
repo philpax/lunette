@@ -1,7 +1,15 @@
 //! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/comp.rs and backend/wayvr/mod.rs (the globals and output fragments), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! The state every global is served from, and the commit path underneath it.
+//! The state every global is served from: what it owns, how it is built, and
+//! the commands it answers.
+//!
+//! Three concerns that were here have their own files beside this one, each
+//! adding methods to [`CompositorState`] rather than a type of its own:
+//! [`crate::state::outputs`] for the virtual monitors and what changing one
+//! means, [`crate::state::processes`] for the processes lunette starts and the
+//! clients attributed to them, and [`crate::state::pacing`] for how often each
+//! surface's frame callbacks are answered.
 
 use std::{
     collections::HashMap,
@@ -16,23 +24,20 @@ use smithay::{
     desktop::{PopupKind, PopupManager, find_popup_root_surface, get_popup_toplevel_coords},
     input::SeatState,
     reexports::{
-        calloop::{
-            LoopHandle, LoopSignal, RegistrationToken,
-            timer::{TimeoutAction, Timer},
-        },
+        calloop::{LoopHandle, LoopSignal, RegistrationToken},
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
-            Client, DisplayHandle, Resource,
+            DisplayHandle,
             backend::{ClientData, ClientId, DisconnectReason},
             protocol::{wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface},
         },
     },
-    utils::{Logical, Rectangle, Size, Transform},
+    utils::Rectangle,
     wayland::{
-        compositor::{self, CompositorClientState, send_surface_state, with_states},
+        compositor::{self, CompositorClientState, with_states},
         content_type::ContentTypeState,
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
-        fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
+        fractional_scale::FractionalScaleManagerState,
         selection::{
             data_device::DataDeviceState,
             ext_data_control::DataControlState as ExtDataControlState,
@@ -50,22 +55,21 @@ use smithay::{
         viewporter::ViewporterState,
     },
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
     client::{DisplayName, Satellite, XwaylandSatellite},
-    output::{OutputEntry, OutputRegistry, integer_scale},
+    output::OutputRegistry,
     pacing::FramePacer,
-    process::{
-        DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
-    },
+    process::{DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner},
     protocol::{
-        Command, Event, FramePacing, KeyboardConfig, KeymapDefaults, OutputId, OutputMode,
-        OutputScale, Pid, PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
-        SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
+        Command, Event, KeyboardConfig, KeymapDefaults, OutputId, OutputMode, OutputScale,
+        PixelSize, ProcessId, RefreshRate, SeatId, SurfaceId, ToplevelState, ToplevelStates,
+        WindowId,
     },
     seat::SeatRegistry,
     selection::{HostEvents, HostSelectionSource, SelectionBridge},
+    state::outputs::logical_size,
     surface::{BufferImporter, RetainedBuffers, SurfaceContent, SurfaceRegistry},
     thread::{EventSender, LoopData, SnapshotParts, SnapshotPublisher},
     window::{Window, WindowManager},
@@ -97,13 +101,6 @@ pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
 
 /// The default seat's name, which clients see on `wl_seat.name`.
 const SEAT_NAME: &str = "lunette";
-
-/// How often spawned processes are checked for output and for having exited.
-///
-/// A tenth of a second. Output from a spawned application is diagnostic, so the
-/// latency does not matter; the interval is short enough that a process that
-/// exits is reported within a frame or two of it happening.
-const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// How lunette configures its virtual monitor and its buffer support.
 ///
@@ -196,7 +193,7 @@ pub(crate) struct CompositorState {
     pub(super) config: CompositorConfig,
     /// What a spawned client is told about how to reach lunette, derived once
     /// from the display name rather than rebuilt per spawn.
-    environment: DisplayEnvironment,
+    pub(super) environment: DisplayEnvironment,
 
     pub(super) compositor: compositor::CompositorState,
     pub(super) xdg_shell: XdgShellState,
@@ -235,26 +232,26 @@ pub(crate) struct CompositorState {
     fractional_scale: FractionalScaleManagerState,
 
     pub(super) importer: Box<dyn BufferImporter>,
-    spawner: Box<dyn ProcessSpawner>,
-    inspector: Box<dyn ProcessInspector>,
+    pub(super) spawner: Box<dyn ProcessSpawner>,
+    pub(super) inspector: Box<dyn ProcessInspector>,
     pub(super) surfaces: SurfaceRegistry,
     pub(super) buffers: RetainedBuffers<WlBuffer>,
     pub(super) contents: HashMap<SurfaceId, SurfaceContent>,
     pub(super) windows: WindowManager,
-    processes: ProcessRegistry,
+    pub(super) processes: ProcessRegistry,
     /// Which process each connected client was attributed to.
-    clients: HashMap<ClientId, ProcessId>,
+    pub(super) clients: HashMap<ClientId, ProcessId>,
     /// Which output each spawned process's clients are shown. Only processes
     /// whose spawn named one appear; the rest fall back to the default output.
-    assignments: HashMap<ProcessId, OutputId>,
+    pub(super) assignments: HashMap<ProcessId, OutputId>,
     /// The timer that reaps children and collects their output, present only
     /// while there is something to reap.
-    process_poll: Option<RegistrationToken>,
-    loop_handle: LoopHandle<'static, LoopData>,
+    pub(super) process_poll: Option<RegistrationToken>,
+    pub(super) loop_handle: LoopHandle<'static, LoopData>,
     /// Polled with the spawned processes, and dropped with the state: dropping
     /// it asks the bridge's process group to stop, which is how
     /// xwayland-satellite and the `Xwayland` it started are reaped.
-    satellite: Satellite,
+    pub(super) satellite: Satellite,
     /// The callbacks each surface has accumulated and not yet been answered.
     ///
     /// Keyed on [`SurfaceId`] rather than on the object, so that the pacing
@@ -262,7 +259,7 @@ pub(crate) struct CompositorState {
     /// the same way and cannot drift apart.
     pub(super) frame_callbacks: HashMap<SurfaceId, Vec<WlCallback>>,
     /// How often each surface is answered.
-    pacing: FramePacer,
+    pub(super) pacing: FramePacer,
     /// The timer that wakes the loop to answer a withheld surface, with the
     /// moment it is armed for.
     ///
@@ -270,7 +267,7 @@ pub(crate) struct CompositorState {
     /// runs with no timeout, so without this a withheld callback would wait for
     /// unrelated traffic to wake the compositor — which for an idle throttled
     /// window may be never.
-    pacing_wakeup: Option<(RegistrationToken, Duration)>,
+    pub(super) pacing_wakeup: Option<(RegistrationToken, Duration)>,
     /// How many keymap uploads to let through, and how many to fail after
     /// them. Always `(0, 0)` in production; see
     /// [`CompositorState::fail_keymap_uploads`].
@@ -282,12 +279,12 @@ pub(crate) struct CompositorState {
     /// WayVR reads the wall clock and unwraps the conversion (`time.rs:4-9`).
     /// Wayland's timestamps must be monotonic, and a wall clock is not: a clock
     /// step backwards makes a client see time reverse, and NTP steps happen.
-    started: Instant,
+    pub(super) started: Instant,
     /// Added to the compositor's clock so a test can move time forward without
     /// sleeping. Always zero in production; see
     /// [`CompositorState::advance_clock`].
     #[cfg(any(test, feature = "test-fakes"))]
-    clock_offset: Duration,
+    pub(super) clock_offset: Duration,
 
     events: EventSender,
     snapshots: SnapshotPublisher,
@@ -533,271 +530,6 @@ impl CompositorState {
         }
     }
 
-    /// Sets how often a surface's frame callbacks are answered.
-    ///
-    /// A surface the compositor no longer knows is dropped rather than
-    /// recorded: identifiers are never reused, so an entry made for one could
-    /// never be matched again and would be carried for the rest of the session.
-    /// Lua reaching a window a frame after it closed is ordinary, so this is
-    /// not worth reporting.
-    fn set_frame_pacing(&mut self, surface: SurfaceId, pacing: FramePacing) {
-        if !self.surfaces.knows(surface) {
-            debug!(%surface, "frame pacing was set for a surface that has gone; ignoring it");
-            return;
-        }
-
-        self.pacing.set(surface, pacing);
-    }
-
-    /// Creates a virtual monitor and advertises its global.
-    ///
-    /// A duplicate identifier is reported and dropped rather than replacing the
-    /// output that holds it: the clients already bound to that one would be
-    /// silently reconfigured to a mode nobody asked them to take.
-    fn create_output(&mut self, output: OutputId, mode: OutputMode) {
-        match self.outputs.create(&self.display, output, mode) {
-            Ok(()) => {
-                info!(%output, "an output was created");
-                self.touch();
-            }
-            Err(error) => warn!(%error, "could not create an output"),
-        }
-    }
-
-    /// Changes an output's mode, and tells everything on it.
-    ///
-    /// The `wl_output` events are the registry's; the per-surface scales and the
-    /// toplevel configures are [`CompositorState::rescale_output`]'s. A client
-    /// told its monitor changed and not told its own new scale keeps rendering
-    /// at the old one.
-    fn reconfigure_output(&mut self, output: OutputId, mode: OutputMode) {
-        match self.outputs.reconfigure(output, mode) {
-            Ok(()) => {
-                self.rescale_output(output);
-                self.touch();
-            }
-            Err(error) => warn!(%error, "could not reconfigure an output"),
-        }
-    }
-
-    /// Withdraws an output.
-    ///
-    /// The default output is refused. It is what a client that was assigned no
-    /// output is shown, and every adopted client is one of those, so a session
-    /// without it has clients that can see no monitor at all.
-    fn destroy_output(&mut self, output: OutputId) {
-        if output == DEFAULT_OUTPUT {
-            debug!("the default output cannot be destroyed; a client assigned none needs it");
-            return;
-        }
-
-        match self.outputs.destroy(&self.display, output) {
-            Ok(()) => self.touch(),
-            Err(error) => warn!(%error, "could not destroy an output"),
-        }
-    }
-
-    /// Starts a process and attributes the clients it connects with.
-    ///
-    /// A spawn that fails is reported as an exit that never happened, because
-    /// that is the one report a caller of `lunette.spawn` gets for a mistyped
-    /// program name and there is nothing else to hang it on.
-    fn spawn_process(&mut self, request: &SpawnCommand) {
-        let plan = SpawnRequest {
-            process: request.process,
-            argv: &request.argv,
-            env: &request.env,
-            cwd: request.cwd.as_deref(),
-            display: &self.environment,
-        };
-
-        if request.xwayland {
-            debug!(
-                process = %request.process,
-                "an X11 client still reaches lunette through xwayland-satellite's own socket"
-            );
-        }
-
-        match self.processes.spawn(self.spawner.as_mut(), plan) {
-            Ok(()) => {
-                self.assign_output(request.process, request.output);
-                self.touch();
-                self.watch_processes();
-            }
-            Err(error) => {
-                warn!(%error, "could not start a process");
-                self.report(Event::ProcessExited {
-                    process: request.process,
-                    outcome: ProcessOutcome::SpawnFailed {
-                        message: error.message(),
-                    },
-                });
-            }
-        }
-    }
-
-    /// Records which output a spawned process's clients will be shown.
-    ///
-    /// An output that does not exist is refused rather than recorded: a client
-    /// assigned one would see no monitor at all, which is a harder failure to
-    /// diagnose than a warning naming the output. Falling back to the default
-    /// is what an absent assignment already means.
-    fn assign_output(&mut self, process: ProcessId, output: Option<OutputId>) {
-        let Some(output) = output else {
-            return;
-        };
-        if self.outputs.get(output).is_none() {
-            warn!(
-                %process,
-                %output,
-                "a spawn named an output that does not exist; showing the default output instead"
-            );
-            return;
-        }
-        self.assignments.insert(process, output);
-    }
-
-    fn signal_process(&mut self, process: ProcessId, signal: ProcessSignal) {
-        self.processes.signal(process, signal);
-    }
-
-    /// Attributes a newly connected client to a process.
-    ///
-    /// The connecting pid first, then the token in the client's own
-    /// environment, and failing both the client is adopted as external — which
-    /// is the case a process started outside lunette with `WAYLAND_DISPLAY`
-    /// pointing at its socket falls into.
-    pub(crate) fn attach_client(&mut self, client: &Client) {
-        let process = match client.get_credentials(&self.display) {
-            Ok(credentials) => match Pid::new(credentials.pid) {
-                Some(pid) => self.attribute(pid),
-                None => {
-                    warn!("a client connected with an impossible process id; not attributing it");
-                    return;
-                }
-            },
-            Err(error) => {
-                warn!(%error, "could not read a connecting client's credentials");
-                return;
-            }
-        };
-
-        // Before any request from this client has been dispatched, because
-        // `insert_client` does not dispatch: the client's `wl_registry` has not
-        // been read yet, so the first advertisement sees the assignment.
-        if let Some(state) = client.get_data::<ClientState>() {
-            state.assign(self.assignments.get(&process).copied());
-        }
-
-        self.prune_clients();
-        self.clients.insert(client.id(), process);
-        self.touch();
-        self.watch_processes();
-    }
-
-    /// Forgets clients that have gone away.
-    ///
-    /// There is no per-client destruction hook to hang this on:
-    /// `ClientData::disconnected` is called on an `Arc` that knows nothing
-    /// about the compositor, and `CompositorHandler` only reports surfaces. So
-    /// the map is swept when a new client arrives, which bounds it at the
-    /// number of clients that have connected since the last connection rather
-    /// than at the number that have ever connected.
-    fn prune_clients(&mut self) {
-        let backend = self.display.backend_handle();
-        self.clients.retain(|client, _| {
-            backend
-                .get_client_data(client.clone())
-                .ok()
-                .and_then(|data| data.downcast_arc::<ClientState>().ok())
-                .is_some_and(|data| !data.disconnected())
-        });
-    }
-
-    fn attribute(&mut self, pid: Pid) -> ProcessId {
-        if let Some(process) = self.processes.identify(pid, self.inspector.as_ref()) {
-            debug!(%pid, %process, "attributed a client to a process lunette started");
-            return process;
-        }
-
-        let process = self.processes.adopt(pid);
-        info!(
-            %pid,
-            %process,
-            "a process lunette did not start connected to its socket; adopting it"
-        );
-        process
-    }
-
-    /// The output a surface's client is shown, which is the one it was assigned
-    /// or the default when it was assigned none.
-    pub(super) fn output_of(&self, surface: &WlSurface) -> OutputId {
-        assigned_output(surface).unwrap_or(DEFAULT_OUTPUT)
-    }
-
-    /// The process a client was attributed to.
-    pub(super) fn process_of(&self, surface: &WlSurface) -> Option<ProcessId> {
-        let client = surface.client()?;
-        self.clients.get(&client.id()).copied()
-    }
-
-    /// Starts the poll timer if it is not already running.
-    ///
-    /// One timer for every process rather than a source per pipe and a reaper
-    /// besides: a child's output is diagnostic, so a fraction of a second of
-    /// latency costs nothing, and a source registered per child would have to
-    /// be unregistered from inside its own callback.
-    fn watch_processes(&mut self) {
-        if self.process_poll.is_some() {
-            return;
-        }
-
-        let inserted = self.loop_handle.insert_source(
-            Timer::from_duration(PROCESS_POLL_INTERVAL),
-            |_now, _metadata, data: &mut LoopData| data.state.poll_processes(),
-        );
-
-        match inserted {
-            Ok(token) => self.process_poll = Some(token),
-            Err(error) => warn!(
-                error = %error.error,
-                "could not watch spawned processes; their output and exits will not be reported"
-            ),
-        }
-    }
-
-    /// Collects output and exits, and decides whether to keep watching.
-    fn poll_processes(&mut self) -> TimeoutAction {
-        self.satellite.poll();
-
-        for report in self.processes.poll(self.inspector.as_ref()) {
-            match report {
-                Report::Output { id, stream, bytes } => self.report(Event::ProcessOutput {
-                    process: id,
-                    stream,
-                    bytes,
-                }),
-                Report::Exited { id, outcome } => {
-                    self.assignments.remove(&id);
-                    self.touch();
-                    self.report(Event::ProcessExited {
-                        process: id,
-                        outcome,
-                    });
-                }
-            }
-        }
-
-        if self.processes.is_empty() && !self.satellite.is_running() {
-            // Nothing left to reap. The timer is dropped rather than left to
-            // wake an otherwise idle compositor ten times a second.
-            self.process_poll = None;
-            return TimeoutAction::Drop;
-        }
-
-        TimeoutAction::ToDuration(PROCESS_POLL_INTERVAL)
-    }
-
     /// Asks a toplevel to close.
     ///
     /// A request, not a kill: the client may prompt the user, or refuse. The
@@ -857,125 +589,6 @@ impl CompositorState {
         });
     }
 
-    /// Answers the frame callbacks of every surface that is due one.
-    ///
-    /// Called once a tick. A client that is not answered stops drawing, and
-    /// most clients stop pumping their event loop with it, so this is what
-    /// keeps a window responsive as well as animated — which is why a
-    /// throttled surface is paced to a floor rather than starved, and why a
-    /// withheld one arms a timer to come back for it.
-    ///
-    /// Withholding loses nothing. smithay's `SurfaceAttributes::merge_into`
-    /// extends the callback list rather than replacing it, so a surface that
-    /// commits three times while withheld holds all three callbacks and all
-    /// three are answered by the next send.
-    pub(crate) fn send_frame_callbacks(&mut self) {
-        if self.frame_callbacks.is_empty() {
-            self.disarm_pacing_wakeup();
-            return;
-        }
-
-        let now = self.elapsed();
-        let stamp = protocol_millis(now);
-
-        // Disjoint field borrows: the pacer is consulted and updated while the
-        // callback map is being drained into, which is why `now` is taken
-        // before the loop rather than read from `self` inside it.
-        let mut withheld = HashMap::new();
-        for (surface, callbacks) in self.frame_callbacks.drain() {
-            if !self.pacing.is_due(surface, now) {
-                withheld.insert(surface, callbacks);
-                continue;
-            }
-
-            self.pacing.record_sent(surface, now);
-            for callback in callbacks {
-                callback.done(stamp);
-            }
-        }
-        self.frame_callbacks = withheld;
-
-        self.arm_pacing_wakeup(now);
-    }
-
-    /// Wakes the loop when the earliest withheld surface comes due.
-    fn arm_pacing_wakeup(&mut self, now: Duration) {
-        let Some(due) = self
-            .pacing
-            .next_due(self.frame_callbacks.keys().copied(), now)
-        else {
-            self.disarm_pacing_wakeup();
-            return;
-        };
-
-        // An armed timer that already fires no later than this one would is
-        // left alone; a nearer deadline replaces it, so a 60 Hz surface that
-        // starts being withheld does not wait out a 1 Hz surface's interval.
-        if self.pacing_wakeup.is_some_and(|(_, armed)| armed <= due) {
-            return;
-        }
-
-        self.disarm_pacing_wakeup();
-
-        // The timer only has to wake the loop: `send_frame_callbacks` runs
-        // after every dispatch, so the delivery happens there and this fires
-        // once and drops.
-        let inserted = self.loop_handle.insert_source(
-            Timer::from_duration(due.saturating_sub(now)),
-            |_now, _metadata, data: &mut LoopData| {
-                data.state.pacing_wakeup = None;
-                TimeoutAction::Drop
-            },
-        );
-
-        match inserted {
-            Ok(token) => self.pacing_wakeup = Some((token, due)),
-            Err(error) => warn!(
-                error = %error.error,
-                "could not arm the frame pacing timer; a throttled surface will \
-                 wait for other traffic to wake the compositor"
-            ),
-        }
-    }
-
-    /// Drops the pacing of a surface that has gone, so a rate set for it does
-    /// not outlive it.
-    pub(super) fn forget_pacing(&mut self, surface: SurfaceId) {
-        self.pacing.forget(surface);
-    }
-
-    fn disarm_pacing_wakeup(&mut self) {
-        if let Some((token, _)) = self.pacing_wakeup.take() {
-            self.loop_handle.remove(token);
-        }
-    }
-
-    /// Since the compositor started, on the clock every timestamp is measured
-    /// against.
-    ///
-    /// WayVR reads the wall clock and unwraps the conversion (`time.rs:4-9`).
-    /// Wayland's timestamps must be monotonic and a wall clock is not, so this
-    /// is monotonic by construction.
-    fn elapsed(&self) -> Duration {
-        let elapsed = self.started.elapsed();
-        #[cfg(any(test, feature = "test-fakes"))]
-        let elapsed = elapsed + self.clock_offset;
-        elapsed
-    }
-
-    /// Moves the compositor's clock forward, so a test can reach a pacing
-    /// interval without sleeping for one.
-    #[cfg(any(test, feature = "test-fakes"))]
-    pub(crate) fn advance_clock(&mut self, by: Duration) {
-        self.clock_offset += by;
-    }
-
-    /// Milliseconds since the compositor started, which is what the protocol's
-    /// timestamps are measured in.
-    pub(super) fn millis(&self) -> u32 {
-        protocol_millis(self.elapsed())
-    }
-
     /// Marks the snapshot stale so the next tick republishes it.
     pub(super) fn touch(&mut self) {
         self.dirty = true;
@@ -997,89 +610,6 @@ impl CompositorState {
         if self.events.send(event).is_err() {
             debug!("the main thread is gone; dropping an event");
         }
-    }
-
-    /// Tells a newly created surface which output it is on and at what scale.
-    pub(super) fn send_initial_surface_state(&mut self, surface: &WlSurface) {
-        self.outputs.enter(surface);
-        self.send_surface_scale(surface);
-    }
-
-    /// Tells one surface the scale of the output its client is shown.
-    ///
-    /// Both numbers, because a client is owed both. `wp_fractional_scale_v1`
-    /// carries the exact scale in 120ths, which is what a client renders at;
-    /// `wl_surface.preferred_buffer_scale` carries the whole number a client
-    /// without the fractional protocol renders at, and it is the ceiling rather
-    /// than the floor so that a client on a 1.5 scale is not told its monitor is
-    /// unscaled. The matching logical size travels separately, as an xdg-toplevel
-    /// configure; sending a scale without one produces sharp content at the
-    /// wrong size, which reads as a bug in the client.
-    ///
-    /// Set whether or not the client has asked for a `wp_fractional_scale_v1`
-    /// yet. smithay replays a pre-set value when the object is created
-    /// (`fractional_scale/mod.rs:160-166`), so pre-setting is what avoids a
-    /// first frame at the wrong scale.
-    ///
-    /// # Thread affinity
-    ///
-    /// `with_fractional_scale` inserts into the surface's user data with the
-    /// non-threadsafe `get_or_insert` (`fractional_scale/mod.rs:253-263`), which
-    /// records the calling thread and answers `None` to every other one — so a
-    /// second thread would insert a second entry and the two would diverge in
-    /// silence. Everything here runs on the compositor thread, which is the only
-    /// thing that dispatches [`CompositorState`].
-    pub(super) fn send_surface_scale(&self, surface: &WlSurface) {
-        let mode = self.mode_of(self.output_of(surface));
-
-        with_states(surface, |states| {
-            send_surface_state(
-                surface,
-                states,
-                integer_scale(mode.scale),
-                Transform::Normal,
-            );
-            with_fractional_scale(states, |fractional| {
-                fractional.set_preferred_scale(mode.scale.get());
-            });
-        });
-    }
-
-    /// Tells everything on an output that its mode changed.
-    ///
-    /// Three things travel together, and a client that gets only some of them
-    /// renders at the wrong size: the scales, through
-    /// [`CompositorState::send_surface_scale`]; the size limits, which are
-    /// clamped against the output and so move with it; and a configure at the
-    /// new logical bounds.
-    ///
-    /// Each window is reconfigured at the size it last committed, clamped into
-    /// the new bounds. So an output that shrank — which is what raising the
-    /// scale of a fixed resolution does — pulls its windows in, and an output
-    /// that grew leaves them where Lua put them.
-    fn rescale_output(&mut self, output: OutputId) {
-        for surface in self.outputs.surfaces() {
-            if self.output_of(&surface) == output {
-                self.send_surface_scale(&surface);
-            }
-        }
-
-        let bounds = self.output_bounds(output);
-        for window in self.windows.on_output(output) {
-            window.refresh_constraints(bounds);
-            let size = logical_size(window.size());
-            window.request_size(size, bounds);
-        }
-    }
-
-    /// The mode an output is advertising, or the default output's when it has
-    /// been destroyed, which is the fallback [`CompositorState::output_bounds`]
-    /// takes for the same reason.
-    fn mode_of(&self, output: OutputId) -> OutputMode {
-        self.outputs
-            .get(output)
-            .or_else(|| self.outputs.get(DEFAULT_OUTPUT))
-            .map_or(self.config.output, OutputEntry::mode)
     }
 
     pub(super) fn popups_commit(&mut self, surface: &WlSurface) {
@@ -1124,36 +654,6 @@ impl CompositorState {
             state.geometry = state.positioner.get_unconstrained_geometry(target);
         });
     }
-
-    /// The logical size a window on `output` is configured against.
-    ///
-    /// A window whose client was assigned no output is bounded by the default
-    /// one, which is also the output that client is shown. So is a window whose
-    /// assigned output has since been destroyed: the bounds have to be some
-    /// size, and the one every unassigned client is already using is the least
-    /// surprising.
-    pub(super) fn output_bounds(&self, output: OutputId) -> Size<i32, Logical> {
-        self.outputs
-            .get(output)
-            .or_else(|| self.outputs.get(DEFAULT_OUTPUT))
-            .map_or_else(
-                || logical_size(self.config.output.size),
-                |entry| entry.logical_size(),
-            )
-    }
-
-    /// The logical size a surface's client is configured against.
-    ///
-    /// For the paths that hold a surface and no window: a toplevel being
-    /// created, a popup being constrained, a fullscreen request.
-    pub(super) fn surface_bounds(&self, surface: &WlSurface) -> Size<i32, Logical> {
-        self.output_bounds(self.output_of(surface))
-    }
-}
-
-/// The output a surface's client was assigned, if it was assigned one.
-fn assigned_output(surface: &WlSurface) -> Option<OutputId> {
-    surface.client()?.get_data::<ClientState>()?.output()
 }
 
 #[cfg(any(test, feature = "test-fakes"))]
@@ -1373,31 +873,4 @@ pub(super) fn toplevel_attribute<T>(
         let guard = attributes.lock().ok()?;
         Some(read(&guard))
     })
-}
-
-/// Converts a pixel size to smithay's logical coordinate space.
-///
-/// The two are the same at scale one, which is the only scale Phase 2 uses;
-/// Phase 8 is what makes the distinction real.
-fn logical_size(size: PixelSize) -> Size<i32, Logical> {
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "a size beyond two billion pixels is not a mode any hardware or protocol carries"
-    )]
-    Size::new(size.width as i32, size.height as i32)
-}
-
-/// An elapsed time as the protocol's millisecond timestamp.
-///
-/// Truncating to 32 bits is the protocol's own convention: `wl_callback.done`
-/// and every input event carry a `uint` that wraps, and clients compare
-/// timestamps as wrapping differences.
-fn protocol_millis(elapsed: Duration) -> u32 {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the protocol's timestamps are 32-bit and wrap by design"
-    )]
-    {
-        elapsed.as_millis() as u32
-    }
 }
