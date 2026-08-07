@@ -355,6 +355,16 @@ impl TestCompositor {
     pub fn fail_keymap_uploads(&self, skip: usize, count: usize) {
         self.data.state.fail_keymap_uploads(skip, count);
     }
+
+    /// Moves the compositor's clock forward.
+    ///
+    /// Frame pacing is the one thing here measured against a clock, and the
+    /// intervals are tenths of a second and whole seconds. A test that slept
+    /// for one would be slow and would still be racing the machine it runs on,
+    /// so it moves virtual time instead and steps.
+    pub fn advance_clock(&mut self, by: Duration) {
+        self.data.state.advance_clock(by);
+    }
 }
 
 impl Default for TestCompositor {

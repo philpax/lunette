@@ -23,7 +23,7 @@ use smithay::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
             Client, DisplayHandle, Resource,
-            backend::{ClientData, ClientId, DisconnectReason, ObjectId},
+            backend::{ClientData, ClientId, DisconnectReason},
             protocol::{wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface},
         },
     },
@@ -54,12 +54,13 @@ use tracing::{debug, info, warn};
 use crate::{
     client::{DisplayName, Satellite, XwaylandSatellite},
     output::{OutputEntry, OutputRegistry, integer_scale},
+    pacing::FramePacer,
     process::{
         DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
     },
     protocol::{
-        Command, Event, KeyboardConfig, KeymapDefaults, OutputId, OutputMode, OutputScale, Pid,
-        PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
+        Command, Event, FramePacing, KeyboardConfig, KeymapDefaults, OutputId, OutputMode,
+        OutputScale, Pid, PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
         SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
     },
     seat::SeatRegistry,
@@ -251,7 +252,22 @@ pub(crate) struct CompositorState {
     /// it asks the bridge's process group to stop, which is how
     /// xwayland-satellite and the `Xwayland` it started are reaped.
     satellite: Satellite,
-    pub(super) frame_callbacks: HashMap<ObjectId, Vec<WlCallback>>,
+    /// The callbacks each surface has accumulated and not yet been answered.
+    ///
+    /// Keyed on [`SurfaceId`] rather than on the object, so that the pacing
+    /// Lua asks for by surface and the callbacks withheld under it are keyed
+    /// the same way and cannot drift apart.
+    pub(super) frame_callbacks: HashMap<SurfaceId, Vec<WlCallback>>,
+    /// How often each surface is answered.
+    pacing: FramePacer,
+    /// The timer that wakes the loop to answer a withheld surface, with the
+    /// moment it is armed for.
+    ///
+    /// A client waiting on a frame callback sends nothing, and the event loop
+    /// runs with no timeout, so without this a withheld callback would wait for
+    /// unrelated traffic to wake the compositor — which for an idle throttled
+    /// window may be never.
+    pacing_wakeup: Option<(RegistrationToken, Duration)>,
     /// How many keymap uploads to let through, and how many to fail after
     /// them. Always `(0, 0)` in production; see
     /// [`CompositorState::fail_keymap_uploads`].
@@ -264,6 +280,11 @@ pub(crate) struct CompositorState {
     /// Wayland's timestamps must be monotonic, and a wall clock is not: a clock
     /// step backwards makes a client see time reverse, and NTP steps happen.
     started: Instant,
+    /// Added to the compositor's clock so a test can move time forward without
+    /// sleeping. Always zero in production; see
+    /// [`CompositorState::advance_clock`].
+    #[cfg(any(test, feature = "test-fakes"))]
+    clock_offset: Duration,
 
     events: EventSender,
     snapshots: SnapshotPublisher,
@@ -415,9 +436,13 @@ impl CompositorState {
             process_poll: None,
             loop_handle,
             frame_callbacks: HashMap::new(),
+            pacing: FramePacer::default(),
+            pacing_wakeup: None,
             #[cfg(any(test, feature = "test-fakes"))]
             failing_uploads: std::cell::Cell::new((0, 0)),
             started: Instant::now(),
+            #[cfg(any(test, feature = "test-fakes"))]
+            clock_offset: Duration::ZERO,
             events,
             snapshots,
             signal,
@@ -492,10 +517,26 @@ impl CompositorState {
             Command::CreateOutput { output, mode } => self.create_output(output, mode),
             Command::ReconfigureOutput { output, mode } => self.reconfigure_output(output, mode),
             Command::DestroyOutput { output } => self.destroy_output(output),
-            Command::SetFramePacing { .. } => {
-                warn!(?command, "no handler for this command yet; ignoring it");
+            Command::SetFramePacing { surface, pacing } => {
+                self.set_frame_pacing(surface, pacing);
             }
         }
+    }
+
+    /// Sets how often a surface's frame callbacks are answered.
+    ///
+    /// A surface the compositor no longer knows is dropped rather than
+    /// recorded: identifiers are never reused, so an entry made for one could
+    /// never be matched again and would be carried for the rest of the session.
+    /// Lua reaching a window a frame after it closed is ordinary, so this is
+    /// not worth reporting.
+    fn set_frame_pacing(&mut self, surface: SurfaceId, pacing: FramePacing) {
+        if !self.surfaces.knows(surface) {
+            debug!(%surface, "frame pacing was set for a surface that has gone; ignoring it");
+            return;
+        }
+
+        self.pacing.set(surface, pacing);
     }
 
     /// Creates a virtual monitor and advertises its global.
@@ -806,38 +847,123 @@ impl CompositorState {
         });
     }
 
-    /// Answers every frame callback a surface has accumulated.
+    /// Answers the frame callbacks of every surface that is due one.
     ///
     /// Called once a tick. A client that is not answered stops drawing, and
     /// most clients stop pumping their event loop with it, so this is what
-    /// keeps a window responsive as well as animated.
+    /// keeps a window responsive as well as animated — which is why a
+    /// throttled surface is paced to a floor rather than starved, and why a
+    /// withheld one arms a timer to come back for it.
+    ///
+    /// Withholding loses nothing. smithay's `SurfaceAttributes::merge_into`
+    /// extends the callback list rather than replacing it, so a surface that
+    /// commits three times while withheld holds all three callbacks and all
+    /// three are answered by the next send.
     pub(crate) fn send_frame_callbacks(&mut self) {
         if self.frame_callbacks.is_empty() {
+            self.disarm_pacing_wakeup();
             return;
         }
 
-        let now = self.millis();
-        for (_, callbacks) in self.frame_callbacks.drain() {
+        let now = self.elapsed();
+        let stamp = protocol_millis(now);
+
+        // Disjoint field borrows: the pacer is consulted and updated while the
+        // callback map is being drained into, which is why `now` is taken
+        // before the loop rather than read from `self` inside it.
+        let mut withheld = HashMap::new();
+        for (surface, callbacks) in self.frame_callbacks.drain() {
+            if !self.pacing.is_due(surface, now) {
+                withheld.insert(surface, callbacks);
+                continue;
+            }
+
+            self.pacing.record_sent(surface, now);
             for callback in callbacks {
-                callback.done(now);
+                callback.done(stamp);
             }
         }
+        self.frame_callbacks = withheld;
+
+        self.arm_pacing_wakeup(now);
+    }
+
+    /// Wakes the loop when the earliest withheld surface comes due.
+    fn arm_pacing_wakeup(&mut self, now: Duration) {
+        let Some(due) = self
+            .pacing
+            .next_due(self.frame_callbacks.keys().copied(), now)
+        else {
+            self.disarm_pacing_wakeup();
+            return;
+        };
+
+        // An armed timer that already fires no later than this one would is
+        // left alone; a nearer deadline replaces it, so a 60 Hz surface that
+        // starts being withheld does not wait out a 1 Hz surface's interval.
+        if self.pacing_wakeup.is_some_and(|(_, armed)| armed <= due) {
+            return;
+        }
+
+        self.disarm_pacing_wakeup();
+
+        // The timer only has to wake the loop: `send_frame_callbacks` runs
+        // after every dispatch, so the delivery happens there and this fires
+        // once and drops.
+        let inserted = self.loop_handle.insert_source(
+            Timer::from_duration(due.saturating_sub(now)),
+            |_now, _metadata, data: &mut LoopData| {
+                data.state.pacing_wakeup = None;
+                TimeoutAction::Drop
+            },
+        );
+
+        match inserted {
+            Ok(token) => self.pacing_wakeup = Some((token, due)),
+            Err(error) => warn!(
+                error = %error.error,
+                "could not arm the frame pacing timer; a throttled surface will \
+                 wait for other traffic to wake the compositor"
+            ),
+        }
+    }
+
+    /// Drops the pacing of a surface that has gone, so a rate set for it does
+    /// not outlive it.
+    pub(super) fn forget_pacing(&mut self, surface: SurfaceId) {
+        self.pacing.forget(surface);
+    }
+
+    fn disarm_pacing_wakeup(&mut self) {
+        if let Some((token, _)) = self.pacing_wakeup.take() {
+            self.loop_handle.remove(token);
+        }
+    }
+
+    /// Since the compositor started, on the clock every timestamp is measured
+    /// against.
+    ///
+    /// WayVR reads the wall clock and unwraps the conversion (`time.rs:4-9`).
+    /// Wayland's timestamps must be monotonic and a wall clock is not, so this
+    /// is monotonic by construction.
+    fn elapsed(&self) -> Duration {
+        let elapsed = self.started.elapsed();
+        #[cfg(any(test, feature = "test-fakes"))]
+        let elapsed = elapsed + self.clock_offset;
+        elapsed
+    }
+
+    /// Moves the compositor's clock forward, so a test can reach a pacing
+    /// interval without sleeping for one.
+    #[cfg(any(test, feature = "test-fakes"))]
+    pub(crate) fn advance_clock(&mut self, by: Duration) {
+        self.clock_offset += by;
     }
 
     /// Milliseconds since the compositor started, which is what the protocol's
     /// timestamps are measured in.
-    ///
-    /// Truncating to 32 bits is the protocol's own convention: `wl_callback
-    /// .done` and every input event carry a `uint` that wraps, and clients
-    /// compare timestamps as wrapping differences.
     pub(super) fn millis(&self) -> u32 {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "the protocol's timestamps are 32-bit and wrap by design"
-        )]
-        {
-            self.started.elapsed().as_millis() as u32
-        }
+        protocol_millis(self.elapsed())
     }
 
     /// Marks the snapshot stale so the next tick republishes it.
@@ -1249,4 +1375,19 @@ fn logical_size(size: PixelSize) -> Size<i32, Logical> {
         reason = "a size beyond two billion pixels is not a mode any hardware or protocol carries"
     )]
     Size::new(size.width as i32, size.height as i32)
+}
+
+/// An elapsed time as the protocol's millisecond timestamp.
+///
+/// Truncating to 32 bits is the protocol's own convention: `wl_callback.done`
+/// and every input event carry a `uint` that wraps, and clients compare
+/// timestamps as wrapping differences.
+fn protocol_millis(elapsed: Duration) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the protocol's timestamps are 32-bit and wrap by design"
+    )]
+    {
+        elapsed.as_millis() as u32
+    }
 }

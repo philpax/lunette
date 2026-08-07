@@ -16,6 +16,7 @@ pub mod client;
 pub(crate) mod hit_test;
 pub mod keymap;
 pub(crate) mod output;
+pub(crate) mod pacing;
 pub mod process;
 pub mod protocol;
 pub(crate) mod seat;

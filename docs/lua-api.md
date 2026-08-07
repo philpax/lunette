@@ -61,6 +61,7 @@ print(win.appId)             -- the client's application identifier.
 print(win.width, win.height) -- the surface's size in pixels.
 print(win.opaque)            -- true when the buffer's fourth component is padding, not alpha.
 win:resize(1920, 1080)       -- a configure request; the client may ignore it.
+win:setFrameRate(10)         -- how often this client is let draw; nil for unthrottled.
 win:close()                  -- a close request, not a kill; watch for lovr.lunwindowclosed.
 win:getTexture()             -- this frame's pixels; never cache it.
 win:stabilize()              -- a persistent texture, at a copy per damaged frame.
@@ -74,6 +75,10 @@ win:properties()             -- every key this window is carrying, as a table.
 `win:resize(width, height)` configures the toplevel. The client resizes at its own pace, and `win.width` and `win.height` change when it commits a buffer — which may be at a different size, because a client is free to honour its own minimum or to round to a character cell. Nothing waits for that. The dimensions are whole pixel counts of at least one, and a value that is not raises.
 
 Both return `false` on a dead handle, without raising. Both are requests, so neither reports what the client did; that arrives as an event or as a changed snapshot field.
+
+`win:setFrameRate(hz)` sets how often the compositor answers this window's frame callbacks, which is how often its client draws. `nil` returns it to unthrottled, which is where every window starts; throttling is asked for rather than imposed. The rate is a finite number of hertz above zero, and a value that is not raises.
+
+The rate is a ceiling with a floor under it. A rate below approximately 1 Hz is paced at 1 Hz rather than honoured, because a client answered no frame callbacks stops pumping its event loop and stops answering input with it — the difference between a panel that is cheap and one that appears hung. [Rendering](rendering.md#frame-pacing) states the rest. Which window deserves which rate is policy and belongs in `mullion`; this is the mechanism it is built on.
 
 `win:stabilize()` is described in [Rendering](rendering.md#windowstabilize).
 
@@ -130,7 +135,7 @@ end
 
 `refresh` is in hertz here and in millihertz on the wire. Nothing above the native boundary deals in millihertz.
 
-Refresh is advertisement, not pacing. It is what a client reads off `wl_output.mode` and reasons about; how often the compositor actually answers a surface's frame callbacks is `surface:setFrameRate`, which is separate.
+Refresh is advertisement, not pacing. It is what a client reads off `wl_output.mode` and reasons about; how often the compositor actually answers a surface's frame callbacks is `window:setFrameRate`, which is separate.
 
 `output:setMode` keeps the fields it was not given, so `setMode{ scale = 2 }` changes the scale alone. Clients reallocate their buffers and re-lay-out in response, and some — GTK in particular — do it aggressively, so a configuration that adjusts this continuously will see them struggle. `mullion` moves between discrete steps with hysteresis for that reason.
 

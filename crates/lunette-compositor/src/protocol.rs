@@ -33,12 +33,9 @@
 //! [`Command::SetClipboardBridge`], and [`Command::Shutdown`].
 //!
 //! Handled as well: [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
-//! and [`Command::DestroyOutput`].
+//! [`Command::DestroyOutput`], and [`Command::SetFramePacing`].
 //!
-//! Accepted and logged, but otherwise inert until the phase named:
-//!
-//! - [`Command::SetFramePacing`] — the pacing half of the outputs and pacing
-//!   phase.
+//! Every declared variant now has a handler.
 //!
 //! Not declared at all: the host-desktop capture surfaces. Selection *content*
 //! is also absent from this vocabulary, and deliberately: a transfer is a file
@@ -689,9 +686,13 @@ impl RefreshRate {
 }
 
 /// How often a surface is given a frame callback.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum FramePacing {
     /// A callback every time the compositor ticks.
+    ///
+    /// The default, because throttling is something Lua asks for rather than
+    /// something a client is subjected to for having connected.
+    #[default]
     Unthrottled,
     /// A callback at most this often.
     ///

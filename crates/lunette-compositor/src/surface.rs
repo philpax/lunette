@@ -75,6 +75,16 @@ impl SurfaceRegistry {
         self.ids.get(&surface.id()).copied()
     }
 
+    /// Whether an identifier still names a live surface.
+    ///
+    /// A linear scan, and deliberately: this answers a question the main thread
+    /// asks a few times per window, and a second index would have to be kept
+    /// consistent with this one for no gain.
+    #[must_use]
+    pub(crate) fn knows(&self, id: SurfaceId) -> bool {
+        self.ids.values().any(|known| *known == id)
+    }
+
     /// Drops a destroyed surface's identifier, returning what it was.
     pub(crate) fn forget(&mut self, surface: &WlSurface) -> Option<SurfaceId> {
         self.ids.remove(&surface.id())

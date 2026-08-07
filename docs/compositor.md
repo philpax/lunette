@@ -43,7 +43,7 @@ A client is owed three things when its output's scale changes, and they travel t
 
 Reconfiguring an output also reconfigures the windows on it, each at the size it last committed, clamped into the new logical bounds. Raising the scale of a fixed resolution shrinks those bounds, so a window that was filling the output is pulled in; lowering it leaves windows where Lua put them.
 
-`refresh` is in hertz in Lua and in millihertz on the wire, converted at that boundary and nowhere else. It is advertisement rather than pacing: how often a surface is actually answered is `surface:setFrameRate`.
+`refresh` is in hertz in Lua and in millihertz on the wire, converted at that boundary and nowhere else. It is advertisement rather than pacing: how often a surface is actually answered is `window:setFrameRate`.
 
 The `wl_output` global is lunette's own rather than smithay's. `Output::create_global` has no filter hook, and the `can_view` that would supply one is handed a `WlOutputData` whose output field is private — so a hand-written filter could not tell which output it was being asked about. [Decisions](decisions.md#recorded-decisions) records what that costs. The filter itself is consulted at registry advertisement and again at bind, and the second is what makes it enforceable: a client that guesses a global name it was never told about is refused rather than served.
 

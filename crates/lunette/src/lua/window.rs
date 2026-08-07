@@ -15,7 +15,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::protocol::{
-    Command, PixelSize, SinkId, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+    Command, FramePacing, FrameRate, PixelSize, SinkId, SurfaceId, ToplevelStates, WindowId,
+    WindowSnapshot,
 };
 use mlua::{UserData, UserDataFields, UserDataMethods, Value};
 
@@ -197,6 +198,9 @@ impl<T: LuaTexture> UserData for Window<T> {
         methods.add_method("resize", |_, window, (width, height): (f64, f64)| {
             resize(window, width, height)
         });
+        methods.add_method("setFrameRate", |_, window, hertz: Option<f64>| {
+            set_frame_rate(window, hertz)
+        });
         methods.add_method(
             "setProperty",
             |_, window, (key, value): (mlua::LuaString, Value)| set_property(window, &key, &value),
@@ -306,6 +310,51 @@ fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> 
         size: Some(size),
         states: window.known.borrow().states.clone(),
     });
+    Ok(true)
+}
+
+/// `window:setFrameRate(hz)`: how often this window's client is let draw.
+///
+/// A Wayland client draws only after the compositor answers its frame callback,
+/// so this is what a panel outside the view costs. `nil` returns the window to
+/// unthrottled, which is where every window starts.
+///
+/// The rate is a ceiling and the floor is approximately 1 Hz, not zero: a
+/// client answered no frame callbacks at all stops pumping its event loop and
+/// stops answering input with it, so a rate below the floor is paced at the
+/// floor instead. `docs/rendering.md` records why, and this is the mechanism —
+/// which window deserves which rate is policy, and belongs in `mullion`.
+///
+/// `false` on a dead handle, like every other mutation here.
+///
+/// # Errors
+///
+/// If the rate is not a finite positive number.
+fn set_frame_rate<T>(window: &Window<T>, hertz: Option<f64>) -> mlua::Result<bool> {
+    // Validated before the liveness check, for the reason `resize` validates
+    // first: a defect in the caller is worth reporting whether or not the
+    // window happened to still be there.
+    let pacing = match hertz {
+        None => FramePacing::Unthrottled,
+        Some(hertz) => FramePacing::Limited(FrameRate::new(hertz).ok_or_else(|| {
+            mlua::Error::runtime(format!(
+                "lunette: {hertz} is not a frame rate; a rate is a finite number of hertz above \
+                 zero, and nil is how a window is returned to unthrottled"
+            ))
+        })?),
+    };
+
+    if !window.refresh() {
+        return Ok(false);
+    }
+
+    let Some(surface) = window.known.borrow().surface else {
+        return Ok(false);
+    };
+
+    window
+        .session
+        .queue(Command::SetFramePacing { surface, pacing });
     Ok(true)
 }
 

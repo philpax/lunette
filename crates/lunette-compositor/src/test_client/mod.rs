@@ -47,6 +47,7 @@ use wayland_client::{
     delegate_noop,
     protocol::{
         wl_buffer::{self, WlBuffer},
+        wl_callback::{self, WlCallback},
         wl_compositor::WlCompositor,
         wl_data_offer::WlDataOffer,
         wl_keyboard::{self, KeyState, WlKeyboard},
@@ -701,6 +702,27 @@ impl TestClient {
         scale
     }
 
+    /// Asks for a frame callback on a surface and commits, which is what a
+    /// client does at the end of every frame it draws.
+    ///
+    /// Flushes but does not settle. Whether the compositor answers, and after
+    /// how much of its clock, is what a pacing test is asserting about, so
+    /// running the compositor here would decide the answer before the test
+    /// could ask for it.
+    pub fn request_frame(&mut self, surface: &WlSurface) {
+        let handle = self.queue.handle();
+        surface.frame(&handle, surface.id());
+        surface.commit();
+        drop(self.queue.flush());
+    }
+
+    /// The timestamp of every frame callback a surface has been answered, in
+    /// order.
+    #[must_use]
+    pub fn frames(&self, surface: &WlSurface) -> &[u32] {
+        self.driver.frames(&surface.id())
+    }
+
     /// The client's own toplevel surface, for a caller that needs to name it.
     #[must_use]
     pub fn surface(&self) -> Option<&WlSurface> {
@@ -883,6 +905,10 @@ pub struct Driver {
     /// Every `wp_fractional_scale_v1.preferred_scale` an object was sent, in
     /// 120ths, in order. Kept whole for the reason the buffer scales are.
     fractional_scales: Vec<(ObjectId, Vec<u32>)>,
+    /// The timestamp of every `wl_callback.done` answering a frame request, by
+    /// the surface it was asked for. A count rather than a flag, because
+    /// withholding is about how many arrive and when, not whether any did.
+    frames: Vec<(ObjectId, Vec<u32>)>,
 
     // The selection half, in `selection.rs`. The fields live here because that
     // is where the struct is, and everything that reads them is in the submodule.
@@ -903,6 +929,20 @@ pub struct Driver {
 }
 
 impl Driver {
+    /// The timestamp of every frame callback a surface has been answered, in
+    /// order.
+    ///
+    /// Empty for a surface that asked for none, and for one whose requests are
+    /// being withheld — which is the case a pacing test is about, so it is an
+    /// answer rather than an absence.
+    #[must_use]
+    pub fn frames(&self, surface: &ObjectId) -> &[u32] {
+        self.frames
+            .iter()
+            .find(|(held, _)| held == surface)
+            .map_or(&[], |(_, stamps)| stamps.as_slice())
+    }
+
     /// The serial an `xdg_surface` was last configured with.
     #[must_use]
     pub fn configure_serial(&self, xdg_surface: &XdgSurface) -> Option<u32> {
@@ -1282,6 +1322,25 @@ impl Dispatch<WlSurface, ()> for Driver {
                 entry_for(&mut state.surface_buffer_scales, id).push(factor);
             }
             _ => {}
+        }
+    }
+}
+
+/// A frame callback carries the surface it was asked for as its user data, so
+/// that a `done` can be counted against the right surface. The object itself
+/// says nothing about which surface it belongs to, and the compositor answers
+/// one callback per request rather than one per surface.
+impl Dispatch<WlCallback, ObjectId> for Driver {
+    fn event(
+        state: &mut Self,
+        _callback: &WlCallback,
+        event: wl_callback::Event,
+        surface: &ObjectId,
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let wl_callback::Event::Done { callback_data } = event {
+            entry_for(&mut state.frames, surface.clone()).push(callback_data);
         }
     }
 }

@@ -26,8 +26,8 @@ use std::{ffi::OsStr, rc::Rc, sync::Arc};
 
 use lunette_compositor::{
     protocol::{
-        Command, PixelSize, PointerButton, ProcessId, ProcessSnapshot, ScrollAxis, ScrollDelta,
-        SeatId, SinkId, Snapshot, SurfaceId, ToplevelState, ToplevelStates, WindowId,
+        Command, FramePacing, PixelSize, PointerButton, ProcessId, ProcessSnapshot, ScrollAxis,
+        ScrollDelta, SeatId, SinkId, Snapshot, SurfaceId, ToplevelState, ToplevelStates, WindowId,
         WindowSnapshot,
     },
     state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
@@ -556,6 +556,73 @@ fn resizing_restates_the_states_the_window_is_already_in() {
         ),
         other => panic!("expected a configure command, got {other:?}"),
     }
+}
+
+#[test]
+fn setting_a_frame_rate_paces_the_window_s_surface() {
+    let session = session(vec![window(1, "mpv", "mpv", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    assert!(run::<bool>(
+        &lua,
+        "return lunette.windows()[1]:setFrameRate(10)"
+    ));
+
+    match session.flush().as_slice() {
+        [Command::SetFramePacing { surface, pacing }] => {
+            assert_eq!(*surface, surface_id(1));
+            match pacing {
+                FramePacing::Limited(rate) => assert!((rate.get() - 10.0).abs() < f64::EPSILON),
+                other => panic!("expected a limited pacing, got {other:?}"),
+            }
+        }
+        other => panic!("expected a pacing command, got {other:?}"),
+    }
+}
+
+#[test]
+fn setting_no_frame_rate_returns_the_window_to_unthrottled() {
+    let session = session(vec![window(1, "mpv", "mpv", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    assert!(run::<bool>(
+        &lua,
+        "return lunette.windows()[1]:setFrameRate()"
+    ));
+
+    match session.flush().as_slice() {
+        [
+            Command::SetFramePacing {
+                pacing: FramePacing::Unthrottled,
+                ..
+            },
+        ] => {}
+        other => panic!("expected an unthrottled pacing command, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_frame_rate_that_is_not_a_positive_number_is_reported() {
+    let session = session(vec![window(1, "mpv", "mpv", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+
+    for chunk in [
+        "lunette.windows()[1]:setFrameRate(0)",
+        "lunette.windows()[1]:setFrameRate(-1)",
+        "lunette.windows()[1]:setFrameRate(0 / 0)",
+        "lunette.windows()[1]:setFrameRate(1 / 0)",
+    ] {
+        let message = error(&lua, chunk);
+        assert!(
+            message.contains("is not a frame rate"),
+            "unhelpful message for {chunk}: {message}"
+        );
+    }
+
+    assert!(
+        session.flush().is_empty(),
+        "a refused rate must not reach the compositor"
+    );
 }
 
 #[test]

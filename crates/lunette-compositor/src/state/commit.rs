@@ -13,9 +13,8 @@
 
 use smithay::{
     backend::renderer::{BufferType, buffer_type},
-    reexports::wayland_server::{
-        Resource,
-        protocol::{wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface},
+    reexports::wayland_server::protocol::{
+        wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface,
     },
     wayland::{
         compositor::{BufferAssignment, SurfaceAttributes, with_states},
@@ -53,7 +52,7 @@ impl CompositorState {
 
         if !committed.callbacks.is_empty() {
             self.frame_callbacks
-                .entry(surface.id())
+                .entry(id)
                 .or_default()
                 .extend(committed.callbacks);
         }
@@ -318,11 +317,15 @@ impl CompositorState {
     /// collectable. Noticing that is the sweep the thread runs after every
     /// dispatch, and this happens inside one.
     pub(super) fn forget_surface(&mut self, surface: &WlSurface) {
-        self.frame_callbacks.remove(&surface.id());
         let Some(id) = self.surfaces.forget(surface) else {
             return;
         };
 
+        // Dropped rather than answered. The surface is gone, so the client's
+        // `wl_callback` objects went with it and answering one would be a
+        // protocol error against a destroyed resource.
+        self.frame_callbacks.remove(&id);
+        self.forget_pacing(id);
         self.buffers.forget(id);
         self.contents.remove(&id);
         self.report(Event::SurfaceGone { surface: id });

@@ -86,7 +86,7 @@ The compositor controls when every client renders, because a Wayland client draw
 
 Native mechanism:
 
-- Per-surface frame-callback throttling: `surface:setFrameRate(hz)`.
+- Per-window frame-callback throttling: `window:setFrameRate(hz)`.
 - Per-output advertised refresh, which clients use for their own pacing ([Compositor](compositor.md#outputs)).
 - Damage-driven layer blits: an unchanged surface is not copied.
 - Skipping the projection layer when Lua drew nothing.
@@ -95,7 +95,7 @@ Lua policy decides each panel's rate from visibility, gaze, distance, focus, and
 
 Two defaults matter because they are easy to get wrong.
 
-- The floor is approximately 1 Hz, not zero. Clients starved of frame callbacks often stop pumping their event loops entirely, so they stop responding to input as well. A window that is frozen but alive is worse than one costing 1 Hz.
+- The floor is approximately 1 Hz, not zero, and the native layer enforces it: a rate below the floor is paced at the floor rather than honoured. Clients starved of frame callbacks often stop pumping their event loops entirely, so they stop responding to input as well. A window that is frozen but alive is worse than one costing 1 Hz.
 - Video is exempt by default. A throttled video player stutters conspicuously. The standard library leaves high-rate surfaces alone unless told otherwise.
 
 lunette's own XR frame rate is not negotiable: an overlay submits every cycle whether or not anything changed. What is skipped is lunette's own scene rendering, which is where the savings actually occur.
