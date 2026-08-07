@@ -315,7 +315,7 @@ spec('releasing a grab writes the pose to the property store', function()
   pointer:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
   pointer:update(looking(), { created })
 
-  local kept = window.stored[interaction.TUNING.poseProperty]
+  local kept = window.stored[interaction.POSE_PROPERTY]
   expect.truthy(kept, 'what was kept')
 
   local recovered = pose.decode(kept)
@@ -334,6 +334,38 @@ spec('a grabbed panel is not clicked as well', function()
   expect.falsy(lastCall(window.sink, 'button'), 'a button call')
 end)
 
+spec('a grip whose pose has not arrived yet grabs on the frame it does', function()
+  fresh()
+  local created, window = panelAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  -- A hand tracked well enough to aim but whose pose has not arrived. The grip
+  -- is held throughout: an edge consumed by the refusal would mean no grab
+  -- could start until the user let go and pressed again.
+  local unposed = looking { grip = true }
+  unposed.pose = nil
+  pointer:update(unposed, { created })
+
+  expect.falsy(pointer.grabbed, 'what is held while the pose is absent')
+  -- And the frame is not thrown away: the ray is over the panel, so the panel
+  -- hears about it as it would on any other frame.
+  expect.truthy(lastCall(window.sink, 'pointer'), 'a pointer call on the refused frame')
+
+  pointer:update(looking { grip = true, pose = poseAt(0, 0, 0) }, { created })
+
+  expect.equal(pointer.grabbed, created, 'what is held once the pose arrives')
+end)
+
+spec('the pose property is a module constant rather than a tuning field', function()
+  -- `storePose` and `restorePose` take a panel and not a pointer, so a key in
+  -- the tuning table would read as per-pointer and be read from the module
+  -- default whatever a pointer was created with — and a pose written under one
+  -- key and looked for under another is a hand-placed panel that does not come
+  -- back.
+  expect.falsy(interaction.TUNING.poseProperty, 'a pose property in the tuning table')
+  expect.equal(type(interaction.POSE_PROPERTY), 'string', 'the module constant')
+end)
+
 spec('a panel that dies mid-grab does not stop the pointer', function()
   fresh()
   local created, window = panelAhead()
@@ -350,7 +382,7 @@ end)
 spec('restorePose puts a panel back where the store says', function()
   fresh()
   local created, window = panelAhead()
-  window.stored[interaction.TUNING.poseProperty] =
+  window.stored[interaction.POSE_PROPERTY] =
     pose.encode(lovr.math.newMat4():translate(2, 1, -1))
 
   expect.truthy(interaction.restorePose(created), 'the restore')

@@ -362,6 +362,23 @@ spec('a rule naming tags puts the panel on them', function()
   expect.equal(fresh:has(created), true, 'membership of the created tag')
 end)
 
+spec('a tag a rule names and nothing declared is reported as created', function()
+  reset()
+  tag.new 'declared'
+  rules.setRules {
+    { match = { appId = 'terminal' }, properties = { tags = { 'declared', 'fresh' } } },
+  }
+
+  rules.place(newWindow 'terminal')
+
+  -- Creating it is the right answer — refusing would lose the window over a
+  -- declaration order — but a misspelt name arrives the same way, and a
+  -- workspace nobody asked for holding a window nobody can find is worse than
+  -- a line of output.
+  expect.equal(#reported, 1, 'the reports')
+  expect.truthy(reported[1]:find "nothing declared the tag 'fresh'", 'what was reported')
+end)
+
 spec('a rule naming a tag object puts the panel on it', function()
   reset()
   local main = tag.new 'main'

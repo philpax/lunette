@@ -68,11 +68,18 @@ interaction.TUNING = {
   scrollDeadZone = 0.2,
   -- Which pointer button the trigger is.
   button = 'left',
-  -- The property-store key a grabbed panel's pose is written under. Namespaced,
-  -- because the store is shared with the configuration and with every other
-  -- library a configuration loads.
-  poseProperty = 'mullion.pose',
 }
+
+-- The property-store key a grabbed panel's pose is written under. Namespaced,
+-- because the store is shared with the configuration and with every other
+-- library a configuration loads.
+--
+-- A module constant rather than a tuning field. `storePose` and `restorePose`
+-- take a panel and not a pointer, so there is no pointer whose tuning they could
+-- ask; a per-pointer key would have been read from the module default whatever a
+-- pointer was created with, and a pose written under one key and looked for
+-- under another is a hand-placed panel that quietly does not come back.
+interaction.POSE_PROPERTY = 'mullion.pose'
 
 -- The nearest panel a ray meets, in the panel's own pixels.
 --
@@ -143,7 +150,7 @@ function interaction.storePose(target)
   if source.dead then
     return false
   end
-  return source:setProperty(interaction.TUNING.poseProperty, pose.encode(target.pose))
+  return source:setProperty(interaction.POSE_PROPERTY, pose.encode(target.pose))
     and true
 end
 
@@ -154,7 +161,7 @@ function interaction.restorePose(target)
     return false
   end
 
-  local kept = pose.decode(target.source:getProperty(interaction.TUNING.poseProperty))
+  local kept = pose.decode(target.source:getProperty(interaction.POSE_PROPERTY))
   if not kept then
     return false
   end
@@ -263,11 +270,17 @@ function methods:update(input, panels)
   self.hitX, self.hitY, self.distance = x, y, distance
 
   if hit and gripped and not self.gripped then
+    if self:beginGrab(hit, input.pose) then
+      self.gripped = true
+      return
+    end
+    -- The rising edge is deliberately not recorded, so the next frame tries
+    -- again. `beginGrab` refuses only for a hand whose pose has not arrived,
+    -- which is transient; consuming the edge would mean no grab could start
+    -- until the user released the grip and pressed it again.
+  else
     self.gripped = gripped
-    self:beginGrab(hit, input.pose)
-    return
   end
-  self.gripped = gripped
 
   local sink = hit and hit:sink() or nil
   if sink then

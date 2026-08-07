@@ -260,10 +260,11 @@ end
 -- panel; `tags` names the tags the panel joins, by name or by tag; and
 -- everything else is left in the returned table for the caller.
 --
--- A tag named by a rule and not yet declared is created rather than refused. A
--- rule saying "this application lives on 'web'" is describing a workspace, and
--- refusing the window because the workspace has not been declared yet would lose
--- the window over a declaration order.
+-- A tag named by a rule and not yet declared is created rather than refused, and
+-- reported. A rule saying "this application lives on 'web'" is describing a
+-- workspace, and refusing the window because the workspace has not been declared
+-- yet would lose the window over a declaration order; a misspelt name reaches the
+-- same path, so the creation is said out loud rather than assumed deliberate.
 function rules.place(window, options)
   if window == nil then
     error('mullion.rules: a window is placed, and nil is not one', 2)
@@ -346,7 +347,16 @@ function applyTags(created, tags)
     if tag.isTag(named) then
       named:add(created)
     elseif type(named) == 'string' then
-      local found = tag.find(named) or tag.new(named)
+      -- Created rather than refused, per `place`'s note: losing the window over
+      -- a declaration order is worse than a tag nothing declared. Reported all
+      -- the same, because the other way to arrive here is a misspelt name, and
+      -- an unreported one is a workspace nobody asked for holding a window
+      -- nobody can find.
+      local found = tag.find(named)
+      if not found then
+        found = tag.new(named)
+        rules.report("mullion.rules: nothing declared the tag '" .. named .. "', so it was created")
+      end
       found:add(created)
     else
       rules.report('mullion.rules: a tag is named by a string or is a tag, not a ' .. type(named))
