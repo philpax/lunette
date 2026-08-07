@@ -13,17 +13,30 @@
 //!
 //! # How it is reached
 //!
-//! [`install_trigger`] wraps `lovr.boot`, which is the one function whose
-//! failure means the configuration did not load. `vendor/lovr/etc/boot.lua:369`
-//! calls it under `xpcall`, and everything a load failure can be — a source that
-//! will not mount, a missing `main.lua`, a `conf.lua` that raised, a syntax
-//! error, an error at the top level of `main.lua` — raises inside it. Everything
-//! that is *not* a load failure happens after it has returned the frame loop, so
-//! the wrapper cannot see one. That is exactly the distinction
+//! [`install_trigger`] wraps `lovr.boot`, which is the function whose failure
+//! means the configuration did not load. `vendor/lovr/etc/boot.lua:369` calls it
+//! under `xpcall`, and everything a load failure can be — a source that will not
+//! mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, an
+//! error at the top level of `main.lua` — raises inside it.
+//!
+//! # `lovr.load` is inside the boundary, deliberately
+//!
+//! `lovr.boot` ends with `return lovr.run()` (`vendor/lovr/etc/boot.lua:185`),
+//! and `lovr.run` calls `lovr.load(arg)` before it returns the frame loop
+//! (`:190`). A `lovr.load` that raises is therefore caught here and replaced with
+//! safe mode, rather than reported through [`crate::callback_error`] like every
+//! other callback. That is the right answer rather than an accident: `lovr.load`
+//! is where a configuration builds the state its later callbacks assume, and a
+//! session whose `lovr.load` raised halfway is not one those callbacks can run
+//! in. `docs/decisions.md` records it.
+//!
+//! Everything after `lovr.load` — `lovr.update`, `lovr.draw`, and the `lun*`
+//! callbacks — happens once the frame loop has been returned, so the wrapper
+//! cannot see it. That is the distinction
 //! [the Lua API](../../../docs/lua-api.md#errors) draws: a runtime error in a
-//! callback of a configuration that loaded goes to
-//! [`crate::callback_error`], and a reload that fails leaves the previous
-//! session running ([`crate::reload`]).
+//! callback of a configuration that started goes to [`crate::callback_error`],
+//! and a reload that fails leaves the previous session running
+//! ([`crate::reload`]).
 
 use mlua::{Function, Lua, Table, Value};
 use tracing::{error, info};
@@ -69,9 +82,11 @@ pub fn load(lua: &Lua) -> mlua::Result<Function> {
 /// `lovr.errhand` is reached by every error that escaped a callback boundary,
 /// not only by one that stopped the configuration loading, and it belongs to the
 /// configuration: `mullion.error` installs one, and taking it would take that.
-/// Wrapping `lovr.boot` catches load failures and nothing else, so a runtime
-/// error one frame into a session that loaded cannot replace it with the
-/// fallback.
+/// Wrapping `lovr.boot` catches a failure to start and nothing after it, so a
+/// runtime error one frame into a session that started cannot replace it with
+/// the fallback. The module documentation says where that boundary actually
+/// falls, which is one callback wider than "the configuration did not load":
+/// `lovr.load` runs inside it.
 ///
 /// # What `boot.lua` does with what this returns
 ///

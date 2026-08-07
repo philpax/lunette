@@ -136,7 +136,12 @@ fn main() -> ExitCode {
     // is a warning: the user loses `lunctl`, not their windows.
     let control = match absolute_path(env::var_os(XDG_RUNTIME_DIR)) {
         Some(runtime_directory) => {
-            let switch = ControlSwitch::from_setting(env::var(LUNETTE_CONTROL).ok().as_deref());
+            // Lossy rather than discarded: a value that is not text is not
+            // `on`, and `env::var` would report it as unset, which is the one
+            // reading that leaves the endpoint open.
+            let setting =
+                env::var_os(LUNETTE_CONTROL).map(|value| value.to_string_lossy().into_owned());
+            let switch = ControlSwitch::from_setting(setting.as_deref());
             match control::start(switch, &runtime_directory) {
                 Ok(started) => started,
                 Err(error) => {

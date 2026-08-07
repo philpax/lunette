@@ -24,7 +24,9 @@
 //!   follows from the line above: with no back-references there is nothing to
 //!   share with. [`MAX_NODES`] is what keeps a wide directed acyclic graph from
 //!   expanding without bound, and it produces a clean error rather than an
-//!   allocation failure.
+//!   allocation failure. It is consulted as each key is read as well as as each
+//!   value is converted, so a single table too wide to carry is refused while it
+//!   is being collected rather than after it has been.
 //! - **Mixed array and hash parts both survive.** `{1, 2, x = 3}` is one Lua
 //!   value, and `TableValue` carries both halves.
 //! - **`nil` holes end the array part** and everything past one is carried under
@@ -59,7 +61,10 @@ use std::{collections::HashSet, error::Error, ffi::c_void, fmt};
 
 use mlua::{AnyUserData, MultiValue, ObjectLike, Table, Value as LuaValue};
 
-use crate::control::wire::{Handle, HandleId, HandleKind, Key, MAX_DEPTH, TableValue, Value};
+use crate::control::{
+    identifier::is_identifier,
+    wire::{Handle, HandleId, HandleKind, Key, MAX_DEPTH, TableValue, Value},
+};
 
 /// The metatable field each native handle is tagged with.
 ///
@@ -68,11 +73,18 @@ use crate::control::wire::{Handle, HandleId, HandleKind, Key, MAX_DEPTH, TableVa
 /// the fields it was registered with, and this is not one of them.
 pub const HANDLE_METAFIELD: &str = "__lunettehandle";
 
-/// How many values one reply may carry, counting every node of every table.
+/// How many values one reply may carry, counting every key and every value of
+/// every table.
 ///
 /// A cap turns a pathological structure — a wide directed acyclic graph, a table
 /// of every window's every property — into a clean error rather than into an
 /// allocation that fails somewhere unrelated.
+///
+/// A key counts because a key is materialised: the traversal copies every key it
+/// reads before it converts any of the values, so counting only values would let
+/// one very wide table allocate without bound before the cap was consulted. The
+/// consequence is that a table of scalars is bounded at half this many entries,
+/// which is the honest reading of "how much one reply carries".
 pub const MAX_NODES: usize = 200_000;
 
 /// Converts a chunk's return values.
@@ -235,15 +247,6 @@ fn step_for(key: &Key) -> Step {
     }
 }
 
-/// Whether a name can be written as `.name` rather than as a subscript.
-fn is_identifier(name: &str) -> bool {
-    !name.is_empty()
-        && !name.starts_with(|first: char| first.is_ascii_digit())
-        && name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '_')
-}
-
 fn convert(walk: &mut Walk, value: &LuaValue) -> Result<Value, SerialiseError> {
     walk.count()?;
 
@@ -308,6 +311,12 @@ fn table_body(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError> {
     // recorded in `docs/decisions.md`, not an accident of the API.
     let mut pairs = Vec::new();
     for pair in table.pairs::<LuaValue, LuaValue>() {
+        // Counted here rather than once the traversal reaches the values: every
+        // key is copied into `pairs` as it is read, so a table wide enough to
+        // exhaust the cap would otherwise be fully materialised before anything
+        // noticed. A key is a node, which is what makes the cap a bound on this
+        // loop as well as on the tree below it.
+        walk.count()?;
         let (key, value) = pair.map_err(|cause| SerialiseError::Lua {
             path: walk.here(),
             cause: cause.to_string(),
@@ -768,6 +777,25 @@ mod tests {
         );
     }
 
+    /// The cap has to bound the collecting loop, not only the conversion that
+    /// follows it. A table whose entries alone exhaust it is refused while it is
+    /// being read, so the keys are never all copied at once.
+    #[test]
+    fn a_single_table_too_wide_to_carry_is_refused_while_it_is_being_collected() {
+        // Under half the cap in entries, so counting only values would let this
+        // through and materialise every key first.
+        let values = returned(&format!(
+            "local t = {{}} for i = 1, {} do t[i] = i end return t",
+            MAX_NODES / 2 + 1
+        ));
+
+        let error = values.expect_err("its keys and values together pass the cap");
+        assert!(
+            matches!(error, SerialiseError::TooManyNodes { .. }),
+            "{error}"
+        );
+    }
+
     #[test]
     fn a_chunk_returning_nothing_serialises_to_an_empty_list() {
         assert_eq!(returned("return").expect("it serialises"), Vec::new());
@@ -784,6 +812,12 @@ mod tests {
             ),
             ("return { [true] = function() end }", "result 1[true]"),
             ("return { [1.5] = function() end }", "result 1[1.5]"),
+            // A reserved word is not a name, so it is written the way a reader
+            // would have had to write it.
+            (
+                "local t = {} t['end'] = function() end return t",
+                "result 1['end']",
+            ),
         ] {
             let error = returned(chunk).expect_err("a function has no wire form");
             assert!(

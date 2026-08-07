@@ -39,7 +39,11 @@ use std::{
 };
 
 /// The version every frame in this build carries.
-pub const PROTOCOL_VERSION: u8 = 1;
+///
+/// Version 2 is version 1 plus [`Reply::Oversized`] and [`Reply::Malformed`]. A
+/// version 1 reader has no tag for either and reports one as a peer speaking a
+/// later protocol, which is why adding them is a bump rather than an extension.
+pub const PROTOCOL_VERSION: u8 = 2;
 
 /// The largest frame either side will write or accept.
 ///
@@ -218,8 +222,32 @@ pub enum Reply {
     /// The session did not answer within the reply bound. Whether the chunk ran
     /// is unknown, which is the honest thing to say rather than guessing.
     Unanswered,
-    /// The peer speaks a protocol version this build does not.
-    Incompatible { expected: u8, found: u8 },
+    /// The chunk ran, and what it returned is larger than one frame carries.
+    ///
+    /// Distinct from [`Self::Unrepresentable`], which is about a value with no
+    /// wire form at all: this one has a form, and there is too much of it. The
+    /// alternative — closing the connection — reaches the client as an
+    /// end-of-file it can only report as a session it could not reach, which is
+    /// a lie about a session that is running and a chunk that succeeded.
+    Oversized {
+        /// How large the answer was, in bytes.
+        length: u64,
+    },
+    /// The request could not be read: not valid UTF-8, or larger than one frame
+    /// carries. The chunk was never evaluated.
+    Malformed(String),
+    /// The two ends speak different protocol versions.
+    ///
+    /// Named by role rather than by point of view. A reader that finds a version
+    /// it does not know builds one of these too, and `expected`/`found` would
+    /// mean the opposite there — which is how the message came to be printed
+    /// backwards.
+    Incompatible {
+        /// What the session speaks.
+        session: u8,
+        /// What the client speaks.
+        client: u8,
+    },
 }
 
 /// Writes one request frame.
@@ -280,9 +308,11 @@ pub fn read_reply(reader: &mut impl Read) -> Result<Reply, WireError> {
     let body = read_frame(reader)?;
     let (&version, rest) = body.split_first().ok_or(WireError::Truncated)?;
     if version != PROTOCOL_VERSION {
+        // The reader of a reply is the client, so the version it found is the
+        // session's and its own is the client's.
         return Ok(Reply::Incompatible {
-            expected: PROTOCOL_VERSION,
-            found: version,
+            session: version,
+            client: PROTOCOL_VERSION,
         });
     }
 
@@ -408,6 +438,8 @@ const REPLY_UNREPRESENTABLE: u8 = 4;
 const REPLY_BUSY: u8 = 5;
 const REPLY_UNANSWERED: u8 = 6;
 const REPLY_INCOMPATIBLE: u8 = 7;
+const REPLY_OVERSIZED: u8 = 8;
+const REPLY_MALFORMED: u8 = 9;
 
 fn encode_reply(out: &mut Vec<u8>, reply: &Reply) {
     match reply {
@@ -436,10 +468,18 @@ fn encode_reply(out: &mut Vec<u8>, reply: &Reply) {
         }
         Reply::Busy => out.push(REPLY_BUSY),
         Reply::Unanswered => out.push(REPLY_UNANSWERED),
-        Reply::Incompatible { expected, found } => {
+        Reply::Oversized { length } => {
+            out.push(REPLY_OVERSIZED);
+            out.extend_from_slice(&length.to_le_bytes());
+        }
+        Reply::Malformed(message) => {
+            out.push(REPLY_MALFORMED);
+            encode_bytes(out, message.as_bytes());
+        }
+        Reply::Incompatible { session, client } => {
             out.push(REPLY_INCOMPATIBLE);
-            out.push(*expected);
-            out.push(*found);
+            out.push(*session);
+            out.push(*client);
         }
     }
 }
@@ -448,7 +488,7 @@ fn decode_reply(cursor: &mut Cursor<'_>) -> Result<Reply, WireError> {
     match cursor.byte()? {
         REPLY_RETURNED => {
             let count = cursor.count()?;
-            let mut values = Vec::with_capacity(count.min(MAX_FRAME / 2));
+            let mut values = Vec::with_capacity(cursor.at_most(count, 1));
             for _ in 0..count {
                 values.push(decode_value(cursor, 0)?);
             }
@@ -462,9 +502,13 @@ fn decode_reply(cursor: &mut Cursor<'_>) -> Result<Reply, WireError> {
         REPLY_UNREPRESENTABLE => Ok(Reply::Unrepresentable(cursor.string()?)),
         REPLY_BUSY => Ok(Reply::Busy),
         REPLY_UNANSWERED => Ok(Reply::Unanswered),
+        REPLY_OVERSIZED => Ok(Reply::Oversized {
+            length: cursor.u64()?,
+        }),
+        REPLY_MALFORMED => Ok(Reply::Malformed(cursor.string()?)),
         REPLY_INCOMPATIBLE => Ok(Reply::Incompatible {
-            expected: cursor.byte()?,
-            found: cursor.byte()?,
+            session: cursor.byte()?,
+            client: cursor.byte()?,
         }),
         tag => Err(WireError::UnknownTag { what: "reply", tag }),
     }
@@ -543,12 +587,13 @@ fn decode_value(cursor: &mut Cursor<'_>, depth: usize) -> Result<Value, WireErro
         VALUE_STRING => Ok(Value::String(cursor.bytes()?)),
         VALUE_TABLE => {
             let count = cursor.count()?;
-            let mut array = Vec::with_capacity(count.min(MAX_FRAME / 2));
+            let mut array = Vec::with_capacity(cursor.at_most(count, 1));
             for _ in 0..count {
                 array.push(decode_value(cursor, depth + 1)?);
             }
             let count = cursor.count()?;
-            let mut entries = Vec::with_capacity(count.min(MAX_FRAME / 3));
+            // A key and a value, so two bytes at the very least.
+            let mut entries = Vec::with_capacity(cursor.at_most(count, 2));
             for _ in 0..count {
                 let key = decode_key(cursor)?;
                 entries.push((key, decode_value(cursor, depth + 1)?));
@@ -636,6 +681,17 @@ impl<'a> Cursor<'a> {
         self.at == self.bytes.len()
     }
 
+    /// How many of `count` items could possibly follow, at `each` bytes apiece.
+    ///
+    /// A reserved capacity is taken from a length prefix a peer wrote, so it is
+    /// clamped against what is left of the frame rather than against
+    /// [`MAX_FRAME`]: an eight-byte frame announcing `u32::MAX` values would
+    /// otherwise reserve four billion slots before the truncation was noticed.
+    /// The bound is exact, because no encoded item is shorter than `each`.
+    fn at_most(&self, count: usize, each: usize) -> usize {
+        count.min((self.bytes.len() - self.at) / each)
+    }
+
     fn take(&mut self, count: usize) -> Result<&'a [u8], WireError> {
         let end = self.at.checked_add(count).ok_or(WireError::Truncated)?;
         let slice = self.bytes.get(self.at..end).ok_or(WireError::Truncated)?;
@@ -677,271 +733,4 @@ impl<'a> Cursor<'a> {
     clippy::expect_used,
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
-mod tests {
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    fn round_trip(reply: &Reply) -> Reply {
-        let mut buffer = Vec::new();
-        write_reply(&mut buffer, reply).expect("the reply fits a frame");
-        read_reply(&mut buffer.as_slice()).expect("the reply decodes")
-    }
-
-    #[test]
-    fn a_nested_table_round_trips() {
-        let reply = Reply::Returned(vec![Value::Table(TableValue {
-            array: vec![
-                Value::Integer(1),
-                Value::Table(TableValue {
-                    array: vec![Value::String(b"deep".to_vec())],
-                    entries: Vec::new(),
-                }),
-            ],
-            entries: vec![(
-                Key::String(b"title".to_vec()),
-                Value::String(b"a window".to_vec()),
-            )],
-        })]);
-
-        assert_eq!(round_trip(&reply), reply);
-    }
-
-    #[test]
-    fn a_mixed_array_and_hash_table_keeps_both_parts() {
-        // `{1, 2, x = 3}`, which has no equivalent in a format with only lists
-        // or only objects.
-        let reply = Reply::Returned(vec![Value::Table(TableValue {
-            array: vec![Value::Integer(1), Value::Integer(2)],
-            entries: vec![(Key::String(b"x".to_vec()), Value::Integer(3))],
-        })]);
-
-        assert_eq!(round_trip(&reply), reply);
-    }
-
-    #[test]
-    fn every_key_shape_round_trips() {
-        let reply = Reply::Returned(vec![Value::Table(TableValue {
-            array: Vec::new(),
-            entries: vec![
-                (Key::Boolean(true), Value::Nil),
-                (Key::Boolean(false), Value::Nil),
-                (Key::Integer(-7), Value::Nil),
-                (Key::Float(0.5), Value::Nil),
-                (Key::String(vec![0xff, 0x00]), Value::Nil),
-            ],
-        })]);
-
-        assert_eq!(round_trip(&reply), reply);
-    }
-
-    #[test]
-    fn a_handle_round_trips_by_kind_and_id() {
-        for handle in [
-            Handle {
-                kind: HandleKind::Window,
-                id: Some(HandleId::Number(3)),
-            },
-            Handle {
-                kind: HandleKind::Monitor,
-                id: Some(HandleId::Text(b"Acme X24".to_vec())),
-            },
-            Handle {
-                kind: HandleKind::Sink,
-                id: None,
-            },
-        ] {
-            let reply = Reply::Returned(vec![Value::Handle(handle.clone())]);
-            assert_eq!(round_trip(&reply), reply, "{handle:?}");
-        }
-    }
-
-    #[test]
-    fn every_handle_kind_has_a_distinct_tag_and_name() {
-        let kinds = [
-            HandleKind::Window,
-            HandleKind::Monitor,
-            HandleKind::Process,
-            HandleKind::Seat,
-            HandleKind::Sink,
-            HandleKind::Claim,
-        ];
-        for kind in kinds {
-            assert_eq!(HandleKind::from_tag(kind.tag()), Some(kind));
-            assert_eq!(HandleKind::named(kind.as_str()), Some(kind));
-        }
-        assert_eq!(HandleKind::named("texture"), None);
-    }
-
-    #[test]
-    fn a_nan_and_the_infinities_arrive_as_themselves() {
-        // The bits are what is written, so a value with no faithful text form
-        // is not silently rounded into one.
-        let mut buffer = Vec::new();
-        let reply = Reply::Returned(vec![
-            Value::Float(f64::NAN),
-            Value::Float(f64::INFINITY),
-            Value::Float(f64::NEG_INFINITY),
-            Value::Float(-0.0),
-        ]);
-        write_reply(&mut buffer, &reply).expect("the reply fits a frame");
-
-        let Reply::Returned(values) = read_reply(&mut buffer.as_slice()).expect("it decodes")
-        else {
-            panic!("a returned reply decodes as one");
-        };
-        let bits: Vec<u64> = values
-            .iter()
-            .map(|value| match value {
-                Value::Float(number) => number.to_bits(),
-                other => panic!("{other:?} is not a float"),
-            })
-            .collect();
-        assert_eq!(
-            bits,
-            vec![
-                f64::NAN.to_bits(),
-                f64::INFINITY.to_bits(),
-                f64::NEG_INFINITY.to_bits(),
-                (-0.0f64).to_bits(),
-            ]
-        );
-    }
-
-    #[test]
-    fn every_reply_shape_round_trips() {
-        for reply in [
-            Reply::Returned(Vec::new()),
-            Reply::Returned(vec![Value::Nil, Value::Boolean(true), Value::Integer(-1)]),
-            Reply::LoadError("a syntax error".to_owned()),
-            Reply::RuntimeError("it raised".to_owned()),
-            Reply::Abandoned {
-                after: Duration::from_millis(250),
-            },
-            Reply::Unrepresentable("result 1 is a function".to_owned()),
-            Reply::Busy,
-            Reply::Unanswered,
-            Reply::Incompatible {
-                expected: 1,
-                found: 9,
-            },
-        ] {
-            assert_eq!(round_trip(&reply), reply, "{reply:?}");
-        }
-    }
-
-    #[test]
-    fn a_request_round_trips() {
-        let mut buffer = Vec::new();
-        write_request(&mut buffer, "return 1 + 1").expect("the chunk fits a frame");
-
-        assert_eq!(
-            read_request(&mut buffer.as_slice()).expect("it decodes"),
-            Request {
-                version: PROTOCOL_VERSION,
-                chunk: "return 1 + 1".to_owned(),
-            }
-        );
-    }
-
-    #[test]
-    fn a_frame_from_another_protocol_version_is_named_rather_than_parsed() {
-        // The version byte is at a fixed offset that will not move, so a peer
-        // from either side of a change can always read it.
-        let mut buffer = Vec::new();
-        write_reply(&mut buffer, &Reply::Busy).expect("the reply fits a frame");
-        buffer[4] = PROTOCOL_VERSION.wrapping_add(1);
-
-        assert_eq!(
-            read_reply(&mut buffer.as_slice()).expect("the version is still readable"),
-            Reply::Incompatible {
-                expected: PROTOCOL_VERSION,
-                found: PROTOCOL_VERSION.wrapping_add(1),
-            }
-        );
-    }
-
-    #[test]
-    fn a_truncated_frame_is_reported_rather_than_guessed_at() {
-        let mut buffer = Vec::new();
-        write_reply(&mut buffer, &Reply::RuntimeError("it raised".to_owned()))
-            .expect("the reply fits a frame");
-        buffer.truncate(buffer.len() - 3);
-
-        let error = read_reply(&mut buffer.as_slice()).expect_err("the frame is short");
-        assert!(matches!(error, WireError::Truncated), "{error}");
-    }
-
-    #[test]
-    fn a_length_prefix_past_the_cap_is_refused_before_anything_is_allocated() {
-        let mut buffer = u32::MAX.to_le_bytes().to_vec();
-        buffer.push(PROTOCOL_VERSION);
-
-        let error = read_reply(&mut buffer.as_slice()).expect_err("the frame is oversized");
-        assert!(matches!(error, WireError::TooLarge { .. }), "{error}");
-    }
-
-    #[test]
-    fn a_tag_this_build_does_not_know_is_refused() {
-        let mut body = vec![PROTOCOL_VERSION, REPLY_RETURNED];
-        encode_count(&mut body, 1);
-        body.push(200);
-        let mut buffer = (body.len() as u32).to_le_bytes().to_vec();
-        buffer.extend_from_slice(&body);
-
-        let error = read_reply(&mut buffer.as_slice()).expect_err("200 is not a value tag");
-        assert!(
-            matches!(
-                error,
-                WireError::UnknownTag {
-                    what: "value",
-                    tag: 200
-                }
-            ),
-            "{error}"
-        );
-    }
-
-    /// A hostile frame must not recurse until the stack runs out, so the cap
-    /// belongs to the decoder as much as to the producer.
-    #[test]
-    fn a_frame_nesting_past_the_cap_is_refused_rather_than_overflowing() {
-        let mut body = vec![PROTOCOL_VERSION, REPLY_RETURNED];
-        encode_count(&mut body, 1);
-        for _ in 0..MAX_DEPTH + 8 {
-            body.push(VALUE_TABLE);
-            encode_count(&mut body, 1);
-        }
-        body.push(VALUE_NIL);
-        let mut buffer = (body.len() as u32).to_le_bytes().to_vec();
-        buffer.extend_from_slice(&body);
-
-        let error = read_reply(&mut buffer.as_slice()).expect_err("it nests too deep");
-        assert!(matches!(error, WireError::TooDeep { .. }), "{error}");
-    }
-
-    #[test]
-    fn a_frame_with_bytes_left_over_is_refused() {
-        let mut body = vec![PROTOCOL_VERSION, REPLY_BUSY, 0];
-        let mut buffer = (body.len() as u32).to_le_bytes().to_vec();
-        buffer.append(&mut body);
-
-        let error = read_reply(&mut buffer.as_slice()).expect_err("there is a trailing byte");
-        assert!(matches!(error, WireError::Trailing), "{error}");
-    }
-
-    #[test]
-    fn a_chunk_that_is_not_utf8_is_reported() {
-        let body = vec![PROTOCOL_VERSION, 0xff, 0xfe];
-        let mut buffer = (body.len() as u32).to_le_bytes().to_vec();
-        buffer.extend_from_slice(&body);
-
-        let error = read_request(&mut buffer.as_slice()).expect_err("the chunk is not utf-8");
-        assert!(matches!(error, WireError::NotUtf8), "{error}");
-    }
-
-    #[test]
-    fn an_error_names_its_subsystem() {
-        assert!(WireError::Truncated.to_string().starts_with("lunctl: "));
-    }
-}
+mod tests;

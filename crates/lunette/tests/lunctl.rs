@@ -218,6 +218,35 @@ fn each_failure_has_its_own_exit_status() {
     );
 }
 
+/// A chunk that ran and answered more than one message holds. The session is
+/// healthy and the chunk succeeded, so reporting it as a session that could not
+/// be reached — which is what closing the connection amounts to — would be a lie
+/// about both.
+#[test]
+fn an_answer_larger_than_a_message_is_named_rather_than_read_as_an_absent_session() {
+    let mut session = Session::start();
+    session.wait_for_socket();
+
+    let oversized = session.lunctl(&["return string.rep('x', 9 * 1024 * 1024)"]);
+
+    assert_eq!(
+        code(&oversized),
+        4,
+        "the answer does not fit, which is the protocol failing to carry it; stderr was:\n{}",
+        stderr(&oversized),
+    );
+    assert!(
+        stderr(&oversized).contains("one message carries at most"),
+        "the client is told what actually happened: {}",
+        stderr(&oversized),
+    );
+    // And the session is still there, which the status above must not have
+    // implied otherwise.
+    let after = session.lunctl(&["return answer"]);
+    assert_eq!(code(&after), 0, "stderr was:\n{}", stderr(&after));
+    assert_eq!(stdout(&after), "42");
+}
+
 /// `lunette-v1.AC8.2`'s first clause, end to end: the session keeps running.
 #[test]
 fn a_chunk_that_overruns_is_abandoned_and_the_session_carries_on() {
@@ -257,7 +286,20 @@ fn the_socket_is_0600_inside_a_0700_directory_and_is_not_a_network_address() {
 /// endpoint gets none.
 #[test]
 fn the_disable_switch_leaves_no_socket_to_connect_to() {
-    let mut session = Session::start_with(&[("LUNETTE_CONTROL", "off")]);
+    no_socket_is_bound_with("off");
+}
+
+/// A user who reached for a spelling the switch does not know was still asking
+/// for the endpoint to be closed. Unset already means open, so the only reason
+/// to set the variable is to close it, and an unrecognised value that opened it
+/// anyway would be the failure the switch exists to prevent.
+#[test]
+fn a_spelling_of_off_the_switch_does_not_know_still_leaves_no_socket() {
+    no_socket_is_bound_with("false");
+}
+
+fn no_socket_is_bound_with(setting: &str) {
+    let mut session = Session::start_with(&[("LUNETTE_CONTROL", setting)]);
 
     // There is no socket to wait for, so the session is stopped by the fixture's
     // own bound. What this asserts is that nothing appeared in the meantime.
@@ -265,7 +307,7 @@ fn the_disable_switch_leaves_no_socket_to_connect_to() {
     while Instant::now() < deadline {
         assert!(
             !session.socket().exists(),
-            "a session started with LUNETTE_CONTROL=off bound a control socket anyway",
+            "a session started with LUNETTE_CONTROL={setting} bound a control socket anyway",
         );
         if session
             .child

@@ -22,6 +22,11 @@
 //! is logged and `lovr.lunerror` is called directly, and an error raised every
 //! frame is logged every frame. That is the honest behaviour rather than a
 //! silent one, and installing `mullion.error` is what fixes it.
+//!
+//! The same fallback catches a `mullion.error.handle` that raises. A session
+//! whose standard library is the broken thing is the one that most needs a panel
+//! drawn and `lovr.lunerror` called, so a handler that fails is treated as a
+//! handler that is not there.
 
 use mlua::{Function, Lua, Table};
 use tracing::error;
@@ -41,10 +46,14 @@ pub fn report(lua: &Lua, context: &str, error: &mlua::Error) {
         Ok(true) => (),
         Ok(false) => report_without_a_standard_library(lua, &traced),
         Err(failure) => {
-            // The handler itself is broken, so the error it was given would be
-            // lost with it. Both are logged, in that order: the one the session
-            // hit, then the reason nothing prettier happened to it.
-            error!("lua: {}\n{}", traced.message, traced.traceback);
+            // The handler itself is broken, so the session falls back to the
+            // floor a session with no standard library gets: the error is logged
+            // and offered to `lovr.lunerror`, which is what draws a panel. A
+            // configuration whose standard library is the broken thing is
+            // exactly the one that needs to be told. The double report this
+            // risks — a handler that raises after it has already emitted — is
+            // the lesser failure, and the logs below say which happened.
+            report_without_a_standard_library(lua, &traced);
             error!("lua: mullion.error could not be reached to report it: {failure}");
         }
     }
@@ -444,6 +453,37 @@ mod tests {
             "lovr.lunwindowopened",
             &raised(&lua, "error('it broke')"),
         );
+    }
+
+    /// A broken standard library must not cost the configuration its own
+    /// handler. `lovr.lunerror` is what draws a panel, and the session where the
+    /// standard library is the broken thing is the one that needs one.
+    #[test]
+    fn a_standard_library_handler_that_raises_falls_back_to_lunerror() {
+        let lua = state_with_the_standard_library();
+        lua.load(
+            "seen = {}
+             function lovr.lunerror(event) seen[#seen + 1] = event end
+             package.loaded['mullion.error'].handle = function() error('the handler said no') end",
+        )
+        .exec()
+        .expect("the handler is replaced");
+
+        report(
+            &lua,
+            "lovr.lunwindowopened",
+            &raised(&lua, "error('it broke')"),
+        );
+
+        let (count, message): (usize, String) = lua
+            .load("return #seen, seen[1] and seen[1].message or ''")
+            .eval()
+            .expect("the payload is readable");
+        assert_eq!(
+            count, 1,
+            "the configuration is told about an error its standard library could not report"
+        );
+        assert!(message.contains("it broke"), "{message}");
     }
 
     #[test]

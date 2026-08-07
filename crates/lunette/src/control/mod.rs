@@ -38,6 +38,7 @@
 //! bounded.
 
 pub mod eval;
+pub mod identifier;
 pub mod serialise;
 pub mod socket;
 pub mod wire;
@@ -107,22 +108,28 @@ impl ControlSwitch {
     /// Reads the switch from what the entry point found in the environment.
     ///
     /// A value rather than a variable name, because a library does not read the
-    /// environment. An unrecognised value is enabled with a warning: the failure
-    /// this protects against is a typo silently *enabling* the endpoint, and a
-    /// typo that silently disabled it would be a session whose `lunctl` stopped
-    /// working for no visible reason.
+    /// environment.
+    ///
+    /// Unset and empty are enabled, so the only reason to set the variable at
+    /// all is to turn the endpoint off. An unrecognised value is therefore an
+    /// attempt to disable that got the spelling wrong — `false`, `0`, `no`,
+    /// `disabled` — and answering it by opening a socket that evaluates
+    /// arbitrary Lua would be the failure this switch exists to prevent. The
+    /// warning goes to stderr, which a user who set the variable in a systemd
+    /// unit may never read, so the warning cannot be what carries the decision.
+    /// Anything that is not `on` is off.
     #[must_use]
     pub fn from_setting(setting: Option<&str>) -> Self {
         match setting.map(str::trim) {
             None | Some("") => Self::Enabled,
-            Some(value) if value.eq_ignore_ascii_case("off") => Self::Disabled,
             Some(value) if value.eq_ignore_ascii_case("on") => Self::Enabled,
+            Some(value) if value.eq_ignore_ascii_case("off") => Self::Disabled,
             Some(value) => {
                 warn!(
-                    "lunctl: '{value}' is not 'on' or 'off', so the control socket stays enabled; \
-                     say 'off' to have none"
+                    "lunctl: '{value}' is not 'on' or 'off', so the control socket is disabled; \
+                     say 'on' to have one"
                 );
-                Self::Enabled
+                Self::Disabled
             }
         }
     }
@@ -342,30 +349,49 @@ fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
         debug!(%error, "a lunctl connection could not be given a read timeout");
     }
 
-    let request = match wire::read_request(&mut stream) {
-        Ok(request) => request,
-        Err(error) => {
-            debug!(%error, "a lunctl connection sent nothing that could be read");
-            return;
-        }
+    let reply = match wire::read_request(&mut stream) {
+        // A chunk that could not be read is still answered. Closing on one
+        // reaches the client as an end of file, which it can only report as a
+        // session it could not reach — and the session is right here.
+        Err(error) => Reply::Malformed(error.to_string()),
+        Ok(request) if request.version == wire::PROTOCOL_VERSION => submit(sender, request.chunk),
+        Ok(request) => Reply::Incompatible {
+            session: wire::PROTOCOL_VERSION,
+            client: request.version,
+        },
     };
 
-    let reply = if request.version == wire::PROTOCOL_VERSION {
-        submit(sender, request.chunk)
-    } else {
-        Reply::Incompatible {
-            expected: wire::PROTOCOL_VERSION,
-            found: request.version,
-        }
-    };
-
-    if let Err(error) = wire::write_reply(&mut stream, &reply) {
-        debug!(%error, "a lunctl answer could not be written back");
-    }
+    write_answer(&mut stream, &reply);
     // The client reads until the peer closes, so the shutdown is what ends its
     // read rather than the process exiting eventually.
     if let Err(error) = stream.shutdown(Shutdown::Both) {
         debug!(%error, "a lunctl connection could not be shut down");
+    }
+}
+
+/// Writes one answer, saying so when the answer is what does not fit.
+///
+/// A reply larger than a frame is the one write failure with something left to
+/// say. `wire::write_frame` refuses an oversized body before it writes any of
+/// it, so the stream is untouched and the substitute is the first thing on it.
+/// Every other failure is the connection itself, where a second write would only
+/// fail again.
+fn write_answer(stream: &mut UnixStream, reply: &Reply) {
+    let Err(error) = wire::write_reply(stream, reply) else {
+        return;
+    };
+
+    let wire::WireError::TooLarge { length } = error else {
+        debug!(%error, "a lunctl answer could not be written back");
+        return;
+    };
+
+    debug!(%length, "a lunctl answer was larger than one frame carries");
+    let oversized = Reply::Oversized {
+        length: u64::try_from(length).unwrap_or(u64::MAX),
+    };
+    if let Err(error) = wire::write_reply(stream, &oversized) {
+        debug!(%error, "a lunctl connection could not be told its answer was too large");
     }
 }
 
@@ -609,14 +635,66 @@ mod tests {
         assert_eq!(
             wire::read_reply(&mut stream).expect("an answer comes back"),
             Reply::Incompatible {
-                expected: wire::PROTOCOL_VERSION,
-                found: wire::PROTOCOL_VERSION.wrapping_add(1),
+                session: wire::PROTOCOL_VERSION,
+                client: wire::PROTOCOL_VERSION.wrapping_add(1),
             }
         );
         assert_eq!(
             queue.drain(4, |_| Reply::Busy),
             0,
             "nothing that could not be understood reaches the session"
+        );
+    }
+
+    /// A chunk that succeeded and answered too much must not read as a session
+    /// that is not there. Closing the connection is what made it: the client
+    /// sees an end of file and can only call that unreachable.
+    #[test]
+    fn an_answer_too_large_for_a_frame_is_named_rather_than_closed_on() {
+        let runtime = runtime();
+        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
+        let path = thread.path().to_owned();
+
+        let asking = thread::spawn(move || ask(&path, "return 'a great deal'"));
+
+        let oversized = wire::MAX_FRAME + 1;
+        until(|| {
+            queue.drain(CHUNKS_PER_FRAME, |_| {
+                Reply::Returned(vec![wire::Value::String(vec![b'x'; oversized])])
+            }) > 0
+        });
+
+        let reply = asking.join().expect("the client thread finishes");
+        let Reply::Oversized { length } = reply else {
+            panic!("expected the answer to be named as too large, and lunctl saw {reply:?}");
+        };
+        assert!(
+            length > wire::MAX_FRAME as u64,
+            "the client is told how much there was: {length}"
+        );
+    }
+
+    /// A request that cannot be read is answered too, for the same reason.
+    #[test]
+    fn a_request_that_cannot_be_read_is_answered_rather_than_closed_on() {
+        let runtime = runtime();
+        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
+        let path = thread.path().to_owned();
+
+        let mut stream = UnixStream::connect(&path).expect("the socket accepts");
+        // A well-formed frame whose chunk is not text. Lua source in some other
+        // encoding is a mistake worth reporting rather than compiling.
+        let body = vec![wire::PROTOCOL_VERSION, 0xff, 0xfe];
+        let length = u32::try_from(body.len()).expect("it fits");
+        io::Write::write_all(&mut stream, &length.to_le_bytes()).expect("the length is written");
+        io::Write::write_all(&mut stream, &body).expect("the body is written");
+
+        let reply = wire::read_reply(&mut stream).expect("an answer comes back");
+        assert!(matches!(reply, Reply::Malformed(_)), "{reply:?}");
+        assert_eq!(
+            queue.drain(4, |_| Reply::Busy),
+            0,
+            "nothing that could not be read reaches the session"
         );
     }
 
@@ -634,10 +712,18 @@ mod tests {
     }
 
     #[test]
-    fn the_switch_defaults_to_enabled_and_only_off_disables_it() {
+    fn the_switch_defaults_to_enabled_and_anything_but_on_disables_it() {
         assert_eq!(ControlSwitch::from_setting(None), ControlSwitch::Enabled);
         assert_eq!(
             ControlSwitch::from_setting(Some("")),
+            ControlSwitch::Enabled
+        );
+        assert_eq!(
+            ControlSwitch::from_setting(Some("on")),
+            ControlSwitch::Enabled
+        );
+        assert_eq!(
+            ControlSwitch::from_setting(Some(" ON ")),
             ControlSwitch::Enabled
         );
         assert_eq!(
@@ -648,16 +734,17 @@ mod tests {
             ControlSwitch::from_setting(Some(" OFF ")),
             ControlSwitch::Disabled
         );
-        assert_eq!(
-            ControlSwitch::from_setting(Some("on")),
-            ControlSwitch::Enabled
-        );
-        // A typo leaves it enabled: the failure worth protecting against is one
-        // that silently opens the endpoint, not one that silently closes it.
-        assert_eq!(
-            ControlSwitch::from_setting(Some("disabled")),
-            ControlSwitch::Enabled
-        );
+        // Every spelling of "off" a user might reach for. Unset already means
+        // enabled, so a value that is neither word is an attempt to disable that
+        // got the spelling wrong, and answering it with an open endpoint is the
+        // one failure this switch exists to prevent.
+        for spelling in ["disabled", "false", "0", "no", "of", "OFFF"] {
+            assert_eq!(
+                ControlSwitch::from_setting(Some(spelling)),
+                ControlSwitch::Disabled,
+                "'{spelling}' must not open the endpoint"
+            );
+        }
     }
 
     #[test]

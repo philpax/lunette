@@ -35,8 +35,11 @@ use std::{
 };
 
 use lunette::control::{
+    identifier::is_identifier,
     socket::{DIRECTORY_NAME, SOCKET_NAME},
-    wire::{Handle, Key, Reply, TableValue, Value, read_reply, write_request},
+    wire::{
+        Handle, Key, MAX_FRAME, Reply, TableValue, Value, WireError, read_reply, write_request,
+    },
 };
 
 fn main() -> ExitCode {
@@ -101,7 +104,7 @@ exit status
   1  the chunk raised
   2  the chunk did not compile
   3  the chunk ran past its time budget and was abandoned
-  4  the chunk returned something the protocol cannot carry
+  4  the chunk returned something the protocol cannot carry, or too much of it
   5  the session did not evaluate it
   6  the session could not be reached
  64  lunctl was invoked wrongly";
@@ -283,23 +286,51 @@ fn evaluate_and_report(socket: &Path, chunk: &str) -> Status {
 }
 
 /// One request and one reply, over one connection.
-fn exchange(socket: &Path, chunk: &str) -> Result<Reply, String> {
+fn exchange(socket: &Path, chunk: &str) -> Result<Reply, Unanswered> {
     let mut stream = UnixStream::connect(socket).map_err(|error| {
-        format!(
+        Unanswered::Unreachable(format!(
             "{} could not be reached, so there is no session to ask: {error}",
             socket.display()
-        )
+        ))
     })?;
 
-    write_request(&mut stream, chunk).map_err(|error| error.to_string())?;
-    read_reply(&mut stream).map_err(|error| error.to_string())
+    match write_request(&mut stream, chunk) {
+        Ok(()) => {}
+        // Refused here rather than at the session, because the frame is checked
+        // before it is written: nothing was sent, so this is the invocation
+        // being wrong rather than the session being unreachable.
+        Err(WireError::TooLarge { length }) => return Err(Unanswered::ChunkTooLarge { length }),
+        Err(error) => return Err(Unanswered::Unreachable(error.to_string())),
+    }
+
+    read_reply(&mut stream).map_err(|error| Unanswered::Unreachable(error.to_string()))
+}
+
+/// Why an exchange produced no reply at all.
+///
+/// Two outcomes rather than one string, because a chunk too large to send is a
+/// mistake in the invocation and a socket that is not there is a session that is
+/// not running, and a script branches differently on each.
+#[derive(Debug)]
+enum Unanswered {
+    /// The chunk is larger than one message carries, so it was never sent.
+    ChunkTooLarge { length: usize },
+    /// The socket, the write, or the read failed.
+    Unreachable(String),
 }
 
 /// Prints a reply, and says what to exit with.
-fn report(reply: &Result<Reply, String>) -> Status {
+fn report(reply: &Result<Reply, Unanswered>) -> Status {
     let reply = match reply {
         Ok(reply) => reply,
-        Err(message) => {
+        Err(Unanswered::ChunkTooLarge { length }) => {
+            eprintln!(
+                "lunctl: the chunk is {length} bytes and one message carries at most {MAX_FRAME}, \
+                 so it was not sent; put it in a file and have the chunk load that"
+            );
+            return Status::Usage;
+        }
+        Err(Unanswered::Unreachable(message)) => {
             eprintln!("lunctl: {message}");
             return Status::Unreachable;
         }
@@ -345,10 +376,24 @@ fn report(reply: &Result<Reply, String>) -> Status {
             );
             Status::NotEvaluated
         }
-        Reply::Incompatible { expected, found } => {
+        Reply::Oversized { length } => {
             eprintln!(
-                "lunctl: this lunctl speaks protocol version {found} and the session speaks \
-                 {expected}; they are from different builds"
+                "lunctl: the chunk ran, and its answer is {length} bytes; one message carries at \
+                 most {MAX_FRAME}, so none of it came back. Return less of it — a count, a field, \
+                 or a slice — rather than the whole structure"
+            );
+            Status::Unrepresentable
+        }
+        Reply::Malformed(message) => {
+            eprintln!(
+                "lunctl: the session could not read the request, and was not asked: {message}"
+            );
+            Status::Usage
+        }
+        Reply::Incompatible { session, client } => {
+            eprintln!(
+                "lunctl: this lunctl speaks protocol version {client} and the session speaks \
+                 {session}; they are from different builds"
             );
             Status::NotEvaluated
         }
@@ -466,15 +511,6 @@ fn key_text(key: &Key) -> String {
         Key::Float(number) => format!("[{}]", number_text(*number)),
         Key::Boolean(answer) => format!("[{answer}]"),
     }
-}
-
-/// Whether a name can be written as `name = ` rather than as `['name'] = `.
-fn is_identifier(name: &str) -> bool {
-    !name.is_empty()
-        && !name.starts_with(|first: char| first.is_ascii_digit())
-        && name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 /// A handle, as its kind and its identifier.
@@ -645,6 +681,10 @@ mod tests {
             key_text(&Key::String(b"with space".to_vec())),
             "['with space']"
         );
+        // A reserved word is not a name: `end = 1` does not parse, and what is
+        // printed is promised to.
+        assert_eq!(key_text(&Key::String(b"end".to_vec())), "['end']");
+        assert_eq!(key_text(&Key::String(b"function".to_vec())), "['function']");
         assert_eq!(key_text(&Key::Integer(4)), "[4]");
         assert_eq!(key_text(&Key::Boolean(true)), "[true]");
     }

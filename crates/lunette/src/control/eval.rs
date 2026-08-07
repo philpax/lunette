@@ -22,14 +22,18 @@
 //! arbitrary chunk. Under LuaJIT it has a specific failure: **JIT-compiled code
 //! does not call debug hooks**, so a trace in a tight loop never returns to the
 //! interpreter and the hook never fires. [`evaluate`] therefore applies `jit.off`
-//! to the loaded chunk, which forces interpretation and makes the hook reliable.
-//! The cost is irrelevant — a control-plane chunk is not a hot path — and the
-//! alternative, building LuaJIT with `-DLUAJIT_ENABLE_CHECKHOOK`, would slow the
-//! whole session to bound one feature.
+//! to the loaded chunk, which forces interpretation and makes the hook reliable
+//! for the chunk's own code. The cost is irrelevant — a control-plane chunk is
+//! not a hot path — and the alternative, building LuaJIT with
+//! `-DLUAJIT_ENABLE_CHECKHOOK`, would slow the whole session to bound one
+//! feature.
 //!
-//! Even so the bound is advisory. An `error()` raised from a hook can be caught
-//! by a `pcall` inside the user's own chunk, and a loop inside a C function or a
-//! blocking FFI call is uninterruptible by any hook. A hard bound would need a
+//! Even so the bound is advisory, in three ways. A function the chunk *calls* is
+//! not the chunk's own code and is still compiled, so `return
+//! mullion.somethingExpensive()` can outrun its budget inside a trace; an
+//! `error()` raised from a hook can be caught by a `pcall` inside the user's own
+//! chunk; and a loop inside a C function or a blocking FFI call is
+//! uninterruptible by any hook. A hard bound would need a
 //! watchdog outside Lua, and since the chunk holds the Lua thread the only thing
 //! a watchdog could do is abort the process — turning a bad `lunctl` command into
 //! a crash that takes every connected client with it, which is worse than the
@@ -200,7 +204,13 @@ const OVERRUN_MESSAGE: &str = "lunctl: the chunk ran past its time budget and wa
 /// never returns to the interpreter, so the count hook installed above would
 /// never fire and the budget would not exist. `jit.off(f, true)` disables
 /// compilation for the function and everything defined inside it, which is what
-/// makes the hook reliable.
+/// makes the hook reliable for the chunk's own code.
+///
+/// It reaches no further than that. A function the chunk *calls* belongs to
+/// whatever chunk defined it and is still compiled, so a call into `mullion` runs
+/// inside a trace where the hook does not fire. `docs/decisions.md` records the
+/// measurement and why turning the JIT off for the whole session is not the
+/// answer.
 ///
 /// Best-effort by design: a Lua state without `jit` is a plain Lua build, where
 /// the hook fires anyway and there is nothing to turn off.
@@ -269,6 +279,10 @@ thread_local! {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
 mod tests {
     use pretty_assertions::assert_eq;
 
@@ -384,6 +398,39 @@ mod tests {
             values[1].contains("time budget"),
             "the chunk sees what stopped it: {}",
             values[1],
+        );
+    }
+
+    /// The second documented escape, asserted as the behaviour it is. `jit.off`
+    /// reaches the chunk and the functions written inside it; a function the
+    /// chunk merely calls is compiled, and the hook does not fire inside a trace.
+    ///
+    /// The loop count is the measurement: it is small enough that the case costs
+    /// a fraction of a second compiled and large enough that it cannot finish
+    /// inside the budget interpreted, so the outcome tells the two apart.
+    #[test]
+    fn a_chunk_calling_a_function_it_did_not_define_can_outrun_the_budget() {
+        let lua = Lua::new();
+        lua.load(
+            "function elsewhere(n)
+                 local total = 0
+                 for index = 1, n do total = total + index end
+                 return total
+             end",
+        )
+        .exec()
+        .expect("the callee is defined");
+
+        let outcome = evaluate(
+            &lua,
+            "return elsewhere(5e8)",
+            Budget::of(Duration::from_millis(50)),
+            scalars,
+        );
+
+        assert!(
+            matches!(outcome, Evaluation::Returned(_)),
+            "the callee is compiled and the hook cannot reach it, and the chunk {outcome:?}"
         );
     }
 
