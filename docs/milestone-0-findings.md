@@ -448,6 +448,7 @@ The headset is a Bigscreen Beyond on Monado in service mode, 3561x3561 per eye a
 | D3 | AC2.2 | The recorded half only. Numbers below; the sharpness verdict still needs eyes. |
 | D13 | AC7.1 | Pass. Mean frame time was 13.393ms over 448 frames before a client was stopped with `SIGSTOP` and 13.364ms over 449 after it. The difference is noise, the panel held its content, and 13.4ms is the display's own rate. |
 | D9 | AC5.4 | Pass. Ten reloads of the shipped configuration left one window, a live session, no error, and a 5.2K log. |
+| D12 | AC7.4 | Pass. Numbers below. |
 | E1 | AC6.1 | Pass. A primary application held its session; lunette created an overlay session alongside it, spawned a client, and ran 2247 frames; the primary was still running afterwards. Session creation succeeding is not evidence that anything is composited, and E2 is what establishes that. |
 | E2 | AC6.2 | Pass. With a primary application drawing fourteen cubes around the viewer, lunette's panel appeared over them, the terminal on it was legible, and the cubes stayed visible and untinted. LÖVR clears the overlay's projection layer transparent on its own once the extension is enabled, so no configuration has to ask for it. |
 | D1 | AC2.1, AC5.1 | The first half. A spawned client's pixels reach the headset and are legible there. The panel drawn was a plain quad rather than `mullion.panel`, so the shipped policy layer's own appearance is still unjudged, as is D2's tuning. |
@@ -528,6 +529,19 @@ The overlay's projection layer is cleared transparent by LÖVR itself once `XR_E
 A backdrop that is opaque when lunette is the only application and fades once another takes the primary session is policy, so it belongs in `mullion`. It cannot be written against the current API. `lovr.headset.isVisible` and `isFocused` describe lunette's own session and answer true whether or not anything else is running, and nothing else reports the runtime's other clients.
 
 Without it a configuration has one background for both cases, and neither choice is right in the other: opaque blacks out an application underneath, and transparent leaves a user alone on an idle runtime with nothing behind their panels.
+
+### What skipping the scene saves
+
+D12, with three clients each holding a granted composition layer and a `lovr.draw` that draws nothing. That state is not reachable with the shipped configuration, which draws chrome around every panel and a laser for every hand.
+
+| State | CPU per frame | Frames in 25s |
+|---|---|---|
+| Scene drawn, though it draws nothing | 0.312ms | 1890 |
+| Scene skipped | 0.153ms | 1890 |
+
+Skipping saves 0.159ms of CPU per frame, about half. The frame count is identical in both, which is the point: the session is paced by the display at 75.6Hz either way, so the saving does not appear as a frame rate and cannot be inferred from one. An empty `lovr.draw` still costs the full amount when the scene is not skipped, because the cost is in acquiring the headset texture and the pass rather than in anything Lua does.
+
+Measured as process CPU time over a fixed wall-clock window, on a debug build. A release build will differ in magnitude. GPU time is not measured: `lovr.graphics.getTiming` returns a polled readback and needs timing enabled, which no configuration key appears to expose.
 
 ### The unpublished submodule commit
 
