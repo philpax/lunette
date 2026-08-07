@@ -32,10 +32,6 @@
 //! [`Command::Scroll`], [`Command::CreateSeat`], [`Command::DestroySeat`],
 //! [`Command::SetClipboardBridge`], and [`Command::Shutdown`].
 //!
-//! One field of a handled command is not: [`SpawnRequest::output`] is accepted
-//! and ignored, because a window is not placed on an output until the outputs
-//! and pacing phase gives a second one to place it on.
-//!
 //! Handled as well: [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
 //! and [`Command::DestroyOutput`].
 //!
@@ -334,8 +330,10 @@ pub struct WindowSnapshot {
     /// The process this window was attributed to, absent when attribution
     /// failed.
     pub process: Option<ProcessId>,
-    /// The output the window's client was assigned to.
-    pub output: Option<OutputId>,
+    /// The output this window is shown on. Every window is on exactly one: a
+    /// client that was assigned none is shown the output every session starts
+    /// with, so there is no window with no output to report.
+    pub output: OutputId,
     pub title: Option<String>,
     pub app_id: Option<String>,
     /// The size the client last committed, in pixels. Not the size last
@@ -410,11 +408,13 @@ pub struct SpawnRequest {
     /// Added to the environment the child inherits, not a replacement for it.
     pub env: Vec<(OsString, OsString)>,
     pub cwd: Option<PathBuf>,
-    /// The only output this client is shown. Absent means the default output.
+    /// The only output this client is shown. Absent means the output every
+    /// session starts with, which is what a client lunette did not spawn is
+    /// shown too.
     ///
-    /// Accepted and ignored until the outputs and pacing phase, as this
-    /// module's documentation records: there is one output, so every client is
-    /// on it whatever this says.
+    /// An output that does not exist when the spawn arrives is refused and the
+    /// client falls back to the default one: a client shown no monitor at all
+    /// cannot pick a scale or a refresh rate.
     pub output: Option<OutputId>,
     /// Whether the child is launched against an X server rather than the
     /// Wayland socket directly.

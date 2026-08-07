@@ -30,7 +30,7 @@ use lunette_compositor::{
         SeatId, SinkId, Snapshot, SurfaceId, ToplevelState, ToplevelStates, WindowId,
         WindowSnapshot,
     },
-    state::DEFAULT_SEAT,
+    state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
 use mlua::{Lua, Table, Value};
 use pretty_assertions::assert_eq;
@@ -101,7 +101,7 @@ fn window(raw: u64, title: &str, app_id: &str, size: PixelSize) -> WindowSnapsho
         surface: surface_id(raw),
         sink: sink_id(raw),
         process: None,
-        output: None,
+        output: DEFAULT_OUTPUT,
         title: Some(title.to_owned()),
         app_id: Some(app_id.to_owned()),
         size,

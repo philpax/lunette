@@ -46,8 +46,8 @@ use crate::{
         find_environment_value,
     },
     protocol::{
-        Command, Event, ImageHandle, ImportedImage, Pid, PixelSize, ProcessOutcome, ProcessSignal,
-        SeatId, Snapshot, Stream,
+        Command, Event, ImageHandle, ImportedImage, OutputId, Pid, PixelSize, ProcessOutcome,
+        ProcessSignal, SeatId, Snapshot, Stream,
     },
     state::{ClientState, CompositorConfig},
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
@@ -218,6 +218,27 @@ impl TestCompositor {
         self.data.state.attach_client(&client);
 
         (theirs, client)
+    }
+
+    /// Connects a client already assigned to an output.
+    ///
+    /// Per-client output filtering is only meaningful with two clients holding
+    /// two different assignments, and the ordinary route — a spawn naming an
+    /// output, then the child presenting its token — attributes every client
+    /// over a socket pair to the same pid, so two of them cannot hold two
+    /// assignments. The assignment is therefore written directly, which is the
+    /// state `attach_client` produces for a client whose spawn named one.
+    ///
+    /// Written after `connect`, because `attach_client` clears the assignment
+    /// for a process no spawn named an output for. Nothing has been dispatched
+    /// by then: `insert_client` does not dispatch, so the client's own
+    /// `wl_registry` is still unread and the first advertisement sees this.
+    pub fn connect_assigned(&mut self, output: OutputId) -> (UnixStream, Client) {
+        let (stream, client) = self.connect();
+        if let Some(state) = client.get_data::<ClientState>() {
+            state.assign(Some(output));
+        }
+        (stream, client)
     }
 
     /// Runs one round of the event loop, then flushes everything that produced.

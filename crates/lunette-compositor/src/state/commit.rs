@@ -264,7 +264,11 @@ impl CompositorState {
         let Some(content) = self.contents.get(&id).copied() else {
             return;
         };
-        let bounds = self.output_logical_size();
+        let bounds = self.output_bounds(
+            self.windows
+                .by_surface(id)
+                .map_or(crate::state::DEFAULT_OUTPUT, crate::window::Window::output),
+        );
         let Some(window) = self.windows.by_surface_mut(id) else {
             return;
         };

@@ -237,6 +237,9 @@ pub(crate) struct CompositorState {
     processes: ProcessRegistry,
     /// Which process each connected client was attributed to.
     clients: HashMap<ClientId, ProcessId>,
+    /// Which output each spawned process's clients are shown. Only processes
+    /// whose spawn named one appear; the rest fall back to the default output.
+    assignments: HashMap<ProcessId, OutputId>,
     /// The timer that reaps children and collects their output, present only
     /// while there is something to reap.
     process_poll: Option<RegistrationToken>,
@@ -389,6 +392,7 @@ impl CompositorState {
             windows: WindowManager::default(),
             processes: ProcessRegistry::default(),
             clients: HashMap::new(),
+            assignments: HashMap::new(),
             process_poll: None,
             loop_handle,
             frame_callbacks: HashMap::new(),
@@ -537,6 +541,7 @@ impl CompositorState {
 
         match self.processes.spawn(self.spawner.as_mut(), plan) {
             Ok(()) => {
+                self.assign_output(request.process, request.output);
                 self.touch();
                 self.watch_processes();
             }
@@ -550,6 +555,27 @@ impl CompositorState {
                 });
             }
         }
+    }
+
+    /// Records which output a spawned process's clients will be shown.
+    ///
+    /// An output that does not exist is refused rather than recorded: a client
+    /// assigned one would see no monitor at all, which is a harder failure to
+    /// diagnose than a warning naming the output. Falling back to the default
+    /// is what an absent assignment already means.
+    fn assign_output(&mut self, process: ProcessId, output: Option<OutputId>) {
+        let Some(output) = output else {
+            return;
+        };
+        if self.outputs.get(output).is_none() {
+            warn!(
+                %process,
+                %output,
+                "a spawn named an output that does not exist; showing the default output instead"
+            );
+            return;
+        }
+        self.assignments.insert(process, output);
     }
 
     fn signal_process(&mut self, process: ProcessId, signal: ProcessSignal) {
@@ -576,6 +602,13 @@ impl CompositorState {
                 return;
             }
         };
+
+        // Before any request from this client has been dispatched, because
+        // `insert_client` does not dispatch: the client's `wl_registry` has not
+        // been read yet, so the first advertisement sees the assignment.
+        if let Some(state) = client.get_data::<ClientState>() {
+            state.assign(self.assignments.get(&process).copied());
+        }
 
         self.prune_clients();
         self.clients.insert(client.id(), process);
@@ -615,6 +648,12 @@ impl CompositorState {
             "a process lunette did not start connected to its socket; adopting it"
         );
         process
+    }
+
+    /// The output a surface's client is shown, which is the one it was assigned
+    /// or the default when it was assigned none.
+    pub(super) fn output_of(&self, surface: &WlSurface) -> OutputId {
+        assigned_output(surface).unwrap_or(DEFAULT_OUTPUT)
     }
 
     /// The process a client was attributed to.
@@ -660,6 +699,7 @@ impl CompositorState {
                     bytes,
                 }),
                 Report::Exited { id, outcome } => {
+                    self.assignments.remove(&id);
                     self.touch();
                     self.report(Event::ProcessExited {
                         process: id,
@@ -701,7 +741,11 @@ impl CompositorState {
         size: Option<PixelSize>,
         states: &ToplevelStates,
     ) {
-        let bounds = self.output_logical_size();
+        let bounds = self.output_bounds(
+            self.windows
+                .get(window)
+                .map_or(DEFAULT_OUTPUT, Window::output),
+        );
         let Some(tracked) = self.windows.get_mut(window) else {
             debug!(%window, "a configure was asked for a window that is already gone");
             return;
@@ -836,7 +880,7 @@ impl CompositorState {
             .get(&root)
             .and_then(|id| self.contents.get(&id))
             .map_or_else(
-                || self.output_logical_size(),
+                || self.surface_bounds(&root),
                 |content| logical_size(content.logical_size()),
             );
 
@@ -848,16 +892,35 @@ impl CompositorState {
         });
     }
 
-    /// The logical size a toplevel is configured against.
+    /// The logical size a window on `output` is configured against.
     ///
-    /// The default output's, until per-client assignment gives a window an
-    /// output of its own to be bounded by.
-    pub(super) fn output_logical_size(&self) -> Size<i32, Logical> {
-        self.outputs.get(DEFAULT_OUTPUT).map_or_else(
-            || logical_size(self.config.output.size),
-            |entry| entry.logical_size(),
-        )
+    /// A window whose client was assigned no output is bounded by the default
+    /// one, which is also the output that client is shown. So is a window whose
+    /// assigned output has since been destroyed: the bounds have to be some
+    /// size, and the one every unassigned client is already using is the least
+    /// surprising.
+    pub(super) fn output_bounds(&self, output: OutputId) -> Size<i32, Logical> {
+        self.outputs
+            .get(output)
+            .or_else(|| self.outputs.get(DEFAULT_OUTPUT))
+            .map_or_else(
+                || logical_size(self.config.output.size),
+                |entry| entry.logical_size(),
+            )
     }
+
+    /// The logical size a surface's client is configured against.
+    ///
+    /// For the paths that hold a surface and no window: a toplevel being
+    /// created, a popup being constrained, a fullscreen request.
+    pub(super) fn surface_bounds(&self, surface: &WlSurface) -> Size<i32, Logical> {
+        self.output_bounds(self.output_of(surface))
+    }
+}
+
+/// The output a surface's client was assigned, if it was assigned one.
+fn assigned_output(surface: &WlSurface) -> Option<OutputId> {
+    surface.client()?.get_data::<ClientState>()?.output()
 }
 
 #[cfg(any(test, feature = "test-fakes"))]
@@ -918,12 +981,23 @@ pub(crate) struct StateParts<'a> {
 }
 
 /// What lunette attaches to each connected client.
+///
+/// The assigned output lives here rather than in [`CompositorState`] because
+/// `GlobalDispatch::can_view` is handed a `Client` and no `&mut D`
+/// (`wayland-server-0.31.14/src/global.rs:119-121`), so a filter keyed by
+/// `ClientId` in compositor state would have nothing to look it up with.
 #[derive(Default)]
 pub struct ClientState {
     pub(crate) compositor: CompositorClientState,
     /// Set from the disconnect callback, which smithay may call from a
     /// different thread than the one dispatching, hence the lock.
     disconnected: Arc<Mutex<bool>>,
+    /// The one output this client is shown, or `None` for a client that was
+    /// assigned none — which is shown the default output instead.
+    ///
+    /// Locked for the reason `disconnected` is: `ClientData` is `Send + Sync`,
+    /// so nothing here may assume the dispatching thread.
+    output: Mutex<Option<OutputId>>,
 }
 
 impl ClientState {
@@ -933,6 +1007,36 @@ impl ClientState {
         self.disconnected
             .lock()
             .map_or(true, |disconnected| *disconnected)
+    }
+
+    /// The output this client was assigned, if it was assigned one.
+    #[must_use]
+    pub(crate) fn output(&self) -> Option<OutputId> {
+        self.output.lock().ok().and_then(|output| *output)
+    }
+
+    /// Records which output this client is shown.
+    ///
+    /// Called from [`CompositorState::attach_client`], before any request from
+    /// the client has been dispatched: `insert_client` does not dispatch, so the
+    /// client's `wl_registry` has not been read yet and the first advertisement
+    /// sees the assignment already in place.
+    pub(crate) fn assign(&self, output: Option<OutputId>) {
+        if let Ok(mut held) = self.output.lock() {
+            *held = output;
+        }
+    }
+
+    /// Whether this client may see and bind an output's global.
+    ///
+    /// A client assigned an output sees exactly that one. A client assigned
+    /// none sees the default output, which is what every client adopted from
+    /// outside lunette is: nothing spawned it, so nothing named an output for
+    /// it, and a client with no `wl_output` at all cannot pick a scale.
+    #[must_use]
+    pub(crate) fn sees_output(&self, output: OutputId) -> bool {
+        self.output()
+            .map_or(output == DEFAULT_OUTPUT, |assigned| assigned == output)
     }
 }
 

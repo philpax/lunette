@@ -124,6 +124,17 @@ impl TestClient {
         client
     }
 
+    /// Wraps a socket a test opened itself, and settles until the registry has
+    /// arrived.
+    ///
+    /// For the tests that need a client connected some other way than
+    /// [`TestClient::connect`] — one already assigned to an output, say.
+    pub fn from_stream(stream: UnixStream, compositor: &mut TestCompositor) -> Self {
+        let mut client = Self::from_socket(stream);
+        client.settle(compositor, |driver| driver.registry.is_some());
+        client
+    }
+
     fn from_socket(stream: UnixStream) -> Self {
         let connection =
             Connection::from_socket(stream).expect("the socket pair is a valid connection");

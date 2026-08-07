@@ -38,7 +38,7 @@ use smithay::{
 use tracing::debug;
 
 use crate::protocol::{
-    PixelSize, ProcessId, SinkId, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+    OutputId, PixelSize, ProcessId, SinkId, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
 };
 
 /// The smallest size lunette will configure a window to.
@@ -66,6 +66,7 @@ impl WindowManager {
         toplevel: ToplevelSurface,
         surface: SurfaceId,
         process: Option<ProcessId>,
+        output: OutputId,
         bounds: Size<i32, Logical>,
     ) -> WindowId {
         self.minted += 1;
@@ -82,6 +83,7 @@ impl WindowManager {
             sink,
             surface,
             process,
+            output,
             toplevel,
             title: None,
             app_id: None,
@@ -114,6 +116,10 @@ impl WindowManager {
         self.windows.iter().find(|window| window.sink == sink)
     }
 
+    pub(crate) fn by_surface(&self, surface: SurfaceId) -> Option<&Window> {
+        self.windows.iter().find(|window| window.surface == surface)
+    }
+
     pub(crate) fn by_surface_mut(&mut self, surface: SurfaceId) -> Option<&mut Window> {
         self.windows
             .iter_mut()
@@ -144,6 +150,9 @@ pub(crate) struct Window {
     sink: SinkId,
     surface: SurfaceId,
     process: Option<ProcessId>,
+    /// The output this window is shown on, which is the output its client was
+    /// assigned or the default one when it was assigned none.
+    output: OutputId,
     toplevel: ToplevelSurface,
     title: Option<String>,
     app_id: Option<String>,
@@ -168,6 +177,11 @@ impl Window {
 
     pub(crate) const fn toplevel(&self) -> &ToplevelSurface {
         &self.toplevel
+    }
+
+    /// The output this window is configured against.
+    pub(crate) const fn output(&self) -> OutputId {
+        self.output
     }
 
     pub(crate) const fn is_mapped(&self) -> bool {
@@ -271,7 +285,7 @@ impl Window {
             surface: self.surface,
             sink: self.sink,
             process: self.process,
-            output: Some(crate::state::DEFAULT_OUTPUT),
+            output: self.output,
             title: self.title.clone(),
             app_id: self.app_id.clone(),
             size: self.size,

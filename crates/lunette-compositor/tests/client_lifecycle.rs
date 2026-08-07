@@ -55,7 +55,7 @@ fn a_toplevel_appears_in_the_snapshot_once_it_has_committed_content() {
     let window = only_window(&compositor);
     assert_eq!(window.window, opened[0]);
     assert_eq!(window.size, WINDOW_SIZE);
-    assert_eq!(window.output, Some(DEFAULT_OUTPUT));
+    assert_eq!(window.output, DEFAULT_OUTPUT);
 }
 
 #[test]

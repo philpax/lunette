@@ -133,6 +133,8 @@ Refresh is advertisement, not pacing. It is what a client reads off `wl_output.m
 
 `output:setMode` keeps the fields it was not given, so `setMode{ scale = 2 }` changes the scale alone. Clients reallocate their buffers and re-lay-out in response, and some — GTK in particular — do it aggressively, so a configuration that adjusts this continuously will see them struggle. `mullion` moves between discrete steps with hysteresis for that reason.
 
+`lunette.spawn{ output = out }` is how a client is assigned one, and it takes an output handle rather than an identifier so that a number in range cannot be mistaken for one. The assignment is made at spawn and lasts the client's life; there is no way to move a running client to another output, because the filter is only consulted when a client reads the registry or binds, so a change would have to withdraw the global and create a new one — which the client experiences as a monitor unplugged and replugged. Changing the mode of the output a client is already on is the supported operation.
+
 A session starts with one output, and it is what a client that was assigned none is shown. Every client adopted from outside lunette is one of those, since nothing spawned it and so nothing named an output for it, and a client with no `wl_output` at all cannot pick a scale or a refresh rate. That one refuses to be destroyed, as the seat every session starts with does: `output:destroy()` on it returns `false`. Transform and physical size are not settable: the physical size is derived from the mode so that a client's density guess agrees with the scale lunette advertises.
 
 ## Monitors

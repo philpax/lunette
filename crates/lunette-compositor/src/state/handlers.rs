@@ -219,16 +219,16 @@ impl XdgShellHandler for CompositorState {
         // it indirectly, from the window manager's first size configure
         // (`window.rs:68-84`); sending it here means a toplevel is configured
         // even when no policy has an opinion about its size yet.
-        let bounds = self.output_logical_size();
+        let bounds = self.surface_bounds(&wl_surface);
         surface.with_pending_state(|pending| {
             pending.bounds = Some(bounds);
         });
         surface.send_configure();
 
         let id = self.surfaces.id_for(&wl_surface);
-        let bounds = self.output_logical_size();
         let process = self.process_of(&wl_surface);
-        let window = self.windows.insert(surface, id, process, bounds);
+        let output = self.output_of(&wl_surface);
+        let window = self.windows.insert(surface, id, process, output, bounds);
         info!(%window, "a toplevel was created");
     }
 
@@ -368,7 +368,7 @@ impl CompositorState {
     /// request to fill the panel, and refusing it leaves clients that expect a
     /// fullscreen surface — video players, games — drawing at the wrong size.
     fn fill_output(&mut self, surface: &ToplevelSurface, state: xdg_toplevel::State) {
-        let size = self.output_logical_size();
+        let size = self.surface_bounds(surface.wl_surface());
 
         surface.with_pending_state(|pending| {
             pending.bounds = Some(size);
@@ -386,7 +386,7 @@ impl CompositorState {
     }
 
     fn restore_from_output(&mut self, surface: &ToplevelSurface, state: xdg_toplevel::State) {
-        let bounds = self.output_logical_size();
+        let bounds = self.surface_bounds(surface.wl_surface());
 
         surface.with_pending_state(|pending| {
             pending.bounds = Some(bounds);
@@ -514,6 +514,24 @@ impl GlobalDispatch<WlOutput, OutputGlobal> for CompositorState {
     ) {
         let instance = data_init.init(resource, OutputResource::new(global.output));
         state.outputs.bind(global.output, &instance);
+    }
+
+    /// Which clients may see and bind an output.
+    ///
+    /// Consulted at registry advertisement
+    /// (`wayland-backend-0.3.15/src/rs/server_impl/registry.rs:199` and `:224`)
+    /// and again at bind (`:120`), where a `false` makes the bind fail. The
+    /// second is what makes the filter enforceable rather than advisory: a
+    /// client that guesses a global name it was never advertised still cannot
+    /// bind it. It is not redundant with the advertisement check and must not be
+    /// optimised away as though it were.
+    ///
+    /// There is no `&mut D` here, which is why the assignment lives in
+    /// [`ClientState`] rather than in compositor state keyed by `ClientId`.
+    fn can_view(client: Client, global: &OutputGlobal) -> bool {
+        client
+            .get_data::<ClientState>()
+            .is_some_and(|state| state.sees_output(global.output))
     }
 }
 

@@ -261,3 +261,71 @@ fn an_option_the_call_does_not_take_is_refused() {
         "the message does not name the option: {message}"
     );
 }
+
+#[test]
+fn a_spawn_can_name_the_output_its_client_is_shown() {
+    let session = session(Vec::new());
+    session.begin(with_outputs(vec![OutputSnapshot {
+        output: output_id(2),
+        mode: mode(1920, 1080, 1.0, 60),
+    }]));
+    let lua = lua(&session);
+
+    run::<()>(
+        &lua,
+        "lunette.spawn{ argv = { 'foot' }, output = lunette.outputs()[1] }",
+    );
+
+    match only_command(&session) {
+        Command::Spawn(request) => assert_eq!(request.output, Some(output_id(2))),
+        other => panic!("expected a spawn, found {other:?}"),
+    }
+}
+
+#[test]
+fn a_spawn_that_names_no_output_leaves_the_client_on_the_default_one() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    run::<()>(&lua, "lunette.spawn{ argv = { 'foot' } }");
+
+    match only_command(&session) {
+        Command::Spawn(request) => assert_eq!(request.output, None),
+        other => panic!("expected a spawn, found {other:?}"),
+    }
+}
+
+#[test]
+fn a_spawn_output_that_is_not_an_output_handle_is_refused() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    for chunk in [
+        "lunette.spawn{ argv = { 'foot' }, output = 2 }",
+        "lunette.spawn{ argv = { 'foot' }, output = 'lunette-2' }",
+        "lunette.spawn{ argv = { 'foot' }, output = {} }",
+    ] {
+        let message = error(&lua, chunk);
+        assert!(
+            message.contains("output handle"),
+            "the message does not say what was wanted: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_spawn_output_naming_another_handle_kind_is_refused() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    // A seat is userdata with a handle metafield, so it reaches the borrow
+    // rather than the type check above. The borrow is what refuses it.
+    let message = error(
+        &lua,
+        "lunette.spawn{ argv = { 'foot' }, output = lunette.newSeat('left') }",
+    );
+    assert!(
+        !message.is_empty(),
+        "a seat handle was accepted where an output was wanted"
+    );
+}

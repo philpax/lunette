@@ -25,6 +25,10 @@ WayVR advertises a single output for everything (`mod.rs:209`) and clamps window
 
 The standard library defaults to one output per spawned application. Output globals are created with a per-client filter, so each client sees only the outputs Lua assigned it. Without the filter, an application enumerating outputs would find every other window's monitor, which is confusing and affects layout decisions in some toolkits.
 
+The assignment is made at spawn, through `lunette.spawn{ output = out }`, and it names one output. It is recorded against the process and applied to every client that process is attributed to, before that client's first request is dispatched — so the filter is already in place when the client reads the registry. A spawn naming an output that does not exist falls back to the default one and logs it, because a client shown no monitor at all is a harder failure to diagnose than a warning naming the output.
+
+There is no way to reassign a running client, and that is deliberate rather than missing. `can_view` is consulted at registry advertisement and at bind and nowhere else, so changing a client's assignment after it has bound a `wl_output` retracts nothing: the only mechanism is to withdraw the global and create a fresh one, which the client experiences as a monitor unplugged and plugged back in. A toolkit may move or resize windows in response. Changing the mode of an output a client is already on is the supported operation, and `output:setMode` is it.
+
 This design enables the following.
 
 - Dynamic scale. Raising a panel's output scale as the user approaches makes the client re-render at higher resolution, and the composition layer becomes sharper. This is the largest legibility gain available, and it is not possible with a shared output.

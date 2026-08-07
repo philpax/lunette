@@ -623,21 +623,35 @@ fn spawn<T: LuaTexture>(session: &Rc<Session<T>>, options: &Table) -> mlua::Resu
         cwd: options
             .get::<Option<mlua::LuaString>>("cwd")?
             .map(|cwd| PathBuf::from(os_string(&cwd))),
-        // Outputs are not addressable from Lua yet, so there is nothing a
-        // caller could name here. `reject_unknown_options` refuses the key.
-        output: None,
+        output: spawn_output::<T>(options)?,
         xwayland: options.get::<Option<bool>>("xwayland")?.unwrap_or(false),
     }));
 
     Ok(Process::new(Rc::clone(session), process))
 }
 
-/// The options `lunette.spawn` accepts.
+/// The only output the spawned client is shown, if the caller named one.
 ///
-/// `output` is documented in `docs/compositor.md` and is deliberately absent:
-/// nothing hands Lua an output handle yet, so accepting the key would mean
-/// accepting a value that cannot be honoured.
-const SPAWN_OPTIONS: &[&str] = &["argv", "cwd", "env", "xwayland"];
+/// Absent means the output every session starts with, which is what a client
+/// lunette did not spawn is shown too. The value is an output handle rather than
+/// an identifier, so a caller cannot pass a number that happens to be in range
+/// and mean something else by it.
+fn spawn_output<T: LuaTexture>(options: &Table) -> mlua::Result<Option<OutputId>> {
+    let Some(value) = options.get::<Option<Value>>("output")? else {
+        return Ok(None);
+    };
+
+    match &value {
+        Value::UserData(handle) => Ok(Some(handle.borrow::<Output<T>>()?.id())),
+        other => Err(mlua::Error::runtime(format!(
+            "lunette: spawn's output takes an output handle from lunette.newOutput, not a {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// The options `lunette.spawn` accepts.
+const SPAWN_OPTIONS: &[&str] = &["argv", "cwd", "env", "output", "xwayland"];
 
 /// Refuses a table carrying an option this build does not act on.
 ///

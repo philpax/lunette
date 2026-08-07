@@ -44,6 +44,11 @@ impl<T> Output<T> {
         }
     }
 
+    /// The compositor's identifier, for the calls that name an output.
+    pub(crate) const fn id(&self) -> OutputId {
+        self.id
+    }
+
     /// Brings the cache up to date, reporting whether the output exists now.
     ///
     /// False both before the compositor has created the output and after it has
