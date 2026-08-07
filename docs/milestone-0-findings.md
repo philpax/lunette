@@ -427,9 +427,51 @@ Every acceptance criterion of this phase is a human gate, and none was performed
 
 ## Outstanding
 
-Thirty-three items are unfinished: twenty-five human gates, and eight measurements that have to be taken.
+Twenty-eight items are unfinished: twenty-one human gates, of which one is half-taken, and seven measurements. Groups A and C of the test plan have been run; see [what they returned](#what-groups-a-and-c-returned) below.
 
 [The human test plan](test-plans/2026-08-05-lunette-v1.md) is the procedure for all of them, grouped by what each needs — a repository, a desktop session, a GPU, or the headset powered on. Results come back here.
+
+### What groups A and C returned
+
+Run on 2026-08-07 against monado-service with `XRT_COMPOSITOR_NULL=1`, no headset and no display.
+
+| Step | Criterion | Outcome |
+|---|---|---|
+| A1 | AC9.2 | Pass. The tests pass in both feature configurations, with no formatting diff and no clippy warning. |
+| A2 | AC9.4 | Pass. The compositor tests pass with no Vulkan ICD visible, and the crate's tree carries no `lunette-lovr` and no GPU crate. `drm-fourcc` is the only format-adjacent entry, and it links nothing. |
+| A3 | AC9.3 | Pass, after one correction. The headerless files and `PROVENANCE.md` reconcile exactly. The LÖVR patches add no file and modify only existing MIT-licensed ones, so they inherit that licence. `CREDITS.md` said LÖVR is linked statically, which it is not; the sweep that removed that claim from `docs/` and `CONTRIBUTING.md` was scoped to those two paths and did not reach the repository root. |
+| A4 | AC9.1 | Half. The offline build passes: a clean tree builds in a network namespace with no interfaces, cmake fetching nothing, producing `liblovr.so`, its five siblings, and both binaries. The publication half fails, and cannot pass yet. See [the submodule nobody else can clone](#the-unpublished-submodule-commit). |
+| C1 | AC5.5 | Pass. Numbers below. |
+| C2 | — | Pass. A claim held for ten seconds across 171,999 frames reported no grant, with no layer granted, none attempted, and not one refusal logged. The regression this guards against would have logged once per frame. |
+
+### The restart measurements
+
+Phase 7 asks for four numbers about a restart, and C1 has now taken them, driven the way the test plan specifies: two clients connected, the restart arriving over `lunctl`, under the Khronos validation layer.
+
+| Number | Result |
+|---|---|
+| Whether the quiesce covered every GPU object | Yes, to the extent the recorded LÖVR limitation allows. `vkDestroyDevice` reported twelve leaked objects at the restart: six `VkImage` and six `VkDeviceMemory`, one pair per abandoned image, against exactly six imports made before it. It reported four at the final exit, one pair per surviving client. Every one is under `VUID-vkDestroyDevice-device-05137`. No other validation message appeared anywhere in the run. |
+| Whether re-import succeeded for every retained dmabuf | Yes. Both surviving clients re-imported, the first within 346ms of the restart being asked for. |
+| Whether any client noticed | No. Both clients were present before and after, with no protocol error and no disconnection. |
+| The end-to-end duration | 346ms from the restart being asked for to the first re-import. The compositor's own release of the graphics device took 114µs and discarded no events. |
+
+The two expected leaks behave exactly as [decisions.md](decisions.md) predicts: LÖVR's morgue is emptied only by `gpu_destroy`, so an imported image is forgotten rather than destroyed. What the layer does not do is emit the separate per-object `OBJTRACK` message the test plan anticipated; validation 1.4.350 folds the object list into the one `05137` message instead. That is a layer-version difference, and the pairing it reports is what the criterion is about.
+
+The validation layer is not in the flake's devshell and had to be brought in for the run. Adding it is worth doing before the next time this gate is taken.
+
+### The unpublished submodule commit
+
+`vendor/lovr` is pinned to a commit on the local `lunette` branch, and that branch has never been pushed. A recursive clone from anywhere else fails on it: `upload-pack: not our ref 43715f87`. AC9.1 is unreachable by anyone but the machine holding the branch until the submodule is repointed at a lunette-owned fork, which is the pre-push task [CONTRIBUTING.md](../CONTRIBUTING.md) records. The offline-build half above had to be measured with the local checkout substituted for that one submodule.
+
+### The documented `lunctl` examples
+
+Every example in [the Lua API](lua-api.md#lunctl) failed against a real session. A chunk was evaluated against the bare globals, and the API is a module a configuration binds to a local, so `lunctl 'return #lunette.windows()'` indexed a nil.
+
+Nothing caught it because the test helper at `crate::lua::tests` assigns `lunette = require 'lunette'` into the state before evaluating, so every `lunctl` test exercised an environment production never built. This is the same shape as the `rules.matches` defect this file already records: a fixture stands in for the thing under test and agrees with itself.
+
+A chunk now runs in an environment that resolves a module by its own name, globals first. The regression test is `a_chunk_reaches_a_preloaded_module_by_its_bare_name` in `control/eval.rs`, which builds a state with a preloaded module and no global naming it — the shape a real session has — and fails against the unfixed code.
+
+`mullion.layout.arc(mullion.tag.current())` was wrong for a second reason and was corrected in the documentation rather than in the code: the `mullion` root re-exports nothing, deliberately, so a submodule is required by its own path.
 
 ### The two human gates
 
@@ -503,12 +545,6 @@ None of the four has been performed, and none of them can be performed on the ma
 ### The socket, which is not a gate
 
 Phase 7 asks for the socket's mode to be verified by inspection. It is verified by test instead, and by a stronger one: `the_socket_is_0600_inside_a_0700_directory_and_is_not_a_network_address` in `tests/lunctl.rs` reads the mode of the directory and of the socket a real session bound, and asserts the path is a Unix socket. There is nothing an `ls -ld` would add. `ss -lx` is likewise redundant: the type in the source is a `UnixListener` and nothing in the program accepts a host or a port, so there is no configuration under which a network address could appear.
-
-### The restart measurements
-
-Phase 7 asks for four numbers about a restart, and none can be taken here: whether the quiesce covered every GPU object, whether re-import succeeded for every retained dmabuf, whether any client noticed, and how long the restart took end to end. All four need a real device, a real XR session, and a connected client.
-
-The instrument is in place. `restart::quiesce` returns `Quiesced { took, discarded }` and the frame loop logs both, so the third and fourth numbers are read off a log line rather than measured by hand. The first two are the re-import's own log lines. When the AC5.5 gate above is performed, these are what to record from it.
 
 ### The end-to-end client
 
