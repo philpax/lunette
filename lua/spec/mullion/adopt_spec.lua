@@ -43,8 +43,14 @@ local function reset()
 end
 
 -- A window the fake `lunette.windows()` will answer with.
+--
+-- Wrapped as a handle, because that is what the native enumeration answers: a
+-- window is mlua userdata, so `type(window)` is `'userdata'`. The adoption path
+-- runs entirely over what `lunette.windows()` hands back, so a spec that drove
+-- it with tables could not tell a module that indexes a window from one that
+-- insists on a table — and the second refuses every real window.
 local function newWindow(appId)
-  local window = fixture.newWindow(800, 600)
+  local window = fixture.asHandle(fixture.newWindow(800, 600))
   window.appId = appId
   fixture.windows[#fixture.windows + 1] = window
   return window

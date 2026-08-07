@@ -317,6 +317,49 @@ spec('placing a window makes a panel at the pose the rule named', function()
   expect.equal(#fixture.panel.all(), 1, 'the panels')
 end)
 
+-- The regression: a window handle is userdata, not a table, so a guard that
+-- insisted on a table raised for every real window. The shipped configuration
+-- installs a rules table with a non-nil `match`, which is what reaches this, so
+-- every window opening and every window adopted by a reload raised.
+spec('placing a window handle that is not a table matches it', function()
+  reset()
+  local placed = lovr.math.newMat4():translate(1, 1.5, -2)
+  rules.setRules {
+    { match = { appId = 'terminal' }, properties = { pose = placed, height = 0.6 } },
+  }
+
+  local created = rules.place(fixture.asHandle(newWindow 'terminal'))
+
+  local x, y, z = created.pose:getPosition()
+  expect.near(x, 1, TOLERANCE, 'x')
+  expect.near(y, 1.5, TOLERANCE, 'y')
+  expect.near(z, -2, TOLERANCE, 'z')
+  expect.equal(#fixture.panel.all(), 1, 'the panels')
+end)
+
+-- The other half of the same guard: a match that names a field the handle does
+-- not carry answers false rather than raising, whichever shape the handle is.
+spec('a window handle that is not a table can fail to match', function()
+  reset()
+  rules.setRules {
+    { match = { appId = 'firefox' }, properties = { width = 2 } },
+  }
+
+  local properties = rules.resolve(fixture.asHandle(newWindow 'terminal'))
+
+  expect.equal(properties.width, nil, 'the width of a window no rule matched')
+end)
+
+-- A window is indexed, so a value that cannot be indexed is still refused. The
+-- fix widens the guard rather than removing it.
+spec('a window that is neither a table nor userdata is refused', function()
+  reset()
+  local ok, message = pcall(rules.matches, { appId = 'terminal' }, 'terminal')
+
+  expect.equal(ok, false, 'whether a string was accepted as a window')
+  expect.truthy(message:find 'not a string', 'what was reported')
+end)
+
 spec('placing a window accepts an encoded pose', function()
   reset()
   local pose = require 'mullion.pose'

@@ -194,12 +194,19 @@ end
 --
 -- An absent or empty match matches every window, which is what a source setting
 -- defaults for everything wants to say.
+--
+-- A window is userdata as well as a table: `lunette.windows()` and
+-- `event.window` answer a native handle, and a table is what a source
+-- constructed for itself or what a spec minted. The guard is on being indexable,
+-- not on being a table, and it exists so that `matches(match, 'firefox')` says
+-- what is wrong rather than raising from inside the loop.
 function rules.matches(match, window)
   if match == nil then
     return true
   end
-  if type(window) ~= 'table' then
-    error('mullion.rules: a window is a table, not a ' .. type(window), 2)
+  local kind = type(window)
+  if kind ~= 'table' and kind ~= 'userdata' then
+    error('mullion.rules: a window is a handle or a table, not a ' .. kind, 2)
   end
 
   for key, expected in pairs(match) do

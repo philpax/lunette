@@ -136,6 +136,26 @@ function fixture.newWindow(width, height)
   return window
 end
 
+-- The same source, wrapped in the userdata a session actually hands out.
+--
+-- `lunette.windows()` and `event.window` answer an mlua `UserData`
+-- (`crates/lunette/src/lua/window.rs`), so `type(window)` is `'userdata'` and
+-- not `'table'`. A fixture that only ever minted tables cannot tell a module
+-- that indexes its argument from one that insists on a table, and the second
+-- refuses every real window. Reads and writes go straight through to `source`,
+-- so a case can still inspect what a module did to it.
+--
+-- `newproxy` is Lua 5.1's, which is LuaJIT's, and it is the only way to mint a
+-- userdata from Lua. Nothing in the standard library may depend on it; it is
+-- here so that the specs drive the shape a session produces.
+function fixture.asHandle(source)
+  local handle = newproxy(true)
+  local meta = getmetatable(handle)
+  meta.__index = source
+  meta.__newindex = source
+  return handle
+end
+
 -- The names of a sink's calls, in order, as one string. A spec asserting the
 -- whole sequence catches a call that should not have happened as well as one
 -- that should have.
