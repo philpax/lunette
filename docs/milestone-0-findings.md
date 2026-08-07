@@ -2,7 +2,7 @@
 
 Milestone 0 exists to de-risk two unknowns before a standard library is written on top of them: the LÖVR Vulkan patch, and the compositor-thread split with the snapshot model it forces on Lua. [Roadmap](roadmap.md) states both. This document records what the two actually did, so phases 4 to 8 are detailed against measurement rather than against the design's expectations.
 
-Seventeen acceptance criteria are human gates and are not recorded here as passed: two from milestone 0, one from the composition-layer work that follows it, five from the monitor-mirroring work after that, five from the keyboard, seat, and clipboard work after that, and four from the standard library after that. They are listed under [Outstanding](#outstanding), together with the two measurements that have to be taken.
+Twenty-one acceptance criteria are human gates and are not recorded here as passed: two from milestone 0, one from the composition-layer work that follows it, five from the monitor-mirroring work after that, five from the keyboard, seat, and clipboard work after that, four from the standard library after that, and four from the reload, `lunctl`, and error-handling work after that. They are listed under [Outstanding](#outstanding), together with the four measurements that have to be taken.
 
 ## The machine
 
@@ -27,10 +27,10 @@ All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `n
 | `cargo +nightly fmt --all -- --check` | clean |
 | `cargo clippy --all-targets --all-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
 | `cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used` | clean |
-| `cargo test --workspace` | 849 passed, 0 failed, 0 ignored |
-| `cargo test --workspace --no-default-features` | 849 passed, 0 failed, 0 ignored |
+| `cargo test --workspace` | 1013 passed, 0 failed, 0 ignored |
+| `cargo test --workspace --no-default-features` | 1013 passed, 0 failed, 0 ignored |
 
-The 849 are 334 in `lunette`, 27 in its binary target, 2 in `tests/default_configuration.rs`, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 1 in `tests/mullion_spec.rs`, 4 in `tests/standard_library.rs`, 239 in `lunette-capture`, 168 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, 20 in `tests/clipboard.rs`, 8 in `tests/pointer_routing.rs`, 14 in `tests/seats.rs`, 6 in `tests/surface_routing.rs`, and 11 in `tests/type_text.rs`. The compositor's 233 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`, the monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 239 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`, the keyboard, seat, and clipboard work under [keyboard, seats, and clipboard](#keyboard-seats-and-clipboard) is 157 of it, and the standard library under [the mullion standard library](#the-mullion-standard-library) is the 69 the workspace grew by after that, plus the 314 Lua cases the single test in `tests/mullion_spec.rs` runs.
+The 1013 are 459 in `lunette`, 17 in the `lunctl` binary target, 27 in the `lunette` binary target, 3 in `tests/default_configuration.rs`, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 7 in `tests/lunctl.rs`, 1 in `tests/mullion_spec.rs`, 3 in `tests/reload.rs`, 3 in `tests/safe_mode.rs`, 4 in `tests/standard_library.rs`, 239 in `lunette-capture`, 170 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, 20 in `tests/clipboard.rs`, 8 in `tests/pointer_routing.rs`, 6 in `tests/restart.rs`, 14 in `tests/seats.rs`, 6 in `tests/surface_routing.rs`, and 11 in `tests/type_text.rs`. The compositor's 241 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`. The count is the whole workspace as it stands, so it grew past milestone 0: the composition-layer work under [composition layers](#composition-layers) is 61 of it, being everything under `layers::` and `lua::tests::layers`, the monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 239 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`, the keyboard, seat, and clipboard work under [keyboard, seats, and clipboard](#keyboard-seats-and-clipboard) is 157 of it, the standard library under [the mullion standard library](#the-mullion-standard-library) is the 69 the workspace grew by after that, and the reload, `lunctl`, and error-handling work is the 164 the workspace grew by after that. The single test in `tests/mullion_spec.rs` runs 353 Lua cases, which are not counted in the 1013.
 
 Two test binaries print xkbcommon compilation errors to stderr and still pass. The errors come from the negative cases — a keymap string that is not a keymap, and a layout name no `xkeyboard-config` carries — which are `a_layout_that_does_not_exist_is_refused_rather_than_silently_defaulted` and `text_that_is_not_a_keymap_is_refused` in `keymap.rs`, and the refused-layout case again in `tests/seats.rs`. libxkbcommon writes to stderr through its own log handler before returning the failure lunette then asserts on, and suppressing it would mean installing a process-global handler for the benefit of three tests.
 
@@ -353,7 +353,7 @@ There is no per-monitor property store, and the sharp form of that is not "monit
 
 `lunette.claimLayer` takes `window` and nothing else, so a monitor panel never gets a composition layer. That is the exact case native-resolution compositing exists for: a mirrored 4K screen resampled into lunette's own render target is what a layer would avoid.
 
-Per-callback errors never reach `mullion.error`. `crates/lunette/src/events.rs` reports a `lun*` handler's error with Rust's `error!` and drops it, while `docs/lua-api.md` promises that path logs, emits `lovr.lunerror`, and rate-limits. `mullion.error.handle` is written and covered and nothing native calls it yet; phase 7 owns the wiring.
+Per-callback errors reached nothing but the log. `crates/lunette/src/events.rs` reported a `lun*` handler's error with Rust's `error!` and dropped it, while `docs/lua-api.md` promised that path logs, emits `lovr.lunerror`, and rate-limits. Closed under [reload, `lunctl`, and error handling](#reload-lunctl-and-error-handling).
 
 Native handles are not identity-stable. Every read produces a fresh userdata, so two reads of the same window are two different Lua values, and identity is `win.id` rather than the handle. `docs/lua-api.md` says handles have "stable identity", which is true of the window and not of the value. `mullion.signal` holds its registry weakly and keys on the caller's own object for that reason, and the callers key by `win.id` where they have to.
 
@@ -367,15 +367,35 @@ Two smaller documentation gaps stand with them: `lunette.windows()` is used thro
 
 The shipped configuration is exercised as text, not as a session. `crates/lunette/tests/default_configuration.rs` compiles `etc/xdg/lunette/main.lua` and `conf.lua` under the LuaJIT the session runs them on and checks the chunk defines the callbacks the session calls, against a `require` and a `lovr` that answer with empty tables. Nothing runs its `lovr.load`, so what it does is entirely the human gates below.
 
-Safe mode has never been triggered. Its chunk is run against a fake `lunette` on a state whose search path is empty, which establishes that it requires `lunette` and nothing else, that a frame runs with no headset and no graphics module, and that a hand aimed at its panel clicks it. What has not happened is a `main.lua` failing to load and safe mode appearing in a headset, because phase 7 owns the trigger.
+Safe mode had never been triggered. Its chunk was run against a fake `lunette` on a state whose search path is empty, which establishes that it requires `lunette` and nothing else, that a frame runs with no headset and no graphics module, and that a hand aimed at its panel clicks it. What had not happened was a `main.lua` failing to load and safe mode appearing. Closed under [reload, `lunctl`, and error handling](#reload-lunctl-and-error-handling), except for the headset half, which is a gate.
 
-`lunette.reload` does not exist yet, so the reload key in both configurations reports that it is not implemented rather than reloading. Both call sites are guarded and both say why; phase 7 removes the guard.
+`lunette.reload` did not exist, so the reload key in both configurations reported that it was not implemented. Closed by phase 7's first subcomponent; both call sites now call it.
 
 Feel is untuned. Every constant that decides how interaction feels — the grab dead zone, the reach, the scroll scale, the haptic strength, the arc's radius and step — is a named value in one table per module, and every one of them is a first guess. `docs/stdlib.md` says this tier is tuning-heavy and that feel accounts for most of the work, and none of that work has been done.
 
+## Reload, `lunctl`, and error handling
+
+### What is established without a headset
+
+Three things this phase built are exercised against the shipped binaries rather than against fakes, and each is worth naming because each was previously a promise the build did not keep.
+
+An error raised in a `lovr.lun*` handler reaches `mullion.error`. `crates/lunette/src/callback_error.rs` splits mlua's joined message and traceback, finds the module in `package.loaded`, and calls `errors.handle`; a session with no standard library gets the log and a direct `lovr.lunerror` instead. The rate limiting is established by raising the same error through the production dispatcher for two hundred frames and counting one report, which is the shape of the failure the limiter exists for rather than a rehearsal of it.
+
+Safe mode fires. `crates/lunette/tests/safe_mode.rs` hands the real binary a `main.lua` that does not compile, and a configuration directory with no `main.lua` at all, and asserts through the control socket that the resulting session has safe mode's callbacks installed, that the broken configuration's own callbacks are gone, and that the session evaluates a chunk and quits when told to. A third case points the standard-library mount at a directory that does not exist and gets the same result, which is the case safe mode was written for.
+
+The check suite passes at 1013 Rust tests and 353 Lua spec cases.
+
+### What a headless machine cannot reach
+
+Two things this phase built have no headless coverage at all, and both are recorded under [Outstanding](#outstanding) rather than glossed.
+
+The restart path has never destroyed a real device. The quiesce is covered against a real compositor thread and the re-import against a fake importer, so what is established is the protocol and not the ordering it exists to protect. The instrument for the numbers phase 7 asks for is in place — `Quiesced { took, discarded }` is logged — and the numbers are unmeasured.
+
+No end-to-end test spawns a client. A headless fixture switches the graphics module off, the compositor thread starts only once there is a device to lend it, and so nothing can connect to the socket the session bound. That is why the end-to-end tests are the frame loop with no client, and the compositor crate's tests are a client with no frame loop.
+
 ## Outstanding
 
-Nineteen items are unfinished: seventeen human gates, and two measurements that have to be taken.
+Twenty-five items are unfinished: twenty-one human gates, and four measurements that have to be taken.
 
 ### The two human gates
 
@@ -427,6 +447,31 @@ None of the four has been performed, and none of them can be performed on the ma
 - An arrangement survives a restart (AC5.3). The file round-trips, a stale entry is skipped and reported while the rest restores, an absent file yields defaults, and a file from a later version is left alone rather than rewritten — all against a fake filesystem. What has not happened is a session being quit and started again with a real save directory under it. This gate is also the one that would show whether the shipped configuration writes at the right moments: it saves when a panel is dropped and when the session quits, and a session that is killed rather than quit keeps only what a drop wrote.
 
 Two more things are worth watching for while these are performed, both recorded above rather than here: a monitor panel is drawn as an in-scene quad however sharp a layer would have been, and a monitor panel's hand-placed pose is remembered across a restart but not across a soft reload.
+
+### The four reload, `lunctl`, and error-handling gates
+
+None of the four has been performed, and none of them can be performed on the machine this document records: three need a headset and an XR runtime, and the fourth needs a session a person is looking at. They are phase 7's acceptance criteria.
+
+- A soft reload applies a layout change without disconnecting any client, and a hand-placed panel keeps its pose (AC5.4). Both halves have automated evidence and neither is the gate. `tests/reload.rs` reloads ten times against the real binary and asserts nothing accumulates, and it reloads with a real Wayland client connected and asserts the client keeps its window and can still speak. The pose half is covered by `mullion.adopt`'s specs against a fake property store. What has not happened is a person editing a layout, pressing the key, and watching the room rearrange around a terminal that never blinked.
+- `lunette.restart()` rebuilds the Lua state and the XR session while clients stay connected, with the expected visible hitch and brief blackness (AC5.5). The quiesce protocol is covered against a real compositor thread and the re-import against a fake importer, and no restart has ever destroyed a real `VkDevice` with a real client's images imported against it. **Watch for a Vulkan validation error at teardown**: this machine has no validation layer installed, so the one instrument that would catch a quiesce that missed something is absent, and a driver tolerating the miss would look like a pass. Installing the layers before performing this gate would make it worth much more.
+- An error in a callback shows a panel and the session continues, and an error repeating every frame is rate-limited (AC8.3). Both halves are established without a headset: `lua::tests::events` raises the same error through the real dispatcher for two hundred frames and asserts one report, and `mullion.error.panel`'s specs assert what the panel says. What has not happened is a person seeing the panel in a scene and judging whether it is legible, whether it sits where it should, and whether the truncation cuts somewhere useful.
+- A syntactically invalid `main.lua` produces safe mode with a laser, a panel, and a reload key, not a black headset (AC8.4). `tests/safe_mode.rs` breaks two configurations for real and asserts a running session that `lunctl` can talk to, and the laser, the panel, and the ray-plane solve are covered against fakes. What has not happened is a person putting the headset on with a broken configuration and finding something there.
+
+### The socket, which is not a gate
+
+Phase 7 asks for the socket's mode to be verified by inspection. It is verified by test instead, and by a stronger one: `the_socket_is_0600_inside_a_0700_directory_and_is_not_a_network_address` in `tests/lunctl.rs` reads the mode of the directory and of the socket a real session bound, and asserts the path is a Unix socket. There is nothing an `ls -ld` would add. `ss -lx` is likewise redundant: the type in the source is a `UnixListener` and nothing in the program accepts a host or a port, so there is no configuration under which a network address could appear.
+
+### The restart measurements
+
+Phase 7 asks for four numbers about a restart, and none can be taken here: whether the quiesce covered every GPU object, whether re-import succeeded for every retained dmabuf, whether any client noticed, and how long the restart took end to end. All four need a real device, a real XR session, and a connected client.
+
+The instrument is in place. `restart::quiesce` returns `Quiesced { took, discarded }` and the frame loop logs both, so the third and fourth numbers are read off a log line rather than measured by hand. The first two are the re-import's own log lines. When the AC5.5 gate above is performed, these are what to record from it.
+
+### The end-to-end client
+
+The `lunctl` end-to-end tests spawn no client, and cannot. A headless fixture switches the graphics module off; the compositor thread starts only once LÖVR has a device to lend it, so with no device the thread never starts and nothing can connect to the Wayland socket the session bound. Spawning a client, asserting it appears in `lunette.windows()`, asserting its properties, and tearing down therefore needs the GPU-headless tier [build and development](build-and-development.md#testing) describes as a nice-to-have.
+
+Until that exists the client half is covered in two places that do not meet: `crates/lunette-compositor/tests/` drives a real client against the compositor with no frame loop under it, and `crates/lunette/tests/lunctl.rs` drives the frame loop with no client. The seam between them is what this gate is about.
 
 ### The GNOME pointer-mapping unknown
 
