@@ -17,6 +17,7 @@ use crate::{
         LuaLayer, PoolRegistry,
         tests::{TestSession, error, layered_session, lua, run, window},
     },
+    scene::SceneRendering,
 };
 
 /// A `Layer` that is a number, which is enough to tell one from another and
@@ -60,7 +61,7 @@ impl LayerBackend for FakeLayers {
 
     /// Nothing here reads the submitted list; what these tests are about is
     /// what Lua is told, and the pool's own tests cover the list itself.
-    fn submit(&mut self, _layers: &[&Self::Layer]) -> bool {
+    fn submit(&mut self, _layers: &[&Self::Layer], _scene: SceneRendering) -> bool {
         true
     }
 

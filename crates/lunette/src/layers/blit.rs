@@ -439,6 +439,7 @@ mod tests {
     use crate::{
         import::formats::Alpha,
         layers::{LayerBudget, LayerKey, LayerProperties, LayerSize, Priority},
+        scene::SceneRendering,
         texture::{CopyableTexture, TextureDescription},
     };
 
@@ -485,7 +486,7 @@ mod tests {
             Some(FakeLayer(self.next))
         }
 
-        fn submit(&mut self, layers: &[&Self::Layer]) -> bool {
+        fn submit(&mut self, layers: &[&Self::Layer], _scene: SceneRendering) -> bool {
             self.submitted
                 .borrow_mut()
                 .push(layers.iter().map(|layer| layer.0).collect());
@@ -634,7 +635,9 @@ mod tests {
                 self.frame,
             );
 
-            self.pool.submit();
+            // What the flag carries is the pool's business, and its own tests
+            // cover it. Here every frame draws a scene.
+            self.pool.submit(SceneRendering::Drawn);
             report
         }
 

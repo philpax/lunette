@@ -13,7 +13,10 @@
 //! configuration through, and [`events`] is how the configuration is told that
 //! something happened rather than having to look. [`layers`] decides which
 //! panels are promoted onto OpenXR composition layers, over the ladder of
-//! discrete steps [`scale`] defines. [`mirrors`] is the other half of what Lua
+//! discrete steps [`scale`] defines, and [`scene`] is the other half of that
+//! bargain: once every panel is on a layer there is nothing left for lunette to
+//! render itself, and a frame that renders nothing skips the whole projection
+//! layer rather than drawing an empty one. [`mirrors`] is the other half of what Lua
 //! can point at: the user's own screens, mirrored through the screencast portal
 //! rather than hosted by the compositor, and [`host`] is where a sink pointed at
 //! one of them delivers. [`properties`] is the one piece of per-window state
@@ -45,4 +48,5 @@ pub mod reload;
 pub mod restart;
 pub mod safe_mode;
 pub mod scale;
+pub mod scene;
 pub mod texture;

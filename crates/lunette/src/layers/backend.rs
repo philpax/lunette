@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-use crate::layers::key::LayerKey;
+use crate::{layers::key::LayerKey, scene::SceneRendering};
 
 /// What the pool needs of LÖVR.
 pub trait LayerBackend {
@@ -43,8 +43,13 @@ pub trait LayerBackend {
     /// so a layer left out of this list does not hold still — its panel
     /// disappears.
     ///
+    /// `scene` is whether lunette's own projection layer belongs in the same
+    /// `xrEndFrame`. It rides with the list because `lovrHeadsetSetLayers` is
+    /// the one call that carries it, and [`crate::scene`] records why that flag
+    /// is the smaller half of skipping the scene.
+    ///
     /// Reports whether the runtime accepted the list.
-    fn submit(&mut self, layers: &[&Self::Layer]) -> bool;
+    fn submit(&mut self, layers: &[&Self::Layer], scene: SceneRendering) -> bool;
 
     /// Drops the pool's reference to a layer, destroying it if it was the last.
     ///

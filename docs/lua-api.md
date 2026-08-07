@@ -310,6 +310,21 @@ Revocation does not kill the claim. `claim.granted` goes false and `claim.layer`
 
 Releasing is explicit. Nothing releases a claim when its handle is collected, because the grant and revoke events carry a second handle to the same claim and collecting that one would withdraw a live claim. A configuration that drops a panel releases the panel's claim.
 
+## Scene rendering
+
+Once every panel is on a composition layer there is nothing left for lunette to draw itself, and drawing an empty projection layer costs a swapchain acquire, a render pass, and a multisample resolve every frame for no picture.
+
+```lua
+lunette.setSceneEnabled(false)   -- skip lunette's own scene rendering.
+print(lunette.sceneEnabled())    -- what was last asked for.
+```
+
+Skipping means `lovr.draw` is not called and the projection layer is left out of the frame. The XR frame is still submitted, and the composition layers still are, so panels on layers keep updating; what stops is lunette's own rendering. [Rendering](rendering.md#frame-pacing) records what an idle frame still costs.
+
+A change takes effect at the next frame boundary rather than immediately, because the frame's layer list has already been submitted with the answer the frame started with. A configuration therefore sets this from `lovr.update` and reads the effect on the frame after.
+
+Deciding is the configuration's, and lunette has no way to check. Everything drawn in `lovr.draw` is the configuration's own: a panel that holds no layer, a panel's chrome, a laser, an error panel, or anything else it draws. Turning the scene off while still drawing means the drawing does not happen, and the value defaults to on so that a configuration that never mentions it behaves as it always did. `mullion` does not set it, and the shipped configuration does not either: it draws chrome around every panel and a laser for every hand, so its scene is never empty.
+
 ## Reload
 
 There are two reload paths, both of which preserve running applications.

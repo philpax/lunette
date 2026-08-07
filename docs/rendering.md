@@ -99,3 +99,13 @@ Two defaults matter because they are easy to get wrong.
 - Video is exempt by default. A throttled video player stutters conspicuously. The native layer supplies the signal — `wp_content_type_v1`, reported as `win.contentType` — and `mullion.pacing` decides. It exempts on either the hint or an observed commit rate close to full, because each covers the other's blind spot: the hint catches a video paused on a still frame, which commits nothing, and the commit rate catches a player that sets no hint at all, which is most of them.
 
 lunette's own XR frame rate is not negotiable: an overlay submits every cycle whether or not anything changed. What is skipped is lunette's own scene rendering, which is where the savings actually occur.
+
+### Skipping the scene
+
+`setLayers{ main = false }` is the smaller half of it. All the flag does is leave the `XrCompositionLayerProjection` out of `XrFrameEndInfo::layers`, by which point the pass has been rendered and resolved. The saving is in not asking for the pass at all: the colour swapchain is acquired lazily, inside `lovr.headset.getPass` and `lovr.headset.getTexture`, so a frame that calls neither skips the acquire, the swapchain wait, the render pass, and the resolve outright.
+
+`etc/boot.lua` calls `getPass` unconditionally, and `lovr.mirror` calls `getTexture` for the desktop window. lunette keeps LÖVR's `lovr.run` ([LÖVR integration](lovr-integration.md#boot)) and gates those two functions instead: while the scene is skipped each answers nothing, so `boot.lua` finds no pass and does not call `lovr.draw`. Every other function on the module, `lovr.headset.submit` above all, is untouched.
+
+`lunette.setSceneEnabled(false)` is the switch, and the decision is the configuration's ([Lua API](lua-api.md#scene-rendering)).
+
+What an idle frame still costs, with the scene skipped and every panel unchanged: the three OpenXR frame calls, pose prediction and update, and one `XrCompositionLayerQuad` per panel in the submitted array. The layer copies are damage-gated, so an idle panel costs no copy — and on a frame with no window open and no pass, lunette submits LÖVR's command stream itself, because `boot.lua` submits it only alongside a pass and the layers' swapchain images are released regardless.

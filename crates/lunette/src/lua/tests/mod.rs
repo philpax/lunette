@@ -20,6 +20,7 @@ mod lunctl;
 mod monitors;
 mod outputs;
 mod properties;
+mod scene;
 mod seats;
 
 use std::{ffi::OsStr, rc::Rc, sync::Arc};
@@ -1034,7 +1035,9 @@ fn the_module_exposes_only_what_this_phase_implements() {
             "outputs".to_owned(),
             "reload".to_owned(),
             "scaleSteps".to_owned(),
+            "sceneEnabled".to_owned(),
             "seats".to_owned(),
+            "setSceneEnabled".to_owned(),
             "spawn".to_owned(),
             "windows".to_owned(),
         ],

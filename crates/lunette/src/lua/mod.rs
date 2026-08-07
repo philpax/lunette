@@ -54,7 +54,7 @@ mod tests;
 mod window;
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     ffi::{OsString, c_void},
     mem,
     os::unix::ffi::OsStringExt,
@@ -96,6 +96,7 @@ use crate::{
     properties::WindowProperties,
     reload::reload_from_lua,
     scale::{STEPS, ScaleStep},
+    scene::{Gate, SceneRendering, install_gate},
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
 
@@ -114,6 +115,12 @@ pub const MODULE_NAME: &str = "lunette";
 ///
 /// If `package.preload` cannot be reached, or the loader cannot be created.
 pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
+    // Before the module, and unconditionally: the gate belongs to the state
+    // rather than to the module, and a configuration that never requires
+    // `lunette` still runs inside LÖVR's frame loop.
+    let gate_session = Rc::clone(session);
+    install_gate(lua, move || gate_session.scene_gate())?;
+
     let preload: Table = lua.globals().get::<Table>("package")?.get("preload")?;
     let session = Rc::clone(session);
     let loader = lua.create_function(move |lua, ()| module(lua, &session))?;
@@ -193,6 +200,19 @@ pub struct Session<T> {
     /// than in Lua because the session outlives the Lua state and a soft reload
     /// discards it; [`crate::properties`] states the whole reasoning.
     properties: RefCell<WindowProperties>,
+    /// Whether the configuration wants lunette's own scene rendered. Read at
+    /// the frame boundary into [`Frame::scene`] rather than live, so that the
+    /// frame's `setLayers` and the frame's gate cannot disagree.
+    ///
+    /// Sticky across frames, and across a soft reload: a reload discards the
+    /// Lua state and this is not part of it, so a configuration that had turned
+    /// the scene off keeps it off until it says otherwise. Every reloaded
+    /// configuration sets it from `lovr.update` anyway, which runs before
+    /// anything is drawn.
+    scene: Cell<SceneRendering>,
+    /// Whether this frame recorded layer copies that nothing has submitted yet.
+    /// [`crate::scene`] says what happens if they are left unsubmitted.
+    unflushed_copies: Cell<bool>,
 }
 
 impl<T> Session<T> {
@@ -213,6 +233,7 @@ impl<T> Session<T> {
                 processes: 0,
                 seats: 0,
                 outputs: 0,
+                scene: SceneRendering::default(),
             }),
             textures: RefCell::new(TextureLedger::new()),
             monitors: RefCell::new(MonitorTextures::new()),
@@ -223,6 +244,8 @@ impl<T> Session<T> {
             host,
             keymaps: RefCell::new(KeymapCache::default()),
             properties: RefCell::new(WindowProperties::new()),
+            scene: Cell::new(SceneRendering::default()),
+            unflushed_copies: Cell::new(false),
         })
     }
 
@@ -306,6 +329,11 @@ impl<T> Session<T> {
         let mut frame = self.frame.borrow_mut();
         frame.previous = mem::replace(&mut frame.snapshot, snapshot);
         frame.generation = frame.generation.next();
+        // Latched once here, so that this frame's `setLayers` and this frame's
+        // gate answer the same question. A configuration that changes it
+        // mid-frame is answered at the next boundary.
+        frame.scene = self.scene.get();
+        self.unflushed_copies.set(false);
 
         // A window's properties last exactly as long as a handle can still
         // describe it, which is one frame past the snapshot losing it:
@@ -377,6 +405,52 @@ impl<T> Session<T> {
     #[must_use]
     pub fn generation(&self) -> FrameGeneration {
         self.frame.borrow().generation
+    }
+
+    /// Whether lunette renders a scene of its own this frame.
+    ///
+    /// What the frame's `setLayers` carries as `main`, and what the gate on
+    /// `lovr.headset.getPass` answers from.
+    #[must_use]
+    pub fn scene(&self) -> SceneRendering {
+        self.frame.borrow().scene
+    }
+
+    /// What the configuration last asked for, which the next frame will latch.
+    #[must_use]
+    pub fn requested_scene(&self) -> SceneRendering {
+        self.scene.get()
+    }
+
+    /// Records what `lunette.setSceneEnabled` was told, for the next boundary.
+    pub fn set_scene(&self, scene: SceneRendering) {
+        self.scene.set(scene);
+    }
+
+    /// Records that this frame copied into at least one layer.
+    ///
+    /// Called by the frame loop after the blit path has run. What it is for is
+    /// the flush [`crate::scene`] describes: on a frame that draws no scene,
+    /// nothing else submits LÖVR's stream before the layers' swapchain images
+    /// are released.
+    pub fn note_copies_recorded(&self) {
+        self.unflushed_copies.set(true);
+    }
+
+    /// What the gate on `lovr.headset.getPass` should do about this call.
+    ///
+    /// Taking the flush rather than reading it is what makes it happen once a
+    /// frame however many gated calls the frame makes.
+    #[must_use]
+    pub fn scene_gate(&self) -> Gate {
+        if self.scene().drawn() {
+            return Gate::Through;
+        }
+        if self.unflushed_copies.replace(false) {
+            Gate::SkipAfterFlush
+        } else {
+            Gate::Skip
+        }
     }
 
     /// Runs `body` against the ledger of textures the frame may hand out.
@@ -453,6 +527,9 @@ struct Frame {
     seats: u64,
     /// How many outputs have been minted beyond the default one.
     outputs: u64,
+    /// Whether lunette renders a scene of its own this frame, latched from
+    /// [`Session::scene`] at the boundary.
+    scene: SceneRendering,
 }
 
 /// How a texture is handed to Lua.
@@ -551,6 +628,21 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     module.set(
         "outputs",
         lua.create_function(move |lua, ()| outputs(lua, &outputs_session))?,
+    )?;
+
+    let set_scene_session = Rc::clone(session);
+    module.set(
+        "setSceneEnabled",
+        lua.create_function(move |_, enabled: bool| {
+            set_scene_session.set_scene(SceneRendering::from_enabled(enabled));
+            Ok(())
+        })?,
+    )?;
+
+    let scene_session = Rc::clone(session);
+    module.set(
+        "sceneEnabled",
+        lua.create_function(move |_, ()| Ok(scene_session.requested_scene().drawn()))?,
     )?;
 
     // Captures nothing: the ladder is a constant of the build, not a property of

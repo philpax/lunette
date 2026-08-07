@@ -13,6 +13,7 @@ use lunette_lovr::raw::{
 
 use crate::{
     layers::{backend::LayerBackend, blit::LayerBlitter, key::LayerKey},
+    scene::SceneRendering,
     texture::{CopyableTexture, LovrTexture},
 };
 
@@ -82,15 +83,17 @@ impl LayerBackend for LovrLayers {
         NonNull::new(raw).map(LovrLayer)
     }
 
-    /// `main` stays true: the projection layer carries everything lunette draws
-    /// itself, and turning it off would leave a session with quad layers and
-    /// nothing else.
+    /// `main` is `scene`, which is false only for a frame lunette drew nothing
+    /// into: the projection layer carries everything lunette draws itself, so
+    /// submitting it on such a frame would composite an image nothing was
+    /// rendered into. [`crate::scene`] has the rest, including why the flag on
+    /// its own saves almost nothing.
     ///
     /// The pointers are gathered into a contiguous array because
     /// `lovrHeadsetSetLayers` takes one; it copies what it keeps out of it
     /// (`headset.c:2769-2781`) and retains each layer, so the array itself does
     /// not outlive the call.
-    fn submit(&mut self, layers: &[&Self::Layer]) -> bool {
+    fn submit(&mut self, layers: &[&Self::Layer], scene: SceneRendering) -> bool {
         let mut pointers: Vec<*mut Layer> = layers.iter().map(|layer| layer.as_ptr()).collect();
         let Ok(count) = u32::try_from(pointers.len()) else {
             return false;
@@ -100,7 +103,7 @@ impl LayerBackend for LovrLayers {
         // pool holds a reference to, so none can be destroyed by the release of
         // the previous list that this call performs before retaining the new
         // one.
-        unsafe { lovrHeadsetSetLayers(pointers.as_mut_ptr(), count, true) }
+        unsafe { lovrHeadsetSetLayers(pointers.as_mut_ptr(), count, scene.drawn()) }
     }
 
     fn destroy(&mut self, layer: Self::Layer) {

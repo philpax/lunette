@@ -7,6 +7,7 @@ use tracing::warn;
 
 use crate::{
     layers::{backend::LayerBackend, key::LayerKey},
+    scene::SceneRendering,
     texture::FrameGeneration,
 };
 
@@ -538,8 +539,12 @@ impl<B: LayerBackend> LayerPool<B> {
     /// the image it last released, which costs it nothing, while leaving the
     /// layer out of the list makes its panel disappear.
     ///
+    /// `scene` travels with the list rather than being set separately, because
+    /// `lovrHeadsetSetLayers` is the only call that carries it and a second
+    /// call would be a second last-call-wins list.
+    ///
     /// Reports whether the runtime accepted the list.
-    pub fn submit(&mut self) -> bool {
+    pub fn submit(&mut self, scene: SceneRendering) -> bool {
         let layers: Vec<&B::Layer> = self
             .claims
             .iter()
@@ -548,7 +553,7 @@ impl<B: LayerBackend> LayerPool<B> {
                 (held.state == HeldState::Granted).then_some(&held.layer)
             })
             .collect();
-        self.backend.submit(&layers)
+        self.backend.submit(&layers, scene)
     }
 
     /// What the layers the pool holds cost against the budget, counting a

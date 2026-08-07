@@ -64,7 +64,7 @@ The following require no change to LÖVR.
 - Embedding without `main()`. `LOVR_BUILD_SHARED=ON` turns `LOVR_BUILD_EXE` off (`vendor/lovr/CMakeLists.txt:98-100`), which excludes `src/main.c` from the build and defines `LOVR_OMIT_MAIN`. lunette replicates in Rust, against the exported symbols, what `main.c` does: create the `lua_State`, open the libraries, call `luax_preload`, set `arg`, run `boot.lua`, and step the closure it returns. LÖVR needs no embedding entry point of its own.
 - Overlay sessions. `XR_EXTX_overlay` is requested when `t.headset.overlay` is set (`headset.c:509`), and LÖVR switches the layer to alpha-blended when overlay or passthrough is active (`headset.c:3067`).
 - Composition layers. `lovr.headset.newLayer` takes position, orientation, dimensions, `curve`, viewport, and `getTexture`. Quad and cylinder layers are the same mechanism WayVR uses for legible screens.
-- `setLayers{ main = false }` disables the projection layer entirely. An overlay showing only quad layers can skip scene rendering altogether.
+- `setLayers{ main = false }` leaves the projection layer out of `xrEndFrame`. It saves almost nothing on its own — the colour swapchain is acquired inside `getPass` and `getTexture`, so what saves the work is not calling those ([Rendering](rendering.md#skipping-the-scene)).
 - Custom events. `lovr.event.push(name, ...)` dispatches through `lovr.handlers`, which `__index`es `lovr` (`etc/boot.lua:345`), so a pushed `'lunwindowopened'` calls `lovr.lunwindowopened`. Native-to-Lua event delivery needs no new machinery. The poll loop unpacks four arguments, so payloads travel as a single table.
 - Filesystem mounting. `lovr.filesystem.setSource`/`mount`/`setRequirePath` allow LÖVR to be pointed at the user's config directory and to mount the standard library.
 - Spatialised audio, via bundled Steam Audio. This makes [per-application audio](audio.md) a matter of routing rather than DSP.
@@ -74,6 +74,8 @@ The following require no change to LÖVR.
 ## Boot
 
 lunette keeps LÖVR's `lovr.run` rather than replacing it. Its loop already has the required shape, and staying on it means `lovr.update`/`lovr.draw` behave exactly as LÖVR's documentation describes. Replacing it later is a one-file change, if a need for control it cannot express arises.
+
+The one thing that loop cannot express is skipping scene rendering: it calls `lovr.headset.getPass` before it has looked at whether there is anything to draw. Rather than fork the loop for it, lunette wraps that function and `lovr.headset.getTexture` where `package.preload` registers the headset module, so each answers nothing while the scene is skipped ([Rendering](rendering.md#skipping-the-scene)). The wrapper is a Lua closure over the original, so nothing on the Rust side holds a reference into the state a reload discards.
 
 Per-frame work injects around the existing steps:
 

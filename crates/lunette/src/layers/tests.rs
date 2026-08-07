@@ -27,6 +27,7 @@ use crate::{
         ClaimId, LayerBackend, LayerBudget, LayerKey, LayerPool, LayerProperties, LayerSize,
         PoolOutcome, Priority,
     },
+    scene::SceneRendering,
     texture::FrameGeneration,
 };
 
@@ -37,8 +38,9 @@ struct Calls {
     created: Vec<LayerKey>,
     destroyed: Vec<u64>,
     abandoned: Vec<u64>,
-    /// One entry per submit, holding the layers that list named.
-    submitted: Vec<Vec<u64>>,
+    /// One entry per submit, holding the layers that list named and whether
+    /// lunette's own projection layer went with them.
+    submitted: Vec<(Vec<u64>, SceneRendering)>,
 }
 
 /// A layer that is a number.
@@ -76,11 +78,9 @@ impl LayerBackend for FakeLayers {
         Some(FakeLayer(self.next))
     }
 
-    fn submit(&mut self, layers: &[&Self::Layer]) -> bool {
-        self.calls
-            .borrow_mut()
-            .submitted
-            .push(layers.iter().map(|layer| layer.0).collect());
+    fn submit(&mut self, layers: &[&Self::Layer], scene: SceneRendering) -> bool {
+        let named = layers.iter().map(|layer| layer.0).collect();
+        self.calls.borrow_mut().submitted.push((named, scene));
         true
     }
 
@@ -169,8 +169,17 @@ impl Harness {
             .borrow()
             .submitted
             .last()
-            .cloned()
+            .map(|(named, _)| named.clone())
             .unwrap_or_default()
+    }
+
+    /// Whether the most recent submit carried lunette's own projection layer.
+    fn last_scene(&self) -> Option<SceneRendering> {
+        self.calls
+            .borrow()
+            .submitted
+            .last()
+            .map(|(_, scene)| *scene)
     }
 
     /// The session goes away, taking every swapchain with it.
@@ -826,7 +835,7 @@ fn the_submitted_list_holds_every_granted_layer_and_nothing_else() {
     let claim = harness.pool.claim(key(512, 512), priority(1.0));
 
     harness.resolve();
-    harness.pool.submit();
+    harness.pool.submit(SceneRendering::Drawn);
     assert_eq!(
         harness.last_submitted(),
         Vec::<u64>::new(),
@@ -835,9 +844,31 @@ fn the_submitted_list_holds_every_granted_layer_and_nothing_else() {
 
     harness.pool.note_blit_issued(claim);
     harness.resolve();
-    harness.pool.submit();
+    harness.pool.submit(SceneRendering::Drawn);
 
     assert_eq!(harness.last_submitted(), vec![1]);
+}
+
+#[test]
+fn the_submit_carries_whether_lunette_drew_a_scene_of_its_own() {
+    // `lovrHeadsetSetLayers` is the one call that carries it, so it travels
+    // with the list rather than being set separately.
+    let mut harness = Harness::new(GENEROUS);
+    let claim = harness.pool.claim(key(512, 512), priority(1.0));
+    harness.resolve();
+    harness.pool.note_blit_issued(claim);
+    harness.resolve();
+
+    harness.pool.submit(SceneRendering::Drawn);
+    assert_eq!(harness.last_scene(), Some(SceneRendering::Drawn));
+
+    harness.pool.submit(SceneRendering::Skipped);
+    assert_eq!(harness.last_scene(), Some(SceneRendering::Skipped));
+    assert_eq!(
+        harness.last_submitted(),
+        vec![1],
+        "skipping the projection layer leaves the quad layers where they were"
+    );
 }
 
 #[test]

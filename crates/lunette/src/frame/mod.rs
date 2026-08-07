@@ -881,6 +881,7 @@ impl FrameDriver {
     /// hold still.
     fn blit_layers(&mut self) {
         let now = self.session.generation();
+        let scene = self.session.scene();
         let session = Rc::clone(&self.session);
         let blits = &mut self.blits;
         let blitted = &mut self.blitted;
@@ -901,6 +902,14 @@ impl FrameDriver {
                     now,
                 );
 
+                if report.iter().any(|(_, outcome)| outcome.copied()) {
+                    // Only matters on a frame that draws no scene, where the
+                    // gate on `lovr.headset.getPass` is what submits the
+                    // stream these copies were recorded into. `crate::scene`
+                    // has the reasoning.
+                    session.note_copies_recorded();
+                }
+
                 for (claim, outcome) in report {
                     // Which outcomes those are is `Blitted`'s to say: a
                     // device that cannot blit answers the same way for the
@@ -912,7 +921,9 @@ impl FrameDriver {
                 }
             });
 
-            if !pool.submit() {
+            // The frame's whole layer list, and with it whether lunette's own
+            // projection layer belongs in this `xrEndFrame`.
+            if !pool.submit(scene) {
                 warn!("the runtime refused this frame's composition layers");
             }
         });
