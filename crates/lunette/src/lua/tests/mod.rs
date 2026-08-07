@@ -18,6 +18,7 @@ mod events;
 mod layers;
 mod lunctl;
 mod monitors;
+mod outputs;
 mod properties;
 mod seats;
 
@@ -935,7 +936,9 @@ fn the_module_exposes_only_what_this_phase_implements() {
         vec![
             "claimLayer".to_owned(),
             "monitors".to_owned(),
+            "newOutput".to_owned(),
             "newSeat".to_owned(),
+            "outputs".to_owned(),
             "reload".to_owned(),
             "seats".to_owned(),
             "spawn".to_owned(),

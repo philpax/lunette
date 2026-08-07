@@ -105,6 +105,36 @@ Entries live as long as the window and not as long as the Lua state. A reload le
 
 Writing any of this to disk is the standard library's own business. The store is live state; what of it is worth keeping across a restart is a decision `mullion` makes.
 
+## Outputs
+
+An output is a virtual monitor lunette shows to the clients assigned to it. It is not one of the user's own screens — those are monitors, below — and it is not a panel; it is what a client sees when it asks what display it is on.
+
+```lua
+local out = lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }
+
+for _, output in ipairs(lunette.outputs()) do
+    print(output.id)                     -- the compositor's identifier.
+    print(output.dead)                   -- whether the compositor has this output right now.
+    print(output.width, output.height)   -- the mode, in pixels.
+    print(output.scale)                  -- the scale factor, fractional.
+    print(output.refresh)                -- hertz, not the millihertz the protocol carries.
+    output:setMode{ scale = 2 }          -- change the mode; unnamed fields are kept.
+    output:destroy()                     -- withdraw the output.
+end
+```
+
+`lunette.newOutput` returns a handle before the compositor has made the output, so `output.dead` is true in the frame that created it — the same rule `lunette.newSeat` and `lunette.spawn` follow. Until then the handle reports the mode it was asked for.
+
+`width` and `height` are required and are whole pixel counts; a monitor with no size is not one a client can lay out against. `scale` defaults to 1 and `refresh` defaults to 60. A scale or a refresh rate that is not finite and positive raises, because a client told its monitor has a scale of zero divides by it.
+
+`refresh` is in hertz here and in millihertz on the wire. Nothing above the native boundary deals in millihertz.
+
+Refresh is advertisement, not pacing. It is what a client reads off `wl_output.mode` and reasons about; how often the compositor actually answers a surface's frame callbacks is `surface:setFrameRate`, which is separate.
+
+`output:setMode` keeps the fields it was not given, so `setMode{ scale = 2 }` changes the scale alone. Clients reallocate their buffers and re-lay-out in response, and some — GTK in particular — do it aggressively, so a configuration that adjusts this continuously will see them struggle. `mullion` moves between discrete steps with hysteresis for that reason.
+
+A session starts with one output, and it is what a client that was assigned none is shown. Every client adopted from outside lunette is one of those, since nothing spawned it and so nothing named an output for it, and a client with no `wl_output` at all cannot pick a scale or a refresh rate. That one refuses to be destroyed, as the seat every session starts with does: `output:destroy()` on it returns `false`. Transform and physical size are not settable: the physical size is derived from the mode so that a client's density guess agrees with the scale lunette advertises.
+
 ## Monitors
 
 `lunette.monitors()` returns the user's own screens, which lunette mirrors through the screencast portal rather than hosting. They are not compositor windows and they are not outputs; a window belongs to a client lunette runs, and a monitor belongs to the machine lunette runs on.

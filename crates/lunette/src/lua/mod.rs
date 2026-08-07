@@ -45,6 +45,7 @@
 
 mod claim;
 mod monitor;
+mod output;
 mod process;
 mod seat;
 mod sink;
@@ -64,10 +65,10 @@ use std::{
 
 use lunette_compositor::{
     protocol::{
-        Argv, Command, PixelSize, PointerButton, ProcessId, SeatId, Snapshot, SpawnRequest,
-        WindowId, WindowSnapshot,
+        Argv, Command, OutputId, PixelSize, PointerButton, ProcessId, SeatId, Snapshot,
+        SpawnRequest, WindowId, WindowSnapshot,
     },
-    state::DEFAULT_SEAT,
+    state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
 use mlua::{Lua, Table, Value};
@@ -75,6 +76,7 @@ use mlua::{Lua, Table, Value};
 pub use crate::lua::{
     claim::{Claim, ClaimRegistry, LuaLayer, PoolRegistry},
     monitor::Monitor,
+    output::Output,
     process::Process,
     seat::Seat,
     sink::Sink,
@@ -87,6 +89,7 @@ use crate::{
     lua::{
         claim::claim_layer,
         monitor::monitors,
+        output::{new_output, outputs},
         seat::{new_seat, seats},
     },
     mirrors::MirrorRegistry,
@@ -208,6 +211,7 @@ impl<T> Session<T> {
                 commands: Vec::new(),
                 processes: 0,
                 seats: 0,
+                outputs: 0,
             }),
             textures: RefCell::new(TextureLedger::new()),
             monitors: RefCell::new(MonitorTextures::new()),
@@ -419,6 +423,17 @@ impl<T> Session<T> {
         frame.seats = frame.seats.checked_add(1)?;
         SeatId::new(DEFAULT_SEAT.get().checked_add(frame.seats)?)
     }
+
+    /// Allocates the identifier an output is created under.
+    ///
+    /// Minted here for the reason a seat identifier is, and counted from the
+    /// default output for the reason a seat is counted from the default seat:
+    /// that one already holds the first.
+    fn mint_output(&self) -> Option<OutputId> {
+        let mut frame = self.frame.borrow_mut();
+        frame.outputs = frame.outputs.checked_add(1)?;
+        OutputId::new(DEFAULT_OUTPUT.get().checked_add(frame.outputs)?)
+    }
 }
 
 /// What one frame answers from.
@@ -435,6 +450,8 @@ struct Frame {
     processes: u64,
     /// How many seats have been minted beyond the default one.
     seats: u64,
+    /// How many outputs have been minted beyond the default one.
+    outputs: u64,
 }
 
 /// How a texture is handed to Lua.
@@ -521,6 +538,18 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     module.set(
         "seats",
         lua.create_function(move |lua, ()| seats(lua, &seats_session))?,
+    )?;
+
+    let new_output_session = Rc::clone(session);
+    module.set(
+        "newOutput",
+        lua.create_function(move |_, options: Table| new_output(&new_output_session, &options))?,
+    )?;
+
+    let outputs_session = Rc::clone(session);
+    module.set(
+        "outputs",
+        lua.create_function(move |lua, ()| outputs(lua, &outputs_session))?,
     )?;
 
     // Captures nothing. A reload is entirely a matter of the Lua state — the

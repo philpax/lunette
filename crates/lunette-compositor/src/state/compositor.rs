@@ -15,7 +15,6 @@ use smithay::{
     backend::allocator::Format,
     desktop::{PopupKind, PopupManager, find_popup_root_surface, get_popup_toplevel_coords},
     input::SeatState,
-    output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
         calloop::{
             LoopHandle, LoopSignal, RegistrationToken,
@@ -28,7 +27,7 @@ use smithay::{
             protocol::{wl_buffer::WlBuffer, wl_callback::WlCallback, wl_surface::WlSurface},
         },
     },
-    utils::{Logical, Physical, Rectangle, Size, Transform},
+    utils::{Logical, Rectangle, Size, Transform},
     wayland::{
         compositor::{self, CompositorClientState, send_surface_state, with_states},
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
@@ -53,13 +52,14 @@ use tracing::{debug, info, warn};
 
 use crate::{
     client::{DisplayName, Satellite, XwaylandSatellite},
+    output::OutputRegistry,
     process::{
         DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner, Report, SpawnRequest,
     },
     protocol::{
-        Command, Event, KeyboardConfig, KeymapDefaults, OutputId, OutputMode, OutputScale,
-        OutputSnapshot, Pid, PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate,
-        SeatId, SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
+        Command, Event, KeyboardConfig, KeymapDefaults, OutputId, OutputMode, OutputScale, Pid,
+        PixelSize, ProcessId, ProcessOutcome, ProcessSignal, RefreshRate, SeatId,
+        SpawnRequest as SpawnCommand, SurfaceId, ToplevelState, ToplevelStates, WindowId,
     },
     seat::SeatRegistry,
     selection::{HostEvents, HostSelectionSource, SelectionBridge},
@@ -79,7 +79,14 @@ pub const DEFAULT_SEAT: SeatId = match SeatId::new(1) {
     None => unreachable!(),
 };
 
-/// The one output Phase 2 has. Outputs become configurable in Phase 8.
+/// The output a client that was not assigned one is shown.
+///
+/// Fixed rather than allocated, for the reason [`DEFAULT_SEAT`] is: it exists
+/// before anything has run that could have created one. A client adopted from
+/// outside lunette is never assigned an output — nothing spawned it, so nothing
+/// named one for it — and a client with no `wl_output` at all cannot pick a
+/// scale or a refresh rate. Further outputs are created from Lua, through
+/// [`Command::CreateOutput`].
 pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
     Some(output) => output,
     None => unreachable!(),
@@ -87,9 +94,6 @@ pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
 
 /// The default seat's name, which clients see on `wl_seat.name`.
 const SEAT_NAME: &str = "lunette";
-
-/// The output's name, which clients see on `wl_output.name`.
-const OUTPUT_NAME: &str = "lunette-0";
 
 /// How often spawned processes are checked for output and for having exited.
 ///
@@ -207,7 +211,9 @@ pub(crate) struct CompositorState {
     pub(super) selection: SelectionBridge,
     pub(super) kde_decoration: KdeDecorationState,
     pub(super) popups: PopupManager,
-    pub(super) output: Output,
+    /// Every virtual monitor lunette advertises. Holding an entry is what keeps
+    /// its `wl_output` global advertised.
+    pub(super) outputs: OutputRegistry,
 
     // Held for their lifetime rather than their API: dropping any of these
     // withdraws the global it created, so a client that binds it afterwards is
@@ -220,8 +226,6 @@ pub(crate) struct CompositorState {
     xdg_decoration: XdgDecorationState,
     #[expect(dead_code, reason = "held so the global stays advertised")]
     viewporter: ViewporterState,
-    #[expect(dead_code, reason = "held so the global stays advertised")]
-    output_global: smithay::reexports::wayland_server::backend::GlobalId,
 
     pub(super) importer: Box<dyn BufferImporter>,
     spawner: Box<dyn ProcessSpawner>,
@@ -310,21 +314,13 @@ impl CompositorState {
             );
         }
 
-        let output = Output::new(
-            OUTPUT_NAME.to_owned(),
-            PhysicalProperties {
-                // A plausible physical size for the default mode. Clients
-                // divide by it to guess a DPI, and a zero would be divided by.
-                size: (530, 300).into(),
-                subpixel: Subpixel::Unknown,
-                make: "lunette".to_owned(),
-                model: "virtual display".to_owned(),
-            },
-        );
-        let output_global = output.create_global::<Self>(display);
-        let mode = output_mode(&config.output);
-        output.change_current_state(Some(mode), Some(Transform::Normal), None, None);
-        output.set_preferred(mode);
+        let mut outputs = OutputRegistry::default();
+        if let Err(error) = outputs.create(display, DEFAULT_OUTPUT, config.output) {
+            warn!(
+                %error,
+                "could not create the default output; a client assigned none will see no monitor"
+            );
+        }
 
         let (dmabuf, dmabuf_global, dmabuf_feedback) =
             create_dmabuf_global(display, &config.dmabuf);
@@ -378,12 +374,11 @@ impl CompositorState {
             selection: SelectionBridge::new(Some(DEFAULT_SEAT), host),
             kde_decoration,
             popups: PopupManager::default(),
-            output,
+            outputs,
             dmabuf_global,
             dmabuf_feedback,
             xdg_decoration,
             viewporter,
-            output_global,
             importer,
             spawner,
             inspector,
@@ -471,12 +466,51 @@ impl CompositorState {
             } => self.scroll(seat, sink, axis, delta),
             Command::ReleaseGraphics => self.release_graphics(),
             Command::AdoptGraphics { importer } => self.adopt_graphics(importer),
-            Command::CreateOutput { .. }
-            | Command::ReconfigureOutput { .. }
-            | Command::DestroyOutput { .. }
-            | Command::SetFramePacing { .. } => {
+            Command::CreateOutput { output, mode } => self.create_output(output, mode),
+            Command::ReconfigureOutput { output, mode } => self.reconfigure_output(output, mode),
+            Command::DestroyOutput { output } => self.destroy_output(output),
+            Command::SetFramePacing { .. } => {
                 warn!(?command, "no handler for this command yet; ignoring it");
             }
+        }
+    }
+
+    /// Creates a virtual monitor and advertises its global.
+    ///
+    /// A duplicate identifier is reported and dropped rather than replacing the
+    /// output that holds it: the clients already bound to that one would be
+    /// silently reconfigured to a mode nobody asked them to take.
+    fn create_output(&mut self, output: OutputId, mode: OutputMode) {
+        match self.outputs.create(&self.display, output, mode) {
+            Ok(()) => {
+                info!(%output, "an output was created");
+                self.touch();
+            }
+            Err(error) => warn!(%error, "could not create an output"),
+        }
+    }
+
+    fn reconfigure_output(&mut self, output: OutputId, mode: OutputMode) {
+        match self.outputs.reconfigure(output, mode) {
+            Ok(()) => self.touch(),
+            Err(error) => warn!(%error, "could not reconfigure an output"),
+        }
+    }
+
+    /// Withdraws an output.
+    ///
+    /// The default output is refused. It is what a client that was assigned no
+    /// output is shown, and every adopted client is one of those, so a session
+    /// without it has clients that can see no monitor at all.
+    fn destroy_output(&mut self, output: OutputId) {
+        if output == DEFAULT_OUTPUT {
+            debug!("the default output cannot be destroyed; a client assigned none needs it");
+            return;
+        }
+
+        match self.outputs.destroy(&self.display, output) {
+            Ok(()) => self.touch(),
+            Err(error) => warn!(%error, "could not destroy an output"),
         }
     }
 
@@ -695,10 +729,7 @@ impl CompositorState {
         self.snapshots.publish(SnapshotParts {
             windows,
             processes: self.processes.snapshot(),
-            outputs: vec![OutputSnapshot {
-                output: DEFAULT_OUTPUT,
-                mode: self.config.output,
-            }],
+            outputs: self.outputs.snapshot(),
             seats: self.seats.snapshot(self.selection.seat()),
         });
     }
@@ -764,8 +795,8 @@ impl CompositorState {
     ///
     /// WayVR also calls `with_fractional_scale` here (`comp.rs:145`). That is
     /// not ported: see this module's documentation.
-    pub(super) fn send_initial_surface_state(&self, surface: &WlSurface) {
-        self.output.enter(surface);
+    pub(super) fn send_initial_surface_state(&mut self, surface: &WlSurface) {
+        self.outputs.enter(surface);
 
         with_states(surface, |states| {
             send_surface_state(surface, states, 1, Transform::Normal);
@@ -817,8 +848,15 @@ impl CompositorState {
         });
     }
 
+    /// The logical size a toplevel is configured against.
+    ///
+    /// The default output's, until per-client assignment gives a window an
+    /// output of its own to be bounded by.
     pub(super) fn output_logical_size(&self) -> Size<i32, Logical> {
-        logical_size(self.config.output.size)
+        self.outputs.get(DEFAULT_OUTPUT).map_or_else(
+            || logical_size(self.config.output.size),
+            |entry| entry.logical_size(),
+        )
     }
 }
 
@@ -982,18 +1020,6 @@ fn create_dmabuf_global(
     }
 }
 
-fn output_mode(mode: &OutputMode) -> Mode {
-    Mode {
-        size: physical_size(mode.size),
-        #[expect(
-            clippy::cast_possible_wrap,
-            reason = "a refresh rate in millihertz is far below the sign bit, and the protocol \
-                      carries it as a signed integer"
-        )]
-        refresh: mode.refresh.millihertz() as i32,
-    }
-}
-
 /// Reads one of a toplevel's role attributes.
 ///
 /// Title and app id are not part of the pending configure state a client can be
@@ -1010,16 +1036,6 @@ pub(super) fn toplevel_attribute<T>(
         let guard = attributes.lock().ok()?;
         Some(read(&guard))
     })
-}
-
-/// Converts a pixel size to smithay's physical coordinate space, which is what
-/// an output mode is measured in.
-fn physical_size(size: PixelSize) -> Size<i32, Physical> {
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "a size beyond two billion pixels is not a mode any hardware or protocol carries"
-    )]
-    Size::new(size.width as i32, size.height as i32)
 }
 
 /// Converts a pixel size to smithay's logical coordinate space.

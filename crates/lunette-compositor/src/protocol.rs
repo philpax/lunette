@@ -36,12 +36,13 @@
 //! and ignored, because a window is not placed on an output until the outputs
 //! and pacing phase gives a second one to place it on.
 //!
+//! Handled as well: [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
+//! and [`Command::DestroyOutput`].
+//!
 //! Accepted and logged, but otherwise inert until the phase named:
 //!
-//! - [`Command::CreateOutput`], [`Command::ReconfigureOutput`],
-//!   [`Command::DestroyOutput`], and [`Command::SetFramePacing`] — the outputs
-//!   and pacing phase. Until then one output exists with the default mode, and
-//!   [`Snapshot::outputs`] describes it.
+//! - [`Command::SetFramePacing`] — the pacing half of the outputs and pacing
+//!   phase.
 //!
 //! Not declared at all: the host-desktop capture surfaces. Selection *content*
 //! is also absent from this vocabulary, and deliberately: a transfer is a file
@@ -654,6 +655,9 @@ impl PixelPoint {
 pub struct OutputScale(f64);
 
 impl OutputScale {
+    /// An unscaled output, which is what an output that names no scale is.
+    pub const ONE: Self = Self(1.0);
+
     /// Rejects a scale that is not finite and strictly positive. A client told
     /// its monitor has a scale of zero divides by it.
     #[must_use]

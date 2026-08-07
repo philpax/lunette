@@ -50,6 +50,7 @@ use wayland_client::{
         wl_compositor::WlCompositor,
         wl_data_offer::WlDataOffer,
         wl_keyboard::{self, KeyState, WlKeyboard},
+        wl_output::{self, WlOutput},
         wl_pointer::{self, ButtonState, WlPointer},
         wl_region::WlRegion,
         wl_registry::{self, WlRegistry},
@@ -58,7 +59,7 @@ use wayland_client::{
         wl_shm_pool::WlShmPool,
         wl_subcompositor::WlSubcompositor,
         wl_subsurface::WlSubsurface,
-        wl_surface::WlSurface,
+        wl_surface::{self, WlSurface},
     },
 };
 use wayland_protocols::{
@@ -98,6 +99,9 @@ pub struct TestClient {
     /// Every seat this client has bound, by the registry name of its global, so
     /// a second look at the registry does not bind the same seat twice.
     seats: Vec<(u32, WlSeat)>,
+    /// Every output this client has bound, by the registry name of its global,
+    /// for the reason the seats are keyed that way.
+    outputs: Vec<(u32, WlOutput)>,
     /// Every popup the client has opened, held so none is destroyed early.
     popups: Vec<(XdgPopup, XdgSurface)>,
     /// Every subsurface the client has created, held for the same reason: a
@@ -135,6 +139,7 @@ impl TestClient {
             xdg_surface: None,
             toplevel: None,
             seats: Vec::new(),
+            outputs: Vec::new(),
             popups: Vec::new(),
             subsurfaces: Vec::new(),
             pointer: None,
@@ -191,7 +196,15 @@ impl TestClient {
     }
 
     fn pump(&mut self, compositor: &mut TestCompositor) {
-        self.queue.flush().expect("the client's requests are sent");
+        // A connection the compositor tore down has nothing left to say, and
+        // every operation on it fails. Stepping the compositor alone is what a
+        // test asserting the teardown still needs.
+        if self.connection.protocol_error().is_some() {
+            compositor.step();
+            return;
+        }
+
+        drop(self.queue.flush());
         compositor.step();
 
         if let Some(guard) = self.queue.prepare_read() {
@@ -200,13 +213,15 @@ impl TestClient {
                 // Nothing arrived this round. The socket is non-blocking
                 // precisely so this is an answer rather than a wait.
                 Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
+                // A refused bind is answered with a protocol error, which is
+                // the outcome the output-filter tests are about. It is reported
+                // through `is_disconnected` rather than raised here.
+                Err(WaylandError::Protocol(_)) => {}
                 Err(error) => panic!("the client could not read from the compositor: {error}"),
             }
         }
 
-        self.queue
-            .dispatch_pending(&mut self.driver)
-            .expect("the client's own event handlers do not fail");
+        drop(self.queue.dispatch_pending(&mut self.driver));
     }
 
     /// Creates a toplevel and drives it as far as its first configure.
@@ -607,6 +622,74 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
+    /// Binds every `wl_output` the compositor advertised, and waits for each to
+    /// report its configuration.
+    ///
+    /// Returns the outputs in the order the registry announced them. A client
+    /// that was shown none gets an empty list rather than a failure: seeing no
+    /// output is what the filter does, and a test asserting it needs to be able
+    /// to observe it.
+    pub fn bind_outputs(&mut self, compositor: &mut TestCompositor) -> Vec<WlOutput> {
+        let handle = self.queue.handle();
+        let advertised: Vec<Global> = self
+            .driver
+            .globals
+            .iter()
+            .filter(|global| global.interface == WlOutput::interface().name)
+            .cloned()
+            .collect();
+
+        for global in advertised {
+            if self.outputs.iter().any(|(name, _)| *name == global.name) {
+                continue;
+            }
+            let registry = self
+                .driver
+                .registry
+                .as_ref()
+                .expect("the registry arrived with the globals");
+            let output = registry.bind::<WlOutput, (), Driver>(
+                global.name,
+                global.version.min(4),
+                &handle,
+                (),
+            );
+            self.outputs.push((global.name, output));
+        }
+
+        let bound: Vec<WlOutput> = self
+            .outputs
+            .iter()
+            .map(|(_, output)| output.clone())
+            .collect();
+        self.settle(compositor, |driver| {
+            bound.iter().all(|output| driver.output(output).is_some())
+        });
+        bound
+    }
+
+    /// Binds one `wl_output` by the registry name of its global, without
+    /// checking that the compositor advertised it.
+    ///
+    /// The only way to establish that the filter is enforced at bind and not
+    /// merely at advertisement: a client that guesses a name it was never told
+    /// must still be refused. The compositor answers a refused bind with a
+    /// protocol error, so a caller expects the connection to die.
+    pub fn bind_output_by_name(&mut self, name: u32, version: u32) -> WlOutput {
+        let handle = self.queue.handle();
+        self.driver
+            .registry
+            .as_ref()
+            .expect("the registry arrived with the globals")
+            .bind::<WlOutput, (), Driver>(name, version, &handle, ())
+    }
+
+    /// Whether the connection has been torn down by a protocol error.
+    #[must_use]
+    pub fn is_disconnected(&self) -> bool {
+        self.connection.protocol_error().is_some()
+    }
+
     /// Binds every seat the compositor has advertised, and waits for each to
     /// report its name and capabilities.
     fn bind_seats(&mut self, compositor: &mut TestCompositor) -> Vec<WlSeat> {
@@ -746,6 +829,14 @@ pub struct Driver {
     /// Every buffer the compositor released, in order. A client may reuse a
     /// buffer only once it appears here.
     pub released: Vec<ObjectId>,
+    /// What each bound `wl_output` reported, by output object. Applied at
+    /// `done`, because the properties arrive as separate events and a test
+    /// reading between two of them would see half a configuration.
+    outputs: Vec<(ObjectId, OutputRecord)>,
+    /// Which outputs each surface was told it is on, by surface. Kept as a list
+    /// rather than a set so that a duplicate enter is visible rather than
+    /// absorbed.
+    surface_outputs: Vec<(ObjectId, Vec<ObjectId>)>,
 
     // The selection half, in `selection.rs`. The fields live here because that
     // is where the struct is, and everything that reads them is in the submodule.
@@ -780,6 +871,32 @@ impl Driver {
     #[must_use]
     pub fn configure_serials(&self) -> Vec<u32> {
         self.configure_serials.clone()
+    }
+
+    /// What an output reported, as of its latest `done`.
+    ///
+    /// Absent until the first `done`, so a caller never reads a configuration
+    /// the compositor is half-way through sending.
+    #[must_use]
+    pub fn output(&self, output: &WlOutput) -> Option<OutputState> {
+        let id = output.id();
+        self.outputs
+            .iter()
+            .find(|(target, _)| *target == id)
+            .and_then(|(_, record)| record.current.clone())
+    }
+
+    /// Which outputs a surface has been told it is on, in the order it was told.
+    ///
+    /// Keyed by object identifier rather than by the proxy, because a test that
+    /// opened a toplevel through [`TestClient::open_toplevel`] holds the
+    /// identifier and not the surface.
+    #[must_use]
+    pub fn surface_outputs(&self, surface: &ObjectId) -> Vec<ObjectId> {
+        self.surface_outputs
+            .iter()
+            .find(|(target, _)| target == surface)
+            .map_or_else(Vec::new, |(_, outputs)| outputs.clone())
     }
 
     /// The name a seat advertised on `wl_seat.name`, once it has.
@@ -942,6 +1059,34 @@ impl Driver {
     }
 }
 
+/// What one bound `wl_output` has told the client about itself.
+///
+/// Two halves, because the protocol sends the properties as separate events and
+/// applies them at `done`. A test reading `current` never sees a configuration
+/// the compositor is part-way through sending.
+#[derive(Debug, Default)]
+struct OutputRecord {
+    pending: OutputState,
+    current: Option<OutputState>,
+}
+
+/// One output's configuration, as the client was told it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OutputState {
+    /// The current mode's resolution, in pixels.
+    pub size: (i32, i32),
+    /// The current mode's refresh rate, in millihertz, which is the unit
+    /// `wl_output.mode` carries.
+    pub refresh: i32,
+    /// The physical size in millimetres, from `wl_output.geometry`.
+    pub physical: (i32, i32),
+    /// The integer scale, which is one until the compositor says otherwise.
+    pub scale: i32,
+    /// The name, present only from version 4.
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
 /// What one bound seat has told the client about itself.
 #[derive(Debug)]
 struct SeatRecord {
@@ -1040,6 +1185,92 @@ impl Dispatch<WlRegistry, ()> for Driver {
             wl_registry::Event::GlobalRemove { name } => {
                 state.globals.retain(|global| global.name != name);
             }
+            _ => {}
+        }
+    }
+}
+
+/// `wl_surface.enter` and `wl_surface.leave` are what a client learns its
+/// output from, so the surface cannot be a no-op the way the rest of its events
+/// are.
+impl Dispatch<WlSurface, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        surface: &WlSurface,
+        event: wl_surface::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        let id = surface.id();
+        let entry = match state
+            .surface_outputs
+            .iter_mut()
+            .find(|(target, _)| *target == id)
+        {
+            Some((_, outputs)) => outputs,
+            None => {
+                state.surface_outputs.push((id, Vec::new()));
+                let last = state.surface_outputs.len() - 1;
+                &mut state.surface_outputs[last].1
+            }
+        };
+
+        match event {
+            wl_surface::Event::Enter { output } => entry.push(output.id()),
+            wl_surface::Event::Leave { output } => entry.retain(|held| held != &output.id()),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<WlOutput, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        output: &WlOutput,
+        event: wl_output::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        let id = output.id();
+        let pending = match state.outputs.iter_mut().find(|(target, _)| *target == id) {
+            Some((_, pending)) => pending,
+            None => {
+                state.outputs.push((id, OutputRecord::default()));
+                let last = state.outputs.len() - 1;
+                &mut state.outputs[last].1
+            }
+        };
+
+        match event {
+            wl_output::Event::Geometry {
+                physical_width,
+                physical_height,
+                ..
+            } => {
+                pending.pending.physical = (physical_width, physical_height);
+            }
+            wl_output::Event::Mode {
+                flags,
+                width,
+                height,
+                refresh,
+            } => {
+                if flags
+                    .into_result()
+                    .is_ok_and(|flags| flags.contains(wl_output::Mode::Current))
+                {
+                    pending.pending.size = (width, height);
+                    pending.pending.refresh = refresh;
+                }
+            }
+            wl_output::Event::Scale { factor } => pending.pending.scale = factor,
+            wl_output::Event::Name { name } => pending.pending.name = Some(name),
+            wl_output::Event::Description { description } => {
+                pending.pending.description = Some(description);
+            }
+            wl_output::Event::Done => pending.current = Some(pending.pending.clone()),
             _ => {}
         }
     }
@@ -1300,7 +1531,6 @@ impl Dispatch<WlBuffer, ()> for Driver {
 }
 
 delegate_noop!(Driver: ignore WlCompositor);
-delegate_noop!(Driver: ignore WlSurface);
 delegate_noop!(Driver: ignore WlShm);
 delegate_noop!(Driver: ignore WlShmPool);
 delegate_noop!(Driver: ignore ZwpLinuxDmabufV1);

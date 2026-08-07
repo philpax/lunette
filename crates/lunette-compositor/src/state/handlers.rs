@@ -13,9 +13,8 @@ use std::os::fd::OwnedFd;
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
     delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf,
-    delegate_ext_data_control, delegate_kde_decoration, delegate_output,
-    delegate_primary_selection, delegate_seat, delegate_shm, delegate_viewporter,
-    delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_ext_data_control, delegate_kde_decoration, delegate_primary_selection, delegate_seat,
+    delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{
         PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy,
         find_popup_root_surface,
@@ -30,8 +29,14 @@ use smithay::{
         },
         wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration,
         wayland_server::{
-            Client, WEnum,
-            protocol::{wl_buffer::WlBuffer, wl_seat, wl_surface::WlSurface},
+            Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, WEnum,
+            backend::ClientId,
+            protocol::{
+                wl_buffer::WlBuffer,
+                wl_output::{self, WlOutput},
+                wl_seat,
+                wl_surface::WlSurface,
+            },
         },
     },
     utils::Serial,
@@ -39,7 +44,6 @@ use smithay::{
         buffer::BufferHandler,
         compositor::{self, CompositorClientState},
         dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
-        output::OutputHandler,
         selection::{
             SelectionHandler, SelectionSource, SelectionTarget,
             data_device::{
@@ -68,6 +72,7 @@ use smithay::{
 use tracing::{debug, info, warn};
 
 use crate::{
+    output::{OutputGlobal, OutputResource},
     protocol::Event,
     seat,
     selection::{HostOffer, SelectionKind},
@@ -157,8 +162,6 @@ impl ShmHandler for CompositorState {
     }
 }
 
-impl OutputHandler for CompositorState {}
-
 impl DmabufHandler for CompositorState {
     fn dmabuf_state(&mut self) -> &mut DmabufState {
         &mut self.dmabuf
@@ -230,7 +233,7 @@ impl XdgShellHandler for CompositorState {
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        self.output.leave(surface.wl_surface());
+        self.outputs.leave(surface.wl_surface());
         self.forget_surface(surface.wl_surface());
 
         let Some(removed) = self.windows.remove(&surface) else {
@@ -500,13 +503,52 @@ impl ExtDataControlHandler for CompositorState {
     }
 }
 
+impl GlobalDispatch<WlOutput, OutputGlobal> for CompositorState {
+    fn bind(
+        state: &mut Self,
+        _display: &DisplayHandle,
+        _client: &Client,
+        resource: New<WlOutput>,
+        global: &OutputGlobal,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
+        let instance = data_init.init(resource, OutputResource::new(global.output));
+        state.outputs.bind(global.output, &instance);
+    }
+}
+
+impl Dispatch<WlOutput, OutputResource> for CompositorState {
+    /// `wl_output` has one request, `release`, and it is a destructor. The
+    /// backend destroys the object and calls [`Dispatch::destroyed`], so there is
+    /// nothing to do here.
+    fn request(
+        _state: &mut Self,
+        _client: &Client,
+        _resource: &WlOutput,
+        _request: wl_output::Request,
+        _data: &OutputResource,
+        _display: &DisplayHandle,
+        _data_init: &mut DataInit<'_, Self>,
+    ) {
+    }
+
+    fn destroyed(state: &mut Self, _client: ClientId, resource: &WlOutput, data: &OutputResource) {
+        state.outputs.unbind(data.output(), resource);
+    }
+}
+
 delegate_compositor!(CompositorState);
 delegate_data_control!(CompositorState);
 delegate_data_device!(CompositorState);
 delegate_dmabuf!(CompositorState);
 delegate_ext_data_control!(CompositorState);
 delegate_kde_decoration!(CompositorState);
-delegate_output!(CompositorState);
+// No `delegate_output!`. It routes `GlobalDispatch<WlOutput, WlOutputData>` to
+// smithay's `OutputManagerState`, whose `can_view` cannot be overridden and
+// whose global data cannot be read back — so the `wl_output` global is
+// hand-written in [`crate::output`], along with the filter that makes each
+// client see only its own monitors. The macro's other four lines are
+// xdg-output, which lunette does not advertise.
 delegate_primary_selection!(CompositorState);
 delegate_seat!(CompositorState);
 delegate_shm!(CompositorState);

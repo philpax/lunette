@@ -125,6 +125,7 @@ pub enum HandleKind {
     Seat,
     Sink,
     Claim,
+    Output,
 }
 
 impl HandleKind {
@@ -138,6 +139,7 @@ impl HandleKind {
             Self::Seat => "seat",
             Self::Sink => "sink",
             Self::Claim => "claim",
+            Self::Output => "output",
         }
     }
 
@@ -151,6 +153,7 @@ impl HandleKind {
             Self::Seat,
             Self::Sink,
             Self::Claim,
+            Self::Output,
         ]
         .into_iter()
         .find(|kind| kind.as_str() == name)
@@ -164,6 +167,7 @@ impl HandleKind {
             Self::Seat => 3,
             Self::Sink => 4,
             Self::Claim => 5,
+            Self::Output => 6,
         }
     }
 
@@ -175,6 +179,7 @@ impl HandleKind {
             3 => Some(Self::Seat),
             4 => Some(Self::Sink),
             5 => Some(Self::Claim),
+            6 => Some(Self::Output),
             _ => None,
         }
     }

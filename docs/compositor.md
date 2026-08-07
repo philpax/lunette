@@ -33,6 +33,12 @@ This design enables the following.
 
 The cost is that scale changes make clients reallocate buffers and re-layout, and some do this poorly, causing flicker or, in the case of GTK, a full recompute. The standard library uses discrete scale steps with hysteresis rather than continuous adjustment. This is Lua policy, and it is tunable.
 
+A session starts with one output, and it is what a client that was assigned none is shown. Every client adopted from outside lunette is one of those — nothing spawned it, so nothing named an output for it — and a client with no `wl_output` at all cannot pick a scale or a refresh rate. That output refuses to be destroyed for the same reason the seat every session starts with does.
+
+`refresh` is in hertz in Lua and in millihertz on the wire, converted at that boundary and nowhere else. It is advertisement rather than pacing: how often a surface is actually answered is `surface:setFrameRate`.
+
+The `wl_output` global is lunette's own rather than smithay's. `Output::create_global` has no filter hook, and the `can_view` that would supply one is handed a `WlOutputData` whose output field is private — so a hand-written filter could not tell which output it was being asked about. [Decisions](decisions.md#recorded-decisions) records what that costs. The filter itself is consulted at registry advertisement and again at bind, and the second is what makes it enforceable: a client that guesses a global name it was never told about is refused rather than served.
+
 ## Decorations
 
 lunette forces server-side decorations for both `xdg-decoration` and the KDE protocol, exactly as WayVR does (`comp.rs:638`), and then draws none itself.
