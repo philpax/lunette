@@ -520,7 +520,7 @@ The shipped configuration does not do this, which is why it was the only one tha
 
 Two things were established while chasing the above, and both are worth keeping.
 
-An overlay session presents nothing when no other application holds the primary session. That is ordinary OpenXR overlay behaviour rather than a defect, and it has a practical consequence: lunette started on an idle runtime is a black headset, and nothing in its log says why.
+An overlay session presents on an idle runtime with nothing else running. An earlier entry here said the opposite. That claim came from runs carrying the `lovr.draw` fault above, which presented nothing whatever else was true, and it did not survive a session without the fault.
 
 The overlay's projection layer is cleared transparent by LÖVR itself once `XR_EXTX_overlay` is enabled, at `headset.c:3067-3071`. A configuration does not have to call `lovr.graphics.setBackgroundColor` with a zero alpha, and the shipped one does not. This was tested directly by removing the call and confirming the application underneath stayed visible.
 
@@ -542,6 +542,14 @@ D12, with three clients each holding a granted composition layer and a `lovr.dra
 Skipping saves 0.159ms of CPU per frame, about half. The frame count is identical in both, which is the point: the session is paced by the display at 75.6Hz either way, so the saving does not appear as a frame rate and cannot be inferred from one. An empty `lovr.draw` still costs the full amount when the scene is not skipped, because the cost is in acquiring the headset texture and the pass rather than in anything Lua does.
 
 Measured as process CPU time over a fixed wall-clock window, on a debug build. A release build will differ in magnitude. GPU time is not measured: `lovr.graphics.getTiming` returns a polled readback and needs timing enabled, which no configuration key appears to expose.
+
+### D3, and a layer that is not visibly sharper
+
+A dense terminal was shown at 0.6m wide and 0.8m away, alternating every five seconds between a granted composition layer and an in-scene quad at the same pose and size, with an in-scene marker naming the current state. No difference in sharpness was seen in either direction.
+
+That is recorded as an observation rather than as a verdict on AC2.2, because the comparison has a confound that has to be removed before it means anything. The window is 800x600 and the display is 3561x3561 per eye. At that size and distance the panel's texture is coarser than the display can resolve, so the source is the limit on sharpness and neither path's resampling is what the eye is reaching. A comparison that can show a difference needs the texture at or above the display's resolution over the panel's angular size: a larger window, or the same window shown smaller or further away.
+
+One difference was seen, and it is not about sharpness. The panel is invisible from behind when it is on a layer and visible from behind when it is a quad. A quad composition layer is single-sided; the in-scene plane as drawn is not. This matters beyond the gate: `mullion` chooses when a panel is on a layer, and a grant landing would make a panel that was readable from behind vanish. The fallback and the granted state are meant to differ in sharpness alone.
 
 ### The unpublished submodule commit
 
