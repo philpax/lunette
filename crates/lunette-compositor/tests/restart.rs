@@ -234,6 +234,59 @@ fn a_re_import_the_new_device_refuses_is_reported_and_the_buffer_released() {
     assert_eq!(compositor.snapshot().windows.len(), 1);
 }
 
+/// The premise `dmabuf_imported` accepts an unimported buffer on: the
+/// `wl_buffer` is valid, and the commit that asks it to become an image is where
+/// a device that does not exist yet is answered survivably.
+///
+/// Refusing the create instead would answer `create_immed` with
+/// `INVALID_WL_BUFFER`, which disconnects the client — and `lunette-v1.AC5.5` is
+/// precisely that a restart disconnects nobody. So the create has to survive the
+/// quiesce and the buffer has to import once a device arrives.
+#[test]
+fn a_dmabuf_created_during_the_quiesce_imports_once_a_device_arrives() {
+    let mut compositor = accepting_dmabuf();
+    let mut client = mapped_client(&mut compositor);
+    release(&mut compositor);
+
+    // Created while there is no device, so `dmabuf_imported` takes the accept
+    // path. Nothing is committed yet, so nothing has asked for an image.
+    let created = client.create_dmabuf(&mut compositor, PixelSize::new(640, 480));
+
+    // A disconnected client's next round trip is what would fail here, which is
+    // what refusing the create rather than accepting it would have caused.
+    client.set_title(&mut compositor, "still here");
+    client.settle(&mut compositor, |_| true);
+    assert_eq!(
+        compositor.snapshot().windows[0].title.as_deref(),
+        Some("still here"),
+        "accepting the create unimported is what keeps the client connected"
+    );
+
+    let adopted = ImportLog::default();
+    adopt(&mut compositor, &adopted);
+    let before = adopted.dmabuf_count();
+    let released_before = client.driver().released.len();
+
+    client.attach_created(&mut compositor, &created, PixelSize::new(640, 480));
+    compositor.collect_events(|events| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::BufferImported { .. }))
+    });
+
+    assert!(
+        adopted.dmabuf_count() > before,
+        "the buffer created while the device was gone should have reached the new device"
+    );
+    assert_eq!(
+        client.driver().released.len(),
+        released_before + 1,
+        "the surface's previous buffer is handed back and the one just imported is not, because \
+         lunette is now sampling it"
+    );
+    assert_eq!(compositor.snapshot().windows.len(), 1);
+}
+
 /// A compositor no client has ever committed to still has to answer, because
 /// the frame thread waits for the acknowledgement before destroying the device
 /// whether or not anything was imported.

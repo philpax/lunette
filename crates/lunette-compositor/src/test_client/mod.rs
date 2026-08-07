@@ -247,11 +247,24 @@ impl TestClient {
     /// Returns the buffer's object id, which is what a test asserting on
     /// releases compares against.
     pub fn attach_dmabuf(&mut self, compositor: &mut TestCompositor, size: PixelSize) -> ObjectId {
+        let buffer = self.create_dmabuf(compositor, size);
+        let id = buffer.id();
+        self.attach_created(compositor, &buffer, size);
+        id
+    }
+
+    /// Creates a linear `argb8888` dmabuf of `size` and lets the compositor
+    /// answer, without attaching it to anything.
+    ///
+    /// The two halves are separate operations to the compositor and it can be in
+    /// different states for each: `create_immed` reaches `dmabuf_imported`, and
+    /// the commit is what asks for the image. A restart quiesce that falls
+    /// between them is what this exists to drive.
+    pub fn create_dmabuf(&mut self, compositor: &mut TestCompositor, size: PixelSize) -> WlBuffer {
         let handle = self.queue.handle();
         let dmabuf = self.bind::<ZwpLinuxDmabufV1>(3);
 
-        let width = i32::try_from(size.width).expect("a width the protocol can carry");
-        let height = i32::try_from(size.height).expect("a height the protocol can carry");
+        let (width, height) = protocol_size(size);
         let stride = size.width * 4;
         let memory = anonymous_file(i64::from(stride) * i64::from(height));
 
@@ -262,11 +275,25 @@ impl TestClient {
             params.create_immed(width, height, ARGB8888, DmabufFlags::empty(), &handle, ());
         params.destroy();
 
-        let id = buffer.id();
+        // The create is answered before the caller goes on, so that a case
+        // choosing when to commit is choosing it relative to a create the
+        // compositor has already seen.
+        self.settle_quiet(compositor);
+        self.buffers.push(buffer.clone());
+        buffer
+    }
+
+    /// Attaches a buffer this client already created to its toplevel's surface,
+    /// and commits.
+    pub fn attach_created(
+        &mut self,
+        compositor: &mut TestCompositor,
+        buffer: &WlBuffer,
+        size: PixelSize,
+    ) {
+        let (width, height) = protocol_size(size);
         let surface = self.surface.clone().expect("a toplevel was opened first");
-        self.attach_to(compositor, &surface, &buffer, width, height);
-        self.buffers.push(buffer);
-        id
+        self.attach_to(compositor, &surface, buffer, width, height);
     }
 
     /// Attaches a shared-memory buffer of `size` and commits, which is what
