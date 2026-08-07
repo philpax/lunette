@@ -640,7 +640,11 @@ All five commands from `CONTRIBUTING.md:171-175`, inside `nix develop`.
 **Step 3: The human gates**
 
 - A soft reload applies a layout change without disconnecting any client, and a hand-placed panel keeps its pose (AC5.4).
-- `lunette.restart()` rebuilds the Lua state and the XR session while clients stay connected, with the expected visible hitch and brief blackness (AC5.5). Watch for a Vulkan validation error at teardown — that would mean the quiesce missed something.
+- `lunette.restart()` rebuilds the Lua state and the XR session while clients stay connected, with the expected visible hitch and brief blackness (AC5.5). Read the Vulkan validation output at teardown against the two lists below rather than treating any of it as a failure.
+
+  Expected, and not a defect: one `VUID-vkDestroyDevice-device-05137` report per abandoned image and per abandoned allocation, naming `VK_OBJECT_TYPE_IMAGE` and `VK_OBJECT_TYPE_DEVICE_MEMORY`. The images are deliberately not destroyed, and [decisions.md](../../decisions.md#imported-images-are-abandoned-at-a-restart-not-destroyed) records why and what it costs. Their count should match the `abandoned the imported images` log line.
+
+  A real miss, and worth stopping for: any other object type in that report — a swapchain, a layer, a sampler, a buffer, a command pool — or an image count that exceeds what the log line said was abandoned. Also any validation error that is not `VUID-vkDestroyDevice-device-05137`, in particular one about an object in use, which would mean the quiesce did not wait.
 - An error in a callback shows a panel and the session continues, and an error repeating every frame is rate-limited (AC8.3).
 - A syntactically invalid `main.lua` produces safe mode with a laser, a panel, and a reload key, not a black headset (AC8.4).
 
@@ -665,7 +669,7 @@ git commit -m "test: drive lunctl end to end"
 ## Done when
 
 - A soft reload applies a layout change without disconnecting any client, and hand-placed poses survive it.
-- `lunette.restart()` rebuilds the Lua state and the XR session with clients still connected and no Vulkan validation errors at teardown.
+- `lunette.restart()` rebuilds the Lua state and the XR session with clients still connected, and the only Vulkan validation output at teardown is the abandoned images Step 3 lists as expected.
 - End-to-end shell tests drive `lunctl` to spawn a client, assert state, and tear down.
 - An error in a callback shows a panel and the session continues, rate-limited on repeat.
 - An invalid `main.lua` produces safe mode.

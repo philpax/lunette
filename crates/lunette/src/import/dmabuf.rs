@@ -375,7 +375,13 @@ impl ImageArena {
     /// For a restart, and only for a restart. The device these images were
     /// created against is destroyed immediately afterwards, and
     /// `vkDestroyDevice` frees what the device still owns — so the memory is
-    /// not leaked. Destroying them here instead would be the invalid case
+    /// not leaked, but it is a violation of that call's valid usage:
+    /// `VUID-vkDestroyDevice-device-05137` requires every child object to have
+    /// been destroyed first. The validation layers report one image and one
+    /// allocation per abandoned entry on every restart, which is expected
+    /// output; `docs/decisions.md` records the trade and the phase plan's
+    /// restart gate says which reports are these and which would be a real
+    /// miss. Destroying them here instead would be the invalid case
     /// `crates/lunette/src/texture/lovr.rs` records: LÖVR retires an imported
     /// texture's *view* through a morgue that only `gpu_destroy` empties, and
     /// `vkDestroyImage` on an image that still has a view is not allowed. There
