@@ -122,17 +122,21 @@ impl OutputRegistry {
 
         entry.mode = mode;
         for instance in &entry.instances {
-            send_configuration(entry, instance);
+            send_configuration(entry, instance, OutputName::Sent);
         }
         Ok(())
     }
 
-    /// Withdraws an output's global.
+    /// Withdraws an output's global and hands back the surfaces that were on it.
     ///
     /// The clients that had bound it keep their `wl_output` objects — a global
-    /// being removed does not destroy the objects made from it — so they are
-    /// told the output has left every surface first. What the removal stops is a
+    /// being removed does not destroy the objects made from it — so each is told
+    /// the output has left its own surfaces first. What the removal stops is a
     /// client binding it again.
+    ///
+    /// The surfaces are returned rather than dropped because they are now on no
+    /// output at all, and something has to put them on one: `destroy_output`
+    /// moves them to the default.
     ///
     /// # Errors
     ///
@@ -141,7 +145,7 @@ impl OutputRegistry {
         &mut self,
         display: &DisplayHandle,
         id: OutputId,
-    ) -> Result<(), OutputError> {
+    ) -> Result<Vec<WlSurface>, OutputError> {
         let index = self
             .outputs
             .iter()
@@ -154,10 +158,48 @@ impl OutputRegistry {
         let entry = self.outputs.remove(index);
         for instance in &entry.instances {
             for surface in entry.live_surfaces() {
-                surface.leave(instance);
+                // The same client check the other three paths make. Structurally
+                // redundant since `enter` records a surface only against the
+                // output its own client is shown, and kept because the cost of
+                // it being wrong is not a protocol error a client can survive
+                // but a backend abort that takes the compositor thread with it
+                // (`wayland-backend/src/rs/server_impl/client.rs:194`).
+                if surface.client().as_ref() == instance.client().as_ref() {
+                    surface.leave(instance);
+                }
             }
         }
+        let orphaned: Vec<WlSurface> = entry.live_surfaces().collect();
         display.remove_global::<CompositorState>(entry.global);
+        Ok(orphaned)
+    }
+
+    /// Withdraws an output's global and advertises a fresh one for it.
+    ///
+    /// The only way to re-evaluate [`CompositorState::can_view`] for a client
+    /// that has already read the registry: it is consulted at advertisement and
+    /// at bind and nowhere else, so a client whose assignment changed learns
+    /// nothing until a global it has not seen appears. Clients that had bound
+    /// the old global keep their `wl_output` objects and see a monitor
+    /// unplugged and plugged back in, which `docs/compositor.md` records as the
+    /// cost of changing an assignment.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutputError`] when no output has that identifier.
+    pub(crate) fn readvertise(
+        &mut self,
+        display: &DisplayHandle,
+        id: OutputId,
+    ) -> Result<(), OutputError> {
+        let stale = self.entry_mut(id)?.global.clone();
+        display.remove_global::<CompositorState>(stale);
+
+        let global = display.create_global::<CompositorState, WlOutput, _>(
+            OUTPUT_VERSION,
+            OutputGlobal { output: id },
+        );
+        self.entry_mut(id)?.global = global;
         Ok(())
     }
 
@@ -165,26 +207,17 @@ impl OutputRegistry {
         self.outputs.iter().find(|entry| entry.id == id)
     }
 
-    /// Every live surface the registry has been told about, without repeats.
+    /// The live surfaces on one output.
     ///
-    /// Not filtered by output, because the entries are not partitioned by one:
-    /// [`OutputRegistry::enter`] records a surface against every output and
-    /// leaves the filtering to which client owns which `wl_output` instance. A
-    /// caller that wants one output's surfaces asks the client assignment,
-    /// which is [`crate::state`]'s question rather than this module's.
+    /// No deduplication, because [`OutputRegistry::enter`] records a surface
+    /// against exactly the output its client is shown and refuses a repeat.
     ///
     /// Collected rather than borrowed, so the caller may hold `&mut self` while
     /// it walks the result.
-    pub(crate) fn surfaces(&self) -> Vec<WlSurface> {
-        let mut surfaces: Vec<WlSurface> = Vec::new();
-        for entry in &self.outputs {
-            for surface in entry.live_surfaces() {
-                if !surfaces.contains(&surface) {
-                    surfaces.push(surface);
-                }
-            }
-        }
-        surfaces
+    pub(crate) fn surfaces_on(&self, id: OutputId) -> Vec<WlSurface> {
+        self.get(id)
+            .map(|entry| entry.live_surfaces().collect())
+            .unwrap_or_default()
     }
 
     /// Every output, as the main thread reads them.
@@ -208,7 +241,7 @@ impl OutputRegistry {
             return;
         };
 
-        send_configuration(entry, instance);
+        send_configuration(entry, instance, OutputName::Unsent);
         // Replayed rather than assumed to be unnecessary: a client may create a
         // surface before it binds the output, and a surface that is never told
         // which output it is on cannot pick a scale.
@@ -233,27 +266,38 @@ impl OutputRegistry {
         entry.instances.retain(|held| held != instance);
     }
 
-    /// Tells a surface which outputs it is on.
+    /// Tells a surface which output it is on.
     ///
-    /// Every output, because a client can only have bound the ones it was
-    /// allowed to see: an output the filter hides has no instance belonging to
-    /// this client, so nothing is sent for it.
-    pub(crate) fn enter(&mut self, surface: &WlSurface) {
-        for entry in &mut self.outputs {
-            entry.surfaces.retain(|held| held.is_alive());
-            if entry
-                .surfaces
-                .iter()
-                .any(|held| held == &surface.downgrade())
-            {
-                continue;
-            }
-            entry.surfaces.push(surface.downgrade());
+    /// One output — the one its client is shown — rather than every output. The
+    /// events would come out the same either way, because a client can only
+    /// have bound what it was allowed to see, but the record would not: an entry
+    /// holding surfaces belonging to clients that cannot see it is what makes a
+    /// cross-client `wl_surface.leave` reachable from
+    /// [`OutputRegistry::destroy`], which the backend answers by aborting rather
+    /// than by raising a protocol error. Recording against the one output makes
+    /// that pairing impossible rather than guarded against.
+    ///
+    /// An output that does not exist records nothing. The only caller derives
+    /// the identifier from the client's assignment, which `assign_output`
+    /// refuses to set to an output that was never created and `destroy_output`
+    /// clears when one is withdrawn — so this is a defect rather than a case,
+    /// and it is logged.
+    pub(crate) fn enter(&mut self, surface: &WlSurface, id: OutputId) {
+        let Ok(entry) = self.entry_mut(id) else {
+            warn!(%id, "a surface was placed on an output that does not exist");
+            return;
+        };
 
-            for instance in &entry.instances {
-                if instance.client().as_ref() == surface.client().as_ref() {
-                    surface.enter(instance);
-                }
+        entry.surfaces.retain(|held| held.is_alive());
+        let weak = surface.downgrade();
+        if entry.surfaces.contains(&weak) {
+            return;
+        }
+        entry.surfaces.push(weak);
+
+        for instance in &entry.instances {
+            if instance.client().as_ref() == surface.client().as_ref() {
+                surface.enter(instance);
             }
         }
     }
@@ -299,9 +343,10 @@ pub(crate) struct OutputEntry {
     global: GlobalId,
     /// Every `wl_output` a client has bound for this output.
     instances: Vec<WlOutput>,
-    /// Every surface that has been told it is on this output. Weak, because a
-    /// surface is destroyed by its client and the registry must not be what
-    /// keeps it alive.
+    /// Every surface on this output, which is every surface belonging to a
+    /// client this output was assigned to and no others — see
+    /// [`OutputRegistry::enter`]. Weak, because a surface is destroyed by its
+    /// client and the registry must not be what keeps it alive.
     surfaces: Vec<Weak<WlSurface>>,
 }
 
@@ -389,12 +434,27 @@ const OUTPUT_MAKE: &str = "lunette";
 /// What a client is told the model is.
 const OUTPUT_MODEL: &str = "virtual display";
 
-/// Sends an output's whole state to one bound `wl_output`.
+/// Whether one bound `wl_output` has already been told its name.
+///
+/// `wayland.xml` on `wl_output.name`: "This event is only sent once per output
+/// object, and the name does not change over the lifetime of the wl_output
+/// global." Every other event in the set may repeat, and `description` is
+/// explicitly allowed to — so a mode change re-sends everything but this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OutputName {
+    /// The instance was just bound and is owed its name.
+    Unsent,
+    /// The instance already carries its name, and repeating it is a conformance
+    /// violation.
+    Sent,
+}
+
+/// Sends an output's state to one bound `wl_output`.
 ///
 /// The order is the protocol's: the properties, then `done`. A client that acts
 /// on a geometry it has not been told is done with will re-lay-out again a
 /// moment later.
-fn send_configuration(entry: &OutputEntry, instance: &WlOutput) {
+fn send_configuration(entry: &OutputEntry, instance: &WlOutput, name: OutputName) {
     let physical = physical_size(entry.mode.size, entry.mode.scale.get());
     instance.geometry(
         0,
@@ -424,7 +484,9 @@ fn send_configuration(entry: &OutputEntry, instance: &WlOutput) {
         instance.scale(integer_scale(entry.mode.scale));
     }
     if instance.version() >= 4 {
-        instance.name(entry.name.clone());
+        if name == OutputName::Unsent {
+            instance.name(entry.name.clone());
+        }
         instance.description(format!(
             "{OUTPUT_MAKE} {OUTPUT_MODEL} {} ({size})",
             entry.id.get()

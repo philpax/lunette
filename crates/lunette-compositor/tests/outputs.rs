@@ -155,6 +155,19 @@ fn reconfiguring_an_output_tells_the_clients_that_bound_it() {
         .expect("the reconfigured output reported its configuration");
     assert_eq!(state.refresh, 120_000);
     assert_eq!(state.scale, 2);
+    // `wayland.xml` on `wl_output.name`: "This event is only sent once per
+    // output object, and the name does not change over the lifetime of the
+    // wl_output global." Every other event in the set may repeat.
+    assert_eq!(
+        client.driver().output_names(output),
+        vec!["lunette-1".to_owned()],
+        "a mode change re-sends everything but the name"
+    );
+    assert_eq!(
+        state.description.as_deref(),
+        Some("lunette virtual display 1 (3840x2160)"),
+        "the description carries the mode, and is one of the events that may repeat"
+    );
 }
 
 #[test]
@@ -174,21 +187,96 @@ fn a_destroyed_output_stops_being_advertised() {
             .iter()
             .any(|global| global.interface == "wl_output")
     });
+    let withdrawn = output_global(&client).expect("the client was advertised its own output");
 
     compositor.send(Command::DestroyOutput {
         output: SECOND_OUTPUT,
     });
     client.settle(&mut compositor, |driver| {
-        !driver
-            .globals
-            .iter()
-            .any(|global| global.interface == "wl_output")
+        !driver.globals.iter().any(|global| global.name == withdrawn)
     });
 
-    assert_eq!(advertised(&client), 0);
     let snapshot = compositor.snapshot();
     assert_eq!(snapshot.outputs.len(), 1);
     assert_eq!(snapshot.outputs[0].output, DEFAULT_OUTPUT);
+}
+
+#[test]
+fn destroying_an_output_with_two_clients_on_two_outputs_does_not_cross_them() {
+    // The surfaces of every client used to be recorded against every output, so
+    // withdrawing one paired its own client's `wl_output` with another client's
+    // surface. `wl_surface.leave` with objects from two clients is a backend
+    // abort, not a protocol error, so the compositor thread dies with it.
+    let mut compositor = with_three_outputs();
+    let (second_stream, _second_client) = compositor.connect_assigned(SECOND_OUTPUT);
+    let (third_stream, _third_client) = compositor.connect_assigned(THIRD_OUTPUT);
+    let mut second = TestClient::from_stream(second_stream, &mut compositor);
+    let mut third = TestClient::from_stream(third_stream, &mut compositor);
+
+    for client in [&mut second, &mut third] {
+        drop(client.bind_outputs(&mut compositor));
+        client.open_toplevel(&mut compositor);
+        client.attach_buffer(&mut compositor, PixelSize::new(320, 240));
+    }
+
+    compositor.send(Command::DestroyOutput {
+        output: THIRD_OUTPUT,
+    });
+    compositor.step();
+    second.settle_quiet(&mut compositor);
+    third.settle_quiet(&mut compositor);
+
+    assert!(
+        !second.is_disconnected(),
+        "the client on the surviving output is untouched by the other's teardown"
+    );
+    assert!(
+        !third.is_disconnected(),
+        "withdrawing an output is not a protocol error against its own client"
+    );
+}
+
+#[test]
+fn a_client_whose_output_is_destroyed_falls_back_to_the_default() {
+    // The assignment named an output that no longer exists, and `sees_output`
+    // answers `assigned == output` — so without clearing it the client matches
+    // no surviving global and holds no `wl_output` for the rest of its life.
+    let mut compositor = with_three_outputs();
+    let (stream, _client) = compositor.connect_assigned(SECOND_OUTPUT);
+    let mut client = TestClient::from_stream(stream, &mut compositor);
+    assert_eq!(
+        bound_names(&mut client, &mut compositor),
+        vec!["lunette-2".to_owned()]
+    );
+    let withdrawn = output_global(&client).expect("the client was advertised its own output");
+
+    compositor.send(Command::DestroyOutput {
+        output: SECOND_OUTPUT,
+    });
+    // A different registry name, so this cannot pass on the advertisement that
+    // is about to be withdrawn.
+    client.settle(&mut compositor, |driver| {
+        driver
+            .globals
+            .iter()
+            .any(|global| global.interface == "wl_output" && global.name != withdrawn)
+    });
+
+    assert_eq!(advertised(&client), 1);
+    assert!(
+        bound_names(&mut client, &mut compositor).contains(&"lunette-1".to_owned()),
+        "a client whose output was withdrawn is shown the default one"
+    );
+}
+
+/// The registry name of the one `wl_output` a client has been advertised.
+fn output_global(client: &TestClient) -> Option<u32> {
+    client
+        .driver()
+        .globals
+        .iter()
+        .find(|global| global.interface == "wl_output")
+        .map(|global| global.name)
 }
 
 #[test]

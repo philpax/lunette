@@ -59,7 +59,7 @@ impl CompositorState {
         }
     }
 
-    /// Withdraws an output.
+    /// Withdraws an output and moves everything that was on it to the default.
     ///
     /// The default output is refused. It is what a client that was assigned no
     /// output is shown, and every adopted client is one of those, so a session
@@ -70,10 +70,74 @@ impl CompositorState {
             return;
         }
 
-        match self.outputs.destroy(&self.display, output) {
-            Ok(()) => self.touch(),
-            Err(error) => warn!(%error, "could not destroy an output"),
+        let orphaned = match self.outputs.destroy(&self.display, output) {
+            Ok(surfaces) => surfaces,
+            Err(error) => {
+                warn!(%error, "could not destroy an output");
+                return;
+            }
+        };
+
+        self.adopt_orphans(output, &orphaned);
+        self.touch();
+    }
+
+    /// Moves the clients, surfaces, and windows of a withdrawn output onto the
+    /// default one.
+    ///
+    /// [`ClientState::sees_output`] answers `assigned == output` and nothing
+    /// else rewrites an assignment, so a client left naming an output that no
+    /// longer exists matches no surviving global and holds no `wl_output` for
+    /// the rest of its life. That is exactly the state
+    /// [`CompositorState::destroy_output`] refuses to create for the default
+    /// output, reached by another route. It is also a divergence rather than
+    /// only an absence: [`CompositorState::mode_of`] and
+    /// [`CompositorState::output_bounds`] fall back to the default on their
+    /// own, so the compositor would configure the client for one monitor while
+    /// the client saw none.
+    ///
+    /// Clearing the assignment is not enough by itself. `can_view` is consulted
+    /// at registry advertisement and at bind and nowhere else, so the default
+    /// global has to be withdrawn and advertised again for a client that has
+    /// already read the registry to be offered it.
+    fn adopt_orphans(&mut self, withdrawn: OutputId, orphaned: &[WlSurface]) {
+        self.assignments
+            .retain(|_, assigned| *assigned != withdrawn);
+
+        // Collected before any of them is looked up, because `with_all_clients`
+        // runs its closure while holding the backend's own lock and
+        // `get_client_data` takes the same one
+        // (`wayland-backend/src/rs/server_impl/handle.rs:145-146`).
+        let backend = self.display.backend_handle();
+        let mut connected = Vec::new();
+        backend.with_all_clients(|client| connected.push(client));
+
+        let mut reassigned = false;
+        for client in connected {
+            let Some(state) = backend
+                .get_client_data(client)
+                .ok()
+                .and_then(|data| data.downcast_arc::<ClientState>().ok())
+            else {
+                continue;
+            };
+            if state.disconnected() || state.output() != Some(withdrawn) {
+                continue;
+            }
+            state.assign(None);
+            reassigned = true;
         }
+
+        for surface in orphaned {
+            let output = self.output_of(surface);
+            self.outputs.enter(surface, output);
+        }
+        self.windows.move_to_output(withdrawn, DEFAULT_OUTPUT);
+
+        if reassigned && let Err(error) = self.outputs.readvertise(&self.display, DEFAULT_OUTPUT) {
+            warn!(%error, "could not re-advertise the default output");
+        }
+        self.rescale_output(DEFAULT_OUTPUT);
     }
 
     /// Tells everything on an output that its mode changed.
@@ -89,10 +153,8 @@ impl CompositorState {
     /// scale of a fixed resolution does — pulls its windows in, and an output
     /// that grew leaves them where Lua put them.
     pub(super) fn rescale_output(&mut self, output: OutputId) {
-        for surface in self.outputs.surfaces() {
-            if self.output_of(&surface) == output {
-                self.send_surface_scale(&surface);
-            }
+        for surface in self.outputs.surfaces_on(output) {
+            self.send_surface_scale(&surface);
         }
 
         let bounds = self.output_bounds(output);
@@ -186,7 +248,7 @@ impl CompositorState {
 
     /// Tells a newly created surface which output it is on and at what scale.
     pub(super) fn send_initial_surface_state(&mut self, surface: &WlSurface) {
-        self.outputs.enter(surface);
+        self.outputs.enter(surface, self.output_of(surface));
         self.send_surface_scale(surface);
     }
 }

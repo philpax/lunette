@@ -150,6 +150,20 @@ impl WindowManager {
             .filter(move |window| window.output == output)
     }
 
+    /// Moves every window on one output to another.
+    ///
+    /// For an output being withdrawn. A window's output is what its bounds are
+    /// clamped against and what the snapshot reports, so one left naming an
+    /// output that no longer exists reports a monitor Lua cannot look up and is
+    /// reconfigured by nothing when the surviving output's mode changes.
+    pub(crate) fn move_to_output(&mut self, from: OutputId, to: OutputId) {
+        for window in &mut self.windows {
+            if window.output == from {
+                window.output = to;
+            }
+        }
+    }
+
     fn index_of(&self, toplevel: &ToplevelSurface) -> Option<usize> {
         self.windows
             .iter()

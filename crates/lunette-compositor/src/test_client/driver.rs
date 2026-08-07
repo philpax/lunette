@@ -174,6 +174,19 @@ impl Driver {
             .and_then(|(_, record)| record.current.clone())
     }
 
+    /// Every `wl_output.name` one output object was sent, in order.
+    ///
+    /// `wayland.xml` sends it once per object, so anything but a single entry is
+    /// a conformance violation.
+    #[must_use]
+    pub fn output_names(&self, output: &WlOutput) -> Vec<String> {
+        let id = output.id();
+        self.outputs
+            .iter()
+            .find(|(target, _)| *target == id)
+            .map_or_else(Vec::new, |(_, record)| record.names.clone())
+    }
+
     /// Which outputs a surface has been told it is on, in the order it was told.
     ///
     /// Keyed by object identifier rather than by the proxy, because a test that
@@ -376,6 +389,10 @@ impl Driver {
 struct OutputRecord {
     pending: OutputState,
     current: Option<OutputState>,
+    /// Every `wl_output.name` the object was sent, rather than the latest one.
+    /// The protocol sends it once per object and it does not change over the
+    /// lifetime of the global, so the count is the thing worth asserting.
+    names: Vec<String>,
 }
 
 /// One output's configuration, as the client was told it.
@@ -619,7 +636,10 @@ impl Dispatch<WlOutput, ()> for Driver {
                 }
             }
             wl_output::Event::Scale { factor } => pending.pending.scale = factor,
-            wl_output::Event::Name { name } => pending.pending.name = Some(name),
+            wl_output::Event::Name { name } => {
+                pending.names.push(name.clone());
+                pending.pending.name = Some(name);
+            }
             wl_output::Event::Description { description } => {
                 pending.pending.description = Some(description);
             }

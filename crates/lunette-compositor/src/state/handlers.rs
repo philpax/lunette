@@ -99,7 +99,13 @@ impl compositor::CompositorHandler for CompositorState {
         self.send_initial_surface_state(surface);
     }
 
+    /// Pairs with `new_surface`, which enters every surface — subsurfaces,
+    /// popups, and cursor surfaces included — onto an output.
+    /// `toplevel_destroyed` leaves only the ones that were toplevels, and the
+    /// rest are dropped here rather than left as dead weak references for
+    /// `enter` and `leave` to prune later.
     fn destroyed(&mut self, surface: &WlSurface) {
+        self.outputs.leave(surface);
         self.forget_surface(surface);
     }
 
