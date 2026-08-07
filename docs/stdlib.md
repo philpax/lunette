@@ -20,6 +20,7 @@ The mount is read-only. A configuration that could overwrite the standard librar
 | `mullion.signal` | `connect`, `weakConnect`, `disconnect`, `emit`, and `setProperty`, which announces `property::<key>`. |
 | `mullion.teardown` | The hook registry a soft reload runs. Hooks are keyed by name and run in reverse registration order. |
 | `mullion.error` | The `lovr.errhand` replacement [The Lua API](lua-api.md#errors) puts here, and the rate limiter it reports through. |
+| `mullion.panel` | Tier 1. A source bound to a pose and a metre size, on a composition layer or an in-scene quad, with `rayQuadHit` for turning a ray into a pixel coordinate. |
 
 Two of these are here rather than with the reload mechanism that calls them, and both for the same reason: every module registers a teardown hook, so the registry has to exist before the first module does, and the error handler is stated to be `mullion` code.
 
@@ -32,6 +33,10 @@ The irreducible core. A panel binds a pixel source to a pose and a size in metre
 Minimum viable: create a panel from a window or a monitor, place it with a `mat4`, draw it in-scene, raycast a quad, feed the sink. Enough for a config to put a terminal on a wall and click it.
 
 Design constraint: a panel is an abstraction built over the primitives, not a privileged object. Windows and sinks can be used without ever creating one.
+
+A panel reads `claim.granted` each frame rather than handling `lovr.lunlayergranted`. Grants and revocations land on frame boundaries and never mid-frame, so the two agree, and polling is one code path where handling the callbacks would be two. It also leaves the callback free: the `lovr.lun*` namespace belongs to the configuration, and a library that took one would be taking it.
+
+A panel over a monitor never claims a layer. `lunette.claimLayer` takes a window and nothing else, so a mirrored screen has no way to ask for one and always draws as an in-scene quad. That is a gap in the native API rather than a decision the standard library made, and closing it is a change to `claimLayer`.
 
 ## Tier 2 — interaction
 
