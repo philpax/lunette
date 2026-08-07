@@ -2,7 +2,8 @@
 //!
 //! `lunctl` hands the running session a Lua chunk and gets the values back
 //! ([the Lua API](../../../docs/lua-api.md#lunctl)). This module is the transport
-//! and the queue; [`wire`] is what travels over it.
+//! and the queue; [`eval`] is what the main thread does with a chunk once it has one,
+//! and [`wire`] is what travels over the socket.
 //!
 //! # The thread does not touch Lua
 //!
@@ -34,6 +35,7 @@
 //! through, which is the same reason the compositor's command channel is
 //! bounded.
 
+pub mod eval;
 pub mod socket;
 pub mod wire;
 

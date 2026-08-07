@@ -135,3 +135,15 @@ Destroying them there would be invalid. LÖVR retires an imported texture's imag
 Nothing is leaked: `vkDestroyDevice` frees what the device still owns, and it runs moments later. What forgetting buys is the thing that would otherwise be a defect rather than an untidiness — no handle from the old device survives into the new one's lifetime, where destroying it would be a use-after-free against a device that never created it.
 
 The alternative considered was flushing LÖVR's morgue before the teardown. LÖVR exposes no way to do that, and adding one would be a behavioural patch to an existing path, which `CONTRIBUTING.md` rules out for the fork.
+
+## The lunctl time budget is best-effort
+
+Decided 2026-08-06, built in Phase 7 Task 6.
+
+A `lunctl` chunk runs under a LuaJIT count hook that raises once the wall clock passes its budget. Two things escape it, and neither is fixable from inside Lua.
+
+JIT-compiled code does not call debug hooks. A trace in a tight loop never returns to the interpreter, so the hook never fires. `jit.off(chunk, true)` is applied to the loaded chunk to force interpretation, which makes the hook reliable; the cost is irrelevant, because a control-plane chunk is not a hot path. Building LuaJIT with `-DLUAJIT_ENABLE_CHECKHOOK` would remove the need for that, and would slow the whole session to bound one feature.
+
+Even interpreted, the bound stays advisory. An `error()` raised from a hook is catchable, so a `pcall` inside the user's own chunk swallows it; and a loop inside a C function, or a blocking FFI call, is uninterruptible by any hook.
+
+A hard bound would need a watchdog outside Lua. Since the chunk holds the Lua thread, the only thing such a watchdog could do is abort the process — turning a bad `lunctl` command into a crash that takes every connected client with it. That is worse than the hang it prevents, so it is not built. `lunette-v1.AC8.2`'s first clause is stated as best-effort in the design plan for the same reason, and the tests assert the escape as the behaviour it is rather than as an aspiration.
