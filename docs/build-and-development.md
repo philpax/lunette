@@ -5,6 +5,7 @@
 ```
 lunette/
   flake.nix, flake.lock           the dev shell
+  Makefile                        the install rule
   Cargo.toml                      workspace
   crates/
     lunette/                      the binary: main(), Lua injection, frame orchestration
@@ -34,9 +35,9 @@ JoltPhysics is the exception. `deps/joltc` reaches it through cmake's `FetchCont
 
 ## Nix
 
-A flake with a dev shell. It supplies the toolchain, the system libraries, and the prefetched JoltPhysics tree; it does not build lunette itself. A package output comes later, and no nixpkgs upstreaming until it works.
+A flake with a dev shell. It supplies the toolchain, the system libraries, and the prefetched JoltPhysics tree; it does not build lunette itself. A package output comes later, and no nixpkgs upstreaming until it works. Until then the install path is the `Makefile`.
 
-Because LÖVR's `deps/` are nested submodules, that package output will need `fetchSubmodules = true` and a fixed-output hash that changes on every LÖVR bump. This is the recurring friction of the arrangement, and it is the price of tracking upstream on a branch.
+Because LÖVR's `deps/` are nested submodules, that package output will need `fetchSubmodules = true` and a fixed-output hash that changes on every LÖVR bump. It is also what blocks the output today: a flake source does not carry submodules unless it is fetched with `submodules=1`, so a derivation building from `./.` finds `vendor/lovr` empty. This is the recurring friction of the arrangement, and it is the price of tracking upstream on a branch.
 
 ## Where things live at runtime
 
@@ -50,7 +51,9 @@ This follows awesome, which installs Lua to `$PREFIX/share/awesome/lib` and its 
 | Control socket | `$XDG_RUNTIME_DIR/lunette-0.sock` |
 | Saved state | LÖVR's save directory |
 
-The standard library is kept on disk rather than embedded in the binary, so it stays legible to anyone who needs to read it without cloning the source. Search order: `$LUNETTE_STDLIB_PATH` (dev override), then the compiled-in prefix, then `./lua` when running from a build tree.
+The standard library is kept on disk rather than embedded in the binary, so it stays legible to anyone who needs to read it without cloning the source. There are two candidates and no third: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [Decisions](decisions.md#recorded-decisions) records why there is no `./lua` fallback and how the mount is installed.
+
+`make install` puts all of it where the table above says, with `PREFIX`, `SYSCONFDIR`, and `DESTDIR` all honoured. `PREFIX` and `SYSCONFDIR` reach the binary as `LUNETTE_PREFIX` and `LUNETTE_SYSCONFDIR`, which `crates/lunette/src/main.rs` compiles in through `option_env!` as the defaults it resolves against, so a build and the install that follows it are told the prefix once rather than twice. The LÖVR shared libraries are installed to `$PREFIX/lib/lunette`, which the executable reaches through an `$ORIGIN/../lib/lunette` rpath entry.
 
 Embedding via `rust-embed` exists as an optional build feature, off by default, for single-file AppImage-style distribution later. WayVR ships one, so this may be adopted.
 

@@ -4,6 +4,14 @@
 
 Nothing here is settled. Much of it will be in flux, and it should be. What follows describes the intended tiers and the minimum viable version of each, not a committed API surface. Concrete signatures land once the thing has been used.
 
+## How it is reached
+
+The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua/mullion/` once installed. The binary mounts the directory above it into LÖVR's virtual filesystem before `main.lua` runs, so `require 'mullion'` resolves `mullion/init.lua` and a configuration's first line may be that require. [Build and development](build-and-development.md#where-things-live-at-runtime) gives the search order, and [Decisions](decisions.md#recorded-decisions) records how the mount is installed and why it is read-only.
+
+`mullion` itself is the root module and re-exports nothing. Each submodule is required by its own path — `require 'mullion.signal'`, `require 'mullion.layout.arc'` — because the tiers are independent and a configuration that wants one should not load the rest to get it. `mullion.layout.arc` and `mullion.tag.current` are the two names [The Lua API](lua-api.md) already attests.
+
+The mount is read-only. A configuration that could overwrite the standard library it is running on top of could make a session unbootable in a way a reload cannot repair, since the reload would read the overwritten copy.
+
 ## Tier 1 — surfaces and panels
 
 The irreducible core. A panel binds a pixel source to a pose and a size in metres, decides between a composition layer and in-scene geometry, converts ray hits to pixel coordinates, and draws chrome.

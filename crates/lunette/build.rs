@@ -31,8 +31,16 @@ fn main() {
         );
     }
 
-    // For the packaged case, where the libraries ship beside the executable.
-    // Cargo passes the string to `rustc -C link-arg` with no shell involved, so
-    // the literal `$ORIGIN` reaches the dynamic linker intact.
-    println!("cargo::rustc-link-arg=-Wl,-rpath,$ORIGIN");
+    // For the packaged cases. Cargo passes each string to `rustc -C link-arg`
+    // with no shell involved, so the literal `$ORIGIN` reaches the dynamic
+    // linker intact.
+    //
+    // `$ORIGIN` covers the single-directory layout an AppImage-style bundle
+    // uses. `$ORIGIN/../lib/lunette` covers the installed one the `Makefile`
+    // produces, where the executable is in `$PREFIX/bin` and the libraries are
+    // where a prefix keeps libraries. `liblovr.so` carries `$ORIGIN` of its own,
+    // so it resolves its siblings from whichever of the two it was found in.
+    for entry in ["$ORIGIN", "$ORIGIN/../lib/lunette"] {
+        println!("cargo::rustc-link-arg=-Wl,-rpath,{entry}");
+    }
 }

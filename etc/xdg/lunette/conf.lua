@@ -6,6 +6,16 @@
 function lovr.conf(t)
   t.identity = 'lunette'
 
+  -- LÖVR defaults this to true (vendor/lovr/etc/boot.lua:8), which mounts the
+  -- save directory ahead of everything else, so a file written there shadows the
+  -- one it is named after. That is meant for patching a packaged application,
+  -- and for lunette it is a trap: a session that writes 'mullion/init.lua' or
+  -- 'main.lua' into its save directory replaces the standard library or the
+  -- configuration for every session after it, and no reload can undo it because
+  -- the reload reads the shadowing copy too. Turning it off leaves the save
+  -- directory mounted and readable; it only stops it winning a name collision.
+  t.saveprecedence = false
+
   -- lunette is an overlay, not an application. Setting this requests
   -- XR_EXTX_overlay (vendor/lovr/src/modules/headset/headset.c:509) and chains
   -- XrSessionCreateInfoOverlayEXTX into session creation (:1032-1041), so the

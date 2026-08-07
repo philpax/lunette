@@ -24,6 +24,10 @@
 //! finished coroutine leaves two values behind and index -1 is the nil cookie.
 //! Upstream's `lua_tointeger` on that nil yields 0, which makes every exit
 //! report success. See [`step`]; do not "correct" this back to match `main.c`.
+//!
+//! One thing has no counterpart in `main.c` at all: the standard library is
+//! mounted into LÖVR's virtual filesystem, so that `require 'mullion'` resolves.
+//! See [`install_standard_library_mount`].
 
 use std::{
     env,
@@ -44,13 +48,26 @@ use lunette::{
 };
 use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback};
 use mlua_sys as lua;
-use tracing::error;
+use tracing::{error, warn};
+
+/// The directories a session is loaded from.
+///
+/// Both are resolved by the entry point, which is the only part of the program
+/// permitted to read the environment. They travel together because they are two
+/// paths of the same shape, and a positional pair of them is a swap waiting to
+/// happen.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionPaths<'a> {
+    /// Where LÖVR loads `main.lua` and `conf.lua` from.
+    pub config: &'a Path,
+    /// Where the `mullion` standard library is mounted from.
+    pub standard_library: &'a Path,
+}
 
 /// Boots LÖVR and runs the Lua session until it exits.
 ///
-/// `config_directory` is the directory LÖVR loads `main.lua` and `conf.lua`
-/// from. It is resolved by the caller, which is the only part of the program
-/// permitted to read the environment.
+/// `paths` names the configuration directory and the standard library, both
+/// already resolved.
 ///
 /// `session` outlives every Lua state this creates, and is what `main.lua`
 /// reaches the compositor through. A restart closes the state and builds
@@ -70,7 +87,7 @@ use tracing::error;
 /// with it. The soft reload that keeps clients across a reconfiguration is a
 /// later phase's, and it works by not discarding the graphics module at all.
 pub fn run(
-    config_directory: &Path,
+    paths: SessionPaths<'_>,
     session: &Rc<Session<LovrTexture>>,
     layers: &Rc<PoolRegistry<LovrLayers>>,
     startup: Startup,
@@ -99,7 +116,7 @@ pub fn run(
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
 
     let status = loop {
-        match run_session(config_directory, session, &mut driver, &mut cookie) {
+        match run_session(paths, session, &mut driver, &mut cookie) {
             Outcome::Restart => (),
             Outcome::Exit { status } => break status,
             Outcome::LoadFailed => break FAILURE_STATUS,
@@ -137,7 +154,7 @@ enum Outcome {
 
 /// Creates a Lua state, runs `boot.lua` in it, and drives it to completion.
 fn run_session(
-    config_directory: &Path,
+    paths: SessionPaths<'_>,
     session: &Rc<Session<LovrTexture>>,
     driver: &mut FrameDriver,
     cookie: &mut raw::Variant,
@@ -157,6 +174,13 @@ fn run_session(
         lua::luaL_openlibs(state);
         raw::luax_preload(state.cast());
 
+        // After `luax_preload`, because the entry it registers is the one this
+        // wraps.
+        //
+        // SAFETY: the three calls above are exactly the preconditions, and what
+        // this installs lives in the state rather than in Rust.
+        install_standard_library_mount(state, paths.standard_library);
+
         // Before `boot.lua`, because `main.lua` runs inside it and requires the
         // module at its top. After `luaL_openlibs`, because the module is
         // registered through `package.preload`.
@@ -168,7 +192,7 @@ fn run_session(
             return Outcome::LoadFailed;
         }
 
-        push_arg_table(state, config_directory, cookie);
+        push_arg_table(state, paths.config, cookie);
 
         lua::lua_pushcfunction(state, message_handler);
 
@@ -315,6 +339,140 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
         Step::Exit {
             status: lua::lua_tointeger(thread, 1) as u8,
         }
+    }
+}
+
+/// Arranges for the `mullion` standard library to be mounted into LÖVR's
+/// virtual filesystem the moment that filesystem exists.
+///
+/// # Why this is a hook rather than a call
+///
+/// Mounting needs `lovr.filesystem`, and that module is created by
+/// `vendor/lovr/etc/boot.lua:76` — inside the coroutine, on the same resume that
+/// goes on to run `main.lua` at `:183`. So there is no moment between the two
+/// that the host can reach: before the resume the module does not exist, and
+/// after it the configuration has already run. Wrapping the `package.preload`
+/// entry the module is created by is what puts the mount between them.
+///
+/// The wrapper is a C closure holding the original loader and the path as Lua
+/// upvalues, not a Rust closure holding Lua values. Rust keeps no reference into
+/// the state, which is what lets a soft reload discard the state without
+/// anything here dangling.
+///
+/// # Precedence
+///
+/// The mount appends, and `boot.lua:125` mounts the configuration directory
+/// without appending, so the configuration directory is searched first. A user
+/// shadowing a mullion module with one of their own therefore works, and the
+/// standard library cannot shadow the `main.lua` it is loaded alongside.
+///
+/// # Read-only
+///
+/// A physfs mount is read-only, so `lovr.filesystem.write` cannot modify a file
+/// in the standard library. What a session writes goes to the save directory
+/// `lovr.filesystem.setIdentity` establishes. That directory is mounted ahead of
+/// everything else when `conf.saveprecedence` is left at LÖVR's default of true,
+/// which lets a write there shadow a standard-library module by name; the
+/// shipped `conf.lua` turns it off, and `docs/decisions.md` records why.
+///
+/// A directory that does not exist fails to mount and is reported. That is not
+/// fatal: a configuration that never mentions `mullion` is supported, and one
+/// that does gets a `require` error naming the module.
+///
+/// # Safety
+///
+/// `state` must be a live Lua state with `luaL_openlibs` and `luax_preload`
+/// already run on it, and with room for four stack slots.
+unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: &Path) {
+    // SAFETY: every push below is balanced before this returns, and the caller
+    // guarantees the state and the stack room.
+    unsafe {
+        lua::lua_getglobal(state, c"package".as_ptr());
+        if lua::lua_type(state, -1) != lua::LUA_TTABLE {
+            // Unreachable after `luaL_openlibs`, and checked anyway: indexing a
+            // non-table raises, and this runs under no `pcall`, so the error
+            // would `longjmp` out through Rust frames rather than being handled.
+            error!("lua: package is not a table, so the standard library cannot be mounted");
+            lua::lua_pop(state, 1);
+            return;
+        }
+
+        lua::lua_getfield(state, -1, c"preload".as_ptr());
+        if lua::lua_type(state, -1) != lua::LUA_TTABLE {
+            error!(
+                "lua: package.preload is not a table, so the standard library cannot be mounted"
+            );
+            lua::lua_pop(state, 2);
+            return;
+        }
+
+        lua::lua_getfield(state, -1, FILESYSTEM_MODULE.as_ptr());
+        if lua::lua_type(state, -1) != lua::LUA_TFUNCTION {
+            // `luax_preload` did not register it, which means this build of LÖVR
+            // is not the one this module was written against.
+            error!(
+                "lua: {} is not preloaded, so the standard library cannot be mounted",
+                FILESYSTEM_MODULE.to_string_lossy()
+            );
+            lua::lua_pop(state, 3);
+            return;
+        }
+
+        let bytes = directory.as_os_str().as_bytes();
+        lua::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
+        lua::lua_pushcclosure(state, open_filesystem_and_mount, 2);
+        lua::lua_setfield(state, -2, FILESYSTEM_MODULE.as_ptr());
+
+        lua::lua_pop(state, 2);
+    }
+}
+
+/// The `package.preload` key LÖVR's filesystem module is registered under.
+const FILESYSTEM_MODULE: &CStr = c"lovr.filesystem";
+
+/// Opens `lovr.filesystem` and mounts the standard library onto it.
+///
+/// Installed by [`install_standard_library_mount`], which is where the reasoning
+/// is. Upvalue 1 is the loader `luax_preload` registered; upvalue 2 is the
+/// directory to mount.
+unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State) -> c_int {
+    // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the two
+    // upvalues the closure was built with and the module name at index 1.
+    unsafe {
+        lua::lua_pushvalue(state, lua::lua_upvalueindex(1));
+        lua::lua_pushvalue(state, 1);
+        lua::lua_call(state, 1, 1);
+
+        lua::lua_getfield(state, -1, c"mount".as_ptr());
+        if lua::lua_type(state, -1) != lua::LUA_TFUNCTION {
+            error!("lua: lovr.filesystem has no mount function");
+            lua::lua_pop(state, 1);
+            return 1;
+        }
+
+        lua::lua_pushvalue(state, lua::lua_upvalueindex(2));
+        // No mount point, so the tree lands at the root of the virtual
+        // filesystem and `mullion/init.lua` is where `require 'mullion'` looks.
+        lua::lua_pushnil(state);
+        // Appended, so the configuration directory keeps precedence over it.
+        lua::lua_pushboolean(state, 1);
+        lua::lua_call(state, 3, 2);
+
+        // `luax_pushsuccess` (`vendor/lovr/src/api/api.c:403`) returns `true`, or
+        // `false` and the message.
+        if lua::lua_toboolean(state, -2) == 0 {
+            let message = match string_bytes(state, -1) {
+                Some(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+                None => "no reason was given".to_owned(),
+            };
+            warn!(
+                "lua: the mullion standard library could not be mounted: {message}; a \
+                 configuration that requires it will fail to load"
+            );
+        }
+
+        lua::lua_pop(state, 2);
+        1
     }
 }
 

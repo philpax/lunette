@@ -64,6 +64,7 @@ use std::{
     rc::Rc,
 };
 
+use boot::SessionPaths;
 use lunette::{
     events::LovrEventSink,
     frame::{HostDesktop, Startup},
@@ -122,6 +123,9 @@ fn main() -> ExitCode {
     };
 
     info!(path = %config_directory.display(), "loading the configuration");
+
+    let standard_library = standard_library_directory(&StandardLibrarySources::from_environment());
+    info!(path = %standard_library.display(), "mounting the standard library");
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
 
@@ -214,7 +218,15 @@ fn main() -> ExitCode {
         mirrors,
         sinks,
     );
-    boot::run(config_directory, &session, &layers, startup)
+    boot::run(
+        SessionPaths {
+            config: config_directory,
+            standard_library: &standard_library,
+        },
+        &session,
+        &layers,
+        startup,
+    )
 }
 
 /// Everything the host desktop is reached through, before it is split between
@@ -500,6 +512,22 @@ const IMPORT_LAYOUT: &str = "LUNETTE_IMPORT_LAYOUT";
 /// does not parse.
 const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::INFO;
 
+/// The install-time prefix the standard library is installed under.
+///
+/// A packager sets `LUNETTE_PREFIX` when building, and the `Makefile` passes its
+/// own `PREFIX` down so that a build and the install that follows it agree
+/// without either being told twice. The default is the one the `Makefile` uses.
+const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
+    Some(path) => path,
+    None => "/usr/local",
+};
+
+/// The development override for where the standard library is read from.
+///
+/// Pointing it at a working tree is the whole development loop for `mullion`,
+/// which is why it wins outright rather than merely being consulted first.
+const STDLIB_PATH: &str = "LUNETTE_STDLIB_PATH";
+
 /// The install-time system configuration directory.
 ///
 /// A packager sets `LUNETTE_SYSCONFDIR` when building. The default matches the
@@ -509,6 +537,52 @@ const SYSCONFDIR: &str = match option_env!("LUNETTE_SYSCONFDIR") {
     Some(path) => path,
     None => "/etc",
 };
+
+/// The values standard-library resolution depends on.
+///
+/// Gathered here so that [`standard_library_directory`] stays a pure function of
+/// its inputs, and so that the environment is read in exactly one place — the
+/// same arrangement [`ConfigDirectorySources`] uses, and for the same reasons.
+#[derive(Debug)]
+struct StandardLibrarySources {
+    /// `$LUNETTE_STDLIB_PATH`, when it is set to something.
+    override_path: Option<PathBuf>,
+    /// The install-time prefix.
+    prefix: PathBuf,
+}
+
+impl StandardLibrarySources {
+    fn from_environment() -> Self {
+        Self {
+            override_path: non_empty_path(env::var_os(STDLIB_PATH)),
+            prefix: PathBuf::from(PREFIX),
+        }
+    }
+}
+
+/// Where the `mullion` standard library is read from.
+///
+/// The precedence is stated rather than left to the order things are mounted in:
+/// `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua`
+/// otherwise. A developer pointing the variable at a working tree is the whole
+/// development loop for `mullion`, so it has to win over an installed copy
+/// rather than be shadowed by one.
+///
+/// A relative override is taken as it stands and resolved by the process's
+/// working directory, unlike the XDG variables, which the specification requires
+/// to be absolute. `LUNETTE_STDLIB_PATH=lua cargo run` from the source tree is
+/// exactly the case it exists for.
+///
+/// There is no third candidate. `./lua` was considered, so that a build tree
+/// worked without the variable, and was not taken: it makes what a session
+/// requires depend on the directory it happened to be started from, which is a
+/// property no user can see and no configuration can state.
+fn standard_library_directory(sources: &StandardLibrarySources) -> PathBuf {
+    sources
+        .override_path
+        .clone()
+        .unwrap_or_else(|| sources.prefix.join("share").join("lunette").join("lua"))
+}
 
 /// The environment values configuration-directory resolution depends on.
 ///
@@ -570,6 +644,15 @@ fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
 ///
 /// The XDG base directory specification requires a relative value to be treated
 /// as unset, and an empty value is how a shell usually spells "not set".
+/// Accepts an environment value only when it names something.
+///
+/// An empty value is how a shell usually spells "not set". Taken literally as a
+/// path it names the current working directory, which is not something a user
+/// asked for and not something they would see.
+fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
+    value.filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
 fn absolute_path(value: Option<OsString>) -> Option<PathBuf> {
     let value = PathBuf::from(value?);
     value.is_absolute().then_some(value)
@@ -738,6 +821,50 @@ mod tests {
         // There is no system fallback, unlike the configuration directory: a
         // restore token belongs to one user's session.
         assert_eq!(state_directory(&state_sources(None, None)), None);
+    }
+
+    fn standard_library(override_path: Option<&str>, prefix: &str) -> PathBuf {
+        standard_library_directory(&StandardLibrarySources {
+            override_path: override_path.map(PathBuf::from),
+            prefix: PathBuf::from(prefix),
+        })
+    }
+
+    #[test]
+    fn the_standard_library_defaults_to_the_compiled_in_prefix() {
+        assert_eq!(
+            standard_library(None, "/usr/local"),
+            PathBuf::from("/usr/local/share/lunette/lua"),
+        );
+    }
+
+    #[test]
+    fn the_override_wins_over_the_prefix() {
+        // The whole development loop for mullion: a working tree beats an
+        // installed copy rather than being shadowed by one.
+        assert_eq!(
+            standard_library(Some("/src/lunette/lua"), "/usr"),
+            PathBuf::from("/src/lunette/lua"),
+        );
+    }
+
+    #[test]
+    fn a_relative_override_is_taken_as_it_stands() {
+        // Unlike the XDG variables, which the specification requires to be
+        // absolute. `LUNETTE_STDLIB_PATH=lua cargo run` is the case it is for.
+        assert_eq!(standard_library(Some("lua"), "/usr"), PathBuf::from("lua"));
+    }
+
+    #[test]
+    fn an_empty_override_counts_as_unset() {
+        // How a shell usually spells "not set". Taken literally it would mount
+        // the current working directory, silently.
+        assert_eq!(non_empty_path(Some(OsString::new())), None);
+        assert_eq!(non_empty_path(None), None);
+        assert_eq!(
+            non_empty_path(Some(OsString::from("lua"))),
+            Some(PathBuf::from("lua"))
+        );
     }
 
     fn sources(xdg_config_home: Option<&str>, home: Option<&str>) -> ConfigDirectorySources {
