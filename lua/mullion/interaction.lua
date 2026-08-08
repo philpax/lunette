@@ -66,6 +66,17 @@ interaction.TUNING = {
   -- reports a small non-zero value, and scrolling a page because a thumb is
   -- resting on it is worse than a stick that needs a deliberate push.
   scrollDeadZone = 0.2,
+  -- Metres per second the stick pushes a grabbed panel along the hand's
+  -- forward axis. The stick scrolls when nothing is held and moves what is
+  -- held when something is: a panel being carried is not one being read, so
+  -- the two never want the stick at the same time.
+  reachScale = 1.2,
+  -- How near the hand a pushed panel may come, in metres. Closer than this it
+  -- is inside the hand holding it.
+  reachMinimum = 0.2,
+  -- How far a pushed panel may go. Past `reach` it could not be picked up
+  -- again, which is a way to lose a window rather than a way to place one.
+  reachMaximum = 6,
   -- Which pointer button the trigger is.
   button = 'left',
 }
@@ -258,6 +269,7 @@ function methods:update(input, panels)
     if self.grabbed.dead or not gripped then
       self:endGrab()
     else
+      self:push(input.scrollY or 0, input.dt or 0)
       self:dragTo(input.pose)
     end
     self.gripped = gripped
@@ -411,6 +423,47 @@ function methods:beginGrab(target, handPose)
   }
   signal.emit(target, 'grabbed', self)
   return true
+end
+
+-- Moves a grabbed panel along the hand's forward axis.
+--
+-- The stick is the same one that scrolls, and it means this instead for as long
+-- as something is held. The offset is what moves rather than the panel: a grab
+-- is the hand's pose applied to an offset, so changing the offset is what makes
+-- the new distance survive the next frame's drag.
+function methods:push(deflection, dt)
+  local grab = self.grab
+  if not grab or dt <= 0 then
+    return
+  end
+
+  local tuning = self.tuning
+  if math.abs(deflection) < tuning.scrollDeadZone then
+    return
+  end
+
+  local distance = grab.distance or select(3, grab.offset:getPosition())
+  distance = -distance
+
+  -- Pushing forward is a negative Z in the hand's frame, and the stick reads
+  -- positive when pushed away, so the sign is flipped once here.
+  distance = distance + deflection * tuning.reachScale * dt
+  distance = math.max(tuning.reachMinimum, math.min(tuning.reachMaximum, distance))
+
+  local moved = -distance - select(3, grab.offset:getPosition())
+  if moved == 0 then
+    return
+  end
+
+  -- Pre-multiplied, so the panel travels along the hand's forward axis rather
+  -- than along its own, which is what a hand pushing something away does.
+  grab.offset:set(lovr.math.mat4():translate(0, 0, moved):mul(grab.offset))
+  grab.distance = distance
+
+  -- The dead zone is about a hand that shook while the grip went down. A stick
+  -- deflected past its own dead zone is deliberate, so it starts the grab
+  -- moving rather than waiting for the hand to travel too.
+  grab.moving = true
 end
 
 -- Moves the grabbed panel to where the hand has taken it.

@@ -26,6 +26,8 @@ local adopt = require 'mullion.adopt'
 local arc = require 'mullion.layout.arc'
 local errors = require 'mullion.error'
 local errorPanel = require 'mullion.error.panel'
+local interaction = require 'mullion.interaction'
+local keycodes = require 'mullion.keycodes'
 local laser = require 'mullion.laser'
 local panel = require 'mullion.panel'
 local persist = require 'mullion.persist'
@@ -39,6 +41,35 @@ local WORKSPACE = 'main'
 
 -- The key that reloads the configuration, on the desktop window.
 local RELOAD_KEY = 'f5'
+
+-- Keys the desktop reports by name because they produce no text. Everything
+-- that does produce text arrives through `lovr.textinput` instead, where the
+-- character is already resolved against the desktop's own layout.
+local NAMED_KEYS = {
+  backspace = keycodes.BACKSPACE,
+  ['return'] = keycodes.ENTER,
+  kpenter = keycodes.ENTER,
+  escape = 1,
+  tab = 15,
+  up = 103,
+  down = 108,
+  left = 105,
+  right = 106,
+  home = 102,
+  ['end'] = 107,
+  pageup = 104,
+  pagedown = 109,
+  delete = 111,
+  insert = 110,
+}
+
+-- Modifiers a chord may carry, as the desktop names them against the names
+-- `sink:modifiers` takes.
+local MODIFIER_KEYS = {
+  { names = { 'lctrl', 'rctrl' }, modifier = 'control' },
+  { names = { 'lalt', 'ralt' }, modifier = 'alt' },
+  { names = { 'lgui', 'rgui' }, modifier = 'logo' },
+}
 
 -- Where the "no windows yet" note is drawn, in metres, and how tall it is.
 local NOTE_X, NOTE_Y, NOTE_Z = 0, 1.5, -1.5
@@ -230,8 +261,90 @@ function lovr.lunprocessexited(event)
   end
 end
 
+-- The modifiers held on the desktop keyboard right now, as `sink:modifiers`
+-- names them. Shift is deliberately absent: a shifted character arrives through
+-- `lovr.textinput` already shifted, and `seat:strokeFor` says which modifiers
+-- that character needs.
+local function heldModifiers()
+  local held = {}
+  for _, entry in ipairs(MODIFIER_KEYS) do
+    for _, name in ipairs(entry.names) do
+      if lovr.system.isKeyDown(name) then
+        held[#held + 1] = entry.modifier
+        break
+      end
+    end
+  end
+  return held
+end
+
+-- Presses and releases one keycode on whatever holds focus, with `modifiers`
+-- held for the duration and cleared afterwards.
+local function stroke(keycode, modifiers)
+  local seat, sink = interaction.focused()
+  if not seat or not sink then
+    return false
+  end
+
+  if #modifiers > 0 then
+    sink:modifiers(modifiers, seat)
+  end
+  sink:key(keycode, true, seat)
+  sink:key(keycode, false, seat)
+  if #modifiers > 0 then
+    sink:modifiers({}, seat)
+  end
+  return true
+end
+
+-- Text typed on the desktop keyboard reaches the focused panel.
+--
+-- The character is resolved by the desktop, and `seat:strokeFor` turns it back
+-- into the keycode and modifiers this seat's own layout needs for it. That is
+-- what keeps a session whose seat differs from the desktop's layout typing the
+-- character that was pressed rather than the one in that position.
+--
+-- A character the seat's layout cannot express is dropped. `sink:typeText` is
+-- what that case is for, and it may not be interleaved with `sink:key` on the
+-- same seat, so it is not reached from here.
+function lovr.textinput(text)
+  local seat, sink = interaction.focused()
+  if not seat or not sink then
+    return
+  end
+
+  -- A chord is a key event rather than text, and `lovr.keypressed` has it.
+  local held = heldModifiers()
+  if #held > 0 then
+    return
+  end
+
+  for character in text:gmatch('.') do
+    local found = seat:strokeFor(character)
+    if found then
+      stroke(found.keycode, found.modifiers or {})
+    end
+  end
+end
+
 function lovr.keypressed(key)
   if key ~= RELOAD_KEY then
+    local named = NAMED_KEYS[key]
+    if named then
+      stroke(named, heldModifiers())
+      return
+    end
+
+    -- A chord: the letter produces no text while a modifier is held, so the
+    -- keycode comes from the letter itself and the modifiers from the desktop.
+    local held = heldModifiers()
+    if #held > 0 and #key == 1 then
+      local seat = interaction.focused()
+      local found = seat and seat:strokeFor(key)
+      if found then
+        stroke(found.keycode, held)
+      end
+    end
     return
   end
 

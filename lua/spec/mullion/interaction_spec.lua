@@ -259,6 +259,76 @@ spec('a still thumbstick sends no scroll', function()
   expect.falsy(lastCall(window.sink, 'scroll'), 'a scroll call')
 end)
 
+spec('the stick pushes a grabbed panel away from the hand', function()
+  fresh()
+  local created = panelAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking { grip = true }, { created })
+  local _, _, before = created.pose:getPosition()
+  pointer:update(looking { grip = true, scrollY = 1, dt = 1 }, { created })
+  local _, _, after = created.pose:getPosition()
+
+  expect.truthy(after < before, 'the panel to be further away, forward being -Z')
+end)
+
+spec('the stick pulls a grabbed panel towards the hand', function()
+  fresh()
+  local created = panelAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking { grip = true }, { created })
+  local _, _, before = created.pose:getPosition()
+  pointer:update(looking { grip = true, scrollY = -1, dt = 1 }, { created })
+  local _, _, after = created.pose:getPosition()
+
+  expect.truthy(after > before, 'the panel to be nearer, forward being -Z')
+end)
+
+spec('a pushed panel stops at the far limit rather than leaving the room', function()
+  fresh()
+  local created = panelAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking { grip = true }, { created })
+  -- Far more push than the range allows, so the clamp is what decides.
+  for _ = 1, 60 do
+    pointer:update(looking { grip = true, scrollY = 1, dt = 1 }, { created })
+  end
+
+  local _, _, z = created.pose:getPosition()
+  expect.truthy(-z <= interaction.TUNING.reachMaximum + TOLERANCE,
+    'the panel to stop at reachMaximum')
+end)
+
+spec('a pulled panel stops before it reaches the hand', function()
+  fresh()
+  local created = panelAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking { grip = true }, { created })
+  for _ = 1, 60 do
+    pointer:update(looking { grip = true, scrollY = -1, dt = 1 }, { created })
+  end
+
+  local _, _, z = created.pose:getPosition()
+  expect.truthy(-z >= interaction.TUNING.reachMinimum - TOLERANCE,
+    'the panel to stop at reachMinimum')
+end)
+
+spec('a stick held while grabbing scrolls nothing', function()
+  -- The stick means distance for as long as something is held, so a panel
+  -- being carried must not also scroll under the thumb that is carrying it.
+  fresh()
+  local created, window = panelAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking { grip = true }, { created })
+  pointer:update(looking { grip = true, scrollY = 1, dt = 1 }, { created })
+
+  expect.falsy(lastCall(window.sink, 'scroll'), 'a scroll call')
+end)
+
 spec('a grab moves the panel with the hand', function()
   fresh()
   local created = panelAhead()
