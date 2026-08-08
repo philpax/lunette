@@ -445,7 +445,7 @@ The headset is a Bigscreen Beyond on Monado in service mode, 3561x3561 per eye a
 | A4 | AC9.1 | Half. The offline build passes. The publication half cannot pass yet: see [the unpublished submodule commit](#the-unpublished-submodule-commit). |
 | C1 | AC5.5 | Pass, after a fix. The restart segfaulted against a live session; see [the restart that faulted](#the-restart-that-faulted). Numbers below. |
 | C2 | — | Void, not taken. It read a layer limit of zero as the null compositor refusing layers, and that zero was the absent session. It needs monado restarted with `XRT_COMPOSITOR_NULL=1`. |
-| D3 | AC2.2 | The recorded half only. Numbers below; the sharpness verdict still needs eyes. |
+| D3 | AC2.2 | Fails as written. The layer is not visibly sharper; see [D3](#d3-and-a-layer-that-is-not-visibly-sharper). The recorded facts are below. |
 | D13 | AC7.1 | Pass. Mean frame time was 13.393ms over 448 frames before a client was stopped with `SIGSTOP` and 13.364ms over 449 after it. The difference is noise, the panel held its content, and 13.4ms is the display's own rate. |
 | D9 | AC5.4 | Pass. Ten reloads of the shipped configuration left one window, a live session, no error, and a 5.2K log. |
 | D12 | AC7.4 | Pass. Numbers below. |
@@ -545,11 +545,17 @@ Measured as process CPU time over a fixed wall-clock window, on a debug build. A
 
 ### D3, and a layer that is not visibly sharper
 
-A dense terminal was shown at 0.6m wide and 0.8m away, alternating every five seconds between a granted composition layer and an in-scene quad at the same pose and size, with an in-scene marker naming the current state. No difference in sharpness was seen in either direction.
+AC2.2 asks that a panel on a composition layer be visibly sharper than the same panel drawn in scene. It is not. The difference is imperceptible, and the observer reported being unable to tell the two apart without the marker naming which was showing.
 
-That is recorded as an observation rather than as a verdict on AC2.2, because the comparison has a confound that has to be removed before it means anything. The window is 800x600 and the display is 3561x3561 per eye. At that size and distance the panel's texture is coarser than the display can resolve, so the source is the limit on sharpness and neither path's resampling is what the eye is reaching. A comparison that can show a difference needs the texture at or above the display's resolution over the panel's angular size: a larger window, or the same window shown smaller or further away.
+The comparison was built to find a difference and had three faults corrected before it could. The panel faced away from the viewer, so the single-sided layer showed nothing and the quad showed its back. The terminal ran `ls` against a path with nothing in it, so the panel was nearly blank. The window was 800x600, which at the panel's angular size is coarser than the display resolves, so the source limited sharpness rather than either path's resampling.
 
-One difference was seen, and it is not about sharpness. The panel is invisible from behind when it is on a layer and visible from behind when it is a quad. A quad composition layer is single-sided; the in-scene plane as drawn is not. This matters beyond the gate: `mullion` chooses when a panel is on a layer, and a grant landing would make a panel that was readable from behind vanish. The fallback and the granted state are meant to differ in sharpness alone.
+What was finally measured: a 1600x1200 client on rung 1664x1280 with the viewport clipped to the window, shown 0.6m wide at 0.8m and facing the viewer, alternating every five seconds against an in-scene quad at the same pose and size. The panel subtends about 41 degrees and the display gives about 40 pixels per degree, so roughly 1630 display pixels carry a 1600 pixel texture. That is close to 1:1, which is where an extra resampling pass has the least headroom to hide. The content was generated rather than read from disk, in columns of single-stem glyphs and dense punctuation chosen because a soft resample turns a crisp vertical rule into a grey smear.
+
+The result is consistent with the physics rather than surprising. One well-filtered resample of a roughly 1:1, axis-aligned, stationary image costs little. Where a layer should win is the cases this test does not cover: oblique angles, minification at distance, and reprojection when the compositor's frame rate and the session's diverge.
+
+This does not settle whether the layer pool is worth having, and the case for it does not have to rest on sharpness. [What skipping the scene saves](#what-skipping-the-scene-saves) measures a halving of per-frame CPU once every panel is on a layer and the scene is skipped, which is an independent justification the sharpness claim never carried. Restating AC2.2 in terms of that, or in terms of reprojection stability, is a change to a recorded decision and belongs in [decisions.md](decisions.md) with its reasoning, not here.
+
+One difference between the two paths is visible, and it is not sharpness. A panel on a layer cannot be seen from behind and a panel on a quad can, because a quad composition layer is single-sided. `mullion` chooses when a panel is on a layer, so a grant landing would make a panel that was readable from behind vanish. The API documentation states that the in-scene quad is the fallback rather than a degraded mode, and a panel disappearing when the pool happens to have a slot free is a way for the two to differ that nothing accounts for.
 
 ### The unpublished submodule commit
 
