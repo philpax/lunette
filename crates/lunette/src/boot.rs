@@ -65,6 +65,9 @@ pub struct SessionPaths<'a> {
     pub config: &'a Path,
     /// Where the `mullion` standard library is mounted from.
     pub standard_library: &'a Path,
+    /// What was left on the command line after lunette took its own arguments,
+    /// which reaches the configuration as Lua's `arg`.
+    pub forwarded: &'a [OsString],
 }
 
 /// Boots LÖVR and runs the Lua session until it exits.
@@ -206,7 +209,7 @@ fn run_session(
             return Outcome::LoadFailed;
         }
 
-        push_arg_table(state, paths.config, cookie);
+        push_arg_table(state, paths.config, paths.forwarded, cookie);
 
         lua::lua_pushcfunction(state, message_handler);
 
@@ -540,13 +543,13 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
 unsafe fn push_arg_table(
     state: *mut lua::lua_State,
     config_directory: &Path,
+    forwarded: &[OsString],
     cookie: &mut raw::Variant,
 ) {
-    let mut arguments = env::args_os();
-    let executable = arguments
+    let executable = env::args_os()
         .next()
         .unwrap_or_else(|| OsString::from("lunette"));
-    let entries = arg_entries(executable, config_directory, arguments);
+    let entries = arg_entries(executable, config_directory, forwarded.iter().cloned());
 
     // SAFETY: every push below is balanced by the store that follows it, and
     // the sequence matches `src/main.c:39-47`.

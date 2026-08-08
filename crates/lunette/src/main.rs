@@ -54,6 +54,7 @@
 //! which knows whether the bridge is running.
 
 mod boot;
+mod cli;
 
 use std::{
     env,
@@ -65,6 +66,8 @@ use std::{
 };
 
 use boot::SessionPaths;
+use clap::Parser;
+use cli::Cli;
 use lunette::{
     control::{self, ControlSwitch},
     events::LovrEventSink,
@@ -117,11 +120,42 @@ fn main() -> ExitCode {
         );
     }
 
+    let arguments = Cli::parse();
+
     let candidates = config_directory_candidates(&ConfigDirectorySources::from_environment());
-    let Some(config_directory) = select_config_directory(&candidates) else {
+    let Some(searched) = select_config_directory(&candidates) else {
         error!("config: no configuration directory could be determined");
         return ExitCode::FAILURE;
     };
+
+    if let Some(destination) = &arguments.dump_config {
+        // An empty value is what the flag takes when it is given without one,
+        // and the first candidate is where a user's own configuration belongs.
+        let destination = if destination.as_os_str().is_empty() {
+            candidates.first().map_or(searched, PathBuf::as_path)
+        } else {
+            destination.as_path()
+        };
+
+        let source = PathBuf::from(SYSCONFDIR).join("xdg").join("lunette");
+        return match cli::dump(&source, destination) {
+            Ok(written) => {
+                for path in written {
+                    info!(path = %path.display(), "wrote");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                error!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
+    // An explicit directory is used as given, existing or not. Falling back to
+    // the search path would load a configuration the user did not name, and
+    // report the one they did as though it had been read.
+    let config_directory = arguments.config_path.as_deref().unwrap_or(searched);
 
     info!(path = %config_directory.display(), "loading the configuration");
 
@@ -259,6 +293,7 @@ fn main() -> ExitCode {
         SessionPaths {
             config: config_directory,
             standard_library: &standard_library,
+            forwarded: &arguments.forwarded,
         },
         &session,
         &layers,

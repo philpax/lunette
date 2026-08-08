@@ -23,6 +23,7 @@ parking_lot.workspace = true
 # the frontend or the desktop helpers, and Cargo unifies this with the richer
 # set `lunette-compositor` asks for.
 smithay.workspace = true
+clap = { workspace = true }
 mlua = { workspace = true, features = ["luajit"] }
 # `mlua-sys` is a direct dependency purely to reach its `external` feature,
 # which mlua's own feature table does not re-export. With `external` set,
