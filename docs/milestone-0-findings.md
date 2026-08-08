@@ -442,7 +442,7 @@ The headset is a Bigscreen Beyond on Monado in service mode, 3561x3561 per eye a
 | A1 | AC9.2 | Pass. The tests pass in both feature configurations, with no formatting diff and no clippy warning. |
 | A2 | AC9.4 | Pass. The compositor tests pass with no Vulkan ICD visible, and the crate's tree carries no `lunette-lovr` and no GPU crate. |
 | A3 | AC9.3 | Pass, after one correction. The headerless files and `PROVENANCE.md` reconcile exactly. The LÖVR patches add no file and modify only existing MIT-licensed ones. `CREDITS.md` said LÖVR is linked statically, which it is not. |
-| A4 | AC9.1 | Half. The offline build passes. The publication half cannot pass yet: see [the unpublished submodule commit](#the-unpublished-submodule-commit). |
+| A4 | AC9.1 | The offline build passes, measured with the local checkout substituted for `vendor/lovr`. The publication half is now unblocked: see [the submodule, now published](#the-submodule-now-published). Re-run the whole step against a clean clone to close it. |
 | C1 | AC5.5 | Pass, after a fix. The restart segfaulted against a live session; see [the restart that faulted](#the-restart-that-faulted). Numbers below. |
 | C2 | — | Void, not taken. It read a layer limit of zero as the null compositor refusing layers, and that zero was the absent session. It needs monado restarted with `XRT_COMPOSITOR_NULL=1`. |
 | D3 | AC2.2 | Fails as written. The layer is not visibly sharper; see [D3](#d3-and-a-layer-that-is-not-visibly-sharper). The recorded facts are below. |
@@ -557,9 +557,11 @@ This does not settle whether the layer pool is worth having, and the case for it
 
 One difference between the two paths is visible, and it is not sharpness. A panel on a layer cannot be seen from behind and a panel on a quad can, because a quad composition layer is single-sided. `mullion` chooses when a panel is on a layer, so a grant landing would make a panel that was readable from behind vanish. The API documentation states that the in-scene quad is the fallback rather than a degraded mode, and a panel disappearing when the pool happens to have a slot free is a way for the two to differ that nothing accounts for.
 
-### The unpublished submodule commit
+### The submodule, now published
 
-`vendor/lovr` is pinned to a commit on the local `lunette` branch, and that branch has never been pushed. A recursive clone from anywhere else fails on it: `upload-pack: not our ref 43715f87`. AC9.1 is unreachable by anyone but the machine holding the branch until the submodule is repointed at a lunette-owned fork, which is the pre-push task [CONTRIBUTING.md](../CONTRIBUTING.md) records. The offline-build half above had to be measured with the local checkout substituted for that one submodule.
+`vendor/lovr` points at `philpax/lovr` and its `lunette` branch is pushed there, so a recursive clone resolves. Until it was, the pinned commit existed only on the machine holding the branch, and a clone from anywhere else failed with `upload-pack: not our ref`. That is why A4's offline build had to be measured with the local checkout substituted for that one submodule, and why the publication half of AC9.1 could not be taken at all.
+
+The branch is rebased onto upstream `dev` rather than merged. The patches are meant to be proposed upstream one at a time, and a merge would bury them in a history nobody can read as a series.
 
 ### The documented `lunctl` examples
 

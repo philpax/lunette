@@ -2,7 +2,7 @@
 
 ## The fork
 
-LÖVR lives at `vendor/lovr` as a git submodule pointing at upstream `bjornbytes/lovr`, with lunette's patches on a local `lunette` branch. The checkout baseline is `v0.19.0-131-gfdf1669f`. Repointing the submodule at a lunette-owned fork is a pre-push task: patches cannot be published from a submodule that points at someone else's repository, and the repository has no remote yet.
+LÖVR lives at `vendor/lovr` as a git submodule pointing at `philpax/lovr`, a fork of `bjornbytes/lovr`, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a series that can be read and proposed one commit at a time.
 
 Its `deps/` are themselves submodules (glfw, lua, luajit, luau, openxr, glslang, joltc, msdfgen, phonon, tracy, vulkan-headers), as are `plugins/lua-enet` and `plugins/lovr-http`, so cloning is recursive.
 

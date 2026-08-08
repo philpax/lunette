@@ -1,3 +1,4 @@
 [submodule "vendor/lovr"]
 	path = vendor/lovr
-	url = https://github.com/bjornbytes/lovr.git
+	url = git@github.com:philpax/lovr.git
+	branch = lunette

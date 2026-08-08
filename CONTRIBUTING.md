@@ -48,7 +48,7 @@ Vendored code is exempt from the house style in this document until it is rewrit
 
 ## The LÖVR fork
 
-`vendor/lovr` is a submodule pointing at upstream LÖVR, with lunette's patches on a local `lunette` branch. Repointing it at a lunette-owned fork is a pre-push task. Its own `deps/` are nested submodules, so clone recursively.
+`vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a readable series. Its own `deps/` are nested submodules, so clone recursively.
 
 Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths. Each patch is shaped as an upstream pull request and opened upstream early. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md).
 
