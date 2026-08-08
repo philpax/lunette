@@ -33,7 +33,7 @@ local interaction = {}
 -- because `newPointer` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
-local applyDeadZone, remove
+local applyDeadZone, distanceBetween, grabberOf, remove
 
 -- Every live pointer, in creation order. Rebuilt when this file runs, so a soft
 -- reload starts with none.
@@ -77,6 +77,11 @@ interaction.TUNING = {
   -- How far a pushed panel may go. Past `reach` it could not be picked up
   -- again, which is a way to lose a window rather than a way to place one.
   reachMaximum = 6,
+  -- The narrowest and widest a two-handed resize may take a panel, in metres.
+  -- A panel scaled to nothing cannot be grabbed again to undo it, which is a
+  -- way to lose a window rather than a way to size one.
+  resizeMinimum = 0.15,
+  resizeMaximum = 4,
   -- Which pointer button the trigger is.
   button = 'left',
 }
@@ -260,6 +265,10 @@ function methods:update(input, panels)
     return
   end
 
+  -- Kept for the frame, because a second hand grabbing the same panel measures
+  -- its separation from this one and needs somewhere to read it from.
+  self.handPosition = input.pose and { input.pose:getPosition() } or nil
+
   local gripped = input.grip and true or false
 
   -- A grab owns the frame. The ray is wherever the hand happens to be pointing
@@ -268,6 +277,10 @@ function methods:update(input, panels)
   if self.grabbed then
     if self.grabbed.dead or not gripped then
       self:endGrab()
+    elseif self.scaling then
+      -- The other hand carries the panel. This one only says how big it is,
+      -- so it neither drags nor pushes while it scales.
+      self:scaleWith(input.pose)
     else
       self:push(input.scrollY or 0, input.dt or 0)
       self:dragTo(input.pose)
@@ -412,10 +425,30 @@ function methods:beginGrab(target, handPose)
 
   local x, y, z = handPose:getPosition()
   self.grabbed = target
+
+  -- A panel already held by the other hand is being resized rather than taken
+  -- over. The hand that had it keeps carrying it, and this one measures.
+  local partner = grabberOf(target, self)
+  local separation = partner and distanceBetween({ x, y, z }, partner.handPosition)
+  if separation and separation > 0 then
+    self.scaling = { partner = partner, separation = separation, width = target.width }
+    signal.emit(target, 'grabbed', self)
+    return true
+  end
+
+  local base = lovr.math.newMat4(handPose):invert():mul(target.pose)
   self.grab = {
     -- The hand's inverse times the panel's pose: apply the hand's new pose to
     -- it and the panel arrives where the hand has taken it.
-    offset = lovr.math.newMat4(handPose):invert():mul(target.pose),
+    offset = lovr.math.newMat4(base),
+    -- The same, kept unchanged. A push is applied to this rather than to the
+    -- offset it last produced, so the distance is a value rather than an
+    -- accumulation, and the clamp cannot walk the panel somewhere on its own.
+    base = base,
+    -- How far the stick has moved the panel from where it was picked up, and
+    -- how far away that was.
+    pushed = 0,
+    reach = -select(3, base:getPosition()),
     x = x,
     y = y,
     z = z,
@@ -423,6 +456,68 @@ function methods:beginGrab(target, handPose)
   }
   signal.emit(target, 'grabbed', self)
   return true
+end
+
+-- The pointer other than `except` holding `target`, if there is one.
+grabberOf = function(target, except)
+  for _, pointer in ipairs(pointers) do
+    if pointer ~= except and pointer.grabbed == target then
+      return pointer
+    end
+  end
+  return nil
+end
+
+-- The distance between two positions, or nil when either is missing.
+distanceBetween = function(a, b)
+  if not a or not b then
+    return nil
+  end
+  local dx, dy, dz = a[1] - b[1], a[2] - b[2], a[3] - b[3]
+  return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- Sizes the grabbed panel by how far apart the two hands holding it are.
+--
+-- The ratio is against the separation when the second hand closed, so the panel
+-- keeps the size it had until the hands actually move apart or together.
+function methods:scaleWith(handPose)
+  local scaling = self.scaling
+  local target = self.grabbed
+  if not scaling or not target or not handPose then
+    return
+  end
+
+  local partner = scaling.partner
+  if not partner or partner.grabbed ~= target or partner.dead then
+    -- The other hand let go. This one inherits an ordinary grab rather than
+    -- dropping the panel, which is what a hand still holding something means.
+    self.scaling = nil
+    local x, y, z = handPose:getPosition()
+    local base = lovr.math.newMat4(handPose):invert():mul(target.pose)
+    self.grab = {
+      offset = lovr.math.newMat4(base),
+      base = base,
+      pushed = 0,
+      reach = -select(3, base:getPosition()),
+      x = x,
+      y = y,
+      z = z,
+      moving = false,
+    }
+    return
+  end
+
+  local separation =
+    distanceBetween({ handPose:getPosition() }, partner.handPosition)
+  if not separation or separation <= 0 then
+    return
+  end
+
+  local tuning = self.tuning
+  local width = scaling.width * (separation / scaling.separation)
+  width = math.max(tuning.resizeMinimum, math.min(tuning.resizeMaximum, width))
+  target:setSize(width)
 end
 
 -- Moves a grabbed panel along the hand's forward axis.
@@ -433,7 +528,7 @@ end
 -- the new distance survive the next frame's drag.
 function methods:push(deflection, dt)
   local grab = self.grab
-  if not grab or dt <= 0 then
+  if not grab or not grab.base or dt <= 0 then
     return
   end
 
@@ -442,23 +537,18 @@ function methods:push(deflection, dt)
     return
   end
 
-  local distance = grab.distance or select(3, grab.offset:getPosition())
-  distance = -distance
-
-  -- Pushing forward is a negative Z in the hand's frame, and the stick reads
-  -- positive when pushed away, so the sign is flipped once here.
-  distance = distance + deflection * tuning.reachScale * dt
-  distance = math.max(tuning.reachMinimum, math.min(tuning.reachMaximum, distance))
-
-  local moved = -distance - select(3, grab.offset:getPosition())
-  if moved == 0 then
+  -- Pushing the stick away moves the panel away, and away is -Z in the hand's
+  -- frame, so the sign is flipped once, here.
+  local wanted = grab.pushed + deflection * tuning.reachScale * dt
+  local reach = grab.reach + wanted
+  reach = math.max(tuning.reachMinimum, math.min(tuning.reachMaximum, reach))
+  local pushed = reach - grab.reach
+  if pushed == grab.pushed then
     return
   end
 
-  -- Pre-multiplied, so the panel travels along the hand's forward axis rather
-  -- than along its own, which is what a hand pushing something away does.
-  grab.offset:set(lovr.math.mat4():translate(0, 0, moved):mul(grab.offset))
-  grab.distance = distance
+  grab.pushed = pushed
+  grab.offset:set(lovr.math.mat4():translate(0, 0, -pushed):mul(grab.base))
 
   -- The dead zone is about a hand that shook while the grip went down. A stick
   -- deflected past its own dead zone is deliberate, so it starts the grab
@@ -492,7 +582,7 @@ end
 -- Lets go, and writes where the panel ended up to the property store.
 function methods:endGrab()
   local target = self.grabbed
-  self.grabbed, self.grab = nil, nil
+  self.grabbed, self.grab, self.scaling = nil, nil, nil
   if not target then
     return false
   end

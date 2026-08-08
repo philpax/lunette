@@ -329,6 +329,85 @@ spec('a stick held while grabbing scrolls nothing', function()
   expect.falsy(lastCall(window.sink, 'scroll'), 'a scroll call')
 end)
 
+spec('a second hand on a held panel resizes it rather than taking it over', function()
+  fresh()
+  local created = panelAhead()
+  local first = interaction.newPointer { seat = newSeat() }
+  local second = interaction.newPointer { seat = newSeat() }
+
+  first:update(looking { grip = true }, { created })
+  second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
+  local before = created.width
+
+  -- The second hand moves away from the first, so the separation doubles.
+  second:update(looking { grip = true, pose = poseAt(1.0, 0, 0) }, { created })
+
+  expect.truthy(created.width > before, 'the panel to have grown')
+end)
+
+spec('hands moving together shrink a two-handed panel', function()
+  fresh()
+  local created = panelAhead()
+  local first = interaction.newPointer { seat = newSeat() }
+  local second = interaction.newPointer { seat = newSeat() }
+
+  first:update(looking { grip = true }, { created })
+  second:update(looking { grip = true, pose = poseAt(1.0, 0, 0) }, { created })
+  local before = created.width
+
+  second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
+
+  expect.truthy(created.width < before, 'the panel to have shrunk')
+end)
+
+spec('a resize stops rather than shrinking a panel out of reach', function()
+  fresh()
+  local created = panelAhead()
+  local first = interaction.newPointer { seat = newSeat() }
+  local second = interaction.newPointer { seat = newSeat() }
+
+  first:update(looking { grip = true }, { created })
+  second:update(looking { grip = true, pose = poseAt(2.0, 0, 0) }, { created })
+  -- Hands together: the ratio goes to nearly nothing.
+  second:update(looking { grip = true, pose = poseAt(0.001, 0, 0) }, { created })
+
+  expect.truthy(created.width >= interaction.TUNING.resizeMinimum - TOLERANCE,
+    'the panel to stop at resizeMinimum')
+end)
+
+spec('the hand that was carrying keeps carrying while the other resizes', function()
+  fresh()
+  local created = panelAhead()
+  local first = interaction.newPointer { seat = newSeat() }
+  local second = interaction.newPointer { seat = newSeat() }
+
+  first:update(looking { grip = true }, { created })
+  second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
+
+  first:update(looking { grip = true, pose = poseAt(0, 0.4, 0) }, { created })
+  second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
+
+  local _, y = created.pose:getPosition()
+  expect.truthy(y > TOLERANCE, 'the panel to have followed the first hand upward')
+end)
+
+spec('a hand still holding a panel keeps it when the other lets go', function()
+  fresh()
+  local created = panelAhead()
+  local first = interaction.newPointer { seat = newSeat() }
+  local second = interaction.newPointer { seat = newSeat() }
+
+  first:update(looking { grip = true }, { created })
+  second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
+  -- The carrying hand releases; the measuring hand inherits an ordinary grab.
+  first:update(looking { grip = false }, { created })
+  second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
+  second:update(looking { grip = true, pose = poseAt(0.5, 0.5, 0) }, { created })
+
+  local _, y = created.pose:getPosition()
+  expect.truthy(y > TOLERANCE, 'the panel to follow the hand that still holds it')
+end)
+
 spec('a grab moves the panel with the hand', function()
   fresh()
   local created = panelAhead()
