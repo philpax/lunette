@@ -213,6 +213,8 @@ function fixture.newPass()
 
   function pass:setColor() end
   function pass:setBlendMode() end
+  function pass:setDepthTest() end
+  function pass:setDepthWrite() end
 
   -- Every shader set and every clear, in order: a draw that set one and did not
   -- clear it would leave it on the pass for whatever the configuration draws

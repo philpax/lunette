@@ -203,6 +203,9 @@ end
 
 -- Reads the device and hands what it read to the pointer.
 function methods:update(panels)
+  -- Whatever the configuration reported last frame is stale now.
+  self.aim = nil
+
   if self.dead then
     return
   end
@@ -246,17 +249,45 @@ function methods:draw(pass)
   local style = self.style
   local hovered = self.pointer.hovered
   local distance = hovered and self.pointer.distance or style.length
+
+  -- A configuration draws surfaces this module knows nothing about: a wrist
+  -- button, a virtual keyboard, anything else it invents. It reports where its
+  -- own ray landed, and the nearer hit is the one the beam stops at.
+  if self.aim and self.aim < distance then
+    distance = self.aim
+    hovered = true
+  end
   local endX = originX + x / length * distance
   local endY = originY + y / length * distance
   local endZ = originZ + z / length * distance
 
   local color = hovered and style.hoverColor or style.color
   pass:setColor(color[1], color[2], color[3], color[4])
+
+  -- Drawn over whatever it is aimed at. A beam ends on the surface it hit and a
+  -- cursor sits in that surface's own plane, so both lose the depth test to the
+  -- thing they exist to point at. Depth writing goes with it: a beam that wrote
+  -- depth would occlude what is behind it for everything drawn afterwards.
+  pass:setDepthTest(nil)
+  pass:setDepthWrite(false)
+
   pass:line(originX, originY, originZ, endX, endY, endZ)
   if hovered then
     pass:sphere(endX, endY, endZ, style.cursorRadius)
   end
+
+  pass:setDepthTest('lequal')
+  pass:setDepthWrite(true)
   pass:setColor(1, 1, 1, 1)
+end
+
+-- Reports how far along this laser's ray a surface outside `mullion.panel` was
+-- hit, so the beam stops there and shows a cursor.
+--
+-- Cleared at the start of every update, so a surface that stops being hit stops
+-- shortening the ray rather than pinning it where it last was.
+function methods:aimAt(distance)
+  self.aim = distance
 end
 
 -- A short nudge, when the runtime has one to give.

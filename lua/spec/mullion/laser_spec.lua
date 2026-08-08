@@ -163,6 +163,38 @@ spec('a hand that stops being tracked stops pointing', function()
   expect.equal(fixture.sequence(window.sink), 'pointer,leave', 'what the sink was told')
 end)
 
+spec('a reported hit outside the panels shortens the beam', function()
+  -- A wrist button or a virtual keyboard is not a panel, so the configuration
+  -- casts its own ray and says where it landed.
+  fresh()
+  local device = newDevice(looking())
+  local left = laser.new('left', { readInput = device.read })
+  local pass = newPass()
+
+  left:update {}
+  left:aimAt(0.4)
+  left:draw(pass)
+
+  expect.equal(#pass.lines, 1, 'lines drawn')
+  expect.near(pass.lines[1][6], -0.4, TOLERANCE, "the beam's far z")
+end)
+
+spec('a reported hit is forgotten on the next update', function()
+  -- Otherwise a surface that stops being aimed at pins the beam where it last
+  -- was, for the rest of the session.
+  fresh()
+  local device = newDevice(looking())
+  local left = laser.new('left', { readInput = device.read })
+  local pass = newPass()
+
+  left:update {}
+  left:aimAt(0.4)
+  left:update {}
+  left:draw(pass)
+
+  expect.near(pass.lines[1][6], -laser.STYLE.length, TOLERANCE, "the beam's far z")
+end)
+
 spec('a laser draws its beam to the reach when it meets nothing', function()
   fresh()
   local device = newDevice(looking())
