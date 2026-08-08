@@ -27,9 +27,11 @@ local arc = require 'mullion.layout.arc'
 local errors = require 'mullion.error'
 local errorPanel = require 'mullion.error.panel'
 local interaction = require 'mullion.interaction'
+local keyboardModule = require 'mullion.keyboard'
 local keycodes = require 'mullion.keycodes'
 local laser = require 'mullion.laser'
 local panel = require 'mullion.panel'
+local raycast = require 'mullion.panel.raycast'
 local persist = require 'mullion.persist'
 local rules = require 'mullion.rules'
 local signal = require 'mullion.signal'
@@ -71,6 +73,50 @@ local MODIFIER_KEYS = {
   { names = { 'lgui', 'rgui' }, modifier = 'logo' },
 }
 
+-- The button on the left wrist that shows and hides the keyboard, after
+-- WayVR's watch. It rides the left hand, so it is always reachable and never
+-- occupies the room.
+local WRIST = {
+  -- Which hand wears it, and which one presses it. The pointing device is the
+  -- aim pose rather than the grip: the grip points along the handle, and a ray
+  -- cast down it misses everything the user is aiming at.
+  hand = 'hand/left',
+  -- Both hands point. The aim pose rather than the grip: the grip points along
+  -- the handle, and a ray cast down it misses everything being aimed at.
+  pointing = {
+    { device = 'hand/left/point', controller = 'hand/left', hand = 'left' },
+    { device = 'hand/right/point', controller = 'hand/right', hand = 'right' },
+  },
+  -- Where it sits relative to the wearing hand, and how big it is. Taken from
+  -- WayVR's watch (`overlays/watch.rs:28-29`, scale at `:149`), whose numbers
+  -- are the ones a person arrived at: the grip pose has +Z running back along
+  -- the handle, so 12.5cm of it is the wrist rather than the fist.
+  offsetX = -0.03,
+  offsetY = -0.01,
+  offsetZ = 0.125,
+  size = 0.115,
+  -- A half turn about the axis WayVR uses, which stands the face up off the
+  -- wrist the way a watch sits rather than lying in line with the arm.
+  turn = math.pi,
+  axisX = -0.7071066,
+  axisY = 0.0007963618,
+  axisZ = 0.7071066,
+  -- Where the keyboard appears when the button is pressed, relative to the
+  -- head: ahead, and below the line of sight so it does not cover the panel
+  -- being typed into.
+  keyboardDistance = 0.55,
+  keyboardDrop = 0.35,
+}
+
+-- The keyboard the wrist button shows, created on first use so a session that
+-- never asks for one never builds it.
+local virtualKeyboard
+
+-- Whether each hand's trigger was down last frame, so a press is an edge rather
+-- than a stream of repeats for as long as it is held. Per hand, because either
+-- may be the one pressing.
+local pressing = { left = false, right = false }
+
 -- Where the "no windows yet" note is drawn, in metres, and how tall it is.
 local NOTE_X, NOTE_Y, NOTE_Z = 0, 1.5, -1.5
 local NOTE_HEIGHT = 0.08
@@ -86,7 +132,8 @@ local NOTE_HEIGHT = 0.08
 --   WAYLAND_DISPLAY=wayland-20 foot
 --
 -- lunette logs the display name it bound as it starts.
-local DEMONSTRATION_TERMINALS = { 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
+local DEMONSTRATION_TERMINALS =
+  { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
 
 -- The tag every panel joins, and the panels no source gave a pose for.
 --
@@ -327,6 +374,147 @@ function lovr.textinput(text)
   end
 end
 
+-- The wrist button's quad, or nil when the hand wearing it is not tracked.
+local function wristQuad()
+  if not lovr.headset.isTracked(WRIST.hand) then
+    return nil
+  end
+
+  local pose = lovr.math.mat4(lovr.headset.getPose(WRIST.hand))
+    :translate(WRIST.offsetX, WRIST.offsetY, WRIST.offsetZ)
+    :rotate(WRIST.turn, WRIST.axisX, WRIST.axisY, WRIST.axisZ)
+
+  return {
+    pose = pose,
+    width = WRIST.size,
+    height = WRIST.size,
+    -- The raycast reports a pixel coordinate it has no use for here, and
+    -- refuses a quad claiming none.
+    pixelWidth = 1,
+    pixelHeight = 1,
+    -- Hittable from either side. Which way a wrist faces depends on how the
+    -- arm is held, and a button that can only be pressed from one side is one
+    -- the user has to work out the orientation of first.
+    backFace = true,
+  }
+end
+
+-- Puts the keyboard where it can be typed on: ahead of the head and below the
+-- line of sight, upright, facing the user.
+local function placeKeyboard(target)
+  local hx, hy, hz, angle, ax, ay, az = lovr.headset.getPose('head')
+  local forward = lovr.math.quat(angle, ax, ay, az):direction()
+
+  local flat = lovr.math.vec3(forward.x, 0, forward.z)
+  if flat:length() < 0.001 then
+    flat:set(0, 0, -1)
+  end
+  flat:normalize()
+
+  target:setPose(lovr.math.mat4()
+    :translate(
+      hx + flat.x * WRIST.keyboardDistance,
+      hy - WRIST.keyboardDrop,
+      hz + flat.z * WRIST.keyboardDistance
+    )
+    :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
+    -- Tilted back, so it faces a head looking down at it rather than straight
+    -- ahead past it.
+    :rotate(-math.pi / 6, 1, 0, 0))
+end
+
+-- Shows the keyboard, or hides it if it is already up.
+local function toggleKeyboard()
+  if not virtualKeyboard or virtualKeyboard.dead then
+    virtualKeyboard = keyboardModule.new {}
+  end
+
+  local showing = not virtualKeyboard.visible
+  virtualKeyboard:setVisible(showing)
+  if showing then
+    placeKeyboard(virtualKeyboard)
+  end
+end
+
+-- Reads the pointing hand and routes its trigger to the wrist button or to the
+-- keyboard, whichever it is on.
+--
+-- The lasers already drive panels. This covers the two surfaces that are not
+-- panels, and it is the configuration's job because both are policy: nothing in
+-- `lunette` knows what a wrist button is.
+local function updateWrist()
+  local quad = wristQuad()
+  local showing = virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead
+
+  for _, side in ipairs(WRIST.pointing) do
+    -- Cleared per hand rather than once for the keyboard, so one hand moving
+    -- off a key does not take the other hand's highlight with it.
+    if showing then
+      virtualKeyboard:setHovered(nil, side.hand)
+    end
+
+    if lovr.headset.isTracked(side.device) then
+      local origin = { lovr.headset.getPosition(side.device) }
+      local direction = { lovr.headset.getDirection(side.device) }
+      local down = lovr.headset.isDown(side.controller, 'trigger') or false
+      local pressed = down and not pressing[side.hand]
+      pressing[side.hand] = down
+
+      local pointer = laser.forHand(side.hand)
+
+      local wristHit = quad and select(3, raycast.hit(quad, origin, direction))
+      if wristHit then
+        if pointer then
+          pointer:aimAt(wristHit)
+        end
+        if pressed then
+          toggleKeyboard()
+          lovr.headset.vibrate(WRIST.hand, 0.3, 0.05)
+          showing = virtualKeyboard.visible
+        end
+      elseif showing then
+        local entry, keyboardHit = virtualKeyboard:hit(origin, direction)
+        if entry then
+          virtualKeyboard:setHovered(entry, side.hand)
+          if pointer and keyboardHit then
+            pointer:aimAt(keyboardHit)
+          end
+          if pressed then
+            virtualKeyboard:pressKey(entry.code)
+            lovr.headset.vibrate(side.controller, 0.2, 0.02)
+          end
+        end
+      end
+    else
+      pressing[side.hand] = false
+    end
+  end
+end
+
+-- Draws the wrist button, so there is something to aim at.
+local function drawWrist(pass)
+  local quad = wristQuad()
+  if not quad then
+    return
+  end
+
+  local showing = virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead
+  if showing then
+    pass:setColor(0.35, 0.75, 0.45)
+  else
+    pass:setColor(0.2, 0.2, 0.24)
+  end
+  pass:plane(lovr.math.mat4(quad.pose):scale(quad.width, quad.height, 1))
+
+  -- In front of the face rather than on it. Text at the same depth as the quad
+  -- fights it for the depth buffer and flickers as the hand moves.
+  pass:setColor(1, 1, 1)
+  pass:text(
+    'kbd',
+    lovr.math.mat4(quad.pose):translate(0, 0, 0.002):scale(quad.width * 0.35)
+  )
+end
+
 function lovr.keypressed(key)
   if key ~= RELOAD_KEY then
     local named = NAMED_KEYS[key]
@@ -360,10 +548,15 @@ end
 function lovr.update()
   panel.update()
   laser.update(workspace and workspace:panels() or {})
+  updateWrist()
 end
 
 function lovr.draw(pass)
   panel.draw(pass)
+  drawWrist(pass)
+  keyboardModule.draw(pass)
+  -- After everything it points at, so a beam is drawn over the surface it ends
+  -- on rather than into it.
   laser.draw(pass)
 
   if #panel.all() == 0 then
