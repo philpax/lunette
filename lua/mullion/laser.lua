@@ -140,14 +140,14 @@ function laser.all()
   return live
 end
 
--- Brings every laser up to date against `panels`. Called once per frame, from
+-- Brings every laser up to date against `surfaces`. Called once per frame, from
 -- `lovr.update`.
 --
--- `panels` is passed in rather than taken from `mullion.panel`, so that a
+-- `surfaces` is passed in rather than taken from `mullion.panel`, so that a
 -- configuration can point at one tag's worth, or at objects of its own.
-function laser.update(panels)
+function laser.update(surfaces)
   for _, existing in ipairs(laser.all()) do
-    existing:update(panels)
+    existing:update(surfaces)
   end
 end
 
@@ -202,10 +202,7 @@ function laser.headsetInput(hand)
 end
 
 -- Reads the device and hands what it read to the pointer.
-function methods:update(panels)
-  -- Whatever the configuration reported last frame is stale now.
-  self.aim = nil
-
+function methods:update(surfaces)
   if self.dead then
     return
   end
@@ -222,7 +219,7 @@ function methods:update(panels)
   end
 
   local before = self.pointer.hovered
-  self.pointer:update(input, panels)
+  self.pointer:update(input, surfaces)
   if self.pointer.hovered ~= before then
     self:vibrate()
   end
@@ -249,14 +246,6 @@ function methods:draw(pass)
   local style = self.style
   local hovered = self.pointer.hovered
   local distance = hovered and self.pointer.distance or style.length
-
-  -- A configuration draws surfaces this module knows nothing about: a wrist
-  -- button, a virtual keyboard, anything else it invents. It reports where its
-  -- own ray landed, and the nearer hit is the one the beam stops at.
-  if self.aim and self.aim < distance then
-    distance = self.aim
-    hovered = true
-  end
   local endX = originX + x / length * distance
   local endY = originY + y / length * distance
   local endZ = originZ + z / length * distance
@@ -279,15 +268,6 @@ function methods:draw(pass)
   pass:setDepthTest('lequal')
   pass:setDepthWrite(true)
   pass:setColor(1, 1, 1, 1)
-end
-
--- Reports how far along this laser's ray a surface outside `mullion.panel` was
--- hit, so the beam stops there and shows a cursor.
---
--- Cleared at the start of every update, so a surface that stops being hit stops
--- shortening the ray rather than pinning it where it last was.
-function methods:aimAt(distance)
-  self.aim = distance
 end
 
 -- A short nudge, when the runtime has one to give.

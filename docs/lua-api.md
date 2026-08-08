@@ -47,6 +47,8 @@ An event is delivered against the snapshot of the frame it was drained in. `lovr
 
 An error raised by one of these handlers is reported and does not stop the frame's remaining events from being delivered.
 
+A pointer picks from surfaces rather than from panels alone. A surface answers where a ray meets it and how far away that is; a panel is one, backed by a window or a monitor, and a virtual keyboard is another, drawing itself. `mullion.stdlib` states the contract. Nothing in `lunette` knows about it: picking, hovering, and grabbing are policy, and the native layer supplies only the sink a panel routes to.
+
 Signals are implemented in Lua. The native layer pushes flat events; `mullion` builds `connect_signal`, `emit_signal`, property-change signals, and per-window signal tables on top of them. awesome's signal system is approximately 100 lines of Lua, an amount of machinery small enough to leave replaceable.
 
 ## Handles
