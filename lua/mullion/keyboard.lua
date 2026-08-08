@@ -23,6 +23,8 @@
 -- the boundary of the widget toolkit docs/stdlib.md defers and docs/decisions.md
 -- records as possibly a separate library, and it does not cross it.
 
+local lunette = require 'lunette'
+
 local interaction = require 'mullion.interaction'
 local keycodes = require 'mullion.keycodes'
 local panel = require 'mullion.panel'
@@ -67,6 +69,9 @@ keyboard.STYLE = {
   keyColor = { 0.2, 0.2, 0.24, 1 },
   -- What a latched or locked modifier key takes.
   heldColor = { 0.35, 0.55, 0.95, 1 },
+  -- What the key under a pointer takes, so that aiming at one is visible
+  -- before it is pressed.
+  hoverColor = { 0.4, 0.42, 0.5, 1 },
   legendColor = { 1, 1, 1, 1 },
   legendHeight = 0.012,
 }
@@ -95,6 +100,10 @@ function keyboard.new(options)
     -- Latched modifiers clear after the next key; locked ones do not.
     latched = {},
     locked = {},
+    -- The key each pointer is on, keyed by whatever the caller names it. Two
+    -- hands aim at two keys, and one shared value would let whichever ran last
+    -- erase the other's highlight.
+    hovered = {},
     dead = false,
   }, metatable)
 
@@ -150,6 +159,27 @@ function methods:setPose(pose)
 end
 
 -- Shows or hides the keyboard. A hidden one is neither drawn nor hit.
+-- Marks the key a pointer is over, or nothing when it is over none.
+--
+-- Set each frame by whoever casts the ray. This module does not read a device,
+-- so it cannot work out on its own which key is being aimed at.
+--
+-- `source` names the pointer, so that two hands each keep their own highlight.
+-- Callers with one pointer may leave it off.
+function methods:setHovered(entry, source)
+  self.hovered[source or 'default'] = entry
+end
+
+-- Whether any pointer is on the key with this code.
+function methods:isHovered(code)
+  for _, entry in pairs(self.hovered) do
+    if entry and entry.code == code then
+      return true
+    end
+  end
+  return false
+end
+
 function methods:setVisible(visible)
   signal.setProperty(self, 'visible', visible and true or false)
 end
@@ -184,7 +214,7 @@ function methods:keys()
   local style = self.style
   local unit = style.keyUnit
   local modifiers = self:modifiers()
-  local seat = self:target()
+  local seat = self:legendSeat()
 
   local keys = {}
   local y = 0
@@ -214,6 +244,23 @@ end
 -- show. Otherwise the seat's own keymap answers, under the modifiers held. A
 -- keysym with no text falls back to its number rather than to a blank: a key
 -- with nothing on it looks broken, and the number at least says which.
+-- The seat the legends are read from.
+--
+-- A legend is what a key would type, which only a seat's layout can say. The
+-- target is whatever was last clicked, and nothing has been clicked when a
+-- keyboard first appears, so the legends would be blank until the user typed
+-- somewhere else first. Any seat answers the layout question, so an unfocused
+-- keyboard borrows the first one rather than showing an unlabelled grid.
+function methods:legendSeat()
+  local seat = self:target()
+  if seat then
+    return seat
+  end
+
+  local seats = lunette.seats()
+  return seats and seats[1] or nil
+end
+
 function methods:legendFor(entry, seat, modifiers)
   if entry.label then
     return entry.label
@@ -234,7 +281,7 @@ function methods:legendFor(entry, seat, modifiers)
   return ''
 end
 
--- The key a ray meets, or nothing.
+-- The key a ray meets and how far away it is, or nothing.
 --
 -- The intersection is `panel.rayQuadHit`, the one raycaster the standard
 -- library has. It answers in the source's pixels, so a keyboard hands it its
@@ -245,7 +292,7 @@ function methods:hit(origin, direction, backFace)
     return nil
   end
 
-  local x, y = panel.rayQuadHit({
+  local x, y, distance = panel.rayQuadHit({
     pose = self.pose,
     width = self.width,
     height = self.height,
@@ -257,7 +304,7 @@ function methods:hit(origin, direction, backFace)
     return nil
   end
 
-  return keyboard.keyAt(self:keys(), x, y)
+  return keyboard.keyAt(self:keys(), x, y), distance
 end
 
 -- Presses and releases one key, reporting whether anything was sent.
@@ -363,6 +410,11 @@ function methods:draw(pass)
     local keyColor = style.keyColor
     if key.modifier and self:isHeld(held, key.modifier) then
       keyColor = style.heldColor
+    end
+    -- After the held colour, so the key being aimed at reads as the one under
+    -- consideration even when it is a modifier that is already down.
+    if self:isHovered(key.code) then
+      keyColor = style.hoverColor
     end
     pass:setColor(keyColor[1], keyColor[2], keyColor[3], keyColor[4])
     pass:plane(

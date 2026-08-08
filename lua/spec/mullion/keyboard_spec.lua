@@ -461,6 +461,23 @@ spec('teardown destroys every keyboard', function()
   expect.equal(#keyboard.all(), 0, 'keyboards left')
 end)
 
+spec('two pointers each keep their own highlighted key', function()
+  -- One shared value would let whichever hand was read last erase the other's
+  -- highlight, so only one key would ever light up with two hands aiming.
+  local created = keyboard.new {}
+  local keys = created:keys()
+
+  created:setHovered(keys[1], 'left')
+  created:setHovered(keys[2], 'right')
+
+  expect.truthy(created:isHovered(keys[1].code), 'the left hand\'s key')
+  expect.truthy(created:isHovered(keys[2].code), 'the right hand\'s key')
+
+  created:setHovered(nil, 'left')
+  expect.falsy(created:isHovered(keys[1].code), "the left hand's key after it moved off")
+  expect.truthy(created:isHovered(keys[2].code), "the right hand's key to be untouched")
+end)
+
 spec('requiring the module twice leaves one teardown hook', function()
   fresh()
   local teardown = require 'mullion.teardown'
