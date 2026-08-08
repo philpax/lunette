@@ -259,6 +259,89 @@ spec('a still thumbstick sends no scroll', function()
   expect.falsy(lastCall(window.sink, 'scroll'), 'a scroll call')
 end)
 
+-- The smallest thing satisfying the surface contract: a raycast, and whatever
+-- behaviour it wants. Panels are one implementation; a keyboard is another.
+local function surfaceAhead(options)
+  options = options or {}
+  local recorded = { hovered = {}, left = 0, pressed = {}, released = 0 }
+  return {
+    grabbable = options.grabbable,
+    recorded = recorded,
+    raycast = function()
+      return 3, 4, options.distance or 2
+    end,
+    onHover = function(_, x, y)
+      recorded.hovered[#recorded.hovered + 1] = { x, y }
+    end,
+    onLeave = function()
+      recorded.left = recorded.left + 1
+    end,
+    onPress = function(_, x, y)
+      recorded.pressed[#recorded.pressed + 1] = { x, y }
+    end,
+    onRelease = function()
+      recorded.released = recorded.released + 1
+    end,
+  }
+end
+
+spec('a surface with no sink is told where the ray is on it', function()
+  fresh()
+  local surface = surfaceAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking(), { surface })
+
+  expect.equal(#surface.recorded.hovered, 1, 'hover calls')
+  expect.equal(surface.recorded.hovered[1][1], 3, 'the x it was told')
+end)
+
+spec('a surface is told when the ray leaves it', function()
+  fresh()
+  local surface = surfaceAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking(), { surface })
+  pointer:update(looking(), {})
+
+  expect.equal(surface.recorded.left, 1, 'leave calls')
+end)
+
+spec('a press on a surface with no sink reaches the surface', function()
+  fresh()
+  local surface = surfaceAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking(), { surface })
+  pointer:update(looking { trigger = true }, { surface })
+
+  expect.equal(#surface.recorded.pressed, 1, 'press calls')
+end)
+
+spec('a release reaches the surface the press went to', function()
+  -- Even when the ray has moved off it, which is what a button expects: a
+  -- press and its release are one gesture.
+  fresh()
+  local surface = surfaceAhead()
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking(), { surface })
+  pointer:update(looking { trigger = true }, { surface })
+  pointer:update(looking { trigger = false }, {})
+
+  expect.equal(surface.recorded.released, 1, 'release calls')
+end)
+
+spec('a surface may decline to be picked up', function()
+  fresh()
+  local surface = surfaceAhead { grabbable = false }
+  local pointer = interaction.newPointer { seat = newSeat() }
+
+  pointer:update(looking { grip = true }, { surface })
+
+  expect.falsy(pointer.grabbed, 'anything grabbed')
+end)
+
 spec('the stick pushes a grabbed panel away from the hand', function()
   fresh()
   local created = panelAhead()

@@ -106,7 +106,7 @@ interaction.POSE_PROPERTY = 'mullion.pose'
 -- The direction is normalised first. `panel.rayQuadHit` reports the distance in
 -- units of the direction it was given, so an unnormalised ray would be compared
 -- against the reach in units of itself and a longer vector would see further.
-function interaction.pick(panels, origin, direction, tuning)
+function interaction.pick(surfaces, origin, direction, tuning)
   tuning = tuning or interaction.TUNING
 
   local x, y, z = interaction.components(direction, 'the ray direction')
@@ -117,7 +117,7 @@ function interaction.pick(panels, origin, direction, tuning)
   local ray = { x / length, y / length, z / length }
 
   local hit, hitX, hitY, hitDistance
-  for _, candidate in ipairs(panels) do
+  for _, candidate in ipairs(surfaces) do
     if not candidate.dead then
       local pixelX, pixelY, distance = candidate:raycast(origin, ray)
       if
@@ -294,7 +294,7 @@ function methods:update(input, panels)
   self:hover(hit)
   self.hitX, self.hitY, self.distance = x, y, distance
 
-  if hit and gripped and not self.gripped then
+  if hit and gripped and not self.gripped and hit.grabbable ~= false then
     if self:beginGrab(hit, input.pose) then
       self.gripped = true
       return
@@ -307,7 +307,7 @@ function methods:update(input, panels)
     self.gripped = gripped
   end
 
-  local sink = hit and hit:sink() or nil
+  local sink = hit and hit.sink and hit:sink() or nil
   if sink then
     sink:pointer(x, y, self.seat)
     local dx, dy =
@@ -315,9 +315,14 @@ function methods:update(input, panels)
     if dx ~= 0 or dy ~= 0 then
       sink:scroll(dx, dy, self.seat)
     end
+  elseif hit and hit.onHover then
+    -- The coordinates are whatever the surface's own raycast answered in. A
+    -- panel answers pixels because that is what a sink takes; a surface that
+    -- draws itself answers in whatever frame its geometry is in.
+    hit:onHover(x, y, self)
   end
 
-  self:setButton(input.trigger, sink)
+  self:setButton(input.trigger, sink, hit)
 end
 
 -- Stops pointing at anything: drops the grab, releases the button, and leaves
@@ -363,9 +368,14 @@ function methods:hover(hit)
     -- Nothing when the panel died between frames, which is the case
     -- CONTRIBUTING.md's rule about handles is about: the client exited and
     -- there is nobody left to tell.
-    local sink = previous:sink()
+    local sink = previous.sink and previous:sink()
     if sink then
       sink:leave(self.seat)
+    end
+    -- A surface with no sink is told directly. It has its own idea of what
+    -- being pointed at means, and nothing here knows what that is.
+    if previous.onLeave then
+      previous:onLeave(self)
     end
   end
 
@@ -381,7 +391,7 @@ end
 -- release that went to the panel currently under the ray — or nowhere, because
 -- the ray is over nothing — would leave the first client holding a button down
 -- for the rest of the session.
-function methods:setButton(pressed, sink)
+function methods:setButton(pressed, sink, surface)
   pressed = pressed and true or false
   if pressed == self.pressed then
     return
@@ -389,12 +399,19 @@ function methods:setButton(pressed, sink)
   self.pressed = pressed
 
   if pressed then
-    if not sink then
+    if sink then
+      self.pressedSink = sink
+      sink:button(self.tuning.button, true, self.seat)
+      self:focus(sink)
       return
     end
-    self.pressedSink = sink
-    sink:button(self.tuning.button, true, self.seat)
-    self:focus(sink)
+
+    -- A surface with no sink handles its own press, and is remembered so that
+    -- the release reaches the same one even if the ray has moved off it.
+    if surface and surface.onPress then
+      self.pressedSurface = surface
+      surface:onPress(self.hitX, self.hitY, self)
+    end
     return
   end
 
@@ -402,6 +419,12 @@ function methods:setButton(pressed, sink)
   self.pressedSink = nil
   if target then
     target:button(self.tuning.button, false, self.seat)
+  end
+
+  local released = self.pressedSurface
+  self.pressedSurface = nil
+  if released and released.onRelease then
+    released:onRelease(self)
   end
 end
 

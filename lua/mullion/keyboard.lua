@@ -104,6 +104,9 @@ function keyboard.new(options)
     -- hands aim at two keys, and one shared value would let whichever ran last
     -- erase the other's highlight.
     hovered = {},
+    -- A keyboard is a surface, so a pointer may pick it up, push it, and resize
+    -- it with the same grip that moves a panel.
+    grabbable = true,
     dead = false,
   }, metatable)
 
@@ -279,6 +282,74 @@ function methods:legendFor(entry, seat, modifiers)
     return string.format('0x%x', symbol)
   end
   return ''
+end
+
+-- Where a ray meets this keyboard, in its own metres, and how far away that is.
+--
+-- The surface contract `mullion.interaction` picks against. A panel answers in
+-- its source's pixels because that is what a sink takes; a keyboard has no
+-- source, so it answers in the frame its key geometry is already in.
+function methods:raycast(origin, direction)
+  if self.dead or not self.visible then
+    return nil
+  end
+
+  return panel.rayQuadHit({
+    pose = self.pose,
+    width = self.width,
+    height = self.height,
+    pixelWidth = self.width,
+    pixelHeight = self.height,
+  }, origin, direction)
+end
+
+-- Marks the key under a pointer. Part of the surface contract.
+function methods:onHover(x, y, source)
+  self:setHovered(keyboard.keyAt(self:keys(), x, y), source)
+end
+
+-- Clears this pointer's highlight when its ray moves off. Part of the surface
+-- contract.
+function methods:onLeave(source)
+  self:setHovered(nil, source)
+end
+
+-- Types the key under a pointer. Part of the surface contract.
+function methods:onPress(x, y)
+  if not x then
+    return
+  end
+  local entry = keyboard.keyAt(self:keys(), x, y)
+  if entry then
+    self:pressKey(entry.code)
+  end
+end
+
+-- Resizes the keyboard, in metres, keeping its proportions.
+--
+-- The key unit is what every width in the rows is a multiple of, so scaling it
+-- scales the geometry, the hit test, and the drawing together. Part of the
+-- surface contract, which is what lets a two-handed grab size a keyboard the
+-- way it sizes a panel.
+function methods:setSize(width)
+  if not width or width <= 0 or self.width <= 0 then
+    return
+  end
+
+  local scale = width / self.width
+  local style = {}
+  for key, value in pairs(self.style) do
+    style[key] = value
+  end
+  style.keyUnit = self.style.keyUnit * scale
+  style.gap = self.style.gap * scale
+  style.margin = self.style.margin * scale
+  style.plateDepth = self.style.plateDepth * scale
+  style.legendDepth = self.style.legendDepth * scale
+  style.legendHeight = self.style.legendHeight * scale
+
+  self.style = style
+  self.width, self.height = extentOf(self.rows, style)
 end
 
 -- The key a ray meets and how far away it is, or nothing.
