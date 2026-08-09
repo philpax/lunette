@@ -55,8 +55,7 @@ build:
 	$(CARGO) build --profile $(PROFILE) --workspace
 
 check:
-	$(CARGO) clippy --all-targets --all-features -- -D warnings \
-		-W clippy::unwrap_used -W clippy::expect_used
+	$(CARGO) clippy --workspace --all-targets --all-features -- -D warnings
 	$(CARGO) test --workspace
 
 install: install-binary install-lua install-config

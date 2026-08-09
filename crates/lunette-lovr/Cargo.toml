@@ -15,3 +15,6 @@ links = "lovr"
 # generates the FFI surface with bindgen rather than consuming a package config.
 bindgen = { workspace = true }
 cmake = { workspace = true }
+
+[lints]
+workspace = true

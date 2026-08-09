@@ -6,7 +6,7 @@ lunette is an XR window manager and Wayland compositor. It runs as an OpenXR ove
 
 The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code. Contributions are accepted under that licence.
 
-<!-- contributing-templates: files=general.md,rust.md @ 3483e162de283835cab653b576914106bffe7b9d -->
+<!-- contributing-templates: files=general.md,rust.md @ 57e7c55206a089254c37b212bb3ad43574cde20c -->
 
 ## Current status
 
@@ -168,13 +168,22 @@ The two sections that follow are the Rust template. They apply to Rust code in t
 - Format with **nightly rustfmt**: `cargo +nightly fmt --all`. `rustfmt.toml` opts into `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"`, which are nightly-only — stable rustfmt prints a warning about each and then silently skips them, so a stable-formatted file is *not* equivalent to a nightly-formatted one.
 - Ensure the following checks pass at the end of each complete task (you don't need to do this for intermediate steps):
   - `cargo +nightly fmt --all -- --check`
-  - `cargo clippy --all-targets --all-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used`
-  - `cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::unwrap_used -W clippy::expect_used`
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+  - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
   - `cargo test --workspace`
   - `cargo test --workspace --no-default-features`
+- Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
+
+  ```toml
+  [workspace.lints.clippy]
+  unwrap_used = "warn"
+  expect_used = "warn"
+  ```
+
+- The end-of-task and CI clippy commands pass `-- -D warnings`, so any warning fails those checks; a plain `cargo clippy` run reports warnings but doesn't fail on them.
 - Use `cargo clippy` in place of `cargo build` — it typechecks and lints in one pass, so a separate build buys nothing.
 - Iterate in debug. Reach for `--release` only when benchmarking or packaging.
-- No `unwrap()` or `expect()` in production code; tests are fine. `unwrap_used` and `expect_used` are allow-by-default restriction lints, so the check commands above request them explicitly — plain `-D warnings` doesn't catch them.
+- No `unwrap()` or `expect()` in production code; tests are fine. The restriction lints are configured at `warn` and `-D warnings` promotes any warning to a hard error, including inside `#[cfg(test)]`, so a test module whose cases use `expect` carries `#[expect(clippy::expect_used, reason = "...")]` — naming the lints it actually uses, with a reason stating the rule. The vendored `lunette-compositor` crate does not opt in via `[lints] workspace = true`: it carries WayVR's code, whose tests use `expect` liberally, and it is exempt from house style until rewritten.
 - Never silence a lint without a concrete reason documented in a comment above it. In almost all cases the right move is to restructure the code.
 - When you do suppress one, prefer `#[expect(...)]` to `#[allow(...)]`. `expect` warns once the suppression is no longer needed, so stale suppressions can't quietly accumulate as the code changes around them.
 

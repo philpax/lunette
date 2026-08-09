@@ -11,6 +11,13 @@ resolver = "3"
 edition = "2024"
 license = "GPL-3.0-only"
 
+# The restriction lints the CONTRIBUTING checks rely on. Each crate opts in
+# with `[lints] workspace = true`; lunette-compositor deliberately does not, so
+# the vendored WayVR code stays exempt until it is rewritten.
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
 # Every crate here is workspace-internal, so each version is pinned exactly:
 # a caret range lets resolution drift between `cargo update` runs, while an
 # exact pin makes a bump a reviewable change.
