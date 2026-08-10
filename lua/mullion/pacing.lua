@@ -28,12 +28,6 @@
 
 local pacing = {}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
-local methods = {}
-local metatable = { __index = methods }
-local record, isBusy, isExempt
-
 -- Everything the choice is tuned by, in one table.
 --
 -- A tuning pass is a diff to this table rather than a hunt through functions for
@@ -68,7 +62,22 @@ pacing.TUNING = {
   exemptTypes = { video = true, game = true },
 }
 
--- A pacer for one window, holding what it has recently observed.
+-- The shape of a tuning table, and of a pacer, for the locals that hold them.
+type Tuning = typeof(pacing.TUNING)
+type Pacer = {
+  tuning: Tuning,
+  samples: { boolean },
+  next: number,
+  committed: number,
+  seen: number,
+  chosen: number | boolean | nil,
+}
+
+-- Declared here and defined below the public API, so the file reads
+-- surface-first.
+local methods = {}
+local metatable = { __index = methods }
+local record, isBusy, isExempt
 --
 -- `options.tuning` replaces `pacing.TUNING` for this pacer.
 --
@@ -76,7 +85,7 @@ pacing.TUNING = {
 -- hint alone. That is the right way round: a window that has just opened has no
 -- commit history to judge it by, and treating no history as "not busy" would
 -- throttle a video player for its first second.
-function pacing.newPacer(options)
+function pacing.newPacer(options: { tuning: Tuning? })
   options = options or {}
   local tuning = options.tuning or pacing.TUNING
 
@@ -115,7 +124,7 @@ function methods:observe(state)
 
   record(self, state.drew)
 
-  local chosen
+  local chosen: number | boolean | nil
   if state.visible then
     chosen = self.tuning.foreground
   elseif isExempt(self, state.contentType) then
@@ -161,7 +170,7 @@ end
 -- A slot holds `false` rather than nil for a frame that carried no commit, so
 -- that a slot never filled is distinguishable from one filled with a
 -- non-commit. Without that the count of samples taken would drift.
-function record(pacer, drew)
+function record(pacer: Pacer, drew: boolean | nil)
   local slot = pacer.next
   local evicted = pacer.samples[slot]
 
@@ -185,7 +194,7 @@ end
 -- Either rather than both, because each covers the other's blind spot. The hint
 -- catches a video that is paused on a still frame, which commits nothing; the
 -- commit rate catches a player that sets no hint at all, which is most of them.
-function isExempt(pacer, contentType)
+function isExempt(pacer: Pacer, contentType: string)
   if pacer.tuning.exemptTypes[contentType] then
     return true
   end
@@ -196,7 +205,7 @@ end
 --
 -- Measured against the samples actually taken rather than the whole ring, so a
 -- window open for three frames is judged on those three.
-function isBusy(pacer)
+function isBusy(pacer: Pacer)
   if pacer.seen == 0 then
     return false
   end

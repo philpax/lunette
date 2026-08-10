@@ -36,6 +36,17 @@
 
 local format = {}
 
+-- One entry: what an arrangement holds for a single window or monitor.
+type Entry = {
+  kind: 'window' | 'monitor',
+  key: string,
+  slot: number,
+  pose: string,
+  width: number?,
+  height: number?,
+  tags: { string },
+}
+
 -- Declared here and defined below the public API, so the file reads
 -- surface-first.
 local fileMetatable, loadedMetatable, quote, renderEntry, readEntry
@@ -263,7 +274,7 @@ function renderEntry(entry)
 end
 
 -- One entry out of a loaded table, or nothing and the reason it was refused.
-function readEntry(stored)
+function readEntry(stored: any): (Entry?, string?)
   if type(stored) ~= 'table' then
     return nil, 'an entry is a table, not a ' .. type(stored)
   end

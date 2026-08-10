@@ -83,7 +83,7 @@ end
 -- configuration that computed a ray itself is as likely to have three numbers
 -- in a table. Anything else is a defect in the caller rather than a value to
 -- guess at.
-function raycast.components(value, name)
+function raycast.components(value: any, name: string)
   local kind = type(value)
   -- A vector is its own type under Luau, and a Vec3 under LuaJIT is a
   -- userdata; both unpack the same way.

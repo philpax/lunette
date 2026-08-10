@@ -21,18 +21,32 @@ declare lovr: {
     math: {
         vec3: (...number) -> any,
         mat4: (...any) -> any,
+        newMat4: (...any) -> any,
         mat: (...any) -> any,
         newMat: (...any) -> any,
         quat: (...number) -> any,
     },
-    graphics: any,
+    graphics: {
+        newShader: (kind: string, fragment: string) -> any,
+    },
     filesystem: {
         read: (string) -> string?,
         write: (string, string) -> boolean,
         getSource: (string) -> string?,
         getSaveDirectory: () -> string?,
     },
-    timer: any,
+    timer: {
+        getTime: () -> number,
+    },
+    headset: {
+        getPose: (device: string) -> (number, number, number, number, number, number, number),
+        getPosition: (device: string) -> (number, number, number),
+        isTracked: (device: string) -> boolean,
+        vibrate: (device: string, strength: number, duration: number) -> (),
+    },
+    system: {
+        isKeyDown: (name: string) -> boolean,
+    },
     keypressed: (key: string, scancode: string, isrepeat: boolean) -> (),
     textinput: (text: string) -> (),
     update: (dt: number) -> (),
@@ -57,9 +71,17 @@ declare io: {
     write: (...any) -> (),
     read: (string) -> (),
     type: (string) -> string?,
+    stderr: any,
 }
 
-declare arg: { string }
+-- The shipped configuration sets this once, deliberately, to remember that the
+-- demonstration window was already spawned across soft reloads. Written through
+-- `_G` so the assignment is visible to the checker.
+declare _G: {
+    lunetteDemonstrationSpawned: boolean,
+    -- Anything else a configuration leaves on the global table.
+    [string]: any,
+}
 declare print: (...any) -> ()
 declare pcall: any
 declare xpcall: any

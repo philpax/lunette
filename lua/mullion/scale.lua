@@ -30,6 +30,14 @@ local lunette = require 'lunette'
 
 local scale = {}
 
+-- The shape of a tuning table, and of a chooser, for the locals that hold them.
+type Tuning = typeof(scale.TUNING)
+type Chooser = {
+  tuning: Tuning,
+  steps: { number },
+  index: number?,
+}
+
 -- Declared here and defined below the public API, so the file reads
 -- surface-first.
 local methods = {}
@@ -79,7 +87,7 @@ scale.STEPS = lunette.scaleSteps()
 -- The chooser starts on no step at all, so the first distance it is given picks
 -- one outright rather than being held back by hysteresis from a step nothing has
 -- ever been rendered at.
-function scale.newChooser(options)
+function scale.newChooser(options: { tuning: Tuning?, steps: { number}? })
   options = options or {}
   local steps = options.steps or scale.STEPS
 
@@ -101,12 +109,13 @@ end
 -- `output:setMode` when it did not. Calling `setMode` with the scale an output
 -- already has is harmless — the compositor sends nothing when the value is
 -- unchanged — but a caller usually has other work to skip alongside it.
-function methods:choose(distance)
+function methods:choose(distance: number)
   local ideal = idealScale(distance, self.tuning)
   local previous = self.index
 
-  self.index = settle(self.steps, previous, ideal, self.tuning)
-  return self.steps[self.index], self.index ~= previous
+  local settled: number = settle(self.steps, previous, ideal, self.tuning)
+  self.index = settled
+  return self.steps[settled], settled ~= previous
 end
 
 -- The scale the chooser last settled on, or nil before the first choice.
@@ -128,7 +137,7 @@ end
 --
 -- Inverse in the distance: a panel twice as far away subtends half the angle, so
 -- the same legibility needs half the pixels per metre.
-function idealScale(distance, tuning)
+function idealScale(distance: number, tuning: Tuning)
   if type(distance) ~= 'number' or distance ~= distance then
     error('mullion.scale: a distance is a number, not a ' .. type(distance), 3)
   end
@@ -147,7 +156,7 @@ end
 --
 -- Loops rather than steps once, so that a panel that jumped several rungs
 -- arrives where it belongs in one call rather than one rung per frame.
-function settle(steps, index, ideal, tuning)
+function settle(steps: { number }, index: number?, ideal: number, tuning: Tuning)
   if not index then
     return largestAtMost(steps, ideal)
   end
@@ -168,7 +177,7 @@ end
 --
 -- Down rather than to the nearest, so that a chooser never asks for more pixels
 -- than the distance called for. The ladder ascends, so this walks it.
-function largestAtMost(steps, ideal)
+function largestAtMost(steps: { number }, ideal: number)
   local found = 1
   for index = 1, #steps do
     if steps[index] <= ideal then

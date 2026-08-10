@@ -62,7 +62,7 @@ adopt.PRECEDENCE = 300
 -- The pose stays the string `mullion.pose` wrote, which is what the store holds
 -- and what `mullion.rules` decodes. Handing it through unchanged keeps one
 -- encoding rather than two.
-function adopt.properties(window)
+function adopt.properties(window: any): { pose: string }?
   if type(window) ~= 'table' and type(window) ~= 'userdata' then
     error('mullion.adopt: a window carries the properties, and a ' .. type(window) .. ' does not', 2)
   end

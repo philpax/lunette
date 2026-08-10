@@ -27,6 +27,15 @@ local teardown = require 'mullion.teardown'
 
 local signal = {}
 
+-- A connection: the handler to call, nil once the handler it held weakly has
+-- been collected.
+type Record = {
+  handler: ((object: any, ...any) -> ())?,
+}
+-- The registry, as `{ [object] = { [name] = { Record, ... } } }`.
+type Records = { Record }
+type ByName = { [string]: Records }
+
 -- Declared here and defined below the public API, so that the file reads
 -- surface-first. `function name()` assigns to the local when one is in scope,
 -- so none of these becomes a global.
@@ -38,6 +47,8 @@ local newRecord, recordsFor, prune
 -- module is loaded, which is what makes a soft reload — which discards the Lua
 -- state and re-runs this file — leave no connections behind.
 local connections = setmetatable({}, { __mode = 'k' })
+-- The registry's shape, taken from the live weak-keyed table above.
+type Registry = typeof(connections)
 
 -- The name a property's change is announced under.
 --
@@ -60,7 +71,8 @@ end
 -- twice. That is deliberate: deduplicating would make `disconnect` ambiguous
 -- about which of the two it removed.
 function signal.connect(object, name, handler)
-  local records = recordsFor(object, name, true)
+  -- `create` is true, so the list is guaranteed to exist.
+  local records: Records = assert(recordsFor(object, name, true))
   -- Pruned on every connect, so that a signal connected and dropped
   -- repeatedly does not grow a list of records whose handlers have gone.
   prune(records)
@@ -79,7 +91,8 @@ end
 -- collected before it is ever invoked, so a caller stores it — usually on the
 -- object it belongs to — and passes that.
 function signal.weakConnect(object, name, handler)
-  local records = recordsFor(object, name, true)
+  -- `create` is true, so the list is guaranteed to exist.
+  local records: Records = assert(recordsFor(object, name, true))
   prune(records)
   records[#records + 1] = newRecord(handler, true)
 end
@@ -203,7 +216,7 @@ end
 -- A weak-valued record rather than the weak-keyed table of handlers awesome
 -- uses, because the records are an ordered list: handlers run in the order they
 -- were connected, and a table keyed by handler has no order to run in.
-function newRecord(handler, weak)
+function newRecord(handler: (object: any, ...any) -> (), weak: boolean): Record
   if type(handler) ~= 'function' then
     error('mullion.signal: a handler is a function, not a ' .. type(handler), 3)
   end
@@ -215,7 +228,7 @@ function newRecord(handler, weak)
 end
 
 -- The record list for `name` on `object`, creating it when `create` is true.
-function recordsFor(object, name, create)
+function recordsFor(object: any, name: string, create: boolean): Records?
   if object == nil then
     error('mullion.signal: a signal is on an object, and nil is not one', 3)
   end
@@ -245,7 +258,7 @@ end
 
 -- Drops records whose weakly-held handler has been collected, in place and in
 -- order.
-function prune(records)
+function prune(records: Records)
   local kept = 0
   for index = 1, #records do
     local record = records[index]

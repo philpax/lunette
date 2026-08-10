@@ -141,7 +141,8 @@ local unplaced = {}
 -- and the session would open another terminal each time the user pressed F5.
 -- Asking whether any panels exist instead answers the wrong question: a user who
 -- closed every window and then reloaded would get a fresh one.
-lunetteDemonstrationSpawned = lunetteDemonstrationSpawned or false
+-- Written through `_G` so the assignment is visible to the checker.
+_G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
 
 -- Which terminal candidate is being tried, and the handle it was tried with. A
 -- spawn that never started arrives as lovr.lunprocessexited with an outcome of

@@ -32,9 +32,27 @@ local methods = {}
 local metatable = { __index = methods }
 local compact, indexOf, byIndex
 
+-- The shape of a tag, taken from a representative instance so that the
+-- metatable and the fields line up with what `new` builds.
+local tagPrototype = setmetatable({
+  name = '',
+  index = 1,
+  selected = false,
+  layout = nil,
+  dead = false,
+  members = {},
+}, metatable)
+type Tag = typeof(tagPrototype)
+-- The options `new` takes: an index, a selected flag, and an optional layout.
+type TagOptions = {
+  index: number?,
+  selected: boolean?,
+  layout: ((members: { any }) -> ())?,
+}
+
 -- Every tag, in creation order. Rebuilt when this file runs, so a soft reload
 -- starts with none.
-local tags = {}
+local tags: { Tag } = {}
 
 -- A fresh tag.
 --
@@ -44,7 +62,7 @@ local tags = {}
 -- A name another tag already holds raises. The name is what a configuration and
 -- a saved arrangement both refer to a tag by, and two tags answering to one name
 -- would make `find` a coin toss.
-function tag.new(name, options)
+function tag.new(name: string, options: TagOptions)
   if type(name) ~= 'string' then
     error('mullion.tag: a tag is named by a string, not a ' .. type(name), 2)
   end
@@ -56,15 +74,15 @@ function tag.new(name, options)
     error("mullion.tag: the layout of '" .. name .. "' is a function, not a " .. type(options.layout), 2)
   end
 
-  local created = setmetatable({
+  local created: Tag = setmetatable({
     name = name,
     index = options.index or (#tags + 1),
     selected = options.selected and true or false,
     layout = options.layout,
     dead = false,
     -- Ordered, because a layout arranges panels in an order and a set has none.
-    members = {},
-  }, metatable)
+    members = {} :: { any },
+  }, metatable) :: Tag
 
   tags[#tags + 1] = created
   return created
@@ -181,7 +199,7 @@ end
 function tag.teardown()
   for _, existing in ipairs(tags) do
     existing.dead = true
-    existing.members = {}
+    existing.members = {} :: { any }
     signal.disconnectAll(existing)
   end
   tags = {}
@@ -265,7 +283,7 @@ function methods:destroy()
   end
 
   self.dead = true
-  self.members = {}
+  self.members = {} :: { any }
   for index = 1, #tags do
     if tags[index] == self then
       table.remove(tags, index)
@@ -294,7 +312,7 @@ function compact(members)
 end
 
 -- Where `panel` sits in `members`, or nothing.
-function indexOf(members, panel)
+function indexOf(members: { any }, panel: any): number?
   for index = 1, #members do
     if members[index] == panel then
       return index
@@ -305,7 +323,7 @@ end
 
 -- Orders tags by index and then by name, so that two tags sharing an index still
 -- have one order rather than whichever `table.sort` happened to produce.
-function byIndex(left, right)
+function byIndex(left: Tag, right: Tag)
   if left.index ~= right.index then
     return left.index < right.index
   end

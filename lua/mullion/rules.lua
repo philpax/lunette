@@ -39,7 +39,13 @@ local byPrecedence, layer, evaluate, applyTags, poseFrom
 --
 -- Rebuilt when this file runs, so a soft reload that re-runs the configuration
 -- starts from no sources rather than from the old state's.
-local sources = {}
+type Source = {
+  name: string,
+  precedence: number,
+  resolve: (window: any) -> { [string]: any } | nil,
+  sequence: number,
+}
+local sources: { Source } = {}
 
 -- How many sources have ever been registered, which is the tiebreak between two
 -- at the same precedence.
@@ -312,7 +318,7 @@ end
 -- Registration order rather than nothing, so that two sources at the same
 -- precedence apply in a stated order rather than in whichever one `table.sort`
 -- happened to produce for that many entries.
-function byPrecedence(left, right)
+function byPrecedence(left: Source, right: Source)
   if left.precedence ~= right.precedence then
     return left.precedence < right.precedence
   end
