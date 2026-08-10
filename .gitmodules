@@ -5,3 +5,6 @@
 [submodule "vendor/mlua"]
 	path = vendor/mlua
 	url = https://github.com/mlua-rs/mlua.git
+[submodule "vendor/lovr-docs"]
+	path = vendor/lovr-docs
+	url = https://github.com/bjornbytes/lovr-docs.git
