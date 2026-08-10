@@ -39,7 +39,22 @@ const LOVR_DEFINES: [&str; 4] = [
 
 /// The private include directories of the `lovr` target, from
 /// `vendor/lovr/CMakeLists.txt:330-336`, relative to `vendor/lovr`.
+///
+/// Which entry provides `lua.h` depends on the Lua mode: LuaJIT keeps a
+/// staged `deps/luajit/src`, while Luau (`LOVR_USE_LUAU`) puts it under
+/// `deps/luau/VM/include` alongside the Compiler and Ast headers LÖVR's own
+/// source pulls in through the Luau target's interface includes.
 const LOVR_INCLUDE_DIRS: [&str; 4] = ["src", "src/modules", "etc", "deps/luajit/src"];
+const LOVR_LUAU_INCLUDE_DIRS: [&str; 4] = [
+    "src",
+    "src/modules",
+    "etc",
+    // LÖVR's `api.h` includes `<lua.h>`; under `LOVR_USE_LUAU` the Luau
+    // headers are not on any include path bindgen sees, so the VM include
+    // directory is added by hand, mirroring what the `Luau.VM` target's
+    // interface includes give the compiler.
+    "deps/luau/VM/include",
+];
 
 fn main() -> ExitCode {
     match build() {
@@ -69,14 +84,29 @@ fn build() -> Result<(), BuildError> {
     let jolt_source = required_var(JOLT_SOURCE_VAR)?;
     let lovr_dir = canonicalize(&manifest_dir.join("../../vendor/lovr"))?;
 
+    // Which Lua LÖVR builds and links. `luau` (the default) keeps the Lua
+    // C API inside `liblovr.so`; `luajit` produces a separate staged
+    // `libluajit.so` that must also be linked. The env var is the build
+    // script's sanctioned channel for configuration Cargo does not model.
+    let lua_mode = match env::var("LUNETTE_LOVR_LUA").as_deref() {
+        Ok("luajit") => LuaMode::LuaJit,
+        Ok("luau") | Err(_) => LuaMode::Luau,
+        Ok(other) => {
+            return Err(BuildError::InvalidLuaMode {
+                value: other.to_string(),
+            });
+        }
+    };
+    println!("cargo::rerun-if-env-changed=LUNETTE_LOVR_LUA");
+
     println!("cargo::rerun-if-env-changed={JOLT_SOURCE_VAR}");
     watch_lovr_sources(&lovr_dir)?;
 
-    let cmake_out = build_lovr(&lovr_dir, &jolt_source);
-    let lovr_build = find_lovr_build(&cmake_out)?;
-    emit_link_directives(&lovr_build);
+    let cmake_out = build_lovr(&lovr_dir, &jolt_source, lua_mode);
+    let lovr_build = find_lovr_build(&cmake_out, lua_mode)?;
+    emit_link_directives(&lovr_build, lua_mode);
     stage_boot_lua(&lovr_dir, &out_dir)?;
-    generate_bindings(&manifest_dir, &lovr_dir, &out_dir)
+    generate_bindings(&manifest_dir, &lovr_dir, &out_dir, lua_mode)
 }
 
 /// Declares the LÖVR files whose contents govern the cmake build.
@@ -126,15 +156,39 @@ fn is_generated_header(path: &Path) -> bool {
             .is_some()
 }
 
+/// Which Lua LÖVR builds and links.
+///
+/// `Luau` keeps the Lua C API inside `liblovr.so` (LÖVR links `Luau.VM`,
+/// `Luau.Compiler`, and `Luau.Ast` in under `LOVR_USE_LUAU`). `LuaJit` builds
+/// LÖVR against a separate `libluajit.so` that stays as a distinct loaded
+/// library, so the link directives name it too.
+#[derive(Clone, Copy, Debug)]
+enum LuaMode {
+    Luau,
+    LuaJit,
+}
+
 /// Configures and builds LÖVR, returning the cmake output directory.
 ///
 /// The `all` target rather than `install`: LÖVR's dependencies carry install
 /// rules that do not hold in this configuration — phonon's expects a split
 /// `.dbg` file that a shared build does not produce — which is why the nixpkgs
 /// derivation sets `dontUseCmakeInstall`.
-fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
+fn build_lovr(lovr_dir: &Path, jolt_source: &OsString, lua_mode: LuaMode) -> PathBuf {
     let configure = || {
         let mut config = cmake::Config::new(lovr_dir);
+        match lua_mode {
+            LuaMode::Luau => {
+                config
+                    .define("LOVR_USE_LUAU", "ON")
+                    .define("LOVR_USE_LUAJIT", "OFF");
+            }
+            LuaMode::LuaJit => {
+                config
+                    .define("LOVR_USE_LUAU", "OFF")
+                    .define("LOVR_USE_LUAJIT", "ON");
+            }
+        }
         config
             .define("LOVR_BUILD_SHARED", "ON")
             .define("LOVR_BUILD_WITH_SYMBOLS", "ON")
@@ -172,14 +226,23 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
 /// the Lua C API symbols mlua declares need a link-time provider, so it is named
 /// alongside LÖVR itself. Its `SONAME` is plain `libluajit.so`, not the
 /// versioned `libluajit-5.1.so` a distribution package would carry.
-fn emit_link_directives(build: &LovrBuild) {
+fn emit_link_directives(build: &LovrBuild, lua_mode: LuaMode) {
     let library_dir = build.library_dir.display();
     let staged_dir = build.staged_dir.display();
 
     println!("cargo::rustc-link-search=native={library_dir}");
     println!("cargo::rustc-link-search=native={staged_dir}");
     println!("cargo::rustc-link-lib=dylib=lovr");
-    println!("cargo::rustc-link-lib=dylib=luajit");
+    if let LuaMode::LuaJit = lua_mode {
+        // LuaJIT is a separate shared library (`vendor/lovr/CMakeLists.txt:151`),
+        // and the Lua C API symbols mlua declares need a link-time provider, so
+        // it is named alongside LÖVR itself. Its `SONAME` is plain
+        // `libluajit.so`, not the versioned `libluajit-5.1.so` a distribution
+        // package would carry. Under Luau the API lives inside `liblovr.so`
+        // (`LOVR_USE_LUAU` links `Luau.VM`/`Compiler`/`Ast` in, `LUAU_EXTERN_C`
+        // exports it), so no extra library is named.
+        println!("cargo::rustc-link-lib=dylib=luajit");
+    }
 
     // `rustc-link-arg` rather than `rustc-link-arg-bins`, so test binaries under
     // `target/debug/deps/` resolve the library too. Cargo passes the string to
@@ -222,11 +285,18 @@ fn generate_bindings(
     manifest_dir: &Path,
     lovr_dir: &Path,
     out_dir: &Path,
+    lua_mode: LuaMode,
 ) -> Result<(), BuildError> {
     let wrapper = manifest_dir.join("wrapper.h");
     println!("cargo::rerun-if-changed={}", wrapper.display());
 
-    let includes = LOVR_INCLUDE_DIRS
+    let include_dirs = match lua_mode {
+        // LuaJIT puts `lua.h` in its own staged source tree; Luau keeps the
+        // Lua headers under the Luau submodule's `VM/include`.
+        LuaMode::LuaJit => LOVR_INCLUDE_DIRS.as_slice(),
+        LuaMode::Luau => LOVR_LUAU_INCLUDE_DIRS.as_slice(),
+    };
+    let includes = include_dirs
         .iter()
         .map(|relative| format!("-I{}", lovr_dir.join(relative).display()));
 
@@ -359,7 +429,7 @@ struct LovrBuild {
 /// `RUNTIME_OUTPUT_DIRECTORY` (`:907`) does not govern a Linux shared library.
 /// Searching for the library is the honest way to find it; guessing a path
 /// produces a link error far from its cause.
-fn find_lovr_build(cmake_out: &Path) -> Result<LovrBuild, BuildError> {
+fn find_lovr_build(cmake_out: &Path, lua_mode: LuaMode) -> Result<LovrBuild, BuildError> {
     let mut found = Vec::new();
     collect_matches(cmake_out, "liblovr.so", &mut found)?;
 
@@ -372,9 +442,16 @@ fn find_lovr_build(cmake_out: &Path) -> Result<LovrBuild, BuildError> {
 
     let library_dir = library.parent().ok_or(BuildError::LibraryAtRoot)?;
     let staged_dir = library_dir.join("bin");
-    let luajit = staged_dir.join("libluajit.so");
-    if !luajit.is_file() {
-        return Err(BuildError::MissingStagedLibrary { expected: luajit });
+    if let LuaMode::LuaJit = lua_mode {
+        // LuaJIT is a separate shared library that must be staged beside
+        // `liblovr.so` for the runtime to find it. Under Luau there is no
+        // separate Lua library — it is linked into `liblovr.so` itself — so
+        // the staged tree only holds LÖVR's other shared dependencies and
+        // nothing Lua-specific is required.
+        let luajit = staged_dir.join("libluajit.so");
+        if !luajit.is_file() {
+            return Err(BuildError::MissingStagedLibrary { expected: luajit });
+        }
     }
 
     Ok(LovrBuild {
@@ -442,6 +519,9 @@ fn canonicalize(path: &Path) -> Result<PathBuf, BuildError> {
 #[derive(Debug)]
 enum BuildError {
     MissingVariable(&'static str),
+    InvalidLuaMode {
+        value: String,
+    },
     Canonicalize {
         path: PathBuf,
         cause: io::Error,
@@ -482,6 +562,9 @@ impl fmt::Display for BuildError {
             ),
             Self::MissingVariable(name) => {
                 write!(f, "{name} is unset, and Cargo is what provides it")
+            }
+            Self::InvalidLuaMode { value } => {
+                write!(f, "unknown LUNETTE_LOVR_LUA value {value:?}; expected \"luau\" or \"luajit\"")
             }
             Self::Canonicalize { path, cause: _ } => {
                 write!(f, "could not resolve {}", path.display())
@@ -538,6 +621,7 @@ impl Error for BuildError {
             | Self::WriteBindings { cause, .. } => Some(cause),
             Self::GenerateBindings(cause) => Some(cause),
             Self::MissingVariable(_)
+            | Self::InvalidLuaMode { .. }
             | Self::LocateLibrary { .. }
             | Self::LibraryAtRoot
             | Self::MissingStagedLibrary { .. } => None,

@@ -46,7 +46,7 @@ mod tests {
     /// failure here rather than output that does not parse.
     #[test]
     fn the_keyword_list_agrees_with_the_interpreter() {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         let candidates = [
             "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto",
             "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until",

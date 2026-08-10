@@ -247,7 +247,7 @@ mod tests {
     }
 
     fn state() -> Lua {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         lua.load("lovr = {}").exec().expect("lovr is reachable");
         lua
     }
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn a_traceback_is_separated_from_the_message_it_was_appended_to() {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         let traced = TracedError::of("lovr.lunwindowopened", &raised(&lua, "error('it broke')"));
 
         assert!(
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn a_message_that_is_not_a_string_still_reports() {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         let traced = TracedError::of("lovr.lunwindowopened", &raised(&lua, "error({ code = 1 })"));
 
         assert!(

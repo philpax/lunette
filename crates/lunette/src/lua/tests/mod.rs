@@ -187,7 +187,7 @@ const GENEROUS_LAYER_LIMIT: u32 = 128;
 /// behind, reproduced here because the module's event dispatchers are installed
 /// into them.
 fn lua(session: &TestSession) -> Lua {
-    let lua = Lua::new();
+    let lua = crate::test_lua::session_lua();
     install(&lua, session).expect("the module installs");
     lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
         .exec()
@@ -442,7 +442,7 @@ fn the_shipped_configuration_is_valid_lua() {
     );
     let source = std::fs::read_to_string(path).expect("the shipped configuration is readable");
 
-    Lua::new()
+    crate::test_lua::session_lua()
         .load(&source)
         .into_function()
         .expect("the shipped configuration parses");

@@ -402,7 +402,7 @@ mod tests {
     /// nothing here reads the filesystem. `require` resolves it exactly as it
     /// resolves the file in a session, which is what the reload calls.
     fn state(main: &str) -> Lua {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         lua.load(
             r"
               lovr = {}
@@ -638,7 +638,11 @@ mod tests {
 
         reload(&lua).expect("the reload succeeds");
 
-        for name in ["string", "table", "math", "os", "package", "coroutine"] {
+        // `package` itself is excluded: the fork's Luau `package` library keeps
+        // its loaded table under the registry `_LOADED` and does not register
+        // itself in `package.loaded` (LuaJIT did). The interpreter-owned
+        // modules that do appear there are the ones the reload must preserve.
+        for name in ["string", "table", "math", "os", "coroutine"] {
             assert!(
                 lua.load(format!("return package.loaded['{name}'] ~= nil"))
                     .eval::<bool>()

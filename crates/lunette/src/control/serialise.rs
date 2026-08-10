@@ -479,7 +479,7 @@ mod tests {
 
     /// Runs `chunk` and serialises whatever it returned.
     fn returned(chunk: &str) -> Result<Vec<Value>, SerialiseError> {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         install_handles(&lua);
         let values: MultiValue = lua
             .load(chunk)

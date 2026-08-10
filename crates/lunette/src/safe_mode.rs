@@ -256,7 +256,7 @@ mod tests {
 
     /// A state carrying the fakes, with the recorder in the global `recorded`.
     fn environment() -> Lua {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         let recorded: Table = lua
             .load(ENVIRONMENT)
             .set_name("environment")

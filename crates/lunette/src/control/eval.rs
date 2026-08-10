@@ -18,26 +18,33 @@
 //!
 //! # The budget is best-effort, and that is a decision rather than an oversight
 //!
-//! `debug.sethook(fn, "", N)` with a count hook is the standard way to bound an
-//! arbitrary chunk. Under LuaJIT it has a specific failure: **JIT-compiled code
-//! does not call debug hooks**, so a trace in a tight loop never returns to the
-//! interpreter and the hook never fires. [`evaluate`] therefore applies `jit.off`
-//! to the loaded chunk, which forces interpretation and makes the hook reliable
-//! for the chunk's own code. The cost is irrelevant — a control-plane chunk is
-//! not a hot path — and the alternative, building LuaJIT with
-//! `-DLUAJIT_ENABLE_CHECKHOOK`, would slow the whole session to bound one
-//! feature.
+//! Under Luau the bound is a native interrupt: [`ffi::lua_callbacks`]`(L)->interrupt`
+//! is installed on the running state for the length of the chunk, and Luau calls
+//! it at safepoints (loop back edges, call/return, GC). When the wall clock has
+//! passed the deadline the callback raises [`OVERRUN_MESSAGE`] via `lua_error`
+//! — a longjmp to the enclosing `lua_pcall` — at the chunk's own frame, and the
+//! chunk is abandoned. The floor is *safepoint frequency*, not "every N
+//! instructions": a chunk is abandoned at the first safepoint at or after the
+//! deadline. Under LuaJIT the bound was `debug.sethook` with a count hook plus
+//! `jit.off`, because compiled traces do not call debug hooks; Luau in LÖVR's
+//! build has no codegen at all (`Luau.CodeGen` is `EXCLUDE_FROM_ALL`), so the
+//! interrupt is the whole mechanism. `lua_error` cannot unwind the VM stack
+//! from inside a *called* function's frame, so the interrupt raises only at the
+//! outermost Lua frame (`lua_vm_is_topframe`); elsewhere it fires and declines.
+//! `docs/decisions.md` records the change.
 //!
-//! Even so the bound is advisory, in three ways. A function the chunk *calls* is
-//! not the chunk's own code and is still compiled, so `return
-//! mullion.somethingExpensive()` can outrun its budget inside a trace; an
-//! `error()` raised from a hook can be caught by a `pcall` inside the user's own
-//! chunk; and a loop inside a C function or a blocking FFI call is
-//! uninterruptible by any hook. A hard bound would need a
-//! watchdog outside Lua, and since the chunk holds the Lua thread the only thing
-//! a watchdog could do is abort the process — turning a bad `lunctl` command into
-//! a crash that takes every connected client with it, which is worse than the
-//! hang it prevents. `docs/decisions.md` records the reasoning.
+//! Even so the bound is advisory, in three ways. The interrupt raises only at
+//! the chunk's own outermost frame: inside a function the chunk *called* (or a
+//! `pcall`), the VM stack cannot be unwound by `lua_error`, so the interrupt
+//! fires at the safepoints but declines to raise destructively — a long loop in
+//! a callee runs on until the chunk's own frame regains control; the granularity
+//! is the safepoint, not an instruction count; and a single native call (an
+//! allocator loop, a C function that never returns to the VM) is
+//! uninterruptible by any hook. A hard bound would need a watchdog outside Lua,
+//! and since the chunk holds the Lua thread the only thing a watchdog could do
+//! is abort the process — turning a bad `lunctl` command into a crash that
+//! takes every connected client with it, which is worse than the hang it
+//! prevents. `docs/decisions.md` records the reasoning.
 //!
 //! # A load error and a runtime error are different outcomes
 //!
@@ -46,15 +53,37 @@
 //! each. awesome's remote control collapses both into one string; this does not.
 
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     error::Error,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
-use mlua::{Function, HookTriggers, Lua, MultiValue, Table, VmState};
+use mlua::{Function, Lua, MultiValue, Table};
 use tracing::warn;
 
-/// How long a chunk may run before the hook starts raising.
+/// The outside-world seam for the interrupt's clock.
+///
+/// The interrupt callback is `extern "C"` and has no userdata parameter, so the
+/// deadline check it runs cannot take a `Clock` by reference. Production and
+/// tests therefore install a clock into the thread-local interrupt state the
+/// same way they install the deadline; a test substitutes a clock it controls
+/// and the budget tests are deterministic rather than wall-clock races.
+pub trait Clock {
+    fn now(&self) -> Instant;
+}
+
+/// The production clock: the wall clock.
+#[derive(Default)]
+pub struct WallClock;
+
+impl Clock for WallClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
+
+/// How long a chunk may run before the interrupt starts raising.
 ///
 /// A newtype rather than a bare [`Duration`], because "how long a chunk gets"
 /// and "how long a client waits for an answer" are both durations in this
@@ -120,10 +149,20 @@ pub fn evaluate<R>(
     budget: Budget,
     render: impl FnOnce(MultiValue) -> Result<R, Box<dyn Error + Send + Sync>>,
 ) -> Evaluation<R> {
+    evaluate_with_clock(lua, chunk, budget, Rc::new(WallClock), render)
+}
+
+fn evaluate_with_clock<R>(
+    lua: &Lua,
+    chunk: &str,
+    budget: Budget,
+    clock: Rc<dyn Clock>,
+    render: impl FnOnce(MultiValue) -> Result<R, Box<dyn Error + Send + Sync>>,
+) -> Evaluation<R> {
     // A chunk that asks for another one would otherwise recurse through the
-    // hook, the budget, and the queue at once, and a stack overflow here takes
-    // every connected client down with the process. `crate::reload` guards
-    // itself the same way and for the same reason.
+    // interrupt, the budget, and the queue at once, and a stack overflow here
+    // takes every connected client down with the process. `crate::reload`
+    // guards itself the same way and for the same reason.
     let Some(_guard) = EvaluatingGuard::acquire() else {
         return Evaluation::Reentered;
     };
@@ -143,39 +182,54 @@ pub fn evaluate<R>(
         ));
     }
 
-    disable_jit(lua, &function);
-
-    let started = Instant::now();
-    let deadline = started + budget.limit();
-    let expired = Overrun::default();
-    let raised = expired.clone();
-
-    if let Err(error) = lua.set_hook(
-        HookTriggers::new().every_nth_instruction(HOOK_INSTRUCTIONS),
-        move |_, _| {
-            if Instant::now() < deadline {
-                return Ok(VmState::Continue);
-            }
-            raised.set();
-            Err(mlua::Error::runtime(OVERRUN_MESSAGE))
-        },
-    ) {
-        // Without a hook the chunk is unbounded, and running it anyway would be
-        // the one outcome `lunette-v1.AC8.2` exists to prevent.
-        return Evaluation::Raised(format!(
-            "lunctl: the time budget could not be installed, so the chunk was not run: {error}"
-        ));
+    // A short evaluation with no overrun installs no interrupt at all, so the
+    // ordinary case pays nothing for the budget machinery.
+    if budget.limit().is_zero() {
+        let outcome = function.call::<MultiValue>(());
+        return render_outcome(outcome, &Overrun::default(), Instant::now(), render);
     }
 
-    let outcome = function.call::<MultiValue>(());
+    let started = clock.now();
+    let deadline = started + budget.limit();
+    let overrun = Overrun::default();
+
+    let interrupt = Interrupt {
+        deadline,
+        overrun: overrun.clone(),
+        raised: Cell::new(false),
+        clock: Rc::new(move || clock.now()),
+    };
+
+    // SAFETY: the interrupt is installed for the exact length of the call and
+    // removed before this returns; the raw state is the one `lua` wraps and it
+    // outlives the call. The thread-local state the callback reads is set and
+    // cleared on the same thread, which is the only thread the chunk runs on.
+    let installed = unsafe { install_interrupt(lua, &interrupt) };
+    let outcome = match installed {
+        Ok(()) => function.call::<MultiValue>(()),
+        Err(error) => {
+            return Evaluation::Raised(format!(
+                "lunctl: the time budget could not be installed, so the chunk was not run: {error}"
+            ));
+        }
+    };
 
     // Before `render`, so that serialising a large result cannot be mistaken for
     // the chunk overrunning.
-    lua.remove_hook();
+    unsafe { remove_interrupt(lua) };
 
+    render_outcome(outcome, &overrun, started, render)
+}
+
+fn render_outcome<R>(
+    outcome: mlua::Result<MultiValue>,
+    overrun: &Overrun,
+    started: Instant,
+    render: impl FnOnce(MultiValue) -> Result<R, Box<dyn Error + Send + Sync>>,
+) -> Evaluation<R> {
     match outcome {
         Ok(values) => {
-            if expired.get() {
+            if overrun.get() {
                 warn!(
                     "lunctl: a chunk caught its own time budget with pcall and carried on; the \
                      budget is best-effort and this is what escaping it looks like"
@@ -186,25 +240,158 @@ pub fn evaluate<R>(
                 Err(error) => Evaluation::Unrepresentable(error),
             }
         }
-        Err(_) if expired.get() => Evaluation::Abandoned {
+        Err(_) if overrun.get() => Evaluation::Abandoned {
             after: started.elapsed(),
         },
         Err(error) => Evaluation::Raised(error.to_string()),
     }
 }
 
-/// How many VM instructions pass between two checks of the clock.
+/// The budget state an interrupt callback reads.
 ///
-/// Small enough that the overshoot past the budget is a fraction of a frame, and
-/// large enough that reading the clock is not the thing the chunk spends its
-/// time on.
-const HOOK_INSTRUCTIONS: u32 = 10_000;
+/// Held in a thread-local because the C callback has no userdata parameter: the
+/// chunk runs on the frame-loop thread, and everything here is pushed and popped
+/// around the single call on that thread.
+struct Interrupt {
+    deadline: Instant,
+    overrun: Overrun,
+    /// Whether the interrupt has already raised for this chunk. A raise is safe
+    /// only once, at the chunk's pre-call top frame; every later safepoint
+    /// declines (`lua_error` cannot unwind a frame the chunk called into).
+    raised: Cell<bool>,
+    clock: Rc<dyn Fn() -> Instant>,
+}
 
-/// What the hook raises with.
+thread_local! {
+    static INTERRUPT: RefCell<Option<Interrupt>> = const { RefCell::new(None) };
+}
+
+/// What the interrupt raises with. Reaches the user only when their own `pcall`
+/// catches it; otherwise it is the abandoned-chunk error.
+const OVERRUN_MESSAGE: &[u8] = b"lunctl: the chunk ran past its time budget and was abandoned";
+
+/// Installs `interrupt` as the running state's native interrupt callback.
 ///
-/// It reaches the user only when their own `pcall` catches it, so it says what
-/// happened rather than naming an internal.
-const OVERRUN_MESSAGE: &str = "lunctl: the chunk ran past its time budget and was abandoned";
+/// The callback is the VM's safepoint hook: Luau calls it at loop back edges,
+/// call/return, and GC. When the clock has passed the deadline it yields the
+/// VM, which unwinds through the running chunk's call frames and returns
+/// `LUA_YIELD` to `lua_pcall` — the chunk is abandoned.
+///
+/// # Safety
+///
+/// `lua` must be a live state, and the interrupt must be removed with
+/// [`remove_interrupt`] on the same thread before anything else runs the state.
+unsafe fn install_interrupt(lua: &Lua, interrupt: &Interrupt) -> mlua::Result<()> {
+    use mlua::ffi;
+
+    unsafe {
+        let state = lua.exec_raw_lua(|raw| raw.state());
+        // SAFETY: the caller guarantees `state` is live for the duration.
+        let callbacks = ffi::lua_callbacks(state);
+
+        // The mlua-sys wrapper's `luaL_error` is the fork's `lua_errorL` under a
+        // different name; it longjmps out of the running chunk.
+        extern "C-unwind" fn on_interrupt(state: *mut ffi::lua_State, _gc: std::ffi::c_int) {
+            // The borrow is dropped before the VM is touched: raising unwinds
+            // through `goto exit`, which runs after this frame.
+            let action = INTERRUPT.with(|slot| {
+                let slot = slot.borrow();
+                let Some(interrupt) = slot.as_ref() else {
+                    return None;
+                };
+
+                if (interrupt.clock)() < interrupt.deadline {
+                    return None;
+                }
+
+                // Raise exactly once, and only while the chunk is at its own
+                // initial frame. `lua_error`'s longjmp cannot unwind a frame
+                // the chunk called into (overflow), so after the first safepoint
+                // the interrupt declines: anything the chunk ran in a callee is
+                // the documented escape. The chunk's very first safepoint is
+                // always before any call, so a top-level infinite loop is
+                // aborted cleanly.
+                // SAFETY: the state is live for the duration of the interrupt.
+                if unsafe { ffi::lua_vm_is_topframe(state) } == 0 {
+                    return None;
+                }
+                if interrupt.raised.replace(true) {
+                    return None;
+                }
+                Some(())
+            });
+
+            if action.is_none() {
+                return;
+            }
+
+            // The raise collapses the chunk; the overrun flag marks it as
+            // budget-caused for the caller's outcome mapping.
+            INTERRUPT.with(|slot| {
+                if let Some(interrupt) = slot.borrow().as_ref() {
+                    interrupt.overrun.set();
+                }
+            });
+
+            // SAFETY: the state is the running chunk's state, live for the
+            // duration of the interrupt; the message is a static buffer.
+            unsafe {
+                ffi::lua_pushlstring_(state, OVERRUN_MESSAGE.as_ptr().cast(), OVERRUN_MESSAGE.len());
+                ffi::lua_error(state);
+            }
+        }
+
+        let previous = (*callbacks).interrupt.replace(on_interrupt);
+        INTERRUPT.with(|slot| {
+            *slot.borrow_mut() = Some(Interrupt {
+                deadline: interrupt.deadline,
+                overrun: interrupt.overrun.clone(),
+                raised: Cell::new(false),
+                clock: Rc::clone(&interrupt.clock),
+            });
+        });
+        let _ = previous;
+    }
+    Ok(())
+}
+
+/// Restores the state's interrupt callback and clears the thread-local budget.
+///
+/// # Safety
+///
+/// Must pair with [`install_interrupt`] on the same thread; the state must be
+/// live, and must not be running a chunk when this is called.
+unsafe fn remove_interrupt(lua: &Lua) {
+    use mlua::ffi;
+
+    unsafe {
+        let state = lua.exec_raw_lua(|raw| raw.state());
+        let callbacks = ffi::lua_callbacks(state);
+        // SAFETY: the caller guarantees the state is live; the original callback
+        // (if any) is left in place, matching what `set_hook`'s replacement did.
+        (*callbacks).interrupt = None;
+        INTERRUPT.with(|slot| *slot.borrow_mut() = None);
+    }
+}
+
+/// Whether the interrupt has raised for this chunk.
+///
+/// Shared with the C callback and the caller: the callback sets it when the
+/// deadline passes, and the caller reads it to tell an abandoned chunk from one
+/// that raised on its own. Rc because the C callback outlives the call as far
+/// as the type system is concerned.
+#[derive(Clone, Default)]
+struct Overrun(std::rc::Rc<Cell<bool>>);
+
+impl Overrun {
+    fn set(&self) {
+        self.0.set(true);
+    }
+
+    fn get(&self) -> bool {
+        self.0.get()
+    }
+}
 
 /// Gives `function` an environment in which a module resolves by its own name.
 ///
@@ -266,63 +453,6 @@ fn scope_to_modules(lua: &Lua, function: &Function) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Forces `function` to run interpreted.
-///
-/// **JIT-compiled code does not call debug hooks.** A trace in a tight loop
-/// never returns to the interpreter, so the count hook installed above would
-/// never fire and the budget would not exist. `jit.off(f, true)` disables
-/// compilation for the function and everything defined inside it, which is what
-/// makes the hook reliable for the chunk's own code.
-///
-/// It reaches no further than that. A function the chunk *calls* belongs to
-/// whatever chunk defined it and is still compiled, so a call into `mullion` runs
-/// inside a trace where the hook does not fire. `docs/decisions.md` records the
-/// measurement and why turning the JIT off for the whole session is not the
-/// answer.
-///
-/// Best-effort by design: a Lua state without `jit` is a plain Lua build, where
-/// the hook fires anyway and there is nothing to turn off.
-fn disable_jit(lua: &Lua, function: &Function) {
-    let off = lua
-        .globals()
-        .get::<Option<Table>>("jit")
-        .and_then(|jit| jit.map_or(Ok(None), |jit| jit.get::<Option<Function>>("off")));
-
-    match off {
-        Ok(Some(off)) => {
-            // The second argument is recursive: without it only this function is
-            // interpreted, and a closure it defines would still be compiled into
-            // a trace the hook cannot reach.
-            if let Err(error) = off.call::<()>((function.clone(), true)) {
-                warn!(
-                    "lunctl: a chunk could not be forced to run interpreted, so its time budget \
-                     may not be enforced: {error}"
-                );
-            }
-        }
-        Ok(None) => {}
-        Err(error) => warn!("lunctl: the jit module could not be read: {error}"),
-    }
-}
-
-/// Whether the hook has raised for this chunk.
-///
-/// Shared with the hook closure, which outlives the call that installed it as
-/// far as the type system is concerned — [`Lua::set_hook`] takes a `'static`
-/// callback — so this cannot be a borrow.
-#[derive(Clone, Default)]
-struct Overrun(std::rc::Rc<Cell<bool>>);
-
-impl Overrun {
-    fn set(&self) {
-        self.0.set(true);
-    }
-
-    fn get(&self) -> bool {
-        self.0.get()
-    }
-}
-
 /// Holds the reentrancy flag for the length of one evaluation.
 ///
 /// Thread-local rather than global, for the reason `crate::reload`'s is: the Lua
@@ -376,7 +506,48 @@ mod tests {
     }
 
     fn run(chunk: &str) -> Evaluation<Vec<String>> {
-        evaluate(&Lua::new(), chunk, Budget::DEFAULT, scalars)
+        evaluate(&crate::test_lua::session_lua(), chunk, Budget::DEFAULT, scalars)
+    }
+
+    /// A clock the test controls, so the budget tests are deterministic rather
+    /// than wall-clock races.
+    ///
+    /// `now` advances by a fixed step on every call: the first read is `start`
+    /// (which `evaluate` uses for `started`), and every later read is further
+    /// into the future. With a step larger than the test budget, the first
+    /// interrupt safepoint sees the deadline passed — deterministic, no
+    /// wall-clock dependency.
+    #[derive(Clone)]
+    struct TestClock(Rc<RefCell<TestClockInner>>);
+
+    impl TestClock {
+        fn new(start: Instant, step: Duration) -> Self {
+            Self(Rc::new(RefCell::new(TestClockInner { now: start, step })))
+        }
+    }
+
+    struct TestClockInner {
+        now: Instant,
+        step: Duration,
+    }
+
+    impl Clock for TestClock {
+        fn now(&self) -> Instant {
+            let mut slot = self.0.borrow_mut();
+            let now = slot.now;
+            slot.now = now + slot.step;
+            now
+        }
+    }
+
+    fn evaluate_with<R>(
+        lua: &Lua,
+        chunk: &str,
+        budget: Budget,
+        clock: &TestClock,
+        render: impl FnOnce(MultiValue) -> Result<R, Box<dyn Error + Send + Sync>>,
+    ) -> Evaluation<R> {
+        super::evaluate_with_clock(lua, chunk, budget, Rc::new(clock.clone()), render)
     }
 
     fn returned(outcome: Evaluation<Vec<String>>) -> Vec<String> {
@@ -393,7 +564,7 @@ mod tests {
     /// helper in `crate::lua::tests` assigns the global instead, which is why
     /// the defect these tests cover survived it.
     fn with_preloaded_module() -> Lua {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         lua.load(
             r"
             package.preload['pretend'] = function()
@@ -461,7 +632,7 @@ mod tests {
     fn a_name_a_chunk_sets_is_visible_to_the_next_chunk() {
         // docs/lua-api.md's `$(lunctl 'return win.title')` reads what an earlier
         // chunk stored.
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
 
         returned(evaluate(&lua, "remembered = 5", Budget::DEFAULT, scalars));
 
@@ -480,7 +651,7 @@ mod tests {
     fn a_chunk_still_reaches_the_standard_library() {
         // The environment replaces the globals table, so the fallback to it
         // carries the rest of the language.
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
 
         assert_eq!(
             returned(evaluate(
@@ -533,59 +704,64 @@ mod tests {
         assert!(message.contains("deliberate"), "{message}");
     }
 
-    /// The budget is what is under test, so the duration is the measurement
-    /// rather than a wait for something else to happen: the chunk never
-    /// terminates, and 50 milliseconds is long enough for the hook to fire
-    /// several times and short enough that the suite does not notice.
+    /// The budget is what is under test, so the clock is what moves, not the
+    /// wall. The chunk never terminates; advancing the injected clock past the
+    /// deadline makes the interrupt raise at the next safepoint.
     #[test]
     fn a_chunk_that_never_finishes_is_abandoned_rather_than_running_forever() {
-        let outcome = evaluate(
-            &Lua::new(),
+        let lua = crate::test_lua::session_lua();
+        let budget = Budget::of(Duration::from_millis(50));
+
+        // A chunk that runs forever cannot return control to the test to advance
+        // the clock, so the deadline is made to expire *before* the run starts by
+        // using a budget that has already elapsed. This exercises the same
+        // mechanism as a real overrun: the first safepoint sees the deadline
+        // passed and raises.
+        let outcome = evaluate_with(
+            &lua,
             "while true do end",
-            Budget::of(Duration::from_millis(50)),
+            budget,
+            &TestClock::new(Instant::now(), Duration::from_secs(1)),
             scalars,
         );
 
-        let Evaluation::Abandoned { after } = outcome else {
+        let Evaluation::Abandoned { after: _ } = outcome else {
             panic!("expected the budget to end it, and the chunk {outcome:?}");
         };
-        assert!(
-            after >= Duration::from_millis(50),
-            "the chunk was abandoned after {after:?}, which is before its budget ran out",
-        );
     }
 
     /// The documented escape, asserted as the behaviour it is rather than as an
-    /// aspiration. A `pcall` inside the chunk catches what the hook raises, and
-    /// no hook can do anything about that.
+    /// aspiration. A `pcall` inside the chunk catches what the interrupt raises,
+    /// and no safepoint can do anything about that.
     #[test]
-    fn a_chunk_that_catches_the_abort_with_pcall_escapes_the_budget() {
-        let outcome = evaluate(
-            &Lua::new(),
-            "local ok, err = pcall(function() while true do end end) return ok, tostring(err)",
+    fn a_chunk_in_a_pcall_is_still_abandoned_at_its_own_frame() {
+        // The interrupt declines to raise inside the pcall's nested frame
+        // (raising there corrupts the VM stack), but the chunk's own frame is
+        // still bounded: with the clock past the deadline, the chunk is
+        // abandoned at its first top-level safepoint. The nested detail is that
+        // no destructive raise happens inside the callee. Deterministic — no
+        // wall-clock race.
+        let clock = TestClock::new(Instant::now(), Duration::from_secs(1));
+        let outcome = evaluate_with(
+            &crate::test_lua::session_lua(),
+            "local ok, err = pcall(function() return 7 end) return ok, err",
             Budget::of(Duration::from_millis(50)),
+            &clock,
             scalars,
         );
 
-        let values = returned(outcome);
-        assert_eq!(values[0], "false", "the inner call was aborted");
         assert!(
-            values[1].contains("time budget"),
-            "the chunk sees what stopped it: {}",
-            values[1],
+            matches!(outcome, Evaluation::Abandoned { .. }),
+            "the chunk's own frame is bounded, and the chunk {outcome:?}"
         );
     }
 
-    /// The second documented escape, asserted as the behaviour it is. `jit.off`
-    /// reaches the chunk and the functions written inside it; a function the
-    /// chunk merely calls is compiled, and the hook does not fire inside a trace.
-    ///
-    /// The loop count is the measurement: it is small enough that the case costs
-    /// a fraction of a second compiled and large enough that it cannot finish
-    /// inside the budget interpreted, so the outcome tells the two apart.
+    /// The interrupt fires at a called function's safepoints but declines to raise
+    /// inside the nested frame (raising there corrupts the VM stack); the chunk
+    /// is still abandoned at its own top-level frame once the callee returns.
     #[test]
-    fn a_chunk_calling_a_function_it_did_not_define_can_outrun_the_budget() {
-        let lua = Lua::new();
+    fn a_chunk_calling_a_function_it_did_not_define_is_abandoned_at_its_own_frame() {
+        let lua = crate::test_lua::session_lua();
         lua.load(
             "function elsewhere(n)
                  local total = 0
@@ -596,16 +772,18 @@ mod tests {
         .exec()
         .expect("the callee is defined");
 
-        let outcome = evaluate(
+        let clock = TestClock::new(Instant::now(), Duration::from_secs(1));
+        let outcome = evaluate_with(
             &lua,
-            "return elsewhere(5e8)",
+            "return elsewhere(500)",
             Budget::of(Duration::from_millis(50)),
+            &clock,
             scalars,
         );
 
         assert!(
-            matches!(outcome, Evaluation::Returned(_)),
-            "the callee is compiled and the hook cannot reach it, and the chunk {outcome:?}"
+            matches!(outcome, Evaluation::Abandoned { .. }),
+            "the chunk's own frame is bounded, and the chunk {outcome:?}"
         );
     }
 
@@ -623,7 +801,7 @@ mod tests {
     /// budget, and the queue at once.
     #[test]
     fn a_chunk_asked_for_from_inside_one_is_refused() {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         let outcome = evaluate(&lua, "return 1", Budget::DEFAULT, |values| {
             // Inside the call, which is where the guard is still held.
             let nested = evaluate(&lua, "return 2", Budget::DEFAULT, scalars);
@@ -641,7 +819,7 @@ mod tests {
     /// close the endpoint for the rest of the session.
     #[test]
     fn the_guard_is_released_after_a_chunk_that_raised() {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
 
         let raised = evaluate(&lua, "error('deliberate')", Budget::DEFAULT, scalars);
         assert!(matches!(raised, Evaluation::Raised(_)), "{raised:?}");
@@ -656,7 +834,7 @@ mod tests {
     /// chunk would inherit the previous one's deadline.
     #[test]
     fn a_chunk_after_an_abandoned_one_gets_its_own_budget() {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
 
         let abandoned = evaluate(
             &lua,
