@@ -1,4 +1,4 @@
-//! Linux-only: the shipped default configuration compiles under the LuaJIT the
+//! Linux-only: the shipped default configuration compiles under the Luau the
 //! session runs it on.
 //!
 //! `etc/xdg/lunette/` is what a user with no configuration of their own gets, so
@@ -8,7 +8,7 @@
 //!
 //! This compiles the two files and no more. Running them needs a compositor, a
 //! graphics device, and a headset, so what they do is a human gate; what is
-//! checked here is that they parse, that they parse under LuaJIT rather than
+//! checked here is that they parse, that they parse under Luau rather than
 //! under some other Lua, and that the callbacks the session calls are the ones
 //! they define.
 
@@ -17,12 +17,24 @@ use std::{
     path::{Path, PathBuf},
 };
 
-// Unused as a name, and load-bearing as a link. The LuaJIT this compiles under
-// is the one `lunette-lovr` builds, and rustc emits its link flags only for a
+// Unused as a name, and load-bearing as a link. The Lua this compiles under is
+// the one `lunette-lovr` builds, and rustc emits its link flags only for a
 // crate the binary actually depends on — so a test that never named `lunette`
 // would link no Lua at all and fail with undefined symbols rather than with a
 // verdict.
 use lunette as _;
+
+/// An mlua state with LÖVR's fork library set opened on it, the way the real
+/// session state has it (the session handlers and `mullion` read `package`).
+fn session_lua() -> mlua::Lua {
+    let lua = mlua::Lua::new();
+    // SAFETY: the state is not mid-call; opening libraries is what production
+    // does before any chunk runs.
+    unsafe {
+        lua.exec_raw_lua(|raw| mlua::ffi::luaL_openlibs(raw.state()));
+    }
+    lua
+}
 use mlua::{Function, Lua, Table};
 
 /// The callbacks `main.lua` is expected to leave on `lovr`.
@@ -43,7 +55,7 @@ const CALLBACKS: &[&str] = &[
 
 #[test]
 fn the_default_configuration_compiles() {
-    let lua = Lua::new();
+    let lua = session_lua();
 
     for name in ["main.lua", "conf.lua"] {
         let path = configuration_directory().join(name);
@@ -67,7 +79,7 @@ fn the_default_configuration_compiles() {
 /// stopped defining is the defect this catches.
 #[test]
 fn the_default_configuration_defines_the_callbacks_the_session_calls() {
-    let lua = Lua::new();
+    let lua = session_lua();
     let path = configuration_directory().join("main.lua");
     let source = match fs::read_to_string(&path) {
         Ok(source) => source,
@@ -110,7 +122,7 @@ fn the_default_configuration_defines_the_callbacks_the_session_calls() {
 /// between them is the code a session runs.
 #[test]
 fn the_default_configuration_loads_against_the_standard_library() {
-    let lua = Lua::new();
+    let lua = session_lua();
     let path = configuration_directory().join("main.lua");
     let source = match fs::read_to_string(&path) {
         Ok(source) => source,
@@ -207,6 +219,35 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
         "path",
         format!("{root}/?.lua;{root}/?/init.lua", root = root.display()),
     )?;
+
+    // The standard-library loader, in Rust: LÖVR's production loader reads the
+    // mounted virtual filesystem, which this test has no `lovr.filesystem` for.
+    // The same shape — resolve `?.lua` against `package.path`, read the file,
+    // load it — is what makes `require 'mullion.adopt'` resolve here the way
+    // the session's does.
+    let loaders: Table = package.get("loaders")?;
+    let path_loader = lua.create_function(
+        |lua, name: String| -> mlua::Result<mlua::MultiValue> {
+            let package: Table = lua.globals().get("package")?;
+            let path: String = package.get("path")?;
+            for template in path.split(';').filter(|part| !part.is_empty()) {
+                let candidate = template.replace('?', &name.replace('.', "/"));
+                if let Ok(source) = std::fs::read_to_string(&candidate) {
+                    let function = lua
+                        .load(&source)
+                        .set_name(&format!("={candidate}"))
+                        .into_function()?;
+                    return Ok(vec![mlua::Value::Function(function)].into());
+                }
+            }
+            // A loader that finds nothing returns nil, and `require` moves on to
+            // the next loader.
+            Ok(Vec::new().into())
+        },
+    )?;
+    // Position 2, matching LÖVR's `luax_registerloader(L, luaLoader, 2, 0)`;
+    // position 1 is preload, which production consults first.
+    loaders.set(2, path_loader)?;
 
     let lunette = lua.create_table()?;
     lunette.set(

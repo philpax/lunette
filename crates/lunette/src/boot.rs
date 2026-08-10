@@ -180,13 +180,22 @@ fn run_session(
     // same order, on a state this function exclusively owns for its lifetime.
     // Each `cast` converts between bindgen's opaque `lua_State` and mlua-sys',
     // which are two declarations of the same C type.
-    unsafe {
-        let state = lua::luaL_newstate();
-        if state.is_null() {
-            error!("lua: the interpreter state could not be allocated");
-            return Outcome::LoadFailed;
-        }
+    //
+    // The state is created through mlua so that its allocator (`MemoryState`)
+    // and per-state `ExtraData` are present: mlua's luau `get_or_init_from_ptr`
+    // needs the allocator userdata to be mlua's, and LÖVR cannot provide it on
+    // a state it created itself. mlua and LÖVR then share the exact same state.
+    // Ownership stays with mlua, so on exit `luax_close` runs LÖVR's finalizers
+    // and the mlua handle is forgotten rather than dropped (which would close
+    // the already-closed state again).
+    let lua_handle = Lua::new();
+    let state = lua_handle.exec_raw_lua(|raw| raw.state());
+    if state.is_null() {
+        error!("lua: the interpreter state could not be allocated");
+        return Outcome::LoadFailed;
+    }
 
+    unsafe {
         raw::luax_setmainthread(state.cast());
         lua::luaL_openlibs(state);
         raw::luax_preload(state.cast());
@@ -249,7 +258,15 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        run_steps(state, thread, driver, control, cookie)
+        let outcome = run_steps(state, thread, driver, control, cookie);
+
+        // `run_steps` closed the state via `luax_close` (LÖVR's finalizers ran).
+        // The mlua handle would close it again on drop, so it is forgotten —
+        // the state is already gone, and the handle is the only thing that
+        // would touch it.
+        std::mem::forget(lua_handle);
+
+        outcome
     }
 }
 
