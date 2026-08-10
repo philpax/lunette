@@ -408,10 +408,10 @@ No network transport is provided. The type is a Unix listener and nothing accept
 
 ## Bindings
 
-The API is bound with `mlua`, via `Lua::get_or_init_from_ptr`, attaching to the `lua_State` that LÖVR created. That entry point constructs mlua's view of the state with its `owned` flag clear, so mlua never closes a state it did not create; the boot sequence keeps that responsibility. Hand-written `lua_State` C API calls are reserved for measured hot paths, realistically only per-frame snapshot publication, if profiling shows it is necessary.
+The API is bound with `mlua`, which creates the session's Luau state and owns it for the session's lifetime. LÖVR steps that same state through the raw C entry points, and `mlua` reads and writes it through the Luau feature. The boot sequence keeps ownership with mlua and never closes a state it created a second time.
 
 This choice is motivated by failure mode, not throughput. A Lua mistake should raise a catchable error rather than crash the window manager, because the premise of this project is that users write Lua that reshapes the system. mlua's per-call cost is negligible relative to the cost of a compositor and a GPU frame.
 
-LuaJIT's FFI remains available to a script that wants to call a C ABI directly, at its own risk. The standard library is not built on it.
+Luau has no FFI. A script that wants a C ABI directly has the standard library and the `lunette` API, and nothing else; calling native code from a configuration is not part of the contract. The type checker (`scripts/check-luau.sh`) is available to catch a configuration that reaches for it.
 
 The API is available only in the main Lua state. `lovr.thread` and `lovr.task` states do not receive it.

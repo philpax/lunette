@@ -11,6 +11,8 @@ The patches live on a branch rather than as a rebased series against each upstre
 - Patches stay narrow and additive: new accessors, new struct fields, new build options. They introduce no behavioural changes to existing paths.
 - Each patch is shaped as an upstream pull request and opened early. External texture import is a feature other LÖVR users want. If it lands upstream, the divergence from upstream shrinks toward zero.
 
+LÖVR's Lua is Luau, from a second submodule: `vendor/lovr/deps/luau` points at `bjornbytes/luau`'s `lovr` branch, and lunette maintains a fork of that branch (on `lunette/luau-bump`) against upstream `luau-lang/luau`. The fork is merged from upstream rather than rebased, so the sync is a merge of `master` into the branch. What lunette keeps fork-owned is the LÖVR work upstream Luau does not carry: the quaternion type and `quaternion.*` library, the vector call surface mullion depends on, and the Lua 5.1 C-API shims (`lua_errorL`, the two-argument `lua_pushcfunction`/`lua_pushcclosure`, `luaL_ref`/`luaL_unref`, `luaL_getsubtable`). Upstream Luau now provides a native vector type, which the fork adopts; the fork layers the LÖVR-facing vector methods on top of it. The fork also carries what lunette's bindings need that upstream's `Custom/` component would otherwise provide in full: `lua_getmetatablepointer`, `lua_gcdump`, and a `LUAI_MAXCSTACK` large enough for mlua's registry-index arithmetic. Sync cadence is per LÖVR release; a merge is exercised the same way `scripts/check-luau.sh` exercises the tree it typechecks.
+
 ## The patch set
 
 ### 1. External-memory device extensions
@@ -75,7 +77,7 @@ The following require no change to LÖVR.
 - Filesystem mounting. `lovr.filesystem.setSource`/`mount`/`setRequirePath` allow LÖVR to be pointed at the user's config directory and to mount the standard library.
 - Spatialised audio, via bundled Steam Audio. This makes [per-application audio](audio.md) a matter of routing rather than DSP.
 - Windowless operation. `etc/boot.lua` opens a window only when `conf.window` is set, and `lovr.graphics.newReadback` gives pixel readback, so GPU-headless testing is available.
-- LuaJIT by default (`LOVR_USE_LUAJIT ON`), including its FFI for scripts that use it.
+- Luau by default (`LOVR_USE_LUAU ON`). LÖVR builds the vendored Luau fork with `LOVR_USE_LUAU`; lunette's Lua is Luau, and the type checker over the standard library and configurations is a standing check (`scripts/check-luau.sh`).
 
 ## Boot
 
