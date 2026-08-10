@@ -112,12 +112,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(root.join(OUTPUT), text)?;
     let declarations = to_definitions(&lua, &api)?;
     fs::write(root.join(DEFINITIONS_OUTPUT), &declarations)?;
-    fs::write(root.join(CHECKER_DEFINITIONS), format!("{FORK_GLOBALS}\n{declarations}"))?;
+    fs::write(
+        root.join(CHECKER_DEFINITIONS),
+        format!("{FORK_GLOBALS}\n{declarations}"),
+    )?;
     println!("wrote {} ({} bytes)", root.join(OUTPUT).display(), text_len);
-    println!(
-        "wrote {}",
-        root.join(DEFINITIONS_OUTPUT).display()
-    );
+    println!("wrote {}", root.join(DEFINITIONS_OUTPUT).display());
     println!("wrote {}", root.join(CHECKER_DEFINITIONS).display());
 
     Ok(())
@@ -133,7 +133,8 @@ fn install_generator_globals(lua: &Lua) -> mlua::Result<()> {
     let lovr = lua.create_table()?;
 
     let filesystem = lua.create_table()?;
-    let get_source = lua.create_function(move |_, ()| Ok(out_dir.to_string_lossy().into_owned()))?;
+    let get_source =
+        lua.create_function(move |_, ()| Ok(out_dir.to_string_lossy().into_owned()))?;
     filesystem.set("getSource", get_source)?;
     lovr.set("filesystem", filesystem)?;
 
@@ -284,7 +285,11 @@ fn function_line(lua: &Lua, f: &mlua::Table, name: &str) -> mlua::Result<String>
     // that pass values (the docs omit variadics for constructors like
     // newMat4); expose it as variadic so the checker does not reject the
     // standard library's real calls.
-    let args = if args.is_empty() { "...any".to_string() } else { args };
+    let args = if args.is_empty() {
+        "...any".to_string()
+    } else {
+        args
+    };
     Ok(format!("{name}: ({args}) -> {rets}"))
 }
 
@@ -305,7 +310,11 @@ fn render_args(lua: &Lua, variant: &mlua::Table) -> mlua::Result<String> {
         // A `table` argument type is rejected by the definitions parser the
         // same way the return is; the checker does not rely on the arg being
         // table-typed, so `any` is equivalent.
-        let atype = if atype == "table" { "any".to_string() } else { atype };
+        let atype = if atype == "table" {
+            "any".to_string()
+        } else {
+            atype
+        };
         parts.push(format!("{aname}: {atype}"));
     }
     Ok(parts.join(", "))
@@ -328,7 +337,11 @@ fn render_rets(lua: &Lua, variant: &mlua::Table) -> mlua::Result<String> {
         // A bare `table` return is not a type the definitions parser accepts
         // in a `declare` function's return position; `any` is equivalent for
         // the checker's purpose.
-        let rtype = if rtype == "table" { "any".to_string() } else { rtype };
+        let rtype = if rtype == "table" {
+            "any".to_string()
+        } else {
+            rtype
+        };
         parts.push(rtype);
     }
     if parts.is_empty() {
