@@ -180,7 +180,7 @@ end
 --
 -- The pose stays the string `mullion.pose` wrote. `mullion.rules` decodes one,
 -- and handing it through unchanged keeps one encoding rather than two.
-function persist.properties(entry)
+function persist.properties(entry): { pose: string, width: number?, height: number?, tags: { string } }
   return {
     pose = entry.pose,
     width = entry.width,
@@ -270,7 +270,7 @@ function persist.source(file)
   local assigned: { [any]: Entry } = {}
   local counts: { [string]: number } = {}
 
-  return function(window)
+  return function(window): { pose: string, width: number?, height: number?, tags: { string } }?
     local appId = window.appId
     if type(appId) ~= 'string' or appId == '' then
       return nil
@@ -335,16 +335,20 @@ function persist.load(filesystem)
 
   local loaded = format.read(text)
   if loaded.kind == 'broken' then
-    declined = persist.path(filesystem) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
-    persist.report('mullion.persist: ' .. declined)
+    local notice = persist.path(filesystem) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
+    declined = notice
+    persist.report('mullion.persist: ' .. notice)
   elseif loaded.kind == 'fromTheFuture' then
-    declined = persist.path(filesystem)
+    local found: number = loaded.found :: any
+    local supported: number = loaded.supported :: any
+    local notice = persist.path(filesystem)
       .. ' was written by version '
-      .. loaded.found
+      .. found
       .. ', and this mullion writes version '
-      .. loaded.supported
+      .. supported
       .. ', so it is left alone'
-    persist.report('mullion.persist: ' .. declined)
+    declined = notice
+    persist.report('mullion.persist: ' .. notice)
   else
     declined = nil
   end
@@ -375,7 +379,7 @@ end
 -- with what this version can represent. `options.force` is how a caller that has
 -- decided to overwrite it anyway says so, and it is deliberately a word rather
 -- than a second load.
-function persist.save(file, filesystem, options)
+function persist.save(file, filesystem, options): (boolean, string?)
   filesystem = filesystem or lovr.filesystem
 
   -- Checked before the refusal, so a caller holding the wrong kind of value
@@ -409,7 +413,7 @@ function persist.teardown()
 end
 
 -- What a panel's source is known by across a restart, or nothing.
-function sourceKey(target)
+function sourceKey(target): string?
   local source = target.source
   if not source or source.dead then
     return nil
