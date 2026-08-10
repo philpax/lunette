@@ -336,7 +336,11 @@ unsafe fn install_interrupt(lua: &Lua, interrupt: &Interrupt) -> mlua::Result<()
             // SAFETY: the state is the running chunk's state, live for the
             // duration of the interrupt; the message is a static buffer.
             unsafe {
-                ffi::lua_pushlstring_(state, OVERRUN_MESSAGE.as_ptr().cast(), OVERRUN_MESSAGE.len());
+                ffi::lua_pushlstring_(
+                    state,
+                    OVERRUN_MESSAGE.as_ptr().cast(),
+                    OVERRUN_MESSAGE.len(),
+                );
                 ffi::lua_error(state);
             }
         }
@@ -506,7 +510,12 @@ mod tests {
     }
 
     fn run(chunk: &str) -> Evaluation<Vec<String>> {
-        evaluate(&crate::test_lua::session_lua(), chunk, Budget::DEFAULT, scalars)
+        evaluate(
+            &crate::test_lua::session_lua(),
+            chunk,
+            Budget::DEFAULT,
+            scalars,
+        )
     }
 
     /// A clock the test controls, so the budget tests are deterministic rather

@@ -564,7 +564,10 @@ impl fmt::Display for BuildError {
                 write!(f, "{name} is unset, and Cargo is what provides it")
             }
             Self::InvalidLuaMode { value } => {
-                write!(f, "unknown LUNETTE_LOVR_LUA value {value:?}; expected \"luau\" or \"luajit\"")
+                write!(
+                    f,
+                    "unknown LUNETTE_LOVR_LUA value {value:?}; expected \"luau\" or \"luajit\""
+                )
             }
             Self::Canonicalize { path, cause: _ } => {
                 write!(f, "could not resolve {}", path.display())

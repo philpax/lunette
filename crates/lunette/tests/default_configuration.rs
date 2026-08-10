@@ -226,8 +226,8 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
     // load it — is what makes `require 'mullion.adopt'` resolve here the way
     // the session's does.
     let loaders: Table = package.get("loaders")?;
-    let path_loader = lua.create_function(
-        |lua, name: String| -> mlua::Result<mlua::MultiValue> {
+    let path_loader =
+        lua.create_function(|lua, name: String| -> mlua::Result<mlua::MultiValue> {
             let package: Table = lua.globals().get("package")?;
             let path: String = package.get("path")?;
             for template in path.split(';').filter(|part| !part.is_empty()) {
@@ -243,8 +243,7 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
             // A loader that finds nothing returns nil, and `require` moves on to
             // the next loader.
             Ok(Vec::new().into())
-        },
-    )?;
+        })?;
     // Position 2, matching LÖVR's `luax_registerloader(L, luaLoader, 2, 0)`;
     // position 1 is preload, which production consults first.
     loaders.set(2, path_loader)?;
