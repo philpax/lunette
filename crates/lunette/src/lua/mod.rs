@@ -128,30 +128,19 @@ pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Resu
     preload.set(MODULE_NAME, loader)
 }
 
-/// Registers the module on a Lua state lunette does not own.
+/// Registers the module on a Lua state lunette owns.
 ///
-/// `Lua::get_or_init_from_ptr` constructs mlua's view of an existing state with
-/// its `owned` flag clear, so mlua never closes LÖVR's state; the boot sequence
-/// keeps that responsibility. Calling it twice on the same state returns the
-/// same instance rather than building a second one.
-///
-/// # Safety
-///
-/// `state` must be a live Lua state that outlives every call made through the
-/// module — in practice LÖVR's main state, between `luax_preload` and loading
-/// `boot.lua`. The standard library must already be open, because the module is
-/// registered through `package.preload`.
+/// The state is created once per session by `crate::boot` (through mlua, so
+/// mlua's allocator and per-state data are present) and the single `&Lua`
+/// handle is passed here directly. Calling `get_or_init_from_ptr` per use
+/// would let the GC collect the orphaned reference threads each fresh
+/// `ExtraData` creates, so there is exactly one mlua view of the session
+/// state for its whole lifetime.
 ///
 /// # Errors
 ///
 /// As [`install`].
-pub unsafe fn install_on_state<T: LuaTexture>(
-    state: *mut mlua::ffi::lua_State,
-    session: &Rc<Session<T>>,
-) -> mlua::Result<()> {
-    // SAFETY: the caller guarantees the state, and the reference is consumed
-    // before this function returns rather than being stored anywhere.
-    let lua = unsafe { Lua::get_or_init_from_ptr(state) };
+pub fn install_on_state<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
     install(lua, session)
 }
 

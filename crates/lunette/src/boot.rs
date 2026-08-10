@@ -213,7 +213,7 @@ fn run_session(
         //
         // SAFETY: the state was created above, is closed only after
         // `run_steps` returns, and no reference into it is kept.
-        if let Err(error) = install_on_state(state, session) {
+        if let Err(error) = install_on_state(&lua_handle, session) {
             error!("lua: the lunette module could not be registered: {error}");
             return Outcome::LoadFailed;
         }
@@ -247,7 +247,7 @@ fn run_session(
         //
         // SAFETY: `state` is live until the `luax_close` below, and the
         // reference mlua constructs over it is consumed inside this call.
-        if let Err(error) = safe_mode::install_trigger(Lua::get_or_init_from_ptr(state)) {
+        if let Err(error) = safe_mode::install_trigger(&lua_handle) {
             // Not fatal. The session still boots; what it loses is the fallback
             // if it turns out the configuration does not load.
             error!("lua: safe mode could not be armed: {error}");
@@ -258,7 +258,7 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        let outcome = run_steps(state, thread, driver, control, cookie);
+        let outcome = run_steps(state, thread, driver, control, cookie, &lua_handle);
 
         // `run_steps` closed the state via `luax_close` (LÖVR's finalizers ran).
         // The mlua handle would close it again on drop, so it is forgotten —
@@ -283,6 +283,7 @@ unsafe fn run_steps(
     driver: &mut FrameDriver,
     control: Option<&ChunkQueue>,
     cookie: &mut raw::Variant,
+    lua_handle: &Lua,
 ) -> Outcome {
     loop {
         // The frame's snapshot and the frame's events are installed together,
@@ -306,13 +307,12 @@ unsafe fn run_steps(
                 // next frame has not begun, so a chunk touching the same state a
                 // callback touches has nobody to race.
                 //
-                // SAFETY: `state` is live — nothing above closes it on this arm
-                // — and the reference mlua constructs over it is consumed
-                // inside the closure rather than held across a frame.
+                // The single session `lua_handle` is used here directly; it is
+                // not closed until after `run_steps` returns, so the `&Lua`
+                // captured by the closure is valid for the whole loop.
                 if let Some(control) = control {
                     control.drain(CHUNKS_PER_FRAME, |chunk| {
-                        let lua = unsafe { Lua::get_or_init_from_ptr(state) };
-                        answer(lua, chunk, Budget::DEFAULT)
+                        answer(&lua_handle, chunk, Budget::DEFAULT)
                     });
                 }
 
