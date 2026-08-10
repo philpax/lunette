@@ -104,7 +104,7 @@ local WRIST = {
 
 -- The keyboard the wrist button shows, created on first use so a session that
 -- never asks for one never builds it.
-local virtualKeyboard
+local virtualKeyboard: any
 
 -- Where the "no windows yet" note is drawn, in metres, and how tall it is.
 local NOTE_X, NOTE_Y, NOTE_Z = 0, 1.5, -1.5
@@ -268,8 +268,8 @@ function lovr.load()
   -- Once per session, and not once per `lovr.load`. A reload runs this callback
   -- again, and one that opened another terminal each time would fill the room by
   -- the third edit.
-  if not lunetteDemonstrationSpawned then
-    lunetteDemonstrationSpawned = true
+  if not _G.lunetteDemonstrationSpawned then
+    _G.lunetteDemonstrationSpawned = true
     spawnNextTerminal()
   end
 end

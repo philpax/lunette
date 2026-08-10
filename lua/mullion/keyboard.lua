@@ -40,6 +40,59 @@ local methods = {}
 local metatable = { __index = methods }
 local extentOf, remove
 
+-- A representative keyboard, so that the metatable and the fields line up with
+-- what `new` builds.
+local keyboardPrototype = setmetatable({
+  pose = nil,
+  rows = {},
+  style = {},
+  target = function(): (any?, any?)
+    return nil, nil
+  end,
+  width = 0,
+  height = 0,
+  visible = true,
+  latched = {},
+  locked = {},
+  hovered = {},
+  grabbable = true,
+  dead = false,
+}, metatable)
+type Keyboard = typeof(keyboardPrototype)
+
+-- A key in a row, matching `mullion.keycodes`'s `Key`.
+type Key = {
+  code: number,
+  label: string?,
+  width: number?,
+}
+-- A row of keys.
+type KeyRow = { Key }
+-- Everything the look of a keyboard is tuned by. `typeof(keyboard.STYLE)`
+-- would chase the values, so the shape is written out once.
+type Style = {
+  keyUnit: number,
+  gap: number,
+  plateDepth: number,
+  legendDepth: number,
+  margin: number,
+  plateColor: { number },
+  keyColor: { number },
+  heldColor: { number },
+  hoverColor: { number },
+  legendColor: { number },
+  legendHeight: number,
+}
+-- The seat and sink the keyboard types into, as `options.target` answers.
+type Target = () -> (any?, any?)
+-- The options `new` takes.
+type KeyboardOptions = {
+  rows: { KeyRow }?,
+  style: Style?,
+  pose: any?,
+  target: Target?,
+}
+
 -- Every live keyboard, in creation order. Rebuilt when this file runs, so a
 -- soft reload starts with none.
 local keyboards = {}
@@ -82,13 +135,13 @@ keyboard.STYLE = {
 -- `style`; and `target`, a function answering the seat and the sink to type
 -- into. The default target is whatever was last clicked, which is what
 -- `mullion.interaction` records for exactly this.
-function keyboard.new(options)
+function keyboard.new(options: KeyboardOptions): Keyboard
   options = options or {}
   local rows = options.rows or keycodes.ROWS
   local style = options.style or keyboard.STYLE
 
   local width, height = extentOf(rows, style)
-  local created = setmetatable({
+  local created: Keyboard = setmetatable({
     pose = lovr.math.newMat4(options.pose),
     rows = rows,
     style = style,
@@ -420,16 +473,17 @@ function methods:typeText(text)
   if not sink then
     return false
   end
+  local typedSink: any = sink
   -- With no seat there is no keymap to ask, so every character is text the
   -- layout cannot be shown to express.
   if not seat then
-    return sink:typeText(text) and true
+    return typedSink:typeText(text) and true
   end
 
   local pending = {}
   local function flush()
     if #pending > 0 then
-      sink:typeText(table.concat(pending), seat)
+      typedSink:typeText(table.concat(pending), seat)
       pending = {}
     end
   end
@@ -438,9 +492,9 @@ function methods:typeText(text)
     local stroke = seat:strokeFor(character)
     if stroke then
       flush()
-      sink:modifiers(stroke.modifiers, seat)
-      sink:key(stroke.keycode, true, seat)
-      sink:key(stroke.keycode, false, seat)
+      typedSink:modifiers(stroke.modifiers, seat)
+      typedSink:key(stroke.keycode, true, seat)
+      typedSink:key(stroke.keycode, false, seat)
     else
       pending[#pending + 1] = character
     end
@@ -449,7 +503,7 @@ function methods:typeText(text)
 
   -- The last stroke left its own modifiers held, and they belong to it rather
   -- than to whatever the user does next.
-  sink:modifiers(self:modifiers(), seat)
+  typedSink:modifiers(self:modifiers(), seat)
   return true
 end
 
@@ -459,24 +513,26 @@ function methods:draw(pass)
     return
   end
 
-  local style = self.style
+  local style: Style = self.style
+  local width: number = self.width
+  local height: number = self.height
   local color = style.plateColor
   pass:setColor(color[1], color[2], color[3], color[4])
   -- The extent rides in the transform's scale. `luax_readmat4` consumes a whole
   -- `Mat4` and reads the argument after it as the draw style, so a plane placed
   -- by matrix takes its size from that matrix and not from two more arguments.
   pass:plane(lovr.math.mat4(self.pose):translate(0, 0, -style.plateDepth):scale(
-    self.width + style.margin * 2,
-    self.height + style.margin * 2,
+    width + style.margin * 2,
+    height + style.margin * 2,
     1
   ))
 
   local held = self:modifiers()
   for _, key in ipairs(self:keys()) do
-    local x = key.x + key.width / 2 - self.width / 2
+    local x = key.x + key.width / 2 - width / 2
     -- The key geometry runs from the top-left with y downwards, and the plane's
     -- own y runs upwards from its middle.
-    local y = self.height / 2 - (key.y + key.height / 2)
+    local y = height / 2 - (key.y + key.height / 2)
 
     local keyColor = style.keyColor
     if key.modifier and self:isHeld(held, key.modifier) then

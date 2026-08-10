@@ -50,7 +50,7 @@ declare lovr: {
     keypressed: (key: string, scancode: string, isrepeat: boolean) -> (),
     textinput: (text: string) -> (),
     update: (dt: number) -> (),
-    draw: () -> (),
+    draw: (pass: any) -> (),
     load: (arg: any) -> (),
     conf: any,
     errhand: any,
