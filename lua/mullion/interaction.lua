@@ -35,6 +35,9 @@ local methods = {}
 local metatable = { __index = methods }
 local applyDeadZone, distanceBetween, grabberOf, remove
 
+-- The shape of a tuning table.
+type Tuning = typeof(interaction.TUNING)
+
 -- Every live pointer, in creation order. Rebuilt when this file runs, so a soft
 -- reload starts with none.
 local pointers = {}
@@ -106,7 +109,12 @@ interaction.POSE_PROPERTY = 'mullion.pose'
 -- The direction is normalised first. `panel.rayQuadHit` reports the distance in
 -- units of the direction it was given, so an unnormalised ray would be compared
 -- against the reach in units of itself and a longer vector would see further.
-function interaction.pick(surfaces, origin, direction, tuning)
+function interaction.pick(
+  surfaces: { any },
+  origin: any,
+  direction: any,
+  tuning: Tuning
+): (any, number?, number?, number?)
   tuning = tuning or interaction.TUNING
 
   local x, y, z = interaction.components(direction, 'the ray direction')
@@ -116,7 +124,7 @@ function interaction.pick(surfaces, origin, direction, tuning)
   end
   local ray = { x / length, y / length, z / length }
 
-  local hit, hitX, hitY, hitDistance
+  local hit: any, hitX: number?, hitY: number?, hitDistance: number?
   for _, candidate in ipairs(surfaces) do
     if not candidate.dead then
       local pixelX, pixelY, distance = candidate:raycast(origin, ray)
@@ -140,7 +148,7 @@ end
 -- The vertical axis is inverted. A stick pushed away from the user reads as
 -- "go up the page", and Wayland's vertical axis grows downwards, so up is a
 -- negative delta.
-function interaction.scrollDelta(x, y, dt, tuning)
+function interaction.scrollDelta(x: number, y: number, dt: number?, tuning: Tuning)
   tuning = tuning or interaction.TUNING
   local scale = tuning.scrollScale * (dt or 0)
   return applyDeadZone(x, tuning.scrollDeadZone) * scale,
@@ -158,7 +166,7 @@ end
 -- per-monitor one, so a mirrored screen's pose has nowhere native to live; that
 -- is a gap in the API rather than a decision made here, and until it closes a
 -- monitor's arrangement is `mullion.persist`'s to write to disk.
-function interaction.storePose(target)
+function interaction.storePose(target: any): boolean
   if target.dead or target.kind ~= 'window' then
     return false
   end
@@ -191,10 +199,12 @@ end
 -- `tuning`, defaulting to `interaction.TUNING`.
 function interaction.newPointer(options)
   options = options or {}
-
+  -- The options are a caller-supplied table; reading the fields through `any`
+  -- so the created pointer's own fields stay inferred rather than exact.
+  local opts: any = options
   local pointer = setmetatable({
-    seat = options.seat,
-    tuning = options.tuning or interaction.TUNING,
+    seat = opts.seat,
+    tuning = opts.tuning or interaction.TUNING,
     -- What the ray is over, and where on it, in the source's pixels.
     hovered = nil,
     hitX = nil,
@@ -208,6 +218,7 @@ function interaction.newPointer(options)
     -- the press, even when the ray has left it.
     pressed = false,
     pressedSink = nil,
+    pressedSurface = nil,
     dead = false,
   }, metatable)
 
@@ -492,7 +503,7 @@ grabberOf = function(target, except)
 end
 
 -- The distance between two positions, or nil when either is missing.
-distanceBetween = function(a, b)
+distanceBetween = function(a: { number }?, b: { number }?): number?
   if not a or not b then
     return nil
   end
@@ -643,7 +654,7 @@ end
 -- reads the same three forms, and this does not hand its work to it: the reach
 -- is in metres and a hit's distance is in units of the direction it was given,
 -- so the length has to be known here rather than only passed through.
-function interaction.components(value, name)
+function interaction.components(value: any, name: string)
   local kind = type(value)
   if kind == 'table' or kind == 'userdata' or kind == 'cdata' then
     if value.unpack then
@@ -662,7 +673,7 @@ end
 
 -- Takes a pointer out of the list, so that a long session does not accumulate
 -- dead entries.
-function remove(destroyed)
+function remove(destroyed: any)
   for index = 1, #pointers do
     if pointers[index] == destroyed then
       table.remove(pointers, index)

@@ -15,6 +15,15 @@
 
 local keycodes = {}
 
+-- One key in a row: a code, and optionally a label and a width in key units.
+type Key = {
+  code: number,
+  label: string?,
+  width: number?,
+}
+-- A row of keys.
+type Row = { Key }
+
 -- The keycodes with names of their own, for a caller that wants to press one
 -- without knowing evdev by heart.
 keycodes.SHIFT = 42
@@ -126,6 +135,6 @@ keycodes.ROWS = {
     { code = 100, label = 'altgr', width = 1.25 },
     { code = 97, label = 'ctrl', width = 1.25 },
   },
-}
+} :: { Row }
 
 return keycodes

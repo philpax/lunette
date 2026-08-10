@@ -44,6 +44,15 @@ local errors = {}
 -- because `newLimiter` runs before the methods below are filled in.
 local limiterMethods = {}
 local limiterMetatable = { __index = limiterMethods }
+-- A representative limiter, so that the metatable and the fields line up with
+-- what `newLimiter` builds.
+local limiterPrototype = setmetatable({
+  window = 0,
+  maxKeys = 0,
+  entries = {},
+  order = {},
+}, limiterMetatable)
+type Limiter = typeof(limiterPrototype)
 local touch, defaultClock
 
 -- How long identical errors are counted for before one is let through again, in
@@ -72,7 +81,7 @@ end
 --
 -- `window` is how long identical occurrences are counted for and `maxKeys` how
 -- many distinct ones are tracked; both default to the constants above.
-function errors.newLimiter(window, maxKeys)
+function errors.newLimiter(window: number?, maxKeys: number?): Limiter
   return setmetatable({
     window = window or errors.WINDOW,
     maxKeys = maxKeys or errors.MAX_KEYS,
@@ -88,7 +97,7 @@ end
 -- Returns whether this occurrence should be reported, and how many occurrences
 -- were counted and not reported since the last one that was. The first sighting
 -- of a key is always reported, with a suppressed count of zero.
-function limiterMethods:record(key, now)
+function limiterMethods:record(key: string, now: number)
   if type(key) ~= 'string' then
     error('mullion.error: a rate-limit key is a string, not a ' .. type(key), 2)
   end
@@ -128,13 +137,12 @@ end
 
 -- The limiter `errors.handle` rate-limits against, replaced on `uninstall` so
 -- that a reload does not inherit the old state's suppression counts.
-local limiter = errors.newLimiter()
+local limiter: Limiter = errors.newLimiter()
 
--- Whether `install` has run and `uninstall` has not, what `lovr.errhand` held
--- before it did, and where `install` reads the time from.
+-- Whether `install` has run and `uninstall` has not, and what `lovr.errhand`
+-- held before it did.
 local installed = false
 local previousHandler = nil
-local clockSource = nil
 
 -- The key an error is rate-limited under.
 --
@@ -201,10 +209,12 @@ function errors.install(clock)
 
   installed = true
   previousHandler = lovr and lovr.errhand
-  clockSource = clock or defaultClock
+  -- Captured rather than read through module state, which `uninstall` clears,
+  -- so the handler below has a non-nil source to call.
+  local source: () -> number = clock or defaultClock
 
   lovr.errhand = function(message, ...)
-    errors.handle(message, debug.traceback('', 2), clockSource())
+    errors.handle(message, debug.traceback('', 2), source())
     if previousHandler then
       return previousHandler(message, ...)
     end
@@ -231,7 +241,6 @@ function errors.uninstall()
     lovr.errhand = previousHandler
   end
   previousHandler = nil
-  clockSource = nil
   errors.forget()
   return true
 end

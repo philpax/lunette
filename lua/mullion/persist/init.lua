@@ -45,6 +45,17 @@ local teardown = require 'mullion.teardown'
 
 local persist = {}
 
+-- One entry as an arrangement holds it, matching `mullion.persist.format`.
+type Entry = {
+  kind: string,
+  key: string,
+  slot: number,
+  pose: string,
+  width: number?,
+  height: number?,
+  tags: { string },
+}
+
 -- Declared here and defined below the public API, so the file reads
 -- surface-first.
 local sourceKey, slotsFor, slotKey
@@ -61,7 +72,7 @@ local sourceKey, slotsFor, slotKey
 --
 -- Cleared by a load that could be used, so a user who moves the newer file away
 -- has saving back on the next start rather than for the rest of time.
-local declined = nil
+local declined: string? = nil
 
 -- The format's surface, so that a configuration requires one module. The
 -- versions and the text are documented in `mullion.persist.format`.
@@ -256,7 +267,8 @@ end
 -- `file` is an arrangement, a load, or nothing, per `persist.arrangementOf`.
 function persist.source(file)
   local available = slotsFor(file)
-  local assigned, counts = {}, {}
+  local assigned: { [any]: Entry } = {}
+  local counts: { [string]: number } = {}
 
   return function(window)
     local appId = window.appId
@@ -422,7 +434,7 @@ end
 
 -- Every entry, keyed by kind, key, and slot.
 function slotsFor(file)
-  local available = {}
+  local available: { [string]: Entry } = {}
   for _, entry in ipairs(format.entries(persist.arrangementOf(file))) do
     available[slotKey(entry.kind, entry.key, entry.slot)] = entry
   end
@@ -432,7 +444,7 @@ end
 -- How an entry is looked up. A nul between the parts, so that a key holding
 -- whatever a monitor's make and model happen to be cannot collide with another
 -- by running into the slot.
-function slotKey(kind, key, slot)
+function slotKey(kind: string, key: string, slot: number)
   return kind .. '\0' .. key .. '\0' .. slot
 end
 

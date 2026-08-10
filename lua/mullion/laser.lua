@@ -36,6 +36,48 @@ local methods = {}
 local metatable = { __index = methods }
 local remove
 
+-- A representative laser, so that the metatable and the fields line up with
+-- what `new` builds.
+local laserPrototype = setmetatable({
+  hand = '',
+  device = '',
+  controller = '',
+  seat = {},
+  ownsSeat = false,
+  -- A representative device seam, matching `headsetInput`'s signature.
+  readInput = function(hand: string): Input?
+    return nil
+  end,
+  pointer = {},
+  style = {},
+  input = nil,
+  dead = false,
+}, metatable)
+type Laser = typeof(laserPrototype)
+-- A frame of input from a pointer device, as `readInput` answers it.
+type Input = {
+  pose: any,
+  origin: any,
+  direction: any,
+  trigger: boolean,
+  grip: boolean,
+  scrollX: number,
+  scrollY: number,
+  dt: number,
+}
+-- The options `new` and `attach` take.
+type LaserOptions = {
+  seat: any?,
+  name: string?,
+  readInput: ((hand: string) -> Input?)?,
+  tuning: { any }?,
+  style: Style?,
+}
+-- The look of a laser, taken from a representative instance.
+type Style = typeof(laser.STYLE)
+-- A LÖVR `Pass`, passed to draw callbacks and used for all drawing.
+type Pass = any
+
 -- Every live laser, in creation order. Rebuilt when this file runs, so a soft
 -- reload starts with none.
 local lasers = {}
@@ -75,7 +117,7 @@ laser.STYLE = {
 -- `options` takes `seat`, a seat to use instead of making one; `name`, what a
 -- made seat is called; `readInput`, the device seam; `tuning`, passed to the
 -- pointer; and `style`.
-function laser.new(hand, options)
+function laser.new(hand: string, options: LaserOptions): Laser
   local device = laser.DEVICES[hand]
   if not device then
     error("mullion.laser: '" .. tostring(hand) .. "' is not a hand a laser is made for", 2)
@@ -111,7 +153,7 @@ end
 --
 -- Safe to call twice, which is what makes it usable from a configuration that
 -- is reloaded: a hand that already has a live laser keeps it.
-function laser.attach(options)
+function laser.attach(options: LaserOptions)
   local attached = {}
   for _, hand in ipairs(laser.HANDS) do
     attached[#attached + 1] = laser.forHand(hand) or laser.new(hand, options)
@@ -152,7 +194,7 @@ function laser.update(surfaces)
 end
 
 -- Draws every laser.
-function laser.draw(pass)
+function laser.draw(pass: Pass)
   for _, existing in ipairs(laser.all()) do
     existing:draw(pass)
   end
@@ -173,7 +215,7 @@ end
 --
 -- The default `readInput`, and the one part of this module a spec cannot reach:
 -- it is `lovr.headset` and nothing else, so it is a human gate.
-function laser.headsetInput(hand)
+function laser.headsetInput(hand: string): Input?
   local headset = lovr.headset
   if not headset then
     return nil
@@ -230,7 +272,7 @@ end
 -- Nothing is drawn before the first update, or while the hand is untracked:
 -- there is no ray to draw, and drawing the last one would leave a beam hanging
 -- in the air from a controller that has been put down.
-function methods:draw(pass)
+function methods:draw(pass: Pass)
   if self.dead or not self.input then
     return
   end

@@ -33,7 +33,7 @@ declare lovr: {
         read: (string) -> string?,
         write: (string, string) -> boolean,
         getSource: (string) -> string?,
-        getSaveDirectory: () -> string?,
+        getSaveDirectory: () -> string,
     },
     timer: {
         getTime: () -> number,

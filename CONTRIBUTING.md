@@ -56,7 +56,7 @@ Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new
 
 There is no upstream Lua template. These conventions apply to the `mullion` standard library and to example configurations.
 
-- Target LuaJIT, which is Lua 5.1 syntax. Do not use 5.2 or later syntax such as integer division or `goto` labels outside LuaJIT's support.
+- Target Luau, which accepts Lua 5.1 syntax and adds type annotations. Do not use LuaJIT-only or 5.2+ syntax that Luau rejects, and no `goto` (Luau has none).
 - Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
 - Keep the two roots distinct. `lunette` is native mechanism; `mullion` is policy implemented in Lua. Do not add policy to `lunette` or expect mechanism from `mullion`.
@@ -67,6 +67,14 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 - Raise errors normally. Callbacks run under `xpcall`, and the handler reports them. Do not swallow errors to keep a frame alive.
 - The file-size threshold is around 500 lines, lower than the Rust threshold because Lua modules carry less ceremony.
 - Comments end with a period. Headings and titles use sentence case.
+
+### The Luau static check
+
+`scripts/check-luau.sh` typechecks `lua/mullion` and the shipped configuration with the Luau type checker, built from the vendored LÖVR Luau fork as a standalone target. It runs as the sixth check at the end of each complete task, and as part of `make check`.
+
+The checker is strict mode. The `lunette` module and the runtime globals LÖVR and the 5.1 shims provide (`lovr`, `io`, and the standard 5.1 functions) are declared in `etc/lunette/definitions.luau`; mullion modules carry their own types. A module that needs a `lovr` field the definitions lack extends that file, minimally, in the same change. The spec suite under `lua/spec` is deliberately not typechecked — it runs under Luau as the in-binary test job, and its harness globals are not a typecheck target.
+
+The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
 
 ## General conventions
 
@@ -172,6 +180,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
   - `cargo test --workspace`
   - `cargo test --workspace --no-default-features`
+  - `./scripts/check-luau.sh` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml
