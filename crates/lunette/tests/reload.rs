@@ -114,9 +114,13 @@ fn a_connected_client_does_not_notice_a_reload() {
 /// this case is about the compositor and not about the filesystem.
 fn configured_state() -> Lua {
     let lua = Lua::new();
-    lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr }) arg = {}")
-        .exec()
-        .expect("the boot scaffolding loads");
+    lua.load(
+        "lovr = {} lovr.handlers = setmetatable({}, { __index = lovr }) arg = {} \
+         package = { preload = {}, loaded = {} } \
+         require = function(name) return package.loaded[name] end",
+    )
+    .exec()
+    .expect("the boot scaffolding loads");
 
     let preload: Table = lua
         .globals()

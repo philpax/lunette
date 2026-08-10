@@ -85,7 +85,9 @@ end
 -- guess at.
 function raycast.components(value, name)
   local kind = type(value)
-  if kind == 'userdata' or kind == 'cdata' then
+  -- A vector is its own type under Luau, and a Vec3 under LuaJIT is a
+  -- userdata; both unpack the same way.
+  if kind == 'userdata' or kind == 'cdata' or kind == 'vector' then
     return value:unpack()
   end
   if kind == 'table' then

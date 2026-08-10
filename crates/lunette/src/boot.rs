@@ -261,6 +261,11 @@ fn run_session(
         let outcome = run_steps(state, thread, driver, control, cookie, &lua_handle);
 
         // `run_steps` closed the state via `luax_close` (LÖVR's finalizers ran).
+        // Mark the mlua state closed so that ValueRefs dropped during this
+        // function's unwind (e.g. the `Function` captured by the safe-mode
+        // trigger) skip poking the freed ref thread.
+        lua_handle.exec_raw_lua(|raw| raw.mark_closed());
+
         // The mlua handle would close it again on drop, so it is forgotten —
         // the state is already gone, and the handle is the only thing that
         // would touch it.
@@ -344,6 +349,10 @@ unsafe fn run_steps(
                     }
                 }
                 clear_log_callback();
+                // The state is about to close; mark it so mlua ValueRefs
+                // dropped during `luax_close`'s finalizer GC skip the freed
+                // ref thread.
+                lua_handle.exec_raw_lua(|raw| raw.mark_closed());
                 // SAFETY: no Lua value obtained above outlives this call.
                 unsafe { raw::luax_close(state.cast()) };
                 return Outcome::Restart;
@@ -353,6 +362,10 @@ unsafe fn run_steps(
                 // graphics module and the device the compositor borrowed.
                 driver.shutdown();
                 clear_log_callback();
+                // The state is about to close; mark it so mlua ValueRefs
+                // dropped during `luax_close`'s finalizer GC skip the freed
+                // ref thread.
+                lua_handle.exec_raw_lua(|raw| raw.mark_closed());
                 // `src/main.c:23` closes the thread rather than the state on
                 // this path, which LÖVR resolves back to the main state.
                 //

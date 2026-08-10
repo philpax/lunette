@@ -117,9 +117,12 @@ function format.read(text)
     return format.broken('the file is a ' .. type(text) .. ', not text')
   end
 
-  local chunk, message = loadstring(text, '@arrangement')
-  if not chunk then
-    return format.broken(tostring(message))
+  -- LuaJIT returns `nil, message` for an unparseable chunk; Luau raises a
+  -- syntax error instead. The file is broken either way, and the loader must
+  -- report it, not propagate it.
+  local ok, chunk = pcall(loadstring, text, '@arrangement')
+  if not ok or not chunk then
+    return format.broken(tostring(chunk or 'the file is not parseable'))
   end
   -- An empty environment, so the chunk can build tables and reach nothing. It is
   -- data this process wrote, and it is still read as though it were not.
