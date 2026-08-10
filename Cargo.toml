@@ -79,3 +79,13 @@ xkbcommon = { version = "=0.8.0", features = ["wayland"] }
 wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719d3f23a20e50bd3237c29a8082cb", default-features = false, features = [
     "pipewire",
 ] }
+
+# mlua is vendored as a submodule at vendor/mlua (upstream mlua-rs/mlua, pinned
+# to v0.12.0) and mlua-sys is patched in from it: lunette uses the LÖVR Luau
+# fork (`bjornbytes/luau` `lovr`), whose LUA_TQUATERNION value type shifts
+# Luau's type-tag numbering, and mlua-sys 0.11.0 compiles its luau ffi
+# constants against upstream Luau. The submodule carries the fork-aligned
+# constants (one file, `mlua-sys/src/luau/lua.rs`) plus the ABI matches for
+# the fork (cstack 1M, two-arg userdata dtor) that the LÖVR build provides.
+[patch.crates-io]
+mlua-sys = { path = "vendor/mlua/mlua-sys" }

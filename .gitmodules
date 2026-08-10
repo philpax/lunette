@@ -2,3 +2,6 @@
 	path = vendor/lovr
 	url = git@github.com:philpax/lovr.git
 	branch = lunette
+[submodule "vendor/mlua"]
+	path = vendor/mlua
+	url = https://github.com/mlua-rs/mlua.git
