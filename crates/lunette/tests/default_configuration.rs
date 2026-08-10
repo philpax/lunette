@@ -235,7 +235,7 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
                 if let Ok(source) = std::fs::read_to_string(&candidate) {
                     let function = lua
                         .load(&source)
-                        .set_name(&format!("={candidate}"))
+                        .set_name(format!("={candidate}"))
                         .into_function()?;
                     return Ok(vec![mlua::Value::Function(function)].into());
                 }

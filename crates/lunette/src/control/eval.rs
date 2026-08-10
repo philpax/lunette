@@ -296,9 +296,7 @@ unsafe fn install_interrupt(lua: &Lua, interrupt: &Interrupt) -> mlua::Result<()
             // through `goto exit`, which runs after this frame.
             let action = INTERRUPT.with(|slot| {
                 let slot = slot.borrow();
-                let Some(interrupt) = slot.as_ref() else {
-                    return None;
-                };
+                let interrupt = slot.as_ref()?;
 
                 if (interrupt.clock)() < interrupt.deadline {
                     return None;

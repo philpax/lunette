@@ -317,7 +317,7 @@ unsafe fn run_steps(
                 // captured by the closure is valid for the whole loop.
                 if let Some(control) = control {
                     control.drain(CHUNKS_PER_FRAME, |chunk| {
-                        answer(&lua_handle, chunk, Budget::DEFAULT)
+                        answer(lua_handle, chunk, Budget::DEFAULT)
                     });
                 }
 

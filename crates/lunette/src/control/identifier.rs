@@ -34,8 +34,6 @@ const KEYWORDS: [&str; 21] = [
 
 #[cfg(test)]
 mod tests {
-    use mlua::Lua;
-
     use super::*;
 
     /// The oracle: the interpreter decides, and this list has to agree with it.
