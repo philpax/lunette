@@ -88,4 +88,5 @@ wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719
 # constants (one file, `mlua-sys/src/luau/lua.rs`) plus the ABI matches for
 # the fork (cstack 1M, two-arg userdata dtor) that the LÖVR build provides.
 [patch.crates-io]
+mlua = { path = "vendor/mlua" }
 mlua-sys = { path = "vendor/mlua/mlua-sys" }
