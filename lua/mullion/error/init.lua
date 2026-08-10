@@ -142,7 +142,7 @@ local limiter: Limiter = errors.newLimiter()
 -- Whether `install` has run and `uninstall` has not, and what `lovr.errhand`
 -- held before it did.
 local installed = false
-local previousHandler = nil
+local previousHandler: ((string) -> ())? = nil
 
 -- The key an error is rate-limited under.
 --

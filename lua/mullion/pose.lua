@@ -24,7 +24,7 @@ pose.ELEMENTS = 16
 function pose.encode(matrix)
   local elements = { matrix:unpack(true) }
   for index = 1, pose.ELEMENTS do
-    elements[index] = string.format('%.9g', elements[index])
+    elements[index] = string.format('%.9g', elements[index] :: number)
   end
   return table.concat(elements, ' ')
 end

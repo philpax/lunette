@@ -368,7 +368,7 @@ end
 -- line of sight, upright, facing the user.
 local function placeKeyboard(target)
   local hx, hy, hz, angle, ax, ay, az = lovr.headset.getPose('head')
-  local forward = lovr.math.quat(angle, ax, ay, az):direction()
+  local forward = (lovr.math.quat(angle, ax, ay, az) :: any):direction()
 
   local flat = lovr.math.vec3(forward.x, 0, forward.z)
   if flat:length() < 0.001 then
@@ -459,7 +459,7 @@ end
 
 function wristButton:onPress()
   toggleKeyboard()
-  lovr.headset.vibrate(WRIST.hand, 0.3, 0.05)
+  lovr.headset.vibrate(WRIST.hand, 0.3, 0.05, 0)
 end
 
 -- Draws the wrist button, so there is something to aim at.

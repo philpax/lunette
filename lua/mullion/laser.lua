@@ -318,7 +318,9 @@ function methods:vibrate()
   if not headset or not headset.vibrate then
     return false
   end
-  return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration)
+  -- The fourth argument is the haptic frequency in hertz; 0 selects the
+  -- device default, which is what a style that does not name one wants.
+  return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration, 0)
     and true
 end
 
