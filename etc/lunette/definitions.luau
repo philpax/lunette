@@ -21,6 +21,8 @@ declare lovr: {
     math: {
         vec3: (...number) -> any,
         mat4: (...any) -> any,
+        mat: (...any) -> any,
+        newMat: (...any) -> any,
         quat: (...number) -> any,
     },
     graphics: any,
