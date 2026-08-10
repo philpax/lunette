@@ -53,6 +53,8 @@ declare io: {
     open: (string, string?) -> any,
     lines: (string) -> { string },
     write: (...any) -> (),
+    read: (string) -> (),
+    type: (string) -> string?,
 }
 
 declare arg: { string }
