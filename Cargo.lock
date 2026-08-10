@@ -660,6 +660,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "lovr-docs"
+version = "0.1.0"
+dependencies = [
+ "lunette-lovr",
+ "mlua",
+ "mlua-sys",
+]
+
+[[package]]
 name = "luau0-src"
 version = "0.20.7+luau728"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -4,6 +4,7 @@ members = [
     "crates/lunette-capture",
     "crates/lunette-compositor",
     "crates/lunette-lovr",
+    "crates/lovr-docs",
 ]
 resolver = "3"
 
