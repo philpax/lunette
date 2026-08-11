@@ -128,6 +128,15 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
+    if let Some(cli::Command::Check {
+        roots,
+        definitions,
+        old_solver,
+    }) = &arguments.command
+    {
+        return cli::check(roots, definitions.as_deref(), *old_solver);
+    }
+
     if let Some(destination) = &arguments.dump_config {
         // An empty value is what the flag takes when it is given without one,
         // and the first candidate is where a user's own configuration belongs.

@@ -11,9 +11,12 @@ use std::{
     fmt::{self, Display, Formatter},
     fs, io,
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
 use clap::Parser;
+use lunette_lovr::analyze::{self, Request};
+use tracing::{error, info, warn};
 
 /// What lunette was asked to do.
 #[derive(Debug, Parser)]
@@ -23,6 +26,10 @@ use clap::Parser;
     version
 )]
 pub struct Cli {
+    /// What to do instead of running a session.
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
     /// Load the configuration from this directory instead of searching for one.
     ///
     /// The search path is `$XDG_CONFIG_HOME/lunette`, then
@@ -42,6 +49,73 @@ pub struct Cli {
     /// Passed through to LÖVR, and on to the configuration as `arg`.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub forwarded: Vec<OsString>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum Command {
+    /// Typecheck a configuration and the standard library it uses.
+    Check {
+        /// The files to check. Defaults to the configuration directory's own.
+        #[arg(value_name = "FILE")]
+        roots: Vec<PathBuf>,
+
+        /// The definitions to check against, naming the runtime globals.
+        #[arg(long, value_name = "FILE")]
+        definitions: Option<PathBuf>,
+
+        /// Typecheck with the old solver rather than the current one.
+        #[arg(long)]
+        old_solver: bool,
+    },
+}
+
+/// Typechecks `roots`, reporting what it found.
+///
+/// A root that was not read fails the run on its own: a check that passes
+/// because it silently skipped its input is the failure this guards against.
+pub fn check(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> ExitCode {
+    if roots.is_empty() {
+        error!("check: no files were named");
+        return ExitCode::FAILURE;
+    }
+
+    let request = Request {
+        old_solver,
+        ..Request::new(definitions.map(Path::to_owned), roots.to_vec())
+    };
+
+    let report = match analyze::check(&request) {
+        Ok(report) => report,
+        Err(error) => {
+            error!("{error}");
+            if let analyze::Error::Failed { diagnostics, .. } = &error {
+                for diagnostic in diagnostics {
+                    error!("{diagnostic}");
+                }
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+
+    for diagnostic in &report.diagnostics {
+        if diagnostic.kind == analyze::Kind::LintWarning {
+            warn!("{diagnostic}");
+        } else {
+            error!("{diagnostic}");
+        }
+    }
+
+    let skipped = report.skipped(&request);
+    for path in &skipped {
+        error!(path = %path.display(), "check: this was never read, so nothing checked it");
+    }
+
+    if report.is_clean() && skipped.is_empty() {
+        info!(files = report.checked.len(), "check: nothing to report");
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 /// Copies `source` to `destination`, refusing to overwrite anything.
