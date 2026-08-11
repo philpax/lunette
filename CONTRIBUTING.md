@@ -68,11 +68,17 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 - The file-size threshold is around 500 lines, lower than the Rust threshold because Lua modules carry less ceremony.
 - Comments end with a period. Headings and titles use sentence case.
 
+### Formatting
+
+`stylua.toml` configures StyLua for the tree, and `stylua --check lua etc/xdg/lunette` is one of the standing checks. The settings describe what the tree already did rather than imposing something new: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width, which is where the code already sat.
+
+`syntax = "Luau"` is set because the tree carries type annotations that the Lua grammars reject.
+
 ### The Luau static check
 
-`scripts/check-luau.sh` typechecks `lua/mullion` and the shipped configuration with the Luau type checker, built from the vendored LÖVR Luau fork as a standalone target. It runs as the sixth check at the end of each complete task, and as part of `make check`.
+`scripts/check-luau.sh` typechecks `lua/mullion` and the shipped configuration with the Luau type checker, built from the vendored LÖVR Luau fork as a standalone target. It runs at the end of each complete task, and as part of `make check`.
 
-The checker is strict mode. The `lunette` module and the runtime globals LÖVR and the 5.1 shims provide (`lovr`, `io`, and the standard 5.1 functions) are declared in `etc/lunette/definitions.luau`; mullion modules carry their own types. A module that needs a `lovr` field the definitions lack extends that file, minimally, in the same change. The spec suite under `lua/spec` is deliberately not typechecked — it runs under Luau as the in-binary test job, and its harness globals are not a typecheck target.
+The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lovr-docs`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types. The spec suite under `lua/spec` is deliberately not typechecked — it runs under Luau as the in-binary test job, and its harness globals are not a typecheck target.
 
 The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
 
@@ -180,6 +186,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
   - `cargo test --workspace`
   - `cargo test --workspace --no-default-features`
+  - `stylua --check lua etc/xdg/lunette` — the Luau formatter (see [formatting](#formatting))
   - `./scripts/check-luau.sh` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 

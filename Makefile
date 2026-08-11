@@ -57,6 +57,7 @@ build:
 check:
 	$(CARGO) clippy --workspace --all-targets --all-features -- -D warnings
 	$(CARGO) test --workspace
+	stylua --check lua etc/xdg/lunette
 	./scripts/check-luau.sh
 
 install: install-binary install-lua install-config
