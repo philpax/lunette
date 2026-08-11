@@ -92,11 +92,7 @@ spec('requiring every module twice leaves one teardown hook each', function()
 
     expect.equal(duplicates(first), '', 'duplicate hooks after the first pass')
     expect.equal(duplicates(second), '', 'duplicate hooks after the second pass')
-    expect.equal(
-      table.concat(second, ','),
-      table.concat(first, ','),
-      'the hooks registered'
-    )
+    expect.equal(table.concat(second, ','), table.concat(first, ','), 'the hooks registered')
     expect.truthy(#first > 0, 'some module should register a teardown hook')
   end)
 

@@ -87,11 +87,7 @@ spec('every module is named in the coverage table', function()
     end
   end
 
-  expect.equal(
-    table.concat(missing, ', '),
-    '',
-    'modules with no entry in the coverage table'
-  )
+  expect.equal(table.concat(missing, ', '), '', 'modules with no entry in the coverage table')
 end)
 
 spec('every module the coverage table names exists', function()

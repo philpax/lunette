@@ -521,11 +521,12 @@ function methods:draw(pass)
   -- The extent rides in the transform's scale. `luax_readmat4` consumes a whole
   -- `Mat4` and reads the argument after it as the draw style, so a plane placed
   -- by matrix takes its size from that matrix and not from two more arguments.
-  pass:plane(lovr.math.mat4(self.pose):translate(0, 0, -style.plateDepth):scale(
-    width + style.margin * 2,
-    height + style.margin * 2,
-    1
-  ))
+  pass:plane(
+    lovr.math
+      .mat4(self.pose)
+      :translate(0, 0, -style.plateDepth)
+      :scale(width + style.margin * 2, height + style.margin * 2, 1)
+  )
 
   local held = self:modifiers()
   for _, key in ipairs(self:keys()) do
@@ -544,12 +545,7 @@ function methods:draw(pass)
       keyColor = style.hoverColor
     end
     pass:setColor(keyColor[1], keyColor[2], keyColor[3], keyColor[4])
-    pass:plane(
-      lovr.math
-        .mat4(self.pose)
-        :translate(x, y, 0)
-        :scale(key.width - style.gap, key.height - style.gap, 1)
-    )
+    pass:plane(lovr.math.mat4(self.pose):translate(x, y, 0):scale(key.width - style.gap, key.height - style.gap, 1))
 
     local legend = style.legendColor
     pass:setColor(legend[1], legend[2], legend[3], legend[4])

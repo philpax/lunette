@@ -124,7 +124,7 @@ spec('an error a handler raises propagates rather than being swallowed', functio
   local after, afterCalls = recorder()
 
   signal.connect(target, 'moved', function()
-    error('the handler said no')
+    error 'the handler said no'
   end)
   signal.connect(target, 'moved', after)
 

@@ -121,8 +121,7 @@ local NOTE_HEIGHT = 0.08
 --   WAYLAND_DISPLAY=wayland-20 foot
 --
 -- lunette logs the display name it bound as it starts.
-local DEMONSTRATION_TERMINALS =
-  { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
+local DEMONSTRATION_TERMINALS = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
 
 -- The tag every panel joins, and the panels no source gave a pose for.
 --
@@ -156,7 +155,7 @@ local function spawnNextTerminal()
   local program = DEMONSTRATION_TERMINALS[attempt]
   if not program then
     attempted = nil
-    print('lunette: no terminal emulator was found; start a client yourself with WAYLAND_DISPLAY')
+    print 'lunette: no terminal emulator was found; start a client yourself with WAYLAND_DISPLAY'
     return
   end
 
@@ -356,7 +355,7 @@ function lovr.textinput(text)
     return
   end
 
-  for character in text:gmatch('.') do
+  for character in text:gmatch '.' do
     local found = seat:strokeFor(character)
     if found then
       stroke(found.keycode, found.modifiers or {})
@@ -367,7 +366,7 @@ end
 -- Puts the keyboard where it can be typed on: ahead of the head and below the
 -- line of sight, upright, facing the user.
 local function placeKeyboard(target)
-  local hx, hy, hz, angle, ax, ay, az = lovr.headset.getPose('head')
+  local hx, hy, hz, angle, ax, ay, az = lovr.headset.getPose 'head'
   local forward = (lovr.math.quat(angle, ax, ay, az) :: any):direction()
 
   local flat = lovr.math.vec3(forward.x, 0, forward.z)
@@ -376,16 +375,19 @@ local function placeKeyboard(target)
   end
   flat:normalize()
 
-  target:setPose(lovr.math.mat4()
-    :translate(
-      hx + flat.x * WRIST.keyboardDistance,
-      hy - WRIST.keyboardDrop,
-      hz + flat.z * WRIST.keyboardDistance
-    )
+  target:setPose(lovr
+    .math
+    .mat4()
+    :translate(hx + flat.x * WRIST.keyboardDistance, hy - WRIST.keyboardDrop, hz + flat.z * WRIST.keyboardDistance)
     :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
     -- Tilted back, so it faces a head looking down at it rather than straight
     -- ahead past it.
-    :rotate(-math.pi / 6, 1, 0, 0))
+    :rotate(
+      -math.pi / 6,
+      1,
+      0,
+      0
+    ))
 end
 
 -- Shows the keyboard, or hides it if it is already up.
@@ -474,17 +476,12 @@ local function drawWrist(pass)
   else
     pass:setColor(0.2, 0.2, 0.24)
   end
-  pass:plane(
-    lovr.math.mat4(wristButton.pose):scale(wristButton.width, wristButton.height, 1)
-  )
+  pass:plane(lovr.math.mat4(wristButton.pose):scale(wristButton.width, wristButton.height, 1))
 
   -- In front of the face rather than on it. Text at the same depth as the quad
   -- fights it for the depth buffer and flickers as the hand moves.
   pass:setColor(1, 1, 1)
-  pass:text(
-    'kbd',
-    lovr.math.mat4(wristButton.pose):translate(0, 0, 0.002):scale(wristButton.width * 0.35)
-  )
+  pass:text('kbd', lovr.math.mat4(wristButton.pose):translate(0, 0, 0.002):scale(wristButton.width * 0.35))
 end
 
 -- Everything a pointer may hit this frame: the tag's panels, the wrist button,

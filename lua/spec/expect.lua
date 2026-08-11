@@ -23,11 +23,7 @@ end
 
 function expect.equal(actual, wanted, context)
   if actual ~= wanted then
-    fail((context or 'value')
-      .. ': wanted '
-      .. show(wanted)
-      .. ', got '
-      .. show(actual))
+    fail((context or 'value') .. ': wanted ' .. show(wanted) .. ', got ' .. show(actual))
   end
 end
 
@@ -53,13 +49,15 @@ function expect.near(actual, wanted, tolerance, context)
   -- Catches nan as well as a value that is merely far away: every comparison
   -- against nan is false, so the subtraction below would pass it.
   if not (math.abs(actual - wanted) <= tolerance) then
-    fail((context or 'value')
-      .. ': wanted '
-      .. show(wanted)
-      .. ' to within '
-      .. show(tolerance)
-      .. ', got '
-      .. show(actual))
+    fail(
+      (context or 'value')
+        .. ': wanted '
+        .. show(wanted)
+        .. ' to within '
+        .. show(tolerance)
+        .. ', got '
+        .. show(actual)
+    )
   end
 end
 
@@ -73,11 +71,7 @@ function expect.raises(run, pattern, context)
   end
   message = tostring(message)
   if pattern and not message:find(pattern) then
-    fail((context or 'call')
-      .. ": raised with a message not matching '"
-      .. pattern
-      .. "': "
-      .. message)
+    fail((context or 'call') .. ": raised with a message not matching '" .. pattern .. "': " .. message)
   end
   return message
 end

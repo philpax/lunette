@@ -59,11 +59,7 @@ spec('discovery descends into subdirectories', function()
 
   local names = runner.discover(filesystem, 'spec', 'spec.')
 
-  expect.equal(
-    table.concat(names, ','),
-    'spec.a_spec,spec.nested.b_spec,spec.nested.deeper.c_spec',
-    'the names found'
-  )
+  expect.equal(table.concat(names, ','), 'spec.a_spec,spec.nested.b_spec,spec.nested.deeper.c_spec', 'the names found')
 end)
 
 spec('discovery is sorted, so a run reports in a stable order', function()
@@ -98,7 +94,7 @@ spec('every case runs even when one of them raises', function()
     ran[#ran + 1] = 'first'
   end)
   collected('second', function()
-    error('this one fails')
+    error 'this one fails'
   end)
   collected('third', function()
     ran[#ran + 1] = 'third'
@@ -121,7 +117,7 @@ spec('the finished hook runs once per case', function()
   local collected = suite.new 'a suite'
   collected('first', function() end)
   collected('second', function()
-    error('this one fails')
+    error 'this one fails'
   end)
 
   runner.run({ collected }, function()
@@ -143,7 +139,7 @@ end)
 spec('a failure is named in the report', function()
   local collected = suite.new 'a suite'
   collected('a case', function()
-    error('nope')
+    error 'nope'
   end)
 
   local report = runner.format(runner.run { collected })

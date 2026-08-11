@@ -277,8 +277,7 @@ function methods:draw(pass: Pass)
     return
   end
 
-  local originX, originY, originZ =
-    interaction.components(self.input.origin, 'the ray origin')
+  local originX, originY, originZ = interaction.components(self.input.origin, 'the ray origin')
   local x, y, z = interaction.components(self.input.direction, 'the ray direction')
   local length = math.sqrt(x * x + y * y + z * z)
   if not (length > 0) then
@@ -307,7 +306,7 @@ function methods:draw(pass: Pass)
     pass:sphere(endX, endY, endZ, style.cursorRadius)
   end
 
-  pass:setDepthTest('lequal')
+  pass:setDepthTest 'lequal'
   pass:setDepthWrite(true)
   pass:setColor(1, 1, 1, 1)
 end
@@ -320,8 +319,7 @@ function methods:vibrate()
   end
   -- The fourth argument is the haptic frequency in hertz; 0 selects the
   -- device default, which is what a style that does not name one wants.
-  return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration, 0)
-    and true
+  return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration, 0) and true
 end
 
 -- Withdraws the laser: destroys its pointer, destroys the seat it made, and

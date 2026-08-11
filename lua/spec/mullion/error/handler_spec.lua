@@ -44,8 +44,8 @@ spec('reports the first occurrence of an error', function()
 
   expect.truthy(errors.handle('it broke', 'a traceback', 0), 'handle')
   expect.equal(#reports, 1, 'report count')
-  expect.truthy(reports[1]:find('it broke'), 'the message')
-  expect.truthy(reports[1]:find('a traceback'), 'the traceback')
+  expect.truthy(reports[1]:find 'it broke', 'the message')
+  expect.truthy(reports[1]:find 'a traceback', 'the traceback')
 end)
 
 spec('suppresses identical errors within the window', function()
@@ -68,7 +68,7 @@ spec('reports a count when the window has elapsed', function()
   expect.truthy(errors.handle('it broke', 'a traceback', errors.WINDOW), 'the occurrence after the window')
 
   expect.equal(#reports, 2, 'report count')
-  expect.truthy(reports[2]:find('2 identical errors were suppressed'), 'the count: ' .. reports[2])
+  expect.truthy(reports[2]:find '2 identical errors were suppressed', 'the count: ' .. reports[2])
 end)
 
 spec('a single suppressed error is counted in the singular', function()
@@ -78,7 +78,7 @@ spec('a single suppressed error is counted in the singular', function()
   errors.handle('it broke', 'a traceback', 1)
   errors.handle('it broke', 'a traceback', errors.WINDOW)
 
-  expect.truthy(reports[2]:find('1 identical error was suppressed'), 'the count: ' .. reports[2])
+  expect.truthy(reports[2]:find '1 identical error was suppressed', 'the count: ' .. reports[2])
 end)
 
 spec('a report with nothing suppressed says nothing about suppression', function()
@@ -87,7 +87,7 @@ spec('a report with nothing suppressed says nothing about suppression', function
   errors.handle('it broke', 'a traceback', 0)
   errors.handle('it broke', 'a traceback', errors.WINDOW)
 
-  expect.falsy(reports[2]:find('suppressed'), 'the second report')
+  expect.falsy(reports[2]:find 'suppressed', 'the second report')
 end)
 
 spec('does not conflate distinct messages', function()
@@ -171,7 +171,7 @@ spec('a lovr.lunerror that raises does not take the report with it', function()
   local previous = lovr.lunerror
 
   lovr.lunerror = function()
-    error('the handler said no')
+    error 'the handler said no'
   end
   local reported = errors.handle('it broke', 'a traceback', 0)
   lovr.lunerror = previous

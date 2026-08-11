@@ -391,12 +391,7 @@ spec('the keyboard is as wide as its widest row', function()
   end
 
   expect.near(created.width, widest * keyboard.STYLE.keyUnit, TOLERANCE, 'the width')
-  expect.near(
-    created.height,
-    #keycodes.ROWS * keyboard.STYLE.keyUnit,
-    TOLERANCE,
-    'the height'
-  )
+  expect.near(created.height, #keycodes.ROWS * keyboard.STYLE.keyUnit, TOLERANCE, 'the height')
 end)
 
 spec('every key in the matrix carries a legend or a label', function()
@@ -470,8 +465,8 @@ spec('two pointers each keep their own highlighted key', function()
   created:setHovered(keys[1], 'left')
   created:setHovered(keys[2], 'right')
 
-  expect.truthy(created:isHovered(keys[1].code), 'the left hand\'s key')
-  expect.truthy(created:isHovered(keys[2].code), 'the right hand\'s key')
+  expect.truthy(created:isHovered(keys[1].code), "the left hand's key")
+  expect.truthy(created:isHovered(keys[2].code), "the right hand's key")
 
   created:setHovered(nil, 'left')
   expect.falsy(created:isHovered(keys[1].code), "the left hand's key after it moved off")

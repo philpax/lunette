@@ -165,7 +165,8 @@ spec('reset forgets the history and the settled rate', function()
 end)
 
 spec('a history of one still works', function()
-  local paced = pacer { tuning = { history = 1, busy = 0.5, foreground = false, background = 1, exempt = 30, exemptTypes = {} } }
+  local paced =
+    pacer { tuning = { history = 1, busy = 0.5, foreground = false, background = 1, exempt = 30, exemptTypes = {} } }
 
   expect.equal(paced:observe { visible = false, drew = true }, 30, 'the rate after one commit')
   expect.equal(paced:observe { visible = false, drew = false }, 1, 'the rate after one quiet frame')

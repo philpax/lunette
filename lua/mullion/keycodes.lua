@@ -53,8 +53,7 @@ keycodes.LOCKS = { capsLock = true }
 
 -- The order modifiers are reported in, so that what a client is told does not
 -- depend on the order a table happened to be walked in.
-keycodes.MODIFIER_ORDER =
-  { 'shift', 'capsLock', 'control', 'alt', 'numLock', 'mod3', 'logo', 'mod5' }
+keycodes.MODIFIER_ORDER = { 'shift', 'capsLock', 'control', 'alt', 'numLock', 'mod3', 'logo', 'mod5' }
 
 -- Where the keys are, in evdev keycodes, one array per row.
 --

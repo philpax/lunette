@@ -250,9 +250,7 @@ function persist.restore(file, panels)
   for _, entry in ipairs(format.entries(arrangement)) do
     if not matched[entry] then
       stale[#stale + 1] = entry
-      persist.report(
-        'nothing matched the saved ' .. tostring(entry.kind) .. " '" .. tostring(entry.key) .. "'"
-      )
+      persist.report('nothing matched the saved ' .. tostring(entry.kind) .. " '" .. tostring(entry.key) .. "'")
     end
   end
   return restored, stale

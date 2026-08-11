@@ -486,11 +486,12 @@ function methods.drawChrome(self: Panel, pass: Pass)
   -- Behind the panel by a hair, so the two do not fight for the same depth, and
   -- larger by the border's thickness on each side. The extent rides in the
   -- transform's scale, for the reason `draw` records.
-  pass:plane(lovr.math.mat4(self.pose):translate(0, 0, -style.borderDepth):scale(
-    self.width + style.borderThickness * 2,
-    self.height + style.borderThickness * 2,
-    1
-  ))
+  pass:plane(
+    lovr.math
+      .mat4(self.pose)
+      :translate(0, 0, -style.borderDepth)
+      :scale(self.width + style.borderThickness * 2, self.height + style.borderThickness * 2, 1)
+  )
 
   local title = self.title or (self.kind == 'window' and self.source.title) or self.source.name
   if title then

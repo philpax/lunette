@@ -66,7 +66,7 @@ spec('a hook that raises does not prevent the others running', function()
     ran[#ran + 1] = 'before'
   end)
   teardown.register('raises', function()
-    error('the hook said no')
+    error 'the hook said no'
   end)
   teardown.register('after', function()
     ran[#ran + 1] = 'after'
@@ -80,15 +80,15 @@ spec('a hook that raises is reported and returned', function()
   local reports = fresh()
 
   teardown.register('raises', function()
-    error('the hook said no')
+    error 'the hook said no'
   end)
   local failures = teardown.run()
 
   expect.equal(#failures, 1, 'failure count')
   expect.equal(failures[1].name, 'raises', 'the failing hook')
-  expect.truthy(failures[1].message:find('the hook said no'), 'the message')
+  expect.truthy(failures[1].message:find 'the hook said no', 'the message')
   expect.equal(#reports, 1, 'report count')
-  expect.truthy(reports[1]:find("'raises'"), 'the report names the hook')
+  expect.truthy(reports[1]:find "'raises'", 'the report names the hook')
 end)
 
 spec('a run in which nothing raised reports nothing', function()
@@ -182,7 +182,7 @@ spec('a hook that raised is not left registered', function()
   fresh()
 
   teardown.register('raises', function()
-    error('the hook said no')
+    error 'the hook said no'
   end)
   teardown.run()
 

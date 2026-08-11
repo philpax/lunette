@@ -380,8 +380,7 @@ spec('a pushed panel stops at the far limit rather than leaving the room', funct
   end
 
   local _, _, z = created.pose:getPosition()
-  expect.truthy(-z <= interaction.TUNING.reachMaximum + TOLERANCE,
-    'the panel to stop at reachMaximum')
+  expect.truthy(-z <= interaction.TUNING.reachMaximum + TOLERANCE, 'the panel to stop at reachMaximum')
 end)
 
 spec('a pulled panel stops before it reaches the hand', function()
@@ -395,8 +394,7 @@ spec('a pulled panel stops before it reaches the hand', function()
   end
 
   local _, _, z = created.pose:getPosition()
-  expect.truthy(-z >= interaction.TUNING.reachMinimum - TOLERANCE,
-    'the panel to stop at reachMinimum')
+  expect.truthy(-z >= interaction.TUNING.reachMinimum - TOLERANCE, 'the panel to stop at reachMinimum')
 end)
 
 spec('a stick held while grabbing scrolls nothing', function()
@@ -454,8 +452,7 @@ spec('a resize stops rather than shrinking a panel out of reach', function()
   -- Hands together: the ratio goes to nearly nothing.
   second:update(looking { grip = true, pose = poseAt(0.001, 0, 0) }, { created })
 
-  expect.truthy(created.width >= interaction.TUNING.resizeMinimum - TOLERANCE,
-    'the panel to stop at resizeMinimum')
+  expect.truthy(created.width >= interaction.TUNING.resizeMinimum - TOLERANCE, 'the panel to stop at resizeMinimum')
 end)
 
 spec('the hand that was carrying keeps carrying while the other resizes', function()
@@ -614,8 +611,7 @@ end)
 spec('restorePose puts a panel back where the store says', function()
   fresh()
   local created, window = panelAhead()
-  window.stored[interaction.POSE_PROPERTY] =
-    pose.encode(lovr.math.newMat4():translate(2, 1, -1))
+  window.stored[interaction.POSE_PROPERTY] = pose.encode(lovr.math.newMat4():translate(2, 1, -1))
 
   expect.truthy(interaction.restorePose(created), 'the restore')
   local x, y, z = created.pose:getPosition()

@@ -128,11 +128,7 @@ function interaction.pick(
   for _, candidate in ipairs(surfaces) do
     if not candidate.dead then
       local pixelX, pixelY, distance = candidate:raycast(origin, ray)
-      if
-        pixelX
-        and distance <= tuning.reach
-        and (not hitDistance or distance < hitDistance)
-      then
+      if pixelX and distance <= tuning.reach and (not hitDistance or distance < hitDistance) then
         hit, hitX, hitY, hitDistance = candidate, pixelX, pixelY, distance
       end
     end
@@ -151,8 +147,7 @@ end
 function interaction.scrollDelta(x: number, y: number, dt: number?, tuning: Tuning)
   tuning = tuning or interaction.TUNING
   local scale = tuning.scrollScale * (dt or 0)
-  return applyDeadZone(x, tuning.scrollDeadZone) * scale,
-    -applyDeadZone(y, tuning.scrollDeadZone) * scale
+  return applyDeadZone(x, tuning.scrollDeadZone) * scale, -applyDeadZone(y, tuning.scrollDeadZone) * scale
 end
 
 -- Writes a panel's pose to its window's property store, reporting whether it
@@ -174,8 +169,7 @@ function interaction.storePose(target: any): boolean
   if source.dead then
     return false
   end
-  return source:setProperty(interaction.POSE_PROPERTY, pose.encode(target.pose))
-    and true
+  return source:setProperty(interaction.POSE_PROPERTY, pose.encode(target.pose)) and true
 end
 
 -- Puts a panel back where the property store says it was, reporting whether
@@ -300,8 +294,7 @@ function methods:update(input, panels)
     return
   end
 
-  local hit, x, y, distance =
-    interaction.pick(panels or {}, input.origin, input.direction, self.tuning)
+  local hit, x, y, distance = interaction.pick(panels or {}, input.origin, input.direction, self.tuning)
   self:hover(hit)
   self.hitX, self.hitY, self.distance = x, y, distance
 
@@ -321,8 +314,7 @@ function methods:update(input, panels)
   local sink = hit and hit.sink and hit:sink() or nil
   if sink then
     sink:pointer(x, y, self.seat)
-    local dx, dy =
-      interaction.scrollDelta(input.scrollX or 0, input.scrollY or 0, input.dt or 0, self.tuning)
+    local dx, dy = interaction.scrollDelta(input.scrollX or 0, input.scrollY or 0, input.dt or 0, self.tuning)
     if dx ~= 0 or dy ~= 0 then
       sink:scroll(dx, dy, self.seat)
     end
@@ -542,8 +534,7 @@ function methods:scaleWith(handPose)
     return
   end
 
-  local separation =
-    distanceBetween({ handPose:getPosition() }, partner.handPosition)
+  local separation = distanceBetween({ handPose:getPosition() }, partner.handPosition)
   if not separation or separation <= 0 then
     return
   end
@@ -660,11 +651,7 @@ function interaction.components(value: any, name: string)
     if value.unpack then
       return value:unpack()
     end
-    if
-      type(value[1]) == 'number'
-      and type(value[2]) == 'number'
-      and type(value[3]) == 'number'
-    then
+    if type(value[1]) == 'number' and type(value[2]) == 'number' and type(value[3]) == 'number' then
       return value[1], value[2], value[3]
     end
   end

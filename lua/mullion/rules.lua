@@ -166,10 +166,7 @@ function rules.fromList(list)
       error('mullion.rules: the match of rule ' .. index .. ' is a table, not a ' .. type(rule.match), 2)
     end
     if rule.properties ~= nil and type(rule.properties) ~= 'table' then
-      error(
-        'mullion.rules: the properties of rule ' .. index .. ' are a table, not a ' .. type(rule.properties),
-        2
-      )
+      error('mullion.rules: the properties of rule ' .. index .. ' are a table, not a ' .. type(rule.properties), 2)
     end
     checked[index] = { match = rule.match, properties = rule.properties }
   end
@@ -396,9 +393,7 @@ function poseFrom(value, window)
 
   local decoded = pose.decode(value)
   if not decoded then
-    rules.report(
-      "the pose for '" .. tostring(window.appId) .. "' is not sixteen numbers, so it is ignored"
-    )
+    rules.report("the pose for '" .. tostring(window.appId) .. "' is not sixteen numbers, so it is ignored")
   end
   return decoded
 end

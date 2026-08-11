@@ -41,8 +41,7 @@ function raycast.hit(quad, origin, direction)
   local inverse = lovr.math.mat4(quad.pose):invert()
   local localOriginX, localOriginY, localOriginZ = inverse:mul(originX, originY, originZ, 1)
   -- With w = 0, so the translation does not apply: this is a direction.
-  local localDirectionX, localDirectionY, localDirectionZ =
-    inverse:mul(directionX, directionY, directionZ, 0)
+  local localDirectionX, localDirectionY, localDirectionZ = inverse:mul(directionX, directionY, directionZ, 0)
 
   -- A ray parallel to the plane meets it nowhere, and one travelling away from
   -- the viewer's side meets the back. A quad faces +z, as `Pass:plane` draws

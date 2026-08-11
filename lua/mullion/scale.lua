@@ -87,7 +87,7 @@ scale.STEPS = lunette.scaleSteps()
 -- The chooser starts on no step at all, so the first distance it is given picks
 -- one outright rather than being held back by hysteresis from a step nothing has
 -- ever been rendered at.
-function scale.newChooser(options: { tuning: Tuning?, steps: { number}? })
+function scale.newChooser(options: { tuning: Tuning?, steps: { number }? })
   options = options or {}
   local steps = options.steps or scale.STEPS
 

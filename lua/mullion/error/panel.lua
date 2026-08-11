@@ -196,7 +196,7 @@ end
 -- case and reading most of one is better than reading none of it.
 function wrap(text, columns)
   local lines = {}
-  for paragraph in (tostring(text) .. '\n'):gmatch('([^\n]*)\n') do
+  for paragraph in (tostring(text) .. '\n'):gmatch '([^\n]*)\n' do
     local remaining = paragraph
     if remaining == '' then
       lines[#lines + 1] = ''

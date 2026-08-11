@@ -302,8 +302,7 @@ spec('restore of a load carrying no arrangement places nothing rather than raisi
   reset()
   local screen = newMonitorPanel 'a screen'
 
-  local restored, stale =
-    persist.restore(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())), { screen })
+  local restored, stale = persist.restore(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())), { screen })
 
   expect.equal(#restored, 0, 'the panels restored')
   expect.equal(#stale, 0, 'the stale entries')

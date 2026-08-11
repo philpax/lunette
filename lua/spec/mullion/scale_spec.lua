@@ -155,10 +155,7 @@ spec('a walk that only closes never lowers the step', function()
 
   for tenths = 100, 1, -1 do
     local chosen = picked:choose(tenths / 10)
-    expect.truthy(
-      chosen >= previous,
-      'the scale fell from ' .. previous .. ' to ' .. chosen .. ' while closing'
-    )
+    expect.truthy(chosen >= previous, 'the scale fell from ' .. previous .. ' to ' .. chosen .. ' while closing')
     previous = chosen
   end
 end)
@@ -169,10 +166,7 @@ spec('a walk that only recedes never raises the step', function()
 
   for tenths = 1, 100 do
     local chosen = picked:choose(tenths / 10)
-    expect.truthy(
-      chosen <= previous,
-      'the scale rose from ' .. previous .. ' to ' .. chosen .. ' while receding'
-    )
+    expect.truthy(chosen <= previous, 'the scale rose from ' .. previous .. ' to ' .. chosen .. ' while receding')
     previous = chosen
   end
 end)
