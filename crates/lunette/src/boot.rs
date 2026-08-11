@@ -51,7 +51,7 @@ use lunette::{
 use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback};
 use mlua::Lua;
 use mlua_sys as lua;
-use tracing::{error, warn};
+use tracing::{debug, error, info, warn};
 
 /// The directories a session is loaded from.
 ///
@@ -518,11 +518,16 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: 
 /// The `package.preload` key LÖVR's filesystem module is registered under.
 const FILESYSTEM_MODULE: &CStr = c"lovr.filesystem";
 
-/// Opens `lovr.filesystem` and mounts the standard library onto it.
+/// Opens `lovr.filesystem`, mounts the standard library onto it, and installs
+/// the host's `lovr.log`.
 ///
 /// Installed by [`install_standard_library_mount`], which is where the reasoning
-/// is. Upvalue 1 is the loader `luax_preload` registered; upvalue 2 is the
-/// directory to mount.
+/// for the timing is. Upvalue 1 is the loader `luax_preload` registered;
+/// upvalue 2 is the directory to mount.
+///
+/// The log handler rides along for the same reason: `boot.lua` assigns its own
+/// `lovr.log` in its chunk body, and requires `lovr.filesystem` from inside
+/// `lovr.boot`, which is after that and before the first message it logs.
 unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State) -> c_int {
     // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the two
     // upvalues the closure was built with and the module name at index 1.
@@ -530,6 +535,10 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
         lua::lua_pushvalue(state, lua::lua_upvalueindex(1));
         lua::lua_pushvalue(state, 1);
         lua::lua_call(state, 1, 1);
+
+        // Before the mount, so that a build whose `lovr.filesystem` carries no
+        // `mount` still gets its diagnostics routed.
+        install_log_handler(state);
 
         lua::lua_getfield(state, -1, c"mount".as_ptr());
         if lua::lua_type(state, -1) != lua::LUA_TFUNCTION {
@@ -660,6 +669,80 @@ unsafe fn describe_error(state: *mut lua::lua_State) -> String {
 /// slice borrows Lua's own copy, which lives only until that value leaves the
 /// stack, so the caller must not let the lifetime outlive it. Note also that
 /// `lua_tolstring` converts a number at `index` to a string in place.
+/// Fixed, because `tracing` metadata is `'static` and a LÖVR log tag is not.
+const LUA_LOG_TARGET: &str = "lunette::lua";
+
+/// Replaces `lovr.log` with [`log_to_tracing`], leaving the stack as it found it.
+///
+/// A missing `lovr` global is reported rather than raised: the session still
+/// boots, and what it loses is the routing.
+///
+/// # Safety
+///
+/// `state` must be a live Lua state with room for two stack slots, called after
+/// `boot.lua` has assigned its own `lovr.log`.
+unsafe fn install_log_handler(state: *mut lua::lua_State) {
+    // SAFETY: the push below is balanced by the pop, and the caller guarantees
+    // the state and the stack room.
+    unsafe {
+        lua::lua_getglobal(state, c"lovr".as_ptr());
+        if lua::lua_type(state, -1) != lua::LUA_TTABLE {
+            error!("lua: lovr is not a table, so its log was left on stdout");
+            lua::lua_pop(state, 1);
+            return;
+        }
+
+        lua::lua_pushcclosure(state, log_to_tracing, 0);
+        lua::lua_setfield(state, -2, c"log".as_ptr());
+        lua::lua_pop(state, 1);
+    }
+}
+
+/// The host's `lovr.log`, replacing an implementation that prints the message
+/// and drops the level and the tag.
+///
+/// Both sources arrive here: a Lua caller calls it directly, and the engine's C
+/// log reaches it through `luax_vlog`, which looks `lovr.log` up on each call. A
+/// configuration replacing `lovr.log` therefore takes the engine's messages with
+/// it, which the LÖVR documentation advertises rather than warns against.
+unsafe extern "C-unwind" fn log_to_tracing(state: *mut lua::lua_State) -> c_int {
+    // SAFETY: Lua calls this as `lovr.log(message, level, tag)`, so indices 1 to
+    // 3 hold its arguments, an absent one being nil.
+    unsafe {
+        let message = owned_string(state, 1).unwrap_or_default();
+        let level = owned_string(state, 2).unwrap_or_default();
+        let tag = owned_string(state, 3).filter(|tag| !tag.is_empty());
+
+        // LÖVR's messages carry a trailing newline, and its own implementation
+        // drops one.
+        let message = message.strip_suffix('\n').unwrap_or(&message);
+        let rendered = match &tag {
+            Some(tag) => format!("{tag}: {message}"),
+            None => message.to_owned(),
+        };
+
+        match level.as_str() {
+            "error" => error!(target: LUA_LOG_TARGET, "{rendered}"),
+            "warn" => warn!(target: LUA_LOG_TARGET, "{rendered}"),
+            "debug" => debug!(target: LUA_LOG_TARGET, "{rendered}"),
+            // `boot.lua` logs with no level at all, so anything unrecognised is
+            // carried at info rather than dropped.
+            _ => info!(target: LUA_LOG_TARGET, "{rendered}"),
+        }
+
+        0
+    }
+}
+
+/// # Safety
+///
+/// `state` must be a live Lua state and `index` a slot that exists.
+unsafe fn owned_string(state: *mut lua::lua_State, index: c_int) -> Option<String> {
+    // SAFETY: the caller guarantees the stack slot exists, and the borrow ends
+    // inside this function.
+    unsafe { string_bytes(state, index) }.map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+}
+
 unsafe fn string_bytes<'a>(state: *mut lua::lua_State, index: c_int) -> Option<&'a [u8]> {
     // SAFETY: the caller guarantees the stack slot exists.
     let pointer = unsafe { lua::lua_tolstring(state, index, ptr::null_mut()) };
