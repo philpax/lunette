@@ -30,9 +30,9 @@ local order = {}
 --
 -- Replaceable, so that Phase 7's reload can route it wherever it routes
 -- everything else, and so that a spec can capture it rather than printing it.
--- The default writes to stderr, because stdout is for a program's own output.
+-- The default logs the message, which the host routes to its own diagnostics.
 function teardown.report(message)
-  io.stderr:write(message, '\n')
+  lovr.log(message, 'error', 'mullion.teardown')
 end
 
 -- Registers `run` under `name`, replacing any hook already registered under it.
@@ -114,7 +114,7 @@ function teardown.run()
     end)
     if not ok then
       failures[#failures + 1] = { name = name, message = message }
-      teardown.report("mullion.teardown: the hook '" .. name .. "' failed: " .. message)
+      teardown.report("the hook '" .. name .. "' failed: " .. message)
     end
   end
 

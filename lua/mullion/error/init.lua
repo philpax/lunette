@@ -71,10 +71,10 @@ errors.MAX_KEYS = 64
 -- Where a report goes.
 --
 -- Replaceable, both so that a configuration can route errors into a panel it
--- draws and so that a spec can capture them. The default writes to stderr,
--- because stdout is for a program's own output.
+-- draws and so that a spec can capture them. The default logs the message,
+-- which the host routes to its own diagnostics.
 function errors.report(message)
-  io.stderr:write(message, '\n')
+  lovr.log(message, 'error', 'mullion.error')
 end
 
 -- A fresh rate limiter over its own state.

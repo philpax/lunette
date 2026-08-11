@@ -106,9 +106,11 @@ persist.SOURCE = 'mullion.persist'
 --
 -- Replaceable, so that Phase 7's error handling can route it wherever it routes
 -- everything else, and so that a spec can capture it rather than printing it.
--- The default writes to stderr, because stdout is for a program's own output.
+-- The default logs the message, which the host routes to its own diagnostics.
+-- Every report here is a warning: a saved entry that could not be honoured is
+-- lost state rather than a failure the session cannot continue past.
 function persist.report(message)
-  io.stderr:write(message, '\n')
+  lovr.log(message, 'warn', 'mullion.persist')
 end
 
 -- The arrangement in `value`, which is an arrangement, a load, or nothing.
@@ -158,7 +160,7 @@ function persist.capture(panels)
           tags = persist.tagsOf(target),
         }
       else
-        persist.report('mullion.persist: a ' .. tostring(target.kind) .. ' panel has no identity, so it is not saved')
+        persist.report('a ' .. tostring(target.kind) .. ' panel has no identity, so it is not saved')
       end
     end
   end
@@ -197,7 +199,7 @@ function persist.apply(entry, target)
 
   local placed = pose.decode(entry.pose)
   if not placed then
-    persist.report("mullion.persist: the pose saved for '" .. tostring(entry.key) .. "' is not sixteen numbers")
+    persist.report("the pose saved for '" .. tostring(entry.key) .. "' is not sixteen numbers")
     return false
   end
   target:setPose(placed)
@@ -249,7 +251,7 @@ function persist.restore(file, panels)
     if not matched[entry] then
       stale[#stale + 1] = entry
       persist.report(
-        'mullion.persist: nothing matched the saved ' .. tostring(entry.kind) .. " '" .. tostring(entry.key) .. "'"
+        'nothing matched the saved ' .. tostring(entry.kind) .. " '" .. tostring(entry.key) .. "'"
       )
     end
   end
@@ -337,7 +339,7 @@ function persist.load(filesystem)
   if loaded.kind == 'broken' then
     local notice = persist.path(filesystem) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
     declined = notice
-    persist.report('mullion.persist: ' .. notice)
+    persist.report(notice)
   elseif loaded.kind == 'fromTheFuture' then
     local found: number = loaded.found :: any
     local supported: number = loaded.supported :: any
@@ -348,12 +350,12 @@ function persist.load(filesystem)
       .. supported
       .. ', so it is left alone'
     declined = notice
-    persist.report('mullion.persist: ' .. notice)
+    persist.report(notice)
   else
     declined = nil
   end
   for _, message in ipairs(loaded.skipped) do
-    persist.report('mullion.persist: ' .. message)
+    persist.report(message)
   end
   return loaded
 end

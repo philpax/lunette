@@ -29,6 +29,9 @@ local function newWindow(appId, title)
   return window
 end
 
+-- The module's own `report`, captured before any case replaces it.
+local defaultReport = rules.report
+
 -- What `rules.report` was told, so that a case can assert a rule was reported
 -- rather than let it print into the run's output.
 local reported = {}
@@ -504,6 +507,30 @@ spec('requiring twice leaves one teardown hook', function()
   -- The second body's `register` replaced the hook with its own sources', so the
   -- first one's is put back: the rest of the suite holds the first module table.
   teardown.register('mullion.rules', rules.teardown)
+end)
+
+spec('the default report logs at the level it is given', function()
+  local logged = {}
+  local previousLog = lovr.log
+  lovr.log = function(message, level, tag)
+    logged[#logged + 1] = { message = message, level = level, tag = tag }
+  end
+
+  -- A rule the configuration wrote that could not be honoured is a warning, and
+  -- that is the default. A tag created on demand is documented behaviour rather
+  -- than a mistake, so it is passed `info` explicitly.
+  local ran, raised = pcall(function()
+    defaultReport 'a rule that could not be honoured'
+    defaultReport('a tag created on demand', 'info')
+  end)
+
+  lovr.log = previousLog
+
+  expect.truthy(ran, 'the default report: ' .. tostring(raised))
+  expect.equal(#logged, 2, 'the log lines')
+  expect.equal(logged[1].level, 'warn', 'the default level')
+  expect.equal(logged[2].level, 'info', 'the level it was given')
+  expect.equal(logged[1].tag, 'mullion.rules', 'the tag')
 end)
 
 return spec

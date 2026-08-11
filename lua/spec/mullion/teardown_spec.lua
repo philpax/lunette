@@ -7,6 +7,13 @@ local teardown = require 'mullion.teardown'
 
 local spec = suite.new 'mullion.teardown'
 
+-- The module's own `report`, captured before any case replaces it.
+--
+-- Every case below substitutes the hook, which is why nothing here covered the
+-- default until the default was found to raise: it called `io.stderr`, and Luau
+-- has no `io` at all.
+local defaultReport = teardown.report
+
 -- Empties the registry and captures reports, returning the list they land in.
 --
 -- Every case starts here, because the registry is module-level state and the
@@ -208,6 +215,32 @@ local function pendingCount(name)
   end
   return found
 end
+
+spec('the default report logs rather than raising', function()
+  fresh()
+  teardown.report = defaultReport
+
+  local logged = {}
+  local previousLog = lovr.log
+  lovr.log = function(message, level, tag)
+    logged[#logged + 1] = { message = message, level = level, tag = tag }
+  end
+
+  teardown.register('raises', function()
+    error 'deliberate'
+  end)
+  -- `run` reports outside the `xpcall` that guards the hook, so a `report` that
+  -- raises takes the reload down with it rather than being contained.
+  local ran, raised = pcall(teardown.run)
+
+  lovr.log = previousLog
+  teardown.report = function() end
+
+  expect.truthy(ran, 'run with the default report: ' .. tostring(raised))
+  expect.equal(#logged, 1, 'the log lines')
+  expect.equal(logged[1].level, 'error', 'the level')
+  expect.equal(logged[1].tag, 'mullion.teardown', 'the tag')
+end)
 
 spec('a module body running twice leaves one hook, not two', function()
   fresh()

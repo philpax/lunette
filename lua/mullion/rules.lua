@@ -71,9 +71,14 @@ rules.PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chro
 --
 -- Replaceable, so that Phase 7's error handling can route it wherever it routes
 -- everything else, and so that a spec can capture it rather than printing it.
--- The default writes to stderr, because stdout is for a program's own output.
-function rules.report(message)
-  io.stderr:write(message, '\n')
+-- The default logs the message, which the host routes to its own diagnostics.
+--
+-- `level` carries a LÖVR log level and defaults to `warn`, because most of what
+-- reaches here is a rule the configuration wrote that could not be honoured. A
+-- tag created on demand is the exception: that is the documented behaviour
+-- rather than a mistake, so it reports at `info`.
+function rules.report(message: string, level: string?)
+  lovr.log(message, level or 'warn', 'mullion.rules')
 end
 
 -- Registers `resolve` as a source under `name`, replacing any source already
@@ -352,7 +357,7 @@ function applyTags(created, tags)
     return
   end
   if type(tags) ~= 'table' then
-    rules.report('mullion.rules: tags are an array of names or tags, not a ' .. type(tags))
+    rules.report('tags are an array of names or tags, not a ' .. type(tags))
     return
   end
 
@@ -368,11 +373,11 @@ function applyTags(created, tags)
       local found = tag.find(named)
       if not found then
         found = tag.new(named)
-        rules.report("mullion.rules: nothing declared the tag '" .. named .. "', so it was created")
+        rules.report("nothing declared the tag '" .. named .. "', so it was created", 'info')
       end
       found:add(created)
     else
-      rules.report('mullion.rules: a tag is named by a string or is a tag, not a ' .. type(named))
+      rules.report('a tag is named by a string or is a tag, not a ' .. type(named))
     end
   end
 end
@@ -392,7 +397,7 @@ function poseFrom(value, window)
   local decoded = pose.decode(value)
   if not decoded then
     rules.report(
-      "mullion.rules: the pose for '" .. tostring(window.appId) .. "' is not sixteen numbers, so it is ignored"
+      "the pose for '" .. tostring(window.appId) .. "' is not sixteen numbers, so it is ignored"
     )
   end
   return decoded
