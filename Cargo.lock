@@ -739,7 +739,9 @@ name = "lunette-lovr"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "cc",
  "cmake",
+ "tempfile",
 ]
 
 [[package]]

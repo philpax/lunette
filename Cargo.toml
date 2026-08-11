@@ -29,6 +29,7 @@ arc-swap = "=1.9.2"
 # `=0.38.0` is what actually pins the release.
 ash = "=0.38.0"
 bindgen = "=0.72.1"
+cc = "=1.4.0"
 cmake = "=0.1.58"
 getrandom = "=0.3.4"
 libc = "=0.2.189"

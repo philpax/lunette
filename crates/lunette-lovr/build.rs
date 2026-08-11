@@ -105,6 +105,9 @@ fn build() -> Result<(), BuildError> {
     let cmake_out = build_lovr(&lovr_dir, &jolt_source, lua_mode);
     let lovr_build = find_lovr_build(&cmake_out, lua_mode)?;
     emit_link_directives(&lovr_build, lua_mode);
+    if let LuaMode::Luau = lua_mode {
+        build_analyze_shim(&lovr_dir);
+    }
     stage_boot_lua(&lovr_dir, &out_dir)?;
     generate_bindings(&manifest_dir, &lovr_dir, &out_dir, lua_mode)
 }
@@ -203,7 +206,9 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString, lua_mode: LuaMode) -> Pat
             //
             // The backslash survives into cmake's generated link script, where
             // the shell strips it and hands the linker a literal `$ORIGIN`.
-            .define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-rpath,\\$ORIGIN/bin");
+            .define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-rpath,\\$ORIGIN/bin")
+            // LÖVR sets it only on the targets it links.
+            .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
         config
     };
 
@@ -258,6 +263,28 @@ fn emit_link_directives(build: &LovrBuild, lua_mode: LuaMode) {
 
     println!("cargo::metadata=library_dir={library_dir}");
     println!("cargo::metadata=staged_dir={staged_dir}");
+}
+
+/// Compiles the C surface over Luau's frontend.
+///
+/// Nothing is linked beyond `liblovr.so`, which carries `Luau.Analysis`. Naming
+/// the archives here instead puts a second copy of Luau in the process, whose
+/// FFlag statics unify into a cycle that hangs static initialisation.
+fn build_analyze_shim(lovr_dir: &Path) {
+    let luau = lovr_dir.join("deps").join("luau");
+    let shim = Path::new("src").join("analyze.cpp");
+
+    println!("cargo::rerun-if-changed={}", shim.display());
+
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file(&shim)
+        .include(luau.join("Analysis/include"))
+        .include(luau.join("Ast/include"))
+        .include(luau.join("Config/include"))
+        .include(luau.join("Common/include"))
+        .compile("lunette_analyze");
 }
 
 /// Copies `etc/boot.lua` into `OUT_DIR` for the crate to embed.
