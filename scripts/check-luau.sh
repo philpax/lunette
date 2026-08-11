@@ -37,7 +37,6 @@ fi
 cd "$repo_root/lua"
 "$build_dir/luau-analyze" \
     --mode=strict \
-    --solver=old \
     --definitions="$definitions" \
     $(find mullion -name '*.lua' -o -name '*.luau' | sort) \
     "$repo_root/etc/xdg/lunette/main.lua"
