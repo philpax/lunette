@@ -27,11 +27,17 @@ fi
 # from lua/ (where mullion/ lives) and pass the config explicitly. The spec
 # suite is deliberately excluded: it runs under Luau as the in-binary test job,
 # and its harness globals are not a typecheck target.
+#
+# The default report format is what makes this check able to fail. luau-analyze
+# ends with `if (format == ReportFormat::Luacheck) return 0;`, because luacheck's
+# contract is that its output is parsed rather than its status read, so
+# `--formatter=plain` reports every diagnostic and still exits 0. The default
+# format writes `file(line,col): TypeError: ...` to stderr and returns
+# `failed ? 1 : 0`, which is what `set -e` above needs to see.
 cd "$repo_root/lua"
 "$build_dir/luau-analyze" \
     --mode=strict \
     --solver=old \
     --definitions="$definitions" \
-    --formatter=plain \
     $(find mullion -name '*.lua' -o -name '*.luau' | sort) \
     "$repo_root/etc/xdg/lunette/main.lua"
