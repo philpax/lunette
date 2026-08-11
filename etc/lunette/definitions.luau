@@ -38,7 +38,7 @@ declare lovr: {
   keypressed: ((key: any, scancode: number, isrepeat: boolean) -> ())?,
   keyreleased: ((key: any, scancode: number) -> ())?,
   load: ((arg: any) -> ())?,
-  log: ((message: string, level: string, tag: string) -> ())?,
+  log: (message: string, level: string, tag: string) -> (),
   mirror: ((pass: any) -> ())?,
   modelschanged: ((...any) -> ())?,
   mount: ((mounted: boolean) -> ())?,

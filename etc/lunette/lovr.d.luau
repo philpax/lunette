@@ -8,10 +8,10 @@ declare extern type quaternion with
   w: number
 end
 
-declare class Joint end
-declare class Shape end
+declare extern type Joint with end
+declare extern type Shape with end
 
-declare class Object
+declare extern type Object with
   function release(self)
   function type(self): string
 end
@@ -61,7 +61,7 @@ type VolumeUnit =
   | "linear"
   | "db"
 
-declare class AudioMesh extends Object
+declare extern type AudioMesh extends Object with
   function clone(self): AudioMesh
   function getOrientation(self): (number, number, number, number)
   function getPose(self): (number, number, number, number, number, number, number)
@@ -83,7 +83,7 @@ declare class AudioMesh extends Object
   function setTransform(self, transform: Mat4)
 end
 
-declare class Source extends Object
+declare extern type Source extends Object with
   function clone(self): Source
   function getAbsorption(self): (number, number, number)
   function getCone(self): (number, number, number)
@@ -263,7 +263,7 @@ type TextureFormat =
   | "astc12x10"
   | "astc12x12"
 
-declare class AudioStream extends Object
+declare extern type AudioStream extends Object with
   function getCapacity(self): number
   function getChannelCount(self): number
   function getChannelLayout(self): ChannelLayout
@@ -279,7 +279,7 @@ declare class AudioStream extends Object
   function write(self, blob: Blob): number
 end
 
-declare class Blob extends Object
+declare extern type Blob extends Object with
   function getF32(self, offset: number, count: number): number
   function getF64(self, offset: number, count: number): number
   function getI16(self, offset: number, count: number): number
@@ -310,7 +310,7 @@ declare class Blob extends Object
   function setU8(self, offset: number, table: {number})
 end
 
-declare class Image extends Object
+declare extern type Image extends Object with
   function encode(self): Blob
   function getBlob(self): Blob
   function getDimensions(self): (number, number)
@@ -324,7 +324,7 @@ declare class Image extends Object
   function setPixel(self, x: number, y: number, r: number, g: number, b: number, a: number)
 end
 
-declare class ModelData extends Object
+declare extern type ModelData extends Object with
   function getAnimationChannelCount(self, animation: number | string): number
   function getAnimationCount(self): number
   function getAnimationDuration(self, animation: string | number): number
@@ -391,7 +391,7 @@ declare class ModelData extends Object
   function getWidth(self, mesh: number, part: number): number
 end
 
-declare class Rasterizer extends Object
+declare extern type Rasterizer extends Object with
   function getAdvance(self, glyph: string | number): number
   function getAscent(self): number
   function getBearing(self, glyph: string | number): number
@@ -413,7 +413,7 @@ declare class Rasterizer extends Object
   function newImage(self, glyph: string | number, spread: number, padding: number): Image
 end
 
-declare class Sound extends Object
+declare extern type Sound extends Object with
   function getBlob(self): Blob
   function getByteStride(self): number
   function getChannelCount(self): number
@@ -581,7 +581,7 @@ type OpenMode =
   | "w"
   | "a"
 
-declare class File extends Object
+declare extern type File extends Object with
   function getMode(self): OpenMode
   function getPath(self): string
   function getSize(self): (number, string)
@@ -831,7 +831,7 @@ type WrapMode =
   | "mirror"
   | "border"
 
-declare class Buffer extends Object
+declare extern type Buffer extends Object with
   function clear(self, offset: number, extent: number, value: number)
   function getData(self, index: number, count: number): {}
   function getFormat(self): {}
@@ -847,7 +847,7 @@ declare class Buffer extends Object
   function setData(self, buffer: Buffer, destinationOffset: number, sourceOffset: number, size: number)
 end
 
-declare class Font extends Object
+declare extern type Font extends Object with
   function getAscent(self): number
   function getDescent(self): number
   function getHeight(self): number
@@ -866,11 +866,11 @@ declare class Font extends Object
   function setPixelDensity(self)
 end
 
-declare class Material extends Object
+declare extern type Material extends Object with
   function getProperties(self): {}
 end
 
-declare class Mesh extends Object
+declare extern type Mesh extends Object with
   function buildRaytracer(self)
   function computeBoundingBox(self): boolean
   function getBaseVertex(self): number
@@ -903,7 +903,7 @@ declare class Mesh extends Object
   function setVertices(self, blob: Blob, index: number, count: number)
 end
 
-declare class Model extends Object
+declare extern type Model extends Object with
   function animate(self, animation: string, time: number, blend: number)
   function buildRaytracer(self)
   function clone(self): Model
@@ -982,7 +982,7 @@ declare class Model extends Object
   function setNodeVisible(self, node: string | number, visible: boolean)
 end
 
-declare class Pass extends Object
+declare extern type Pass extends Object with
   function barrier(self)
   function beginTally(self): number
   function box(self, x: number, y: number, z: number, width: number, height: number, depth: number, angle: number, ax: number, ay: number, az: number, style: DrawStyle)
@@ -1153,7 +1153,7 @@ declare class Pass extends Object
   function translate(self, translation: vector)
 end
 
-declare class Raytracer
+declare extern type Raytracer with
   function add(self, mesh: Mesh, x: number, y: number, z: number, scale: number, angle: number, ax: number, ay: number, az: number, layers: number, tag: number): number
   function add(self, model: Model, x: number, y: number, z: number, scale: number, angle: number, ax: number, ay: number, az: number, layers: number, tag: number): number
   function add(self, mesh: Mesh, position: vector, scale3: vector, orientation: quaternion, layers: number, tag: number): number
@@ -1169,7 +1169,7 @@ declare class Raytracer
   function set(self, id: number, transform: Mat4, layers: number, tag: number)
 end
 
-declare class Readback extends Object
+declare extern type Readback extends Object with
   function getBlob(self): Blob
   function getData(self): {}
   function getImage(self): Image
@@ -1177,7 +1177,7 @@ declare class Readback extends Object
   function wait(self): boolean
 end
 
-declare class Sampler extends Object
+declare extern type Sampler extends Object with
   function getAnisotropy(self): number
   function getCompareMode(self): CompareMode
   function getFilter(self): (FilterMode, FilterMode, FilterMode)
@@ -1185,7 +1185,7 @@ declare class Sampler extends Object
   function getWrap(self): (WrapMode, WrapMode, WrapMode)
 end
 
-declare class Shader extends Object
+declare extern type Shader extends Object with
   function clone(self, flags: {}): Shader
   function getBufferFormat(self, name: string): ({}, number)
   function getLabel(self): string
@@ -1197,7 +1197,7 @@ declare class Shader extends Object
   function hasVariable(self, name: string): boolean
 end
 
-declare class Texture extends Object
+declare extern type Texture extends Object with
   function clear(self)
   function clear(self, hex: number, layer: number, layerCount: number, mipmap: number, mipmapCount: number)
   function clear(self, r: number, g: number, b: number, a: number, layer: number, layerCount: number, mipmap: number, mipmapCount: number)
@@ -1364,7 +1364,7 @@ type PassthroughMode =
   | "blend"
   | "add"
 
-declare class Layer extends Object
+declare extern type Layer extends Object with
   function getColor(self): (number, number, number, number)
   function getCurve(self): number
   function getDimensions(self): (number, number)
@@ -1492,7 +1492,7 @@ type HeadsetModule = {
   wasReleased: (device: Device, button: DeviceButton) -> boolean,
 }
 
-declare class Curve extends Object
+declare extern type Curve extends Object with
   function addPoint(self, x: number, y: number, z: number, index: number)
   function evaluate(self, t: number): (number, number, number)
   function getLength(self, t: number, iterations: number): number
@@ -1506,7 +1506,51 @@ declare class Curve extends Object
   function step(self, distance: number, iterations: number): number
 end
 
-declare class RandomGenerator extends Object
+declare extern type Mat4 with
+  function equals(self, n: Mat4): boolean
+  function fov(self, left: number, right: number, up: number, down: number, near: number, far: number): Mat4
+  function getOrientation(self): (number, number, number, number)
+  function getPose(self): (number, number, number, number, number, number, number)
+  function getPosition(self): (number, number, number)
+  function getScale(self): (number, number, number)
+  function identity(self): Mat4
+  function invert(self): Mat4
+  function lookAt(self, from: vector, to: vector, up: vector): Mat4
+  function mul(self, n: Mat4): Mat4
+  function mul(self, x: number, y: number, z: number, w: number): (number, number, number, number)
+  function mul(self, v: vector): vector
+  function orthographic(self, left: number, right: number, bottom: number, top: number, near: number, far: number): Mat4
+  function orthographic(self, width: number, height: number, near: number, far: number): Mat4
+  function perspective(self, fov: number, aspect: number, near: number, far: number): Mat4
+  function reflect(self, position: vector, normal: vector): Mat4
+  function rotate(self, q: quaternion): Mat4
+  function rotate(self, angle: number, ax: number, ay: number, az: number): Mat4
+  function scale(self, scale: vector): Mat4
+  function scale(self, sx: number, sy: number, sz: number): Mat4
+  function set(self): Mat4
+  function set(self, n: Mat4): Mat4
+  function set(self, x: number, y: number, z: number, sx: number, sy: number, sz: number, angle: number, ax: number, ay: number, az: number): Mat4
+  function set(self, x: number, y: number, z: number, angle: number, ax: number, ay: number, az: number): Mat4
+  function set(self, position: vector, scale: vector, rotation: quaternion): Mat4
+  function set(self, position: vector, rotation: quaternion): Mat4
+  function set(self, ...: number): Mat4
+  function set(self, d: number): Mat4
+  function setOrientation(self, angle: number, ax: number, ay: number, az: number): Mat4
+  function setOrientation(self, orientation: quaternion): Mat4
+  function setPose(self, x: number, y: number, z: number, angle: number, ax: number, ay: number, az: number): Mat4
+  function setPose(self, position: vector, orientation: quaternion): Mat4
+  function setPosition(self, x: number, y: number, z: number): Mat4
+  function setPosition(self, position: vector): Mat4
+  function setScale(self, sx: number, sy: number, sz: number): Mat4
+  function setScale(self, scale: vector): Mat4
+  function target(self, from: vector, to: vector, up: vector): Mat4
+  function translate(self, v: vector): Mat4
+  function translate(self, x: number, y: number, z: number): Mat4
+  function transpose(self): Mat4
+  function unpack(self, raw: boolean): number
+end
+
+declare extern type RandomGenerator extends Object with
   function getSeed(self): (number, number)
   function getState(self): string
   function random(self): number
@@ -1604,22 +1648,22 @@ type ShapeType =
   | "mesh"
   | "terrain"
 
-declare class BallJoint extends Joint
+declare extern type BallJoint extends Joint with
 end
 
-declare class BoxShape extends Shape
+declare extern type BoxShape extends Shape with
   function getDimensions(self): (number, number, number)
   function setDimensions(self, width: number, height: number, depth: number)
 end
 
-declare class CapsuleShape extends Shape
+declare extern type CapsuleShape extends Shape with
   function getLength(self): number
   function getRadius(self): number
   function setLength(self, length: number)
   function setRadius(self, radius: number)
 end
 
-declare class Collider extends Object
+declare extern type Collider extends Object with
   function addShape(self, shape: Shape)
   function applyAngularImpulse(self, x: number, y: number, z: number)
   function applyAngularImpulse(self, impulse: vector)
@@ -1714,13 +1758,13 @@ declare class Collider extends Object
   function setUserData(self, data: any)
 end
 
-declare class ConeJoint extends Joint
+declare extern type ConeJoint extends Joint with
   function getAxis(self): (number, number, number)
   function getLimit(self): number
   function setLimit(self, limit: number)
 end
 
-declare class Contact
+declare extern type Contact with
   function getColliders(self): (Collider, Collider)
   function getFriction(self): number
   function getNormal(self): (number, number, number)
@@ -1737,7 +1781,7 @@ declare class Contact
   function setSurfaceVelocity(self, velocity: vector)
 end
 
-declare class ConvexShape extends Shape
+declare extern type ConvexShape extends Shape with
   function getFace(self, index: number): {}
   function getFaceCount(self): number
   function getPoint(self, index: number): (number, number, number)
@@ -1745,14 +1789,14 @@ declare class ConvexShape extends Shape
   function getScale(self): number
 end
 
-declare class CylinderShape extends Shape
+declare extern type CylinderShape extends Shape with
   function getLength(self): number
   function getRadius(self): number
   function setLength(self, length: number)
   function setRadius(self, radius: number)
 end
 
-declare class DistanceJoint extends Joint
+declare extern type DistanceJoint extends Joint with
   function getLimits(self): (number, number)
   function getSpring(self): (number, number)
   function setLimits(self, min: number, max: number)
@@ -1760,7 +1804,7 @@ declare class DistanceJoint extends Joint
   function setSpring(self, frequency: number, damping: number)
 end
 
-declare class HingeJoint extends Joint
+declare extern type HingeJoint extends Joint with
   function getAngle(self): number
   function getAxis(self): (number, number, number)
   function getFriction(self): number
@@ -1782,7 +1826,7 @@ declare class HingeJoint extends Joint
   function setSpring(self, frequency: number, damping: number)
 end
 
-declare class Joint extends Object
+declare extern type Joint extends Object with
   function destroy(self)
   function getAnchors(self): (number, number, number, number, number, number)
   function getColliders(self): (Collider, Collider)
@@ -1798,11 +1842,11 @@ declare class Joint extends Object
   function setUserData(self, data: any)
 end
 
-declare class MeshShape extends Shape
+declare extern type MeshShape extends Shape with
   function getScale(self): number
 end
 
-declare class Shape extends Object
+declare extern type Shape extends Object with
   function containsPoint(self, x: number, y: number, z: number): boolean
   function containsPoint(self, point: vector): boolean
   function destroy(self)
@@ -1828,7 +1872,7 @@ declare class Shape extends Object
   function setUserData(self, data: any)
 end
 
-declare class SliderJoint extends Joint
+declare extern type SliderJoint extends Joint with
   function getAxis(self): (number, number, number)
   function getFriction(self): number
   function getLimits(self): (number, number)
@@ -1850,18 +1894,18 @@ declare class SliderJoint extends Joint
   function setSpring(self, frequency: number, damping: number)
 end
 
-declare class SphereShape extends Shape
+declare extern type SphereShape extends Shape with
   function getRadius(self): number
   function setRadius(self, radius: number)
 end
 
-declare class TerrainShape extends Shape
+declare extern type TerrainShape extends Shape with
 end
 
-declare class WeldJoint extends Joint
+declare extern type WeldJoint extends Joint with
 end
 
-declare class World extends Object
+declare extern type World extends Object with
   function destroy(self)
   function disableCollisionBetween(self, tag1: string, tag2: string)
   function enableCollisionBetween(self, tag1: string, tag2: string)
@@ -2023,7 +2067,7 @@ type TaskModule = {
     & ((t: {thread}) -> any),
 }
 
-declare class Channel extends Object
+declare extern type Channel extends Object with
   function clear(self)
   function getCount(self): number
   function hasRead(self, id: number): boolean
@@ -2032,7 +2076,7 @@ declare class Channel extends Object
   function push(self, message: any, wait: number | boolean | nil): (number, boolean)
 end
 
-declare class Thread extends Object
+declare extern type Thread extends Object with
   function getError(self): string
   function isRunning(self): boolean
   function start(self, ...: any)

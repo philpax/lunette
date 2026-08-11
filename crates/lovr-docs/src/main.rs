@@ -61,6 +61,16 @@ declare error: any
 declare require: any
 ";
 
+/// The callbacks `vendor/lovr/etc/boot.lua` assigns a default implementation
+/// to, so the field always holds a function and is called as well as assigned.
+///
+/// `lovr.log` is one: LÖVR's event handler calls it, so a nil there would fault
+/// the engine rather than remove a callback. The standard library calls it to
+/// report diagnostics, which is what the docs sanction ("It is also possible to
+/// emit custom log messages ... by calling the callback") and what `boot.lua`
+/// itself does for its own module-load warnings.
+const CALLBACKS_WITH_DEFAULTS: [&str; 1] = ["log"];
+
 /// The fields lunette adds to the `lovr` table at boot (the custom event
 /// callbacks from `etc/boot.lua`), which lovr-docs does not know. They are
 /// spliced into the generated `declare lovr` table.
@@ -250,9 +260,15 @@ fn to_definitions(lua: &Lua, api: &Table) -> mlua::Result<String> {
         let line = function_line(lua, &cb, &cbname)?;
         // The field is assignable: a caller may set it to nil (removing the
         // callback), so make the value itself optional; the return is void.
+        // The exception is a callback `boot.lua` defines a default for, which
+        // is therefore never nil and is called rather than only assigned.
         let (field, fntype) = line.split_once(": ").unwrap_or(("", &line));
         let fntype = fntype.split("->").next().unwrap_or(fntype).trim_end();
-        let line = format!("{field}: ({fntype} -> ())?");
+        let line = if CALLBACKS_WITH_DEFAULTS.contains(&cbname.as_str()) {
+            format!("{field}: {fntype} -> ()")
+        } else {
+            format!("{field}: ({fntype} -> ())?")
+        };
         module_fns.push((String::new(), line));
         rendered += 1;
     }
