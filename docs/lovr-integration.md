@@ -6,16 +6,51 @@ LÖVR lives at `vendor/lovr` as a git submodule pointing at `philpax/lovr`, a fo
 
 Its `deps/` are themselves submodules (glfw, lua, luajit, luau, openxr, glslang, joltc, msdfgen, phonon, tracy, vulkan-headers), as are `plugins/lua-enet` and `plugins/lovr-http`, so cloning is recursive.
 
-The patches live on a branch rather than as a rebased series against each upstream commit. Every file that needs a change would otherwise require constant rebasing, since LÖVR moves weekly. A branch resolves each conflict once. The series stays upstreamable regardless, and two rules keep it that way.
+The patches live on a branch rather than as a rebased series against each upstream commit. Every file that needs a change would otherwise require constant rebasing, since LÖVR moves weekly. A branch resolves each conflict once.
 
-- Patches stay narrow and additive: new accessors, new struct fields, new build options. They introduce no behavioural changes to existing paths.
-- Each patch is shaped as an upstream pull request and opened early. External texture import is a feature other LÖVR users want. If it lands upstream, the divergence from upstream shrinks toward zero.
+One rule holds for every patch: it stays narrow and additive — new accessors, new struct fields, new build options — and introduces no behavioural change to an existing path.
+
+The series is ordered by how long a patch is expected to live, oldest-lived first, so that a patch which lands upstream is dropped from the top without disturbing what sits below it.
+
+**Integration plumbing**, at the base. What LÖVR-as-a-library needs to be embedded the way lunette embeds it: the `deps/luau` pin, `LOVR_EXPORT_LUA_SYMBOLS`, and `LOVR_LUAU_ANALYSIS`. These are not written against a feature anyone has asked for, so they are not proposed upstream, and they are expected to stay. Each is a build option defaulting to off, which is what keeps them narrow: an upstream build that does not set them compiles exactly as it did before.
+
+**Upstream defects**, next. Bugs on a path lunette uses that are nobody's fault but upstream's — currently the module loader registered into `package.searchers` under `LOVR_USE_LUAU`, where Luau reads `package.loaders`. These are reported upstream and disappear when fixed there.
+
+**Upstreamable features**, on top. Work other LÖVR users want: external texture import, the layer limits, the session accessor. Each is shaped as a pull request. If they land, the divergence from upstream shrinks to the base.
+
+Nothing has been proposed upstream yet.
 
 LÖVR's Lua is Luau, from a second submodule: `vendor/lovr/deps/luau` points at `bjornbytes/luau`'s `lovr` branch, and lunette maintains a fork of that branch (on `lunette/luau-bump`) against upstream `luau-lang/luau`. The fork is merged from upstream rather than rebased, so the sync is a merge of `master` into the branch. What lunette keeps fork-owned is the LÖVR work upstream Luau does not carry: the quaternion type and `quaternion.*` library, the vector call surface mullion depends on, and the Lua 5.1 C-API shims (`lua_errorL`, the two-argument `lua_pushcfunction`/`lua_pushcclosure`, `luaL_ref`/`luaL_unref`, `luaL_getsubtable`). Upstream Luau now provides a native vector type, which the fork adopts; the fork layers the LÖVR-facing vector methods on top of it. The fork also carries what lunette's bindings need that upstream's `Custom/` component would otherwise provide in full: `lua_getmetatablepointer`, `lua_gcdump`, and a `LUAI_MAXCSTACK` large enough for mlua's registry-index arithmetic. Sync cadence is per LÖVR release; a merge is exercised the same way `scripts/check-luau.sh` exercises the tree it typechecks.
 
 ## The patch set
 
-### 1. External-memory device extensions
+The three tiers are described above, and the series is ordered as they are listed here.
+
+### Integration plumbing
+
+#### The `deps/luau` pin
+
+`deps/luau` points at lunette's Luau fork rather than `bjornbytes/luau`, for the reasons given above.
+
+#### `LOVR_EXPORT_LUA_SYMBOLS`
+
+LÖVR built shared carries a Lua, and an embedder may want to link the Lua C API out of it rather than bring a second one — which is what mlua does here. Nothing in LÖVR references those symbols, so `--as-needed` drops the archive members defining them and the exports go with them. The option adds `--undefined=` for each, which forces the member in and lets the default visibility export it, and links `Luau.Require` and `Luau.Config` so `luarequire_pushproxyrequire` exists to export.
+
+#### `LOVR_LUAU_ANALYSIS`
+
+Luau ships a type checker LÖVR does not build. `lunette check` drives it, and it has to be linked into the library rather than into the consumer's binary: two copies of Luau in one process unify their FFlag statics as GNU unique symbols, so a flag registers onto `FValue<bool>::list` twice, its `next` points at itself, and static initialisation spins on the first traversal. Nothing references the archive, so `--undefined=` will not do — it takes one symbol at a time, and the surface is C++ — and the whole archive goes in.
+
+Off by default, and it costs several megabytes in the library.
+
+### Upstream defects
+
+#### The module loader under `LOVR_USE_LUAU`
+
+`luax_registerloader` inserts into `package.searchers` unless `LUA_VERSION_NUM` is 501. Luau defines no `LUA_VERSION_NUM` and its package library reads `package.loaders`, so under `LOVR_USE_LUAU` the loader is registered where nothing looks. The patch adds `LOVR_USE_LUAU` to that condition.
+
+### Upstreamable features
+
+#### External-memory device extensions
 
 LÖVR requests no external-memory extensions when it creates the Vulkan device, so a dmabuf cannot be imported onto that device at all. The patch enables `VK_KHR_external_memory`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, and `VK_EXT_queue_family_foreign` when the physical device advertises them, and leaves them off when it does not. `VK_KHR_image_format_list`, which `VK_EXT_image_drm_format_modifier` depends on, is already enabled upstream as `formatList`.
 
@@ -23,7 +58,7 @@ The five are optional, not required: a driver lacking them still starts, and lun
 
 LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` in its `VkApplicationInfo` (`src/core/gpu_vk.c`, in `gpu_init`). Vulkan 1.1 is therefore the floor for the import path, and `vkBindImageMemory2` and `vkGetPhysicalDeviceFormatProperties2` are core rather than extension entry points. Neither needs a `KHR` suffix or a separate loader.
 
-### 2. Foreign image import
+#### Foreign image import
 
 `TextureInfo` already carries a `handle` field (`inspiration/lovr/src/modules/graphics/graphics.h:237`), and `gpu_texture_info` likewise, so LÖVR can already wrap an existing `VkImage`. What is missing is everything around it. The image is created by the native layer from imported memory, arrives in a foreign queue family (`VK_QUEUE_FAMILY_FOREIGN_EXT`), and has an undefined layout. LÖVR must not assume it owns the image's lifecycle.
 
@@ -31,7 +66,7 @@ The patch adds `gpu_import_acquire` and `gpu_import_release` to `src/core/gpu_vk
 
 This patch carries the most unknowns of the set. Milestone 0 exists to resolve them ([Roadmap](roadmap.md)).
 
-### 3. Raise `MAX_LAYERS`
+#### Raise `MAX_LAYERS`
 
 `MAX_LAYERS` was hard-coded to 10 (`vendor/lovr/src/modules/headset/headset.h:9`). The patch raises it to 64. Ten is low for a window manager that wants a layer per panel.
 
@@ -41,7 +76,7 @@ At 64 the cost is about 6.5KB of frame stack in `lovrHeadsetSubmit`, most of it 
 
 The two checks that guard those arrays count differently. `lovrHeadsetSetLayers` (`headset.c:2766`) counts the two composition layers a stereo layer submits; `l_lovrHeadsetSetLayers` (`l_headset.c:806`, `:817`) counts `Layer` objects. The native check binds. The patch records this in a comment and does not reconcile it, because reconciling it would change the behaviour of an existing path.
 
-### 4. Expose the runtime's composition layer limit
+#### Expose the runtime's composition layer limit
 
 `XrSystemGraphicsProperties::maxLayerCount` is the most composition layers `xrEndFrame` accepts, and LÖVR never read it. The patch adds `lovrHeadsetGetLayerLimit`, and `lovr.headset.getLayerLimit` on the Lua side, reading the value out of the `xrGetSystemProperties` call LÖVR already makes at connect. It reads as zero before there is a system to ask.
 
@@ -49,7 +84,7 @@ This is a safety requirement rather than a convenience. The specification requir
 
 Monado reports 128 with a simulated HMD on Linux, which is `XRT_MAX_LAYERS`.
 
-### 5. Expose which session is running
+#### Expose which session is running
 
 `lovrHeadsetIsActive` answers whether a session exists, and nothing answers which one. The patch adds `lovrHeadsetGetSessionGeneration`, and `lovr.headset.getSessionGeneration` on the Lua side: a counter incremented in `lovrHeadsetStart` when `xrCreateSession` succeeds, answered as zero while there is no session. The counter lives outside the headset module's state struct, which `lovrHeadsetDestroy` zeroes, so a session after a module restart cannot carry a number an earlier one had.
 

@@ -184,7 +184,11 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString, lua_mode: LuaMode) -> Pat
             LuaMode::Luau => {
                 config
                     .define("LOVR_USE_LUAU", "ON")
-                    .define("LOVR_USE_LUAJIT", "OFF");
+                    .define("LOVR_USE_LUAJIT", "OFF")
+                    // mlua links the Lua C API out of `liblovr.so`, and
+                    // `lunette check` drives the type checker from it.
+                    .define("LOVR_EXPORT_LUA_SYMBOLS", "ON")
+                    .define("LOVR_LUAU_ANALYSIS", "ON");
             }
             LuaMode::LuaJit => {
                 config
