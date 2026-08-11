@@ -30,9 +30,11 @@ typedef struct
 {
     int kind;
     char* module;
-    // One-based, as an editor counts them.
+    // One-based lines, zero-based columns, as Luau counts them.
     int line;
     int column;
+    int end_line;
+    int end_column;
     char* message;
 } lunette_luau_diagnostic;
 

@@ -88,7 +88,9 @@ struct Collector
         diagnostic.kind = kind;
         diagnostic.module = copy(module);
         diagnostic.line = static_cast<int>(location.begin.line) + 1;
-        diagnostic.column = static_cast<int>(location.begin.column) + 1;
+        diagnostic.column = static_cast<int>(location.begin.column);
+        diagnostic.end_line = static_cast<int>(location.end.line) + 1;
+        diagnostic.end_column = static_cast<int>(location.end.column);
         diagnostic.message = copy(message);
         diagnostics.push_back(diagnostic);
     }

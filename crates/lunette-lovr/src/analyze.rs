@@ -74,9 +74,11 @@ impl Report {
 pub struct Diagnostic {
     pub kind: Kind,
     pub module: PathBuf,
-    /// One-based, as an editor counts them.
+    /// One-based lines, zero-based columns, as Luau counts them.
     pub line: u32,
     pub column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
     pub message: String,
 }
 
@@ -87,7 +89,7 @@ impl fmt::Display for Diagnostic {
             "{}({},{}): {}: {}",
             self.module.display(),
             self.line,
-            self.column,
+            self.column + 1,
             self.kind,
             self.message
         )
@@ -241,6 +243,8 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
         module: PathBuf::from(module),
         line: raw.line.max(0).unsigned_abs(),
         column: raw.column.max(0).unsigned_abs(),
+        end_line: raw.end_line.max(0).unsigned_abs(),
+        end_column: raw.end_column.max(0).unsigned_abs(),
         message,
     }
 }
@@ -299,6 +303,8 @@ mod ffi {
         pub module: *mut c_char,
         pub line: c_int,
         pub column: c_int,
+        pub end_line: c_int,
+        pub end_column: c_int,
         pub message: *mut c_char,
     }
 

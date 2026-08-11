@@ -54,6 +54,7 @@
 //! which knows whether the bridge is running.
 
 mod boot;
+mod check;
 mod cli;
 
 use std::{
@@ -134,7 +135,7 @@ fn main() -> ExitCode {
         old_solver,
     }) = &arguments.command
     {
-        return cli::check(roots, definitions.as_deref(), *old_solver);
+        return check::run(roots, definitions.as_deref(), *old_solver);
     }
 
     if let Some(destination) = &arguments.dump_config {

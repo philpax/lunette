@@ -23,6 +23,7 @@ parking_lot.workspace = true
 # the frontend or the desktop helpers, and Cargo unifies this with the richer
 # set `lunette-compositor` asks for.
 smithay.workspace = true
+ariadne = { workspace = true }
 clap = { workspace = true }
 mlua = { workspace = true, features = ["luau"] }
 # `mlua-sys` is a direct dependency purely to reach its `external` feature,
