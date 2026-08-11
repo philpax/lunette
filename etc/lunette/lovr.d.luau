@@ -1,15 +1,6 @@
 declare extern type userdata with end
 declare extern type lightuserdata with end
 
-declare extern type quaternion with
-  x: number
-  y: number
-  z: number
-  w: number
-end
-
-declare extern type Joint with end
-declare extern type Shape with end
 
 declare extern type Object with
   function release(self)
@@ -1592,7 +1583,7 @@ type MathModule = {
     & ((position: vector, rotation: quaternion) -> Mat4)
     & ((...number) -> Mat4)
     & ((d: number) -> Mat4),
-  newQuat: () -> (),
+  newQuat: () -> quaternion,
   newRandomGenerator:
     & (() -> RandomGenerator)
     & ((seed: number) -> RandomGenerator)
@@ -1611,7 +1602,7 @@ type MathModule = {
     & ((x: number, y: number) -> number)
     & ((x: number, y: number, z: number) -> number)
     & ((x: number, y: number, z: number, w: number) -> number),
-  quat: () -> (),
+  quat: () -> quaternion,
   random:
     & (() -> number)
     & ((high: number) -> number)
@@ -1647,21 +1638,6 @@ type ShapeType =
   | "convex"
   | "mesh"
   | "terrain"
-
-declare extern type BallJoint extends Joint with
-end
-
-declare extern type BoxShape extends Shape with
-  function getDimensions(self): (number, number, number)
-  function setDimensions(self, width: number, height: number, depth: number)
-end
-
-declare extern type CapsuleShape extends Shape with
-  function getLength(self): number
-  function getRadius(self): number
-  function setLength(self, length: number)
-  function setRadius(self, radius: number)
-end
 
 declare extern type Collider extends Object with
   function addShape(self, shape: Shape)
@@ -1758,12 +1734,6 @@ declare extern type Collider extends Object with
   function setUserData(self, data: any)
 end
 
-declare extern type ConeJoint extends Joint with
-  function getAxis(self): (number, number, number)
-  function getLimit(self): number
-  function setLimit(self, limit: number)
-end
-
 declare extern type Contact with
   function getColliders(self): (Collider, Collider)
   function getFriction(self): number
@@ -1781,51 +1751,6 @@ declare extern type Contact with
   function setSurfaceVelocity(self, velocity: vector)
 end
 
-declare extern type ConvexShape extends Shape with
-  function getFace(self, index: number): {}
-  function getFaceCount(self): number
-  function getPoint(self, index: number): (number, number, number)
-  function getPointCount(self): number
-  function getScale(self): number
-end
-
-declare extern type CylinderShape extends Shape with
-  function getLength(self): number
-  function getRadius(self): number
-  function setLength(self, length: number)
-  function setRadius(self, radius: number)
-end
-
-declare extern type DistanceJoint extends Joint with
-  function getLimits(self): (number, number)
-  function getSpring(self): (number, number)
-  function setLimits(self, min: number, max: number)
-  function setLimits(self)
-  function setSpring(self, frequency: number, damping: number)
-end
-
-declare extern type HingeJoint extends Joint with
-  function getAngle(self): number
-  function getAxis(self): (number, number, number)
-  function getFriction(self): number
-  function getLimits(self): (number, number)
-  function getMaxMotorTorque(self): (number, number)
-  function getMotorMode(self): MotorMode
-  function getMotorSpring(self): (number, number)
-  function getMotorTarget(self): number
-  function getMotorTorque(self): number
-  function getSpring(self): (number, number)
-  function setFriction(self, friction: number)
-  function setLimits(self, min: number, max: number)
-  function setLimits(self)
-  function setMaxMotorTorque(self, positive: number, negative: number)
-  function setMotorMode(self, mode: MotorMode)
-  function setMotorMode(self)
-  function setMotorSpring(self, frequency: number, damping: number)
-  function setMotorTarget(self, target: number)
-  function setSpring(self, frequency: number, damping: number)
-end
-
 declare extern type Joint extends Object with
   function destroy(self)
   function getAnchors(self): (number, number, number, number, number, number)
@@ -1840,10 +1765,6 @@ declare extern type Joint extends Object with
   function setEnabled(self, enabled: boolean)
   function setPriority(self, priority: number)
   function setUserData(self, data: any)
-end
-
-declare extern type MeshShape extends Shape with
-  function getScale(self): number
 end
 
 declare extern type Shape extends Object with
@@ -1980,6 +1901,76 @@ declare extern type World extends Object with
   function shapecast(self, shape: Shape, x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, angle: number, ax: number, ay: number, az: number, filter: string): (Collider, Shape, number, number, number, number, number, number, number, number)
   function shapecast(self, shape: Shape, position: vector, destination: vector, orientation: quaternion, filter: string): (Collider, Shape, number, number, number, number, number, number, number, number)
   function update(self, dt: number)
+end
+
+declare extern type BallJoint extends Joint with
+end
+
+declare extern type BoxShape extends Shape with
+  function getDimensions(self): (number, number, number)
+  function setDimensions(self, width: number, height: number, depth: number)
+end
+
+declare extern type CapsuleShape extends Shape with
+  function getLength(self): number
+  function getRadius(self): number
+  function setLength(self, length: number)
+  function setRadius(self, radius: number)
+end
+
+declare extern type ConeJoint extends Joint with
+  function getAxis(self): (number, number, number)
+  function getLimit(self): number
+  function setLimit(self, limit: number)
+end
+
+declare extern type ConvexShape extends Shape with
+  function getFace(self, index: number): {}
+  function getFaceCount(self): number
+  function getPoint(self, index: number): (number, number, number)
+  function getPointCount(self): number
+  function getScale(self): number
+end
+
+declare extern type CylinderShape extends Shape with
+  function getLength(self): number
+  function getRadius(self): number
+  function setLength(self, length: number)
+  function setRadius(self, radius: number)
+end
+
+declare extern type DistanceJoint extends Joint with
+  function getLimits(self): (number, number)
+  function getSpring(self): (number, number)
+  function setLimits(self, min: number, max: number)
+  function setLimits(self)
+  function setSpring(self, frequency: number, damping: number)
+end
+
+declare extern type HingeJoint extends Joint with
+  function getAngle(self): number
+  function getAxis(self): (number, number, number)
+  function getFriction(self): number
+  function getLimits(self): (number, number)
+  function getMaxMotorTorque(self): (number, number)
+  function getMotorMode(self): MotorMode
+  function getMotorSpring(self): (number, number)
+  function getMotorTarget(self): number
+  function getMotorTorque(self): number
+  function getSpring(self): (number, number)
+  function setFriction(self, friction: number)
+  function setLimits(self, min: number, max: number)
+  function setLimits(self)
+  function setMaxMotorTorque(self, positive: number, negative: number)
+  function setMotorMode(self, mode: MotorMode)
+  function setMotorMode(self)
+  function setMotorSpring(self, frequency: number, damping: number)
+  function setMotorTarget(self, target: number)
+  function setSpring(self, frequency: number, damping: number)
+end
+
+declare extern type MeshShape extends Shape with
+  function getScale(self): number
 end
 
 type PhysicsModule = {
@@ -2177,6 +2168,52 @@ declare lovr: {
   task: TaskModule,
   thread: ThreadModule,
   timer: TimerModule,
-  quaternion: QuaternionModule,
-  vector: VectorModule,
 }
+
+declare extern type quaternion with
+  x: number
+  y: number
+  z: number
+  w: number
+  function __mul(self, other: quaternion): quaternion
+  function __mul(self, other: vector): vector
+  function angleaxis(self, ax: number, ay: number, az: number): quaternion
+  function between(self, b: vector): quaternion
+  function conjugate(self): quaternion
+  function direction(self): vector
+  function euler(self, yaw: number, roll: number): quaternion
+  function lookdir(self, up: vector): quaternion
+  function pack(self, y: number, z: number, w: number): quaternion
+  function slerp(self, b: vector, t: number): quaternion
+  function toangleaxis(self): (number, number, number, number)
+  function toeuler(self): (number, number, number)
+  function unpack(self): (number, number, number, number)
+end
+
+declare quaternion: QuaternionModule
+
+declare extern type vector with
+  x: number
+  y: number
+  z: number
+  function __add(self, other: vector): vector
+  function __sub(self, other: vector): vector
+  function __mul(self, other: vector): vector
+  function __mul(self, other: number): vector
+  function __div(self, other: vector): vector
+  function __div(self, other: number): vector
+  function __unm(self): vector
+  function angle(self, b: vector, axis: vector): number
+  function cross(self, b: vector): vector
+  function distance(self, b: vector): number
+  function dot(self, b: vector): number
+  function length(self): number
+  function lerp(self, b: vector, t: number): vector
+  function normalize(self): vector
+  function pack(self, y: number, z: number): vector
+  function pack(self): vector
+  function rotate(self, q: quaternion): number
+  function unpack(self): (number, number, number)
+end
+
+declare vector: VectorModule
