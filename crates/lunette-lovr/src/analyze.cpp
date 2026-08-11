@@ -3,15 +3,19 @@
 // The frontend setup mirrors `CLI/src/Analyze.cpp`, so that the standing check
 // and the user-facing command cannot drift apart.
 
+#include "Luau/AnalyzeRequirer.h"
 #include "Luau/BuiltinDefinitions.h"
+#include "Luau/Config.h"
 #include "Luau/ExperimentalFlags.h"
 #include "Luau/Frontend.h"
+#include "Luau/RequireNavigator.h"
 
 #include <cstring>
 #include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "analyze.h"
@@ -19,33 +23,102 @@
 namespace
 {
 
-// Reads a module's source from the path its name is.
+std::optional<std::string> slurp(const std::string& path)
+{
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return std::nullopt;
+
+    std::ostringstream contents;
+    contents << stream.rdbuf();
+    return contents.str();
+}
+
+std::string directoryOf(const std::string& path)
+{
+    size_t slash = path.find_last_of('/');
+    return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
+}
+
+// Reads `.luaurc` for a module's directory and every directory above it, for
+// the language mode and lint settings. Aliases are the navigator's business.
+struct DirectoryConfigResolver : Luau::ConfigResolver
+{
+    Luau::Config defaults;
+    mutable std::unordered_map<std::string, Luau::Config> cache;
+
+    explicit DirectoryConfigResolver(Luau::Mode mode)
+    {
+        defaults.mode = mode;
+    }
+
+    const Luau::Config& getConfig(const Luau::ModuleName& name, const Luau::TypeCheckLimits&) const override
+    {
+        return forDirectory(directoryOf(name));
+    }
+
+    const Luau::Config& forDirectory(const std::string& directory) const
+    {
+        auto found = cache.find(directory);
+        if (found != cache.end())
+            return found->second;
+
+        const std::string parent = directoryOf(directory);
+        Luau::Config config = (parent == directory || directory == "." || directory.empty())
+            ? defaults
+            : forDirectory(parent);
+        // The mode is not inherited from a parent's `.luaurc`, because the
+        // caller asked for one and a config that omits it must not lower it.
+        config.mode = defaults.mode;
+
+        if (std::optional<std::string> contents = slurp(directory + "/" + Luau::kConfigName))
+        {
+            // Aliases are parsed only when the options ask for them, and they
+            // carry the location so a relative alias resolves against the
+            // `.luaurc` that declared it rather than the working directory.
+            Luau::ConfigOptions options;
+            options.aliasOptions = Luau::ConfigOptions::AliasOptions{directory, true};
+            Luau::parseConfig(*contents, config, options);
+        }
+
+        return cache.emplace(directory, std::move(config)).first->second;
+    }
+};
+
+// Resolves a module by path, and a require through Luau's own navigator, so
+// that a require means here what it means in an editor.
 struct PathResolver : Luau::FileResolver
 {
     std::optional<Luau::SourceCode> readSource(const Luau::ModuleName& name) override
     {
-        std::ifstream stream(name, std::ios::binary);
-        if (!stream)
+        if (std::optional<std::string> contents = slurp(name))
+            return Luau::SourceCode{*contents, Luau::SourceCode::Module};
+        return std::nullopt;
+    }
+
+    std::optional<Luau::ModuleInfo> resolveModule(const Luau::ModuleInfo* context, Luau::AstExpr* node, const Luau::TypeCheckLimits&)
+        override
+    {
+        Luau::AstExprConstantString* literal = node->as<Luau::AstExprConstantString>();
+        if (literal == nullptr || context == nullptr)
             return std::nullopt;
 
-        std::ostringstream contents;
-        contents << stream.rdbuf();
-        return Luau::SourceCode{contents.str(), Luau::SourceCode::Module};
-    }
-};
+        // A `.luau` configuration is not executed. That needs a lua_State and a
+        // time limit threaded through the navigator, and `.luaurc` is what
+        // lunette writes and documents.
+        FileNavigationContext navigation{context->name};
+        Luau::Require::ErrorHandler silent;
+        Luau::Require::Navigator navigator(navigation, silent);
 
-struct FixedConfigResolver : Luau::ConfigResolver
-{
-    Luau::Config config;
+        std::string required{literal->value.data, literal->value.size};
+        if (navigator.navigate(std::move(required)) != Luau::Require::Navigator::Status::Success)
+            return std::nullopt;
+        if (!navigation.isModulePresent())
+            return std::nullopt;
 
-    explicit FixedConfigResolver(Luau::Mode mode)
-    {
-        config.mode = mode;
-    }
-
-    const Luau::Config& getConfig(const Luau::ModuleName&, const Luau::TypeCheckLimits&) const override
-    {
-        return config;
+        if (std::optional<std::string> identifier = navigation.getIdentifier())
+            return Luau::ModuleInfo{*identifier};
+        return std::nullopt;
     }
 };
 
@@ -63,17 +136,6 @@ char* copy(const std::string& text)
     char* owned = new char[text.size() + 1];
     std::memcpy(owned, text.c_str(), text.size() + 1);
     return owned;
-}
-
-std::optional<std::string> readFile(const char* path)
-{
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream)
-        return std::nullopt;
-
-    std::ostringstream contents;
-    contents << stream.rdbuf();
-    return contents.str();
 }
 
 // Collects into the vectors the report is built from.
@@ -126,8 +188,8 @@ lunette_luau_report* lunette_luau_check(const lunette_luau_request* request)
     Luau::FrontendOptions options;
     options.runLintChecks = true;
 
+    DirectoryConfigResolver config(request->strict ? Luau::Mode::Strict : Luau::Mode::Nonstrict);
     PathResolver files;
-    FixedConfigResolver config(request->strict ? Luau::Mode::Strict : Luau::Mode::Nonstrict);
     Luau::SolverMode solver = request->old_solver ? Luau::SolverMode::Old : Luau::SolverMode::New;
 
     Luau::Frontend frontend(solver, &files, &config, options);
@@ -135,7 +197,7 @@ lunette_luau_report* lunette_luau_check(const lunette_luau_request* request)
 
     if (request->definitions != nullptr)
     {
-        std::optional<std::string> source = readFile(request->definitions);
+        std::optional<std::string> source = slurp(request->definitions);
         if (!source)
             return fail(std::string("the definitions file could not be read: ") + request->definitions, collected);
 

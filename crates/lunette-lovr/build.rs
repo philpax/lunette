@@ -284,10 +284,18 @@ fn build_analyze_shim(lovr_dir: &Path) {
         .cpp(true)
         .std("c++17")
         .file(&shim)
+        // Luau's own require navigation, rather than a second reading of the
+        // rules. These carry no FFlag statics, so compiling them here does not
+        // reintroduce the duplicate-Luau problem the archives had.
+        .file(luau.join("CLI/src/AnalyzeRequirer.cpp"))
+        .file(luau.join("CLI/src/VfsNavigator.cpp"))
+        .file(luau.join("CLI/src/FileUtils.cpp"))
         .include(luau.join("Analysis/include"))
         .include(luau.join("Ast/include"))
         .include(luau.join("Config/include"))
         .include(luau.join("Common/include"))
+        .include(luau.join("Require/include"))
+        .include(luau.join("CLI/include"))
         .compile("lunette_analyze");
 }
 
