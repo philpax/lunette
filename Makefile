@@ -58,7 +58,7 @@ check:
 	$(CARGO) clippy --workspace --all-targets --all-features -- -D warnings
 	$(CARGO) test --workspace
 	stylua --check lua etc/xdg/lunette
-	./scripts/check-luau.sh
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) etc/xdg/lunette/main.lua
 
 install: install-binary install-lua install-config
 

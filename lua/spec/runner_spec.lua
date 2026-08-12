@@ -8,9 +8,9 @@
 -- Discovery is driven against a table of strings rather than a real directory,
 -- which is what `runner.discover` taking its filesystem as an argument is for.
 
-local expect = require 'spec.expect'
-local runner = require 'spec.runner'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local runner = require '@spec/runner'
+local suite = require '@spec/suite'
 
 local spec = suite.new 'spec.runner'
 
@@ -39,12 +39,12 @@ end
 
 spec('discovery finds spec files and skips everything else', function()
   local filesystem = fakeFilesystem {
-    ['spec'] = { 'expect.lua', 'runner.lua', 'signal_spec.lua', 'notes.txt' },
+    ['@spec'] = { 'expect.lua', 'runner.lua', 'signal_spec.lua', 'notes.txt' },
   }
 
-  local names = runner.discover(filesystem, 'spec', 'spec.')
+  local names = runner.discover(filesystem, '@spec', '@spec/')
 
-  expect.equal(table.concat(names, ','), 'spec.signal_spec', 'the names found')
+  expect.equal(table.concat(names, ','), '@spec/signal_spec', 'the names found')
 end)
 
 -- The defect this file exists for. A module under a new subdirectory that
@@ -52,38 +52,42 @@ end)
 -- no report of any kind.
 spec('discovery descends into subdirectories', function()
   local filesystem = fakeFilesystem {
-    ['spec'] = { 'a_spec.lua', 'nested' },
-    ['spec/nested'] = { 'b_spec.lua', 'deeper' },
-    ['spec/nested/deeper'] = { 'c_spec.lua' },
+    ['@spec'] = { 'a_spec.lua', 'nested' },
+    ['@spec/nested'] = { 'b_spec.lua', 'deeper' },
+    ['@spec/nested/deeper'] = { 'c_spec.lua' },
   }
 
-  local names = runner.discover(filesystem, 'spec', 'spec.')
+  local names = runner.discover(filesystem, '@spec', '@spec/')
 
-  expect.equal(table.concat(names, ','), 'spec.a_spec,spec.nested.b_spec,spec.nested.deeper.c_spec', 'the names found')
+  expect.equal(
+    table.concat(names, ','),
+    '@spec/a_spec,@spec/nested/b_spec,@spec/nested/deeper/c_spec',
+    'the names found'
+  )
 end)
 
 spec('discovery is sorted, so a run reports in a stable order', function()
   local filesystem = fakeFilesystem {
-    ['spec'] = { 'c_spec.lua', 'a_spec.lua', 'b_spec.lua' },
+    ['@spec'] = { 'c_spec.lua', 'a_spec.lua', 'b_spec.lua' },
   }
 
-  local names = runner.discover(filesystem, 'spec', 'spec.')
+  local names = runner.discover(filesystem, '@spec', '@spec/')
 
-  expect.equal(table.concat(names, ','), 'spec.a_spec,spec.b_spec,spec.c_spec', 'the order')
+  expect.equal(table.concat(names, ','), '@spec/a_spec,@spec/b_spec,@spec/c_spec', 'the order')
 end)
 
 spec('discovery of an empty tree finds nothing rather than raising', function()
-  local names = runner.discover(fakeFilesystem { ['spec'] = {} }, 'spec', 'spec.')
+  local names = runner.discover(fakeFilesystem { ['@spec'] = {} }, '@spec', '@spec/')
 
   expect.equal(#names, 0, 'the names found')
 end)
 
 -- A file under `lua/spec/` that runs nothing is coverage silently lost, so it
--- is an error rather than a skip. `spec.expect` is a module that is not a
+-- is an error rather than a skip. `@spec/expect` is a module that is not a
 -- suite, which is what a mis-written spec file looks like from here.
 spec('a module that is not a suite is refused', function()
   expect.raises(function()
-    runner.collect { 'spec.expect' }
+    runner.collect { '@spec/expect' }
   end, 'did not return a spec suite', 'collect')
 end)
 

@@ -16,7 +16,7 @@
 -- than taking the headset off to edit a file. Everything past that is the
 -- user's configuration's business, and this is not it.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
 -- Why the configuration did not load, as crates/lunette/src/safe_mode.rs was
 -- given it. Shown on the panel rather than only logged: a user in a headset

@@ -19,9 +19,10 @@ local tree = {}
 local walk
 
 -- Where the standard library and its specs are, as paths in the virtual
--- filesystem.
-tree.MODULE_ROOT = 'mullion'
-tree.SPEC_ROOT = 'spec'
+-- filesystem. The two trees have explicit mount points, so their paths carry
+-- the same `@` roots that `require` uses.
+tree.MODULE_ROOT = '@mullion'
+tree.SPEC_ROOT = '@spec'
 
 -- Every `.lua` file under `root`, as paths including it, in sorted order.
 function tree.files(root)
@@ -52,11 +53,10 @@ function tree.specs()
   return specs
 end
 
--- The module name a path is required by: `mullion/panel/init.lua` is
--- `mullion.panel`, and `mullion/signal.lua` is `mullion.signal`.
+-- The module name a path is required by: `@mullion/panel/init.lua` is
+-- `@mullion/panel`, and `@mullion/signal.lua` is `@mullion/signal`.
 function tree.moduleName(path)
-  local name = path:gsub('%.lua$', ''):gsub('/init$', ''):gsub('/', '.')
-  return name
+  return path:gsub('%.lua$', ''):gsub('/init$', '')
 end
 
 -- Appends every `.lua` file under `directory` to `found`, descending into every

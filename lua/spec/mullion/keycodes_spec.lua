@@ -6,10 +6,10 @@
 -- table this shape invites and that nothing else would notice until a client
 -- refused a modifier set at runtime.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local keycodes = require 'mullion.keycodes'
+local keycodes = require '@mullion/keycodes'
 
 local spec = suite.new 'mullion.keycodes'
 

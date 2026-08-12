@@ -23,9 +23,9 @@
 -- grab, and it is also how a configuration points at panels with something that
 -- is not a hand — a gaze ray, a simulated mouse, a scripted demo.
 
-local lunette = require 'lunette'
-local interaction = require 'mullion.interaction'
-local teardown = require 'mullion.teardown'
+local lunette = require '@lunette'
+local interaction = require '@mullion/interaction'
+local teardown = require '@mullion/teardown'
 
 local laser = {}
 

@@ -1,10 +1,10 @@
 -- Covers lua/mullion/error.lua.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local errors = require 'mullion.error'
-local teardown = require 'mullion.teardown'
+local errors = require '@mullion/error'
+local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.error'
 
@@ -280,7 +280,7 @@ spec('uninstall forgets what was rate-limited', function()
 end)
 
 spec('requiring twice returns the same module', function()
-  expect.equal(require 'mullion.error', errors, 'the module')
+  expect.equal(require '@mullion/error', errors, 'the module')
 end)
 
 return spec

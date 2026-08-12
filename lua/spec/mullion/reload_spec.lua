@@ -16,10 +16,10 @@
 -- the copies it makes are its own, and `package.loaded` is put back the way it
 -- was found before the case returns.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local tree = require 'spec.mullion.tree'
+local tree = require '@spec/mullion/tree'
 
 local spec = suite.new 'mullion.reload'
 
@@ -82,7 +82,7 @@ spec('requiring every module twice leaves one teardown hook each', function()
     -- about this case rather than about whatever the rest of the suite has
     -- registered.
     requireAll(names)
-    local teardown = require 'mullion.teardown'
+    local teardown = require '@mullion/teardown'
     local first = teardown.pending()
 
     -- The second pass keeps that registry and re-runs every other module body,
@@ -116,9 +116,9 @@ spec('no module writes a global', function()
   local held = snapshot(names)
   -- A registry of its own, so that the bodies run below register their hooks
   -- somewhere the rest of the suite is not looking at.
-  local heldTeardown = package.loaded['mullion.teardown']
-  package.loaded['mullion.teardown'] = nil
-  require 'mullion.teardown'
+  local heldTeardown = package.loaded['@mullion/teardown']
+  package.loaded['@mullion/teardown'] = nil
+  require '@mullion/teardown'
 
   local written = {}
   local environment = setmetatable({}, {
@@ -143,7 +143,7 @@ spec('no module writes a global', function()
     end
   end)
 
-  package.loaded['mullion.teardown'] = heldTeardown
+  package.loaded['@mullion/teardown'] = heldTeardown
   restore(held)
   if not ok then
     error(raised, 0)

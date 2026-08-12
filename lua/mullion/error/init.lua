@@ -35,7 +35,7 @@
 -- state machine over a key and a time, told the time rather than reading a
 -- clock, so the specs drive it without waiting for one.
 
-local teardown = require 'mullion.teardown'
+local teardown = require '@mullion/teardown'
 
 local errors = {}
 

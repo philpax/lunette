@@ -226,7 +226,7 @@ const EVENT_PREFIX: &str = "lun";
 /// Reached through `package.loaded` rather than `require`d. A configuration that
 /// never mentions `mullion` is supported, and requiring it here would load the
 /// standard library into a session that had deliberately gone without it.
-const TEARDOWN_MODULE: &str = "mullion.teardown";
+const TEARDOWN_MODULE: &str = "@mullion/teardown";
 
 /// Runs the standard library's teardown hooks, reporting rather than failing.
 ///
@@ -327,7 +327,7 @@ fn clear_loaded_modules(globals: &Table) -> mlua::Result<()> {
 
 /// Whether a module survives a reload.
 fn is_protected(name: &str) -> bool {
-    let root = name.split('.').next().unwrap_or(name);
+    let root = name.split(['.', '/']).next().unwrap_or(name);
     PROTECTED_ROOTS.contains(&root)
 }
 
@@ -441,7 +441,7 @@ mod tests {
             .expect("the configuration is reachable");
     }
 
-    /// A teardown registry with the contract `mullion.teardown` has: hooks keyed
+    /// A teardown registry with the contract `@mullion/teardown` has: hooks keyed
     /// by name, run in reverse registration order, emptied by a run, and rebuilt
     /// empty when the module body runs again.
     ///
@@ -452,7 +452,7 @@ mod tests {
     /// why a reload does not clear globals.
     const TEARDOWN: &str = r"
       hooksRun = {}
-      package.preload['mullion.teardown'] = function()
+      package.preload['@mullion/teardown'] = function()
         local teardown = { hooks = {}, order = {} }
         function teardown.register(name, run)
           if teardown.hooks[name] == nil then
@@ -541,7 +541,7 @@ mod tests {
     fn teardown_hooks_run_before_anything_is_cleared() {
         let lua = state(
             r"
-              local teardown = require 'mullion.teardown'
+              local teardown = require '@mullion/teardown'
               teardown.register('a.module', function()
                 -- What the hook can still see is the whole point: a hook that ran
                 -- after the clearing would be tearing down a state that had
@@ -582,7 +582,7 @@ mod tests {
         run(
             &lua,
             r"
-              local teardown = require 'mullion.teardown'
+              local teardown = require '@mullion/teardown'
               teardown.register('second', function() secondRan = true end)
               teardown.register('first', function() error('deliberate') end)
             ",
@@ -657,15 +657,20 @@ mod tests {
         let lua = state("");
         run(
             &lua,
-            "package.loaded['mullion.panel'] = { n = 1 }
-             package.loaded['mullion.layout.arc'] = { n = 1 }
+            "package.loaded['@mullion/panel'] = { n = 1 }
+             package.loaded['@mullion/layout/arc'] = { n = 1 }
              package.loaded.mylayout = { n = 1 }
-             package.loaded.lunette = { n = 1 }",
+             package.loaded['@lunette'] = { n = 1 }",
         );
 
         reload(&lua).expect("the reload succeeds");
 
-        for name in ["mullion.panel", "mullion.layout.arc", "mylayout", "lunette"] {
+        for name in [
+            "@mullion/panel",
+            "@mullion/layout/arc",
+            "mylayout",
+            "@lunette",
+        ] {
             assert!(
                 lua.load(format!("return package.loaded['{name}'] == nil"))
                     .eval::<bool>()
@@ -772,9 +777,9 @@ mod tests {
     #[test]
     fn ten_reloads_accumulate_no_teardown_hooks() {
         let lua = state(
-            "local teardown = require 'mullion.teardown'
-             teardown.register('mullion.panel', function() end)
-             teardown.register('mullion.signal', function() end)",
+            "local teardown = require '@mullion/teardown'
+             teardown.register('@mullion/panel', function() end)
+             teardown.register('@mullion/signal', function() end)",
         );
         install_teardown(&lua);
 
@@ -783,7 +788,7 @@ mod tests {
         for _ in 0..10 {
             reload(&lua).expect("the reload succeeds");
             assert_eq!(
-                number(&lua, "#require('mullion.teardown').pending()"),
+                number(&lua, "#require('@mullion/teardown').pending()"),
                 2,
                 "the registry should hold one hook per module, however many reloads have run"
             );
@@ -802,7 +807,7 @@ mod tests {
     fn a_reload_from_inside_a_reload_is_refused() {
         let lua = state(
             "runs.main = runs.main + 1
-             local lunette = require 'lunette'
+             local lunette = require '@lunette'
              ok, message = lunette.reload()",
         );
         lua.globals()
@@ -811,7 +816,7 @@ mod tests {
             .get::<Table>("preload")
             .expect("preload exists")
             .set(
-                "lunette",
+                "@lunette",
                 lua.create_function(|lua, ()| {
                     let module = lua.create_table()?;
                     module.set(

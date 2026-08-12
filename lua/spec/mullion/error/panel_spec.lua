@@ -1,11 +1,11 @@
 -- Covers lua/mullion/error/panel.lua.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local errors = require 'mullion.error'
-local panel = require 'mullion.error.panel'
-local teardown = require 'mullion.teardown'
+local errors = require '@mullion/error'
+local panel = require '@mullion/error/panel'
+local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.error.panel'
 
@@ -211,7 +211,7 @@ spec('install registers a teardown hook that uninstalls', function()
 end)
 
 spec('requiring twice returns the same module', function()
-  expect.equal(require 'mullion.error.panel', panel, 'the module')
+  expect.equal(require '@mullion/error/panel', panel, 'the module')
 end)
 
 return spec

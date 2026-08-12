@@ -10,14 +10,14 @@
 -- the panel fixture, so that the `mullion.panel` this reaches through is the one
 -- holding the fake `lunette`.
 
-local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.persist.fixture'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local fixture = require '@spec/mullion/persist/fixture'
+local suite = require '@spec/suite'
 
-local persist = require 'mullion.persist'
-local pose = require 'mullion.pose'
-local rules = require 'mullion.rules'
-local tag = require 'mullion.tag'
+local persist = require '@mullion/persist'
+local pose = require '@mullion/pose'
+local rules = require '@mullion/rules'
+local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.persist.arrangement'
 

@@ -9,7 +9,7 @@
 -- defect in it. Globals survive a soft reload, so the run counter is how this
 -- one file is three different configurations in turn.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
 runs = (runs or 0) + 1
 

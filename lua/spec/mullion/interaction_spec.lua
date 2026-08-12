@@ -11,12 +11,12 @@
 -- everything that decides is in this module, and `mullion.laser` is the shell
 -- that reads the device.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local interaction = require 'mullion.interaction'
-local pose = require 'mullion.pose'
-local fixture = require 'spec.mullion.panel.fixture'
+local interaction = require '@mullion/interaction'
+local pose = require '@mullion/pose'
+local fixture = require '@spec/mullion/panel/fixture'
 
 local spec = suite.new 'mullion.interaction'
 
@@ -670,7 +670,7 @@ end)
 
 spec('requiring the module twice leaves one teardown hook', function()
   fresh()
-  local teardown = require 'mullion.teardown'
+  local teardown = require '@mullion/teardown'
 
   -- How many hooks this module has registered, counted rather than asserted to
   -- be there: the registry is shared with every other module and with
@@ -686,9 +686,9 @@ spec('requiring the module twice leaves one teardown hook', function()
   end
 
   local function reload()
-    package.loaded['mullion.interaction'] = nil
-    local loaded = require 'mullion.interaction'
-    package.loaded['mullion.interaction'] = interaction
+    package.loaded['@mullion/interaction'] = nil
+    local loaded = require '@mullion/interaction'
+    package.loaded['@mullion/interaction'] = interaction
     return loaded
   end
 

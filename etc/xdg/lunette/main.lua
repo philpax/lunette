@@ -20,22 +20,22 @@
 -- overlay extension, so lunette composites over whatever holds the primary
 -- session.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
-local adopt = require 'mullion.adopt'
-local arc = require 'mullion.layout.arc'
-local errors = require 'mullion.error'
-local errorPanel = require 'mullion.error.panel'
-local interaction = require 'mullion.interaction'
-local keyboardModule = require 'mullion.keyboard'
-local keycodes = require 'mullion.keycodes'
-local laser = require 'mullion.laser'
-local panel = require 'mullion.panel'
-local raycast = require 'mullion.panel.raycast'
-local persist = require 'mullion.persist'
-local rules = require 'mullion.rules'
-local signal = require 'mullion.signal'
-local tag = require 'mullion.tag'
+local adopt = require '@mullion/adopt'
+local arc = require '@mullion/layout/arc'
+local errors = require '@mullion/error'
+local errorPanel = require '@mullion/error/panel'
+local interaction = require '@mullion/interaction'
+local keyboardModule = require '@mullion/keyboard'
+local keycodes = require '@mullion/keycodes'
+local laser = require '@mullion/laser'
+local panel = require '@mullion/panel'
+local raycast = require '@mullion/panel/raycast'
+local persist = require '@mullion/persist'
+local rules = require '@mullion/rules'
+local signal = require '@mullion/signal'
+local tag = require '@mullion/tag'
 
 -- The one tag this session shows. Tags are a set, and a configuration wanting
 -- workspaces declares several and switches between them with `tag.only`.

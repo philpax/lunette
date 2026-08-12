@@ -1,9 +1,9 @@
 -- Covers lua/mullion/teardown.lua.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local teardown = require 'mullion.teardown'
+local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.teardown'
 
@@ -251,16 +251,16 @@ spec('a module body running twice leaves one hook, not two', function()
   -- may still hold what the first run put there. Registering by name is what
   -- makes that leave one hook. This spec runs last, so the fresh module table
   -- it leaves behind reaches nothing.
-  local cached = package.loaded['mullion.signal']
-  package.loaded['mullion.signal'] = nil
-  require 'mullion.signal'
+  local cached = package.loaded['@mullion/signal']
+  package.loaded['@mullion/signal'] = nil
+  require '@mullion/signal'
   expect.equal(pendingCount 'mullion.signal', 1, 'hooks after the first body run')
 
-  package.loaded['mullion.signal'] = nil
-  require 'mullion.signal'
+  package.loaded['@mullion/signal'] = nil
+  require '@mullion/signal'
   expect.equal(pendingCount 'mullion.signal', 1, 'hooks after the second body run')
 
-  package.loaded['mullion.signal'] = cached
+  package.loaded['@mullion/signal'] = cached
 end)
 
 return spec

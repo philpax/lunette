@@ -6,11 +6,11 @@
 -- than left to a generator to stumble into, because zero is the one that would
 -- divide by zero and one is the one that would.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local arc = require 'mullion.layout.arc'
-local tag = require 'mullion.tag'
+local arc = require '@mullion/layout/arc'
+local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.layout.arc'
 

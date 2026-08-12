@@ -6,11 +6,11 @@
 -- required directly rather than through the fixture, since it reaches for
 -- nothing a fake would have to stand in for.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local raycast = require 'mullion.panel.raycast'
-local fixture = require 'spec.mullion.panel.fixture'
+local raycast = require '@mullion/panel/raycast'
+local fixture = require '@spec/mullion/panel/fixture'
 
 local spec = suite.new 'mullion.panel.raycast'
 

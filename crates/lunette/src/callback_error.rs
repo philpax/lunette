@@ -139,7 +139,7 @@ fn hand_to_standard_library(lua: &Lua, traced: &TracedError) -> mlua::Result<boo
 }
 
 /// The module the error handler lives in.
-const ERROR_MODULE: &str = "mullion.error";
+const ERROR_MODULE: &str = "@mullion/error";
 
 /// Logs the error and offers it to `lovr.lunerror` directly.
 ///
@@ -206,7 +206,7 @@ pub(crate) fn install_standard_library_handler(lua: &Lua) {
         .call(())
         .expect("the teardown registry loads");
     loaded
-        .set("mullion.teardown", teardown)
+        .set("@mullion/teardown", teardown)
         .expect("the registry is reachable");
 
     let module: Table = lua
@@ -220,7 +220,7 @@ pub(crate) fn install_standard_library_handler(lua: &Lua) {
 
     lua.load(
         "reports = {}
-         package.loaded['mullion.error'].report = function(text)
+         package.loaded['@mullion/error'].report = function(text)
              reports[#reports + 1] = text
          end",
     )
@@ -443,7 +443,7 @@ mod tests {
     fn a_standard_library_handler_that_raises_does_not_take_the_session_with_it() {
         let lua = state_with_the_standard_library();
         lua.load(
-            "package.loaded['mullion.error'].handle = function() error('the handler said no') end",
+            "package.loaded['@mullion/error'].handle = function() error('the handler said no') end",
         )
         .exec()
         .expect("the handler is replaced");
@@ -464,7 +464,7 @@ mod tests {
         lua.load(
             "seen = {}
              function lovr.lunerror(event) seen[#seen + 1] = event end
-             package.loaded['mullion.error'].handle = function() error('the handler said no') end",
+             package.loaded['@mullion/error'].handle = function() error('the handler said no') end",
         )
         .exec()
         .expect("the handler is replaced");

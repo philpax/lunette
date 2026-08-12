@@ -398,7 +398,7 @@ impl Overrun {
 /// Gives `function` an environment in which a module resolves by its own name.
 ///
 /// `docs/lua-api.md` documents `lunctl 'return #lunette.windows()'`. A
-/// configuration reaches the API through `local lunette = require 'lunette'`, so
+/// configuration reaches the API through `local lunette = require '@lunette'`, so
 /// the name is a local and is not a global anywhere. Without this, every
 /// documented example indexes a nil.
 ///

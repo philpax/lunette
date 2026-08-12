@@ -6,10 +6,10 @@
 -- exempts itself without setting a hint at all, and that a window nobody is
 -- looking at and nothing is happening in falls to the floor.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local pacing = require 'mullion.pacing'
+local pacing = require '@mullion/pacing'
 
 local spec = suite.new 'mullion.pacing'
 

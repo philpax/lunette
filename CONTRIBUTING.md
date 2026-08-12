@@ -76,7 +76,7 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 
 ### The Luau static check
 
-`scripts/check-luau.sh` typechecks `lua/mullion` and the shipped configuration with the Luau type checker, built from the vendored LÖVR Luau fork as a standalone target. It runs at the end of each complete task, and as part of `make check`.
+`lunette check` typechecks `lua/mullion` and the shipped configuration against the generated definitions. It is the same in-process checker the user-facing command and `make check` run, so the two paths cannot drift.
 
 The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lovr-docs`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types. The spec suite under `lua/spec` is deliberately not typechecked — it runs under Luau as the in-binary test job, and its harness globals are not a typecheck target.
 
@@ -187,7 +187,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `cargo test --workspace`
   - `cargo test --workspace --no-default-features`
   - `stylua --check lua etc/xdg/lunette` — the Luau formatter (see [formatting](#formatting))
-  - `./scripts/check-luau.sh` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
+  - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

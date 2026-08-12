@@ -149,7 +149,7 @@ fn the_default_configuration_loads_against_the_standard_library() {
     // The arrangement source is what `lovr.load` had to reach `mullion.persist`
     // to register, so its absence would mean the callback ran and did nothing.
     let registered: bool = match lua
-        .load("local rules = require 'mullion.rules'\nfor _, source in ipairs(rules.sources()) do\n  if source.name == 'mullion.persist' then return true end\nend\nreturn false")
+        .load("local rules = require '@mullion/rules'\nfor _, source in ipairs(rules.sources()) do\n  if source.name == 'mullion.persist' then return true end\nend\nreturn false")
         .eval()
     {
         Ok(registered) => registered,
@@ -165,7 +165,7 @@ fn the_default_configuration_loads_against_the_standard_library() {
     // workspace comes back scrambled.
     let sources: Vec<String> = match lua
         .load(
-            "local rules = require 'mullion.rules'\nlocal names = {}\nfor _, source in \
+            "local rules = require '@mullion/rules'\nlocal names = {}\nfor _, source in \
              ipairs(rules.sources()) do names[#names + 1] = source.name end\nreturn names",
         )
         .eval::<Vec<String>>()
@@ -231,7 +231,11 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
             let package: Table = lua.globals().get("package")?;
             let path: String = package.get("path")?;
             for template in path.split(';').filter(|part| !part.is_empty()) {
-                let candidate = template.replace('?', &name.replace('.', "/"));
+                let module_path = name.strip_prefix("@mullion").map_or_else(
+                    || name.replace('.', "/"),
+                    |suffix| format!("mullion{suffix}"),
+                );
+                let candidate = template.replace('?', &module_path);
                 if let Ok(source) = std::fs::read_to_string(&candidate) {
                     let function = lua
                         .load(&source)
@@ -280,7 +284,7 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|lua, ()| lua.create_table())?,
     )?;
     let loaded: Table = package.get("loaded")?;
-    loaded.set("lunette", lunette)?;
+    loaded.set("@lunette", lunette)?;
 
     let filesystem = lua.create_table()?;
     filesystem.set(

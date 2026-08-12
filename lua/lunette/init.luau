@@ -1,6 +1,6 @@
 -- The `lunette` module as the type checker sees it. At runtime this is
 -- registered by the host; for static checking it is a stub whose surface
--- matches what `require 'lunette'` returns. It intentionally does not run.
+-- matches what `require '@lunette'` returns. It intentionally does not run.
 --
 -- The source of truth for the API shape is the Rust registration surface;
 -- this file is kept in step with it by hand until that surface generates the

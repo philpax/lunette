@@ -23,7 +23,7 @@
 -- when that matters, and a panel connecting to something that outlives it is
 -- exactly the case.
 
-local teardown = require 'mullion.teardown'
+local teardown = require '@mullion/teardown'
 
 local signal = {}
 

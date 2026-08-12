@@ -8,10 +8,6 @@ declare _G: {
     [string]: any,
 }
 
--- Luau resolves a require through its own module resolution, which needs the
--- source to say where a module lives. Until it does, this is what keeps a
--- dotted require from being an error at every call site.
-declare require: any
 
 declare extern type userdata with end
 declare extern type lightuserdata with end

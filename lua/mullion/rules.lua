@@ -23,10 +23,10 @@
 -- the configuration (docs/stdlib.md), so `lovr.lunwindowopened` calls `place`
 -- rather than this module taking the callback out from under it.
 
-local panel = require 'mullion.panel'
-local pose = require 'mullion.pose'
-local tag = require 'mullion.tag'
-local teardown = require 'mullion.teardown'
+local panel = require '@mullion/panel'
+local pose = require '@mullion/pose'
+local tag = require '@mullion/tag'
+local teardown = require '@mullion/teardown'
 
 local rules = {}
 

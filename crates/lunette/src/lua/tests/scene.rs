@@ -38,7 +38,7 @@ fn gated_lua(session: &TestSession) -> Lua {
     lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
         .exec()
         .expect("the lovr scaffolding loads");
-    lua.load("lunette = require 'lunette'")
+    lua.load("lunette = require '@lunette'")
         .exec()
         .expect("require resolves the module");
     lua

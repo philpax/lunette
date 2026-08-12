@@ -26,7 +26,7 @@
 //! report success. See [`step`]; do not "correct" this back to match `main.c`.
 //!
 //! One thing has no counterpart in `main.c` at all: the standard library is
-//! mounted into LÖVR's virtual filesystem, so that `require 'mullion'` resolves.
+//! mounted into LÖVR's virtual filesystem, so that `require '@mullion'` resolves.
 //! See [`install_standard_library_mount`].
 
 use std::{
@@ -430,8 +430,8 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
     }
 }
 
-/// Arranges for the `mullion` standard library to be mounted into LÖVR's
-/// virtual filesystem the moment that filesystem exists.
+/// Arranges for the `mullion` standard library and development specs to be
+/// mounted into LÖVR's virtual filesystem the moment that filesystem exists.
 ///
 /// # Why this is a hook rather than a call
 ///
@@ -449,10 +449,10 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 ///
 /// # Precedence
 ///
-/// The mount appends, and `boot.lua:125` mounts the configuration directory
-/// without appending, so the configuration directory is searched first. A user
-/// shadowing a mullion module with one of their own therefore works, and the
-/// standard library cannot shadow the `main.lua` it is loaded alongside.
+/// The configuration is mounted at the filesystem root by `boot.lua:125`, while
+/// the standard library is mounted at `@mullion` and the optional specs at
+/// `@spec`. A configuration therefore cannot shadow a mullion module by name,
+/// and the standard library cannot shadow the `main.lua` it is loaded alongside.
 ///
 /// # Read-only
 ///
@@ -464,13 +464,15 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 /// shipped `conf.lua` turns it off, and `docs/decisions.md` records why.
 ///
 /// A directory that does not exist fails to mount and is reported. That is not
-/// fatal: a configuration that never mentions `mullion` is supported, and one
-/// that does gets a `require` error naming the module.
+/// fatal: a configuration that never mentions `@mullion` is supported, and one
+/// that does gets a `require` error naming the module. The spec tree is mounted
+/// only when `directory/spec` exists, which keeps it out of installed trees.
 ///
 /// # Safety
 ///
 /// `state` must be a live Lua state with `luaL_openlibs` and `luax_preload`
-/// already run on it, and with room for four stack slots.
+/// already run on it, and with room for six stack slots. The optional spec
+/// directory is captured as nil when it is not present.
 unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: &Path) {
     // SAFETY: every push below is balanced before this returns, and the caller
     // guarantees the state and the stack room.
@@ -506,9 +508,17 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: 
             return;
         }
 
-        let bytes = directory.as_os_str().as_bytes();
+        let mullion_directory = directory.join("mullion");
+        let bytes = mullion_directory.as_os_str().as_bytes();
         lua::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
-        lua::lua_pushcclosure(state, open_filesystem_and_mount, 2);
+        let spec_directory = directory.join("spec");
+        if spec_directory.is_dir() {
+            let spec_bytes = spec_directory.as_os_str().as_bytes();
+            lua::lua_pushlstring(state, spec_bytes.as_ptr().cast(), spec_bytes.len());
+        } else {
+            lua::lua_pushnil(state);
+        }
+        lua::lua_pushcclosure(state, open_filesystem_and_mount, 3);
         lua::lua_setfield(state, -2, FILESYSTEM_MODULE.as_ptr());
 
         lua::lua_pop(state, 2);
@@ -523,13 +533,14 @@ const FILESYSTEM_MODULE: &CStr = c"lovr.filesystem";
 ///
 /// Installed by [`install_standard_library_mount`], which is where the reasoning
 /// for the timing is. Upvalue 1 is the loader `luax_preload` registered;
-/// upvalue 2 is the directory to mount.
+/// upvalue 2 is the standard-library directory, and upvalue 3 is the optional
+/// spec directory.
 ///
 /// The log handler rides along for the same reason: `boot.lua` assigns its own
 /// `lovr.log` in its chunk body, and requires `lovr.filesystem` from inside
 /// `lovr.boot`, which is after that and before the first message it logs.
 unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State) -> c_int {
-    // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the two
+    // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the three
     // upvalues the closure was built with and the module name at index 1.
     unsafe {
         lua::lua_pushvalue(state, lua::lua_upvalueindex(1));
@@ -548,10 +559,11 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
         }
 
         lua::lua_pushvalue(state, lua::lua_upvalueindex(2));
-        // No mount point, so the tree lands at the root of the virtual
-        // filesystem and `mullion/init.lua` is where `require 'mullion'` looks.
-        lua::lua_pushnil(state);
-        // Appended, so the configuration directory keeps precedence over it.
+        // The mount point is explicit so a configuration cannot shadow a
+        // mullion module by placing a file with the same dotted name at root.
+        lua::lua_pushliteral(state, c"@mullion");
+        // Appended, although the explicit mount point already prevents a
+        // configuration file from shadowing the standard-library module.
         lua::lua_pushboolean(state, 1);
         lua::lua_call(state, 3, 2);
 
@@ -568,7 +580,30 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
             );
         }
 
+        let filesystem = -1;
         lua::lua_pop(state, 2);
+
+        if lua::lua_type(state, lua::lua_upvalueindex(3)) == lua::LUA_TSTRING {
+            lua::lua_pushvalue(state, filesystem);
+            lua::lua_getfield(state, -1, c"mount".as_ptr());
+            if lua::lua_type(state, -1) == lua::LUA_TFUNCTION {
+                lua::lua_pushvalue(state, lua::lua_upvalueindex(3));
+                lua::lua_pushliteral(state, c"@spec");
+                lua::lua_pushboolean(state, 1);
+                lua::lua_call(state, 3, 2);
+                if lua::lua_toboolean(state, -2) == 0 {
+                    let message = match string_bytes(state, -1) {
+                        Some(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+                        None => "no reason was given".to_owned(),
+                    };
+                    warn!("lua: the spec tree could not be mounted: {message}");
+                }
+                lua::lua_pop(state, 2);
+            } else {
+                lua::lua_pop(state, 1);
+            }
+        }
+
         1
     }
 }

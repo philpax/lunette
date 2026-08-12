@@ -1,0 +1,8 @@
+{
+  "languageMode": "strict",
+  "aliases": {
+    "mullion": "./mullion",
+    "lunette": "./lunette",
+    "spec": "./spec"
+  }
+}

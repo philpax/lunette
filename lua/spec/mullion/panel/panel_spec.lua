@@ -4,11 +4,11 @@
 -- The fakes and the module under test come from `spec.mullion.panel.fixture`,
 -- which states why `lunette` is faked and why both specs share one install.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local signal = require 'mullion.signal'
-local fixture = require 'spec.mullion.panel.fixture'
+local signal = require '@mullion/signal'
+local fixture = require '@spec/mullion/panel/fixture'
 
 local spec = suite.new 'mullion.panel'
 
@@ -514,7 +514,7 @@ spec('rejects a size that is not positive', function()
 end)
 
 spec('requiring twice returns the same module', function()
-  expect.equal(require 'mullion.panel', panel, 'the module')
+  expect.equal(require '@mullion/panel', panel, 'the module')
 end)
 
 return spec

@@ -9,12 +9,12 @@
 -- The seats come from `spec.mullion.laser_fixture`, which states why `lunette`
 -- is faked. The panels are real, from `spec.mullion.panel.fixture`.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local interaction = require 'mullion.interaction'
-local fixture = require 'spec.mullion.panel.fixture'
-local lasers = require 'spec.mullion.laser_fixture'
+local interaction = require '@mullion/interaction'
+local fixture = require '@spec/mullion/panel/fixture'
+local lasers = require '@spec/mullion/laser_fixture'
 
 local spec = suite.new 'mullion.laser'
 
@@ -287,7 +287,7 @@ end)
 
 spec('requiring the module twice leaves one teardown hook', function()
   fresh()
-  local teardown = require 'mullion.teardown'
+  local teardown = require '@mullion/teardown'
 
   local function hooks()
     local found = 0
@@ -301,12 +301,12 @@ spec('requiring the module twice leaves one teardown hook', function()
 
   -- Through the fixture's fake `lunette`, since the module body requires it.
   local function reload()
-    local previous = package.loaded.lunette
-    package.loaded.lunette = { newSeat = function() end }
-    package.loaded['mullion.laser'] = nil
-    local loaded = require 'mullion.laser'
-    package.loaded.lunette = previous
-    package.loaded['mullion.laser'] = laser
+    local previous = package.loaded['@lunette']
+    package.loaded['@lunette'] = { newSeat = function() end }
+    package.loaded['@mullion/laser'] = nil
+    local loaded = require '@mullion/laser'
+    package.loaded['@lunette'] = previous
+    package.loaded['@mullion/laser'] = laser
     return loaded
   end
 

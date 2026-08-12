@@ -5,7 +5,7 @@
 -- came back would be asserting Phase 5's work rather than this module's, and a
 -- spec run that created seats would leave them behind. So the fake is installed
 -- into `package.loaded` before `mullion.laser` is required — which is what the
--- module captures — and `package.loaded.lunette` is put back afterwards, so
+-- module captures — and `package.loaded['@lunette']` is put back afterwards, so
 -- nothing else in the run sees it.
 --
 -- Not a spec file: the runner collects `*_spec.lua` and this is not one, so it
@@ -19,15 +19,15 @@ local newSeat
 -- Every seat the fake has handed out, newest last.
 fixture.seats = {}
 
-local previousLunette = package.loaded.lunette
-package.loaded.lunette = {
+local previousLunette = package.loaded['@lunette']
+package.loaded['@lunette'] = {
   newSeat = function(name, options)
     return newSeat(name, options)
   end,
 }
-package.loaded['mullion.laser'] = nil
-fixture.laser = require 'mullion.laser'
-package.loaded.lunette = previousLunette
+package.loaded['@mullion/laser'] = nil
+fixture.laser = require '@mullion/laser'
+package.loaded['@lunette'] = previousLunette
 
 -- Forgets the seats a previous case caused.
 function fixture.reset()

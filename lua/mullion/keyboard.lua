@@ -23,13 +23,13 @@
 -- the boundary of the widget toolkit docs/stdlib.md defers and docs/decisions.md
 -- records as possibly a separate library, and it does not cross it.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
-local interaction = require 'mullion.interaction'
-local keycodes = require 'mullion.keycodes'
-local panel = require 'mullion.panel'
-local signal = require 'mullion.signal'
-local teardown = require 'mullion.teardown'
+local interaction = require '@mullion/interaction'
+local keycodes = require '@mullion/keycodes'
+local panel = require '@mullion/panel'
+local signal = require '@mullion/signal'
+local teardown = require '@mullion/teardown'
 
 local keyboard = {}
 

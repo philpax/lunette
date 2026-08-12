@@ -20,8 +20,8 @@
 -- so that name is fixed. It answers the selected tags rather than one tag,
 -- because selection is multi.
 
-local signal = require 'mullion.signal'
-local teardown = require 'mullion.teardown'
+local signal = require '@mullion/signal'
+local teardown = require '@mullion/teardown'
 
 local tag = {}
 

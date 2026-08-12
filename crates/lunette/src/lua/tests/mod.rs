@@ -192,7 +192,7 @@ fn lua(session: &TestSession) -> Lua {
     lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
         .exec()
         .expect("the lovr scaffolding loads");
-    lua.load("lunette = require 'lunette'")
+    lua.load("lunette = require '@lunette'")
         .exec()
         .expect("require resolves the module");
     lua
@@ -237,7 +237,7 @@ fn requiring_the_module_twice_is_the_same_module() {
     let lua = lua(&session);
 
     assert!(
-        run::<bool>(&lua, "return require('lunette') == lunette"),
+        run::<bool>(&lua, "return require('@lunette') == lunette"),
         "require caches in package.loaded, so a second require is the first module"
     );
 }

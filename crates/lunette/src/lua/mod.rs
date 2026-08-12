@@ -1,10 +1,10 @@
 //! Linux-only: the `lunette` module, which is the native mechanism Lua is
 //! written against.
 //!
-//! `require('lunette')` resolves to the table [`install`] registers. Everything
+//! `require('@lunette')` resolves to the table [`install`] registers. Everything
 //! reachable from it is mechanism: what a window is, where its pixels are, and
 //! where a pointer event goes. Policy — panels, layouts, placement rules — is
-//! `mullion`, is written in Lua against this same surface, and is not here.
+//! `@mullion`, is written in Lua against this same surface, and is not here.
 //!
 //! # Rust holds no reference into Lua
 //!
@@ -102,9 +102,9 @@ use crate::{
 };
 
 /// The name `require` resolves through, and the root of the native surface.
-pub const MODULE_NAME: &str = "lunette";
+pub const MODULE_NAME: &str = "@lunette";
 
-/// Registers the module so that `require('lunette')` resolves.
+/// Registers the module so that `require('@lunette')` resolves.
 ///
 /// Called on LÖVR's own state before `boot.lua` runs. The module is built by
 /// the loader rather than being built once and captured, so that a soft reload

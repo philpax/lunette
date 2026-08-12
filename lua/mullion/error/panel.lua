@@ -16,8 +16,8 @@
 -- rate-limited by the time a report reaches here, so a defect raised every frame
 -- updates this once per window rather than once per frame.
 
-local errors = require 'mullion.error'
-local teardown = require 'mullion.teardown'
+local errors = require '@mullion/error'
+local teardown = require '@mullion/teardown'
 
 local panel = {}
 

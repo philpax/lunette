@@ -22,9 +22,9 @@
 -- two hands would share one cursor and one focus — which is the thing two seats
 -- exist to avoid.
 
-local pose = require 'mullion.pose'
-local signal = require 'mullion.signal'
-local teardown = require 'mullion.teardown'
+local pose = require '@mullion/pose'
+local signal = require '@mullion/signal'
+local teardown = require '@mullion/teardown'
 
 local interaction = {}
 

@@ -31,10 +31,10 @@
 -- pure arithmetic over a matrix and this file is claims, sources, and draw
 -- calls, so the two were split when this one outgrew the size threshold.
 
-local lunette = require 'lunette'
-local raycast = require 'mullion.panel.raycast'
-local signal = require 'mullion.signal'
-local teardown = require 'mullion.teardown'
+local lunette = require '@lunette'
+local raycast = require '@mullion/panel/raycast'
+local signal = require '@mullion/signal'
+local teardown = require '@mullion/teardown'
 
 local panel = {}
 

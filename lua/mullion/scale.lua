@@ -26,7 +26,7 @@
 -- hook: a chooser is owned by whatever made it, and the ladder is rebuilt when
 -- this file runs. There is nothing a reload could leave behind.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
 local scale = {}
 

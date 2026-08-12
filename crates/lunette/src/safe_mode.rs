@@ -186,7 +186,7 @@ mod tests {
         return self.texture
       end
 
-      package.preload.lunette = function()
+      package.preload['@lunette'] = function()
         return {
           windows = function()
             return recorded.showWindow and { recorded.window } or {}
@@ -364,7 +364,7 @@ mod tests {
         added.sort();
         assert_eq!(
             added,
-            vec!["lunette".to_owned()],
+            vec!["@lunette".to_owned()],
             "safe mode should require lunette and nothing else"
         );
     }

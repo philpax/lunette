@@ -9,11 +9,11 @@
 -- The round-trip earns its place: this is a file format that outlives the
 -- process, which is exactly the case a round-trip test is for.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local format = require 'mullion.persist.format'
-local pose = require 'mullion.pose'
+local format = require '@mullion/persist/format'
+local pose = require '@mullion/pose'
 
 local spec = suite.new 'mullion.persist.format'
 

@@ -6,11 +6,11 @@
 -- crossing back needs more than crossing forward did, and that a panel at
 -- either end of the ladder clamps rather than running off it.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local lunette = require 'lunette'
-local scale = require 'mullion.scale'
+local lunette = require '@lunette'
+local scale = require '@mullion/scale'
 
 local spec = suite.new 'mullion.scale'
 

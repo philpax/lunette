@@ -38,11 +38,11 @@
 -- behind and no teardown hook to register. The source it installs is
 -- `mullion.rules`'s to discard, and that module's hook does.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
-local interaction = require 'mullion.interaction'
-local panel = require 'mullion.panel'
-local rules = require 'mullion.rules'
+local interaction = require '@mullion/interaction'
+local panel = require '@mullion/panel'
+local rules = require '@mullion/rules'
 
 local adopt = {}
 

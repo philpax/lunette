@@ -37,11 +37,11 @@
 -- read. That memory is what its teardown hook discards. The rules source it
 -- installs is `mullion.rules`'s to discard, and that module's hook does.
 
-local format = require 'mullion.persist.format'
-local pose = require 'mullion.pose'
-local rules = require 'mullion.rules'
-local tag = require 'mullion.tag'
-local teardown = require 'mullion.teardown'
+local format = require '@mullion/persist/format'
+local pose = require '@mullion/pose'
+local rules = require '@mullion/rules'
+local tag = require '@mullion/tag'
+local teardown = require '@mullion/teardown'
 
 local persist = {}
 

@@ -170,6 +170,13 @@ fn main() -> ExitCode {
     info!(path = %config_directory.display(), "loading the configuration");
 
     let standard_library = standard_library_directory(&StandardLibrarySources::from_environment());
+    if standard_library_conflicts_with_configuration(config_directory, &standard_library) {
+        error!(
+            "config: the standard-library path {} is also the configuration directory; the two directories cannot be mounted separately",
+            standard_library.display()
+        );
+        return ExitCode::FAILURE;
+    }
     info!(path = %standard_library.display(), "mounting the standard library");
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
@@ -675,6 +682,17 @@ fn standard_library_directory(sources: &StandardLibrarySources) -> PathBuf {
         .unwrap_or_else(|| sources.prefix.join("share").join("lunette").join("lua"))
 }
 
+/// Whether mounting the standard library would ask PhysFS to mount the
+/// configuration directory twice.
+///
+/// The paths are compared as supplied. The standard-library override is
+/// deliberately allowed to be relative, and canonicalising either path here
+/// would change the documented resolution semantics rather than only making
+/// the duplicate error clearer.
+fn standard_library_conflicts_with_configuration(config: &Path, standard_library: &Path) -> bool {
+    config == standard_library
+}
+
 /// The environment values configuration-directory resolution depends on.
 ///
 /// They are gathered here so that [`config_directory_candidates`] stays a pure
@@ -944,6 +962,23 @@ mod tests {
         // Unlike the XDG variables, which the specification requires to be
         // absolute. `LUNETTE_STDLIB_PATH=lua cargo run` is the case it is for.
         assert_eq!(standard_library(Some("lua"), "/usr"), PathBuf::from("lua"));
+    }
+
+    #[test]
+    fn the_configuration_directory_cannot_also_be_the_standard_library() {
+        let directory = Path::new("/tmp/lunette");
+
+        assert!(standard_library_conflicts_with_configuration(
+            directory, directory
+        ));
+        assert!(!standard_library_conflicts_with_configuration(
+            directory,
+            Path::new("/tmp/lunette/lua"),
+        ));
+        assert!(!standard_library_conflicts_with_configuration(
+            directory,
+            Path::new("/tmp/other/lunette"),
+        ));
     }
 
     #[test]

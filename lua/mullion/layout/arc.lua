@@ -19,7 +19,7 @@
 -- This module holds no state and starts nothing, so it registers no teardown
 -- hook: there is nothing a reload could leave behind.
 
-local tag = require 'mullion.tag'
+local tag = require '@mullion/tag'
 
 local arc = {}
 

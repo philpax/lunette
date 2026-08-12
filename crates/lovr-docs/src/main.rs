@@ -41,10 +41,6 @@ declare _G: {
     [string]: any,
 }
 
--- Luau resolves a require through its own module resolution, which needs the
--- source to say where a module lives. Until it does, this is what keeps a
--- dotted require from being an error at every call site.
-declare require: any
 ";
 
 /// The fields lunette adds to the `lovr` table at boot (the custom event

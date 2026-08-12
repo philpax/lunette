@@ -13,12 +13,12 @@
 -- `spec/mullion/persist/arrangement_spec.lua`, and the fakes both build are
 -- `spec.mullion.persist.fixture`.
 
-local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.persist.fixture'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local fixture = require '@spec/mullion/persist/fixture'
+local suite = require '@spec/suite'
 
-local persist = require 'mullion.persist'
-local tag = require 'mullion.tag'
+local persist = require '@mullion/persist'
+local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.persist.file'
 

@@ -15,15 +15,15 @@
 -- Each failure quits with its own status, so the run says which assertion did
 -- not hold rather than only that one did not.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
-local teardown = require 'mullion.teardown'
+local teardown = require '@mullion/teardown'
 -- Required for their teardown hooks and their module identity, which are the
 -- two things a reload has to leave in a stated state.
-local panel = require 'mullion.panel'
-require 'mullion.rules'
-require 'mullion.signal'
-require 'mullion.tag'
+local panel = require '@mullion/panel'
+require '@mullion/rules'
+require '@mullion/signal'
+require '@mullion/tag'
 
 -- How many reloads this fixture performs. Ten, because AC5.4 is about
 -- accumulation and one reload cannot show that nothing accumulates.
@@ -35,7 +35,7 @@ reloads = reloads or 0
 -- What the first run saw, to compare every later run against.
 firstFilesystem = firstFilesystem or package.loaded['lovr.filesystem']
 firstHooks = firstHooks or table.concat(teardown.pending(), ',')
--- The `mullion.panel` module table each run resolved, newest last.
+-- The `@mullion/panel` module table each run resolved, newest last.
 panelTables = panelTables or {}
 panelTables[#panelTables + 1] = panel
 

@@ -9,13 +9,13 @@
 -- So the fake layout is deliberately not QWERTY. A keyboard that hardcoded one
 -- would pass every case that asked "is this key an A" and fail every case here.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local interaction = require 'mullion.interaction'
-local keyboard = require 'mullion.keyboard'
-local keycodes = require 'mullion.keycodes'
-local fixture = require 'spec.mullion.panel.fixture'
+local interaction = require '@mullion/interaction'
+local keyboard = require '@mullion/keyboard'
+local keycodes = require '@mullion/keycodes'
+local fixture = require '@spec/mullion/panel/fixture'
 
 local spec = suite.new 'mullion.keyboard'
 
@@ -475,7 +475,7 @@ end)
 
 spec('requiring the module twice leaves one teardown hook', function()
   fresh()
-  local teardown = require 'mullion.teardown'
+  local teardown = require '@mullion/teardown'
 
   local function hooks()
     local found = 0
@@ -488,9 +488,9 @@ spec('requiring the module twice leaves one teardown hook', function()
   end
 
   local function reload()
-    package.loaded['mullion.keyboard'] = nil
-    local loaded = require 'mullion.keyboard'
-    package.loaded['mullion.keyboard'] = keyboard
+    package.loaded['@mullion/keyboard'] = nil
+    local loaded = require '@mullion/keyboard'
+    package.loaded['@mullion/keyboard'] = keyboard
     return loaded
   end
 

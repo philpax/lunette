@@ -412,6 +412,6 @@ The API is bound with `mlua`, which creates the session's Luau state and owns it
 
 This choice is motivated by failure mode, not throughput. A Lua mistake should raise a catchable error rather than crash the window manager, because the premise of this project is that users write Lua that reshapes the system. mlua's per-call cost is negligible relative to the cost of a compositor and a GPU frame.
 
-Luau has no FFI. A script that wants a C ABI directly has the standard library and the `lunette` API, and nothing else; calling native code from a configuration is not part of the contract. The type checker (`scripts/check-luau.sh`) is available to catch a configuration that reaches for it.
+Luau has no FFI. A script that wants a C ABI directly has the standard library and the `lunette` API, and nothing else; calling native code from a configuration is not part of the contract. The `lunette check` command is available to catch a configuration that reaches for it.
 
 The API is available only in the main Lua state. `lovr.thread` and `lovr.task` states do not receive it.

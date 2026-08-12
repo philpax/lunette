@@ -1,9 +1,9 @@
 -- Covers lua/mullion/signal.lua.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local signal = require 'mullion.signal'
+local signal = require '@mullion/signal'
 
 local spec = suite.new 'mullion.signal'
 
@@ -299,7 +299,7 @@ spec('requiring twice returns the same module and does not duplicate connections
   local handler, calls = recorder()
 
   signal.connect(target, 'moved', handler)
-  local again = require 'mullion.signal'
+  local again = require '@mullion/signal'
 
   expect.equal(again, signal, 'the module')
   again.emit(target, 'moved')

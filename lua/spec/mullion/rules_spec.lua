@@ -10,12 +10,12 @@
 -- `mullion.panel` the module captures is the one holding the fake `lunette`. A
 -- real `lunette.claimLayer` would want a layer pool with no headset behind it.
 
-local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.panel.fixture'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local fixture = require '@spec/mullion/panel/fixture'
+local suite = require '@spec/suite'
 
-local rules = require 'mullion.rules'
-local tag = require 'mullion.tag'
+local rules = require '@mullion/rules'
+local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.rules'
 
@@ -365,7 +365,7 @@ end)
 
 spec('placing a window accepts an encoded pose', function()
   reset()
-  local pose = require 'mullion.pose'
+  local pose = require '@mullion/pose'
   rules.setRules {
     { properties = { pose = pose.encode(lovr.math.newMat4():translate(0, 2, -3)) } },
   }
@@ -491,10 +491,10 @@ end)
 
 spec('requiring twice leaves one teardown hook', function()
   reset()
-  local teardown = require 'mullion.teardown'
-  package.loaded['mullion.rules'] = nil
-  local reloaded = require 'mullion.rules'
-  package.loaded['mullion.rules'] = rules
+  local teardown = require '@mullion/teardown'
+  package.loaded['@mullion/rules'] = nil
+  local reloaded = require '@mullion/rules'
+  package.loaded['@mullion/rules'] = rules
 
   local registered = 0
   for _, name in ipairs(teardown.pending()) do

@@ -10,15 +10,15 @@
 -- install rule guards against by walking the tree: a file the list misses
 -- resolves in development and is absent from an installed session.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local tree = require 'spec.mullion.tree'
+local tree = require '@spec/mullion/tree'
 
 local spec = suite.new 'mullion.coverage'
 
--- Where the specs covering the standard library are, under `spec.SPEC_ROOT`.
-local MULLION_SPECS = 'spec/mullion'
+-- Where the specs covering the standard library are, under the `@spec` mount.
+local MULLION_SPECS = '@spec/mullion'
 
 -- What covers each module: a spec path under `spec/mullion`, an array of them
 -- for a module whose specs were split along a seam, or `false` with the reason
@@ -57,9 +57,9 @@ local COVERAGE = {
 -- The specs that cover the suite itself rather than a module, so the check
 -- below does not ask which module they are for.
 local ABOUT_THE_SUITE = {
-  ['spec/mullion/coverage_spec.lua'] = true,
-  ['spec/mullion/reload_spec.lua'] = true,
-  ['spec/runner_spec.lua'] = true,
+  ['@spec/mullion/coverage_spec.lua'] = true,
+  ['@spec/mullion/reload_spec.lua'] = true,
+  ['@spec/runner_spec.lua'] = true,
 }
 
 -- The path under `mullion/` that `path` names.
