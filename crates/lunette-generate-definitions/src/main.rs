@@ -1,3 +1,5 @@
+//! Generates the Luau definitions the type checker loads.
+//!
 //! Runs lovr-docs' `generators/luau.lua` against the pinned lovr-docs
 //! `api/init.lua` using the Luau embedded in LÖVR, and writes the generated
 //! `lovr.d.luau` to `etc/lunette/`.
@@ -9,13 +11,20 @@
 //! `lovr.filesystem.getSource() .. '/luau/lovr.d.luau'`. This driver supplies
 //! the two `lovr` globals it touches, points `getSource` at a temporary
 //! directory, runs the generator, and reads the file it wrote.
+//!
+//! `--check` generates into memory and compares against what is checked in,
+//! reporting the first line that differs and exiting non-zero. CONTRIBUTING.md
+//! requires a generated document to be verified rather than remembered, and
+//! this is what verifies these two.
 
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
 use mlua::{Lua, Table};
+use tracing::{error, info};
 
 /// The generator's own name, and the file it writes.
 const GENERATOR: &str = "vendor/lovr-docs/api/generators/luau.lua";
@@ -59,7 +68,32 @@ const LUNETTE_LOVR_FIELDS: &str = "    lun: ((name: string, ...any) -> ())?,
     lunwindowopened: ((event: any) -> ())?,
 ";
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> ExitCode {
+    // Diagnostics go to stderr, so that a caller redirecting stdout gets
+    // nothing it did not ask for. Neither mode writes to stdout.
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .without_time()
+        .with_target(false)
+        .init();
+
+    let checking = env::args().any(|argument| argument == "--check");
+
+    match run(checking) {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(error) => {
+            error!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Generates both files, and either writes them or compares them.
+///
+/// Answers whether the run is a success. A comparison that differs is a
+/// failure; a write always succeeds or returns the error that stopped it.
+fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     // The workspace root, relative to CARGO_MANIFEST_DIR (crates/lovr-docs).
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = root.canonicalize()?;
@@ -94,16 +128,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let text = fs::read_to_string(&generated)?;
     let text_len = text.len();
 
+    let definitions = format!("{FORK_GLOBALS}\n{}", with_lunette_fields(&text)?);
+
+    if checking {
+        let mut current = true;
+        current &= compare(&root.join(OUTPUT), &text)?;
+        current &= compare(&root.join(CHECKER_DEFINITIONS), &definitions)?;
+
+        if current {
+            info!("the generated definitions are up to date");
+        } else {
+            error!("run `cargo run -p lunette-generate-definitions` and commit the result");
+        }
+
+        return Ok(current);
+    }
+
     fs::create_dir_all(root.join("etc/lunette"))?;
     fs::write(root.join(OUTPUT), &text)?;
-    fs::write(
-        root.join(CHECKER_DEFINITIONS),
-        format!("{FORK_GLOBALS}\n{}", with_lunette_fields(&text)?),
-    )?;
-    println!("wrote {} ({} bytes)", root.join(OUTPUT).display(), text_len);
-    println!("wrote {}", root.join(CHECKER_DEFINITIONS).display());
+    fs::write(root.join(CHECKER_DEFINITIONS), &definitions)?;
+    info!(path = %root.join(OUTPUT).display(), bytes = text_len, "wrote");
+    info!(path = %root.join(CHECKER_DEFINITIONS).display(), "wrote");
 
-    Ok(())
+    Ok(true)
+}
+
+/// Compares a checked-in file against what the generator produced.
+///
+/// Reports the first line that differs, with its number, so that a stale file
+/// says what changed rather than only that something did. A file that is
+/// missing entirely is reported as such.
+fn compare(path: &Path, generated: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    let Ok(current) = fs::read_to_string(path) else {
+        error!(path = %path.display(), "the file is not there");
+        return Ok(false);
+    };
+
+    if current == generated {
+        return Ok(true);
+    }
+
+    let difference = current
+        .lines()
+        .zip(generated.lines())
+        .enumerate()
+        .find(|(_, (left, right))| left != right);
+
+    match difference {
+        Some((index, (current_line, generated_line))) => error!(
+            path = %path.display(),
+            line = index + 1,
+            holds = current_line,
+            wants = generated_line,
+            "the file is stale"
+        ),
+        None => error!(
+            path = %path.display(),
+            holds = current.lines().count(),
+            wants = generated.lines().count(),
+            "the file is stale, and the two differ in length"
+        ),
+    }
+
+    Ok(false)
 }
 
 /// Provides the small `lovr` surface the generator touches: `filesystem.getSource`

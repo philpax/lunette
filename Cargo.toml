@@ -4,7 +4,7 @@ members = [
     "crates/lunette-capture",
     "crates/lunette-compositor",
     "crates/lunette-lovr",
-    "crates/lovr-docs",
+    "crates/lunette-generate-definitions",
 ]
 resolver = "3"
 

@@ -17,15 +17,19 @@ The workspace builds, links LÖVR, and opens a window running a Lua configuratio
 The layout is recorded in [docs/build-and-development.md](docs/build-and-development.md). In summary:
 
 ```
-crates/lunette/              the binaries: lunette and lunctl, Lua injection, frame orchestration
-crates/lunette-compositor/   smithay; vendored fork of WayVR's backend/wayvr
-crates/lunette-lovr/         cmake build and FFI surface for LÖVR
-crates/lunette-capture/      wrappers over wlx-capture and HidProvider
-lua/                         the mullion standard library
-etc/xdg/lunette/             the default configuration
-vendor/lovr/                 submodule, LÖVR with lunette's patch branch (recursive)
-docs/                        the design specification
-inspiration/                 reference checkouts, gitignored
+crates/lunette/                       the binaries: lunette and lunctl, Lua injection, frame orchestration
+crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
+crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
+crates/lunette-capture/               wrappers over wlx-capture and HidProvider
+crates/lunette-generate-definitions/  generates etc/lunette/definitions.luau from lovr-docs
+lua/                                  the mullion standard library
+etc/lunette/                          the generated Luau definitions
+etc/xdg/lunette/                      the default configuration
+vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
+vendor/lovr-docs/                     submodule, the API metadata the definitions generate from
+vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
+docs/                                 the design specification
+inspiration/                          reference checkouts, gitignored
 ```
 
 `lunette-compositor` must not depend on `lunette-lovr`. Logic-headless testing depends on that separation.
@@ -78,7 +82,7 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 
 `lunette check` typechecks `lua/mullion` and the shipped configuration against the generated definitions. It is the same in-process checker the user-facing command and `make check` run, so the two paths cannot drift.
 
-The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lovr-docs`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types. The spec suite under `lua/spec` is deliberately not typechecked — it runs under Luau as the in-binary test job, and its harness globals are not a typecheck target.
+The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types. The spec suite under `lua/spec` is deliberately not typechecked — it runs under Luau as the in-binary test job, and its harness globals are not a typecheck target.
 
 The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
 

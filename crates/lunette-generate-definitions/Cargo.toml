@@ -1,0 +1,18 @@
+[package]
+name = "lunette-generate-definitions"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Generates the LÖVR Luau definitions from lovr-docs metadata"
+build = "build.rs"
+
+[dependencies]
+lunette-lovr = { path = "../lunette-lovr" }
+mlua = { workspace = true, features = ["luau"] }
+mlua-sys = { workspace = true, features = ["external"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
