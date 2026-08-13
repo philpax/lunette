@@ -184,14 +184,19 @@ The two sections that follow are the Rust template. They apply to Rust code in t
 
 - Use Rust 2024 edition.
 - Format with **nightly rustfmt**: `cargo +nightly fmt --all`. `rustfmt.toml` opts into `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"`, which are nightly-only — stable rustfmt prints a warning about each and then silently skips them, so a stable-formatted file is *not* equivalent to a nightly-formatted one.
-- Ensure the following checks pass at the end of each complete task (you don't need to do this for intermediate steps):
-  - `cargo +nightly fmt --all -- --check`
-  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-  - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
-  - `cargo test --workspace`
-  - `cargo test --workspace --no-default-features`
-  - `stylua --check lua etc/xdg/lunette` — the Luau formatter (see [formatting](#formatting))
-  - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
+- Ensure the following checks pass at the end of each complete task (you don't need to do this for intermediate steps). `make check` runs all of them, and `.github/workflows/ci.yml` runs the same list on every push, so a check added here is added to both:
+  - `make check-format`
+    - `cargo +nightly fmt --all -- --check`
+    - `stylua --check lua etc/xdg/lunette` — the Luau formatter (see [formatting](#formatting))
+  - `make check-rust`
+    - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+    - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
+    - `cargo test --workspace`
+    - `cargo test --workspace --no-default-features`
+  - `make check-definitions`
+    - `cargo run -p lunette-generate-definitions -- --check` — regenerates `etc/lunette/definitions.luau` and `etc/lunette/lovr.d.luau` into memory and fails if either differs from what is checked in. It names the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
+  - `make check-luau`
+    - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

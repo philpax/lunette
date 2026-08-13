@@ -1,0 +1,110 @@
+name: check
+
+# The list CONTRIBUTING.md calls the standing checks, run on every push and
+# pull request. The jobs are split so that a failure names which check failed
+# without reading a log, and so that the two that need no LOVR build answer in
+# under a minute.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A failed build in CI is read once and thrown away, so the debug information
+  # is a download cost with no reader.
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  # Formatting and the Luau formatter. Neither compiles anything, so neither
+  # needs the submodules or the system libraries the LOVR build wants.
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # CONTRIBUTING.md requires nightly rustfmt: rustfmt.toml opts into
+      # imports_granularity and group_imports, which stable silently skips.
+      - name: Install nightly rustfmt
+        run: rustup toolchain install nightly --profile minimal --component rustfmt
+
+      - name: Check the Rust formatting
+        run: cargo +nightly fmt --all -- --check
+
+      - name: Install StyLua
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua etc/xdg/lunette
+
+  # Everything that compiles the workspace. LOVR is built from source by
+  # crates/lunette-lovr's build script, which is most of the wall clock here.
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Where the JoltPhysics checkout below lands. The build script points
+      # FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS at it, which is what keeps cmake off
+      # the network.
+      LUNETTE_JOLTPHYSICS_SRC: ${{ github.workspace }}/.jolt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install the system dependencies
+        # The devshell's buildInputs and nativeBuildInputs, as their Debian
+        # names. libclang is what bindgen parses LOVR's headers with, and the
+        # rest are what LOVR, the compositor, and the capture stack link
+        # against.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            cmake ninja-build pkg-config python3 \
+            libclang-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxcb1-dev libxext-dev libxkbcommon-dev \
+            libvulkan-dev libgl1-mesa-dev libcurl4-openssl-dev \
+            libasound2-dev libdbus-1-dev libssl-dev libpipewire-0.3-dev \
+            libwayland-dev wayland-protocols \
+            libopenxr-dev
+
+      # deps/joltc reaches JoltPhysics through FetchContent, which wants the
+      # network at configure time. The devshell prefetches it and points
+      # FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS at the result; this does the same
+      # with a checkout. The tag is what deps/joltc/CMakeLists.txt declares as
+      # its GIT_TAG, and moves when that submodule is bumped.
+      - name: Fetch JoltPhysics
+        uses: actions/checkout@v4
+        with:
+          repository: jrouwe/JoltPhysics
+          ref: v5.5.0
+          path: .jolt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The LOVR build lives under target/, so the cache is what keeps the
+          # ten-minute cmake configure off the common path.
+          cache-all-crates: true
+
+      - name: Clippy, with the default features
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Clippy, with none
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+
+      - name: Test, with the default features
+        run: cargo test --workspace
+
+      - name: Test, with none
+        run: cargo test --workspace --no-default-features
+
+      # The definitions are generated and checked in. Nothing else notices when
+      # the metadata moves and the artifact does not.
+      - name: Check the generated definitions
+        run: cargo run -p lunette-generate-definitions -- --check
+
+      # The same in-process checker `lunette check` runs, over the standard
+      # library and the shipped configuration.
+      - name: Typecheck the Luau tree
+        run: make check-luau
