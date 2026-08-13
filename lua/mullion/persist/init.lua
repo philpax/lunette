@@ -266,8 +266,22 @@ function persist.apply(entry: Entry, target: Placed): boolean
   end
   setPose(target, placed)
 
-  if (entry.width or entry.height) and setSize then
-    setSize(target, entry.width, entry.height)
+  if entry.width or entry.height then
+    if setSize then
+      setSize(target, entry.width, entry.height)
+    else
+      -- The pose went, so the entry was applied and this reports rather than
+      -- refuses. What it must not do is drop the size in silence: the surface
+      -- comes back in the right place at the wrong size, which reads as the
+      -- arrangement having been saved wrong.
+      persist.report(
+        'the saved '
+          .. tostring(entry.kind)
+          .. " '"
+          .. tostring(entry.key)
+          .. "' carries a size and matched something that cannot be resized"
+      )
+    end
   end
   for _, name in ipairs(entry.tags or {}) do
     local found = tag.find(name) or tag.new(name, nil)
