@@ -207,4 +207,26 @@ spec('an empty load carries an arrangement with nothing in it', function()
   expect.equal(#loaded.skipped, 0, 'the entries skipped')
 end)
 
+spec('every field the format names is written', function()
+  -- `renderEntry` reads the entry by name, so a field added to `ENTRY_FIELDS`
+  -- and not to that table would be dropped from the file in silence. This is
+  -- what makes the two lists disagree loudly instead.
+  local rendered = format.render(format.newFile {
+    {
+      kind = 'window',
+      key = 'firefox',
+      slot = 1,
+      pose = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1',
+      width = 1.5,
+      height = 0.9,
+      tags = { 'web' },
+    },
+  })
+
+  for _, name in ipairs(format.ENTRY_FIELDS) do
+    expect.truthy(rendered:find(name .. ' = ', 1, true), 'the field ' .. name)
+  end
+  expect.truthy(rendered:find('tags = ', 1, true), 'the tags')
+end)
+
 return spec

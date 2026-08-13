@@ -442,19 +442,17 @@ function methods.setSize(self: Keyboard, width: number?, _height: number?)
   end
 
   local scale = width / self.width
-  local style: Style = {
-    keyUnit = self.style.keyUnit,
-    gap = self.style.gap,
-    plateDepth = self.style.plateDepth,
-    legendDepth = self.style.legendDepth,
-    margin = self.style.margin,
-    plateColor = self.style.plateColor,
-    keyColor = self.style.keyColor,
-    heldColor = self.style.heldColor,
-    hoverColor = self.style.hoverColor,
-    legendColor = self.style.legendColor,
-    legendHeight = self.style.legendHeight,
-  }
+  -- Copied by key rather than field by field: naming all eleven would drop a
+  -- field added to `Style` later without saying so. A record carries no indexer
+  -- for `pairs` to walk, so the read goes through one, and the result is a
+  -- `Style` because every key of one went into it.
+  local fields: { [string]: any } = self.style :: any
+  local copied: any = {}
+  for key, value in pairs(fields) do
+    copied[key] = value
+  end
+  local style: Style = copied
+
   style.keyUnit = self.style.keyUnit * scale
   style.gap = self.style.gap * scale
   style.margin = self.style.margin * scale

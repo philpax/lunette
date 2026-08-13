@@ -36,6 +36,12 @@
 
 local format = {}
 
+-- The fields of an entry that render as a scalar, as `ENTRY_FIELDS` names them
+-- and `renderEntry` reads them. `tags` is not one: it is a list, and is written
+-- separately. A closed set, so that both of those are checked against it rather
+-- than against a bare string.
+export type EntryField = 'kind' | 'key' | 'slot' | 'pose' | 'width' | 'height'
+
 -- One entry: what an arrangement holds for a single window or monitor.
 export type Entry = {
   kind: 'window' | 'monitor',
@@ -83,7 +89,7 @@ format.CURRENT_VERSION = 1
 -- The fields an entry is written with, in a fixed order, so that an arrangement
 -- that has not changed renders identically and the file does not churn between
 -- runs. `tags` is written last and separately, being the one that is a list.
-format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' }
+format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' } :: { EntryField }
 
 -- An arrangement, from a list of entries.
 --
@@ -291,22 +297,22 @@ end
 -- reader takes an absent field as absent, which is how a file written before a
 -- field existed reads to a version that has it.
 function renderEntry(entry: Entry): string
+  -- Keyed by `EntryField`, so a name here that the field set does not carry is a
+  -- type error, and so is one in `ENTRY_FIELDS`. What the type cannot say is
+  -- that every field is present; the spec in `persist/format_spec.lua` asserts
+  -- that, so a field added to the set and not to this table fails there.
+  local values: { [EntryField]: string | number | nil } = {
+    kind = entry.kind,
+    key = entry.key,
+    slot = entry.slot,
+    pose = entry.pose,
+    width = entry.width,
+    height = entry.height,
+  }
+
   local fields = {}
   for _, name in ipairs(format.ENTRY_FIELDS) do
-    local value: string | number | nil
-    if name == 'kind' then
-      value = entry.kind
-    elseif name == 'key' then
-      value = entry.key
-    elseif name == 'slot' then
-      value = entry.slot
-    elseif name == 'pose' then
-      value = entry.pose
-    elseif name == 'width' then
-      value = entry.width
-    elseif name == 'height' then
-      value = entry.height
-    end
+    local value = values[name]
     if value ~= nil then
       fields[#fields + 1] = name .. ' = ' .. quote(value)
     end
