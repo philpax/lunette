@@ -54,7 +54,7 @@ Vendored code is exempt from the house style in this document until it is rewrit
 
 `vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a readable series. Its own `deps/` are nested submodules, so clone recursively.
 
-Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths. Each patch is shaped as an upstream pull request and opened upstream early. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md).
+Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths, with one exception: a patch that fixes an upstream defect changes the path it fixes, and says in its message which defect and why the fix belongs upstream rather than here. Each patch is shaped as an upstream pull request. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md), which also records what has been proposed and what has not.
 
 ## Lua conventions
 
