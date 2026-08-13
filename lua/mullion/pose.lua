@@ -62,7 +62,7 @@ function pose.decode(text: boolean | number | string | nil): Mat4?
   if count ~= pose.ELEMENTS then
     return nil
   end
-  return lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1):set(
+  return lovr.math.newMat4():set(
     elements[1],
     elements[2],
     elements[3],

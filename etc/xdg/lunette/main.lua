@@ -233,10 +233,7 @@ function lovr.load()
       properties = {
         width = 2,
         pose = function()
-          return lovr.math
-            .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-            :translate(-1.4, 1.5, -1.2)
-            :rotate(0.9, 0, 1, 0)
+          return lovr.math.newMat4():translate(-1.4, 1.5, -1.2):rotate(0.9, 0, 1, 0)
         end,
       },
     },
@@ -386,7 +383,7 @@ local function placeKeyboard(target: keyboardModule.Keyboard)
     target,
     lovr
       .math
-      .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+      .newMat4()
       :translate(hx + flat.x * WRIST.keyboardDistance, hy - WRIST.keyboardDrop, hz + flat.z * WRIST.keyboardDistance)
       :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
       -- Tilted back, so it faces a head looking down at it rather than straight
@@ -460,7 +457,7 @@ function wristButton.follow(self: WristButton)
     return false
   end
 
-  local pose = self.pose or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+  local pose = self.pose or lovr.math.newMat4()
   local mx, my, mz, qx, qy, qz, qw = lovr.headset.getPose(WRIST.hand)
   local tmp = lovr.math.newMat4(mx, my, mz, qx, qy, qz, qw)
   pose:set(tmp)
@@ -478,7 +475,7 @@ function wristButton.raycast(self: WristButton, origin: vector, direction: vecto
     return x, y, z
   end
 
-  local pose = self.pose or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+  local pose = self.pose or lovr.math.newMat4()
   return raycast.hit({
     pose = pose,
     width = self.width,
@@ -616,7 +613,7 @@ function lovr.draw(pass: Pass): boolean
     -- instead and leave the text at its full size.
     pass:text(
       'lunette: no windows yet',
-      lovr.math.mat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, NOTE_X, NOTE_Y, NOTE_Z, 1):scale(NOTE_HEIGHT),
+      lovr.math.mat4():translate(NOTE_X, NOTE_Y, NOTE_Z):scale(NOTE_HEIGHT),
       0,
       'center',
       'middle'

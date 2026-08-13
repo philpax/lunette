@@ -1261,8 +1261,7 @@ export type GraphicsModule = {
     & ((modelData: ModelData, options: {}?) -> Model),
   newPass:
     & ((...Texture) -> Pass)
-    & ((canvas: {}) -> Pass)
-    & (() -> Pass),
+    & ((canvas: {}) -> Pass),
   newRaytracer: (capacity: number, options: {}?) -> Raytracer,
   newSampler: (parameters: {}) -> Sampler,
   newShader:
@@ -1576,10 +1575,9 @@ export type MathModule = {
     & ((color: {number}) -> (number, number, number, number?))
     & ((x: number) -> number),
   mat4:
-    & (() -> Mat4)
     & ((n: Mat4) -> Mat4)
-    & ((position: vector?, scale: vector?, rotation: quaternion?) -> Mat4)
-    & ((position: vector?, rotation: quaternion?) -> Mat4)
+    & ((position: vector, scale: vector?, rotation: quaternion?) -> Mat4)
+    & ((position: vector, rotation: quaternion?) -> Mat4)
     & ((...number) -> Mat4)
     & ((d: number) -> Mat4),
   newCurve:
@@ -1588,10 +1586,9 @@ export type MathModule = {
     & ((points: {}) -> Curve)
     & ((n: number) -> Curve),
   newMat4:
-    & (() -> Mat4)
     & ((n: Mat4) -> Mat4)
-    & ((position: vector?, scale: vector?, rotation: quaternion?) -> Mat4)
-    & ((position: vector?, rotation: quaternion?) -> Mat4)
+    & ((position: vector, scale: vector?, rotation: quaternion?) -> Mat4)
+    & ((position: vector, rotation: quaternion?) -> Mat4)
     & ((...number) -> Mat4)
     & ((d: number) -> Mat4),
   newQuat: () -> quaternion,

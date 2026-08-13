@@ -91,7 +91,7 @@ function arc.poses(count: number, options: Options?): { Mat4 }
     -- rotation applied to two different things, and the panel's own +z comes out
     -- pointing back down the radius at the centre.
     placed[index] = lovr.math
-      .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+      .newMat4()
       :translate(center[1] - math.sin(angle) * radius, center[2], center[3] - math.cos(angle) * radius)
       :rotate(angle, 0, 1, 0)
   end

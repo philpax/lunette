@@ -474,8 +474,7 @@ function methods.draw(self: Panel, pass: Pass)
   -- and reads the argument after it as the draw style, so a plane placed by
   -- matrix takes its extent from that matrix's scale and not from two more
   -- arguments.
-  local transform =
-    lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1):set(self.pose):scale(self.width, self.height, 1)
+  local transform = lovr.math.newMat4():set(self.pose):scale(self.width, self.height, 1)
   pass:plane(transform, 'fill', 1, 1)
   pass:setMaterial(nil)
   if shader then
@@ -496,7 +495,7 @@ function methods.drawChrome(self: Panel, pass: Pass)
   -- larger by the border's thickness on each side. The extent rides in the
   -- transform's scale, for the reason `draw` records.
   local borderTransform = lovr.math
-    .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+    .newMat4()
     :set(self.pose)
     :translate(0, 0, -style.borderDepth)
     :scale(self.width + style.borderThickness * 2, self.height + style.borderThickness * 2, 1)
@@ -598,8 +597,7 @@ function create(source: Source, kind: Kind, options: PanelOptions?): Panel
   local created: Panel = setmetatable({
     source = source,
     kind = kind,
-    pose = options.pose and lovr.math.newMat4(options.pose)
-      or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+    pose = options.pose and lovr.math.newMat4(options.pose) or lovr.math.newMat4(),
     width = 0,
     height = 0,
     priority = options.priority or panel.DEFAULT_PRIORITY,

@@ -608,9 +608,7 @@ function methods.push(self: Pointer, deflection: number, dt: number): ()
   end
 
   grab.pushed = pushed
-  grab.offset:set(
-    lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1):translate(0, 0, -pushed):mul(grab.base)
-  )
+  grab.offset:set(lovr.math.newMat4():translate(0, 0, -pushed):mul(grab.base))
 
   -- The dead zone is about a hand that shook while the grip went down. A stick
   -- deflected past its own dead zone is deliberate, so it starts the grab
@@ -644,7 +642,7 @@ function methods.dragTo(self: Pointer, handPose: Mat4?): ()
   if not target or not target.setPose then
     return
   end
-  target:setPose(lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1):set(handPose):mul(grab.offset))
+  target:setPose(lovr.math.newMat4():set(handPose):mul(grab.offset))
 end
 
 -- Lets go, and writes where the panel ended up to the property store.

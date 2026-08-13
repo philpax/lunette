@@ -176,8 +176,7 @@ function keyboard.new(options: KeyboardOptions?): Keyboard
   local style = (options and options.style) or keyboard.STYLE
 
   local width, height = extentOf(rows, style)
-  local pose = (options and options.pose) and lovr.math.newMat4(options.pose)
-    or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+  local pose = (options and options.pose) and lovr.math.newMat4(options.pose) or lovr.math.newMat4()
   -- Luau cannot verify that setmetatable produces a Keyboard because the
   -- methods are injected via __index rather than being on the table itself.
   -- Casting through any bridges this gap; every caller still gets full typing.
@@ -583,7 +582,7 @@ function methods.draw(self: Keyboard, pass: Pass): ()
   -- The extent rides in the transform's scale. `luax_readmat4` consumes a whole
   -- `Mat4` and reads the argument after it as the draw style, so a plane placed
   -- by matrix takes its size from that matrix and not from two more arguments.
-  local plateTransform: Mat4 = lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+  local plateTransform: Mat4 = lovr.math.newMat4()
   local pose: Mat4 = self.pose
   plateTransform:set(pose)
   plateTransform:translate(0, 0, -style.plateDepth)
@@ -607,7 +606,7 @@ function methods.draw(self: Keyboard, pass: Pass): ()
       keyColor = style.hoverColor
     end
     pass:setColor(keyColor[1], keyColor[2], keyColor[3], keyColor[4])
-    local keyTransform: Mat4 = lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+    local keyTransform: Mat4 = lovr.math.newMat4()
     local keyPose: Mat4 = self.pose
     keyTransform:set(keyPose)
     keyTransform:translate(x, y, 0)
@@ -617,7 +616,7 @@ function methods.draw(self: Keyboard, pass: Pass): ()
     local legend = style.legendColor
     pass:setColor(legend[1], legend[2], legend[3], legend[4])
     local legendTransform: Mat4 = (function(): Mat4
-      local lt: Mat4 = lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+      local lt: Mat4 = lovr.math.newMat4()
       local legendPose: Mat4 = self.pose
       lt:set(legendPose)
       lt:translate(x, y, style.legendDepth)
