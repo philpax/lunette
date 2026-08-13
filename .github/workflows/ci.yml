@@ -62,6 +62,13 @@ jobs:
         # names. libclang is what bindgen parses LÖVR's headers with, and the
         # rest are what LÖVR, the compositor, and the capture stack link
         # against.
+        #
+        # The devshell's list does not map one to one. nixpkgs ships every xcb
+        # extension in libxcb, and the Xlib and xkbcommon bridges to xcb in
+        # libx11 and libxkbcommon; Debian splits all four out. LÖVR's Linux
+        # backend links X11-xcb, xcb-xinput, xcb-xkb, and xkbcommon-x11
+        # (vendor/lovr/CMakeLists.txt:949), so the split packages are named
+        # here even though nothing in the devshell names them.
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
@@ -69,6 +76,7 @@ jobs:
             libclang-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxcb1-dev libxext-dev libxkbcommon-dev \
+            libx11-xcb-dev libxcb-xinput-dev libxcb-xkb-dev libxkbcommon-x11-dev \
             libvulkan-dev libgl1-mesa-dev libcurl4-openssl-dev \
             libasound2-dev libdbus-1-dev libssl-dev libpipewire-0.3-dev \
             libwayland-dev wayland-protocols \
