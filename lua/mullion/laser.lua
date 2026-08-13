@@ -329,7 +329,7 @@ function methods.draw(self: Laser, pass: Pass)
 
   pass:line(originX, originY, originZ, endX, endY, endZ)
   if hovered then
-    pass:sphere(endX, endY, endZ, style.cursorRadius, 0, 0, 1, 0, 8, 8)
+    pass:sphere(endX, endY, endZ, style.cursorRadius)
   end
 
   pass:setDepthTest 'lequal'

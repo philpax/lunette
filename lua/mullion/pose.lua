@@ -44,7 +44,7 @@ function pose.decode(text: boolean | number | string | nil): Mat4?
 
   local elements: { number } = {}
   local count = 0
-  for word in (encoded .. ''):gmatch '%S+' do
+  for word in encoded:gmatch '%S+' do
     count = count + 1
     if count > pose.ELEMENTS then
       return nil

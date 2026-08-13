@@ -149,7 +149,10 @@ rules.PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chro
 -- tag created on demand is the exception: that is the documented behaviour
 -- rather than a mistake, so it reports at `info`.
 function rules.report(message: string, level: string?)
-  lovr.log(message, level or 'warn', 'mullion.rules')
+  local log = lovr.log
+  if log then
+    log(message, level or 'warn', 'mullion.rules')
+  end
 end
 
 -- Registers `resolve` as a source under `name`, replacing any source already

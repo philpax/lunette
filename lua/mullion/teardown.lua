@@ -35,7 +35,12 @@ local order: { string } = {}
 -- everything else, and so that a spec can capture it rather than printing it.
 -- The default logs the message, which the host routes to its own diagnostics.
 function teardown.report(message: string)
-  lovr.log(message, 'error', 'mullion.teardown')
+  -- Through a local: `lovr.log` is a callback, so a configuration may have
+  -- cleared it, and a report is not worth raising over.
+  local log = lovr.log
+  if log then
+    log(message, 'error', 'mullion.teardown')
+  end
 end
 
 -- Registers `run` under `name`, replacing any hook already registered under it.
@@ -113,7 +118,13 @@ function teardown.run(): { Failure }
   local failures: { Failure } = {}
   for _, name in ipairs(names) do
     local run = registered[name]
-    if run then
+    if not run then
+      -- The order and the registry are written together, so a name in one and
+      -- not the other is a defect in this module rather than a state to skip.
+      local message = 'the order names it and the registry does not'
+      failures[#failures + 1] = { name = name, message = message }
+      teardown.report("the hook '" .. name .. "' failed: " .. message)
+    else
       local raised: string?
       local ok = xpcall(run, function(value): string
         raised = debug.traceback(tostring(value), 2)

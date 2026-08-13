@@ -346,7 +346,7 @@ end
 -- A character the seat's layout cannot express is dropped. `sink:typeText` is
 -- what that case is for, and it may not be interleaved with `sink:key` on the
 -- same seat, so it is not reached from here.
-function lovr.textinput(text)
+function lovr.textinput(text: string, _code: number)
   local seat, sink = interaction.focused()
   if not seat or not sink then
     return
@@ -455,6 +455,7 @@ local wristButton = (
 
 -- Moves the button to where the wrist is, and says whether it is there at all.
 function wristButton.follow(self: WristButton)
+  self.tracked = lovr.headset.isTracked(WRIST.hand)
   if not self.tracked then
     return false
   end
@@ -566,7 +567,7 @@ local function surfaces(): { interaction.Surface }
   return list
 end
 
-function lovr.keypressed(key)
+function lovr.keypressed(key: KeyCode, _scancode: number, _isrepeat: boolean)
   if key ~= RELOAD_KEY then
     local named = NAMED_KEYS[key]
     if named then
@@ -596,12 +597,12 @@ function lovr.keypressed(key)
   end
 end
 
-function lovr.update()
+function lovr.update(_dt: number)
   panel.update()
   laser.update(surfaces())
 end
 
-function lovr.draw(pass)
+function lovr.draw(pass: Pass): boolean
   panel.draw(pass)
   drawWrist(pass)
   keyboardModule.draw(pass)
@@ -610,10 +611,13 @@ function lovr.draw(pass)
   laser.draw(pass)
 
   if #panel.all() == 0 then
+    -- The height rides in the transform. `Pass:text` reads the argument after a
+    -- `Mat4` as the wrap width, so a scale passed there would set the wrap
+    -- instead and leave the text at its full size.
     pass:text(
       'lunette: no windows yet',
-      lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, NOTE_X, NOTE_Y, NOTE_Z, 1),
-      NOTE_HEIGHT,
+      lovr.math.mat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, NOTE_X, NOTE_Y, NOTE_Z, 1):scale(NOTE_HEIGHT),
+      0,
       'center',
       'middle'
     )
@@ -621,10 +625,14 @@ function lovr.draw(pass)
 
   -- Last, so it is drawn over whatever it is in front of.
   errorPanel.draw(pass)
-  return true
+  -- False, not true: a truthy return tells boot.lua the callback submitted the
+  -- pass itself, and the frame is then never presented.
+  return false
 end
 
 function lovr.quit(): boolean
   saveArrangement()
-  return true
+  -- False, not true: a truthy return vetoes the quit, and the session cannot
+  -- then be closed.
+  return false
 end

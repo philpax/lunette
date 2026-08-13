@@ -153,7 +153,10 @@ persist.SOURCE = 'mullion.persist'
 -- Every report here is a warning: a saved entry that could not be honoured is
 -- lost state rather than a failure the session cannot continue past.
 function persist.report(message)
-  lovr.log(message, 'warn', 'mullion.persist')
+  local log = lovr.log
+  if log then
+    log(message, 'warn', 'mullion.persist')
+  end
 end
 
 -- The arrangement in `value`, which is an arrangement, a load, or nothing.

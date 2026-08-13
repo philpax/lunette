@@ -87,7 +87,10 @@ errors.MAX_KEYS = 64
 -- draws and so that a spec can capture them. The default logs the message,
 -- which the host routes to its own diagnostics.
 function errors.report(message)
-  lovr.log(message, 'error', 'mullion.error')
+  local log = lovr.log
+  if log then
+    log(message, 'error', 'mullion.error')
+  end
 end
 
 -- A fresh rate limiter over its own state.
@@ -256,7 +259,7 @@ function errors.uninstall(): boolean
   end
 
   installed = false
-  if lovr and previousHandler then
+  if lovr then
     lovr.errhand = previousHandler
   end
   previousHandler = nil

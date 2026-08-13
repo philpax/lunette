@@ -46,12 +46,17 @@ declare _G: {
 /// The fields lunette adds to the `lovr` table at boot (the custom event
 /// callbacks from `etc/boot.lua`), which lovr-docs does not know. They are
 /// spliced into the generated `declare lovr` table.
-const LUNETTE_LOVR_FIELDS: &str = "    lun: (name: string, ...any) -> (),
-    lunerror: (error: any) -> (),
-    lunlayergranted: (layer: any) -> (),
-    lunprocessexited: (info: any) -> (),
-    lunwindowclosed: (window: any) -> (),
-    lunwindowopened: (window: any) -> (),
+///
+/// Optional, as every LÖVR callback is: nothing sets one by default, and a
+/// configuration defines the handlers it wants. Each takes the event table the
+/// dispatcher pushes, which carries the handle under a field rather than being
+/// the handle itself.
+const LUNETTE_LOVR_FIELDS: &str = "    lun: ((name: string, ...any) -> ())?,
+    lunerror: ((error: any) -> ())?,
+    lunlayergranted: ((event: any) -> ())?,
+    lunprocessexited: ((event: any) -> ())?,
+    lunwindowclosed: ((event: any) -> ())?,
+    lunwindowopened: ((event: any) -> ())?,
 ";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

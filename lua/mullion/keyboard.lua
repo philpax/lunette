@@ -167,13 +167,17 @@ keyboard.STYLE = {
 -- `style`; and `target`, a function answering the seat and the sink to type
 -- into. The default target is whatever was last clicked, which is what
 -- `mullion.interaction` records for exactly this.
+--
+-- `target` is called with no arguments, and not as a method: it answers where
+-- the text goes, which does not depend on which keyboard asked. The default,
+-- `interaction.focused`, is the shape every other target follows.
 function keyboard.new(options: KeyboardOptions?): Keyboard
   local rows = (options and options.rows) or keycodes.ROWS
   local style = (options and options.style) or keyboard.STYLE
 
   local width, height = extentOf(rows, style)
   local pose = (options and options.pose) and lovr.math.newMat4(options.pose)
-    or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1)
+    or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
   -- Luau cannot verify that setmetatable produces a Keyboard because the
   -- methods are injected via __index rather than being on the table itself.
   -- Casting through any bridges this gap; every caller still gets full typing.

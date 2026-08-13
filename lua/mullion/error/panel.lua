@@ -160,10 +160,10 @@ end
 -- Called from the configuration's `lovr.draw`. It does not take the whole frame:
 -- a session whose error panel drew instead of its windows would be a session
 -- that could not be used to fix the error.
-function panel.draw(pass: Pass): ()
+function panel.draw(pass: Pass): boolean
   local lines: { string } = panel.lines()
   if #lines == 0 then
-    return
+    return false
   end
 
   local height = (#lines + 1) * panel.TEXT_HEIGHT * 1.5
@@ -192,6 +192,8 @@ function panel.draw(pass: Pass): ()
       'middle'
     )
   end
+
+  return true
 end
 
 -- `text` broken into lines of at most `columns` characters.
