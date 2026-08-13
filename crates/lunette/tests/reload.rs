@@ -111,13 +111,26 @@ fn a_connected_client_does_not_notice_a_reload() {
 /// last step.
 ///
 /// `main` arrives through `package.preload` rather than through a file, because
-/// this case is about the compositor and not about the filesystem.
+/// this case is about the compositor and not about the filesystem. The `require`
+/// here therefore honours `preload` and caches into `loaded`, as Lua's does: one
+/// that only read `loaded` would answer nil for the module a reload is meant to
+/// run, and the last step of the reload would do nothing while the test still
+/// passed.
 fn configured_state() -> Lua {
     let lua = Lua::new();
     lua.load(
         "lovr = {} lovr.handlers = setmetatable({}, { __index = lovr }) arg = {} \
          package = { preload = {}, loaded = {} } \
-         require = function(name) return package.loaded[name] end",
+         require = function(name) \
+           local loaded = package.loaded[name] \
+           if loaded ~= nil then return loaded end \
+           local loader = package.preload[name] \
+           if loader == nil then error(\"module '\" .. name .. \"' not found\") end \
+           local value = loader(name) \
+           if value == nil then value = true end \
+           package.loaded[name] = value \
+           return value \
+         end",
     )
     .exec()
     .expect("the boot scaffolding loads");
