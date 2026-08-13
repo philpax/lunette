@@ -82,7 +82,9 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 
 `lunette check` typechecks `lua/mullion` and the shipped configuration against the generated definitions. It is the same in-process checker the user-facing command and `make check` run, so the two paths cannot drift.
 
-The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types. The spec suite under `lua/spec` is deliberately not typechecked — it runs under Luau as the in-binary test job, and its harness globals are not a typecheck target.
+The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types.
+
+`lua/spec/suite.lua` and `lua/spec/expect.lua` are checked: they are ordinary modules that happen to be used by tests. The spec files themselves are not, and neither is `lua/spec/runner.lua`. The runner requires by a name it computes from a directory walk, which is the one require form the checker cannot follow. The spec files construct the windows, seats, and sources they drive the standard library with as the smallest table each case needs, and the handle types are exact, so checking them would mean either building a whole handle per case or casting each one. Both make the tests worse at the thing they are for. A case that needs a real shape gets it from the module under test.
 
 The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
 

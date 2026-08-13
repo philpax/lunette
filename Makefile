@@ -73,8 +73,11 @@ check-rust:
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 
+# `lua/spec/suite.lua` and `lua/spec/expect.lua` are in: they are ordinary
+# modules. The specs themselves and `lua/spec/runner.lua` are not; see
+# CONTRIBUTING.md.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) etc/xdg/lunette/main.lua
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
 
 install: install-binary install-lua install-config
 
