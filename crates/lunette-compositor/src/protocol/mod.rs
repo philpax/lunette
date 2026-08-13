@@ -40,7 +40,7 @@
 //! Not declared at all: the host-desktop capture surfaces. Selection *content*
 //! is also absent from this vocabulary, and deliberately: a transfer is a file
 //! descriptor passed between the two processes that own the bytes, so nothing
-//! about it crosses this boundary. `docs/decisions.md` records why.
+//! about it crosses this boundary. `docs/compositor.md` records why.
 
 mod input;
 mod keymap;

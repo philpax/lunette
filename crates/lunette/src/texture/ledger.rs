@@ -244,7 +244,7 @@ impl<T> TextureLedger<T> {
 
     /// What is known about a surface, alive or dead.
     ///
-    /// Available after death on purpose: `docs/decisions.md` records that a
+    /// Available after death on purpose: `docs/rendering.md` records that a
     /// dead handle reports last-known values rather than nothing, so a Lua
     /// layout does not collapse the frame a window closes on.
     #[must_use]

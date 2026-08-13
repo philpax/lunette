@@ -29,7 +29,7 @@
 //! outlive the window manager's own process, and skips or alters rule
 //! application at startup when it finds some. lunette has no X server, so this
 //! is the adaptation: a native store that outlives the Lua state for the same
-//! reason. `docs/decisions.md` records the choice.
+//! reason. `docs/lua-api.md` records the choice.
 //!
 //! Writing any of this to disk, so that it survives a full restart rather than a
 //! reload, is the standard library's own business and is not here. This store is

@@ -12,7 +12,7 @@
 //! it. [`LayerPool`] sorts by that number, stably, and assigns the top N.
 //! Ranking is application knowledge — focus, gaze, distance, a rule putting
 //! video above a terminal, hysteresis to stop grants flapping — and lunette
-//! never invents it. `docs/decisions.md` records that split, which was revisited
+//! never invents it. `docs/rendering.md` records that split, which was revisited
 //! once during design.
 //!
 //! # Nothing lands mid-frame

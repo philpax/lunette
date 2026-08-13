@@ -38,7 +38,7 @@ inspiration/                          reference checkouts, gitignored
 
 `docs/` is the design specification, not a description of the code. It is normative. A change that alters behaviour described there updates the relevant document in the same change.
 
-`docs/decisions.md` records decisions with their reasoning, known gaps, and deliberately-open questions. A change that reverses a recorded decision updates that file and states why. This exists so that settled questions are not reopened by accident.
+A document that has decisions, known gaps, or deliberately-open questions about its own subject records them in a `Decisions`, `Known gaps`, or `Deliberately left open` section at its end. A decision carries the reasoning that produced it and, where an alternative was rejected, what it was and why; a change that reverses one updates that section and states why. This exists so that settled questions are not reopened by accident, and it puts each decision beside its subject, so a reader of the document sees what shaped it. Facts that belong to no one document, such as licensing, are in [CREDITS.md](CREDITS.md).
 
 The documents use a plain technical register: short declarative sentences, active voice, no second person, no emphasis formatting. New documentation matches it.
 

@@ -435,7 +435,7 @@ function methods.draw(self: Panel, pass: Pass)
 end
 
 -- A border and a title. Not a widget layer: docs/stdlib.md defers 2D widgets,
--- and docs/decisions.md records the toolkit as possibly a separate library
+-- and docs/stdlib.md records the toolkit as possibly a separate library
 -- entirely, so this stays within `Pass:plane` and `Pass:text`.
 function methods.drawChrome(self: Panel, pass: Pass)
   local style = panel.STYLE

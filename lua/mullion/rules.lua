@@ -6,7 +6,7 @@
 -- it rather than inside it.
 --
 -- The shape is awesome's and none of its code: awesome is GPL-2 and lunette
--- GPL-3-only (docs/decisions.md), so nothing was copied and its source was not
+-- GPL-3-only (CREDITS.md), so nothing was copied and its source was not
 -- consulted while this was written. What was taken is a design, which is not
 -- copyrightable — a flat ordered list of match-and-properties tables, and a
 -- matcher that composes several *sources* with a declared precedence.

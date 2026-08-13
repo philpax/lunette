@@ -31,7 +31,7 @@
 //! interrupt is the whole mechanism. `lua_error` cannot unwind the VM stack
 //! from inside a *called* function's frame, so the interrupt raises only at the
 //! outermost Lua frame (`lua_vm_is_topframe`); elsewhere it fires and declines.
-//! `docs/decisions.md` records the change.
+//! `docs/lua-api.md` records the change.
 //!
 //! Even so the bound is advisory, in three ways. The interrupt raises only at
 //! the chunk's own outermost frame: inside a function the chunk *called* (or a
@@ -44,7 +44,7 @@
 //! and since the chunk holds the Lua thread the only thing a watchdog could do
 //! is abort the process — turning a bad `lunctl` command into a crash that
 //! takes every connected client with it, which is worse than the hang it
-//! prevents. `docs/decisions.md` records the reasoning.
+//! prevents. `docs/lua-api.md` records the reasoning.
 //!
 //! # A load error and a runtime error are different outcomes
 //!

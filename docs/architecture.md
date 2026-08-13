@@ -85,3 +85,17 @@ lunette-lovr       cmake build, FFI surface, the patch set
 | lunette crash | terminated by process group | destroyed | destroyed |
 
 Clients survive both reload paths because they are owned by Rust, outside the Lua state, on a socket that remains open. This property is what makes iterative development of the compositor practical.
+
+## Decisions
+
+Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+OpenXR only; OpenVR never. SteamVR does not implement `XR_EXTX_overlay`. Supporting it would require a second full backend, which would require routing XR outside LÖVR, which would make `lovr.headset` inaccurate. The architecture depends on LÖVR owning the session.
+
+Compositor off the frame thread, at the cost of Lua seeing snapshots rather than live state. WayVR ticks on the main thread and this works for WayVR; lunette does not follow that arrangement because an overlay's value depends on not disturbing the application underneath.
+
+## Deliberately left open
+
+Questions this design does not answer yet.
+
+`lovr.thread` and `lovr.task` access. The lunette API is main-state only. There may eventually be a use for read-only snapshot access from worker states. The ownership rules in [the ownership rules](#ownership-rules) do not preclude it, but nothing is designed for it yet.

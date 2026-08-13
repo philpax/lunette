@@ -43,7 +43,7 @@
 //!    that a view still names each one, and destroying an image a view names is
 //!    a use-after-free the driver may act on, where leaving it is a
 //!    `vkDestroyDevice` valid-usage violation the validation layers report and
-//!    nothing else observes. `docs/decisions.md` records the trade.
+//!    nothing else observes. `docs/rendering.md` records the trade.
 //! 5. **Close the Lua state**, which is `crate::boot`'s to do, and is what
 //!    performs the destruction the four steps above prepared for.
 //!

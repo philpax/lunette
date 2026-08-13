@@ -6,7 +6,7 @@ Nothing here is settled. Much of it will be in flux, and it should be. What foll
 
 ## How it is reached
 
-The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua/mullion/` once installed. The binary mounts the directory above it into LÖVR's virtual filesystem before `main.lua` runs, so `require 'mullion'` resolves `mullion/init.lua` and a configuration's first line may be that require. [Build and development](build-and-development.md#where-things-live-at-runtime) gives the search order, and [Decisions](decisions.md#recorded-decisions) records how the mount is installed and why it is read-only.
+The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua/mullion/` once installed. The binary mounts the directory above it into LÖVR's virtual filesystem before `main.lua` runs, so `require 'mullion'` resolves `mullion/init.lua` and a configuration's first line may be that require. [Build and development](build-and-development.md#where-things-live-at-runtime) gives the search order, and [Decisions](#decisions) below records how the mount is installed and why it is read-only.
 
 `mullion` itself is the root module and re-exports nothing. Each submodule is required by its own path — `require 'mullion.signal'`, `require 'mullion.layout.arc'` — because the tiers are independent and a configuration that wants one should not load the rest to get it. `mullion.layout.arc` and `mullion.tag.current` are the two names [The Lua API](lua-api.md) already attests.
 
@@ -97,7 +97,7 @@ Minimum viable: the default config spawns a terminal, shows it on a panel, and p
 
 `etc/xdg/lunette/main.lua` is that config, and it is the source of truth for what ships. It declares one tag, attaches a laser to each hand, spawns the first terminal emulator it finds, places each window through `mullion.rules` and arranges the ones no source gave a pose to on an arc, and binds a reload key on the desktop window. It carries two things past the line above, both because an acceptance criterion is about them: a rules table matched on `appId`, and a saved arrangement installed as a second source and written back when a panel is dropped or the session quits. It installs `mullion.adopt` as a third source and adopts the windows already open in `lovr.load`, which is what makes the reload key keep a hand-arranged workspace rather than rearranging it.
 
-Safe mode deliberately resembles it and shares no code with it. It is compiled into the binary and requires `lunette` alone, because a broken `mullion` is one of the reasons the user's configuration may have failed; [The Lua API](lua-api.md#errors) and [Decisions](decisions.md#recorded-decisions) state the rest.
+Safe mode deliberately resembles it and shares no code with it. It is compiled into the binary and requires `lunette` alone, because a broken `mullion` is one of the reasons the user's configuration may have failed; [The Lua API](lua-api.md#errors) and its [decisions](lua-api.md#errors-and-safe-mode) state the rest.
 
 ## 2D widgets
 
@@ -125,3 +125,43 @@ The recurring test, applied throughout the design:
 | Clipboard format negotiation | Rust | fds and MIME lists should not enter Lua |
 | Restart-on-crash for a spawned app | Lua | It is a preference |
 | Reaping children | Rust | It is the kernel |
+
+## Decisions
+
+Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+A contract's data properties are declared `read`. Luau compares a read-write property invariantly and a read-only one covariantly (`Analysis/src/Subtyping.cpp`), so a contract whose properties are read-write is satisfied by nothing that narrows one: `pose: Mat4` does not answer `pose: Mat4?`, and a type carrying no such field at all does not answer an optional one. Both are what an implementer does. This was arrived at after trying the alternatives, so the alternatives are recorded: declaring the implementer as `Contract & { extras }` works and forces every implementer to name the contract, which a lower tier cannot; declaring the contract's properties read-write and hoping is what produced the intersection in the first place.
+
+A method's receiver names the contract, and an implementer names it too. A receiver is a parameter, parameters are contravariant, and an implementer naming its own type there asks that every implementer accept every other one. Writing `any` on both sides typechecks and checks nothing. `mullion.interaction.types` exists so that a tier 1 module can name `Surface` without requiring the tier that drives one: naming a type in Luau means requiring the module that declares it, which is a runtime require and not a type-level one.
+
+A closed set is a union, and where its members differ it is discriminated. A panel's source is `lunette.Window | lunette.Monitor` rather than a shape either might fit, a panel is discriminated on `kind`, and a surface carries the handle its kind names, so testing the kind reaches the handle. This replaced a structural `Source` that both fitted, which had let `source.opaque` be read on monitors, where the field does not exist.
+
+Standard library on disk, not embedded. It should be legible to someone who has the binary and not the source.
+
+The standard library is mounted by wrapping the `package.preload` entry LÖVR builds `lovr.filesystem` from. `vendor/lovr/etc/boot.lua:76` creates that module and `:183` requires `main.lua`, both on the first resume of the coroutine the host drives, so there is no moment between them the host can reach from outside: before the resume the module does not exist, and after it the configuration has already run. Wrapping the loader puts the mount between the two, which is what a configuration whose first line is `require '@mullion'` needs. The tree is mounted at `@mullion`, and the development-only `spec/` tree is mounted at `@spec`, so Luau's require-by-string resolver and LÖVR's loader use the same paths. The explicit mount point means a configuration can no longer shadow a mullion module by placing a file of the same name at the filesystem root. The `@` is visible in tracebacks as a doubled `@@` because LÖVR uses `@` as its own chunk-name marker; this is cosmetic but user-visible. The wrapper is a C closure holding the original loader and the paths as Lua upvalues rather than a Rust closure holding Lua values, so Rust keeps no reference into a state a soft reload will discard. The alternatives considered were pointing `package.path` at the tree, which works but takes the standard library out of the virtual filesystem the rest of the session reads through, and patching `boot.lua`, which is upstream's file and would make every LÖVR bump a merge.
+
+Resolution has two candidates and no third: `LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, unlike the XDG variables, because pointing the variable at a working tree is the whole development loop for `mullion`. A `./lua` fallback was considered, so that a build tree worked without the variable, and was not taken: it makes what a session loads depend on the directory it happened to be started from, which is a property no user can see and no configuration can state.
+
+The shipped configuration sets `saveprecedence = false`, which LÖVR defaults to true. The default mounts the save directory ahead of every other archive, so a file written there shadows the one it is named after — the mechanism a packaged LÖVR application is patched through. For lunette it is a trap: a session that writes `mullion/init.lua` or `main.lua` into its save directory replaces the standard library or the configuration for every session after it, and a reload cannot undo it because the reload reads the shadowing copy too. Turning it off leaves the save directory mounted and readable and only stops it winning a name collision. The mount itself is read-only regardless, since a physfs mount is: `lovr.filesystem.write` cannot modify a file in the standard library on disk. A configuration that sets `saveprecedence` back to true gets LÖVR's behaviour and the hazard with it.
+
+### The video exemption is a hint plus a heuristic, and lives in Lua
+
+`wp_content_type_v1` is advertised and read at commit, and that is all the native layer does with it. There is no handler trait, no events, and no way for a compositor to ask; a client sets a value or it does not, and adoption is thin enough that a client actually playing video usually reports `none`. Treating the hint as a detector would throttle most video players and exempt some paused ones.
+
+So the hint is reported as `win.contentType`, a closed set rather than a string on the wire, and `mullion.pacing` decides. It exempts a window when the hint says so **or** when the observed commit rate is close to full, because each covers the other's blind spot: the hint catches a video paused on a still frame, which commits nothing, and the commit rate catches a player that sets no hint at all. Putting either half in the compositor would be policy in the mechanism layer, which `CONTRIBUTING.md` forbids and which a configuration could then not replace.
+
+`mullion.pacing` rather than an addition to `mullion.scale`. The two answer different questions — how sharp a panel is, and how often its client draws — and a file named for one is a poor place to put the other. The pacer is pure for the reason the scale chooser is: it is handed what its caller observed and answers with a rate, so a whole session's worth of policy is exercised without a headset, a clock, or a window.
+
+## Known gaps
+
+Named, not solved.
+
+Soft reload can leak. Timers, signal connections, and coroutines from a previous config persist unless torn down. `mullion` provides the hook; nothing forces its use.
+
+## Deliberately left open
+
+Questions this design does not answer yet.
+
+2D widget toolkit. Deferred, and may end up as a recommended separate library rather than part of `mullion`. Ambitious UI should be a real Wayland client, spawned rather than built in.
+
+Layout algorithms. There is no prior implementation to copy and no comparable system to consult.

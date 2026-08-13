@@ -40,7 +40,7 @@
 //!   exist and `__pairs` can hide ones that do, and a wire format whose contents
 //!   depend on which of those a caller installed is not an inspection tool.
 //!
-//! `docs/decisions.md` records all of this as a decision rather than as an
+//! `docs/lua-api.md` records all of this as a decision rather than as an
 //! implementation detail.
 //!
 //! # Handles are identifiers, never addresses
@@ -308,7 +308,7 @@ fn convert_table(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError
 fn table_body(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError> {
     // `Table::pairs` traverses with `lua_next`, which is raw: `__pairs` is not
     // consulted and `__index` cannot fabricate an entry. That is the decision
-    // recorded in `docs/decisions.md`, not an accident of the API.
+    // recorded in `docs/lua-api.md`, not an accident of the API.
     let mut pairs = Vec::new();
     for pair in table.pairs::<LuaValue, LuaValue>() {
         // Counted here rather than once the traversal reaches the values: every

@@ -379,7 +379,7 @@ impl ImageArena {
     /// `VUID-vkDestroyDevice-device-05137` requires every child object to have
     /// been destroyed first. The validation layers report one image and one
     /// allocation per abandoned entry on every restart, which is expected
-    /// output; `docs/decisions.md` records the trade and the phase plan's
+    /// output; `docs/rendering.md` records the trade and the phase plan's
     /// restart gate says which reports are these and which would be a real
     /// miss. Destroying them here instead would be the invalid case
     /// `crates/lunette/src/texture/lovr.rs` records: LÖVR retires an imported

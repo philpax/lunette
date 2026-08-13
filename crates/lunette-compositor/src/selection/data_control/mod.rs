@@ -45,7 +45,7 @@
 //! considered was a nonce MIME type appended to what lunette publishes, which
 //! an echo would carry and a genuine selection could not; it was not taken,
 //! because it gives up the property that lunette re-offers a source's own list
-//! unchanged. `docs/decisions.md` records the choice.
+//! unchanged. `docs/input.md` records the choice.
 
 mod objects;
 

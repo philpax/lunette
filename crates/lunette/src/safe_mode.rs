@@ -28,7 +28,7 @@
 //! other callback. That is the right answer rather than an accident: `lovr.load`
 //! is where a configuration builds the state its later callbacks assume, and a
 //! session whose `lovr.load` raised halfway is not one those callbacks can run
-//! in. `docs/decisions.md` records it.
+//! in. `docs/lua-api.md` records it.
 //!
 //! Everything after `lovr.load` — `lovr.update`, `lovr.draw`, and the `lun*`
 //! callbacks — happens once the frame loop has been returned, so the wrapper

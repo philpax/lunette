@@ -44,7 +44,7 @@ The list went stale once, between the file-size sweep that split six oversized f
 
 `vendor/lovr` carries three patches on top of upstream `fdf1669f`, touching `src/core/gpu.h`, `src/core/gpu_vk.c`, `src/modules/graphics/graphics.c`, and `src/modules/graphics/graphics.h`. None adds a file. Upstream carries per-file copyright headers only under `src/lib/`, which is its own vendored third-party code, so the four patched files inherit the repository's MIT `LICENSE` and a per-file header would be a departure from upstream rather than a match to it.
 
-`CREDITS.md` and the licensing table in [decisions.md](decisions.md#licensing-and-credit) agree: WayVR GPL-3.0-only with `wayvr-ipc` MIT, LÖVR MIT, awesome GPL-2.0 for ideas only.
+[CREDITS.md](../CREDITS.md) records the licences: WayVR GPL-3.0-only with `wayvr-ipc` MIT, LÖVR MIT, awesome GPL-2.0 for ideas only.
 
 ## The LÖVR Vulkan patch
 
@@ -235,7 +235,7 @@ The backends registered on the bus decide which path a real grant would take.
 | `org.freedesktop.impl.portal.desktop.gtk` | running |
 | `org.freedesktop.impl.portal.desktop.wlr` | activatable |
 
-So a grant on this machine exercises the GNOME path. That is the backend under which `mapping_id` is mutter's `g_uuid_string_random()`, and only when the ScreenCast session is attached to a RemoteDesktop session, which lunette's is not. The expected result there is no `mapping_id` at all, and a UUID rather than a connector name if one did appear. `ConnectorName::parse` rejects both, which `a_uuid_shaped_mapping_id_is_not_a_connector_name` and `a_uuid_whose_last_group_is_all_digits_is_not_a_connector_name` cover. The reasoning is in [decisions.md](decisions.md).
+So a grant on this machine exercises the GNOME path. That is the backend under which `mapping_id` is mutter's `g_uuid_string_random()`, and only when the ScreenCast session is attached to a RemoteDesktop session, which lunette's is not. The expected result there is no `mapping_id` at all, and a UUID rather than a connector name if one did appear. `ConnectorName::parse` rejects both, which `a_uuid_shaped_mapping_id_is_not_a_connector_name` and `a_uuid_whose_last_group_is_all_digits_is_not_a_connector_name` cover. The reasoning is in [the host desktop's decisions](host-desktop.md#decisions).
 
 ### What the pinned wlx-capture drops
 
@@ -243,7 +243,7 @@ Two fields of the portal's response never reach lunette, and both were confirmed
 
 `persist_mode` appears once in `wlx-capture/src/pipewire/mod.rs`, at line 512, where the request states it. `parse_start_response` (`mod.rs:686-691`) reads `streams` and `restore_token` and nothing else, so the granted mode is discarded before lunette can see it. Every real grant therefore records `GrantedPersistMode::Unstated`, and the store holds no mode. The consequence is diagnostic rather than functional — the restore token is stored either way — but it means the store cannot report what the backend actually granted, and a backend that downgrades the mode does so invisibly.
 
-`mapping_id` appears nowhere in that file at all. `parse_streams` (`mod.rs:693-733`) reads `node_id`, `position`, and `size`. `PortalStream::connector` is therefore always `None` on every backend, including wlroots where the field would have carried a real connector name. This does not cost anything, because the connector name comes from `wl_output.name` instead: version 4 of `wl_output` added a `name` event whose documented content is the connector name, both wlroots and mutter send it, and it arrives from the compositor lunette is already talking to. Both gaps are recorded in [decisions.md](decisions.md).
+`mapping_id` appears nowhere in that file at all. `parse_streams` (`mod.rs:693-733`) reads `node_id`, `position`, and `size`. `PortalStream::connector` is therefore always `None` on every backend, including wlroots where the field would have carried a real connector name. This does not cost anything, because the connector name comes from `wl_output.name` instead: version 4 of `wl_output` added a `name` event whose documented content is the connector name, both wlroots and mutter send it, and it arrives from the compositor lunette is already talking to. Both gaps are recorded in [the host desktop's known gaps](host-desktop.md#known-gaps).
 
 ### What is established without a session
 
@@ -484,7 +484,7 @@ Phase 7 asks for four numbers about a restart. C1 takes them, driven the way the
 | Whether any client noticed | No. Both were present before and after, and the session generation moved from 1 to 2, so the XR session was genuinely replaced under them. |
 | The end-to-end duration | The compositor released the graphics device in 127µs, discarding no events. |
 
-The two expected leaks behave as [decisions.md](decisions.md) predicts: LÖVR's morgue is emptied only by `gpu_destroy`, so an imported image is forgotten rather than destroyed. Validation 1.4.350 folds the object list into the one `05137` message rather than emitting the separate `OBJTRACK` message the test plan anticipated. That is a layer-version difference.
+The two expected leaks behave as [Rendering](rendering.md#imported-images-are-abandoned-at-a-restart-not-destroyed) predicts: LÖVR's morgue is emptied only by `gpu_destroy`, so an imported image is forgotten rather than destroyed. Validation 1.4.350 folds the object list into the one `05137` message rather than emitting the separate `OBJTRACK` message the test plan anticipated. That is a layer-version difference.
 
 The validation layer is not in the flake's devshell and had to be brought in for the run. Adding it is worth doing.
 
@@ -553,7 +553,7 @@ What was finally measured: a 1600x1200 client on rung 1664x1280 with the viewpor
 
 The result is consistent with the physics rather than surprising. One well-filtered resample of a roughly 1:1, axis-aligned, stationary image costs little. Where a layer should win is the cases this test does not cover: oblique angles, minification at distance, and reprojection when the compositor's frame rate and the session's diverge.
 
-This does not settle whether the layer pool is worth having, and the case for it does not have to rest on sharpness. [What skipping the scene saves](#what-skipping-the-scene-saves) measures a halving of per-frame CPU once every panel is on a layer and the scene is skipped, which is an independent justification the sharpness claim never carried. Restating AC2.2 in terms of that, or in terms of reprojection stability, is a change to a recorded decision and belongs in [decisions.md](decisions.md) with its reasoning, not here.
+This does not settle whether the layer pool is worth having, and the case for it does not have to rest on sharpness. [What skipping the scene saves](#what-skipping-the-scene-saves) measures a halving of per-frame CPU once every panel is on a layer and the scene is skipped, which is an independent justification the sharpness claim never carried. Restating AC2.2 in terms of that, or in terms of reprojection stability, is a change to a recorded decision and belongs in [Rendering](rendering.md#decisions) with its reasoning, not here.
 
 One difference between the two paths is visible, and it is not sharpness. A panel on a layer cannot be seen from behind and a panel on a quad can, because a quad composition layer is single-sided. `mullion` chooses when a panel is on a layer, so a grant landing would make a panel that was readable from behind vanish. The API documentation states that the in-scene quad is the fallback rather than a degraded mode, and a panel disappearing when the pool happens to have a slot free is a way for the two to differ that nothing accounts for.
 

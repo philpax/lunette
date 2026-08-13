@@ -34,7 +34,7 @@
 //! lunette in the middle. WayVR instead spawns a detached thread per request and
 //! writes the bytes itself (`comp.rs:365-383`), with no join, no bound, and no
 //! cancellation; a client requesting the selection in a loop spawns threads
-//! without limit. `docs/decisions.md` records why the descriptor is passed
+//! without limit. `docs/input.md` records why the descriptor is passed
 //! rather than the bytes copied.
 //!
 //! Descriptor ownership is encoded rather than trusted. A [`HostRead`] owns its

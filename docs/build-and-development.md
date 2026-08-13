@@ -54,7 +54,7 @@ This follows awesome, which installs Lua to `$PREFIX/share/awesome/lib` and its 
 | Binaries | `$PREFIX/bin/lunette` and `$PREFIX/bin/lunctl` |
 | Saved state | LÖVR's save directory |
 
-The standard library is kept on disk rather than embedded in the binary, so it stays legible to anyone who needs to read it without cloning the source. There are two candidates and no third: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [Decisions](decisions.md#recorded-decisions) records why there is no `./lua` fallback and how the mount is installed.
+The standard library is kept on disk rather than embedded in the binary, so it stays legible to anyone who needs to read it without cloning the source. There are two candidates and no third: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [The standard library](stdlib.md#decisions) records why there is no `./lua` fallback and how the mount is installed.
 
 `make install` puts all of it where the table above says, with `PREFIX`, `SYSCONFDIR`, and `DESTDIR` all honoured. `PREFIX` and `SYSCONFDIR` reach the binary as `LUNETTE_PREFIX` and `LUNETTE_SYSCONFDIR`, which `crates/lunette/src/main.rs` compiles in through `option_env!` as the defaults it resolves against, so a build and the install that follows it are told the prefix once rather than twice. The LÖVR shared libraries are installed to `$PREFIX/lib/lunette`, which the executable reaches through an `$ORIGIN/../lib/lunette` rpath entry.
 
@@ -87,3 +87,19 @@ End-to-end testing runs via `lunctl`, and it is Rust rather than a shell script.
 The half that is not covered is a client: a session with `modules.graphics = false` never lends a device to the compositor thread, so the thread does not start and nothing can connect to the Wayland socket it would serve. Spawning a client and asserting it appears in `lunette.windows()` therefore needs the GPU-headless tier above, and until that exists it is a human gate rather than a test. `crates/lunette-compositor/tests/` covers the client half against the compositor in-process, which is the same protocol traffic without the frame loop under it.
 
 The standing checks are listed in [CONTRIBUTING.md](../CONTRIBUTING.md) and run via `make check`. The sixth is `lunette check`, which typechecks the standard library and the shipped configuration in strict mode, catching a local referenced before its declaration and an accidental global before a session sees them.
+
+## Decisions
+
+Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+Compositor tests connect over a socketpair, not a bound socket. `Connection::from_socket` and `DisplayHandle::insert_client` both take a `UnixStream` directly, so a test gives one end of a `UnixStream::pair()` to each side and the filesystem is never involved. Only the listener's own tests — bind, listen, accept, and socket-path selection — bind a real socket, in a per-test temporary directory, because that is the code under test. The real socket in [Build and development](build-and-development.md#testing) means a real Wayland connection, not a real path on disk.
+
+The exit status is tested by spawning the binary, which is the one place a test runs a real subprocess. `boot::run` returns an `ExitCode`, which is opaque and carries no accessor, and the code that produces it cannot be reached without a live LÖVR Lua thread, so the status is observable only from outside the process. `crates/lunette/tests/exit_status.rs` runs the binary against a fixture configuration directory that opens no window and disables the audio, graphics, and headset modules, so no display, XR runtime, or sound device is needed. `lovr.filesystem.setIdentity` creates a save directory on every run and fails the boot when it cannot, so each run points `XDG_DATA_HOME` at its own temporary directory and each fixture carries a distinct identity. That keeps the write inside the temporary directory, keeps two parallel runs from racing to create one shared leaf, and makes the run independent of `HOME` and of the running uid having a passwd entry. The exception exists because reading the status from the wrong Lua stack slot once made every exit report success while the suite stayed green.
+
+## Known gaps
+
+Named, not solved.
+
+There is no flake package output, so `nix build` produces nothing and the install path is the `Makefile`. The blocker is the one [Nix](#nix) already names: LÖVR's `deps/` are nested submodules, and a flake source does not carry submodules unless it is fetched with `submodules=1`, so a derivation building from `./.` would find `vendor/lovr` empty. The `Makefile` installs the binary, the LÖVR shared libraries, the standard library, and the default configuration at the documented paths, and an installed tree resolves its own libraries through the executable's `$ORIGIN/../lib/lunette` rpath entry.
+
+The end-to-end tests are Rust and not the shell script [Testing](#testing) originally described. They drive the same two binaries over the same socket; a shell script would add a second harness to keep in step and report failures worse. The part of that description that is not yet met is the client: a headless fixture switches the graphics module off, so no device is lent to the compositor thread, the thread does not start, and nothing can connect to the Wayland socket. That half needs the GPU-headless tier and is recorded as a gate in [milestone 0 findings](milestone-0-findings.md#outstanding) until it exists.

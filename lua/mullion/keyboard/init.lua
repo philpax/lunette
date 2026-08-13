@@ -20,7 +20,7 @@
 -- no key event is produced that nothing asked for.
 --
 -- The drawing is `Pass:plane` and `Pass:text` and nothing else. This sits on
--- the boundary of the widget toolkit docs/stdlib.md defers and docs/decisions.md
+-- the boundary of the widget toolkit docs/stdlib.md defers and docs/stdlib.md
 -- records as possibly a separate library, and it does not cross it.
 
 local lunette = require '@lunette'

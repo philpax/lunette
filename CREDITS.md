@@ -1,6 +1,6 @@
 # Credits
 
-lunette is built on other people's work. This file records whose, under what licence, and how each project is used. [docs/decisions.md](docs/decisions.md#licensing-and-credit) carries the same facts as a design decision; this is the user-facing form, and the two do not diverge.
+lunette is built on other people's work. This file records whose, under what licence, and how each project is used. It is the one place these facts are recorded.
 
 lunette is GPL-3.0-only. That follows from WayVR: lunette uses WayVR's code, WayVR is GPL-3.0-only, and no other outcome is available.
 

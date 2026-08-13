@@ -155,3 +155,9 @@ This is why two reload paths exist ([The Lua API](lua-api.md#reload)): soft relo
 lunette overrides `lovr.errhand`. LÖVR's default shows an error screen and stops, which suits a game but not a window manager. The standard library installs a handler that logs the error, emits an event, and shows a floating error panel, rate-limiting identical repeats. Users can replace this handler, which is why it lives in Lua.
 
 The native layer owns only the load-time fallback. If `main.lua` fails to load at all, no user handler exists yet, so a built-in safe mode takes over.
+
+## Decisions
+
+Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+The generated declarations say what LÖVR means, and the generator is where that is fixed. An argument with a documented default is optional; a callback is optional, because nothing sets one by default; a function with an empty variant and a variadic one drops the empty variant, because both accept a call with no arguments and Luau then reports the call as ambiguous. Each of these was first worked around in the calling code, and each workaround changed behaviour: `lovr.quit` returned `true` and vetoed the quit, `lovr.draw` returned `true` and dropped the frame, the laser's cursor was drawn at eight segments where the default is forty-eight, and fifteen sites spelled out an identity matrix. A declaration that is wrong about the runtime is worse than one that is missing, because the code bends to fit it.

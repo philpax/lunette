@@ -9,7 +9,7 @@
 -- once is possible only when selection is. A single-current-workspace model
 -- cannot be widened into either afterwards without breaking every caller, so it
 -- is a set from the start. This is awesome's shape and none of its code:
--- docs/decisions.md records that awesome is GPL-2 and lunette GPL-3-only.
+-- CREDITS.md records that awesome is GPL-2 and lunette GPL-3-only.
 --
 -- Membership is held strongly and dead panels are dropped when they are next
 -- looked for. A panel is destroyed explicitly rather than collected, so there is

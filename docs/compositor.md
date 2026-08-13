@@ -46,7 +46,7 @@ Reconfiguring an output also reconfigures the windows on it, each at the size it
 
 `refresh` is in hertz in Lua and in millihertz on the wire, converted at that boundary and nowhere else. It is advertisement rather than pacing: how often a surface is actually answered is `window:setFrameRate`.
 
-The `wl_output` global is lunette's own rather than smithay's. `Output::create_global` has no filter hook, and the `can_view` that would supply one is handed a `WlOutputData` whose output field is private — so a hand-written filter could not tell which output it was being asked about. [Decisions](decisions.md#recorded-decisions) records what that costs. The filter itself is consulted at registry advertisement and again at bind, and the second is what makes it enforceable: a client that guesses a global name it was never told about is refused rather than served.
+The `wl_output` global is lunette's own rather than smithay's. `Output::create_global` has no filter hook, and the `can_view` that would supply one is handed a `WlOutputData` whose output field is private — so a hand-written filter could not tell which output it was being asked about. [Decisions](#decisions) below records what that costs. The filter itself is consulted at registry advertisement and again at bind, and the second is what makes it enforceable: a client that guesses a global name it was never told about is refused rather than served.
 
 ## Decorations
 
@@ -106,3 +106,41 @@ Two divergences from WayVR are deliberate.
 ### Out of scope
 
 There is no cgroup or systemd-scope integration, no seatd integration, and no sandboxing. Spawned applications are as privileged as lunette itself.
+
+## Decisions
+
+Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+The `wl_output` global is lunette's own rather than smithay's, because smithay's cannot be filtered. [Outputs](#outputs) requires that each client see only the outputs Lua assigned it, and `wayland-server` supplies exactly the hook for that: `GlobalDispatch::can_view(client, global_data) -> bool`, consulted at registry advertisement and again at bind, so a client that guesses a global name it was never told about is refused rather than served. What blocks the obvious implementation is that `Output::create_global` fixes the global data type as `WlOutputData`, whose `output` field is private and has no accessor — so a hand-written `can_view` is handed a value it cannot read, and cannot tell which output it is being asked about. Overriding the hook is possible; answering it is not. So `crates/lunette-compositor/src/output.rs` creates the global with a data type that names the output, and implements `bind`, the `wl_output` events, `wl_surface.enter` and `leave`, and mode changes against the protocol directly. What that gives up is smithay's `Output` — six calls, all reimplemented — and its per-client scale bookkeeping, which lunette does not want anyway because it owns the scale question outright from `wp_fractional_scale_v1`. It gives up no protocol surface: `zxdg_output_manager_v1` was never advertised, since nothing constructed an `OutputManagerState`, so the four xdg-output lines of `delegate_output!` were dispatching for a global no client could reach. The alternative considered was identifying the output by the address of the `&WlOutputData` handed to `can_view`, which is stable for the global's life; it was not taken because there is no way to learn that address at creation time, and the only route to it — a permanently connected probe client, so that creating a global provokes one `can_view` call — is a great deal of machinery resting on an ordering the backend does not promise.
+
+`wl_compositor` is advertised at version 6 rather than the 5 smithay's `CompositorState::new` defaults to. Six is the version that carries `wl_surface.preferred_buffer_scale` and `preferred_buffer_transform`, and below it `send_surface_state` returns without sending anything — so a client would learn the whole-number scale only from `wl_output.scale`, on an output lunette's own filter may have refused it. Per-surface is also the right granularity for a compositor where each client is on its own virtual monitor. The cost falls on lunette rather than on clients: a client binds version 6 only if it implements version 6, so the two events are ones it already handles, but the compositor now owes them to every surface before that surface's first commit. That is why both `new_surface` and `new_toplevel` call `send_initial_surface_state`. A change that stops emitting them for some class of surface — a subsurface, a cursor surface, a surface reaching the compositor by a path that does not go through creation — is a conformance break rather than an omission, and the version is what makes it one.
+
+The output every session starts with is kept as the one a client assigned none is shown, rather than removed once Lua can create outputs. A client adopted from outside lunette is never assigned one, because nothing spawned it and so nothing named an output for it, and `WAYLAND_DISPLAY=wayland-20 foot` from a host terminal is a workflow the design calls out as worth having. A client that sees no `wl_output` at all cannot pick a scale or a refresh rate, and several toolkits assume at least one exists. So it stays, it refuses to be destroyed for the reason the default seat does, and `SpawnRequest::output` being absent means it rather than meaning nothing.
+
+### Frame pacing is a withhold and a timer, not smithay's throttle
+
+smithay ships `send_frames_surface_tree` (`src/desktop/wayland/utils.rs:217-266`) and it is not usable for rate limiting. It sends when the surface is on the primary scan-out output **or** when the frame is overdue, so the scan-out branch bypasses the throttle entirely; using it means passing a closure that deliberately names a non-matching output, to disable half the function in order to reach the other half. Its `SurfaceFrameThrottlingState` is declared without `pub`, so it cannot be named, reset, or inspected, and there is nowhere to hang a per-surface override.
+
+lunette paces its own per-surface callback map instead. Phase 3 recorded the ground that makes withholding safe: damage lives in `RendererSurfaceState` and callbacks in `SurfaceAttributes`, so the two policies do not interact, and smithay's `SurfaceAttributes::merge_into` extends the callback list rather than replacing it — a surface that commits three times while withheld holds all three callbacks, and all three are answered by the next send. Nothing is lost and no `wl_callback` is dropped without its `done`.
+
+Withholding requires a timer, and this is the part that is easy to miss. A client waiting on a frame callback sends nothing, and the compositor's event loop runs with no timeout because every source is registered up front. Without a wakeup the withheld callback would wait for unrelated traffic, which for an idle throttled window is indefinitely — the throttle would produce exactly the hang it exists to avoid. So a withheld surface arms a one-shot timer at the earliest moment any withheld surface comes due, and a nearer deadline replaces an armed one so a fast surface does not wait out a slow one's interval.
+
+The floor is enforced natively rather than left to Lua. A rate below approximately 1 Hz is paced at 1 Hz. Lua owns which window deserves which rate, but a mechanism that honours a request for zero would let a configuration produce a window that is frozen but alive, and `lunette-v1.AC7.3` requires a throttled client to keep answering input. The clamp is applied to the rate before the interval is derived from it, which also keeps `Duration::from_secs_f64` away from the overflow that the reciprocal of a very small rate would panic on.
+
+`window:setFrameRate`, not `surface:setFrameRate`. The earlier documents named a `surface` handle that the Lua API does not have and was never going to grow: the window handle is the surface-level handle, and `win.width` and `win.height` are already documented as the surface's size. Adding a second handle naming the same thing would have been a worse answer than correcting three sentences.
+
+### Readvertising an output survives a racing bind by accident, not by guarantee
+
+`OutputRegistry::readvertise` removes a global and creates a replacement, and the pair is not atomic. A `wl_registry.bind` already in flight for the old registry name arrives after the removal. wayland-backend's `check_bind` (`src/rs/server_impl/registry.rs:103-129`) resolves a name to a slot index without comparing the global's serial, so the bind is answered by whatever global now occupies that slot.
+
+Today that is the replacement. `create_global` reclaims the lowest free slot, and the only globals this compositor removes at runtime are seats and outputs — all created after the default output, and the default seat is protected — so the freed slot is the lowest free one and the new global lands on the same registry name. Measured on the default output: registry name 11 before, 11 after. The racing bind therefore succeeds against the new global.
+
+This is an accident of allocation order. A removable global created before the default output would take the freed slot instead, the replacement would be advertised under a different name, and the racing bind would resolve to a global of another interface or to nothing — `DisplayError::InvalidObject`, which disconnects the client. Anything that adds an early global removable at runtime has to make readvertisement stop depending on slot reuse.
+
+## Known gaps
+
+Named, not solved.
+
+No sandboxing. Spawned applications are as privileged as lunette.
+
+XWayland semantics are whatever `xwayland-satellite` provides. Override-redirect windows, `_NET_WM` hints, and transient-for relationships are mapped onto xdg-shell approximately.
