@@ -18,6 +18,35 @@ use ariadne::{Color, Config, Label, Report, ReportKind, Source};
 use lunette_lovr::analyze::{self, Diagnostic, Kind, Request};
 use tracing::{error, info};
 
+/// Where the definitions are installed, under the compiled-in prefix.
+const INSTALLED_DEFINITIONS: &str = "share/lunette/definitions.luau";
+
+/// The definitions to check against, or nothing and the reason.
+///
+/// Refusing is the point. Without them every `lovr` global is unknown and every
+/// LÖVR type is undeclared, so a run against no definitions reports hundreds of
+/// diagnostics that say nothing about the files being checked.
+fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
+    if let Some(path) = named {
+        if path.is_file() {
+            return Some(path.to_owned());
+        }
+        error!(path = %path.display(), "check: the definitions are not there");
+        return None;
+    }
+
+    let installed = Path::new(crate::PREFIX).join(INSTALLED_DEFINITIONS);
+    if installed.is_file() {
+        return Some(installed);
+    }
+
+    error!(
+        path = %installed.display(),
+        "check: no definitions were given and none is installed; pass --definitions"
+    );
+    None
+}
+
 /// Typechecks `roots`, drawing what it found.
 ///
 /// A root that was not read fails the run on its own: a check that passes
@@ -28,9 +57,14 @@ pub fn run(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> E
         return ExitCode::FAILURE;
     }
 
+    let definitions = match resolve_definitions(definitions) {
+        Some(path) => path,
+        None => return ExitCode::FAILURE,
+    };
+
     let request = Request {
         old_solver,
-        ..Request::new(definitions.map(Path::to_owned), roots.to_vec())
+        ..Request::new(Some(definitions), roots.to_vec())
     };
 
     let report = match analyze::check(&request) {

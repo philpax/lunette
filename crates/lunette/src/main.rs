@@ -615,7 +615,7 @@ const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::INFO;
 /// A packager sets `LUNETTE_PREFIX` when building, and the `Makefile` passes its
 /// own `PREFIX` down so that a build and the install that follows it agree
 /// without either being told twice. The default is the one the `Makefile` uses.
-const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
+pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
     Some(path) => path,
     None => "/usr/local",
 };
