@@ -194,7 +194,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
     - `cargo test --workspace`
     - `cargo test --workspace --no-default-features`
   - `make check-definitions`
-    - `cargo run -p lunette-generate-definitions -- --check` — regenerates `etc/lunette/definitions.luau` and `etc/lunette/lovr.d.luau` into memory and fails if either differs from what is checked in. It names the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
+    - `cargo run -p lunette-generate-definitions -- --check` — regenerates `etc/lunette/definitions.luau` into memory and fails if it differs from what is checked in. It names the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
   - `make check-luau`
     - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:

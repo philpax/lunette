@@ -1,8 +1,8 @@
 //! Generates the Luau definitions the type checker loads.
 //!
 //! Runs lovr-docs' `generators/luau.lua` against the pinned lovr-docs
-//! `api/init.lua` using the Luau embedded in LÖVR, and writes the generated
-//! `lovr.d.luau` to `etc/lunette/`.
+//! `api/init.lua` using the Luau embedded in LÖVR, splices in what lovr-docs
+//! does not describe, and writes `etc/lunette/definitions.luau`.
 //!
 //! This executes the literal lovr-docs generator rather than porting it, so
 //! the definitions cannot diverge from the metadata. The generator is
@@ -26,10 +26,9 @@ use std::{
 use mlua::{Lua, Table};
 use tracing::{error, info};
 
-/// The generator's own name, and the file it writes.
+/// The generator's own name, and the metadata it reads.
 const GENERATOR: &str = "vendor/lovr-docs/api/generators/luau.lua";
 const METADATA: &str = "vendor/lovr-docs/api/init.lua";
-const OUTPUT: &str = "etc/lunette/lovr.d.luau";
 /// What the checker loads: the generated definitions, plus what lovr-docs does
 /// not describe.
 const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
@@ -126,14 +125,11 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let source_dir: String = get_source.call(())?;
     let generated = PathBuf::from(source_dir).join("luau").join("lovr.d.luau");
     let text = fs::read_to_string(&generated)?;
-    let text_len = text.len();
 
     let definitions = format!("{FORK_GLOBALS}\n{}", with_lunette_fields(&text)?);
 
     if checking {
-        let mut current = true;
-        current &= compare(&root.join(OUTPUT), &text)?;
-        current &= compare(&root.join(CHECKER_DEFINITIONS), &definitions)?;
+        let current = compare(&root.join(CHECKER_DEFINITIONS), &definitions)?;
 
         if current {
             info!("the generated definitions are up to date");
@@ -145,10 +141,12 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     }
 
     fs::create_dir_all(root.join("etc/lunette"))?;
-    fs::write(root.join(OUTPUT), &text)?;
     fs::write(root.join(CHECKER_DEFINITIONS), &definitions)?;
-    info!(path = %root.join(OUTPUT).display(), bytes = text_len, "wrote");
-    info!(path = %root.join(CHECKER_DEFINITIONS).display(), "wrote");
+    info!(
+        path = %root.join(CHECKER_DEFINITIONS).display(),
+        bytes = definitions.len(),
+        "wrote"
+    );
 
     Ok(true)
 }
