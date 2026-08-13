@@ -33,6 +33,7 @@
 
 local lunette = require '@lunette'
 local pointing = require '@mullion/interaction/types'
+local layer = require '@mullion/panel/layer'
 local raycast = require '@mullion/panel/raycast'
 local signal = require '@mullion/signal'
 local teardown = require '@mullion/teardown'
@@ -55,18 +56,6 @@ export type Kind = 'window' | 'monitor'
 -- panel's own apart. `lunette.Textured` is the same union under the name the
 -- native API gives it.
 export type Source = lunette.Textured
--- A layer claim, as `lunette.claimLayer` answers. Structural rather than
--- `lunette.Claim` itself, because a source a configuration wrote may hand a
--- panel a claim of its own that is not the native one.
-type Claim = {
-  read granted: boolean?,
-  read width: number?,
-  read height: number?,
-  read layer: Layer | false,
-  -- The result is unused; `...any` so that a claim answering nothing and the
-  -- native one answering a boolean both fit.
-  read release: (any) -> ...any,
-}
 -- A panel: a pixel source bound to a pose and a size in metres, plus the
 -- methods that move it, size it, update it, draw it, and destroy it. The
 -- method signatures are listed so that the checker resolves `created:setSize`
@@ -83,7 +72,7 @@ type PanelFields = {
   highlighted: boolean,
   granted: boolean,
   dead: boolean,
-  claim: Claim?,
+  claim: layer.Claim?,
   appliedWidth: number?,
   appliedHeight: number?,
   -- The four `mullion.interaction` declares take its receiver, which is what
@@ -98,12 +87,11 @@ type PanelFields = {
   draw: (Panel, Pass) -> (),
   drawChrome: (Panel, Pass) -> (),
   destroy: (Panel) -> boolean,
-  syncClaim: (Panel, number, number) -> (),
 }
 
 -- A panel, discriminated on `kind`: testing it is what narrows `source` to the
--- handle that kind has, which is how `syncClaim` comes to know that the thing it
--- claims a layer for is a window.
+-- handle that kind has, which is how `mullion.panel.layer` comes to know that
+-- the thing it claims a layer for is a window.
 export type WindowPanel = PanelFields & { kind: 'window', source: lunette.Window }
 export type MonitorPanel = PanelFields & { kind: 'monitor', source: lunette.Monitor }
 export type Panel = WindowPanel | MonitorPanel
@@ -385,47 +373,10 @@ function methods.update(self: Panel)
     return
   end
 
-  self:syncClaim(pixelWidth, pixelHeight)
-
-  if not self.claim then
-    return
-  end
-
-  local granted = self.claim.granted and true or false
-  local resized = self.appliedWidth ~= pixelWidth or self.appliedHeight ~= pixelHeight
-
-  if not granted then
-    self.appliedWidth, self.appliedHeight = nil, nil
-    signal.setProperty(self, 'granted', false)
-    return
-  end
-
-  -- Never cached across frames: `claim.layer` names something that goes away on
-  -- revoke, and re-acquiring it is cheap.
-  local layer = self.claim.layer
-  if not layer then
-    return
-  end
-
-  -- On every grant and on every resize, which is what this phase owes Phase 3.
-  -- The size ladder quantises upwards, so the layer is usually larger than the
-  -- source and the blit lands at the layer's origin; the viewport is what
-  -- excludes the margin. The blit clears that margin, but blank is not the same
-  -- as absent — an 800x600 window in a 1024x1024 layer would otherwise be drawn
-  -- squeezed into the top-left corner of a square.
-  if resized or not self.granted then
-    layer:setViewport(0, 0, pixelWidth, pixelHeight)
-    self.appliedWidth, self.appliedHeight = pixelWidth, pixelHeight
-  end
-
-  layer:setPosition(self.pose:getPosition())
-  -- As an angle and an axis, which is what `Mat4:getOrientation` hands back and
-  -- what `luax_readquat` takes from four numbers. `lovr.math.quat` does not
-  -- construct from a `Mat4`.
-  layer:setOrientation(self.pose:getOrientation())
-  layer:setDimensions(self.width, self.height)
-
-  signal.setProperty(self, 'granted', true)
+  -- The claim and what it was granted are `mullion.panel.layer`'s, and a
+  -- monitor panel never holds one.
+  layer.sync(self, pixelWidth, pixelHeight)
+  layer.drive(self, pixelWidth, pixelHeight)
 end
 
 -- Draws the panel as an in-scene quad, and its chrome.
@@ -536,42 +487,6 @@ function methods.destroy(self: Panel): boolean
   signal.emit(self, 'destroyed')
   signal.disconnectAll(self)
   return true
-end
-
--- Keeps the layer claim in step with the source's pixel size.
---
--- A window whose client resized past the layer it was granted needs a claim on
--- a larger rung, and the pool has no way to grow one underneath it: a claim
--- names a key, and the key carries the size. So the claim is released and
--- remade, which costs a frame or two on the quad path.
-function methods.syncClaim(self: Panel, pixelWidth: number, pixelHeight: number)
-  -- `lunette.claimLayer` takes a window and nothing else, so a monitor panel
-  -- has no claim to keep in step. Noted at the module head as a gap in the
-  -- native API rather than a choice made here.
-  if self.kind ~= 'window' then
-    return
-  end
-
-  if self.claim then
-    local layerWidth: number? = self.claim.width
-    local layerHeight: number? = self.claim.height
-    -- A layer smaller than the source would crop it, and the ladder only
-    -- quantises upwards, so this is the resized-past-its-rung case.
-    if layerWidth and layerHeight and (pixelWidth <= layerWidth and pixelHeight <= layerHeight) then
-      return
-    end
-    self.claim:release()
-    self.claim = nil
-    signal.setProperty(self, 'granted', false)
-    self.appliedWidth, self.appliedHeight = nil, nil
-  end
-
-  self.claim = lunette.claimLayer {
-    window = self.source,
-    width = pixelWidth,
-    height = pixelHeight,
-    priority = self.priority,
-  }
 end
 
 -- The shader a window whose buffer carries no alpha is drawn with, or nothing.
