@@ -1,9 +1,8 @@
 name: check
 
-# The list CONTRIBUTING.md calls the standing checks, run on every push and
-# pull request. The jobs are split so that a failure names which check failed
-# without reading a log, and so that the two that need no LOVR build answer in
-# under a minute.
+# The standing checks CONTRIBUTING.md lists. Each job runs a `make` target
+# rather than restating the commands, so the list has one definition and a
+# contributor running `make check` runs what CI runs.
 on:
   push:
     branches: ['**']
@@ -16,29 +15,30 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
-  # Formatting and the Luau formatter. Neither compiles anything, so neither
-  # needs the submodules or the system libraries the LOVR build wants.
+  # Both formatters. Neither compiles anything, so this needs no submodules and
+  # none of the system libraries the LÖVR build wants.
   format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       # CONTRIBUTING.md requires nightly rustfmt: rustfmt.toml opts into
-      # imports_granularity and group_imports, which stable silently skips.
+      # imports_granularity and group_imports, which stable skips silently.
       - name: Install nightly rustfmt
         run: rustup toolchain install nightly --profile minimal --component rustfmt
 
-      - name: Check the Rust formatting
-        run: cargo +nightly fmt --all -- --check
-
+      # Installs the binary and puts it on PATH; `--version` is the cheapest
+      # thing to run, since `make check-format` is what checks the tree.
       - name: Install StyLua
         uses: JohnnyMorganz/stylua-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: latest
-          args: --check lua etc/xdg/lunette
+          args: --version
 
-  # Everything that compiles the workspace. LOVR is built from source by
+      - run: make check-format
+
+  # Everything that compiles the workspace. LÖVR is built from source by
   # crates/lunette-lovr's build script, which is most of the wall clock here.
   build:
     runs-on: ubuntu-latest
@@ -47,6 +47,11 @@ jobs:
       # FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS at it, which is what keeps cmake off
       # the network.
       LUNETTE_JOLTPHYSICS_SRC: ${{ github.workspace }}/.jolt
+      # crates/lunette/tests/mullion_spec.rs boots a session, which opens a
+      # listening socket under the runtime directory, and LÖVR's save directory
+      # derives from the state one. A runner sets neither.
+      XDG_RUNTIME_DIR: ${{ github.workspace }}/.runtime
+      XDG_STATE_HOME: ${{ github.workspace }}/.state
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,8 +59,8 @@ jobs:
 
       - name: Install the system dependencies
         # The devshell's buildInputs and nativeBuildInputs, as their Debian
-        # names. libclang is what bindgen parses LOVR's headers with, and the
-        # rest are what LOVR, the compositor, and the capture stack link
+        # names. libclang is what bindgen parses LÖVR's headers with, and the
+        # rest are what LÖVR, the compositor, and the capture stack link
         # against.
         run: |
           sudo apt-get update
@@ -68,6 +73,9 @@ jobs:
             libasound2-dev libdbus-1-dev libssl-dev libpipewire-0.3-dev \
             libwayland-dev wayland-protocols \
             libopenxr-dev
+
+      - name: Make the runtime directories
+        run: mkdir -p .runtime .state && chmod 700 .runtime
 
       # deps/joltc reaches JoltPhysics through FetchContent, which wants the
       # network at configure time. The devshell prefetches it and points
@@ -83,28 +91,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # The LOVR build lives under target/, so the cache is what keeps the
+          # The LÖVR build lives under target/, so the cache is what keeps the
           # ten-minute cmake configure off the common path.
           cache-all-crates: true
 
-      - name: Clippy, with the default features
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-      - name: Clippy, with none
-        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
-
-      - name: Test, with the default features
-        run: cargo test --workspace
-
-      - name: Test, with none
-        run: cargo test --workspace --no-default-features
+      - run: make check-rust
 
       # The definitions are generated and checked in. Nothing else notices when
       # the metadata moves and the artifact does not.
-      - name: Check the generated definitions
-        run: cargo run -p lunette-generate-definitions -- --check
+      - run: make check-definitions
 
       # The same in-process checker `lunette check` runs, over the standard
       # library and the shipped configuration.
-      - name: Typecheck the Luau tree
-        run: make check-luau
+      - run: make check-luau
