@@ -102,6 +102,18 @@ jobs:
           # The LÖVR build lives under target/, so the cache is what keeps the
           # ten-minute cmake configure off the common path.
           cache-all-crates: true
+          # LÖVR is built by crates/lunette-lovr's build script into that
+          # crate's OUT_DIR. The action's prune keeps a target entry only when
+          # its package is in the set it was handed, and by default that set
+          # holds dependencies alone, on the reasoning that one's own crates
+          # are cheap to rebuild. That reasoning does not hold for a crate
+          # wrapping a cmake tree, and this is what puts the workspace members
+          # in the set the prune consults.
+          cache-workspace-crates: true
+          # A run that fails still paid for everything it compiled before the
+          # failure. Without this, iterating on a red CI recompiles the world
+          # every time, because the action saves nothing unless the job passes.
+          cache-on-failure: true
 
       - run: make check-rust
 
