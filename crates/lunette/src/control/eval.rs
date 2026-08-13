@@ -405,6 +405,13 @@ impl Overrun {
 /// Globals are consulted first, so a module cannot displace a name the session
 /// set.
 ///
+/// A name is looked for as written and then under the `@` root, because that is
+/// where the modules a session registers live: `lunette` is preloaded as
+/// `@lunette` ([`crate::lua::MODULE_NAME`]), which is the form Luau's own
+/// resolver requires of a `require`. A chunk is typed at a console rather than
+/// written to a file, so it addresses the module by the name the documentation
+/// gives it.
+///
 /// Only a loaded or preloaded name resolves. Calling `require` for every missed
 /// global would turn the `nil` Lua specifies into a module-not-found error.
 ///
@@ -418,12 +425,7 @@ fn scope_to_modules(lua: &Lua, function: &Function) -> mlua::Result<()> {
     let resolve = lua.load(
         r"
         local globals, package, require = ...
-        return function(_, name)
-          local value = globals[name]
-          if value ~= nil then
-            return value
-          end
-
+        local function module(name)
           local loaded = package.loaded[name]
           if loaded ~= nil then
             return loaded
@@ -431,6 +433,24 @@ fn scope_to_modules(lua: &Lua, function: &Function) -> mlua::Result<()> {
 
           if package.preload[name] ~= nil then
             return require(name)
+          end
+
+          return nil
+        end
+
+        return function(_, name)
+          local value = globals[name]
+          if value ~= nil then
+            return value
+          end
+
+          local direct = module(name)
+          if direct ~= nil then
+            return direct
+          end
+
+          if type(name) == 'string' then
+            return module('@' .. name)
           end
 
           return nil
@@ -566,15 +586,21 @@ mod tests {
 
     /// A state holding a preloaded module and no global naming it.
     ///
-    /// The shape a real session has: `crate::lua` registers the module in
-    /// `package.preload`, and a configuration binds it to a local. The test
-    /// helper in `crate::lua::tests` assigns the global instead, which is why
-    /// the defect these tests cover survived it.
+    /// The shape a real session has, down to the name: `crate::lua` registers
+    /// the module in `package.preload` under the `@` root that Luau's resolver
+    /// requires ([`crate::lua::MODULE_NAME`] is `@lunette`), and a
+    /// configuration binds it to a local. The test helper in
+    /// `crate::lua::tests` assigns the global instead, which is why the defect
+    /// these tests cover survived it.
+    ///
+    /// Registering it here as a bare `pretend` would leave the same gap: the
+    /// chunks below would resolve it directly and never exercise the root the
+    /// session actually uses.
     fn with_preloaded_module() -> Lua {
         let lua = crate::test_lua::session_lua();
         lua.load(
             r"
-            package.preload['pretend'] = function()
+            package.preload['@pretend'] = function()
               return { answer = function() return 42 end }
             end
             ",

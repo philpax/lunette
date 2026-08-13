@@ -382,7 +382,7 @@ $ lunctl 'for _, w in ipairs(lunette.windows()) do print(w.appId, w.title) end'
 $ lunctl "local arc = require '@mullion/layout/arc' arc(require('@mullion/tag').current())"
 ```
 
-A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
+A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and a module name is tried as written and then under the `@` root the session registers it at, so `lunette` finds `@lunette`. Only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
 
 `mullion`'s submodules are not reachable through the root, here or anywhere. The root deliberately re-exports nothing, so `mullion.layout.arc` is `nil` and the submodule is required by its own path.
 
