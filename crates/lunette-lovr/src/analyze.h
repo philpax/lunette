@@ -50,7 +50,11 @@ typedef struct
     char* failure;
 } lunette_luau_report;
 
-lunette_luau_report* lunette_luau_check(const lunette_luau_request* request);
+lunette_luau_report* lunette_luau_check(const lunette_luau_request* request)
+#ifdef __cplusplus
+    noexcept
+#endif
+    ;
 void lunette_luau_report_free(lunette_luau_report* report);
 
 #ifdef __cplusplus

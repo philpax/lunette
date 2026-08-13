@@ -173,10 +173,42 @@ lunette_luau_report* fail(const std::string& message, Collector& collected)
 
 } // namespace
 
+namespace
+{
+lunette_luau_report* check_within(const lunette_luau_request* request);
+}
+
 extern "C"
 {
 
-lunette_luau_report* lunette_luau_check(const lunette_luau_request* request)
+// `noexcept`, and the body is wrapped: Rust declares this `extern "C"` rather
+// than `extern "C-unwind"`, so an exception crossing the boundary is undefined
+// behaviour. The frontend's construction, the definitions load, and `freeze`
+// can all raise, and only `check` was covered before.
+lunette_luau_report* lunette_luau_check(const lunette_luau_request* request) noexcept
+{
+    try
+    {
+        return check_within(request);
+    }
+    catch (const std::exception& raised)
+    {
+        Collector collected;
+        return fail(std::string("the checker raised: ") + raised.what(), collected);
+    }
+    catch (...)
+    {
+        Collector collected;
+        return fail("the checker raised something that is not an exception", collected);
+    }
+}
+
+} // extern "C"
+
+namespace
+{
+
+lunette_luau_report* check_within(const lunette_luau_request* request)
 {
     Collector collected;
 
@@ -279,6 +311,11 @@ lunette_luau_report* lunette_luau_check(const lunette_luau_request* request)
 
     return report;
 }
+
+} // namespace
+
+extern "C"
+{
 
 void lunette_luau_report_free(lunette_luau_report* report)
 {
