@@ -83,13 +83,15 @@ wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719
     "pipewire",
 ] }
 
-# mlua is vendored as a submodule at vendor/mlua (upstream mlua-rs/mlua, pinned
-# to v0.12.0) and mlua-sys is patched in from it: lunette uses the LÖVR Luau
-# fork (`bjornbytes/luau` `lovr`), whose LUA_TQUATERNION value type shifts
-# Luau's type-tag numbering, and mlua-sys 0.11.0 compiles its luau ffi
-# constants against upstream Luau. The submodule carries the fork-aligned
-# constants (one file, `mlua-sys/src/luau/lua.rs`) plus the ABI matches for
-# the fork (cstack 1M, two-arg userdata dtor) that the LÖVR build provides.
+# mlua is vendored as a submodule at vendor/mlua (`philpax/mlua` `lunette`, a
+# fork of mlua-rs/mlua at v0.12.0) and mlua-sys is patched in from it: lunette
+# uses the LÖVR Luau fork (`philpax/luau` `lunette/luau-bump`), whose
+# LUA_TQUATERNION value type shifts Luau's type-tag numbering, and mlua-sys
+# compiles its luau ffi constants against upstream Luau. The submodule carries
+# the fork-aligned constants (one file, `mlua-sys/src/luau/lua.rs`) plus the ABI
+# matches for the fork (cstack 1M, two-arg userdata dtor) that the LÖVR build
+# provides, and pins mlua's reference thread under a string key so LÖVR's own
+# registry use cannot collide with it.
 [patch.crates-io]
 mlua = { path = "vendor/mlua" }
 mlua-sys = { path = "vendor/mlua/mlua-sys" }

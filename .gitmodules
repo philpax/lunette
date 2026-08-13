@@ -1,10 +1,12 @@
 [submodule "vendor/lovr"]
 	path = vendor/lovr
-	url = git@github.com:philpax/lovr.git
+	url = https://github.com/philpax/lovr.git
 	branch = lunette
 [submodule "vendor/mlua"]
 	path = vendor/mlua
-	url = https://github.com/mlua-rs/mlua.git
+	url = https://github.com/philpax/mlua.git
+	branch = lunette
 [submodule "vendor/lovr-docs"]
 	path = vendor/lovr-docs
-	url = https://github.com/bjornbytes/lovr-docs.git
+	url = https://github.com/philpax/lovr-docs.git
+	branch = lunette

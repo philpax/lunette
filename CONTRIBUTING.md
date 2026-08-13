@@ -26,7 +26,7 @@ lua/                                  the mullion standard library
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
 vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
-vendor/lovr-docs/                     submodule, the API metadata the definitions generate from
+vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
 docs/                                 the design specification
 inspiration/                          reference checkouts, gitignored
@@ -50,11 +50,13 @@ Vendored code is exempt from the house style in this document until it is rewrit
 
 `wlx-capture` is a git-pinned external dependency, not a vendor. Fixes to it go upstream. Upstream is the `wlx-capture` directory of the WayVR monorepo, not the standalone `galister/wlx-capture` repository: that repository stopped at 0.5.4, which pulls `ashpd` with an `async-std` executor and a personal fork of pipewire-rs, while 0.6.0 removed both and exists only inside the monorepo with no independent tag. The pin therefore names a WayVR revision, and repointing it at the standalone repository is a regression rather than a tidy-up.
 
-## The LÖVR fork
+## The forks
 
 `vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a readable series. Its own `deps/` are nested submodules, so clone recursively.
 
 Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths, with one exception: a patch that fixes an upstream defect changes the path it fixes, and says in its message which defect and why the fix belongs upstream rather than here. Each patch is shaped as an upstream pull request. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md), which also records what has been proposed and what has not.
+
+Three more forks carry patches the same way: `philpax/lovr-docs` on `lunette`, for the API metadata and its Luau generator; `philpax/mlua` on `lunette`, for the Luau ABI the LÖVR fork presents; and `philpax/luau` on `lunette/luau-bump`, which sits beneath `vendor/lovr` as its `deps/luau`. A change to any of them is a commit in the submodule, pushed to the fork, and the pointer bumped here in the same change; a pointer that names an unpushed commit fails every clone but the one it was made on. The recorded URLs are HTTPS so an anonymous clone resolves. A checkout that pushes repoints `origin` at the fork over SSH and keeps the original as `upstream`, which is what makes a rebase onto upstream reachable from the same checkout; in `deps/luau` the parent it was forked from, `bjornbytes/luau`, is a third remote named `lovr`.
 
 ## Lua conventions
 
