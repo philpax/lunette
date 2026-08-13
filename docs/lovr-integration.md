@@ -58,6 +58,12 @@ ariadne indexes a `Source` by character and Luau reports by byte. An offset read
 
 `luax_registerloader` inserts into `package.searchers` unless `LUA_VERSION_NUM` is 501. Luau defines no `LUA_VERSION_NUM` and its package library reads `package.loaders`, so under `LOVR_USE_LUAU` the loader is registered where nothing looks. The patch adds `LOVR_USE_LUAU` to that condition.
 
+#### `conf.lua` ignored when `main.lua` is absent
+
+`boot.lua` loads `conf.lua` in the `else` of the check for the main file, so a project that mounts and has a `conf.lua` but no `main.lua` boots on LÖVR's defaults: every module started, and a desktop window opened. The two are independent — one configures the runtime, the other is the program — and the coupling reads as an artefact of threading one `ok, failure` pair through a chain of `elseif`s. The patch loads `conf.lua` whenever the source mounts and checks for the main file after, so the error path a missing `main.lua` produces is the one the project configured.
+
+lunette is where this shows up as more than a wrong error screen. Safe mode is the fallback for a configuration that did not load, and a missing `main.lua` is one of the ways that happens; before the patch that one case started the audio, graphics, and headset modules the configuration had switched off and opened a window an XR overlay never wanted.
+
 ### Upstreamable features
 
 #### External-memory device extensions
