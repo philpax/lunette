@@ -32,11 +32,11 @@ use std::{
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
-/// How long a session gets to bind its socket before the test gives up.
+/// How long a session gets to start answering before the test gives up.
 ///
 /// Generous: this covers the whole of LÖVR's boot on a cold cache, and it is a
 /// bound on a failure rather than a wait for a success — the poll below returns
-/// as soon as the socket appears.
+/// as soon as the session answers.
 const STARTUP_BOUND: Duration = Duration::from_secs(30);
 
 /// A running lunette, stopped when the test lets go of it.
@@ -48,7 +48,7 @@ struct Session {
 }
 
 impl Session {
-    /// Starts a session against the `lunctl` fixture and waits for its socket.
+    /// Starts a session against the `lunctl` fixture.
     fn start() -> Self {
         Self::start_with(&[])
     }
@@ -91,27 +91,36 @@ impl Session {
         self.runtime.path().join("lunette").join("lunette-0.sock")
     }
 
-    /// Waits for the socket to appear, rather than for a duration.
-    fn wait_for_socket(&mut self) -> PathBuf {
+    /// Waits for the session to answer a chunk, rather than for a duration.
+    ///
+    /// The socket appearing is not that condition. It is bound before the Lua
+    /// state boots, so that a failure to bind is reported among the other
+    /// startup failures (`crates/lunette/src/main.rs:188`), and a chunk sent
+    /// between the two has nothing servicing it yet: chunks are answered by the
+    /// frame loop.
+    fn wait_until_answering(&mut self) -> PathBuf {
         let socket = self.socket();
         let deadline = Instant::now() + STARTUP_BOUND;
 
         while Instant::now() < deadline {
             if socket.exists() {
-                return socket;
+                let ready = self.lunctl(&["return 'ready'"]);
+                if ready.status.code() == Some(0) && stdout(&ready) == "ready" {
+                    return socket;
+                }
             }
             if let Some(status) = self
                 .child
                 .try_wait()
                 .expect("the child's status can be read")
             {
-                panic!("the session exited {status} before it bound a control socket");
+                panic!("the session exited {status} before it answered a chunk");
             }
             thread::sleep(POLL);
         }
 
         panic!(
-            "no control socket appeared at {} within {STARTUP_BOUND:?}",
+            "the session at {} did not answer a chunk within {STARTUP_BOUND:?}",
             socket.display()
         );
     }
@@ -134,7 +143,7 @@ impl Drop for Session {
     }
 }
 
-/// How often the socket is looked for. Short enough that startup is not padded.
+/// How often the session is asked. Short enough that startup is not padded.
 const POLL: Duration = Duration::from_millis(20);
 
 fn stdout(output: &Output) -> String {
@@ -155,7 +164,7 @@ fn code(output: &Output) -> i32 {
 #[test]
 fn a_chunk_is_evaluated_between_frames_and_its_nested_table_comes_back() {
     let mut session = Session::start();
-    session.wait_for_socket();
+    session.wait_until_answering();
 
     let scalar = session.lunctl(&["return answer"]);
     assert_eq!(code(&scalar), 0, "stderr was:\n{}", stderr(&scalar));
@@ -179,7 +188,7 @@ fn a_chunk_is_evaluated_between_frames_and_its_nested_table_comes_back() {
 #[test]
 fn a_handle_comes_back_as_an_opaque_id() {
     let mut session = Session::start();
-    session.wait_for_socket();
+    session.wait_until_answering();
 
     let spawned = session.lunctl(&["return lunette.spawn{ argv = { 'true' } }"]);
     assert_eq!(code(&spawned), 0, "stderr was:\n{}", stderr(&spawned));
@@ -199,7 +208,7 @@ fn a_handle_comes_back_as_an_opaque_id() {
 #[test]
 fn each_failure_has_its_own_exit_status() {
     let mut session = Session::start();
-    session.wait_for_socket();
+    session.wait_until_answering();
 
     assert_eq!(
         code(&session.lunctl(&["error('deliberate')"])),
@@ -225,7 +234,7 @@ fn each_failure_has_its_own_exit_status() {
 #[test]
 fn an_answer_larger_than_a_message_is_named_rather_than_read_as_an_absent_session() {
     let mut session = Session::start();
-    session.wait_for_socket();
+    session.wait_until_answering();
 
     let oversized = session.lunctl(&["return string.rep('x', 9 * 1024 * 1024)"]);
 
@@ -251,7 +260,7 @@ fn an_answer_larger_than_a_message_is_named_rather_than_read_as_an_absent_sessio
 #[test]
 fn a_chunk_that_overruns_is_abandoned_and_the_session_carries_on() {
     let mut session = Session::start();
-    session.wait_for_socket();
+    session.wait_until_answering();
 
     let abandoned = session.lunctl(&["while true do end"]);
 
@@ -268,7 +277,7 @@ fn a_chunk_that_overruns_is_abandoned_and_the_session_carries_on() {
 #[test]
 fn the_socket_is_0600_inside_a_0700_directory_and_is_not_a_network_address() {
     let mut session = Session::start();
-    let socket = session.wait_for_socket();
+    let socket = session.wait_until_answering();
 
     let directory = socket.parent().expect("the socket is inside a directory");
     assert_eq!(mode_of(directory), 0o700, "{}", directory.display());
@@ -333,7 +342,7 @@ fn no_socket_is_bound_with(setting: &str) {
 #[test]
 fn a_chunk_can_stop_the_session() {
     let mut session = Session::start();
-    session.wait_for_socket();
+    session.wait_until_answering();
 
     let stopping = session.lunctl(&["stop = true"]);
     assert_eq!(code(&stopping), 0, "stderr was:\n{}", stderr(&stopping));
