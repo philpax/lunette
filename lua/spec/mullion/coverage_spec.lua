@@ -39,12 +39,20 @@ local COVERAGE = {
   -- returns an empty table, so there is no behaviour for a spec to assert. The
   -- Luau check is what covers it.
   ['interaction/types.lua'] = false,
-  ['keyboard.lua'] = 'keyboard_spec.lua',
+  -- The carrying half, exercised through the pointer that installs it.
+  ['interaction/grab.lua'] = 'interaction_spec.lua',
+  ['keyboard/init.lua'] = 'keyboard_spec.lua',
+  -- Pure geometry and legends, exercised through the keyboard that calls it.
+  ['keyboard/layout.lua'] = 'keyboard_spec.lua',
+  -- Drawing, which the spec's recording pass exercises through `draw`.
+  ['keyboard/draw.lua'] = 'keyboard_spec.lua',
   ['keycodes.lua'] = 'keycodes_spec.lua',
   ['laser.lua'] = 'laser_spec.lua',
   ['layout/arc.lua'] = 'layout/arc_spec.lua',
   ['pacing.lua'] = 'pacing_spec.lua',
   ['panel/init.lua'] = 'panel/panel_spec.lua',
+  -- The claim and the layer it is granted, exercised through a panel's update.
+  ['panel/layer.lua'] = 'panel/panel_spec.lua',
   ['panel/raycast.lua'] = 'panel/raycast_spec.lua',
   ['persist/format.lua'] = 'persist/format_spec.lua',
   -- Split along the module's own seam: one half is arrangements and panels, the

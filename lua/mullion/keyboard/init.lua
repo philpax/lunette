@@ -28,6 +28,8 @@ local lunette = require '@lunette'
 local interaction = require '@mullion/interaction'
 local pointing = require '@mullion/interaction/types'
 local keycodes = require '@mullion/keycodes'
+local drawing = require '@mullion/keyboard/draw'
+local layout = require '@mullion/keyboard/layout'
 local panel = require '@mullion/panel'
 local signal = require '@mullion/signal'
 local teardown = require '@mullion/teardown'
@@ -39,7 +41,7 @@ local keyboard = {}
 -- because `new` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
-local extentOf, remove
+local remove
 
 -- Whoever is hovering, held only as an identity and never read: a pointer
 -- hovers as itself, and a caller driving the keyboard by hand passes a name.
@@ -82,24 +84,11 @@ export type Keyboard = {
   clearLatched: (Keyboard, lunette.Seat?, lunette.Sink?) -> boolean,
 }
 
--- A key in a row, matching `mullion.keycodes`'s `Key`.
-type Key = {
-  code: number,
-  label: string?,
-  width: number?,
-}
--- A row of keys.
-type KeyRow = { Key }
--- A key with its legend and calculated position.
-type RenderedKey = {
-  code: number,
-  modifier: string?,
-  legend: string,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-}
+-- Re-exported from `mullion.keyboard.layout`, which holds the geometry these
+-- describe, so a caller has one name for each.
+export type Key = layout.Key
+export type KeyRow = layout.KeyRow
+export type RenderedKey = layout.RenderedKey
 -- Everything the look of a keyboard is tuned by. `typeof(keyboard.STYLE)`
 -- would chase the values, so the shape is written out once.
 type Style = {
@@ -175,7 +164,7 @@ function keyboard.new(options: KeyboardOptions?): Keyboard
   local rows = (options and options.rows) or keycodes.ROWS
   local style = (options and options.style) or keyboard.STYLE
 
-  local width, height = extentOf(rows, style)
+  local width, height = layout.extentOf(rows, style)
   local pose = (options and options.pose) and lovr.math.newMat4(options.pose) or lovr.math.newMat4()
   -- Luau cannot verify that setmetatable produces a Keyboard because the
   -- methods are injected via __index rather than being on the table itself.
@@ -237,16 +226,9 @@ end
 
 -- The key of `keys` that `x` and `y` fall inside, or nothing.
 --
--- The coordinates run from the keyboard's top-left with y downwards, which is
--- what `panel.rayQuadHit` answers in.
-function keyboard.keyAt(keys: { RenderedKey }, x: number, y: number): RenderedKey?
-  for _, key in ipairs(keys) do
-    if x >= key.x and x <= key.x + key.width and y >= key.y and y <= key.y + key.height then
-      return key
-    end
-  end
-  return nil
-end
+-- `mullion.keyboard.layout` holds it, and this is the name it is documented
+-- under.
+keyboard.keyAt = layout.keyAt
 
 -- Moves the keyboard. `pose` is a `Mat4`, and is copied rather than kept.
 function methods.setPose(self: Keyboard, pose: Mat4)
@@ -311,31 +293,12 @@ end
 -- the legends depend on the modifiers held and those change under the user's
 -- hands. A cached set would show the unshifted legends while shift was latched.
 function methods.keys(self: Keyboard): { RenderedKey }
-  local style: Style = self.style
-  local unit: number = style.keyUnit
   local modifiers: { string } = self:modifiers()
   local seat: lunette.Seat? = self:legendSeat()
 
-  local keys: { RenderedKey } = {}
-  local y = 0
-  for _, row in ipairs(self.rows) do
-    local x = 0
-    for _, entry: Key in ipairs(row) do
-      local width = (entry.width or 1) * unit
-      keys[#keys + 1] = {
-        code = entry.code,
-        modifier = keycodes.MODIFIERS[entry.code],
-        legend = self:legendFor(entry, seat, modifiers),
-        x = x,
-        y = y,
-        width = width,
-        height = unit,
-      }
-      x = x + width
-    end
-    y = y + unit
-  end
-  return keys
+  return layout.keysOf(self.rows, self.style, function(entry: Key): string
+    return layout.legendFor(entry, seat, modifiers)
+  end)
 end
 
 -- What is drawn on a key.
@@ -362,23 +325,7 @@ function methods.legendSeat(self: Keyboard): lunette.Seat?
 end
 
 function methods.legendFor(self: Keyboard, entry: Key, seat: lunette.Seat?, modifiers: { string }): string
-  if entry.label then
-    return entry.label
-  end
-  if not seat then
-    return ''
-  end
-
-  local text = seat:characterFor(entry.code, modifiers)
-  if text and text ~= '' then
-    return text
-  end
-
-  local symbol = seat:symbolFor(entry.code, modifiers)
-  if symbol then
-    return string.format('0x%x', symbol)
-  end
-  return ''
+  return layout.legendFor(entry, seat, modifiers)
 end
 
 -- Where a ray meets this keyboard, in its own metres, and how far away that is.
@@ -461,7 +408,7 @@ function methods.setSize(self: Keyboard, width: number?, _height: number?)
   style.legendHeight = self.style.legendHeight * scale
 
   self.style = style
-  self.width, self.height = extentOf(self.rows, style)
+  self.width, self.height = layout.extentOf(self.rows, style)
 end
 
 -- The key a ray meets and how far away it is, or nothing.
@@ -572,59 +519,15 @@ function methods.draw(self: Keyboard, pass: Pass): ()
     return
   end
 
-  local style: Style = self.style
-  local width: number = self.width
-  local height: number = self.height
-  local color = style.plateColor
-  pass:setColor(color[1], color[2], color[3], color[4])
-  -- The extent rides in the transform's scale. `luax_readmat4` consumes a whole
-  -- `Mat4` and reads the argument after it as the draw style, so a plane placed
-  -- by matrix takes its size from that matrix and not from two more arguments.
-  local plateTransform: Mat4 = lovr.math.newMat4()
-  local pose: Mat4 = self.pose
-  plateTransform:set(pose)
-  plateTransform:translate(0, 0, -style.plateDepth)
-  plateTransform:scale(width + style.margin * 2, height + style.margin * 2, 1)
-  pass:plane(plateTransform, 'fill', 1, 1)
-
   local held = self:modifiers()
-  for _, key: RenderedKey in ipairs(self:keys()) do
-    local x = key.x + key.width / 2 - width / 2
-    -- The key geometry runs from the top-left with y downwards, and the plane's
-    -- own y runs upwards from its middle.
-    local y = height / 2 - (key.y + key.height / 2)
-
-    local keyColor = style.keyColor
-    if key.modifier and self:isHeld(held, key.modifier) then
-      keyColor = style.heldColor
-    end
-    -- After the held colour, so the key being aimed at reads as the one under
-    -- consideration even when it is a modifier that is already down.
-    if self:isHovered(key.code) then
-      keyColor = style.hoverColor
-    end
-    pass:setColor(keyColor[1], keyColor[2], keyColor[3], keyColor[4])
-    local keyTransform: Mat4 = lovr.math.newMat4()
-    local keyPose: Mat4 = self.pose
-    keyTransform:set(keyPose)
-    keyTransform:translate(x, y, 0)
-    keyTransform:scale(key.width - style.gap, key.height - style.gap, 1)
-    pass:plane(keyTransform, 'fill', 1, 1)
-
-    local legend = style.legendColor
-    pass:setColor(legend[1], legend[2], legend[3], legend[4])
-    local legendTransform: Mat4 = (function(): Mat4
-      local lt: Mat4 = lovr.math.newMat4()
-      local legendPose: Mat4 = self.pose
-      lt:set(legendPose)
-      lt:translate(x, y, style.legendDepth)
-      lt:scale(vector.pack(style.legendHeight))
-      return lt
-    end)()
-    pass:text(key.legend, legendTransform, 0, 'center', 'middle')
-  end
-
-  pass:setColor(1, 1, 1, 1)
+  drawing.keyboard(pass, self.pose, self:keys(), self.width, self.height, self.style, {
+    held = function(key: RenderedKey): boolean
+      return key.modifier ~= nil and self:isHeld(held, key.modifier)
+    end,
+    hovered = function(key: RenderedKey): boolean
+      return self:isHovered(key.code)
+    end,
+  })
 end
 
 -- Withdraws the keyboard and takes it out of the list.
@@ -665,22 +568,6 @@ function methods.clearLatched(self: Keyboard, seat: lunette.Seat?, sink: lunette
   end
   signal.emit(self, 'modifiersChanged', self:modifiers())
   return true
-end
-
--- How large a set of rows is, in metres: as wide as the widest row and as tall
--- as the rows are deep.
-function extentOf(rows: { KeyRow }, style: Style): (number, number)
-  local widest = 0
-  for _, row in ipairs(rows) do
-    local width = 0
-    for _, entry: Key in ipairs(row) do
-      width = width + (entry.width or 1)
-    end
-    if width > widest then
-      widest = width
-    end
-  end
-  return widest * style.keyUnit, #rows * style.keyUnit
 end
 
 -- Takes a keyboard out of the list, so that a long session does not accumulate
