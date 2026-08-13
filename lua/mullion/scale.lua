@@ -32,10 +32,13 @@ local scale = {}
 
 -- The shape of a tuning table, and of a chooser, for the locals that hold them.
 type Tuning = typeof(scale.TUNING)
-type Chooser = {
+export type Chooser = {
   tuning: Tuning,
   steps: { number },
-  index: number? | nil,
+  index: number?,
+  read choose: (Chooser, number) -> (number, boolean),
+  read current: (Chooser) -> number?,
+  read reset: (Chooser) -> (),
 }
 
 -- Declared here and defined below the public API, so the file reads
