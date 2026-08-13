@@ -87,7 +87,11 @@ spec('requiring every module twice leaves one teardown hook each', function()
 
     -- The second pass keeps that registry and re-runs every other module body,
     -- which is what a soft reload does.
-    requireAll(names, 'mullion.teardown')
+    -- Named as the tree names it. A name in any other form matches nothing,
+    -- which would clear the registry the first pass filled and leave the two
+    -- passes reading different ones — and the local above still holds the
+    -- first, so every assertion below would compare it against itself.
+    requireAll(names, tree.MODULE_ROOT .. '/teardown')
     local second = teardown.pending()
 
     expect.equal(duplicates(first), '', 'duplicate hooks after the first pass')
