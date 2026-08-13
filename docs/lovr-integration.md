@@ -42,6 +42,16 @@ Luau ships a type checker LÖVR does not build. `lunette check` drives it, and i
 
 Off by default, and it costs several megabytes in the library.
 
+Four things about driving it are worth stating, because each was found by a check that appeared to pass.
+
+A check can pass while checking nothing, and this is the failure mode of the whole area. `luau-analyze --formatter=plain` exits zero unconditionally, because luacheck's contract is that the output is parsed rather than the status read. `declare pcall: any` and its neighbours overwrite Luau's own correctly-typed builtins. An unresolved require makes the analyzer skip the file entirely, so a plain error elsewhere in it goes unreported. A definitions file that fails to load means nothing is checked at all, and the low diagnostic count reads as success. `lunette check` fails on any diagnostic that is not a lint warning and on any root it never read, which is what closes the third and fourth. A low count is a claim to verify: inject `local _x: number = 's'` and confirm it is caught.
+
+The flags decide which language is checked. `luau-analyze` calls `setLuauFlagsDefault()`, which enables every non-experimental `Luau*` flag, and without it the checker accepts a dialect current Luau has replaced: `declare class` still parses. `analyze.cpp` replicates that loop. If `lunette check` and `luau-analyze` disagree, suspect the flags first.
+
+ariadne indexes a `Source` by character and Luau reports by byte. An offset reads too far by however many multi-byte characters precede it, which in this tree is LÖVR's `ö`.
+
+`.luaurc` carries neither the definitions nor the platform. `platform` is rejected and reported as a diagnostic, and `definitions` is ignored in silence; both are luau-lsp client settings rather than configuration file keys. An editor also needs `"languageMode": "strict"` in `.luaurc`, without which luau-lsp reports nothing for errors `lunette check` reports, which fails in the worse direction.
+
 ### Upstream defects
 
 #### The module loader under `LOVR_USE_LUAU`
