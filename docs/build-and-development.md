@@ -12,9 +12,13 @@ lunette/
     lunette-compositor/           smithay; vendored fork of WayVR's backend/wayvr
     lunette-lovr/                 cmake build + FFI surface for LÖVR
     lunette-capture/              wrappers over wlx-capture and HidProvider
+    lunette-generate-definitions/ generates etc/lunette/definitions.luau from lovr-docs
   lua/                            the mullion standard library
+  etc/lunette/                    the generated Luau definitions
   etc/xdg/lunette/                the default configuration
   vendor/lovr/                    submodule → LÖVR with lunette's patch branch (recursive)
+  vendor/lovr-docs/               submodule → the API metadata and its Luau generator, on lunette's branch
+  vendor/mlua/                    submodule → mlua with lunette's Luau ABI patches
   docs/                           this
   inspiration/                    reference checkouts, gitignored
 ```
