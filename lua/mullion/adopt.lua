@@ -62,13 +62,18 @@ adopt.PRECEDENCE = 300
 -- The pose stays the string `mullion.pose` wrote, which is what the store holds
 -- and what `mullion.rules` decodes. Handing it through unchanged keeps one
 -- encoding rather than two.
-function adopt.properties(window: any): { pose: string }?
-  if type(window) ~= 'table' and type(window) ~= 'userdata' then
-    error('mullion.adopt: a window carries the properties, and a ' .. type(window) .. ' does not', 2)
+function adopt.properties(window: lunette.Window): rules.Resolved?
+  -- Through a local, so that the test does not narrow `window` itself: a
+  -- handle is userdata, and refining on that loses the fields it carries.
+  local kind = type(window)
+  if kind ~= 'table' and kind ~= 'userdata' then
+    error('mullion.adopt: a window carries the properties, and a ' .. kind .. ' does not', 2)
   end
 
+  -- The store holds booleans and numbers too, and a pose written by anything
+  -- but `mullion.pose` is not one this can hand on: `rules` decodes a string.
   local kept = window:getProperty(interaction.POSE_PROPERTY)
-  if kept == nil then
+  if type(kept) ~= 'string' then
     return nil
   end
   return { pose = kept }
@@ -88,7 +93,7 @@ end
 -- `precedence` defaults to `adopt.PRECEDENCE`. Passing a lower one is how a
 -- configuration says that its rules should beat what the user last dragged the
 -- window to.
-function adopt.install(precedence)
+function adopt.install(precedence: number?)
   rules.addSource(adopt.SOURCE, precedence or adopt.PRECEDENCE, adopt.source())
 end
 

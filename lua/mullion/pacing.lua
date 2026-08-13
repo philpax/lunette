@@ -85,9 +85,9 @@ local record, isBusy, isExempt
 -- hint alone. That is the right way round: a window that has just opened has no
 -- commit history to judge it by, and treating no history as "not busy" would
 -- throttle a video player for its first second.
-function pacing.newPacer(options: { tuning: Tuning? })
-  options = options or {}
-  local tuning = options.tuning or pacing.TUNING
+function pacing.newPacer(options)
+  local opts: { tuning: Tuning } = (options or {}) :: { tuning: Tuning }
+  local tuning = opts.tuning or pacing.TUNING
 
   if type(tuning.history) ~= 'number' or tuning.history < 1 then
     error('mullion.pacing: a pacer keeps a history of at least one sample', 2)
@@ -122,7 +122,8 @@ function methods:observe(state)
     error('mullion.pacing: a pacer observes a table, not a ' .. type(state), 2)
   end
 
-  record(self, state.drew)
+  local drew: boolean? = state.drew
+  record(self, drew)
 
   local chosen: number | boolean | nil
   if state.visible then
@@ -149,7 +150,7 @@ end
 -- Exposed because a configuration showing why a window is not being throttled
 -- should not have to re-derive it, and because a caller wanting a different
 -- exemption rule needs to see what this one decided.
-function methods:isExempt(contentType)
+function methods:isExempt(contentType: string)
   return isExempt(self, contentType)
 end
 

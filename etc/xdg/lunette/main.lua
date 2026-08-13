@@ -67,7 +67,7 @@ local NAMED_KEYS = {
 
 -- Modifiers a chord may carry, as the desktop names them against the names
 -- `sink:modifiers` takes.
-local MODIFIER_KEYS = {
+local MODIFIER_KEYS: { { names: { KeyCode }, modifier: string } } = {
   { names = { 'lctrl', 'rctrl' }, modifier = 'control' },
   { names = { 'lalt', 'ralt' }, modifier = 'alt' },
   { names = { 'lgui', 'rgui' }, modifier = 'logo' },
@@ -104,7 +104,7 @@ local WRIST = {
 
 -- The keyboard the wrist button shows, created on first use so a session that
 -- never asks for one never builds it.
-local virtualKeyboard: any
+local virtualKeyboard: keyboardModule.Keyboard
 
 -- Where the "no windows yet" note is drawn, in metres, and how tall it is.
 local NOTE_X, NOTE_Y, NOTE_Z = 0, 1.5, -1.5
@@ -129,7 +129,7 @@ local DEMONSTRATION_TERMINALS = { 'ghostty', 'foot', 'weston-terminal', 'alacrit
 -- pose, keeps that pose; the arc arranges what is left around it. Rebuilt in
 -- `lovr.load`, so a soft reload starts from the tags and panels the new state
 -- makes rather than from the old one's.
-local workspace = nil
+local workspace: tag.Tag? = nil
 local unplaced = {}
 
 -- Whether this session has already tried to open its demonstration terminal.
@@ -233,7 +233,10 @@ function lovr.load()
       properties = {
         width = 2,
         pose = function()
-          return lovr.math.newMat4():translate(-1.4, 1.5, -1.2):rotate(0.9, 0, 1, 0)
+          return lovr.math
+            .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+            :translate(-1.4, 1.5, -1.2)
+            :rotate(0.9, 0, 1, 0)
         end,
       },
     },
@@ -365,29 +368,36 @@ end
 
 -- Puts the keyboard where it can be typed on: ahead of the head and below the
 -- line of sight, upright, facing the user.
-local function placeKeyboard(target)
-  local hx, hy, hz, angle, ax, ay, az = lovr.headset.getPose 'head'
-  local forward = (lovr.math.quat(angle, ax, ay, az) :: any):direction()
+local function placeKeyboard(target: keyboardModule.Keyboard)
+  local hx, hy, hz = lovr.headset.getPosition 'head'
+  local forwardX, _, forwardZ = lovr.headset.getDirection 'head'
 
-  local flat = lovr.math.vec3(forward.x, 0, forward.z)
+  local flat = vector.pack(forwardX, 0, forwardZ)
   if flat:length() < 0.001 then
-    flat:set(0, 0, -1)
+    flat = vector.pack(0, 0, -1)
   end
   flat:normalize()
 
-  target:setPose(lovr
-    .math
-    .mat4()
-    :translate(hx + flat.x * WRIST.keyboardDistance, hy - WRIST.keyboardDrop, hz + flat.z * WRIST.keyboardDistance)
-    :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
-    -- Tilted back, so it faces a head looking down at it rather than straight
-    -- ahead past it.
-    :rotate(
-      -math.pi / 6,
-      1,
-      0,
-      0
-    ))
+  local setPose = target.setPose
+  if not setPose then
+    return
+  end
+  setPose(
+    target,
+    lovr
+      .math
+      .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+      :translate(hx + flat.x * WRIST.keyboardDistance, hy - WRIST.keyboardDrop, hz + flat.z * WRIST.keyboardDistance)
+      :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
+      -- Tilted back, so it faces a head looking down at it rather than straight
+      -- ahead past it.
+      :rotate(
+        -math.pi / 6,
+        1,
+        0,
+        0
+      )
+  )
 end
 
 -- Shows the keyboard, or hides it if it is already up.
@@ -412,40 +422,64 @@ end
 -- It rides a hand, so its pose is recomputed every frame rather than stored.
 -- Everything else about it is the surface contract `mullion.interaction` picks
 -- against: a raycast, what a press does, and a refusal to be picked up.
-local wristButton = {
-  width = WRIST.size,
-  height = WRIST.size,
-  -- Built on first use, and nothing before it. A configuration is loaded before
-  -- the modules it will draw with exist, so a table built at load time cannot
-  -- reach for `lovr.math` any more than it can for `lovr.graphics`.
-  pose = nil,
-  -- A button that could be dragged off the wrist is one the user has to put
-  -- back. WayVR's watch declines for the same reason.
-  grabbable = false,
-  tracked = false,
+type WristButton = {
+  width: number,
+  height: number,
+  pose: Mat4?,
+  grabbable: boolean,
+  tracked: boolean,
+  dead: boolean,
+  follow: (WristButton) -> boolean,
+  -- `any` where `mullion`'s own surfaces name the contract's receiver: the
+  -- methods below are assigned straight onto this table, so the annotation has
+  -- to be the type whose fields their bodies read.
+  raycast: (any, vector, vector, boolean?) -> (number?, number?, number?),
+  onPress: (any, number?, number?, unknown?) -> (),
 }
 
+local wristButton = (
+  {
+    width = WRIST.size,
+    height = WRIST.size,
+    -- Built on first use, and nothing before it. A configuration is loaded before
+    -- the modules it will draw with exist, so a table built at load time cannot
+    -- reach for `lovr.math` any more than it can for `lovr.graphics`.
+    pose = nil,
+    -- A button that could be dragged off the wrist is one the user has to put
+    -- back. WayVR's watch declines for the same reason.
+    grabbable = false,
+    tracked = false,
+    dead = false,
+  }
+) :: WristButton
+
 -- Moves the button to where the wrist is, and says whether it is there at all.
-function wristButton:follow()
-  self.tracked = lovr.headset.isTracked(WRIST.hand)
+function wristButton.follow(self: WristButton)
   if not self.tracked then
     return false
   end
 
-  self.pose = self.pose or lovr.math.newMat4()
-  self.pose:set(lovr.headset.getPose(WRIST.hand))
-  self.pose:translate(WRIST.offsetX, WRIST.offsetY, WRIST.offsetZ)
-  self.pose:rotate(WRIST.turn, WRIST.axisX, WRIST.axisY, WRIST.axisZ)
+  local pose = self.pose or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+  local mx, my, mz, qx, qy, qz, qw = lovr.headset.getPose(WRIST.hand)
+  local tmp = lovr.math.newMat4(mx, my, mz, qx, qy, qz, qw)
+  pose:set(tmp)
+  pose:translate(WRIST.offsetX, WRIST.offsetY, WRIST.offsetZ)
+  pose:rotate(WRIST.turn, WRIST.axisX, WRIST.axisY, WRIST.axisZ)
+  self.pose = pose
   return true
 end
 
-function wristButton:raycast(origin, direction)
+function wristButton.raycast(self: WristButton, origin: vector, direction: vector)
   if not self.tracked then
-    return nil
+    local x: number? = nil
+    local y: number? = nil
+    local z: number? = nil
+    return x, y, z
   end
 
+  local pose = self.pose or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
   return raycast.hit({
-    pose = self.pose,
+    pose = pose,
     width = self.width,
     height = self.height,
     -- The raycast answers a coordinate this surface has no use for, and refuses
@@ -459,29 +493,43 @@ function wristButton:raycast(origin, direction)
   }, origin, direction)
 end
 
-function wristButton:onPress()
+function wristButton.onPress(self: WristButton, _x: number?, _y: number?, _pointer: unknown?)
   toggleKeyboard()
   lovr.headset.vibrate(WRIST.hand, 0.3, 0.05, 0)
 end
 
 -- Draws the wrist button, so there is something to aim at.
-local function drawWrist(pass)
+local function drawWrist(pass: Pass)
   if not wristButton.tracked then
     return
   end
 
   local showing = virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead
   if showing then
-    pass:setColor(0.35, 0.75, 0.45)
+    pass:setColor(0.35, 0.75, 0.45, 1)
   else
-    pass:setColor(0.2, 0.2, 0.24)
+    pass:setColor(0.2, 0.2, 0.24, 1)
   end
-  pass:plane(lovr.math.mat4(wristButton.pose):scale(wristButton.width, wristButton.height, 1))
+  local buttonPose: Mat4? = wristButton.pose
+  if not buttonPose then
+    return
+  end
+  pass:plane(lovr.math.mat4(buttonPose):scale(wristButton.width, wristButton.height, 1), 'fill', 1, 1)
 
   -- In front of the face rather than on it. Text at the same depth as the quad
   -- fights it for the depth buffer and flickers as the hand moves.
-  pass:setColor(1, 1, 1)
-  pass:text('kbd', lovr.math.mat4(wristButton.pose):translate(0, 0, 0.002):scale(wristButton.width * 0.35))
+  pass:setColor(1, 1, 1, 1)
+  local textPose: Mat4? = wristButton.pose
+  if not textPose then
+    return
+  end
+  pass:text(
+    'kbd',
+    lovr.math.mat4(textPose):translate(0, 0, 0.002):scale(vector.pack(wristButton.width * 0.35)),
+    0,
+    'center',
+    'middle'
+  )
 end
 
 -- Everything a pointer may hit this frame: the tag's panels, the wrist button,
@@ -489,16 +537,31 @@ end
 --
 -- The pointer picks the nearest and routes to it. Nothing here raycasts, which
 -- is what keeps one raycaster rather than several that have to agree.
-local function surfaces()
-  local list = {}
-  for _, existing in ipairs(workspace and workspace:panels() or {}) do
-    list[#list + 1] = existing
+local function surfaces(): { interaction.Surface }
+  local list: { interaction.Surface } = {}
+  -- Appended through a function rather than written into the list directly:
+  -- writing through an index checks against the element type exactly, where a
+  -- parameter checks that the argument satisfies the contract, which is the
+  -- question being asked.
+  local function add(surface: interaction.Surface)
+    list[#list + 1] = surface
   end
-  if wristButton:follow() then
-    list[#list + 1] = wristButton
+
+  -- Walked from the panels rather than from the tag's members, because a tag
+  -- holds anything with a pose and this needs what a pointer can hit. The
+  -- membership test is the same question asked the other way round.
+  if workspace then
+    for _, existing in ipairs(panel.all()) do
+      if workspace:has(existing) then
+        add(existing)
+      end
+    end
+  end
+  if wristButton and wristButton.follow(wristButton) then
+    add(wristButton)
   end
   if virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead then
-    list[#list + 1] = virtualKeyboard
+    add(virtualKeyboard)
   end
   return list
 end
@@ -547,13 +610,21 @@ function lovr.draw(pass)
   laser.draw(pass)
 
   if #panel.all() == 0 then
-    pass:text('lunette: no windows yet', NOTE_X, NOTE_Y, NOTE_Z, NOTE_HEIGHT)
+    pass:text(
+      'lunette: no windows yet',
+      lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, NOTE_X, NOTE_Y, NOTE_Z, 1),
+      NOTE_HEIGHT,
+      'center',
+      'middle'
+    )
   end
 
   -- Last, so it is drawn over whatever it is in front of.
   errorPanel.draw(pass)
+  return true
 end
 
-function lovr.quit()
+function lovr.quit(): boolean
   saveArrangement()
+  return true
 end

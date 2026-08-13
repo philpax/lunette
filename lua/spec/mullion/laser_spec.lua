@@ -30,8 +30,8 @@ local TOLERANCE = fixture.TOLERANCE
 local function looking(options)
   options = options or {}
   return {
-    origin = options.origin or { 0, 0, 0 },
-    direction = options.direction or { 0, 0, -1 },
+    origin = options.origin or vector.pack(0, 0, 0),
+    direction = options.direction or vector.pack(0, 0, -1),
     pose = options.pose or poseAt(0, 0, 0),
     trigger = options.trigger or false,
     grip = options.grip or false,

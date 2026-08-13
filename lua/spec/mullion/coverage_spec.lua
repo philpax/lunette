@@ -34,7 +34,11 @@ local COVERAGE = {
   ['adopt.lua'] = 'adopt_spec.lua',
   ['error/init.lua'] = 'error/handler_spec.lua',
   ['error/panel.lua'] = 'error/panel_spec.lua',
-  ['interaction.lua'] = 'interaction_spec.lua',
+  ['interaction/init.lua'] = 'interaction_spec.lua',
+  -- Types and nothing else: it declares the pointer protocol's vocabulary and
+  -- returns an empty table, so there is no behaviour for a spec to assert. The
+  -- Luau check is what covers it.
+  ['interaction/types.lua'] = false,
   ['keyboard.lua'] = 'keyboard_spec.lua',
   ['keycodes.lua'] = 'keycodes_spec.lua',
   ['laser.lua'] = 'laser_spec.lua',

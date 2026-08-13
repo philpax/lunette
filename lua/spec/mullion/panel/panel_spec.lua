@@ -112,7 +112,7 @@ spec('a panel raycasts against its own source size', function()
   local created = panel.fromWindow(newSource(800, 600), { height = 1 })
   created:setPose(poseAt(0, 0, -2))
 
-  local x, y = created:raycast({ 0, 0, 0 }, { 0, 0, -1 })
+  local x, y = created:raycast(vector.pack(0, 0, 0), vector.pack(0, 0, -1))
 
   expect.near(x, 400, TOLERANCE, 'x')
   expect.near(y, 300, TOLERANCE, 'y')
@@ -125,7 +125,7 @@ spec('a panel over a dead source raycasts nothing', function()
   created:setPose(poseAt(0, 0, -2))
 
   source.dead = true
-  expect.equal(created:raycast({ 0, 0, 0 }, { 0, 0, -1 }), nil, 'the raycast')
+  expect.equal(created:raycast(vector.pack(0, 0, 0), vector.pack(0, 0, -1)), nil, 'the raycast')
 end)
 
 spec('a window panel claims a layer at the source size', function()

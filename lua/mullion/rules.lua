@@ -23,6 +23,8 @@
 -- the configuration (docs/stdlib.md), so `lovr.lunwindowopened` calls `place`
 -- rather than this module taking the callback out from under it.
 
+local lunette = require '@lunette'
+
 local panel = require '@mullion/panel'
 local pose = require '@mullion/pose'
 local tag = require '@mullion/tag'
@@ -39,10 +41,79 @@ local byPrecedence, layer, evaluate, applyTags, poseFrom
 --
 -- Rebuilt when this file runs, so a soft reload that re-runs the configuration
 -- starts from no sources rather than from the old state's.
+-- A property's value, or a function answering one when the rule is applied.
+--
+-- The function form is called as `value(window, key)` and is what lets a rule
+-- say "the current tag" rather than baking in whichever tag was current when the
+-- configuration loaded.
+export type Valued<T> = T | ((window: lunette.Window, key: string) -> T)
+
+-- What a source says about a window: the keys `place` acts on, and whatever else
+-- the configuration wants to carry.
+--
+-- The named fields are `read`, so that an evaluated table answers a declared
+-- one: Luau compares a read-write property invariantly, and `pose: string?`
+-- would not otherwise satisfy `pose: Valued<string | Mat4>?`.
+--
+-- What that does not buy is a check on writing one. An open indexer answers a
+-- write to a named key as well, so `properties.width = 'wide'` is accepted
+-- where the same table built as a literal is not. The types are enforced where
+-- a configuration writes them — a rules table, a source's return — and not
+-- against this module's own assignments, which go through the indexer anyway.
+--
+-- The indexer is what keeps it an open bag. A rule setting a key this module has
+-- never heard of is a configuration talking to itself, and it arrives back in
+-- `place`'s second return untouched; the named keys are the ones that go
+-- somewhere, so those are the ones typed.
+export type Properties = {
+  read pose: Valued<string | Mat4>?,
+  read width: Valued<number>?,
+  read height: Valued<number>?,
+  read title: Valued<string>?,
+  read priority: Valued<number>?,
+  read chrome: Valued<boolean>?,
+  -- A read-only element type, so that a source answering plain names satisfies
+  -- it: a type argument is compared exactly otherwise.
+  read tags: Valued<{ read [number]: string | Tag }>?,
+  [string]: any,
+}
+
+-- The same after `resolve` has called every function-valued property: what a
+-- rule meant, rather than how it said it. `place`'s second return is one, and so
+-- is its `options`, which are merged after the evaluation and are therefore
+-- taken as written.
+export type Resolved = {
+  read pose: (string | Mat4)?,
+  read width: number?,
+  read height: number?,
+  read title: string?,
+  read priority: number?,
+  read chrome: boolean?,
+  read tags: { read [number]: string | Tag }?,
+  [string]: any,
+}
+-- What a rule matches on. The keys are the window's own field names, so a rule
+-- naming a field a window has not got is a type error where it is written
+-- rather than a rule that silently never fires. A value is compared for
+-- equality, or called as a predicate.
+export type Match = { [MatchKey]: any }
+
+-- The fields a rule may name. `keyof<lunette.Window>` would be this and the
+-- window's methods as well, and a rule matching on `close` is one that silently
+-- never fires.
+type MatchKey = 'dead' | 'id' | 'title' | 'appId' | 'width' | 'height' | 'opaque' | 'contentType'
+type Rule = {
+  match: Match?,
+  properties: Properties?,
+}
+
+-- A tag, or the name of one, as `tags` names them.
+type Tag = tag.Tag
+
 type Source = {
   name: string,
   precedence: number,
-  resolve: (window: any) -> { [string]: any } | nil,
+  resolve: (window: lunette.Window) -> Properties?,
   sequence: number,
 }
 local sources: { Source } = {}
@@ -92,7 +163,7 @@ end
 -- Replacing rather than appending is what makes a module safe to `require`
 -- twice, and what lets a configuration re-register its rules after editing them
 -- without accumulating copies of the old ones.
-function rules.addSource(name, precedence, resolve)
+function rules.addSource(name: string, precedence: number, resolve: (window: lunette.Window) -> Properties?)
   if type(name) ~= 'string' then
     error('mullion.rules: a source is named by a string, not a ' .. type(name), 2)
   end
@@ -151,12 +222,12 @@ end
 -- The list is checked here rather than at the first window. A configuration with
 -- a misspelt field should say so when it loads, not the first time the user
 -- opens the application it was about.
-function rules.fromList(list)
+function rules.fromList(list: { Rule }): (window: lunette.Window) -> Properties?
   if type(list) ~= 'table' then
     error('mullion.rules: a rules list is a table, not a ' .. type(list), 2)
   end
 
-  local checked = {}
+  local checked: { Rule } = {}
   for index = 1, #list do
     local rule = list[index]
     if type(rule) ~= 'table' then
@@ -186,7 +257,7 @@ end
 --
 -- The one-line form, and what a configuration that wants nothing but an `appId`
 -- table calls. `addSource` is for anything else.
-function rules.setRules(list)
+function rules.setRules(list: { Rule })
   rules.addSource(rules.DEFAULT_SOURCE, rules.DEFAULT_PRECEDENCE, rules.fromList(list))
 end
 
@@ -208,7 +279,7 @@ end
 -- constructed for itself or what a spec minted. The guard is on being indexable,
 -- not on being a table, and it exists so that `matches(match, 'firefox')` says
 -- what is wrong rather than raising from inside the loop.
-function rules.matches(match, window)
+function rules.matches(match: Match?, window: lunette.Window): boolean
   if match == nil then
     return true
   end
@@ -217,10 +288,15 @@ function rules.matches(match, window)
     error('mullion.rules: a window is a handle or a table, not a ' .. kind, 2)
   end
 
-  for key, expected in pairs(match) do
-    local actual = window[key]
+  -- The one reflective read in this module: the field's name arrives from a
+  -- rule at runtime, and no type describes indexing a handle by a name held in
+  -- a variable. `keyof` above is what makes sure the name is one a window has.
+  local fields: { [string]: any } = window :: any
+  for key, expected in pairs(match :: { [string]: any }) do
+    local actual = fields[key]
     if type(expected) == 'function' then
-      if not expected(actual, window) then
+      local predicate: (any, any) -> boolean = expected
+      if not predicate(actual, window) then
         return false
       end
     elseif actual ~= expected then
@@ -242,14 +318,14 @@ end
 --
 -- A caller wanting a property whose value is genuinely a function wraps it in
 -- one that returns it.
-function rules.resolve(window)
-  local ordered = {}
+function rules.resolve(window: lunette.Window): Resolved
+  local ordered: { Source } = {}
   for index = 1, #sources do
     ordered[index] = sources[index]
   end
   table.sort(ordered, byPrecedence)
 
-  local collected = {}
+  local collected: Properties = {}
   for _, source in ipairs(ordered) do
     local answered = source.resolve(window)
     if answered ~= nil then
@@ -280,7 +356,7 @@ end
 -- workspace, and refusing the window because the workspace has not been declared
 -- yet would lose the window over a declaration order; a misspelt name reaches the
 -- same path, so the creation is said out loud rather than assumed deliberate.
-function rules.place(window, options)
+function rules.place(window: lunette.Window, options: Resolved?): (panel.Panel, Resolved)
   if window == nil then
     error('mullion.rules: a window is placed, and nil is not one', 2)
   end
@@ -294,13 +370,16 @@ function rules.place(window, options)
     end
   end
 
-  local panelOptions = {}
-  for _, key in ipairs(rules.PANEL_PROPERTIES) do
-    panelOptions[key] = properties[key]
-  end
-  panelOptions.pose = poseFrom(properties.pose, window)
-
-  local created = panel.fromWindow(window, panelOptions)
+  -- Named rather than walked over `PANEL_PROPERTIES`, so that each one is
+  -- checked against what a panel takes. The constant is what documents the set.
+  local created = panel.fromWindow(window, {
+    pose = poseFrom(properties.pose, window),
+    width = properties.width,
+    height = properties.height,
+    title = properties.title,
+    priority = properties.priority,
+    chrome = properties.chrome,
+  })
   applyTags(created, properties.tags)
   return created, properties
 end
@@ -328,7 +407,7 @@ function byPrecedence(left: Source, right: Source)
 end
 
 -- Copies `applied` over `collected`, in place, and returns it.
-function layer(collected, applied)
+function layer(collected: Properties, applied: Properties): Properties
   for key, value in pairs(applied) do
     collected[key] = value
   end
@@ -336,11 +415,12 @@ function layer(collected, applied)
 end
 
 -- Calls every function-valued property and returns a fresh table of the answers.
-function evaluate(collected, window)
-  local evaluated = {}
+function evaluate(collected: Properties, window: lunette.Window): Resolved
+  local evaluated: Resolved = {}
   for key, value in pairs(collected) do
     if type(value) == 'function' then
-      evaluated[key] = value(window, key)
+      local evaluator: (any, string) -> any = value
+      evaluated[key] = evaluator(window, key)
     else
       evaluated[key] = value
     end
@@ -349,7 +429,7 @@ function evaluate(collected, window)
 end
 
 -- Adds `created` to each of `tags`, which are names or tag objects.
-function applyTags(created, tags)
+function applyTags(created: panel.Panel, tags: { read [number]: string | tag.Tag }?)
   if tags == nil then
     return
   end
@@ -358,8 +438,9 @@ function applyTags(created, tags)
     return
   end
 
-  for _, named in ipairs(tags) do
-    if tag.isTag(named) then
+  for index = 1, #tags do
+    local named = tags[index]
+    if tag.isTag(named) and type(named) == 'table' then
       named:add(created)
     elseif type(named) == 'string' then
       -- Created rather than refused, per `place`'s note: losing the window over
@@ -369,10 +450,12 @@ function applyTags(created, tags)
       -- nobody can find.
       local found = tag.find(named)
       if not found then
-        found = tag.new(named)
+        found = tag.new(named, nil)
         rules.report("nothing declared the tag '" .. named .. "', so it was created", 'info')
       end
-      found:add(created)
+      if found then
+        found:add(created)
+      end
     else
       rules.report('a tag is named by a string or is a tag, not a ' .. type(named))
     end
@@ -386,7 +469,7 @@ end
 -- straight through. A string that is not sixteen numbers is reported rather than
 -- placing the panel at the origin, where a window silently arriving at the
 -- user's feet would be diagnosed as a layout defect.
-function poseFrom(value, window)
+function poseFrom(value: string | Mat4?, window: lunette.Window): Mat4?
   if type(value) ~= 'string' then
     return value
   end

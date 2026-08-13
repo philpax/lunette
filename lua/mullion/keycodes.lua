@@ -16,13 +16,13 @@
 local keycodes = {}
 
 -- One key in a row: a code, and optionally a label and a width in key units.
-type Key = {
+export type Key = {
   code: number,
   label: string?,
   width: number?,
 }
 -- A row of keys.
-type Row = { Key }
+export type Row = { Key }
 
 -- The keycodes with names of their own, for a caller that wants to press one
 -- without knowing evdev by heart.
@@ -49,7 +49,8 @@ keycodes.MODIFIERS = {
 
 -- The modifiers that stay on until pressed again, rather than clearing after
 -- the next key.
-keycodes.LOCKS = { capsLock = true }
+local locks: { [string]: boolean } = { capsLock = true }
+keycodes.LOCKS = locks
 
 -- The order modifiers are reported in, so that what a client is told does not
 -- depend on the order a table happened to be walked in.

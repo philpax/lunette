@@ -43,13 +43,13 @@ panel.LINES = 6
 
 -- The panel's fill, as `{ r, g, b, a }`. Dark and mostly opaque, so text over it
 -- is legible against whatever the session is composited over.
-panel.BACKGROUND = { 0.15, 0.03, 0.03, 0.85 }
+panel.BACKGROUND = { 0.15, 0.03, 0.03, 0.85 } :: { number }
 
 -- The most recent report, the count since the panel was last cleared, and what
 -- `errors.report` was before `install` wrapped it.
-local latest = nil
+local latest: string? = nil
 local count = 0
-local previousReport = nil
+local previousReport: (string) -> () = function() end
 local installed = false
 
 -- Starts showing reports.
@@ -66,12 +66,17 @@ function panel.install()
 
   installed = true
   previousReport = errors.report
-  errors.report = function(message)
-    previousReport(message)
+  errors.report = function(message: string)
+    local previous = previousReport
+    if previous then
+      previous(message)
+    end
     panel.show(message)
   end
 
-  teardown.register('mullion.error.panel', panel.uninstall)
+  teardown.register('mullion.error.panel', function()
+    panel.uninstall()
+  end)
   return true
 end
 
@@ -87,8 +92,10 @@ function panel.uninstall()
   end
 
   installed = false
-  errors.report = previousReport
-  previousReport = nil
+  if previousReport then
+    errors.report = previousReport
+  end
+  previousReport = function() end
   panel.clear()
   return true
 end
@@ -127,7 +134,7 @@ end
 --
 -- Pure, and separate from `draw` because what a panel decides to say is worth
 -- asserting without a `Pass` in the way.
-function panel.lines()
+function panel.lines(): { string }
   if not latest then
     return {}
   end
@@ -137,7 +144,7 @@ function panel.lines()
     heading = heading .. ' (' .. count .. ' so far)'
   end
 
-  local lines = { heading }
+  local lines: { string } = { heading }
   for _, line in ipairs(wrap(latest, panel.COLUMNS)) do
     if #lines >= panel.LINES then
       lines[#lines + 1] = '…'
@@ -153,17 +160,17 @@ end
 -- Called from the configuration's `lovr.draw`. It does not take the whole frame:
 -- a session whose error panel drew instead of its windows would be a session
 -- that could not be used to fix the error.
-function panel.draw(pass)
-  local lines = panel.lines()
+function panel.draw(pass: Pass): ()
+  local lines: { string } = panel.lines()
   if #lines == 0 then
-    return false
+    return
   end
 
   local height = (#lines + 1) * panel.TEXT_HEIGHT * 1.5
 
   local red, green, blue, alpha = unpack(panel.BACKGROUND)
   pass:setColor(red, green, blue, alpha)
-  pass:plane(panel.X, panel.Y, panel.Z, panel.WIDTH, height)
+  pass:plane(panel.X, panel.Y, panel.Z, panel.WIDTH, height, 0, 0, 0, 0, 'fill', 1, 1)
   pass:setColor(1, 1, 1, 1)
 
   local top = panel.Y + height / 2 - panel.TEXT_HEIGHT * 1.5
@@ -181,11 +188,10 @@ function panel.draw(pass)
       1,
       0,
       0,
-      'left'
+      'left',
+      'middle'
     )
   end
-
-  return true
 end
 
 -- `text` broken into lines of at most `columns` characters.
@@ -194,8 +200,8 @@ end
 -- are already separated by one, then on width. Words longer than a line are cut
 -- rather than allowed to run off the panel; a path or an identifier is the usual
 -- case and reading most of one is better than reading none of it.
-function wrap(text, columns)
-  local lines = {}
+function wrap(text: string, columns: number): { string }
+  local lines: { string } = {}
   for paragraph in (tostring(text) .. '\n'):gmatch '([^\n]*)\n' do
     local remaining = paragraph
     if remaining == '' then

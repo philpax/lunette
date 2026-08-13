@@ -32,23 +32,45 @@ local methods = {}
 local metatable = { __index = methods }
 local compact, indexOf, byIndex
 
--- The shape of a tag, taken from a representative instance so that the
--- metatable and the fields line up with what `new` builds.
-local tagPrototype = setmetatable({
+-- The options `new` takes: an index, a selected flag, and an optional layout.
+type TagOptions = {
+  index: number?,
+  selected: boolean?,
+  layout: ((members: { Panel }) -> ())?,
+}
+
+-- Anything with a pose: a `mullion.panel` panel is one, and so is an object of
+-- a configuration's own. `setPose` names no receiver, because a type that named
+-- this one would refuse the panel whose own methods take itself.
+export type Panel = {
+  read dead: boolean,
+  read setPose: (any, Mat4) -> (),
+}
+
+export type Tag = {
+  name: string,
+  index: number,
+  selected: boolean,
+  layout: ((members: { Panel }) -> ())?,
+  dead: boolean,
+  members: { Panel },
+  add: (Tag, Panel) -> boolean,
+  remove: (Tag, Panel) -> boolean,
+  has: (Tag, Panel) -> boolean,
+  panels: (Tag) -> { Panel },
+  setSelected: (Tag, boolean) -> boolean,
+  apply: (Tag) -> boolean,
+  destroy: (Tag) -> boolean,
+}
+
+local _tagPrototype: Tag = setmetatable({
   name = '',
   index = 1,
   selected = false,
   layout = nil,
   dead = false,
   members = {},
-}, metatable)
-type Tag = typeof(tagPrototype)
--- The options `new` takes: an index, a selected flag, and an optional layout.
-type TagOptions = {
-  index: number?,
-  selected: boolean?,
-  layout: ((members: { any }) -> ())?,
-}
+}, metatable) :: Tag
 
 -- Every tag, in creation order. Rebuilt when this file runs, so a soft reload
 -- starts with none.
@@ -62,14 +84,14 @@ local tags: { Tag } = {}
 -- A name another tag already holds raises. The name is what a configuration and
 -- a saved arrangement both refer to a tag by, and two tags answering to one name
 -- would make `find` a coin toss.
-function tag.new(name: string, options: TagOptions)
+function tag.new(name: string, options: TagOptions?): Tag
   if type(name) ~= 'string' then
     error('mullion.tag: a tag is named by a string, not a ' .. type(name), 2)
   end
   if tag.find(name) then
     error("mullion.tag: a tag named '" .. name .. "' already exists", 2)
   end
-  options = options or {}
+  options = options or ({} :: TagOptions)
   if options.layout ~= nil and type(options.layout) ~= 'function' then
     error("mullion.tag: the layout of '" .. name .. "' is a function, not a " .. type(options.layout), 2)
   end
@@ -81,7 +103,7 @@ function tag.new(name: string, options: TagOptions)
     layout = options.layout,
     dead = false,
     -- Ordered, because a layout arranges panels in an order and a set has none.
-    members = {} :: { any },
+    members = {} :: { Panel },
   }, metatable) :: Tag
 
   tags[#tags + 1] = created
@@ -93,8 +115,8 @@ end
 -- Ordered rather than in creation order so that two configurations declaring the
 -- same tags in a different order arrange them the same way, and so that a saved
 -- arrangement naming a tag lands on the same one it was written from.
-function tag.all()
-  local live = {}
+function tag.all(): { Tag }
+  local live: { Tag } = {}
   for _, existing in ipairs(tags) do
     if not existing.dead then
       live[#live + 1] = existing
@@ -105,7 +127,7 @@ function tag.all()
 end
 
 -- The live tag named `name`, or nothing.
-function tag.find(name)
+function tag.find(name: string): Tag?
   for _, existing in ipairs(tags) do
     if not existing.dead and existing.name == name then
       return existing
@@ -118,8 +140,8 @@ end
 --
 -- Empty when nothing is selected, which is a configuration that has not chosen
 -- yet rather than an error: a layout handed no tags arranges nothing.
-function tag.current()
-  local selected = {}
+function tag.current(): { Tag }
+  local selected: { Tag } = {}
   for _, existing in ipairs(tag.all()) do
     if existing.selected then
       selected[#selected + 1] = existing
@@ -132,7 +154,7 @@ end
 --
 -- The single-select case, which is what a configuration switching workspaces
 -- with a key wants. Multi-select is `tagObject:setSelected(true)` on each.
-function tag.only(chosen)
+function tag.only(chosen: Tag)
   for _, existing in ipairs(tag.all()) do
     existing:setSelected(existing == chosen)
   end
@@ -142,7 +164,7 @@ end
 --
 -- Public because `panelsOf` dispatches on it and a configuration writing its own
 -- layout wants the same dispatch.
-function tag.isTag(value)
+function tag.isTag(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == metatable
 end
 
@@ -155,30 +177,33 @@ end
 -- Deduplication is what makes membership a set rather than a list. A panel on
 -- two selected tags appears once, so a layout does not place it twice and then
 -- leave it wherever the second placement put it.
-function tag.panelsOf(target)
+function tag.panelsOf(target: Tag | { Tag } | { Panel }): { Panel }
   if target == nil then
     error('mullion.tag: panels are of a tag or an array, and nil is neither', 2)
   end
-  if tag.isTag(target) then
-    return target:panels()
+  local targetTag = tag.isTag(target) and (target :: Tag) or nil
+  if targetTag then
+    return targetTag:panels()
   end
   if type(target) ~= 'table' then
     error('mullion.tag: panels are of a tag or an array, not a ' .. type(target), 2)
   end
 
-  local panels, seen = {}, {}
+  local panels: { Panel } = {}
+  local seen: { [Panel]: boolean } = {}
   local holdsTags = nil
   for index = 1, #target do
     local item = target[index]
-    local isTag = tag.isTag(item)
+    local itemTag = tag.isTag(item) and (item :: Tag) or nil
+    local isTag = itemTag ~= nil
     if holdsTags == nil then
       holdsTags = isTag
     elseif holdsTags ~= isTag then
       error('mullion.tag: an array holds tags or panels, not both', 2)
     end
 
-    if isTag then
-      for _, member in ipairs(item:panels()) do
+    if itemTag then
+      for _, member in ipairs(itemTag:panels()) do
         if not seen[member] then
           seen[member] = true
           panels[#panels + 1] = member
@@ -199,7 +224,7 @@ end
 function tag.teardown()
   for _, existing in ipairs(tags) do
     existing.dead = true
-    existing.members = {} :: { any }
+    existing.members = {} :: { Panel }
     signal.disconnectAll(existing)
   end
   tags = {}
@@ -268,10 +293,14 @@ end
 -- place; arranging it anyway would move panels the user cannot see into the
 -- space occupied by the ones they can.
 function methods:apply()
-  if self.dead or not self.selected or not self.layout then
+  if self.dead or not self.selected then
     return false
   end
-  self.layout(self:panels())
+  local layout = self.layout
+  if not layout then
+    return false
+  end
+  layout(self:panels())
   return true
 end
 
@@ -283,7 +312,7 @@ function methods:destroy()
   end
 
   self.dead = true
-  self.members = {} :: { any }
+  self.members = {} :: { Panel }
   for index = 1, #tags do
     if tags[index] == self then
       table.remove(tags, index)
@@ -312,7 +341,7 @@ function compact(members)
 end
 
 -- Where `panel` sits in `members`, or nothing.
-function indexOf(members: { any }, panel: any): number?
+function indexOf(members: { Panel }, panel: Panel): number?
   for index = 1, #members do
     if members[index] == panel then
       return index

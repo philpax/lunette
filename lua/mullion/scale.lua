@@ -35,7 +35,7 @@ type Tuning = typeof(scale.TUNING)
 type Chooser = {
   tuning: Tuning,
   steps: { number },
-  index: number?,
+  index: number? | nil,
 }
 
 -- Declared here and defined below the public API, so the file reads
@@ -87,20 +87,23 @@ scale.STEPS = lunette.scaleSteps()
 -- The chooser starts on no step at all, so the first distance it is given picks
 -- one outright rather than being held back by hysteresis from a step nothing has
 -- ever been rendered at.
-function scale.newChooser(options: { tuning: Tuning?, steps: { number }? })
-  options = options or {}
-  local steps = options.steps or scale.STEPS
+function scale.newChooser(options: { steps: { number }?, tuning: Tuning? }?): Chooser
+  local opts: { steps: { number }?, tuning: Tuning? } = options or {}
+  local steps = (opts.steps :: { number }?) or scale.STEPS
 
   if type(steps) ~= 'table' or #steps == 0 then
     error('mullion.scale: a chooser needs a ladder of at least one step', 2)
   end
 
-  return setmetatable({
-    tuning = options.tuning or scale.TUNING,
+  -- Luau cannot verify that setmetatable produces a Chooser because the
+  -- methods are injected via __index rather than being on the table itself.
+  local _raw: any = setmetatable({
+    tuning = (opts.tuning :: Tuning?) or scale.TUNING,
     steps = steps,
     -- The index into `steps`, or nil before the first choice.
     index = nil,
   }, metatable)
+  return _raw
 end
 
 -- The scale this chooser settles on for a panel `distance` metres away.
@@ -109,7 +112,7 @@ end
 -- `output:setMode` when it did not. Calling `setMode` with the scale an output
 -- already has is harmless — the compositor sends nothing when the value is
 -- unchanged — but a caller usually has other work to skip alongside it.
-function methods:choose(distance: number)
+function methods.choose(self: Chooser, distance: number): (number, boolean)
   local ideal = idealScale(distance, self.tuning)
   local previous = self.index
 
@@ -119,7 +122,7 @@ function methods:choose(distance: number)
 end
 
 -- The scale the chooser last settled on, or nil before the first choice.
-function methods:current()
+function methods.current(self: Chooser): number?
   return self.index and self.steps[self.index]
 end
 
@@ -128,7 +131,7 @@ end
 -- For a panel that was moved rather than approached: teleporting one across the
 -- room and then stepping it one rung a frame until it caught up would make the
 -- client re-render at every rung on the way.
-function methods:reset()
+function methods.reset(self: Chooser): ()
   self.index = nil
 end
 
@@ -137,7 +140,7 @@ end
 --
 -- Inverse in the distance: a panel twice as far away subtends half the angle, so
 -- the same legibility needs half the pixels per metre.
-function idealScale(distance: number, tuning: Tuning)
+function idealScale(distance: number, tuning: Tuning): number
   if type(distance) ~= 'number' or distance ~= distance then
     error('mullion.scale: a distance is a number, not a ' .. type(distance), 3)
   end
@@ -156,7 +159,7 @@ end
 --
 -- Loops rather than steps once, so that a panel that jumped several rungs
 -- arrives where it belongs in one call rather than one rung per frame.
-function settle(steps: { number }, index: number?, ideal: number, tuning: Tuning)
+function settle(steps: { number }, index: number?, ideal: number, tuning: Tuning): number
   if not index then
     return largestAtMost(steps, ideal)
   end
@@ -177,7 +180,7 @@ end
 --
 -- Down rather than to the nearest, so that a chooser never asks for more pixels
 -- than the distance called for. The ladder ascends, so this walks it.
-function largestAtMost(steps: { number }, ideal: number)
+function largestAtMost(steps: { number }, ideal: number): number
   local found = 1
   for index = 1, #steps do
     if steps[index] <= ideal then

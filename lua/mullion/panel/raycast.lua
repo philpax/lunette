@@ -11,6 +11,15 @@
 
 local raycast = {}
 
+type Quad = {
+  pose: Mat4,
+  width: number,
+  height: number,
+  pixelWidth: number,
+  pixelHeight: number,
+  backFace: boolean?,
+}
+
 -- Where a ray meets a quad, in the quad's own pixels.
 --
 -- Returns the pixel coordinate and the distance along the ray, or nothing. The
@@ -24,16 +33,15 @@ local raycast = {}
 --
 -- `quad` carries `pose`, a `Mat4`; `width` and `height` in metres;
 -- `pixelWidth` and `pixelHeight`; and `backFace`, which allows a hit from
--- behind and is off by default. `origin` and `direction` are `Vec3`s or arrays
--- of three numbers. The direction need not be normalised, but the distance is
--- then in units of it rather than in metres.
-function raycast.hit(quad, origin, direction)
+-- behind and is off by default. The direction need not be normalised, but the
+-- distance is then in units of it rather than in metres.
+function raycast.hit(quad: Quad, origin: vector, direction: vector): (number?, number?, number?)
   if quad.width <= 0 or quad.height <= 0 or quad.pixelWidth <= 0 or quad.pixelHeight <= 0 then
-    return nil
+    return nil, nil, nil
   end
 
-  local originX, originY, originZ = raycast.components(origin, 'the ray origin')
-  local directionX, directionY, directionZ = raycast.components(direction, 'the ray direction')
+  local originX, originY, originZ = origin:unpack()
+  local directionX, directionY, directionZ = direction:unpack()
 
   -- Into the quad's own space, where the quad is the rectangle at z = 0. The
   -- pose is copied first: `invert` writes in place, and inverting the panel's
@@ -47,10 +55,10 @@ function raycast.hit(quad, origin, direction)
   -- the viewer's side meets the back. A quad faces +z, as `Pass:plane` draws
   -- one, so a ray approaching the front travels towards -z.
   if localDirectionZ == 0 then
-    return nil
+    return nil, nil, nil
   end
   if localDirectionZ > 0 and not quad.backFace then
-    return nil
+    return nil, nil, nil
   end
 
   local distance = -localOriginZ / localDirectionZ
@@ -58,7 +66,7 @@ function raycast.hit(quad, origin, direction)
   -- ray starting exactly on the plane is pointing along it as far as a panel is
   -- concerned.
   if not (distance > 0) then
-    return nil
+    return nil, nil, nil
   end
 
   local hitX = localOriginX + distance * localDirectionX
@@ -66,7 +74,7 @@ function raycast.hit(quad, origin, direction)
 
   local halfWidth, halfHeight = quad.width / 2, quad.height / 2
   if hitX < -halfWidth or hitX > halfWidth or hitY < -halfHeight or hitY > halfHeight then
-    return nil
+    return nil, nil, nil
   end
 
   -- Metres to pixels. The vertical axis flips: the quad's +y is up and a
@@ -74,30 +82,6 @@ function raycast.hit(quad, origin, direction)
   local pixelX = (hitX + halfWidth) / quad.width * quad.pixelWidth
   local pixelY = (halfHeight - hitY) / quad.height * quad.pixelHeight
   return pixelX, pixelY, distance
-end
-
--- Three numbers out of a `Vec3` or an array of three.
---
--- Both, because `lovr.headset.getPosition` is wrapped in a `Vec3` and a
--- configuration that computed a ray itself is as likely to have three numbers
--- in a table. Anything else is a defect in the caller rather than a value to
--- guess at.
-function raycast.components(value: any, name: string)
-  local kind = type(value)
-  -- A vector is its own type under Luau, and a Vec3 under LuaJIT is a
-  -- userdata; both unpack the same way.
-  if kind == 'userdata' or kind == 'cdata' or kind == 'vector' then
-    return value:unpack()
-  end
-  if kind == 'table' then
-    if value.unpack then
-      return value:unpack()
-    end
-    if type(value[1]) == 'number' and type(value[2]) == 'number' and type(value[3]) == 'number' then
-      return value[1], value[2], value[3]
-    end
-  end
-  error('mullion.panel.raycast: ' .. name .. ' is a Vec3 or three numbers, not a ' .. kind, 3)
 end
 
 return raycast

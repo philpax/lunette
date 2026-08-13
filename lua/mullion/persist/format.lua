@@ -37,7 +37,7 @@
 local format = {}
 
 -- One entry: what an arrangement holds for a single window or monitor.
-type Entry = {
+export type Entry = {
   kind: 'window' | 'monitor',
   key: string,
   slot: number,
@@ -46,10 +46,36 @@ type Entry = {
   height: number?,
   tags: { string },
 }
+export type File = {
+  entries: { Entry },
+}
+type ArrangementLoad = {
+  kind: 'arrangement',
+  version: number,
+  file: File,
+  skipped: { string },
+  forSession: ((Loaded) -> File?)?,
+}
+type FutureLoad = {
+  kind: 'fromTheFuture',
+  found: number,
+  supported: number,
+  skipped: { string },
+  forSession: ((Loaded) -> File?)?,
+}
+type BrokenLoad = {
+  kind: 'broken',
+  message: string,
+  skipped: { string },
+  forSession: ((Loaded) -> File?)?,
+}
+export type Loaded = ArrangementLoad | FutureLoad | BrokenLoad
 
 -- Declared here and defined below the public API, so the file reads
 -- surface-first.
-local fileMetatable, loadedMetatable, quote, renderEntry, readEntry
+local fileMetatable, loadedMetatable, quote
+local renderEntry: (Entry) -> string
+local readEntry: (any) -> (Entry?, string?)
 
 -- What this version of mullion writes.
 format.CURRENT_VERSION = 1
@@ -68,8 +94,8 @@ format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' }
 --
 -- The list is copied, so a caller sorting or trimming its own array afterwards
 -- does not quietly rewrite the arrangement that is about to be saved.
-function format.newFile(entries)
-  local held = {}
+function format.newFile(entries: { Entry }): File
+  local held: { Entry } = {}
   for index = 1, #(entries or {}) do
     local entry = entries[index]
     if type(entry) ~= 'table' then
@@ -81,7 +107,7 @@ function format.newFile(entries)
 end
 
 -- Whether `value` is an arrangement this module made.
-function format.isFile(value)
+function format.isFile(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == fileMetatable
 end
 
@@ -90,12 +116,12 @@ end
 -- A load and an arrangement are two different things and a caller holding the
 -- wrong one is the mistake worth naming, so the two are told apart by their
 -- metatables rather than by which fields happen to be present.
-function format.isLoaded(value)
+function format.isLoaded(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == loadedMetatable
 end
 
 -- An arrangement's entries, as a fresh array.
-function format.entries(file)
+function format.entries(file: File): { Entry }
   if not format.isFile(file) then
     error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
   end
@@ -123,7 +149,7 @@ end
 -- `skipped` rather than taken partially. A half-read entry would place a panel
 -- somewhere nobody chose, which is harder to diagnose than one that did not come
 -- back. Reporting is the shell's: this answers what happened and prints nothing.
-function format.read(text)
+function format.read(text: unknown): Loaded
   if type(text) ~= 'string' then
     return format.broken('the file is a ' .. type(text) .. ', not text')
   end
@@ -152,12 +178,14 @@ function format.read(text)
     return format.broken 'the file declares no version'
   end
   if version > format.CURRENT_VERSION then
-    return setmetatable({
+    local future: FutureLoad = {
       kind = 'fromTheFuture',
       found = version,
       supported = format.CURRENT_VERSION,
       skipped = {},
-    }, loadedMetatable)
+    }
+    setmetatable(future, loadedMetatable)
+    return future
   end
 
   local entries, skipped = {}, {}
@@ -170,34 +198,40 @@ function format.read(text)
     end
   end
 
-  return setmetatable({
+  local arrangement: ArrangementLoad = {
     kind = 'arrangement',
     version = version,
     file = format.newFile(entries),
     skipped = skipped,
-  }, loadedMetatable)
+  }
+  setmetatable(arrangement, loadedMetatable)
+  return arrangement
 end
 
 -- A load carrying an empty arrangement, which is what a first run has.
-function format.empty()
-  return setmetatable({
+function format.empty(): ArrangementLoad
+  local arrangement: ArrangementLoad = {
     kind = 'arrangement',
     version = format.CURRENT_VERSION,
     file = format.newFile {},
     skipped = {},
-  }, loadedMetatable)
+  }
+  setmetatable(arrangement, loadedMetatable)
+  return arrangement
 end
 
 -- A load of a file that could not be read at all.
-function format.broken(message)
-  return setmetatable({ kind = 'broken', message = message, skipped = {} }, loadedMetatable)
+function format.broken(message: string): BrokenLoad
+  local broken: BrokenLoad = { kind = 'broken', message = message, skipped = {} }
+  setmetatable(broken, loadedMetatable)
+  return broken
 end
 
 -- An arrangement as the file's text.
 --
 -- Always at `CURRENT_VERSION`: this is what this version writes, whatever
 -- version the arrangement was read at.
-function format.render(file)
+function format.render(file: File): string
   if not format.isFile(file) then
     error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
   end
@@ -222,7 +256,7 @@ end
 -- rewritten: there is no arrangement to render and nothing `save` accepts.
 loadedMetatable = {
   __index = {
-    forSession = function(self)
+    forSession = function(self: Loaded): File?
       if self.kind ~= 'arrangement' then
         return nil
       end
@@ -256,11 +290,25 @@ end
 -- A field the entry does not carry is left out rather than written as nothing. A
 -- reader takes an absent field as absent, which is how a file written before a
 -- field existed reads to a version that has it.
-function renderEntry(entry)
+function renderEntry(entry: Entry): string
   local fields = {}
   for _, name in ipairs(format.ENTRY_FIELDS) do
-    if entry[name] ~= nil then
-      fields[#fields + 1] = name .. ' = ' .. quote(entry[name])
+    local value: string | number | nil
+    if name == 'kind' then
+      value = entry.kind
+    elseif name == 'key' then
+      value = entry.key
+    elseif name == 'slot' then
+      value = entry.slot
+    elseif name == 'pose' then
+      value = entry.pose
+    elseif name == 'width' then
+      value = entry.width
+    elseif name == 'height' then
+      value = entry.height
+    end
+    if value ~= nil then
+      fields[#fields + 1] = name .. ' = ' .. quote(value)
     end
   end
 
@@ -274,6 +322,8 @@ function renderEntry(entry)
 end
 
 -- One entry out of a loaded table, or nothing and the reason it was refused.
+-- `any` rather than `unknown`: this reads keys off a table that came from a
+-- decoder, and narrowing `unknown` gets as far as `table` and no further.
 function readEntry(stored: any): (Entry?, string?)
   if type(stored) ~= 'table' then
     return nil, 'an entry is a table, not a ' .. type(stored)

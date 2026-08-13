@@ -32,6 +32,7 @@
 -- calls, so the two were split when this one outgrew the size threshold.
 
 local lunette = require '@lunette'
+local pointing = require '@mullion/interaction/types'
 local raycast = require '@mullion/panel/raycast'
 local signal = require '@mullion/signal'
 local teardown = require '@mullion/teardown'
@@ -43,48 +44,37 @@ local panel = {}
 -- because `create` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
-local create, sourceSize, remove
+local create, sourceSize, remove, opaqueShaderFor
 
--- A pixel source, as `fromWindow` and `fromMonitor` take one.
-type Source = {
-  dead: boolean,
-  width: number?,
-  height: number?,
-  title: string?,
-  name: string?,
-  id: any?,
-  appId: string?,
-  sink: any?,
-  opaque: boolean?,
-  getTexture: (Source) -> any,
-}
--- The sink a source's input goes to.
-type Sink = {
-  pointer: (number, number, any) -> boolean?,
-  button: (string, boolean, any) -> boolean?,
-  key: (number, boolean, any) -> boolean?,
-  modifiers: ({ any }, any) -> boolean?,
-  typeText: (string, any) -> boolean?,
-  leave: (any) -> boolean?,
-  scroll: (number, number, any) -> boolean?,
-}
--- A layer claim, as `lunette.claimLayer` answers.
+-- What a panel is over. The two are not interchangeable: only a window has a
+-- property store and only a window may claim a layer.
+export type Kind = 'window' | 'monitor'
+
+-- A pixel source: one of the two the runtime has, and not a shape either might
+-- fit. The set is closed, so it is a union, and `kind` below is what tells a
+-- panel's own apart. `lunette.Textured` is the same union under the name the
+-- native API gives it.
+export type Source = lunette.Textured
+-- A layer claim, as `lunette.claimLayer` answers. Structural rather than
+-- `lunette.Claim` itself, because a source a configuration wrote may hand a
+-- panel a claim of its own that is not the native one.
 type Claim = {
-  granted: boolean?,
-  width: number?,
-  height: number?,
-  layer: any?,
-  release: (Claim) -> (),
+  read granted: boolean?,
+  read width: number?,
+  read height: number?,
+  read layer: Layer | false,
+  -- The result is unused; `...any` so that a claim answering nothing and the
+  -- native one answering a boolean both fit.
+  read release: (any) -> ...any,
 }
 -- A panel: a pixel source bound to a pose and a size in metres, plus the
 -- methods that move it, size it, update it, draw it, and destroy it. The
 -- method signatures are listed so that the checker resolves `created:setSize`
 -- and narrows `self` fields; the created tables reach them through the
 -- metatable, so the type and the implementations must agree by hand.
-type Panel = {
-  source: Source,
-  kind: string,
-  pose: any,
+-- The half of a panel that does not depend on what it is over.
+type PanelFields = {
+  pose: Mat4,
   width: number,
   height: number,
   priority: number,
@@ -96,20 +86,30 @@ type Panel = {
   claim: Claim?,
   appliedWidth: number?,
   appliedHeight: number?,
-  setPose: (Panel, any) -> (),
-  setSize: (Panel, number?, number?) -> (),
+  -- The four `mullion.interaction` declares take its receiver, which is what
+  -- makes a panel answer the surface contract with the receiver still checked.
+  setPose: (pointing.Surface, Mat4) -> (),
+  setSize: (pointing.Surface, number?, number?) -> (),
+  raycast: (pointing.Surface, vector, vector, boolean?) -> (number?, number?, number?),
+  sink: (pointing.Surface) -> lunette.Sink?,
+  -- A panel's own, which nothing else implements.
   sourceSize: (Panel) -> (number?, number?),
-  raycast: (Panel, any, any, any?) -> (number?, number?, number?),
-  sink: (Panel) -> any?,
   update: (Panel) -> (),
   draw: (Panel, Pass) -> (),
   drawChrome: (Panel, Pass) -> (),
   destroy: (Panel) -> boolean,
   syncClaim: (Panel, number, number) -> (),
 }
+
+-- A panel, discriminated on `kind`: testing it is what narrows `source` to the
+-- handle that kind has, which is how `syncClaim` comes to know that the thing it
+-- claims a layer for is a window.
+export type WindowPanel = PanelFields & { kind: 'window', source: lunette.Window }
+export type MonitorPanel = PanelFields & { kind: 'monitor', source: lunette.Monitor }
+export type Panel = WindowPanel | MonitorPanel
 -- The options `fromWindow` and `fromMonitor` take.
 type PanelOptions = {
-  pose: any?,
+  pose: Mat4?,
   width: number?,
   height: number?,
   priority: number?,
@@ -117,7 +117,6 @@ type PanelOptions = {
   chrome: boolean?,
 }
 -- A LÖVR `Pass`, passed to draw callbacks and used for all drawing.
-type Pass = any
 
 -- Every panel, in creation order. Rebuilt when this file runs, so a soft reload
 -- starts with none.
@@ -128,7 +127,7 @@ local panels: { Panel } = {}
 -- module body that reached for it would make requiring this file depend on when
 -- it was required. Dropped when this file runs again, so a soft reload builds
 -- one against the state that will draw with it.
-local opaqueShader = nil
+local opaqueShader: Shader?
 
 -- Everything a panel's appearance is tuned by, in one table.
 --
@@ -190,8 +189,8 @@ panel.rayQuadHit = raycast.hit
 -- which implies the other from the source's aspect; `priority` for the layer
 -- claim; `title`, defaulting to the window's own; and `chrome`, which is on
 -- unless it is `false`.
-function panel.fromWindow(window, options)
-  return create(window, 'window', options)
+function panel.fromWindow(window: lunette.Window, options: PanelOptions?): WindowPanel
+  return create(window, 'window', options) :: WindowPanel
 end
 
 -- A panel over one of the user's own screens.
@@ -199,13 +198,13 @@ end
 -- Mirroring is not started here. `monitor:mirror()` is a request that may put a
 -- portal dialog in front of the user, and a library deciding to make it would
 -- be deciding that on the configuration's behalf.
-function panel.fromMonitor(monitor, options)
-  return create(monitor, 'monitor', options)
+function panel.fromMonitor(monitor: lunette.Monitor, options: PanelOptions?): MonitorPanel
+  return create(monitor, 'monitor', options) :: MonitorPanel
 end
 
 -- Every live panel, in creation order, as a fresh table.
-function panel.all()
-  local live = {}
+function panel.all(): { Panel }
+  local live: { Panel } = {}
   for _, existing in ipairs(panels) do
     if not existing.dead then
       live[#live + 1] = existing
@@ -227,7 +226,7 @@ end
 -- A linear scan rather than an index: a session has tens of panels rather than
 -- thousands, and an index would be another thing every destroy had to keep in
 -- step with.
-function panel.forSource(source)
+function panel.forSource(source): Panel?
   if source == nil then
     return nil
   end
@@ -269,7 +268,7 @@ end
 -- Public because a configuration drawing a source itself needs the same
 -- correction, and because a spec asserting the quad path has to know which
 -- shader it is looking at.
-function panel.opaqueShader(): any
+function panel.opaqueShader(): Shader?
   if opaqueShader then
     return opaqueShader
   end
@@ -330,13 +329,18 @@ function methods.sourceSize(self: Panel): (number?, number?)
 end
 
 -- Where a ray meets this panel, in the source's pixels, or nothing.
-function methods.raycast(self: Panel, origin, direction, backFace): (number?, number?, number?)
+function methods.raycast(
+  self: Panel,
+  origin: vector,
+  direction: vector,
+  backFace: boolean?
+): (number?, number?, number?)
   if self.dead then
-    return nil
+    return nil, nil, nil
   end
   local pixelWidth, pixelHeight = sourceSize(self.source)
-  if not pixelWidth then
-    return nil
+  if not pixelWidth or not pixelHeight then
+    return nil, nil, nil
   end
 
   return raycast.hit({
@@ -354,7 +358,7 @@ end
 -- A panel is not the only way to reach a sink and does not own it; this is here
 -- so that a caller holding a panel does not have to remember which of `window`
 -- and `monitor` it wrapped.
-function methods.sink(self: Panel)
+function methods.sink(self: Panel): lunette.Sink?
   if self.dead or self.source.dead then
     return nil
   end
@@ -431,7 +435,10 @@ end
 -- sharp one. The chrome is still drawn, because the layer carries the source
 -- and nothing else.
 function methods.draw(self: Panel, pass: Pass)
-  if self.dead or self.source.dead then
+  -- Through a local: refining `self.source` here would fix it to the union it
+  -- already is, and the `kind` test below would have nothing left to narrow.
+  local source = self.source
+  if self.dead or source.dead then
     return
   end
 
@@ -445,7 +452,7 @@ function methods.draw(self: Panel, pass: Pass)
 
   -- Never cached across frames: the texture rotates as the client cycles its
   -- buffers, and is false while the source has committed nothing.
-  local texture = self.source:getTexture()
+  local texture = source:getTexture()
   if not texture then
     return
   end
@@ -457,7 +464,7 @@ function methods.draw(self: Panel, pass: Pass)
   -- Read each frame alongside the texture rather than cached: `opaque` is a
   -- property of the buffer and changes when the client renegotiates its format
   -- (docs/rendering.md#alpha).
-  local shader = self.source.opaque and panel.opaqueShader() or nil
+  local shader = opaqueShaderFor(self)
   if shader then
     pass:setShader(shader)
   end
@@ -467,8 +474,10 @@ function methods.draw(self: Panel, pass: Pass)
   -- and reads the argument after it as the draw style, so a plane placed by
   -- matrix takes its extent from that matrix's scale and not from two more
   -- arguments.
-  pass:plane(lovr.math.mat4(self.pose):scale(self.width, self.height, 1))
-  pass:setMaterial()
+  local transform =
+    lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1):set(self.pose):scale(self.width, self.height, 1)
+  pass:plane(transform, 'fill', 1, 1)
+  pass:setMaterial(nil)
   if shader then
     pass:setShader()
   end
@@ -486,20 +495,22 @@ function methods.drawChrome(self: Panel, pass: Pass)
   -- Behind the panel by a hair, so the two do not fight for the same depth, and
   -- larger by the border's thickness on each side. The extent rides in the
   -- transform's scale, for the reason `draw` records.
-  pass:plane(
-    lovr.math
-      .mat4(self.pose)
-      :translate(0, 0, -style.borderDepth)
-      :scale(self.width + style.borderThickness * 2, self.height + style.borderThickness * 2, 1)
-  )
+  local borderTransform = lovr.math
+    .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+    :set(self.pose)
+    :translate(0, 0, -style.borderDepth)
+    :scale(self.width + style.borderThickness * 2, self.height + style.borderThickness * 2, 1)
+  pass:plane(borderTransform, 'fill', 1, 1)
 
-  local title = self.title or (self.kind == 'window' and self.source.title) or self.source.name
+  -- Spelt out rather than as an `and`/`or` chain, whose type includes the
+  -- `false` from the kind test even though its value never does.
+  local title: string? = self.title or (if self.kind == 'window' then self.source.title else self.source.name)
   if title then
     pass:setColor(style.titleColor[1], style.titleColor[2], style.titleColor[3], style.titleColor[4])
     local above = lovr.math
       .mat4(self.pose)
       :translate(0, self.height / 2 + style.titleMargin + style.titleHeight / 2, 0)
-      :scale(style.titleHeight)
+      :scale(vector.pack(style.titleHeight))
     pass:text(title, above, 0, 'center', 'middle')
   end
 
@@ -564,17 +575,31 @@ function methods.syncClaim(self: Panel, pixelWidth: number, pixelHeight: number)
   }
 end
 
+-- The shader a window whose buffer carries no alpha is drawn with, or nothing.
+--
+-- A monitor's capture has no padding byte to mistake for alpha, so only a window
+-- answers one. Takes the panel rather than reading it inline, because the
+-- `kind` test is what narrows `source` to the handle that kind has, and a
+-- `self` the guards above have already refined has no discriminant left.
+function opaqueShaderFor(target: Panel): Shader?
+  if target.kind ~= 'window' then
+    return nil
+  end
+  return if target.source.opaque then panel.opaqueShader() else nil
+end
+
 -- The shared body of `fromWindow` and `fromMonitor`.
-function create(source: Source, kind: string, options: PanelOptions): Panel
+function create(source: Source, kind: Kind, options: PanelOptions?): Panel
   if source == nil then
     error('mullion.panel: a panel is over a source, and nil is not one', 3)
   end
-  options = options or {}
+  options = options or ({} :: PanelOptions)
 
   local created: Panel = setmetatable({
     source = source,
     kind = kind,
-    pose = lovr.math.newMat4(options.pose),
+    pose = options.pose and lovr.math.newMat4(options.pose)
+      or lovr.math.newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
     width = 0,
     height = 0,
     priority = options.priority or panel.DEFAULT_PRIORITY,

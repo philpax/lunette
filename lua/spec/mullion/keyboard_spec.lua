@@ -323,7 +323,7 @@ spec('a ray hits the key it is pointed at', function()
   local x = wanted.x + wanted.width / 2 - created.width / 2
   local y = created.height / 2 - (wanted.y + wanted.height / 2)
 
-  local hit = created:hit({ x, y, 0 }, { 0, 0, -1 })
+  local hit = created:hit(vector.pack(x, y, 0), vector.pack(0, 0, -1))
 
   expect.truthy(hit, 'a hit')
   expect.equal(hit.code, A_KEY, 'the key hit')
@@ -333,7 +333,7 @@ spec('a ray past the edge of the keyboard hits nothing', function()
   fresh()
   local created = newKeyboard { pose = poseAt(0, 0, -1) }
 
-  expect.falsy(created:hit({ created.width, 0, 0 }, { 0, 0, -1 }), 'a hit')
+  expect.falsy(created:hit(vector.pack(created.width, 0, 0), vector.pack(0, 0, -1)), 'a hit')
 end)
 
 spec('a ray between two keys still hits one', function()
@@ -346,7 +346,7 @@ spec('a ray between two keys still hits one', function()
   local x = first.x + first.width - created.width / 2
   local y = created.height / 2 - (first.y + first.height / 2)
 
-  local hit = created:hit({ x, y, 0 }, { 0, 0, -1 })
+  local hit = created:hit(vector.pack(x, y, 0), vector.pack(0, 0, -1))
 
   expect.truthy(hit, 'a hit')
 end)
@@ -359,7 +359,7 @@ spec('an invisible keyboard is not hit and is not drawn', function()
   created:setVisible(false)
   created:draw(pass)
 
-  expect.falsy(created:hit({ 0, 0, 0 }, { 0, 0, -1 }), 'a hit')
+  expect.falsy(created:hit(vector.pack(0, 0, 0), vector.pack(0, 0, -1)), 'a hit')
   expect.equal(pass.planes, 0, 'planes drawn')
 end)
 

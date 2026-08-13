@@ -21,11 +21,22 @@
 
 local tag = require '@mullion/tag'
 
-local arc = {}
+type Tuning = {
+  radius: number,
+  step: number,
+  span: number,
+  center: { number },
+}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
-local angles
+type Options = {
+  radius: number?,
+  step: number?,
+  span: number?,
+  center: { number }?,
+}
+
+type Panel = tag.Panel
+type Target = { Panel } | tag.Tag
 
 -- Everything the shape of the arc is tuned by, in one table.
 --
@@ -33,21 +44,17 @@ local angles
 -- one table rather than a hunt through functions for a number. A caller wanting
 -- a different arc for one call passes its own numbers as `options` rather than
 -- editing this.
-arc.TUNING = {
-  -- How far the panels sit from the centre, in metres. Far enough that a panel
-  -- of the default size is readable without the user leaning back.
+local tuning: Tuning = {
   radius = 1.6,
-  -- The angle between one panel and the next, in radians. Panels are placed at
-  -- this step whatever the count, so adding one widens the arc rather than
-  -- moving every other panel closer.
   step = 0.55,
-  -- The widest the arc is allowed to grow, in radians. Past this the step
-  -- shrinks so that the last panel is still in front of the user rather than
-  -- behind them.
   span = math.pi * 1.2,
-  -- Where the arc is centred: the user's head, at a standing eye height.
   center = { 0, 1.5, 0 },
 }
+local arc = { TUNING = tuning }
+
+-- Declared here and defined below the public API, so the file reads
+-- surface-first.
+local angles
 
 -- The angle of each of `count` panels, in radians, centred on zero.
 --
@@ -57,7 +64,7 @@ arc.TUNING = {
 --
 -- Pure, and the whole of the layout's decision-making: `poses` turns these into
 -- matrices and `apply` writes those onto panels.
-function arc.angles(count, options)
+function arc.angles(count: number, options: Options?): { number }
   return angles(count, options)
 end
 
@@ -70,12 +77,13 @@ end
 -- Fresh matrices rather than temporaries: LÖVR's temporary pool is drained at
 -- each frame boundary, and a caller holding a pose for longer than the frame it
 -- asked for it in is an ordinary thing to do.
-function arc.poses(count, options)
-  options = options or arc.TUNING
-  local radius = options.radius or arc.TUNING.radius
-  local center = options.center or arc.TUNING.center
+function arc.poses(count: number, options: Options?): { Mat4 }
+  options = options or ({} :: Options)
+  local tuning: Tuning = arc.TUNING
+  local radius = options.radius or tuning.radius
+  local center = options.center or tuning.center
 
-  local placed = {}
+  local placed: { Mat4 } = {}
   for index, angle in ipairs(angles(count, options)) do
     -- The forward vector, yawed. Straight ahead is -z, as it is everywhere else
     -- in LÖVR, and a yaw of `angle` about +y takes (0, 0, -1) to
@@ -83,7 +91,7 @@ function arc.poses(count, options)
     -- rotation applied to two different things, and the panel's own +z comes out
     -- pointing back down the radius at the centre.
     placed[index] = lovr.math
-      .newMat4()
+      .newMat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
       :translate(center[1] - math.sin(angle) * radius, center[2], center[3] - math.cos(angle) * radius)
       :rotate(angle, 0, 1, 0)
   end
@@ -100,7 +108,7 @@ end
 -- Nothing to arrange is a no-op rather than an error. A configuration calling
 -- this every time a window opens should not have to check first, and an empty
 -- arc is a well-defined arrangement of nothing.
-function arc.apply(target, options)
+function arc.apply(target: Target, options: Options?): { Panel }
   local panels = tag.panelsOf(target)
   local placed = arc.poses(#panels, options)
   for index, panel in ipairs(panels) do
@@ -110,16 +118,17 @@ function arc.apply(target, options)
 end
 
 -- The angles, without the argument checking `arc.angles` performs on the way in.
-function angles(count, options)
+function angles(count: number, options: Options?): { number }
   if type(count) ~= 'number' or count ~= math.floor(count) or count < 0 then
     error('mullion.layout.arc: a count is a whole number of panels, not ' .. tostring(count), 3)
   end
 
-  options = options or arc.TUNING
-  local step = options.step or arc.TUNING.step
-  local span = options.span or arc.TUNING.span
+  options = options or ({} :: Options)
+  local tuning: Tuning = arc.TUNING
+  local step = options.step or tuning.step
+  local span = options.span or tuning.span
 
-  local placed = {}
+  local placed: { number } = {}
   if count == 0 then
     return placed
   end
