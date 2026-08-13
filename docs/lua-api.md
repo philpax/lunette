@@ -3,8 +3,8 @@
 ## Two roots
 
 ```lua
-local lunette = require 'lunette'   -- native mechanism.
-local mullion = require 'mullion'   -- the Lua standard library, optional.
+local lunette = require '@lunette'  -- native mechanism.
+local mullion = require '@mullion'  -- the Lua standard library, optional.
 ```
 
 The two names carry different contracts. `lunette` covers surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. It is implemented in Rust and represents the full capability of the system. `mullion` covers panels, layouts, rules, signals, keybindings, and chrome. It is implemented in Lua, installed as readable files, and can be replaced.
@@ -379,7 +379,7 @@ The directory is what makes the 0600 requirement enforceable, and reproducing th
 $ lunctl 'return #lunette.windows()'
 3
 $ lunctl 'for _, w in ipairs(lunette.windows()) do print(w.appId, w.title) end'
-$ lunctl "local arc = require 'mullion.layout.arc' arc(require('mullion.tag').current())"
+$ lunctl "local arc = require '@mullion/layout/arc' arc(require('@mullion/tag').current())"
 ```
 
 A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.

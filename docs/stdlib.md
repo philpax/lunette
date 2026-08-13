@@ -6,9 +6,9 @@ Nothing here is settled. Much of it will be in flux, and it should be. What foll
 
 ## How it is reached
 
-The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua/mullion/` once installed. The binary mounts the directory above it into LÖVR's virtual filesystem before `main.lua` runs, so `require 'mullion'` resolves `mullion/init.lua` and a configuration's first line may be that require. [Build and development](build-and-development.md#where-things-live-at-runtime) gives the search order, and [Decisions](#decisions) below records how the mount is installed and why it is read-only.
+The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua/mullion/` once installed. The binary mounts the directory above it into LÖVR's virtual filesystem before `main.lua` runs, so `require '@mullion'` resolves `mullion/init.lua` and a configuration's first line may be that require. [Build and development](build-and-development.md#where-things-live-at-runtime) gives the search order, and [Decisions](#decisions) below records how the mount is installed and why it is read-only.
 
-`mullion` itself is the root module and re-exports nothing. Each submodule is required by its own path — `require 'mullion.signal'`, `require 'mullion.layout.arc'` — because the tiers are independent and a configuration that wants one should not load the rest to get it. `mullion.layout.arc` and `mullion.tag.current` are the two names [The Lua API](lua-api.md) already attests.
+`mullion` itself is the root module and re-exports nothing. Each submodule is required by its own path: `require '@mullion/signal'`, `require '@mullion/layout/arc'`. The tiers are independent and a configuration that wants one should not load the rest to get it. `mullion.layout.arc` and `mullion.tag.current` are the two names [The Lua API](lua-api.md) already attests.
 
 The mount is read-only. A configuration that could overwrite the standard library it is running on top of could make a session unbootable in a way a reload cannot repair, since the reload would read the overwritten copy.
 
@@ -30,6 +30,7 @@ The mount is read-only. A configuration that could overwrite the standard librar
 | `mullion.keycodes` | Where the keys are, in evdev keycodes, and which of them are modifiers. A description of a physical keyboard, with no layout in it. |
 | `mullion.keyboard` | Tier 2. A virtual keyboard whose legends and keycodes come from a seat's own keymap rather than from a table of its own. It is a surface, so the grip that moves a panel moves it too. |
 | `mullion.scale` | Which scale an output is set to, chosen from `lunette.scaleSteps()` with hysteresis. Pure: a chooser is handed a distance and answers with a scale. |
+| `mullion.pacing` | Which windows are exempt from frame-rate throttling, from the content-type hint and the observed commit rate. Pure: a pacer is handed what its caller observed and answers with a rate. |
 | `mullion.tag` | Tier 3. Named groups of panels. A panel belongs to a set of tags and selection is multi, so `mullion.tag.current` answers tags rather than one tag. |
 | `mullion.layout.arc` | Tier 3. Panels on a curve around the user, facing inwards. Callable, because [The Lua API](lua-api.md) attests it as a call. |
 | `mullion.rules` | Tier 3. What a window should look like, decided before anything draws it. Several sources compose with a declared precedence, and the `appId` table is one of them. |
