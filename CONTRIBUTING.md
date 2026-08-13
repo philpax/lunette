@@ -2,7 +2,7 @@
 
 ## What this is
 
-lunette is an XR window manager and Wayland compositor. It runs as an OpenXR overlay, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR; the scripting layer is Lua on LuaJIT; the compositor is smithay, vendored from WayVR.
+lunette is an XR window manager and Wayland compositor. It runs as an OpenXR overlay, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR; the scripting layer is Luau; the compositor is smithay, vendored from WayVR.
 
 The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code. Contributions are accepted under that licence.
 
@@ -22,13 +22,16 @@ crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/
 crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
 crates/lunette-capture/               wrappers over wlx-capture and HidProvider
 crates/lunette-generate-definitions/  generates etc/lunette/definitions.luau from lovr-docs
-lua/                                  the mullion standard library
+lua/lunette/                          the hand-written declarations for the native API
+lua/mullion/                          the mullion standard library
+lua/spec/                             the standard library's own specs
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
 vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
 vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
 docs/                                 the design specification
+issue-drafts/                         issues to file once the work they describe lands
 inspiration/                          reference checkouts, gitignored
 ```
 
@@ -204,7 +207,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `make check-definitions`
     - `cargo run -p lunette-generate-definitions -- --check` — regenerates `etc/lunette/definitions.luau` into memory and fails if it differs from what is checked in. It names the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
   - `make check-luau`
-    - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion` and the shipped config (see [the static check](#the-luau-static-check))
+    - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

@@ -13,13 +13,16 @@ lunette/
     lunette-lovr/                 cmake build + FFI surface for LÖVR
     lunette-capture/              wrappers over wlx-capture and HidProvider
     lunette-generate-definitions/ generates etc/lunette/definitions.luau from lovr-docs
-  lua/                            the mullion standard library
+  lua/lunette/                    the hand-written declarations for the native API
+  lua/mullion/                    the mullion standard library
+  lua/spec/                       the standard library's own specs
   etc/lunette/                    the generated Luau definitions
   etc/xdg/lunette/                the default configuration
   vendor/lovr/                    submodule → LÖVR with lunette's patch branch (recursive)
   vendor/lovr-docs/               submodule → the API metadata and its Luau generator, on lunette's branch
   vendor/mlua/                    submodule → mlua with lunette's Luau ABI patches
   docs/                           this
+  issue-drafts/                   issues to file once the work they describe lands
   inspiration/                    reference checkouts, gitignored
 ```
 
@@ -29,7 +32,7 @@ lunette/
 
 ## Building
 
-LÖVR links dynamically. `crates/lunette-lovr` builds it with `LOVR_BUILD_SHARED=ON` and `LOVR_BUILD_WITH_SYMBOLS=ON`, producing `liblovr.so` alongside the shared libraries it needs at runtime: the Luau VM/Compiler/Ast libraries (under `LOVR_USE_LUAU`), `libglfw.so`, `libmsdfgen.so`, `libphonon.so`, and joltc's wrapper around JoltPhysics. Those are built shared however LÖVR itself is linked, which is why a static LÖVR target would not make `lunette` a single binary ([LÖVR integration](lovr-integration.md#rejected-a-static-library-target)).
+LÖVR links dynamically. `crates/lunette-lovr` builds it with `LOVR_BUILD_SHARED=ON` and `LOVR_BUILD_WITH_SYMBOLS=ON`, producing `liblovr.so` alongside the shared libraries it needs at runtime: `libglfw.so`, `libmsdfgen.so`, `libphonon.so`, and joltc's wrapper around JoltPhysics. Luau is not among them: `LOVR_USE_LUAU` links `Luau.VM`, `Luau.Compiler`, and `Luau.Ast` into `liblovr.so` itself, and `LUAU_EXTERN_C` exports the Lua C API from there, which is where mlua resolves its symbols. Those are built shared however LÖVR itself is linked, which is why a static LÖVR target would not make `lunette` a single binary ([LÖVR integration](lovr-integration.md#rejected-a-static-library-target)).
 
 Two rpath arrangements make them resolve at runtime. `liblovr.so` is built with `CMAKE_SHARED_LINKER_FLAGS` adding `$ORIGIN/bin`, so it resolves its own siblings from the tree LÖVR's `move_files` target stages; an executable cannot supply that, because a `DT_RUNPATH` is not consulted when resolving a dependency's dependencies. The binary's own entries come from `crates/lunette-lovr/build.rs`, which publishes the library directories through `cargo::metadata` under a `links = "lovr"` declaration. `crates/lunette/build.rs` reads them back and emits the rpath link arguments itself, because Cargo applies a build script's link arguments to its own package's targets only.
 
@@ -90,7 +93,7 @@ End-to-end testing runs via `lunctl`, and it is Rust rather than a shell script.
 
 The half that is not covered is a client: a session with `modules.graphics = false` never lends a device to the compositor thread, so the thread does not start and nothing can connect to the Wayland socket it would serve. Spawning a client and asserting it appears in `lunette.windows()` therefore needs the GPU-headless tier above, and until that exists it is a human gate rather than a test. `crates/lunette-compositor/tests/` covers the client half against the compositor in-process, which is the same protocol traffic without the frame loop under it.
 
-The standing checks are listed in [CONTRIBUTING.md](../CONTRIBUTING.md) and run via `make check`. The sixth is `lunette check`, which typechecks the standard library and the shipped configuration in strict mode, catching a local referenced before its declaration and an accidental global before a session sees them.
+The standing checks are listed in [CONTRIBUTING.md](../CONTRIBUTING.md) and run via `make check`. `lunette check` is one of them, which typechecks the standard library and the shipped configuration in strict mode, catching a local referenced before its declaration and an accidental global before a session sees them.
 
 ## Decisions
 

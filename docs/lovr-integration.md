@@ -8,13 +8,13 @@ Its `deps/` are themselves submodules (glfw, lua, luajit, luau, openxr, glslang,
 
 The patches live on a branch rather than as a rebased series against each upstream commit. Every file that needs a change would otherwise require constant rebasing, since LÖVR moves weekly. A branch resolves each conflict once.
 
-One rule holds for every patch: it stays narrow and additive — new accessors, new struct fields, new build options — and introduces no behavioural change to an existing path.
+One rule holds for every patch: it stays narrow and additive — new accessors, new struct fields, new build options — and introduces no behavioural change to an existing path. A patch fixing an upstream defect is the exception, because the defect is on an existing path; it changes what it fixes and no more, and says which defect and why the fix belongs upstream.
 
 The series is ordered by how long a patch is expected to live, oldest-lived first, so that a patch which lands upstream is dropped from the top without disturbing what sits below it.
 
 **Integration plumbing**, at the base. What LÖVR-as-a-library needs to be embedded the way lunette embeds it: the `deps/luau` pin, `LOVR_EXPORT_LUA_SYMBOLS`, and `LOVR_LUAU_ANALYSIS`. These are not written against a feature anyone has asked for, so they are not proposed upstream, and they are expected to stay. Each is a build option defaulting to off, which is what keeps them narrow: an upstream build that does not set them compiles exactly as it did before.
 
-**Upstream defects**, next. Bugs on a path lunette uses that are nobody's fault but upstream's — currently the module loader registered into `package.searchers` under `LOVR_USE_LUAU`, where Luau reads `package.loaders`. These are reported upstream and disappear when fixed there.
+**Upstream defects**, next. Bugs on a path lunette uses that are nobody's fault but upstream's: the module loader registered into `package.searchers` under `LOVR_USE_LUAU`, where Luau reads `package.loaders`, and `conf.lua` going unread when a project has no `main.lua`. These are reported upstream and disappear when fixed there.
 
 **Upstreamable features**, on top. Work other LÖVR users want: external texture import, the layer limits, the session accessor. Each is shaped as a pull request. If they land, the divergence from upstream shrinks to the base.
 
@@ -108,7 +108,7 @@ The boolean cannot answer the question anything holding session-owned objects ha
 
 ### Rejected: a static library target
 
-LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Adding one would not produce a single binary. LuaJIT, glfw, msdfgen, phonon, and joltc are each built shared, through `BUILD_SHARED_LIBS`, `GLFW_LIBRARY_TYPE`, or `JPH_BUILD_SHARED` depending on the dependency, so a statically linked `lunette` would still ship those libraries beside itself and would still need the rpath handling a static link is meant to remove. The single-binary property costs more than one build option, which is why v1 links LÖVR dynamically ([Build and development](build-and-development.md#building)). Revisit when packaging demands it.
+LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Adding one would not produce a single binary. glfw, msdfgen, phonon, and joltc are each built shared, through `BUILD_SHARED_LIBS`, `GLFW_LIBRARY_TYPE`, or `JPH_BUILD_SHARED` depending on the dependency, so a statically linked `lunette` would still ship those libraries beside itself and would still need the rpath handling a static link is meant to remove. The single-binary property costs more than one build option, which is why v1 links LÖVR dynamically ([Build and development](build-and-development.md#building)). Revisit when packaging demands it.
 
 ### Possibly later
 
