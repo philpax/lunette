@@ -271,18 +271,18 @@ declare extern type AudioStream extends Object with
 end
 
 declare extern type Blob extends Object with
-  function getF32(self, offset: number, count: number): number
-  function getF64(self, offset: number, count: number): number
-  function getI16(self, offset: number, count: number): number
-  function getI32(self, offset: number, count: number): number
-  function getI8(self, offset: number, count: number): number
+  function getF32(self, offset: number, count: number): ...number
+  function getF64(self, offset: number, count: number): ...number
+  function getI16(self, offset: number, count: number): ...number
+  function getI32(self, offset: number, count: number): ...number
+  function getI8(self, offset: number, count: number): ...number
   function getName(self): string
   function getPointer(self): userdata
   function getSize(self): number
   function getString(self, offset: number, size: number): string
-  function getU16(self, offset: number, count: number): number
-  function getU32(self, offset: number, count: number): number
-  function getU8(self, offset: number, count: number): number
+  function getU16(self, offset: number, count: number): ...number
+  function getU32(self, offset: number, count: number): ...number
+  function getU8(self, offset: number, count: number): ...number
   function setF32(self, offset: number, ...: number)
   function setF32(self, offset: number, table: {number})
   function setF64(self, offset: number, ...: number)
@@ -319,7 +319,7 @@ declare extern type ModelData extends Object with
   function getAnimationChannelCount(self, animation: number | string): number
   function getAnimationCount(self): number
   function getAnimationDuration(self, animation: string | number): number
-  function getAnimationKeyframe(self, animation: number, channel: number, keyframe: number): (number, number)
+  function getAnimationKeyframe(self, animation: number, channel: number, keyframe: number): (number, ...number)
   function getAnimationKeyframeCount(self, animation: string | number, channel: number): number
   function getAnimationName(self, index: number): string | nil
   function getAnimationNode(self, animation: number, channel: number): number
@@ -375,7 +375,7 @@ declare extern type ModelData extends Object with
   function getNodeTransform(self, node: string | number): (number, number, number, number, number, number, number, number, number, number)
   function getRootNode(self): number
   function getSkinCount(self): number
-  function getSkinInverseBindMatrix(self, skin: number, joint: number): number
+  function getSkinInverseBindMatrix(self, skin: number, joint: number): ...number
   function getSkinJoints(self, skin: number): {}
   function getWidth(self): number
   function getWidth(self, mesh: number): number
@@ -411,7 +411,7 @@ declare extern type Sound extends Object with
   function getChannelLayout(self): ChannelLayout
   function getDuration(self): number
   function getFormat(self): SampleFormat
-  function getFrame(self, offset: number): number
+  function getFrame(self, offset: number): ...number
   function getFrameCount(self): number
   function getFrames(self, count: number, srcOffset: number): ({number}, number)
   function getFrames(self, t: {}, count: number, srcOffset: number, dstOffset: number): ({number}, number)
@@ -1386,7 +1386,7 @@ type HeadsetModule = {
     & ((device: Device, model: Model) -> boolean),
   connect: () -> (boolean, string),
   getAngularVelocity: (device: Device) -> (number, number, number),
-  getAxis: (device: Device, axis: DeviceAxis) -> number,
+  getAxis: (device: Device, axis: DeviceAxis) -> ...number,
   getBattery: (device: Device) -> (number, boolean),
   getBoundsDepth: () -> number,
   getBoundsDimensions: () -> (number, number),
@@ -1538,7 +1538,7 @@ declare extern type Mat4 with
   function translate(self, v: vector): Mat4
   function translate(self, x: number, y: number, z: number): Mat4
   function transpose(self): Mat4
-  function unpack(self, raw: boolean): number
+  function unpack(self, raw: boolean): ...number
 end
 
 declare extern type RandomGenerator extends Object with
@@ -1739,7 +1739,7 @@ declare extern type Contact with
   function getFriction(self): number
   function getNormal(self): (number, number, number)
   function getOverlap(self): number
-  function getPoints(self): number
+  function getPoints(self): ...number
   function getRestitution(self): number
   function getShapes(self): (Shape, Shape)
   function getSurfaceVelocity(self): (number, number, number)
@@ -2051,11 +2051,11 @@ type SystemModule = {
 type TaskModule = {
   getStatus: (task: thread) -> string | nil,
   poll: () -> (() -> ()),
-  resume: (...any) -> (boolean, any),
+  resume: (...any) -> (boolean, ...any),
   start: (f: () -> (), ...any) -> thread,
   wait:
-    & ((...thread) -> any)
-    & ((t: {thread}) -> any),
+    & ((...thread) -> ...any)
+    & ((t: {thread}) -> ...any),
 }
 
 declare extern type Channel extends Object with
@@ -2075,7 +2075,7 @@ declare extern type Thread extends Object with
 end
 
 type ThreadModule = {
-  call: (f: () -> (), ...any) -> any,
+  call: (f: () -> (), ...any) -> ...any,
   getChannel: (name: string) -> Channel,
   getWorkerCount: () -> number,
   newChannel: () -> Channel,

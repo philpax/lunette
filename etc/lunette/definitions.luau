@@ -18,7 +18,7 @@ declare extern type Object with
   function type(self): string
 end
 
-type AudioMaterial =
+export type AudioMaterial =
   | "generic"
   | "brick"
   | "carpet"
@@ -31,15 +31,15 @@ type AudioMaterial =
   | "rock"
   | "wood"
 
-type AudioShareMode =
+export type AudioShareMode =
   | "shared"
   | "exclusive"
 
-type AudioType =
+export type AudioType =
   | "playback"
   | "capture"
 
-type Effect =
+export type Effect =
   | "absorption"
   | "attenuation"
   | "occlusion"
@@ -47,19 +47,19 @@ type Effect =
   | "spatialization"
   | "transmission"
 
-type ReverbMode =
+export type ReverbMode =
   | "listener"
   | "source"
 
-type ReverbType =
+export type ReverbType =
   | "convolution"
   | "parametric"
 
-type TimeUnit =
+export type TimeUnit =
   | "seconds"
   | "frames"
 
-type VolumeUnit =
+export type VolumeUnit =
   | "linear"
   | "db"
 
@@ -133,7 +133,7 @@ declare extern type Source extends Object with
   function tell(self, unit: TimeUnit): number
 end
 
-type AudioModule = {
+export type AudioModule = {
   getDevice: (type: AudioType) -> (string, userdata),
   getDevices: (type: AudioType) -> {},
   getOrientation: () -> (number, number, number, number),
@@ -170,13 +170,13 @@ type AudioModule = {
   update: (dt: number) -> (),
 }
 
-type AnimationProperty =
+export type AnimationProperty =
   | "translation"
   | "rotation"
   | "scale"
   | "weights"
 
-type AttributeType =
+export type AttributeType =
   | "i8"
   | "u8"
   | "i16"
@@ -185,12 +185,12 @@ type AttributeType =
   | "u32"
   | "f32"
 
-type ChannelLayout =
+export type ChannelLayout =
   | "mono"
   | "stereo"
   | "ambisonic"
 
-type DefaultAttribute =
+export type DefaultAttribute =
   | "position"
   | "normal"
   | "uv"
@@ -199,7 +199,7 @@ type DefaultAttribute =
   | "joints"
   | "weights"
 
-type ModelDrawMode =
+export type ModelDrawMode =
   | "points"
   | "lines"
   | "linestrip"
@@ -208,16 +208,16 @@ type ModelDrawMode =
   | "triangles"
   | "fan"
 
-type SampleFormat =
+export type SampleFormat =
   | "f32"
   | "i16"
 
-type SmoothMode =
+export type SmoothMode =
   | "step"
   | "linear"
   | "cubic"
 
-type TextureFormat =
+export type TextureFormat =
   | "r8"
   | "rg8"
   | "rgba8"
@@ -282,18 +282,18 @@ declare extern type AudioStream extends Object with
 end
 
 declare extern type Blob extends Object with
-  function getF32(self, offset: number, count: number): number
-  function getF64(self, offset: number, count: number): number
-  function getI16(self, offset: number, count: number): number
-  function getI32(self, offset: number, count: number): number
-  function getI8(self, offset: number, count: number): number
+  function getF32(self, offset: number, count: number): ...number
+  function getF64(self, offset: number, count: number): ...number
+  function getI16(self, offset: number, count: number): ...number
+  function getI32(self, offset: number, count: number): ...number
+  function getI8(self, offset: number, count: number): ...number
   function getName(self): string
   function getPointer(self): userdata
   function getSize(self): number
   function getString(self, offset: number, size: number): string
-  function getU16(self, offset: number, count: number): number
-  function getU32(self, offset: number, count: number): number
-  function getU8(self, offset: number, count: number): number
+  function getU16(self, offset: number, count: number): ...number
+  function getU32(self, offset: number, count: number): ...number
+  function getU8(self, offset: number, count: number): ...number
   function setF32(self, offset: number, ...: number)
   function setF32(self, offset: number, table: {number})
   function setF64(self, offset: number, ...: number)
@@ -330,7 +330,7 @@ declare extern type ModelData extends Object with
   function getAnimationChannelCount(self, animation: number | string): number
   function getAnimationCount(self): number
   function getAnimationDuration(self, animation: string | number): number
-  function getAnimationKeyframe(self, animation: number, channel: number, keyframe: number): (number, number)
+  function getAnimationKeyframe(self, animation: number, channel: number, keyframe: number): (number, ...number)
   function getAnimationKeyframeCount(self, animation: string | number, channel: number): number
   function getAnimationName(self, index: number): string | nil
   function getAnimationNode(self, animation: number, channel: number): number
@@ -386,7 +386,7 @@ declare extern type ModelData extends Object with
   function getNodeTransform(self, node: string | number): (number, number, number, number, number, number, number, number, number, number)
   function getRootNode(self): number
   function getSkinCount(self): number
-  function getSkinInverseBindMatrix(self, skin: number, joint: number): number
+  function getSkinInverseBindMatrix(self, skin: number, joint: number): ...number
   function getSkinJoints(self, skin: number): {}
   function getWidth(self): number
   function getWidth(self, mesh: number): number
@@ -422,7 +422,7 @@ declare extern type Sound extends Object with
   function getChannelLayout(self): ChannelLayout
   function getDuration(self): number
   function getFormat(self): SampleFormat
-  function getFrame(self, offset: number): number
+  function getFrame(self, offset: number): ...number
   function getFrameCount(self): number
   function getFrames(self, count: number, srcOffset: number): ({number}, number)
   function getFrames(self, t: {}, count: number, srcOffset: number, dstOffset: number): ({number}, number)
@@ -435,7 +435,7 @@ declare extern type Sound extends Object with
   function setFrames(self, source: {} | Blob | Sound, count: number, dstOffset: number, srcOffset: number): number
 end
 
-type DataModule = {
+export type DataModule = {
   newAudioStream: (capacity: number, format: SampleFormat, channels: number, rate: number) -> AudioStream,
   newBlob:
     & ((size: number, name: string) -> Blob)
@@ -456,11 +456,11 @@ type DataModule = {
     & ((file: string | Blob, decode: boolean) -> Sound),
 }
 
-type DisplayType =
+export type DisplayType =
   | "headset"
   | "window"
 
-type KeyCode =
+export type KeyCode =
   | "a"
   | "b"
   | "c"
@@ -564,7 +564,7 @@ type KeyCode =
   | "scrolllock"
   | "numlock"
 
-type EventModule = {
+export type EventModule = {
   clear: () -> (),
   poll: () -> (() -> ()),
   push: (name: string, ...any) -> (),
@@ -572,13 +572,13 @@ type EventModule = {
   restart: () -> (),
 }
 
-type FileAction =
+export type FileAction =
   | "create"
   | "delete"
   | "modify"
   | "rename"
 
-type OpenMode =
+export type OpenMode =
   | "r"
   | "w"
   | "a"
@@ -595,7 +595,7 @@ declare extern type File extends Object with
   function write(self, blob: Blob, size: number): (boolean, string)
 end
 
-type FilesystemModule = {
+export type FilesystemModule = {
   append: (filename: string, content: string | Blob) -> (boolean, string),
   createDirectory: (path: string) -> (boolean, string),
   getAppdataDirectory: () -> string,
@@ -627,11 +627,11 @@ type FilesystemModule = {
   write: (filename: string, content: string | Blob) -> (boolean, string),
 }
 
-type BlendAlphaMode =
+export type BlendAlphaMode =
   | "alphamultiply"
   | "premultiplied"
 
-type BlendFactor =
+export type BlendFactor =
   | "zero"
   | "one"
   | "srccolor"
@@ -644,7 +644,7 @@ type BlendFactor =
   | "oneminusdstalpha"
   | "srcalphasaturated"
 
-type BlendMode =
+export type BlendMode =
   | "alpha"
   | "add"
   | "subtract"
@@ -654,14 +654,14 @@ type BlendMode =
   | "screen"
   | "none"
 
-type BlendOp =
+export type BlendOp =
   | "add"
   | "subtract"
   | "reversesubtract"
   | "min"
   | "max"
 
-type CompareMode =
+export type CompareMode =
   | "none"
   | "equal"
   | "notequal"
@@ -670,17 +670,17 @@ type CompareMode =
   | "greater"
   | "gequal"
 
-type CullMode =
+export type CullMode =
   | "none"
   | "back"
   | "front"
 
-type DataLayout =
+export type DataLayout =
   | "packed"
   | "std140"
   | "std430"
 
-type DataType =
+export type DataType =
   | "i8x4"
   | "u8x4"
   | "sn8x4"
@@ -717,7 +717,7 @@ type DataType =
   | "index16"
   | "index32"
 
-type DefaultShader =
+export type DefaultShader =
   | "unlit"
   | "normal"
   | "font"
@@ -725,40 +725,40 @@ type DefaultShader =
   | "equirect"
   | "fill"
 
-type DrawMode =
+export type DrawMode =
   | "points"
   | "lines"
   | "triangles"
 
-type DrawStyle =
+export type DrawStyle =
   | "fill"
   | "line"
 
-type FilterMode =
+export type FilterMode =
   | "nearest"
   | "linear"
   | "cubic"
 
-type HorizontalAlign =
+export type HorizontalAlign =
   | "left"
   | "center"
   | "right"
 
-type MeshStorage =
+export type MeshStorage =
   | "cpu"
   | "gpu"
 
-type OriginType =
+export type OriginType =
   | "root"
   | "parent"
 
-type ProjectionType =
+export type ProjectionType =
   | "orthographic"
   | "perspective"
   | "asymmetric"
   | "matrix"
 
-type ShaderFlag =
+export type ShaderFlag =
   | "pointSize"
   | "passColor"
   | "materialColor"
@@ -776,20 +776,20 @@ type ShaderFlag =
   | "clearcoatTexture"
   | "tonemap"
 
-type ShaderStage =
+export type ShaderStage =
   | "vertex"
   | "fragment"
   | "compute"
 
-type ShaderType =
+export type ShaderType =
   | "graphics"
   | "compute"
 
-type StackType =
+export type StackType =
   | "transform"
   | "state"
 
-type StencilAction =
+export type StencilAction =
   | "keep"
   | "zero"
   | "replace"
@@ -799,35 +799,35 @@ type StencilAction =
   | "decrementwrap"
   | "invert"
 
-type TextureFeature =
+export type TextureFeature =
   | "sample"
   | "render"
   | "storage"
   | "blit"
   | "cubic"
 
-type TextureType =
+export type TextureType =
   | "2d"
   | "3d"
   | "cube"
   | "array"
 
-type TextureUsage =
+export type TextureUsage =
   | "sample"
   | "render"
   | "storage"
   | "transfer"
 
-type VerticalAlign =
+export type VerticalAlign =
   | "top"
   | "middle"
   | "bottom"
 
-type Winding =
+export type Winding =
   | "clockwise"
   | "counterclockwise"
 
-type WrapMode =
+export type WrapMode =
   | "clamp"
   | "repeat"
   | "mirror"
@@ -1225,7 +1225,7 @@ declare extern type Texture extends Object with
   function setSampler(self)
 end
 
-type GraphicsModule = {
+export type GraphicsModule = {
   compileShader: (stage: ShaderStage, source: string | Blob) -> Blob,
   getBackgroundColor: () -> (number, number, number, number),
   getDefaultFont: () -> Font,
@@ -1288,7 +1288,7 @@ type GraphicsModule = {
   wait: () -> (),
 }
 
-type Device =
+export type Device =
   | "head"
   | "floor"
   | "left"
@@ -1321,7 +1321,7 @@ type Device =
   | "eye/gaze"
   | "body"
 
-type DeviceAxis =
+export type DeviceAxis =
   | "trigger"
   | "thumbstick"
   | "thumbrest"
@@ -1329,7 +1329,7 @@ type DeviceAxis =
   | "grip"
   | "nib"
 
-type DeviceButton =
+export type DeviceButton =
   | "trigger"
   | "thumbstick"
   | "thumbrest"
@@ -1348,20 +1348,20 @@ type DeviceButton =
   | "bumper"
   | "nib"
 
-type FoveationLevel =
+export type FoveationLevel =
   | "low"
   | "medium"
   | "high"
 
-type HeadsetDriver =
+export type HeadsetDriver =
   | "simulator"
   | "openxr"
 
-type HeadsetOrigin =
+export type HeadsetOrigin =
   | "head"
   | "floor"
 
-type PassthroughMode =
+export type PassthroughMode =
   | "opaque"
   | "blend"
   | "add"
@@ -1391,13 +1391,13 @@ declare extern type Layer extends Object with
   function setViewport(self, x: number, y: number, w: number, h: number)
 end
 
-type HeadsetModule = {
+export type HeadsetModule = {
   animate:
     & ((model: Model) -> boolean)
     & ((device: Device, model: Model) -> boolean),
   connect: () -> (boolean, string),
   getAngularVelocity: (device: Device) -> (number, number, number),
-  getAxis: (device: Device, axis: DeviceAxis) -> number,
+  getAxis: (device: Device, axis: DeviceAxis) -> ...number,
   getBattery: (device: Device) -> (number, boolean),
   getBoundsDepth: () -> number,
   getBoundsDimensions: () -> (number, number),
@@ -1549,7 +1549,7 @@ declare extern type Mat4 with
   function translate(self, v: vector): Mat4
   function translate(self, x: number, y: number, z: number): Mat4
   function transpose(self): Mat4
-  function unpack(self, raw: boolean): number
+  function unpack(self, raw: boolean): ...number
 end
 
 declare extern type RandomGenerator extends Object with
@@ -1564,7 +1564,7 @@ declare extern type RandomGenerator extends Object with
   function setState(self, state: string)
 end
 
-type MathModule = {
+export type MathModule = {
   drain: () -> (),
   gammaToLinear:
     & ((gr: number, gg: number, gb: number, a: number) -> (number, number, number, number))
@@ -1631,17 +1631,17 @@ type MathModule = {
     & ((n: number) -> vector),
 }
 
-type JointType =
+export type JointType =
   | "ball"
   | "distance"
   | "hinge"
   | "slider"
 
-type MotorMode =
+export type MotorMode =
   | "position"
   | "velocity"
 
-type ShapeType =
+export type ShapeType =
   | "box"
   | "sphere"
   | "capsule"
@@ -1750,7 +1750,7 @@ declare extern type Contact with
   function getFriction(self): number
   function getNormal(self): (number, number, number)
   function getOverlap(self): number
-  function getPoints(self): number
+  function getPoints(self): ...number
   function getRestitution(self): number
   function getShapes(self): (Shape, Shape)
   function getSurfaceVelocity(self): (number, number, number)
@@ -1984,7 +1984,7 @@ declare extern type MeshShape extends Shape with
   function getScale(self): number
 end
 
-type PhysicsModule = {
+export type PhysicsModule = {
   newBallJoint:
     & ((colliderA: Collider, colliderB: Collider, x: number, y: number, z: number) -> BallJoint)
     & ((colliderA: Collider, colliderB: Collider, anchor: vector) -> BallJoint),
@@ -2020,14 +2020,14 @@ type PhysicsModule = {
   newWorld: (settings: {}) -> World,
 }
 
-type MouseMode =
+export type MouseMode =
   | "normal"
   | "relative"
 
-type Permission =
+export type Permission =
   | "audiocapture"
 
-type SystemModule = {
+export type SystemModule = {
   getClipboardText: () -> string | nil,
   getCoreCount: () -> number,
   getMouseMode: () -> MouseMode,
@@ -2059,14 +2059,14 @@ type SystemModule = {
   wasMouseReleased: (button: number) -> boolean,
 }
 
-type TaskModule = {
+export type TaskModule = {
   getStatus: (task: thread) -> string | nil,
   poll: () -> (() -> ()),
-  resume: (...any) -> (boolean, any),
+  resume: (...any) -> (boolean, ...any),
   start: (f: () -> (), ...any) -> thread,
   wait:
-    & ((...thread) -> any)
-    & ((t: {thread}) -> any),
+    & ((...thread) -> ...any)
+    & ((t: {thread}) -> ...any),
 }
 
 declare extern type Channel extends Object with
@@ -2085,8 +2085,8 @@ declare extern type Thread extends Object with
   function wait(self)
 end
 
-type ThreadModule = {
-  call: (f: () -> (), ...any) -> any,
+export type ThreadModule = {
+  call: (f: () -> (), ...any) -> ...any,
   getChannel: (name: string) -> Channel,
   getWorkerCount: () -> number,
   newChannel: () -> Channel,
@@ -2095,7 +2095,7 @@ type ThreadModule = {
     & ((file: string | Blob) -> Thread),
 }
 
-type TimerModule = {
+export type TimerModule = {
   getAverageDelta: () -> number,
   getDelta: () -> number,
   getFPS: () -> number,
@@ -2104,7 +2104,7 @@ type TimerModule = {
   step: () -> number,
 }
 
-type QuaternionModule = {
+export type QuaternionModule = {
   angleaxis: (angle: number, ax: number, ay: number, az: number) -> quaternion,
   between: (a: vector, b: vector) -> quaternion,
   conjugate: (q: quaternion) -> quaternion,
@@ -2120,7 +2120,7 @@ type QuaternionModule = {
   unpack: (q: quaternion) -> (number, number, number, number),
 }
 
-type VectorModule = {
+export type VectorModule = {
   angle: (a: vector, b: vector, axis: vector) -> number,
   cross: (a: vector, b: vector) -> vector,
   distance: (a: vector, b: vector) -> number,
@@ -2208,6 +2208,8 @@ declare extern type quaternion with
 end
 
 declare quaternion: QuaternionModule
+
+export type Vec3 = vector
 
 declare extern type vector with
   x: number
