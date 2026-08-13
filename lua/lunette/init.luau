@@ -34,62 +34,62 @@ type SinkFields = {
   read scrollDiscrete: (Sink, number, number, Seat?) -> boolean,
   read key: (Sink, number, boolean, Seat?) -> boolean,
   read typeText: (Sink, string, Seat?) -> boolean,
-  read modifiers: (Sink, { string }, Seat?) -> boolean,
+  read modifiers: (Sink, { string }?, Seat?) -> boolean,
 }
 
-type WindowSink = { read domain: 'window', read window: Window, read monitor: nil }
+type WindowSink = { read domain: 'window', read window: Window?, read monitor: nil }
 type HostSink = { read domain: 'host', read window: nil, read monitor: Monitor? }
 
 export type Sink = SinkFields & (WindowSink | HostSink)
 
 export type Window = {
-  dead: boolean,
-  id: number,
-  title: string?,
-  appId: string?,
-  width: number,
-  height: number,
-  opaque: boolean,
+  read dead: boolean,
+  read id: number,
+  read title: string?,
+  read appId: string?,
+  read width: number,
+  read height: number,
+  read opaque: boolean,
   -- What the client says it draws, as `wp_content_type_v1` reports it.
-  contentType: 'none' | 'photo' | 'video' | 'game',
-  sink: Sink?,
+  read contentType: 'none' | 'photo' | 'video' | 'game',
+  read sink: Sink?,
   -- `false` while the client is gone or has committed nothing, which is why
   -- neither is a plain `Texture?`: the runtime answers with a boolean rather
   -- than with nil.
-  getTexture: (Textured) -> Texture | false,
-  stabilize: (Window) -> Texture | false,
-  close: (Window) -> boolean,
-  resize: (Window, number, number) -> boolean,
-  setFrameRate: (Window, number?) -> boolean,
-  setProperty: (Window, string, boolean | number | string) -> boolean,
-  getProperty: (Window, string) -> boolean | number | string | nil,
-  properties: (Window) -> { [string]: boolean | number | string },
+  read getTexture: (Textured) -> Texture | false,
+  read stabilize: (Window) -> Texture | false,
+  read close: (Window) -> boolean,
+  read resize: (Window, number, number) -> boolean,
+  read setFrameRate: (Window, number?) -> boolean,
+  read setProperty: (Window, string, boolean | number | string) -> boolean,
+  read getProperty: (Window, string) -> boolean | number | string | nil,
+  read properties: (Window) -> { [string]: boolean | number | string },
 }
 
 export type Monitor = {
-  dead: boolean,
-  id: string,
-  name: string,
-  mirrored: boolean,
-  pending: boolean,
-  width: number,
-  height: number,
-  x: number,
-  y: number,
-  logicalWidth: number,
-  logicalHeight: number,
-  sink: Sink,
-  getTexture: (Textured) -> Texture | false,
-  mirror: (Monitor) -> boolean,
-  dismiss: (Monitor) -> boolean,
-  setPaused: (Monitor, boolean) -> boolean,
+  read dead: boolean,
+  read id: string,
+  read name: string,
+  read mirrored: boolean,
+  read pending: boolean,
+  read width: number,
+  read height: number,
+  read x: number,
+  read y: number,
+  read logicalWidth: number,
+  read logicalHeight: number,
+  read sink: Sink,
+  read getTexture: (Textured) -> Texture | false,
+  read mirror: (Monitor) -> boolean,
+  read dismiss: (Monitor) -> boolean,
+  read setPaused: (Monitor, boolean) -> boolean,
 }
 
 export type Process = {
-  id: number,
-  alive: boolean,
-  pid: number?,
-  external: boolean,
+  read id: number,
+  read alive: boolean,
+  read pid: number?,
+  read external: boolean,
 }
 
 export type Stroke = {
@@ -108,19 +108,19 @@ export type SeatOptions = {
 }
 
 export type Seat = {
-  dead: boolean,
-  id: number,
-  name: string,
-  clipboardBridge: boolean,
-  layouts: { string },
-  modifiers: { string },
-  destroy: (Seat) -> boolean,
-  setModifiers: (Seat, { string }?) -> boolean,
-  setFocus: (Seat, Sink?) -> boolean,
-  setClipboardBridge: (Seat, boolean) -> boolean,
-  symbolFor: (Seat, number, { string }?) -> number?,
-  characterFor: (Seat, number, { string }?) -> string?,
-  strokeFor: (Seat, string | number) -> Stroke?,
+  read dead: boolean,
+  read id: number,
+  read name: string,
+  read clipboardBridge: boolean,
+  read layouts: { string },
+  read modifiers: { string },
+  read destroy: (Seat) -> boolean,
+  read setModifiers: (Seat, { string }?) -> boolean,
+  read setFocus: (Seat, Sink?) -> boolean,
+  read setClipboardBridge: (Seat, boolean) -> boolean,
+  read symbolFor: (Seat, number, { string }?) -> number?,
+  read characterFor: (Seat, number, { string }?) -> string?,
+  read strokeFor: (Seat, string | number) -> Stroke?,
 }
 
 -- What `output:setMode` changes. Every field is optional: what is left out
@@ -143,14 +143,14 @@ export type OutputOptions = {
 }
 
 export type Output = {
-  dead: boolean,
-  id: number,
-  width: number,
-  height: number,
-  scale: number,
-  refresh: number,
-  setMode: (Output, OutputMode) -> boolean,
-  destroy: (Output) -> boolean,
+  read dead: boolean,
+  read id: number,
+  read width: number,
+  read height: number,
+  read scale: number,
+  read refresh: number,
+  read setMode: (Output, OutputMode) -> boolean,
+  read destroy: (Output) -> boolean,
 }
 
 export type SpawnOptions = {
@@ -169,20 +169,20 @@ export type ClaimOptions = {
 }
 
 export type Claim = {
-  dead: boolean,
-  id: number,
-  granted: boolean,
+  read dead: boolean,
+  read id: number,
+  read granted: boolean,
   -- The real LÖVR `Layer`, or `false` while the claim holds none. Never cached
   -- across frames: what it names goes away on revoke.
-  layer: Layer | false,
-  priority: number,
+  read layer: Layer | false,
+  read priority: number,
   -- The layer's size, which is the requested size quantised up a ladder, and
   -- nothing while the claim holds no layer.
-  width: number?,
-  height: number?,
-  window: Window?,
-  setPriority: (Claim, number) -> boolean,
-  release: (Claim) -> boolean,
+  read width: number?,
+  read height: number?,
+  read window: Window?,
+  read setPriority: (Claim, number) -> boolean,
+  read release: (Claim) -> boolean,
 }
 
 local lunette = {

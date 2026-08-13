@@ -316,7 +316,7 @@ end
 
 -- Presses and releases one keycode on whatever holds focus, with `modifiers`
 -- held for the duration and cleared afterwards.
-local function stroke(keycode, modifiers)
+local function stroke(keycode: number, modifiers: { string }): boolean
   local seat, sink = interaction.focused()
   if not seat or not sink then
     return false
