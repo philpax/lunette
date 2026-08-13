@@ -1,8 +1,21 @@
 //! Generates the Luau definitions the type checker loads.
 //!
-//! Runs lovr-docs' `generators/luau.lua` against the pinned lovr-docs
-//! `api/init.lua` using the Luau embedded in LÖVR, splices in what lovr-docs
-//! does not describe, and writes `etc/lunette/definitions.luau`.
+//! Runs lovr-docs' own `api/main.lua` against the pinned metadata using the Luau
+//! embedded in LÖVR, splices in what lovr-docs does not describe, and writes
+//! `etc/lunette/definitions.luau`.
+//!
+//! The aggregator rather than the aggregate. `api/init.lua` is a generated file
+//! of some forty-six thousand lines, and consuming it means a fix to a per-file
+//! document has no effect until that file is regenerated, which is a step
+//! nothing enforces and which was missed. Running the aggregator reads the
+//! per-file documents directly.
+//!
+//! `api/main.lua` is written to run inside LÖVR: it walks the tree with
+//! `lovr.filesystem`, loads each document with `require`, reads `arg` for the
+//! generator's name, and finishes by calling `lovr.event.quit`. This driver
+//! supplies each of those over the real directory, and it supplies `io.popen`,
+//! which the aggregator uses to ask git for the current branch. It answers with
+//! the fork's branch, so the aggregator's `dev` checks stay off.
 //!
 //! This executes the literal lovr-docs generator rather than porting it, so
 //! the definitions cannot diverge from the metadata. The generator is
@@ -26,9 +39,16 @@ use std::{
 use mlua::{Lua, Table};
 use tracing::{error, info};
 
-/// The generator's own name, and the metadata it reads.
-const GENERATOR: &str = "vendor/lovr-docs/api/generators/luau.lua";
-const METADATA: &str = "vendor/lovr-docs/api/init.lua";
+/// The aggregator, and the directory it and its documents are read from.
+const AGGREGATOR: &str = "vendor/lovr-docs/api/main.lua";
+const API_ROOT: &str = "vendor/lovr-docs/api";
+
+/// Which generator `api/main.lua` is told to run, as `arg[1]`.
+const GENERATOR: &str = "luau";
+
+/// What `io.popen` answers when the aggregator asks git for the branch. Any
+/// name but `dev` leaves its unreleased-API checks off, and this is the fork's.
+const FORK_BRANCH: &str = "lunette";
 /// What the checker loads: the generated definitions, plus what lovr-docs does
 /// not describe.
 const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
@@ -99,27 +119,22 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
 
     let lua = Lua::new();
 
-    install_generator_globals(&lua)?;
+    let api_root = root.join(API_ROOT);
+    install_generator_globals(&lua, &api_root)?;
 
-    // Load the aggregated API metadata into `api`.
-    let metadata = fs::read_to_string(root.join(METADATA))?;
-    let api: Table = lua
-        .load(&metadata)
-        .set_name("@lovr-docs/api/init.lua")
-        .eval()?;
+    // `api/main.lua` puts its work in `lovr.load` and runs the generator from
+    // there, so loading the chunk defines it and calling it does the work.
+    let aggregator = fs::read_to_string(root.join(AGGREGATOR))?;
+    lua.load(&aggregator)
+        .set_name("@lovr-docs/api/main.lua")
+        .exec()?;
 
-    // The generator writes to the filesystem rather than returning its output.
-    let generator = fs::read_to_string(root.join(GENERATOR))?;
-    let generator_fn: mlua::Function = lua
-        .load(&generator)
-        .set_name("@lovr-docs/generators/luau.lua")
-        .eval()?;
-
-    generator_fn.call::<()>(&api)?;
+    let lovr: Table = lua.globals().get("lovr")?;
+    let load: mlua::Function = lovr.get("load")?;
+    load.call::<()>(())?;
 
     // The generator wrote to getSource()/luau/lovr.d.luau. Discover where
     // getSource pointed.
-    let lovr: Table = lua.globals().get("lovr")?;
     let filesystem: Table = lovr.get("filesystem")?;
     let get_source: mlua::Function = filesystem.get("getSource")?;
     let source_dir: String = get_source.call(())?;
@@ -193,7 +208,7 @@ fn compare(path: &Path, generated: &str) -> Result<bool, Box<dyn std::error::Err
 
 /// Provides the small `lovr` surface the generator touches: `filesystem.getSource`
 /// pointing at a temporary output directory, and `system.getOS` saying Linux.
-fn install_generator_globals(lua: &Lua) -> mlua::Result<()> {
+fn install_generator_globals(lua: &Lua, api_root: &Path) -> mlua::Result<()> {
     let out_dir = std::env::temp_dir().join("lovr-docs-generator");
     fs::create_dir_all(&out_dir).map_err(mlua::Error::external)?;
 
@@ -204,7 +219,38 @@ fn install_generator_globals(lua: &Lua) -> mlua::Result<()> {
     let get_source =
         lua.create_function(move |_, ()| Ok(out_dir.to_string_lossy().into_owned()))?;
     filesystem.set("getSource", get_source)?;
+
+    // The aggregator's view of the documents. Every path it passes is relative
+    // to `api/`, and the listing is sorted so that a run is reproducible: the
+    // order decides the order of the generated declarations.
+    let listing_root = api_root.to_path_buf();
+    let get_directory_items = lua.create_function(move |lua, path: String| {
+        let mut names: Vec<String> = fs::read_dir(listing_root.join(&path))
+            .map_err(mlua::Error::external)?
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        lua.create_sequence_from(names)
+    })?;
+    filesystem.set("getDirectoryItems", get_directory_items)?;
+
+    let file_root = api_root.to_path_buf();
+    let is_file =
+        lua.create_function(move |_, path: String| Ok(file_root.join(&path).is_file()))?;
+    filesystem.set("isFile", is_file)?;
+
+    let directory_root = api_root.to_path_buf();
+    let is_directory =
+        lua.create_function(move |_, path: String| Ok(directory_root.join(&path).is_dir()))?;
+    filesystem.set("isDirectory", is_directory)?;
+
     lovr.set("filesystem", filesystem)?;
+
+    // The aggregator's last statement. Nothing here has a session to end.
+    let event = lua.create_table()?;
+    event.set("quit", lua.create_function(|_, ()| Ok(()))?)?;
+    lovr.set("event", event)?;
 
     let system = lua.create_table()?;
     let get_os = lua.create_function(|_, ()| Ok("Linux".to_string()))?;
@@ -212,6 +258,11 @@ fn install_generator_globals(lua: &Lua) -> mlua::Result<()> {
     lovr.set("system", system)?;
 
     globals.set("lovr", lovr)?;
+
+    // Which generator to run, read as `arg[1]`.
+    globals.set("arg", lua.create_sequence_from([GENERATOR])?)?;
+
+    install_require(lua, api_root)?;
 
     // The generator makes its output directory via `os.execute` and writes the
     // definitions through `io.open`. mlua's safe environment exposes neither,
@@ -257,10 +308,72 @@ fn install_generator_globals(lua: &Lua) -> mlua::Result<()> {
         handle.set("close", close)?;
         Ok(handle)
     })?;
+    // `debug.getregistry` is how the aggregator reaches a LÖVR type's metatable
+    // to check the documented methods against the real ones. Luau has no such
+    // function and there is no live LÖVR here, so it answers an empty table:
+    // the checks it feeds are already behind the `dev` flag.
+    let debug_table: Table = globals.get("debug")?;
+    let get_registry = lua.create_function(|lua, ()| lua.create_table())?;
+    debug_table.set("getregistry", get_registry)?;
+
+    // The aggregator's first three lines ask git which branch is checked out,
+    // and turn `dev` into a flag that enables checks against unreleased API.
+    // The answer is the fork's branch, so those stay off.
+    let io_popen = lua.create_function(|lua, _command: String| {
+        let handle = lua.create_table()?;
+        let read = lua.create_function(|_, (_self, _format): (mlua::Table, Option<String>)| {
+            Ok(FORK_BRANCH.to_owned())
+        })?;
+        handle.set("read", read)?;
+        handle.set(
+            "close",
+            lua.create_function(|_, (_self,): (mlua::Table,)| Ok(()))?,
+        )?;
+        Ok(handle)
+    })?;
+
     let io_table = lua.create_table()?;
     io_table.set("open", io_open)?;
+    io_table.set("popen", io_popen)?;
     globals.set("io", io_table)?;
 
+    Ok(())
+}
+
+/// Installs the `require` the aggregator loads each document with.
+///
+/// LÖVR's loader copies the module name into a path substituting only `.` for
+/// `/`, and the aggregator relies on that: it builds slash-separated paths and
+/// appends `.init` for a directory's own document, so `lovr/math.init` names
+/// `lovr/math/init.lua`. This is that rule, rooted at `api/`.
+///
+/// Results are cached, as `require` requires: the aggregator loads a document
+/// once per reference and there are several thousand references.
+fn install_require(lua: &Lua, api_root: &Path) -> mlua::Result<()> {
+    let root = api_root.to_path_buf();
+    let loaded = lua.create_table()?;
+
+    let require = lua.create_function(move |lua, name: String| {
+        let loaded: Table = lua.named_registry_value("lovr-docs-loaded")?;
+        if let Ok(value) = loaded.get::<mlua::Value>(name.clone())
+            && !value.is_nil()
+        {
+            return Ok(value);
+        }
+
+        let path = root.join(format!("{}.lua", name.replace('.', "/")));
+        let source = fs::read_to_string(&path)
+            .map_err(|cause| mlua::Error::external(format!("{}: {cause}", path.display())))?;
+        let value: mlua::Value = lua
+            .load(&source)
+            .set_name(format!("@lovr-docs/api/{}.lua", name.replace('.', "/")))
+            .eval()?;
+        loaded.set(name, value.clone())?;
+        Ok(value)
+    })?;
+
+    lua.set_named_registry_value("lovr-docs-loaded", loaded)?;
+    lua.globals().set("require", require)?;
     Ok(())
 }
 
