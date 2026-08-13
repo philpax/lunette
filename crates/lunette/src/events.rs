@@ -592,6 +592,35 @@ mod tests {
     /// The longest name `CustomEvent.name` can carry: 31 bytes and the NUL.
     const LONGEST: &str = "lunabcdefghijklmnopqrstuvwxyz01";
 
+    /// The checked-in definitions, embedded rather than read, so the test needs
+    /// no filesystem and cannot pass against a stale copy on disk.
+    const DEFINITIONS: &str = include_str!("../../../etc/lunette/definitions.luau");
+
+    /// Every event this build delivers is declared, so a handler for one passes
+    /// `lunette check`.
+    ///
+    /// `declare lovr` is an exact table, so a callback the definitions omit is
+    /// not merely unchecked: assigning it is an error, and a configuration
+    /// following `docs/lua-api.md` fails the check. The two lists are written
+    /// out separately — the names here, the declarations in
+    /// `crates/lunette-generate-definitions` — and this is what keeps them in
+    /// step.
+    #[test]
+    fn every_event_this_build_delivers_is_declared_in_the_definitions() {
+        let missing: Vec<&str> = EVENT_NAMES
+            .iter()
+            .map(|name| name.as_str())
+            .filter(|name| !DEFINITIONS.contains(&format!("\n    {name}: ")))
+            .collect();
+
+        assert_eq!(
+            missing,
+            Vec::<&str>::new(),
+            "each of these is dispatched and undeclared; declare it in \
+             LUNETTE_LOVR_FIELDS and regenerate"
+        );
+    }
+
     #[test]
     fn every_event_this_build_delivers_has_a_distinct_name() {
         let mut names: Vec<&str> = EVENT_NAMES.iter().map(|name| name.as_str()).collect();

@@ -82,7 +82,11 @@ declare _G: {
 const LUNETTE_LOVR_FIELDS: &str = "    lun: ((name: string, ...any) -> ())?,
     lunerror: ((error: any) -> ())?,
     lunlayergranted: ((event: any) -> ())?,
+    lunlayerrevoked: ((event: any) -> ())?,
+    lunmonitoradded: ((event: any) -> ())?,
     lunprocessexited: ((event: any) -> ())?,
+    lunprocessoutput: ((event: any) -> ())?,
+    luntitlechanged: ((event: any) -> ())?,
     lunwindowclosed: ((event: any) -> ())?,
     lunwindowopened: ((event: any) -> ())?,
 ";
