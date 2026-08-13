@@ -75,6 +75,11 @@ function grab.beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolea
 
   local targetPose = target.pose
   if not targetPose then
+    -- The field is set above because the scaling branch reports through it. A
+    -- refusal has to leave the pointer as it found it: `update` returns early
+    -- on a pointer that holds something, so a grab that never began would
+    -- suppress hover, pick, and click until the grip was released.
+    self.grabbed = nil
     return false
   end
   local inverse: Mat4 = lovr.math.newMat4(handPose):invert()
