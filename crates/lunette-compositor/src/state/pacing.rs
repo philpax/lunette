@@ -135,11 +135,22 @@ impl CompositorState {
     /// WayVR reads the wall clock and unwraps the conversion (`time.rs:4-9`).
     /// Wayland's timestamps must be monotonic and a wall clock is not, so this
     /// is monotonic by construction.
+    #[cfg(not(any(test, feature = "test-fakes")))]
     fn elapsed(&self) -> Duration {
-        let elapsed = self.started.elapsed();
-        #[cfg(any(test, feature = "test-fakes"))]
-        let elapsed = elapsed + self.clock_offset;
-        elapsed
+        self.started.elapsed()
+    }
+
+    /// The same, on the virtual clock a test drives.
+    ///
+    /// Real time is deliberately absent. A test that reaches a pacing interval
+    /// by advancing the clock is measuring one thing, and a test that reaches
+    /// it by taking a hundred milliseconds to settle a round on a loaded
+    /// machine is measuring another: with both summed, a surface came due
+    /// because the runner was busy, and the case asserting it was not yet due
+    /// failed.
+    #[cfg(any(test, feature = "test-fakes"))]
+    fn elapsed(&self) -> Duration {
+        self.clock_offset
     }
 
     /// Moves the compositor's clock forward, so a test can reach a pacing

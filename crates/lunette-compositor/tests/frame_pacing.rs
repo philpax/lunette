@@ -235,6 +235,10 @@ fn returning_a_surface_to_view_answers_it_without_serving_out_the_slow_interval(
 
     pace(&compositor, surface, limited(60.0));
     client.settle_quiet(&mut compositor);
+
+    // One 60 Hz interval is enough, where the 1 Hz pacing it was under would
+    // have held the surface for the remaining half second.
+    compositor.advance_clock(Duration::from_millis(17));
     expect_frame(&mut compositor, &mut client);
 }
 

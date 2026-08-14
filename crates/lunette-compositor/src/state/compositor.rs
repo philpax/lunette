@@ -279,9 +279,18 @@ pub(crate) struct CompositorState {
     /// WayVR reads the wall clock and unwraps the conversion (`time.rs:4-9`).
     /// Wayland's timestamps must be monotonic, and a wall clock is not: a clock
     /// step backwards makes a client see time reverse, and NTP steps happen.
+    /// A test reads the virtual clock instead, so this is unread there. It is
+    /// still constructed, so that the two builds hold the same state.
+    #[cfg_attr(
+        any(test, feature = "test-fakes"),
+        expect(
+            dead_code,
+            reason = "the test clock is virtual and reads clock_offset alone"
+        )
+    )]
     pub(super) started: Instant,
-    /// Added to the compositor's clock so a test can move time forward without
-    /// sleeping. Always zero in production; see
+    /// The compositor's clock under test, which advances only when a test says
+    /// so. Absent in production, where time comes from `started`; see
     /// [`CompositorState::advance_clock`].
     #[cfg(any(test, feature = "test-fakes"))]
     pub(super) clock_offset: Duration,
