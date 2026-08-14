@@ -1,34 +1,48 @@
 name: check
 
 # The standing checks CONTRIBUTING.md lists. Each job runs a `make` target
-# rather than restating the commands, so the list has one definition and a
-# contributor running `make check` runs what CI runs.
+# rather than restating the commands, so a contributor running `make check`
+# runs what CI runs.
+
+# Only main on push. A branch with a pull request open raises both events for
+# one commit, and the pull request's run is the one that checks the merge
+# result. A branch with no pull request open is not checked until one is.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
+
+# Successive pushes to a branch cancel each other. The group is keyed on the
+# branch under either event.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+# Nothing here writes to the repository. The StyLua action needs a token to
+# fetch a release.
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  # A failed build in CI is read once and thrown away, so the debug information
-  # is a download cost with no reader.
-  CARGO_PROFILE_DEV_DEBUG: 0
+  # A CI log is read for the file and line a panic came from, and the rest of
+  # the debug information is cache size and linker work. Both profiles are set:
+  # `cargo test` builds under `test` and `cargo run` under `dev`, and artifacts
+  # are shared only when the settings match.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
-  # Both formatters. Neither compiles anything, so this needs no submodules and
-  # none of the system libraries the LÖVR build wants.
   format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # CONTRIBUTING.md requires nightly rustfmt: rustfmt.toml opts into
-      # imports_granularity and group_imports, which stable skips silently.
+      # rustfmt.toml opts into imports_granularity and group_imports, which
+      # stable rustfmt skips silently.
       - name: Install nightly rustfmt
         run: rustup toolchain install nightly --profile minimal --component rustfmt
 
-      # Installs the binary and puts it on PATH; `--version` is the cheapest
-      # thing to run, since `make check-format` is what checks the tree.
       - name: Install StyLua
         uses: JohnnyMorganz/stylua-action@v4
         with:
@@ -38,41 +52,52 @@ jobs:
 
       - run: make check-format
 
-  # Everything that compiles the workspace. LÖVR is built from source by
-  # crates/lunette-lovr's build script, which is most of the wall clock here.
+  # The halves are separate jobs because clippy builds through
+  # RUSTC_WORKSPACE_WRAPPER and shares no artifacts with a normal build. The
+  # generated-artifact checks ride with the test half, which is the half that
+  # has binaries to run.
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        half: [clippy, test]
+    name: build (${{ matrix.half }})
     runs-on: ubuntu-latest
     env:
-      # Where the JoltPhysics checkout below lands. The build script points
-      # FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS at it, which is what keeps cmake off
-      # the network.
+      # The build script points FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS here, which
+      # keeps cmake off the network.
       LUNETTE_JOLTPHYSICS_SRC: ${{ github.workspace }}/.jolt
       # crates/lunette/tests/mullion_spec.rs boots a session, which opens a
-      # listening socket under the runtime directory, and LÖVR's save directory
-      # derives from the state one. A runner sets neither.
+      # socket under the runtime directory and resolves its state directory from
+      # XDG_STATE_HOME or else from HOME. A runner sets neither, and the tests
+      # remove HOME.
       XDG_RUNTIME_DIR: ${{ github.workspace }}/.runtime
       XDG_STATE_HOME: ${{ github.workspace }}/.state
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          # The dating step below reads the history to find the commit that last
+          # wrote each file.
+          fetch-depth: 0
+
+      # Not `submodules: recursive` on the checkout: fetch-depth is not
+      # per-repository, and only the pinned commit of each is built. The clones
+      # wait on the network rather than on the runner's cores.
+      - name: Check out the submodules
+        run: git submodule update --init --recursive --depth 1 --jobs 8
 
       - name: Install the system dependencies
         # The devshell's buildInputs and nativeBuildInputs, as their Debian
-        # names. libclang is what bindgen parses LÖVR's headers with, and the
-        # rest are what LÖVR, the compositor, and the capture stack link
-        # against.
+        # names. libclang is what bindgen parses LÖVR's headers with.
         #
-        # The devshell's list does not map one to one. nixpkgs ships every xcb
-        # extension in libxcb, and the Xlib and xkbcommon bridges to xcb in
-        # libx11 and libxkbcommon; Debian splits all four out. LÖVR's Linux
-        # backend links X11-xcb, xcb-xinput, xcb-xkb, and xkbcommon-x11
-        # (vendor/lovr/CMakeLists.txt:949), so the split packages are named
-        # here even though nothing in the devshell names them.
+        # nixpkgs ships every xcb extension in libxcb, and the Xlib and
+        # xkbcommon bridges to xcb in libx11 and libxkbcommon; Debian splits all
+        # four out. LÖVR's Linux backend links X11-xcb, xcb-xinput, xcb-xkb, and
+        # xkbcommon-x11 (vendor/lovr/CMakeLists.txt:949).
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            cmake ninja-build pkg-config python3 \
+            cmake pkg-config python3 \
             libclang-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxcb1-dev libxext-dev libxkbcommon-dev \
@@ -82,14 +107,34 @@ jobs:
             libwayland-dev wayland-protocols \
             libopenxr-dev
 
+      # A checkout stamps every file with the time it runs, which is newer than
+      # the artifacts the cache restores. Cargo compares mtimes, so without this
+      # nothing in the cache is fresh: every crate is rebuilt, and
+      # lunette-lovr's build script re-runs cmake over LÖVR's C++ once for each
+      # of the clippy, test, and dev units.
+      #
+      # Debian's git-restore-mtime is not used. It drives `git whatchanged`,
+      # which git 2.50 and later refuse to run without `--i-still-use-this`, and
+      # it exits 0 having stamped nothing.
+      - name: Date the tree from its commits
+        run: |
+          git -c core.quotePath=false log --no-merges --pretty=format:@%ct --name-only |
+            awk '/^@/ { stamp = substr($0, 2); next }
+                 NF && !seen[$0]++ { print stamp "\t" $0 }' |
+            while IFS=$'\t' read -r stamp path; do
+              if [ -e "$path" ]; then touch -h -d "@$stamp" -- "$path"; fi
+            done
+          git submodule foreach --recursive --quiet '
+            stamp=$(git show -s --format=%ct HEAD)
+            find . -type f -not -path "./.git/*" -exec touch -h -d "@$stamp" {} +
+          '
+
       - name: Make the runtime directories
         run: mkdir -p .runtime .state && chmod 700 .runtime
 
       # deps/joltc reaches JoltPhysics through FetchContent, which wants the
-      # network at configure time. The devshell prefetches it and points
-      # FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS at the result; this does the same
-      # with a checkout. The tag is what deps/joltc/CMakeLists.txt declares as
-      # its GIT_TAG, and moves when that submodule is bumped.
+      # network at configure time. The tag is what deps/joltc/CMakeLists.txt
+      # declares as its GIT_TAG, and moves when that submodule is bumped.
       - name: Fetch JoltPhysics
         uses: actions/checkout@v4
         with:
@@ -99,28 +144,27 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # The LÖVR build lives under target/, so the cache is what keeps the
-          # ten-minute cmake configure off the common path.
+          # A cache is written once: an exact key match saves nothing, so
+          # replacing a lineage means bumping this.
+          prefix-key: v1
+          # The halves keep separate caches, because their artifacts are separate.
+          key: ${{ matrix.half }}
           cache-all-crates: true
-          # LÖVR is built by crates/lunette-lovr's build script into that
-          # crate's OUT_DIR. The action's prune keeps a target entry only when
-          # its package is in the set it was handed, and by default that set
-          # holds dependencies alone, on the reasoning that one's own crates
-          # are cheap to rebuild. That reasoning does not hold for a crate
-          # wrapping a cmake tree, and this is what puts the workspace members
-          # in the set the prune consults.
+          # LÖVR is built into crates/lunette-lovr's OUT_DIR. The prune keeps
+          # only the packages it is handed, which by default excludes the
+          # workspace's own crates on the reasoning that they are cheap to
+          # rebuild. That does not hold for a crate wrapping a cmake tree.
           cache-workspace-crates: true
-          # A run that fails still paid for everything it compiled before the
-          # failure. Without this, iterating on a red CI recompiles the world
-          # every time, because the action saves nothing unless the job passes.
+          # Without this the action saves nothing unless the job passes, and
+          # iterating on a red CI recompiles everything each time.
           cache-on-failure: true
 
-      - run: make check-rust
+      - run: make check-${{ matrix.half }}
 
       # The definitions are generated and checked in. Nothing else notices when
       # the metadata moves and the artifact does not.
       - run: make check-definitions
+        if: matrix.half == 'test'
 
-      # The same in-process checker `lunette check` runs, over the standard
-      # library and the shipped configuration.
       - run: make check-luau
+        if: matrix.half == 'test'

@@ -199,7 +199,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `make check-format`
     - `cargo +nightly fmt --all -- --check`
     - `stylua --check lua etc/xdg/lunette` — the Luau formatter (see [formatting](#formatting))
-  - `make check-rust`
+  - `make check-rust`, which is `make check-clippy` and `make check-test`. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
     - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
     - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
     - `cargo test --workspace`

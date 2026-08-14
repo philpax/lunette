@@ -47,7 +47,7 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build install install-binary install-lua install-config check check-format check-rust check-definitions check-luau clean
+.PHONY: all build install install-binary install-lua install-config check check-format check-rust check-clippy check-test check-definitions check-luau clean
 
 all: build
 
@@ -62,9 +62,17 @@ check-format:
 	$(CARGO) +nightly fmt --all -- --check
 	stylua --check lua etc/xdg/lunette
 
-check-rust:
+# Split in two because clippy and the tests share no artifacts — clippy builds
+# through RUSTC_WORKSPACE_WRAPPER and keeps its own — so CI runs the halves as
+# separate jobs at the same time. `check-rust` runs both, which is what a
+# contributor wants.
+check-rust: check-clippy check-test
+
+check-clippy:
 	$(CARGO) clippy --workspace --all-targets --all-features -- -D warnings
 	$(CARGO) clippy --workspace --all-targets --no-default-features -- -D warnings
+
+check-test:
 	$(CARGO) test --workspace
 	$(CARGO) test --workspace --no-default-features
 
