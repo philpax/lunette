@@ -54,6 +54,9 @@ pub enum InputDomain {
 }
 
 impl InputDomain {
+    /// Every name, in the order Lua's type states them.
+    pub const NAMES: &'static [&'static str] = &[Self::Window.as_str(), Self::Host.as_str()];
+
     /// The name Lua reads on `sink.domain`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {

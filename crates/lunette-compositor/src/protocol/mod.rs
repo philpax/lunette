@@ -588,6 +588,14 @@ pub enum ContentType {
 }
 
 impl ContentType {
+    /// Every name, in the order Lua's type states them.
+    pub const NAMES: &'static [&'static str] = &[
+        Self::None.as_str(),
+        Self::Photo.as_str(),
+        Self::Video.as_str(),
+        Self::Game.as_str(),
+    ];
+
     /// The name Lua reads on `win.contentType`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
