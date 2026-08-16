@@ -148,7 +148,13 @@ fn main() -> ExitCode {
         };
 
         let source = PathBuf::from(SYSCONFDIR).join("xdg").join("lunette");
-        return match cli::dump(&source, destination) {
+        // Absolute, because the file it is written into is one the user may
+        // open from anywhere, and a relative alias would resolve against
+        // whichever directory their editor happened to start in.
+        let standard_library = absolute(&standard_library_directory(
+            &StandardLibrarySources::from_environment(),
+        ));
+        return match cli::dump(&source, destination, &standard_library) {
             Ok(written) => {
                 for path in written {
                     info!(path = %path.display(), "wrote");
@@ -760,6 +766,20 @@ fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
 /// asked for and not something they would see.
 fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
     value.filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
+/// Resolves a path against the working directory when it is relative.
+///
+/// The standard-library override is deliberately allowed to be relative, so
+/// that `LUNETTE_STDLIB_PATH=lua` works from the source tree. A `.luaurc`
+/// carrying that path verbatim would resolve against the reader's directory
+/// rather than the writer's, so it is made absolute where it is written and
+/// nowhere else.
+fn absolute(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_owned();
+    }
+    env::current_dir().map_or_else(|_| path.to_owned(), |current| current.join(path))
 }
 
 fn absolute_path(value: Option<OsString>) -> Option<PathBuf> {

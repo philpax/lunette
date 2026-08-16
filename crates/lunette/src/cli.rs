@@ -14,6 +14,7 @@ use std::{
 };
 
 use clap::Parser;
+use lunette::aliases;
 
 /// What lunette was asked to do.
 #[derive(Debug, Parser)]
@@ -71,7 +72,18 @@ pub enum Command {
 /// Refusing rather than merging is the point: the file this writes is one the
 /// user is about to edit, and a copy landing on top of an edited configuration
 /// would destroy the work it was meant to start.
-pub fn dump(source: &Path, destination: &Path) -> Result<Vec<PathBuf>, DumpError> {
+///
+/// The `.luaurc` is written rather than copied, and it names `standard_library`
+/// by an absolute path. The one in the source tree resolves its aliases
+/// relative to itself, which is true only where it sits; a copy of it beside a
+/// user's configuration would name a directory that is not there, and every
+/// `require '@mullion/…'` would fail to resolve for the checker and for their
+/// editor.
+pub fn dump(
+    source: &Path,
+    destination: &Path,
+    standard_library: &Path,
+) -> Result<Vec<PathBuf>, DumpError> {
     if !source.is_dir() {
         return Err(DumpError::NoDefault(source.to_owned()));
     }
@@ -99,13 +111,29 @@ pub fn dump(source: &Path, destination: &Path) -> Result<Vec<PathBuf>, DumpError
         if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
             continue;
         }
+        // Written below against this installation rather than copied from a
+        // tree whose relative paths do not survive the move.
+        if entry.file_name() == ALIAS_FILE {
+            continue;
+        }
         let target = destination.join(entry.file_name());
         fs::copy(entry.path(), &target).map_err(|error| DumpError::Write(target.clone(), error))?;
         written.push(target);
     }
 
+    let target = destination.join(ALIAS_FILE);
+    fs::write(
+        &target,
+        aliases::luaurc(&standard_library.display().to_string()),
+    )
+    .map_err(|error| DumpError::Write(target.clone(), error))?;
+    written.push(target);
+
     Ok(written)
 }
+
+/// What Luau reads a directory's aliases from.
+const ALIAS_FILE: &str = ".luaurc";
 
 /// Why a configuration could not be written.
 #[derive(Debug)]
@@ -153,5 +181,89 @@ impl std::error::Error for DumpError {
             Self::Read(_, error) | Self::Write(_, error) => Some(error),
             Self::NoDefault(_) | Self::Exists(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    /// Builds a default configuration directory with the `.luaurc` a source
+    /// tree carries, whose relative aliases are true only where it sits.
+    fn source() -> TempDir {
+        let directory = TempDir::new().expect("a temporary directory");
+        fs::write(directory.path().join("main.lua"), "-- main\n").expect("main.lua");
+        fs::write(directory.path().join("conf.lua"), "-- conf\n").expect("conf.lua");
+        fs::write(
+            directory.path().join(".luaurc"),
+            aliases::luaurc("../../../lua"),
+        )
+        .expect("a source .luaurc");
+        directory
+    }
+
+    #[test]
+    fn a_dumped_configuration_carries_aliases_that_resolve_from_where_it_lands() {
+        let source = source();
+        let destination = TempDir::new().expect("a temporary directory");
+        let destination = destination.path().join("lunette");
+
+        let written = dump(
+            source.path(),
+            &destination,
+            Path::new("/usr/local/share/lunette/lua"),
+        )
+        .expect("the configuration to be written");
+
+        assert!(written.contains(&destination.join(".luaurc")));
+        let rendered = fs::read_to_string(destination.join(".luaurc")).expect("the written file");
+        assert!(
+            rendered.contains("\"mullion\": \"/usr/local/share/lunette/lua/mullion\""),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains(".."),
+            "a relative alias survived the copy: {rendered}"
+        );
+    }
+
+    #[test]
+    fn the_lua_files_are_copied_as_they_stand() {
+        let source = source();
+        let destination = TempDir::new().expect("a temporary directory");
+        let destination = destination.path().join("lunette");
+
+        dump(source.path(), &destination, Path::new("/somewhere/lua")).expect("the copy");
+
+        assert_eq!(
+            fs::read_to_string(destination.join("main.lua")).expect("main.lua"),
+            "-- main\n"
+        );
+    }
+
+    #[test]
+    fn nothing_is_overwritten() {
+        let source = source();
+        let destination = TempDir::new().expect("a temporary directory");
+        fs::write(destination.path().join("main.lua"), "-- theirs\n").expect("their main.lua");
+
+        let error = dump(
+            source.path(),
+            destination.path(),
+            Path::new("/somewhere/lua"),
+        )
+        .expect_err("a refusal");
+
+        assert!(matches!(error, DumpError::Exists(_)));
+        assert_eq!(
+            fs::read_to_string(destination.path().join("main.lua")).expect("their main.lua"),
+            "-- theirs\n",
+        );
     }
 }

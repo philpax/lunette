@@ -12,9 +12,10 @@
 --
 -- Everything here is policy. `lunette` is the mechanism underneath, `mullion` is
 -- policy written in Lua on top of it, and this file is one arrangement of that
--- policy — copy it to $XDG_CONFIG_HOME/lunette and change whatever you like. A
--- configuration that never mentions `mullion` is supported too; nothing in the
--- loading path assumes this one does.
+-- policy — `lunette --dump-config` copies it to $XDG_CONFIG_HOME/lunette, where
+-- you can change whatever you like. A configuration that never mentions
+-- `mullion` is supported too; nothing in the loading path assumes this one
+-- does.
 --
 -- Anything this does not draw stays transparent, because conf.lua requests the
 -- overlay extension, so lunette composites over whatever holds the primary

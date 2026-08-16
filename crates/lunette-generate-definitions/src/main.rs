@@ -57,6 +57,18 @@ const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
 /// registration surface rather than from lovr-docs.
 const MODULE_DECLARATIONS: &str = "lua/lunette/init.luau";
 
+/// The `.luaurc` files that tell the checker where a `@root` resolves, and the
+/// path each one reaches the standard library by, written as Luau resolves it:
+/// relative to the file's own directory.
+///
+/// Generated because the session mounts the same roots from
+/// [`lunette::aliases`], and a root added to one and not the other is a
+/// configuration that runs but cannot be checked.
+const ALIAS_FILES: &[(&str, &str)] = &[
+    ("lua/.luaurc", "."),
+    ("etc/xdg/lunette/.luaurc", "../../../lua"),
+];
+
 /// What the checker needs that lovr-docs does not describe.
 ///
 /// Luau registers the standard functions itself, correctly typed, so declaring
@@ -152,10 +164,15 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let definitions = format!("{FORK_GLOBALS}\n{}", with_lunette_fields(&text)?);
     let declarations = lunette::lua::declarations::render();
 
-    let generated = [
+    let mut generated = vec![
         (CHECKER_DEFINITIONS, definitions),
         (MODULE_DECLARATIONS, declarations),
     ];
+    generated.extend(
+        ALIAS_FILES
+            .iter()
+            .map(|(path, root)| (*path, lunette::aliases::luaurc(root))),
+    );
 
     if checking {
         let mut current = true;

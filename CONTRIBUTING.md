@@ -22,7 +22,7 @@ crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/
 crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
 crates/lunette-luau/                  the Luau type language, and the closed-set macro
 crates/lunette-capture/               wrappers over wlx-capture and HidProvider
-crates/lunette-generate-definitions/  generates etc/lunette/definitions.luau and lua/lunette/init.luau
+crates/lunette-generate-definitions/  generates the Luau definitions, declarations, and .luaurc files
 lua/lunette/                          the generated declarations for the native API
 lua/mullion/                          the mullion standard library
 lua/spec/                             the standard library's own specs
@@ -97,6 +97,14 @@ The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime:
 `lua/spec/suite.lua` and `lua/spec/expect.lua` are checked: they are ordinary modules that happen to be used by tests. The spec files themselves are not, and neither is `lua/spec/runner.lua`. The runner requires by a name it computes from a directory walk, which is the one require form the checker cannot follow. The spec files construct the windows, seats, and sources they drive the standard library with as the smallest table each case needs, and the handle types are exact, so checking them would mean either building a whole handle per case or casting each one. Both make the tests worse at the thing they are for. A case that needs a real shape gets it from the module under test.
 
 The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
+
+### The module roots
+
+`require '@mullion/panel'` resolves twice by two mechanisms that cannot see each other. A running session answers it from LÖVR's virtual filesystem, where `crates/lunette/src/boot.rs` mounts the standard library; the checker and a user's editor answer it from a `.luaurc` on disk, which is Luau's own mechanism and is why a require means the same thing in both. `@lunette` is a third case: it is `package.preload`, so nothing on disk answers it at runtime, while the checker reads the generated declarations at `lua/lunette/init.luau`.
+
+`crates/lunette/src/aliases.rs` states the roots once and everything derives from it. The session mounts what it says to mount; `lua/.luaurc` and `etc/xdg/lunette/.luaurc` are generated from it and verified by `make check-definitions`; and `lunette --dump-config` writes one beside the configuration it copies, naming this installation's standard library by an absolute path.
+
+That last one is why a configuration is copied with the command rather than by hand. A `.luaurc` in the tree resolves its aliases relative to itself, so a copy of it beside a user's own configuration names a directory that is not there and every `require` fails to resolve — for `lunette check` and for their editor both.
 
 ## General conventions
 
@@ -199,7 +207,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
 - Ensure the checks pass at the end of each complete task (you don't need to do this for intermediate steps). `make check` runs all of them and `.github/workflows/ci.yml` calls the same targets, so a check added to the Makefile is added to both. The Makefile carries the commands; what each target is for:
   - `make check-format` — nightly rustfmt, and stylua over the Luau (see [formatting](#formatting))
   - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
-  - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
+  - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).
   - `make check-luau` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 

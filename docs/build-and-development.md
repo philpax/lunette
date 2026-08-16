@@ -13,7 +13,7 @@ lunette/
     lunette-lovr/                 cmake build + FFI surface for LÖVR
     lunette-luau/                 the Luau type language, and the closed-set macro
     lunette-capture/              wrappers over wlx-capture and HidProvider
-    lunette-generate-definitions/ generates etc/lunette/definitions.luau and lua/lunette/init.luau
+    lunette-generate-definitions/ generates the Luau definitions, declarations, and .luaurc files
   lua/lunette/                    the generated declarations for the native API
   lua/mullion/                    the mullion standard library
   lua/spec/                       the standard library's own specs

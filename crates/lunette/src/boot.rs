@@ -41,6 +41,7 @@ use std::{
 };
 
 use lunette::{
+    aliases::{Alias, MULLION, SPEC},
     control::{Budget, CHUNKS_PER_FRAME, ChunkQueue, answer},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
@@ -508,10 +509,10 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: 
             return;
         }
 
-        let mullion_directory = directory.join("mullion");
+        let mullion_directory = directory.join(MULLION.directory);
         let bytes = mullion_directory.as_os_str().as_bytes();
         lua::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
-        let spec_directory = directory.join("spec");
+        let spec_directory = directory.join(SPEC.directory);
         if spec_directory.is_dir() {
             let spec_bytes = spec_directory.as_os_str().as_bytes();
             lua::lua_pushlstring(state, spec_bytes.as_ptr().cast(), spec_bytes.len());
@@ -539,6 +540,23 @@ const FILESYSTEM_MODULE: &CStr = c"lovr.filesystem";
 /// The log handler rides along for the same reason: `boot.lua` assigns its own
 /// `lovr.log` in its chunk body, and requires `lovr.filesystem` from inside
 /// `lovr.boot`, which is after that and before the first message it logs.
+/// Pushes the mount point a root is given, built from the alias rather than
+/// written out, so that the name a session mounts and the name the checker
+/// resolves cannot part.
+///
+/// # Safety
+///
+/// The caller guarantees `state` is a live Lua state with a free stack slot.
+unsafe fn push_mount_point(state: *mut lua::lua_State, alias: &Alias) {
+    let point = alias.mount_point();
+    let bytes = point.as_bytes();
+    // SAFETY: the caller's guarantee, and `point` outlives the call, which is
+    // all Lua needs: it copies the bytes.
+    unsafe {
+        lua::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
+    }
+}
+
 unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State) -> c_int {
     // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the three
     // upvalues the closure was built with and the module name at index 1.
@@ -561,7 +579,7 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
         lua::lua_pushvalue(state, lua::lua_upvalueindex(2));
         // The mount point is explicit so a configuration cannot shadow a
         // mullion module by placing a file with the same dotted name at root.
-        lua::lua_pushliteral(state, c"@mullion");
+        push_mount_point(state, &MULLION);
         // Appended, although the explicit mount point already prevents a
         // configuration file from shadowing the standard-library module.
         lua::lua_pushboolean(state, 1);
@@ -588,7 +606,7 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
             lua::lua_getfield(state, -1, c"mount".as_ptr());
             if lua::lua_type(state, -1) == lua::LUA_TFUNCTION {
                 lua::lua_pushvalue(state, lua::lua_upvalueindex(3));
-                lua::lua_pushliteral(state, c"@spec");
+                push_mount_point(state, &SPEC);
                 lua::lua_pushboolean(state, 1);
                 lua::lua_call(state, 3, 2);
                 if lua::lua_toboolean(state, -2) == 0 {
