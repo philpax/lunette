@@ -7,6 +7,8 @@
 
 use lunette_luau::{Type, Typed};
 
+use crate::lua::declarations::{AliasSpec, Aliased};
+
 /// A value Lua never receives, for the arm of a discriminated handle that
 /// carries none.
 #[derive(Clone, Copy, Debug)]
@@ -27,4 +29,35 @@ impl Typed for Textured {
     fn luau() -> Type {
         Type::Named("Textured")
     }
+}
+
+impl Aliased for Textured {
+    const ALIAS: AliasSpec = AliasSpec {
+        doc: "The handles that carry pixels. A caller with one and no interest in which reads the \
+              fields both have and calls `getTexture`, which is why that method names this as its \
+              receiver on both.",
+        name: Self::luau,
+        definition: |handles| {
+            // Read off the declarations: a handle carries pixels exactly when
+            // one of its methods names this as its receiver, which is what
+            // `getTexture` does. A third such handle joins the union by
+            // declaring that method.
+            let marker = Textured::luau();
+            Type::Union(
+                handles
+                    .iter()
+                    .filter(|handle| {
+                        handle.methods.iter().any(|method| {
+                            matches!(
+                                &method.ty,
+                                Type::Function { receiver: Some(receiver), .. }
+                                    if **receiver == marker
+                            )
+                        })
+                    })
+                    .map(|handle| Type::Named(handle.spec.name))
+                    .collect(),
+            )
+        },
+    };
 }

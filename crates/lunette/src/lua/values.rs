@@ -18,7 +18,7 @@ use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
 use crate::{
     lua::{
         ErrorEvent,
-        declarations::{Parameter, Typed, of},
+        declarations::{AliasSpec, Aliased, Parameter, Typed, of},
     },
     properties::property_value,
 };
@@ -131,6 +131,14 @@ impl Typed for PointerButtonName {
     fn luau() -> Type {
         Type::Named("PointerButton")
     }
+}
+
+impl Aliased for PointerButtonName {
+    const ALIAS: AliasSpec = AliasSpec {
+        doc: "Which pointer button an event names. The runtime refuses anything else.",
+        name: Self::luau,
+        definition: |_| Type::literals(PointerButton::NAMES),
+    };
 }
 
 /// A value a property can hold, on the way in.

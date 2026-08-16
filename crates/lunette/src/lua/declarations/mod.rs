@@ -226,6 +226,29 @@ pub struct Handle {
     pub methods: Vec<Signature>,
 }
 
+/// A type the generated file states as an `export type`, rather than as a
+/// handle or a record.
+///
+/// Declared beside the Rust type that stands for it, so what an alias is called,
+/// what it means, and what it is made of are one thing. The renderer only says
+/// which aliases to emit; leaving one out is caught by the checker, because a
+/// declaration referring to a type nothing declares does not typecheck.
+#[derive(Clone, Copy, Debug)]
+pub struct AliasSpec {
+    pub doc: &'static str,
+    /// What the alias is called, taken from the Rust type's own [`Typed`] impl
+    /// rather than written again.
+    pub name: fn() -> Type,
+    /// What it stands for. Handed the collected handles, because an alias over
+    /// them is read off their declarations rather than listed.
+    pub definition: fn(&[&Handle]) -> Type,
+}
+
+/// A Rust type that the generated file states as an alias.
+pub trait Aliased {
+    const ALIAS: AliasSpec;
+}
+
 /// A property, as the generated file states it.
 #[derive(Debug)]
 pub struct Property {

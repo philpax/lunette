@@ -5,16 +5,14 @@
 
 use std::fmt::Write as _;
 
-use lunette_compositor::protocol::PointerButton;
-
 use crate::{
     events::{payload_records, subscription_functions},
     lua::{
         Claim, ErrorEvent, Monitor, Output, Process, Seat, Sink, Spawn, Window,
         claim::ClaimLayer,
         declarations::{
-            Handle, NullTexture, Property, PropertyType, Record, Recorded, Textured, Type, Typed,
-            collect,
+            AliasSpec, Aliased, Handle, NullTexture, Property, PropertyType, Record, Recorded,
+            Textured, collect,
         },
         module_functions,
         output::{NewOutput, SetMode},
@@ -29,21 +27,19 @@ pub fn render() -> String {
     let mut out = String::from(HEADER);
     let items = surface();
 
-    render_alias(
-        &mut out,
-        &Textured::luau(),
-        "The handles that carry pixels. A caller with one and no interest in which reads the \
-         fields both have and calls `getTexture`, which is why that method names this as its \
-         receiver on both.",
-        &textured(&items),
-    );
+    // The aliases say what they are and what they mean where their Rust types
+    // are; this only says which to emit, and leaving one out does not typecheck.
+    let handles: Vec<&Handle> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Handle(handle) => Some(handle),
+            Item::Record(_) => None,
+        })
+        .collect();
 
-    render_alias(
-        &mut out,
-        &PointerButtonName::luau(),
-        "Which pointer button an event names. The runtime refuses anything else.",
-        &Type::literals(PointerButton::NAMES),
-    );
+    for alias in [Textured::ALIAS, PointerButtonName::ALIAS] {
+        render_alias(&mut out, &alias, &handles);
+    }
 
     for item in &items {
         match item {
@@ -112,39 +108,15 @@ const COLUMNS: usize = 80;
 
 /// Renders one `export type`, naming it by the type the Rust side declares
 /// itself as rather than by a second spelling written here.
-fn render_alias(out: &mut String, alias: &Type, doc: &str, definition: &Type) {
+fn render_alias(out: &mut String, alias: &AliasSpec, handles: &[&Handle]) {
     out.push('\n');
-    render_doc(out, doc, "");
-    let _ = writeln!(out, "export type {alias} = {definition}");
-}
-
-/// The handles that carry pixels.
-///
-/// Read from the surface rather than listed: a handle carries pixels exactly
-/// when one of its methods names `Textured` as its receiver, which is what
-/// `getTexture` does, so the union follows from the declarations instead of
-/// being a second statement of which handles have one.
-fn textured(items: &[Item]) -> Type {
-    let marker = Textured::luau();
-    Type::Union(
-        items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Handle(handle) => handle
-                    .methods
-                    .iter()
-                    .any(|method| {
-                        matches!(
-                            &method.ty,
-                            Type::Function { receiver: Some(receiver), .. }
-                                if **receiver == marker
-                        )
-                    })
-                    .then_some(Type::Named(handle.spec.name)),
-                Item::Record(_) => None,
-            })
-            .collect(),
-    )
+    render_doc(out, alias.doc, "");
+    let _ = writeln!(
+        out,
+        "export type {} = {}",
+        (alias.name)(),
+        (alias.definition)(handles)
+    );
 }
 
 /// Renders a handle as one table, or as the arms of a discriminated union and
