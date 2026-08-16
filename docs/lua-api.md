@@ -31,13 +31,23 @@ function lovr.lunprocessexited(event) end
 function lovr.lunlayergranted(event) end
 ```
 
-`crates/lunette/src/events.rs` declares every callback and the fields each one carries, and `etc/lunette/definitions.luau` is generated from it, so the editor and `lunette check` state the shape of an event rather than this document doing it. A test fails the build if a callback this binary delivers is not declared there.
+`crates/lunette/src/events/mod.rs` declares each event once — its name, the fields its payload carries, and the expression that fills each one — and both the callback list in `etc/lunette/definitions.luau` and a payload type in `lua/lunette/init.luau` are generated from that declaration. `lunprocessexited` reaches Lua as `ProcessExitedEvent`, whose `outcome` is the union of the three names it can hold.
+
+The callbacks themselves are declared taking `any`. A Luau definitions file declares globals and cannot name a module's exported types, so `lovr.lunwindowopened` cannot say it takes a `WindowOpenedEvent` when `Window` exists only inside `@lunette`. A configuration that wants the type annotates its own handler:
+
+```lua
+local lunette = require '@lunette'
+
+function lovr.lunwindowopened(event: lunette.WindowOpenedEvent)
+  print(event.window.title)
+end
+```
 
 The prefix occupies LÖVR's callback namespace permanently and is chosen to be distinctive: `lovr.lun*` is unlikely to collide with any callback added upstream.
 
 `boot.lua`'s poll loop unpacks four arguments, so a payload of more than four values would not arrive. Every event carries a table instead, including the events with one field, so the shape does not differ between callbacks and a field added later is not a change to a signature.
 
-`event.outcome` on `lunprocessexited` says which of `event.code`, `event.signal`, and `event.message` is present, and the declarations carry the values it takes. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
+`event.outcome` on `lunprocessexited` says which of `event.code`, `event.signal`, and `event.message` is present, and `ProcessExitedEvent` carries the three names it can take. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
 
 An event is delivered against the snapshot of the frame it was drained in. `lovr.lunwindowclosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
 

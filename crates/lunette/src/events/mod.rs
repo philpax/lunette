@@ -52,21 +52,28 @@
 //! error panel, the rate limiting, and the wording of a report are
 //! `mullion.error`'s, and that module is where they are decided.
 
+mod macros;
+
 #[cfg(test)]
 use std::cell::RefCell;
 use std::{collections::VecDeque, ffi::c_char, fmt, mem, ptr, rc::Rc};
 
 use lunette_capture::monitor::MonitorKey;
 use lunette_compositor::protocol::{
-    Event as CompositorEvent, ProcessId, ProcessOutcome, Stream, WindowId,
+    Event as CompositorEvent, ProcessId, ProcessOutcome, SignalNumber, Stream, WindowId,
 };
 use lunette_lovr::raw::{CustomEvent, Event as LovrEvent, EventType_EVENT_CUSTOM, lovrEventPush};
 use mlua::{Function, Lua, Table};
 
 use crate::{
     callback_error::report,
+    events::macros::events,
     layers::ClaimId,
-    lua::{Claim, LuaTexture, Monitor, Process, Session, Window},
+    lua::{
+        Claim, LuaTexture, Monitor, Process, Session, Window,
+        declarations::NullTexture,
+        values::{GrantedLayer, OutcomeName, StreamName},
+    },
 };
 
 /// A report the Lua configuration is given a callback for.
@@ -350,7 +357,7 @@ pub(crate) fn install_dispatchers<T: LuaTexture>(
 ) -> mlua::Result<()> {
     let handlers = handlers_table(lua)?;
 
-    for name in EVENT_NAMES {
+    for &name in EVENT_NAMES {
         let session = Rc::clone(session);
         let dispatcher = lua.create_function(move |lua, ()| dispatch(lua, &session, name))?;
         handlers.set(name.as_str(), dispatcher)?;
@@ -359,26 +366,104 @@ pub(crate) fn install_dispatchers<T: LuaTexture>(
     Ok(())
 }
 
-/// The `lun*` events this build delivers, and the order they are installed in.
-pub const EVENT_NAMES: [EventName; 8] = [
-    WINDOW_OPENED,
-    WINDOW_CLOSED,
-    TITLE_CHANGED,
-    MONITOR_ADDED,
-    PROCESS_EXITED,
-    PROCESS_OUTPUT,
-    LAYER_GRANTED,
-    LAYER_REVOKED,
-];
+events! {
+    /// A toplevel was mapped and is in this frame's snapshot.
+    WINDOW_OPENED = lunwindowopened(_lua, session) as WindowOpenedEvent
+        from LuaEvent::WindowOpened { window } =>
+    {
+        /// The window that opened.
+        window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
+    }
 
-const WINDOW_OPENED: EventName = event_name("lunwindowopened");
-const WINDOW_CLOSED: EventName = event_name("lunwindowclosed");
-const TITLE_CHANGED: EventName = event_name("luntitlechanged");
-const MONITOR_ADDED: EventName = event_name("lunmonitoradded");
-const PROCESS_EXITED: EventName = event_name("lunprocessexited");
-const PROCESS_OUTPUT: EventName = event_name("lunprocessoutput");
-const LAYER_GRANTED: EventName = event_name("lunlayergranted");
-const LAYER_REVOKED: EventName = event_name("lunlayerrevoked");
+    /// A toplevel went away. The handle is already dead, because the snapshot the
+    /// handler reads no longer lists the window; it still reports what it last knew.
+    WINDOW_CLOSED = lunwindowclosed(_lua, session) as WindowClosedEvent
+        from LuaEvent::WindowClosed { window } =>
+    {
+        /// The window that closed.
+        window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
+    }
+
+    /// A toplevel changed its title.
+    TITLE_CHANGED = luntitlechanged(_lua, session) as TitleChangedEvent
+        from LuaEvent::TitleChanged { window, title } =>
+    {
+        /// The window whose title changed.
+        window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
+        /// The new title. Also readable as `event.window.title`; carried here because
+        /// the callback is about the change, and a handler diffing against what it
+        /// stored needs the new value in hand.
+        title: String = title.as_str(),
+    }
+
+    /// One of the host's screens appeared, which includes every screen attached when
+    /// lunette started.
+    MONITOR_ADDED = lunmonitoradded(_lua, session) as MonitorAddedEvent
+        from LuaEvent::MonitorAdded { monitor } =>
+    {
+        /// What `lunette-capture` resolved the screen by.
+        id: String = monitor.to_string(),
+        /// The handle, while the screen is still attached. A screen unplugged between
+        /// the report and the dispatch has nothing left to hand over but its name.
+        monitor: Option<Monitor<NullTexture>> = session
+            .mirrors()
+            .state(monitor)
+            .map(|state| Monitor::new(Rc::clone(session), state)),
+    }
+
+    /// A spawned process ended, or never started.
+    PROCESS_EXITED = lunprocessexited(_lua, session) as ProcessExitedEvent
+        from LuaEvent::ProcessExited { process, outcome } =>
+    {
+        /// The process that ended.
+        process: Process<NullTexture> = Process::new(Rc::clone(session), *process),
+        /// Which of the three fields below this event carries. A string rather than the
+        /// presence of a field, so a handler reads it once instead of testing each in
+        /// turn, and a spawn that failed is not mistaken for an exit with no code.
+        outcome: OutcomeName = OutcomeName(outcome.clone()),
+        /// The status it exited with.
+        code: Option<i32> = outcome.code(),
+        /// The signal that killed it.
+        signal: Option<u32> = outcome.signal().map(SignalNumber::get),
+        /// What failed, for a program that never ran.
+        message: Option<String> = outcome.message(),
+    }
+
+    /// A spawned process wrote to one of its captured streams.
+    PROCESS_OUTPUT = lunprocessoutput(lua, session) as ProcessOutputEvent
+        from LuaEvent::ProcessOutput { process, stream, bytes } =>
+    {
+        /// The process that wrote.
+        process: Process<NullTexture> = Process::new(Rc::clone(session), *process),
+        /// Which stream it wrote to.
+        stream: StreamName = StreamName(*stream),
+        /// What it wrote. A Lua string is a byte string, so a child that wrote
+        /// something that is not UTF-8 arrives intact and decoding stays the
+        /// configuration's decision.
+        text: String = lua.create_string(bytes)?,
+    }
+
+    /// A claim was given a composition layer, and the panel holding it should draw
+    /// onto the layer rather than as an in-scene quad.
+    LAYER_GRANTED = lunlayergranted(lua, session) as LayerGrantedEvent
+        from LuaEvent::LayerGranted { claim } =>
+    {
+        /// The claim that was granted.
+        claim: Claim<NullTexture> = Claim::new(Rc::clone(session), *claim),
+        /// The layer it now holds. Never cached across frames: what it names goes away
+        /// on revoke.
+        layer: GrantedLayer = session.claims().push_layer(lua, *claim)?,
+    }
+
+    /// A claim lost its layer to a higher-priority one, and the panel holding it
+    /// should draw as an in-scene quad until it is granted again.
+    LAYER_REVOKED = lunlayerrevoked(_lua, session) as LayerRevokedEvent
+        from LuaEvent::LayerRevoked { claim } =>
+    {
+        /// The claim that was revoked.
+        claim: Claim<NullTexture> = Claim::new(Rc::clone(session), *claim),
+    }
+}
 
 /// Names an event, refusing one that does not fit `CustomEvent.name`.
 ///
@@ -437,92 +522,6 @@ fn dispatch<T: LuaTexture>(
     Ok(())
 }
 
-/// The single table a `lun*` handler is called with.
-fn payload<T: LuaTexture>(
-    lua: &Lua,
-    session: &Rc<Session<T>>,
-    event: &LuaEvent,
-) -> mlua::Result<Table> {
-    let payload = lua.create_table()?;
-
-    match event {
-        LuaEvent::WindowOpened { window } | LuaEvent::WindowClosed { window } => {
-            payload.set("window", Window::for_id(Rc::clone(session), *window))?;
-        }
-        LuaEvent::TitleChanged { window, title } => {
-            payload.set("window", Window::for_id(Rc::clone(session), *window))?;
-            // Also readable as `event.window.title`. Carried explicitly because
-            // the callback is about the change, and a handler that wants to
-            // diff against what it stored needs the new value in hand.
-            payload.set("title", title.as_str())?;
-        }
-        LuaEvent::MonitorAdded { monitor } => {
-            // The identity always, and the handle only while the monitor is
-            // still attached: a screen unplugged between the report and the
-            // dispatch has nothing left to hand over but its name.
-            payload.set("id", monitor.to_string())?;
-            if let Some(state) = session.mirrors().state(monitor) {
-                payload.set("monitor", Monitor::new(Rc::clone(session), state))?;
-            }
-        }
-        LuaEvent::ProcessExited { process, outcome } => {
-            payload.set("process", Process::new(Rc::clone(session), *process))?;
-            set_outcome(&payload, outcome)?;
-        }
-        LuaEvent::ProcessOutput {
-            process,
-            stream,
-            bytes,
-        } => {
-            payload.set("process", Process::new(Rc::clone(session), *process))?;
-            payload.set("stream", stream_name(*stream))?;
-            // A Lua string is a byte string, so a child that wrote something
-            // that is not UTF-8 arrives intact and decoding stays the
-            // configuration's decision.
-            payload.set("text", lua.create_string(bytes)?)?;
-        }
-        LuaEvent::LayerGranted { claim } => {
-            payload.set("claim", Claim::new(Rc::clone(session), *claim))?;
-            payload.set("layer", session.claims().push_layer(lua, *claim)?)?;
-        }
-        LuaEvent::LayerRevoked { claim } => {
-            payload.set("claim", Claim::new(Rc::clone(session), *claim))?;
-        }
-    }
-
-    Ok(payload)
-}
-
-/// Describes how a process ended, without collapsing the three ways it can.
-///
-/// The discriminator is a string rather than the presence of a field, so a
-/// handler reads `event.outcome` once instead of testing each field in turn,
-/// and a spawn that failed is not mistaken for an exit with no code.
-fn set_outcome(payload: &Table, outcome: &ProcessOutcome) -> mlua::Result<()> {
-    match outcome {
-        ProcessOutcome::Exited { code } => {
-            payload.set("outcome", "exited")?;
-            payload.set("code", *code)
-        }
-        ProcessOutcome::Signalled { signal } => {
-            payload.set("outcome", "signalled")?;
-            payload.set("signal", signal.get())
-        }
-        ProcessOutcome::SpawnFailed { message } => {
-            payload.set("outcome", "spawnFailed")?;
-            payload.set("message", message.as_str())
-        }
-    }
-}
-
-/// The name Lua spells a captured stream with.
-fn stream_name(stream: Stream) -> &'static str {
-    match stream {
-        Stream::Stdout => "stdout",
-        Stream::Stderr => "stderr",
-    }
-}
-
 /// The `lovr.handlers` table `boot.lua:345` installs.
 fn handlers_table(lua: &Lua) -> mlua::Result<Table> {
     let lovr = lua.globals().get::<Option<Table>>("lovr")?.ok_or_else(|| {
@@ -568,295 +567,4 @@ impl EventSink for RecordingEventSink {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
-)]
-mod tests {
-    use lunette_compositor::{
-        protocol::{ImportedBuffer, PixelSize, SurfaceId},
-        surface::{PixelBuffer, ShmFormat},
-    };
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    fn window_id(raw: u64) -> WindowId {
-        WindowId::new(raw).expect("non-zero")
-    }
-
-    fn process_id(raw: u64) -> ProcessId {
-        ProcessId::new(raw).expect("non-zero")
-    }
-
-    /// The longest name `CustomEvent.name` can carry: 31 bytes and the NUL.
-    const LONGEST: &str = "lunabcdefghijklmnopqrstuvwxyz01";
-
-    /// The checked-in definitions, embedded rather than read, so the test needs
-    /// no filesystem and cannot pass against a stale copy on disk.
-    const DEFINITIONS: &str = include_str!("../../../etc/lunette/definitions.luau");
-
-    /// Every event this build delivers is declared, so a handler for one passes
-    /// `lunette check`.
-    ///
-    /// `declare lovr` is an exact table, so a callback the definitions omit is
-    /// not merely unchecked: assigning it is an error, and a configuration
-    /// following `docs/lua-api.md` fails the check. The two lists are written
-    /// out separately — the names here, the declarations in
-    /// `crates/lunette-generate-definitions` — and this is what keeps them in
-    /// step.
-    #[test]
-    fn every_event_this_build_delivers_is_declared_in_the_definitions() {
-        let missing: Vec<&str> = EVENT_NAMES
-            .iter()
-            .map(|name| name.as_str())
-            .filter(|name| !DEFINITIONS.contains(&format!("\n    {name}: ")))
-            .collect();
-
-        assert_eq!(
-            missing,
-            Vec::<&str>::new(),
-            "each of these is dispatched and undeclared; declare it in \
-             LUNETTE_LOVR_FIELDS and regenerate"
-        );
-    }
-
-    #[test]
-    fn every_event_this_build_delivers_has_a_distinct_name() {
-        let mut names: Vec<&str> = EVENT_NAMES.iter().map(|name| name.as_str()).collect();
-        names.sort_unstable();
-
-        assert_eq!(
-            names,
-            vec![
-                "lunlayergranted",
-                "lunlayerrevoked",
-                "lunmonitoradded",
-                "lunprocessexited",
-                "lunprocessoutput",
-                "luntitlechanged",
-                "lunwindowclosed",
-                "lunwindowopened",
-            ],
-            "a name here is what a configuration writes `function lovr.<name>(event)` against"
-        );
-    }
-
-    #[test]
-    fn a_name_at_the_limit_survives_the_trip_through_the_c_array() {
-        assert_eq!(LONGEST.len(), CUSTOM_EVENT_NAME_CAPACITY - 1);
-
-        let name = EventName::new(LONGEST).expect("31 bytes fit");
-        let array = name.to_c_name();
-
-        let bytes: Vec<u8> = array.iter().map(|byte| *byte as u8).collect();
-        assert_eq!(&bytes[..LONGEST.len()], LONGEST.as_bytes());
-        assert_eq!(
-            bytes[LONGEST.len()],
-            0,
-            "the array is what `lovr.handlers` is indexed by, so it has to terminate"
-        );
-    }
-
-    #[test]
-    fn a_name_too_long_for_the_array_is_refused() {
-        let overlong = format!("{LONGEST}x");
-        assert_eq!(overlong.len(), CUSTOM_EVENT_NAME_CAPACITY);
-
-        // `EventName::new` takes a `&'static str`, and the check is on the
-        // length, so leaking one byte of test string is the cheapest way to
-        // state the boundary from both sides.
-        assert_eq!(EventName::new(String::leak(overlong)), None);
-    }
-
-    #[test]
-    fn a_name_with_an_embedded_nul_is_refused() {
-        assert_eq!(
-            EventName::new("lunwindow\0opened"),
-            None,
-            "the C array would carry only the part before the NUL"
-        );
-    }
-
-    #[test]
-    fn an_empty_array_is_all_zero_beyond_the_name() {
-        let array = event_name("lun").to_c_name();
-        assert!(array[3..].iter().all(|byte| *byte == 0));
-    }
-
-    #[test]
-    fn the_window_lifecycle_reaches_lua() {
-        assert_eq!(
-            LuaEvent::from_compositor(&CompositorEvent::WindowOpened {
-                window: window_id(1)
-            }),
-            Some(LuaEvent::WindowOpened {
-                window: window_id(1)
-            })
-        );
-        assert_eq!(
-            LuaEvent::from_compositor(&CompositorEvent::WindowClosed {
-                window: window_id(1)
-            }),
-            Some(LuaEvent::WindowClosed {
-                window: window_id(1)
-            })
-        );
-        assert_eq!(
-            LuaEvent::from_compositor(&CompositorEvent::TitleChanged {
-                window: window_id(1),
-                title: "htop".to_owned(),
-            }),
-            Some(LuaEvent::TitleChanged {
-                window: window_id(1),
-                title: "htop".to_owned(),
-            })
-        );
-    }
-
-    #[test]
-    fn a_spawn_that_never_started_reaches_lua_as_an_exit() {
-        let outcome = ProcessOutcome::SpawnFailed {
-            message: "no such file or directory".to_owned(),
-        };
-
-        assert_eq!(
-            LuaEvent::from_compositor(&CompositorEvent::ProcessExited {
-                process: process_id(3),
-                outcome: outcome.clone(),
-            }),
-            Some(LuaEvent::ProcessExited {
-                process: process_id(3),
-                outcome,
-            }),
-            "a mistyped program name has no other way of reaching the configuration"
-        );
-    }
-
-    #[test]
-    fn the_frame_loops_own_reports_are_not_callbacks() {
-        let surface = SurfaceId::new(1).expect("non-zero");
-        let pixels = PixelBuffer::new(
-            PixelSize::new(1, 1),
-            ShmFormat::Argb8888,
-            vec![0, 0, 0, 255],
-        )
-        .expect("one pixel");
-
-        assert_eq!(
-            LuaEvent::from_compositor(&CompositorEvent::SurfaceDamaged { surface }),
-            None
-        );
-        assert_eq!(
-            LuaEvent::from_compositor(&CompositorEvent::BufferImported {
-                surface,
-                buffer: ImportedBuffer::Pixels(pixels),
-            }),
-            None
-        );
-        assert_eq!(
-            LuaEvent::from_compositor(&CompositorEvent::SurfaceGone { surface }),
-            None,
-            "a surface is not a window; a window going away is reported on its own"
-        );
-    }
-
-    #[test]
-    fn a_pending_event_is_taken_by_the_name_it_was_pushed_under() {
-        let mut queue = EventQueue::default();
-        queue.push(LuaEvent::WindowOpened {
-            window: window_id(1),
-        });
-
-        assert_eq!(queue.take(WINDOW_CLOSED), None);
-        assert_eq!(
-            queue.take(WINDOW_OPENED),
-            Some(LuaEvent::WindowOpened {
-                window: window_id(1)
-            })
-        );
-        assert_eq!(
-            queue.take(WINDOW_OPENED),
-            None,
-            "an event is delivered once, or a handler sees the same window open twice"
-        );
-    }
-
-    #[test]
-    fn events_of_one_name_are_taken_in_the_order_they_were_pushed() {
-        let mut queue = EventQueue::default();
-        for raw in 1..=3 {
-            queue.push(LuaEvent::WindowOpened {
-                window: window_id(raw),
-            });
-        }
-
-        let taken: Vec<u64> = (1..=3)
-            .filter_map(|_| match queue.take(WINDOW_OPENED) {
-                Some(LuaEvent::WindowOpened { window }) => Some(window.get()),
-                _ => None,
-            })
-            .collect();
-
-        assert_eq!(
-            taken,
-            vec![1, 2, 3],
-            "LÖVR's queue is first-in-first-out and so is this one; that is what pairs them"
-        );
-    }
-
-    #[test]
-    fn an_event_of_another_name_does_not_disturb_the_order() {
-        let mut queue = EventQueue::default();
-        queue.push(LuaEvent::WindowOpened {
-            window: window_id(1),
-        });
-        queue.push(LuaEvent::TitleChanged {
-            window: window_id(1),
-            title: "htop".to_owned(),
-        });
-        queue.push(LuaEvent::WindowOpened {
-            window: window_id(2),
-        });
-
-        assert_eq!(
-            queue.take(TITLE_CHANGED),
-            Some(LuaEvent::TitleChanged {
-                window: window_id(1),
-                title: "htop".to_owned(),
-            })
-        );
-        assert_eq!(
-            queue.take(WINDOW_OPENED),
-            Some(LuaEvent::WindowOpened {
-                window: window_id(1)
-            })
-        );
-    }
-
-    #[test]
-    fn clearing_drops_what_was_never_dispatched() {
-        let mut queue = EventQueue::default();
-        queue.push(LuaEvent::WindowOpened {
-            window: window_id(1),
-        });
-        queue.clear();
-
-        assert_eq!(
-            queue.take(WINDOW_OPENED),
-            None,
-            "an event discarded by lovr.event.clear must not be delivered against a later frame's \
-             snapshot"
-        );
-    }
-
-    #[test]
-    fn a_recording_sink_reports_each_push_once() {
-        let sink = RecordingEventSink::default();
-        sink.push(WINDOW_OPENED);
-        sink.push(TITLE_CHANGED);
-
-        assert_eq!(sink.take(), vec![WINDOW_OPENED, TITLE_CHANGED]);
-        assert_eq!(sink.take(), Vec::new());
-    }
-}
+mod tests;

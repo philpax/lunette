@@ -7,17 +7,20 @@ use std::fmt::Write as _;
 
 use lunette_compositor::protocol::PointerButton;
 
-use crate::lua::{
-    Claim, Monitor, Output, Process, Seat, Sink, Spawn, Window,
-    claim::ClaimLayer,
-    declarations::{
-        Handle, NullTexture, Property, PropertyType, Record, Recorded, Textured, Type, Typed,
-        collect,
+use crate::{
+    events::payload_records,
+    lua::{
+        Claim, Monitor, Output, Process, Seat, Sink, Spawn, Window,
+        claim::ClaimLayer,
+        declarations::{
+            Handle, NullTexture, Property, PropertyType, Record, Recorded, Textured, Type, Typed,
+            collect,
+        },
+        module_functions,
+        output::{NewOutput, SetMode},
+        seat::{NewSeat, Stroke},
+        values::PointerButtonName,
     },
-    module_functions,
-    output::{NewOutput, SetMode},
-    seat::{NewSeat, Stroke},
-    values::PointerButtonName,
 };
 
 /// Renders the whole file.
@@ -65,7 +68,7 @@ enum Item {
 /// Everything below the aliases, in the order the file states it: a handle
 /// beside the option table its constructor takes.
 fn surface() -> Vec<Item> {
-    vec![
+    let mut items = vec![
         Item::Handle(collect::<Sink<NullTexture>>()),
         Item::Handle(collect::<Window<NullTexture>>()),
         Item::Handle(collect::<Monitor<NullTexture>>()),
@@ -79,7 +82,14 @@ fn surface() -> Vec<Item> {
         Item::Record(Spawn::RECORD),
         Item::Record(ClaimLayer::RECORD),
         Item::Handle(collect::<Claim<NullTexture>>()),
-    ]
+    ];
+    // The tables the `lovr.lun*` callbacks are called with. They are exported
+    // from the module rather than declared beside the callbacks, because a
+    // definitions file declares globals and cannot name a module's types: the
+    // handles a payload carries are `Window` and `Claim`, which exist only
+    // here. `docs/lua-api.md` records what that means for a configuration.
+    items.extend(payload_records().into_iter().map(Item::Record));
+    items
 }
 
 const HEADER: &str = "\

@@ -9,7 +9,9 @@
 //! is seen as, so what a wrapper carries and what it is declared to be are read
 //! together rather than a file apart.
 
-use lunette_compositor::protocol::{ContentType, InputDomain, PointerButton};
+use lunette_compositor::protocol::{
+    ContentType, InputDomain, PointerButton, ProcessOutcome, Stream,
+};
 use lunette_luau::Type;
 use mlua::{FromLua, IntoLua, Lua, Table, Value};
 
@@ -193,5 +195,56 @@ impl FromLua for StrokeQuery {
 impl Typed for StrokeQuery {
     fn luau() -> Type {
         Type::Union(vec![Type::STRING, Type::NUMBER])
+    }
+}
+
+/// A layer a granted claim now holds.
+///
+/// Distinct from [`MaybeLayer`]: a grant carries one, so the event declares a
+/// layer rather than a layer or `false`.
+#[derive(Debug)]
+pub struct GrantedLayer(pub Value);
+
+impl IntoLua for GrantedLayer {
+    fn into_lua(self, _: &Lua) -> mlua::Result<Value> {
+        Ok(self.0)
+    }
+}
+
+impl Typed for GrantedLayer {
+    fn luau() -> Type {
+        Type::Named("Layer")
+    }
+}
+
+/// Which of a process's captured streams wrote.
+#[derive(Clone, Copy, Debug)]
+pub struct StreamName(pub Stream);
+
+impl IntoLua for StreamName {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        self.0.as_str().into_lua(lua)
+    }
+}
+
+impl Typed for StreamName {
+    fn luau() -> Type {
+        Type::literals(Stream::NAMES)
+    }
+}
+
+/// How a process ended, by the name Lua reads on `event.outcome`.
+#[derive(Clone, Debug)]
+pub struct OutcomeName(pub ProcessOutcome);
+
+impl IntoLua for OutcomeName {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        self.0.as_str().into_lua(lua)
+    }
+}
+
+impl Typed for OutcomeName {
+    fn luau() -> Type {
+        Type::literals(ProcessOutcome::NAMES)
     }
 }

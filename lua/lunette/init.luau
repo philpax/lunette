@@ -322,6 +322,84 @@ export type Claim = {
   read release: (self: Claim) -> boolean,
 }
 
+-- A toplevel was mapped and is in this frame's snapshot.
+export type WindowOpenedEvent = {
+  -- The window that opened.
+  window: Window,
+}
+
+-- A toplevel went away. The handle is already dead, because the snapshot the
+-- handler reads no longer lists the window; it still reports what it last knew.
+export type WindowClosedEvent = {
+  -- The window that closed.
+  window: Window,
+}
+
+-- A toplevel changed its title.
+export type TitleChangedEvent = {
+  -- The window whose title changed.
+  window: Window,
+  -- The new title. Also readable as `event.window.title`; carried here because
+  -- the callback is about the change, and a handler diffing against what it
+  -- stored needs the new value in hand.
+  title: string,
+}
+
+-- One of the host's screens appeared, which includes every screen attached when
+-- lunette started.
+export type MonitorAddedEvent = {
+  -- What `lunette-capture` resolved the screen by.
+  id: string,
+  -- The handle, while the screen is still attached. A screen unplugged between
+  -- the report and the dispatch has nothing left to hand over but its name.
+  monitor: Monitor?,
+}
+
+-- A spawned process ended, or never started.
+export type ProcessExitedEvent = {
+  -- The process that ended.
+  process: Process,
+  -- Which of the three fields below this event carries. A string rather than
+  -- the presence of a field, so a handler reads it once instead of testing each
+  -- in turn, and a spawn that failed is not mistaken for an exit with no code.
+  outcome: 'exited' | 'signalled' | 'spawnFailed',
+  -- The status it exited with.
+  code: number?,
+  -- The signal that killed it.
+  signal: number?,
+  -- What failed, for a program that never ran.
+  message: string?,
+}
+
+-- A spawned process wrote to one of its captured streams.
+export type ProcessOutputEvent = {
+  -- The process that wrote.
+  process: Process,
+  -- Which stream it wrote to.
+  stream: 'stdout' | 'stderr',
+  -- What it wrote. A Lua string is a byte string, so a child that wrote
+  -- something that is not UTF-8 arrives intact and decoding stays the
+  -- configuration's decision.
+  text: string,
+}
+
+-- A claim was given a composition layer, and the panel holding it should draw
+-- onto the layer rather than as an in-scene quad.
+export type LayerGrantedEvent = {
+  -- The claim that was granted.
+  claim: Claim,
+  -- The layer it now holds. Never cached across frames: what it names goes away
+  -- on revoke.
+  layer: Layer,
+}
+
+-- A claim lost its layer to a higher-priority one, and the panel holding it
+-- should draw as an in-scene quad until it is granted again.
+export type LayerRevokedEvent = {
+  -- The claim that was revoked.
+  claim: Claim,
+}
+
 export type Lunette = {
   -- Every mapped toplevel, as of this frame's snapshot.
   read windows: () -> { Window },

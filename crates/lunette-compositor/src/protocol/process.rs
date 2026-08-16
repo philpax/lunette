@@ -13,6 +13,8 @@ use std::{
     path::PathBuf,
 };
 
+use lunette_luau::closed_set;
+
 use crate::protocol::{OutputId, ProcessId};
 
 /// What to start, and how to attribute what connects afterwards.
@@ -95,6 +97,53 @@ pub enum ProcessOutcome {
     },
 }
 
+impl ProcessOutcome {
+    /// The name Lua reads on `event.outcome`, which says which of the other
+    /// fields the event carries.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Exited { .. } => "exited",
+            Self::Signalled { .. } => "signalled",
+            Self::SpawnFailed { .. } => "spawnFailed",
+        }
+    }
+
+    /// Every name, in the order the declared union states them.
+    ///
+    /// A list rather than a derivation, because the variants carry payloads and
+    /// so cannot be enumerated as values; `every_outcome_is_named` is what holds
+    /// it to the enum.
+    pub const NAMES: &'static [&'static str] = &["exited", "signalled", "spawnFailed"];
+
+    /// The status a process exited with, for the outcome that has one.
+    #[must_use]
+    pub const fn code(&self) -> Option<i32> {
+        match self {
+            Self::Exited { code } => Some(*code),
+            Self::Signalled { .. } | Self::SpawnFailed { .. } => None,
+        }
+    }
+
+    /// The signal that killed the process, for the outcome that has one.
+    #[must_use]
+    pub const fn signal(&self) -> Option<SignalNumber> {
+        match self {
+            Self::Signalled { signal } => Some(*signal),
+            Self::Exited { .. } | Self::SpawnFailed { .. } => None,
+        }
+    }
+
+    /// What failed, for the outcome that never ran.
+    #[must_use]
+    pub fn message(&self) -> Option<&str> {
+        match self {
+            Self::SpawnFailed { message } => Some(message),
+            Self::Exited { .. } | Self::Signalled { .. } => None,
+        }
+    }
+}
+
 /// A signal lunette is willing to send to a process group.
 ///
 /// A closed set rather than a number, because sending an arbitrary signal is
@@ -130,11 +179,13 @@ impl fmt::Display for SignalNumber {
     }
 }
 
-/// One of a child's captured output streams.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Stream {
-    Stdout,
-    Stderr,
+closed_set! {
+    /// One of a child's captured output streams.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum Stream {
+        Stdout = "stdout",
+        Stderr = "stderr",
+    }
 }
 
 /// A process identifier. Non-zero, and never negative: a process group is
@@ -173,6 +224,43 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    /// The names and the variants are two statements of one set, and the match
+    /// is exhaustive, so a variant added to [`ProcessOutcome`] fails to compile
+    /// here rather than going unnamed in what Lua is told an event carries.
+    #[test]
+    fn every_outcome_is_named_and_carries_exactly_its_own_field() {
+        let signal = SignalNumber::new(9);
+        for outcome in [
+            ProcessOutcome::Exited { code: 0 },
+            ProcessOutcome::Signalled { signal },
+            ProcessOutcome::SpawnFailed {
+                message: String::new(),
+            },
+        ] {
+            let (name, filled) = match &outcome {
+                ProcessOutcome::Exited { .. } => ("exited", outcome.code().is_some()),
+                ProcessOutcome::Signalled { .. } => ("signalled", outcome.signal().is_some()),
+                ProcessOutcome::SpawnFailed { .. } => ("spawnFailed", outcome.message().is_some()),
+            };
+            assert_eq!(outcome.as_str(), name);
+            assert!(filled, "{name} does not carry its own field");
+            assert!(
+                ProcessOutcome::NAMES.contains(&name),
+                "{name} is missing from the declared union"
+            );
+            let others = [
+                outcome.code().is_some(),
+                outcome.signal().is_some(),
+                outcome.message().is_some(),
+            ]
+            .into_iter()
+            .filter(|present| *present)
+            .count();
+            assert_eq!(others, 1, "{name} carries a field belonging to another");
+        }
+        assert_eq!(ProcessOutcome::NAMES.len(), 3);
+    }
 
     #[test]
     fn a_pid_rejects_zero_and_negatives() {
