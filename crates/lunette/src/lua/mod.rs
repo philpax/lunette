@@ -68,8 +68,8 @@ use std::{
 
 use lunette_compositor::{
     protocol::{
-        Argv, Command, OutputId, PixelSize, PointerButton, ProcessId, SeatId, Snapshot,
-        SpawnRequest, WindowId, WindowSnapshot,
+        Argv, Command, KeyModifier, OutputId, PixelSize, ProcessId, SeatId, Snapshot, SpawnRequest,
+        WindowId, WindowSnapshot,
     },
     state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
@@ -91,7 +91,7 @@ use crate::{
     keymaps::KeymapCache,
     lua::{
         claim::{ClaimLayer, claim_layer},
-        declarations::{FunctionSpec, NullTexture, Options, Record, module, record},
+        declarations::{FunctionSpec, NullTexture, Options, Record, Type, module, record},
         monitor::monitors,
         output::{NewOutput, new_output, outputs},
         seat::{NewSeat, new_seat, seats},
@@ -591,7 +591,7 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
 pub(crate) struct ModuleFunction<T> {
     pub spec: FunctionSpec,
     /// The Luau type, derived from what the closure takes and answers.
-    pub ty: fn() -> String,
+    pub ty: fn() -> Type,
     pub build: fn(&Lua, &Rc<Session<T>>) -> mlua::Result<mlua::Function>,
 }
 
@@ -635,6 +635,9 @@ module! {
     /// What `setSceneEnabled` was last told, which the next frame will latch.
     fn sceneEnabled(_lua, session) -> bool { Ok(session.requested_scene().drawn()) }
 
+    /// Every modifier name a seat accepts, in the order a keymap numbers them. What `seat:setModifiers` takes and `seat.modifiers` answers with are drawn from this set.
+    fn modifierNames(_lua, _session) -> Vec<String> { Ok(modifier_names()) }
+
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises asks the pool for a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }
 
@@ -656,6 +659,19 @@ fn window_handles<T: LuaTexture>(
         .iter()
         .map(|window| Window::new(Rc::clone(session), window))
         .collect())
+}
+
+/// `lunette.modifierNames()`: every modifier a seat accepts.
+///
+/// Read from [`KeyModifier`] rather than listed, so that what mullion builds a
+/// keyboard from and what the runtime accepts from it are one set. The order is
+/// the keymap's own modifier numbering, which is what a caller reporting held
+/// modifiers should report them in.
+fn modifier_names() -> Vec<String> {
+    KeyModifier::NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect()
 }
 
 /// `lunette.scaleSteps()`: the scale ladder, ascending, as plain numbers.
@@ -821,30 +837,4 @@ fn pixel_size(width: f64, height: f64, noun: &str) -> mlua::Result<PixelSize> {
              be at least one"
         ))),
     }
-}
-
-/// The name Lua spells a pointer button with.
-///
-/// Rejecting an unrecognised name rather than defaulting: `sink:button('lft',
-/// true)` is a typo, and a silent left click is harder to find than an error.
-fn pointer_button(name: &str) -> Option<PointerButton> {
-    POINTER_BUTTONS
-        .iter()
-        .find(|(spelled, _)| *spelled == name)
-        .map(|(_, button)| *button)
-}
-
-/// How Lua spells each button. The `PointerButton` type is rendered from this,
-/// so the type and the runtime name the same set.
-const POINTER_BUTTONS: &[(&str, PointerButton)] = &[
-    ("left", PointerButton::Left),
-    ("right", PointerButton::Right),
-    ("middle", PointerButton::Middle),
-    ("back", PointerButton::Back),
-    ("forward", PointerButton::Forward),
-];
-
-/// The button names, for the declaration and for the error that lists them.
-pub(crate) fn pointer_button_names() -> impl Iterator<Item = &'static str> {
-    POINTER_BUTTONS.iter().map(|(name, _)| *name)
 }

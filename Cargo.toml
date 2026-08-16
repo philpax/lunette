@@ -4,6 +4,7 @@ members = [
     "crates/lunette-capture",
     "crates/lunette-compositor",
     "crates/lunette-lovr",
+    "crates/lunette-luau",
     "crates/lunette-generate-definitions",
 ]
 resolver = "3"
@@ -35,6 +36,7 @@ cmake = "=0.1.58"
 getrandom = "=0.3.4"
 libc = "=0.2.189"
 clap = { version = "=4.6.6", features = ["derive"] }
+lunette-luau = { path = "crates/lunette-luau" }
 mlua = "=0.12.0"
 mlua-sys = "=0.11.0"
 parking_lot = "=0.12.5"

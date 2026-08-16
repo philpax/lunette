@@ -796,7 +796,7 @@ impl Host {
     }
 
     fn kind_of(&self, source: &Source) -> Option<SelectionKind> {
-        SelectionKind::ALL.into_iter().find(|kind| {
+        SelectionKind::ALL.iter().copied().find(|kind| {
             self.sources[kind.index()]
                 .as_ref()
                 .is_some_and(|held| held.key() == source.key())

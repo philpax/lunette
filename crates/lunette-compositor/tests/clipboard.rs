@@ -127,7 +127,7 @@ fn a_host_selection_is_offered_to_a_client_with_the_hosts_own_mime_types() {
     let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
 
-    for kind in SelectionKind::ALL {
+    for &kind in SelectionKind::ALL {
         host_copies(
             &mut compositor,
             &mut client,
@@ -155,7 +155,11 @@ fn pasting_in_a_client_reads_the_bytes_the_host_writes_into_its_own_pipe() {
     let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
 
-    for (kind, text) in SelectionKind::ALL.into_iter().zip(["clipped", "primary"]) {
+    for (kind, text) in SelectionKind::ALL
+        .iter()
+        .copied()
+        .zip(["clipped", "primary"])
+    {
         host_copies(
             &mut compositor,
             &mut client,
@@ -195,7 +199,7 @@ fn pasting_in_a_client_reads_the_bytes_the_host_writes_into_its_own_pipe() {
 fn copying_in_a_client_publishes_the_clients_own_mime_types_to_the_host() {
     let (mut compositor, mut client, host, devices) = with_host();
 
-    for kind in SelectionKind::ALL {
+    for &kind in SelectionKind::ALL {
         drop(client.copy(&mut compositor, &devices, kind, &[UTF8, "text/html"]));
 
         assert_eq!(
@@ -218,7 +222,11 @@ fn pasting_on_the_host_reads_the_bytes_the_client_writes_into_the_hosts_pipe() {
     // owns the selection, and the client writes into it directly.
     let (mut compositor, mut client, host, devices) = with_host();
 
-    for (kind, text) in SelectionKind::ALL.into_iter().zip(["copied", "selected"]) {
+    for (kind, text) in SelectionKind::ALL
+        .iter()
+        .copied()
+        .zip(["copied", "selected"])
+    {
         let _source = client.copy(&mut compositor, &devices, kind, &[UTF8]);
 
         let (reader, writer) = std::os::unix::net::UnixStream::pair().expect("a socket pair");

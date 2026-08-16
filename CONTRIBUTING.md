@@ -20,6 +20,7 @@ The layout is recorded in [docs/build-and-development.md](docs/build-and-develop
 crates/lunette/                       the binaries: lunette and lunctl, Lua injection, frame orchestration
 crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
 crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
+crates/lunette-luau/                  the Luau type language, and the closed-set macro
 crates/lunette-capture/               wrappers over wlx-capture and HidProvider
 crates/lunette-generate-definitions/  generates etc/lunette/definitions.luau and lua/lunette/init.luau
 lua/lunette/                          the generated declarations for the native API
@@ -35,7 +36,7 @@ issue-drafts/                         issues to file once the work they describe
 inspiration/                          reference checkouts, gitignored
 ```
 
-`lunette-compositor` must not depend on `lunette-lovr`. Logic-headless testing depends on that separation.
+`lunette-compositor` must not depend on `lunette-lovr`. Logic-headless testing depends on that separation. It does depend on `lunette-luau`, which carries no Lua binding of its own: mlua is a feature there, off by default and turned on only by `lunette`.
 
 ## Documentation
 
@@ -195,19 +196,11 @@ The two sections that follow are the Rust template. They apply to Rust code in t
 
 - Use Rust 2024 edition.
 - Format with **nightly rustfmt**: `cargo +nightly fmt --all`. `rustfmt.toml` opts into `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"`, which are nightly-only — stable rustfmt prints a warning about each and then silently skips them, so a stable-formatted file is *not* equivalent to a nightly-formatted one.
-- Ensure the following checks pass at the end of each complete task (you don't need to do this for intermediate steps). `make check` runs all of them, and `.github/workflows/ci.yml` runs the same list on every push, so a check added here is added to both:
-  - `make check-format`
-    - `cargo +nightly fmt --all -- --check`
-    - `stylua --check lua etc/xdg/lunette` — the Luau formatter (see [formatting](#formatting))
-  - `make check-rust`, which is `make check-clippy` and `make check-test`. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
-    - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-    - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
-    - `cargo test --workspace`
-    - `cargo test --workspace --no-default-features`
-  - `make check-definitions`
-    - `cargo run -p lunette-generate-definitions -- --check` — regenerates `etc/lunette/definitions.luau` and `lua/lunette/init.luau` into memory and fails if either differs from what is checked in. It names the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
-  - `make check-luau`
-    - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
+- Ensure the checks pass at the end of each complete task (you don't need to do this for intermediate steps). `make check` runs all of them and `.github/workflows/ci.yml` calls the same targets, so a check added to the Makefile is added to both. The Makefile carries the commands; what each target is for:
+  - `make check-format` — nightly rustfmt, and stylua over the Luau (see [formatting](#formatting))
+  - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
+  - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
+  - `make check-luau` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

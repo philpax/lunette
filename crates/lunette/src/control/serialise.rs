@@ -396,7 +396,7 @@ fn convert_handle(walk: &mut Walk, userdata: &AnyUserData) -> Result<Value, Seri
         });
     };
 
-    let Some(kind) = HandleKind::named(&name) else {
+    let Some(kind) = HandleKind::from_name(&name) else {
         return Err(SerialiseError::UnknownHandle {
             path: walk.here(),
             name,

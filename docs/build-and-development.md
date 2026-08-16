@@ -11,6 +11,7 @@ lunette/
     lunette/                      the binaries: lunette and lunctl, Lua injection, frame orchestration
     lunette-compositor/           smithay; vendored fork of WayVR's backend/wayvr
     lunette-lovr/                 cmake build + FFI surface for LÖVR
+    lunette-luau/                 the Luau type language, and the closed-set macro
     lunette-capture/              wrappers over wlx-capture and HidProvider
     lunette-generate-definitions/ generates etc/lunette/definitions.luau and lua/lunette/init.luau
   lua/lunette/                    the generated declarations for the native API
@@ -26,7 +27,7 @@ lunette/
   inspiration/                    reference checkouts, gitignored
 ```
 
-`lunette-compositor` must not depend on `lunette-lovr`. This is what keeps logic-headless testing reachable.
+`lunette-compositor` must not depend on `lunette-lovr`. This is what keeps logic-headless testing reachable. It does depend on `lunette-luau`, which carries no Lua binding of its own: mlua is a feature there, off by default and turned on only by `lunette`, so naming a Luau type costs the headless tier nothing.
 
 `lunctl` is a second binary target in `crates/lunette` rather than a crate of its own. It needs the control socket's wire format, which lives in `crates/lunette/src/control`, and a separate crate would either depend on `lunette` anyway or carry a second copy of the codec — a protocol with two implementations that have to agree is a defect waiting for the first version bump.
 

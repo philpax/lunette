@@ -68,6 +68,7 @@ use std::{
     },
 };
 
+use lunette_luau::closed_set;
 use smithay::wayland::selection::SelectionTarget;
 
 use crate::protocol::SeatId;
@@ -81,32 +82,22 @@ pub use crate::selection::{
     },
 };
 
-/// One of the two selections a seat carries.
-///
-/// A closed set rather than a boolean, so a path that handles one and not the
-/// other fails to compile rather than silently bridging half of
-/// `lunette-v1.AC4.5`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SelectionKind {
-    /// What an explicit copy puts on the clipboard.
-    Clipboard,
-    /// What selecting text puts on the middle-click selection.
-    Primary,
+closed_set! {
+    /// One of the two selections a seat carries.
+    ///
+    /// A closed set rather than a boolean, so a path that handles one and not the
+    /// other fails to compile rather than silently bridging half of
+    /// `lunette-v1.AC4.5`.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum SelectionKind {
+        /// What an explicit copy puts on the clipboard.
+        Clipboard = "clipboard",
+        /// What selecting text puts on the middle-click selection.
+        Primary = "primary",
+    }
 }
 
 impl SelectionKind {
-    /// Both selections, in the order a caller that must handle each should
-    /// iterate them.
-    pub const ALL: [Self; 2] = [Self::Clipboard, Self::Primary];
-
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Clipboard => "clipboard",
-            Self::Primary => "primary",
-        }
-    }
-
     /// The selection a smithay target names.
     pub(crate) const fn from_target(target: SelectionTarget) -> Self {
         match target {
@@ -125,12 +116,6 @@ impl SelectionKind {
             Self::Clipboard => 0,
             Self::Primary => 1,
         }
-    }
-}
-
-impl fmt::Display for SelectionKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 

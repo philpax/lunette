@@ -201,19 +201,21 @@ impl SurfaceTransform {
     /// fallback to [`Self::Normal`]: a value this does not recognise would put
     /// the cursor in the wrong corner, which is worse than reporting that the
     /// monitor cannot be mapped.
+    /// Searched rather than matched, so the mapping is stated once in
+    /// [`Self::as_wl_output`]. A second match would carry a wildcard, and a
+    /// transform missing from it would arrive as an unmappable monitor rather
+    /// than as a compilation failure.
     #[must_use]
     pub const fn from_wl_output(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::Normal),
-            1 => Some(Self::Rotate90),
-            2 => Some(Self::Rotate180),
-            3 => Some(Self::Rotate270),
-            4 => Some(Self::Flipped),
-            5 => Some(Self::Flipped90),
-            6 => Some(Self::Flipped180),
-            7 => Some(Self::Flipped270),
-            _ => None,
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            let candidate = Self::ALL[index];
+            if candidate.as_wl_output() == value {
+                return Some(candidate);
+            }
+            index += 1;
         }
+        None
     }
 
     /// The value `wl_output.geometry` carries for this transform.

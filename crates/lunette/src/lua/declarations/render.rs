@@ -5,15 +5,16 @@
 
 use std::fmt::Write as _;
 
+use lunette_compositor::protocol::PointerButton;
+
 use crate::lua::{
     Claim, Monitor, Output, Process, Seat, Sink, Spawn, Window,
     claim::ClaimLayer,
     declarations::{
-        Handle, LuauType, NullTexture, Property, PropertyType, Record, Recorded, collect,
+        Handle, NullTexture, Property, PropertyType, Record, Recorded, Type, Typed, collect,
     },
     module_functions,
     output::{NewOutput, SetMode},
-    pointer_button_names,
     seat::{NewSeat, Stroke},
 };
 
@@ -28,21 +29,17 @@ pub fn render() -> String {
         "The two handles that carry pixels. A caller with one and no interest in which reads \
          the fields both have and calls `getTexture`, which is why that method names this as \
          its receiver on both.",
-        &format!(
-            "{} | {}",
+        &Type::Union(vec![
             Window::<NullTexture>::luau(),
-            Monitor::<NullTexture>::luau()
-        ),
+            Monitor::<NullTexture>::luau(),
+        ]),
     );
 
     render_alias(
         &mut out,
         "PointerButton",
         "Which pointer button an event names. The runtime refuses anything else.",
-        &pointer_button_names()
-            .map(|name| format!("'{name}'"))
-            .collect::<Vec<_>>()
-            .join(" | "),
+        &Type::literals(PointerButton::NAMES),
     );
 
     for item in surface() {
@@ -102,7 +99,7 @@ const FOOTER: &str = "return (nil :: any) :: Lunette\n";
 /// Where a comment wraps, which is where the prose in the tree already sits.
 const COLUMNS: usize = 80;
 
-fn render_alias(out: &mut String, name: &str, doc: &str, definition: &str) {
+fn render_alias(out: &mut String, name: &str, doc: &str, definition: &Type) {
     out.push('\n');
     render_doc(out, doc, "");
     let _ = writeln!(out, "export type {name} = {definition}");

@@ -428,7 +428,8 @@ pub(crate) fn read_modifiers(names: Option<&[String]>) -> mlua::Result<ModifierS
     for name in names {
         let modifier = KeyModifier::from_name(name).ok_or_else(|| {
             mlua::Error::runtime(format!(
-                "lunette: '{name}' is not a modifier; the modifiers are {MODIFIER_NAMES}"
+                "lunette: '{name}' is not a modifier; the modifiers are {}",
+                KeyModifier::NAMES.join(", ")
             ))
         })?;
         modifiers.insert(modifier);
@@ -436,10 +437,6 @@ pub(crate) fn read_modifiers(names: Option<&[String]>) -> mlua::Result<ModifierS
 
     Ok(modifiers)
 }
-
-/// The modifiers [`read_modifiers`] accepts, for the error message that lists
-/// them.
-const MODIFIER_NAMES: &str = "shift, capsLock, control, alt, numLock, mod3, logo, mod5";
 
 /// The keyboard a `lunette.newSeat` option table describes.
 fn read_keyboard(options: &Table) -> mlua::Result<KeyboardConfig> {

@@ -689,6 +689,7 @@ dependencies = [
  "lunette-capture",
  "lunette-compositor",
  "lunette-lovr",
+ "lunette-luau",
  "mlua",
  "mlua-sys",
  "parking_lot",
@@ -704,6 +705,7 @@ name = "lunette-capture"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "lunette-luau",
  "parking_lot",
  "pretty_assertions",
  "serde",
@@ -725,6 +727,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "lunette-compositor",
+ "lunette-luau",
  "pretty_assertions",
  "smallvec",
  "smithay",
@@ -756,6 +759,13 @@ dependencies = [
  "cc",
  "cmake",
  "tempfile",
+]
+
+[[package]]
+name = "lunette-luau"
+version = "0.1.0"
+dependencies = [
+ "mlua",
 ]
 
 [[package]]

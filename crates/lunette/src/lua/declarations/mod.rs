@@ -8,7 +8,7 @@
 //! [`Described::describe`] then runs against two [`Surface`] implementations:
 //! one forwards to mlua, the other keeps the names, the prose, and the types
 //! and drops the closures. The types are derived from the Rust signatures
-//! through [`LuauType`], so a signature cannot be restated wrongly.
+//! through [`Typed`], so a signature cannot be restated wrongly.
 
 mod macros;
 mod render;
@@ -16,6 +16,7 @@ mod types;
 
 use std::marker::PhantomData;
 
+pub use lunette_luau::{Arguments, Parameter, Type, Typed, of};
 use mlua::{
     FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, MaybeSend, Table, UserDataFields,
     UserDataMethods, Value,
@@ -24,7 +25,7 @@ use mlua::{
 pub(crate) use crate::lua::declarations::macros::{handle, module, record};
 pub use crate::lua::declarations::{
     render::render,
-    types::{LuauArgs, LuauType, Nil, Textured, luau_of},
+    types::{Nil, Textured},
 };
 use crate::{
     control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
@@ -48,13 +49,13 @@ pub trait Surface<T: Described> {
     fn field<G, R>(&mut self, spec: FieldSpec, get: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
-        R: IntoLua + LuauType;
+        R: IntoLua + Typed;
 
     fn method<M, A, R>(&mut self, spec: MethodSpec, body: M)
     where
         M: Fn(&Lua, &T, A) -> mlua::Result<R> + MaybeSend + 'static,
-        A: FromLuaMulti + LuauArgs,
-        R: IntoLuaMulti + LuauType;
+        A: FromLuaMulti + Arguments,
+        R: IntoLuaMulti + Typed;
 }
 
 /// Registers a handle's properties with mlua.
@@ -106,7 +107,7 @@ pub enum FieldType {
     /// From the Rust type the getter answers with, which is the usual case.
     Derived,
     /// One type per arm, for the field a single getter serves two views of.
-    PerVariant(&'static [fn() -> String]),
+    PerVariant(&'static [fn() -> Type]),
 }
 
 /// A method. Every parameter but the receiver is named, and the names are the
@@ -125,7 +126,7 @@ pub enum Receiver {
     /// The handle that carries the method.
     Own,
     /// A wider type, for a method reached through a union.
-    Named(fn() -> String),
+    Named(fn() -> Type),
 }
 
 /// A function on the module table.
@@ -154,7 +155,7 @@ impl Record {
 pub struct RecordField {
     pub name: &'static str,
     pub doc: &'static str,
-    pub ty: fn() -> String,
+    pub ty: fn() -> Type,
 }
 
 /// A type the generated file states as a table of plain fields.
@@ -190,9 +191,9 @@ impl<S: Recorded> FromLua for Options<S> {
     }
 }
 
-impl<S: Recorded> LuauType for Options<S> {
-    fn luau() -> String {
-        S::RECORD.name.to_owned()
+impl<S: Recorded> Typed for Options<S> {
+    fn luau() -> Type {
+        Type::Named(S::RECORD.name)
     }
 }
 
@@ -235,8 +236,8 @@ pub struct Property {
 
 #[derive(Debug)]
 pub enum PropertyType {
-    Same(String),
-    PerVariant(Vec<String>),
+    Same(Type),
+    PerVariant(Vec<Type>),
 }
 
 /// A method, as the generated file states it.
@@ -244,7 +245,7 @@ pub enum PropertyType {
 pub struct Signature {
     pub name: &'static str,
     pub doc: &'static str,
-    pub ty: String,
+    pub ty: Type,
 }
 
 /// Walks a handle's declarations without a Lua state.
@@ -264,22 +265,23 @@ pub fn collect<T: Described>() -> Handle {
 /// `receiver` is the first parameter where there is one, which is every method
 /// and no module function.
 pub(crate) fn function_type(
-    receiver: Option<String>,
-    parameters: &[&str],
-    arguments: &[String],
-    returns: &str,
-) -> String {
-    let named = parameters
-        .iter()
-        .zip(arguments)
-        .map(|(name, ty)| format!("{name}: {ty}"));
-    let all: Vec<String> = receiver
-        .map(|ty| format!("self: {ty}"))
-        .into_iter()
-        .chain(named)
-        .collect();
-
-    format!("({}) -> {returns}", all.join(", "))
+    receiver: Option<Type>,
+    parameters: &[&'static str],
+    arguments: &[Type],
+    returns: Type,
+) -> Type {
+    Type::Function {
+        receiver: receiver.map(Box::new),
+        parameters: parameters
+            .iter()
+            .zip(arguments)
+            .map(|(name, ty)| Parameter {
+                name,
+                ty: ty.clone(),
+            })
+            .collect(),
+        returns: Box::new(returns),
+    }
 }
 
 /// Forwards a handle's properties to mlua, ignoring its methods.
@@ -295,7 +297,7 @@ impl<T: Described, F: UserDataFields<T>> Surface<T> for FieldRegistrar<'_, T, F>
     fn field<G, R>(&mut self, spec: FieldSpec, get: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
-        R: IntoLua + LuauType,
+        R: IntoLua + Typed,
     {
         self.fields.add_field_method_get(spec.name, get);
     }
@@ -303,8 +305,8 @@ impl<T: Described, F: UserDataFields<T>> Surface<T> for FieldRegistrar<'_, T, F>
     fn method<M, A, R>(&mut self, _: MethodSpec, _: M)
     where
         M: Fn(&Lua, &T, A) -> mlua::Result<R> + MaybeSend + 'static,
-        A: FromLuaMulti + LuauArgs,
-        R: IntoLuaMulti + LuauType,
+        A: FromLuaMulti + Arguments,
+        R: IntoLuaMulti + Typed,
     {
     }
 }
@@ -319,15 +321,15 @@ impl<T: Described, Registry: UserDataMethods<T>> Surface<T> for MethodRegistrar<
     fn field<G, R>(&mut self, _: FieldSpec, _: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
-        R: IntoLua + LuauType,
+        R: IntoLua + Typed,
     {
     }
 
     fn method<M, A, R>(&mut self, spec: MethodSpec, body: M)
     where
         M: Fn(&Lua, &T, A) -> mlua::Result<R> + MaybeSend + 'static,
-        A: FromLuaMulti + LuauArgs,
-        R: IntoLuaMulti + LuauType,
+        A: FromLuaMulti + Arguments,
+        R: IntoLuaMulti + Typed,
     {
         self.methods.add_method(spec.name, body);
     }
@@ -344,7 +346,7 @@ impl<T: Described> Surface<T> for Collector {
     fn field<G, R>(&mut self, spec: FieldSpec, _: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
-        R: IntoLua + LuauType,
+        R: IntoLua + Typed,
     {
         self.fields.push(Property {
             name: spec.name,
@@ -361,17 +363,17 @@ impl<T: Described> Surface<T> for Collector {
     fn method<M, A, R>(&mut self, spec: MethodSpec, _: M)
     where
         M: Fn(&Lua, &T, A) -> mlua::Result<R> + MaybeSend + 'static,
-        A: FromLuaMulti + LuauArgs,
-        R: IntoLuaMulti + LuauType,
+        A: FromLuaMulti + Arguments,
+        R: IntoLuaMulti + Typed,
     {
         let receiver = match spec.receiver {
-            Receiver::Own => T::HANDLE.name.to_owned(),
+            Receiver::Own => Type::Named(T::HANDLE.name),
             Receiver::Named(named) => named(),
         };
         self.methods.push(Signature {
             name: spec.name,
             doc: spec.doc,
-            ty: function_type(Some(receiver), spec.parameters, &A::luau_args(), &R::luau()),
+            ty: function_type(Some(receiver), spec.parameters, &A::luau(), R::luau()),
         });
     }
 }

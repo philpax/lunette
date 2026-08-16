@@ -6,12 +6,10 @@
 //! lets every signature be derived rather than restated.
 
 use lunette_compositor::protocol::{ContentType, InputDomain, PointerButton};
+use lunette_luau::Type;
 use mlua::{FromLua, IntoLua, Lua, Table, Value};
 
-use crate::{
-    lua::{declarations::LuauType, pointer_button, pointer_button_names},
-    properties::PROPERTY_VALUE,
-};
+use crate::{lua::declarations::Typed, properties::property_value};
 
 /// A texture, or `false` while the client is gone or has committed nothing.
 #[derive(Debug)]
@@ -63,9 +61,9 @@ impl IntoLua for MaybeTexture {
     }
 }
 
-impl LuauType for MaybeTexture {
-    fn luau() -> String {
-        "Texture | false".to_owned()
+impl Typed for MaybeTexture {
+    fn luau() -> Type {
+        Type::Union(vec![Type::Named("Texture"), Type::Named("false")])
     }
 }
 
@@ -75,9 +73,9 @@ impl IntoLua for MaybeLayer {
     }
 }
 
-impl LuauType for MaybeLayer {
-    fn luau() -> String {
-        "Layer | false".to_owned()
+impl Typed for MaybeLayer {
+    fn luau() -> Type {
+        Type::Union(vec![Type::Named("Layer"), Type::Named("false")])
     }
 }
 
@@ -87,9 +85,9 @@ impl IntoLua for ContentTypeName {
     }
 }
 
-impl LuauType for ContentTypeName {
-    fn luau() -> String {
-        union(ContentType::NAMES)
+impl Typed for ContentTypeName {
+    fn luau() -> Type {
+        Type::literals(ContentType::NAMES)
     }
 }
 
@@ -99,39 +97,39 @@ impl IntoLua for SinkDomain {
     }
 }
 
-impl LuauType for SinkDomain {
-    fn luau() -> String {
-        union(InputDomain::NAMES)
+impl Typed for SinkDomain {
+    fn luau() -> Type {
+        Type::literals(InputDomain::NAMES)
     }
 }
 
-impl LuauType for WindowDomain {
-    fn luau() -> String {
-        literal(InputDomain::Window.as_str())
+impl Typed for WindowDomain {
+    fn luau() -> Type {
+        Type::Literal(InputDomain::Window.as_str())
     }
 }
 
-impl LuauType for HostDomain {
-    fn luau() -> String {
-        literal(InputDomain::Host.as_str())
+impl Typed for HostDomain {
+    fn luau() -> Type {
+        Type::Literal(InputDomain::Host.as_str())
     }
 }
 
 impl FromLua for PointerButtonName {
     fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
         let name = String::from_lua(value, lua)?;
-        pointer_button(&name).map(Self).ok_or_else(|| {
+        PointerButton::from_name(&name).map(Self).ok_or_else(|| {
             mlua::Error::runtime(format!(
                 "lunette: '{name}' is not a pointer button; the buttons are {}",
-                pointer_button_names().collect::<Vec<_>>().join(", ")
+                PointerButton::NAMES.join(", ")
             ))
         })
     }
 }
 
-impl LuauType for PointerButtonName {
-    fn luau() -> String {
-        "PointerButton".to_owned()
+impl Typed for PointerButtonName {
+    fn luau() -> Type {
+        Type::Named("PointerButton")
     }
 }
 
@@ -141,9 +139,9 @@ impl FromLua for PropertyArgument {
     }
 }
 
-impl LuauType for PropertyArgument {
-    fn luau() -> String {
-        PROPERTY_VALUE.to_owned()
+impl Typed for PropertyArgument {
+    fn luau() -> Type {
+        property_value()
     }
 }
 
@@ -153,9 +151,13 @@ impl IntoLua for StoredProperty {
     }
 }
 
-impl LuauType for StoredProperty {
-    fn luau() -> String {
-        format!("{PROPERTY_VALUE} | nil")
+impl Typed for StoredProperty {
+    fn luau() -> Type {
+        let Type::Union(mut members) = property_value() else {
+            unreachable!("a property value is the union of the scalars it may hold")
+        };
+        members.push(Type::NIL);
+        Type::Union(members)
     }
 }
 
@@ -165,9 +167,9 @@ impl IntoLua for PropertyMap {
     }
 }
 
-impl LuauType for PropertyMap {
-    fn luau() -> String {
-        format!("{{ [string]: {PROPERTY_VALUE} }}")
+impl Typed for PropertyMap {
+    fn luau() -> Type {
+        Type::map(Type::STRING, property_value())
     }
 }
 
@@ -177,21 +179,8 @@ impl FromLua for StrokeQuery {
     }
 }
 
-impl LuauType for StrokeQuery {
-    fn luau() -> String {
-        "string | number".to_owned()
+impl Typed for StrokeQuery {
+    fn luau() -> Type {
+        Type::Union(vec![Type::STRING, Type::NUMBER])
     }
-}
-
-/// The Luau union of a set of string literals.
-fn union(names: &[&str]) -> String {
-    names
-        .iter()
-        .map(|name| literal(name))
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
-
-fn literal(name: &str) -> String {
-    format!("'{name}'")
 }

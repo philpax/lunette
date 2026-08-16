@@ -349,6 +349,10 @@ export type Lunette = {
   read setSceneEnabled: (enabled: boolean) -> (),
   -- What `setSceneEnabled` was last told, which the next frame will latch.
   read sceneEnabled: () -> boolean,
+  -- Every modifier name a seat accepts, in the order a keymap numbers them.
+  -- What `seat:setModifiers` takes and `seat.modifiers` answers with are drawn
+  -- from this set.
+  read modifierNames: () -> { string },
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises asks the pool for a size the free list already
   -- holds.

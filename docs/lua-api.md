@@ -26,22 +26,18 @@ A config that never mentions `mullion` is a supported configuration.
 The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. Callbacks are prefixed `lun`, and every one of them takes a single table:
 
 ```lua
-function lovr.lunwindowopened(event) end   -- window.
-function lovr.lunwindowclosed(event) end   -- window.
-function lovr.luntitlechanged(event) end   -- window, title.
-function lovr.lunmonitoradded(event) end   -- id, monitor.
-function lovr.lunprocessexited(event) end  -- process, outcome, and one of code, signal, message.
-function lovr.lunprocessoutput(event) end  -- process, stream, text.
-function lovr.lunlayergranted(event) end   -- claim, layer.
-function lovr.lunlayerrevoked(event) end   -- claim.
-function lovr.lunerror(event) end          -- message, traceback.
+function lovr.lunwindowopened(event) end
+function lovr.lunprocessexited(event) end
+function lovr.lunlayergranted(event) end
 ```
+
+`crates/lunette/src/events.rs` declares every callback and the fields each one carries, and `etc/lunette/definitions.luau` is generated from it, so the editor and `lunette check` state the shape of an event rather than this document doing it. A test fails the build if a callback this binary delivers is not declared there.
 
 The prefix occupies LÖVR's callback namespace permanently and is chosen to be distinctive: `lovr.lun*` is unlikely to collide with any callback added upstream.
 
 `boot.lua`'s poll loop unpacks four arguments, so a payload of more than four values would not arrive. Every event carries a table instead, including the events with one field, so the shape does not differ between callbacks and a field added later is not a change to a signature.
 
-`event.outcome` on `lunprocessexited` is `'exited'`, `'signalled'`, or `'spawnFailed'`, and says which of `event.code`, `event.signal`, and `event.message` is present. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
+`event.outcome` on `lunprocessexited` says which of `event.code`, `event.signal`, and `event.message` is present, and the declarations carry the values it takes. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
 
 An event is delivered against the snapshot of the frame it was drained in. `lovr.lunwindowclosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
 
@@ -221,7 +217,7 @@ The two scroll methods are separate because the protocol keeps the two sources a
 
 `sink:key(keycode, pressed)` takes an evdev keycode, which is what `wl_keyboard` carries and what `seat:strokeFor` hands back. On a window sink it goes to the seat's keyboard and so reaches whichever client that seat is focused on; a seat with no focus delivers to nobody. On a host sink it reaches whatever the host compositor currently focuses, and lunette does not choose what that is. A keycode outside the set lunette's host provider declared is refused with `false` rather than sent, because the kernel would otherwise drop it without a word.
 
-`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. The names are `shift`, `capsLock`, `control`, `alt`, `numLock`, `mod3`, `logo`, and `mod5`; an unrecognised one raises. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
+`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. `lunette.modifierNames()` answers with the names it takes, in the order a keymap numbers them, and an unrecognised one raises; `KeyModifier` in `crates/lunette-compositor/src/protocol/input.rs` is where the set is declared and everything else derives from it. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
 
 `sink:typeText(text)` is an escape hatch, and explicitly stateful. Text the active layout can type goes down the ordinary path and changes nothing; the rest makes lunette generate a temporary keymap, upload it, type against it, and put the client's own back. So it must not be interleaved with `sink:key` on the same seat, and a client may see its keymap change while it runs — which is legal, and is the price of entering text no layout binds. Text needing more distinct keysyms than one keymap holds is split into runs that fit rather than refused. It is refused on a host sink, because lunette does not own the host's keyboard well enough to promise the layout it took can be given back.
 

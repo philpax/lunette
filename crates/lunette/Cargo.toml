@@ -25,6 +25,9 @@ parking_lot.workspace = true
 smithay.workspace = true
 ariadne = { workspace = true }
 clap = { workspace = true }
+# The Luau type language and the `closed_set!` macro. The mlua feature adds the
+# impls for mlua's own types, which only this crate needs.
+lunette-luau = { workspace = true, features = ["mlua"] }
 mlua = { workspace = true, features = ["luau"] }
 # `mlua-sys` is a direct dependency purely to reach its `external` feature,
 # which mlua's own feature table does not re-export. With `external` set,

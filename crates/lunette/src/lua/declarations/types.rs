@@ -1,29 +1,11 @@
-//! What a Rust type is called in Luau.
+//! The markers that stand for a Luau type with no Rust type behind it.
 //!
-//! Rust has no reflection, so the mapping is written out: one impl per type
-//! that crosses into Lua. The spelling of a type appears here and nowhere else,
-//! which is what lets a signature be derived rather than restated.
+//! Everything else comes from [`lunette_luau`]: the leaves, the containers, and
+//! the tuples are stated once there, and a handle states its own name through
+//! the [`Typed`] impl its `handle!` block generates. What is left here is the
+//! two places a declaration names a type that no value ever has.
 
-use std::collections::HashMap;
-
-use mlua::{LuaString, UserDataRef};
-
-/// The Luau type a value of this Rust type is seen as.
-pub trait LuauType {
-    fn luau() -> String;
-}
-
-/// The names of an argument tuple's types, in order.
-pub trait LuauArgs {
-    fn luau_args() -> Vec<String>;
-}
-
-/// [`LuauType::luau`] as a function pointer, for the places a type is named in
-/// a `const`.
-#[must_use]
-pub fn luau_of<T: LuauType>() -> String {
-    T::luau()
-}
+use lunette_luau::{Type, Typed};
 
 /// A value Lua never receives, for the arm of a discriminated handle that
 /// carries none.
@@ -35,91 +17,14 @@ pub struct Nil;
 #[derive(Clone, Copy, Debug)]
 pub struct Textured;
 
-macro_rules! leaf {
-    ($($rust:ty => $luau:literal),* $(,)?) => {
-        $(
-            impl LuauType for $rust {
-                fn luau() -> String {
-                    $luau.to_owned()
-                }
-            }
-        )*
-    };
-}
-
-leaf! {
-    bool => "boolean",
-    f32 => "number",
-    f64 => "number",
-    i32 => "number",
-    i64 => "number",
-    u32 => "number",
-    u64 => "number",
-    usize => "number",
-    String => "string",
-    LuaString => "string",
-    Nil => "nil",
-    Textured => "Textured",
-}
-
-impl<T: LuauType> LuauType for Option<T> {
-    fn luau() -> String {
-        format!("{}?", T::luau())
+impl Typed for Nil {
+    fn luau() -> Type {
+        Type::NIL
     }
 }
 
-impl<T: LuauType> LuauType for Vec<T> {
-    fn luau() -> String {
-        format!("{{ {} }}", T::luau())
+impl Typed for Textured {
+    fn luau() -> Type {
+        Type::Named("Textured")
     }
-}
-
-impl<K: LuauType, V: LuauType> LuauType for HashMap<K, V> {
-    fn luau() -> String {
-        format!("{{ [{}]: {} }}", K::luau(), V::luau())
-    }
-}
-
-impl<T: LuauType + 'static> LuauType for UserDataRef<T> {
-    fn luau() -> String {
-        T::luau()
-    }
-}
-
-impl LuauType for () {
-    fn luau() -> String {
-        "()".to_owned()
-    }
-}
-
-impl LuauArgs for () {
-    fn luau_args() -> Vec<String> {
-        Vec::new()
-    }
-}
-
-macro_rules! tuples {
-    ($(($($member:ident),+)),* $(,)?) => {
-        $(
-            impl<$($member: LuauType),+> LuauType for ($($member,)+) {
-                fn luau() -> String {
-                    let members = [$($member::luau()),+];
-                    format!("({})", members.join(", "))
-                }
-            }
-
-            impl<$($member: LuauType),+> LuauArgs for ($($member,)+) {
-                fn luau_args() -> Vec<String> {
-                    vec![$($member::luau()),+]
-                }
-            }
-        )*
-    };
-}
-
-tuples! {
-    (A),
-    (A, B),
-    (A, B, C),
-    (A, B, C, D),
 }

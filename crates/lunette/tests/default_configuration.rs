@@ -23,6 +23,7 @@ use std::{
 // would link no Lua at all and fail with undefined symbols rather than with a
 // verdict.
 use lunette as _;
+use lunette_compositor::protocol::KeyModifier;
 
 /// An mlua state with LÖVR's fork library set opened on it, the way the real
 /// session state has it (the session handlers and `mullion` read `package`).
@@ -253,6 +254,13 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
     loaders.set(2, path_loader)?;
 
     let lunette = lua.create_table()?;
+    // The real names rather than a list written out here: this table is a fake
+    // of lunette's own module, and a fake that invents values is a test that
+    // passes against an API nothing has.
+    lunette.set(
+        "modifierNames",
+        lua.create_function(|_, ()| Ok(KeyModifier::NAMES.to_vec()))?,
+    )?;
     lunette.set(
         "newSeat",
         lua.create_function(|lua, _: mlua::MultiValue| {

@@ -4,7 +4,7 @@
 //! each with the closure that answers it. [`module!`] does the same for the
 //! module table, and [`record!`] for a table of plain fields. Every Luau type
 //! is derived from the Rust one through
-//! [`LuauType`](crate::lua::declarations::LuauType), and every parameter name
+//! [`Typed`](crate::lua::declarations::Typed), and every parameter name
 //! is the binding its body uses.
 
 /// Declares a handle, registering it with mlua and describing it to the
@@ -46,9 +46,9 @@ macro_rules! handle {
             }
         }
 
-        impl<$generic: $bound> $crate::lua::declarations::LuauType for $name<$generic> {
-            fn luau() -> String {
-                stringify!($name).to_owned()
+        impl<$generic: $bound> $crate::lua::declarations::Typed for $name<$generic> {
+            fn luau() -> $crate::lua::declarations::Type {
+                $crate::lua::declarations::Type::Named(stringify!($name))
             }
         }
 
@@ -80,7 +80,7 @@ macro_rules! handle {
                 name: stringify!($field),
                 doc: concat!($($doc),*),
                 ty: $crate::lua::declarations::FieldType::PerVariant(&[
-                    $($crate::lua::declarations::luau_of::<$arm> as fn() -> String),+
+                    $($crate::lua::declarations::of::<$arm> as fn() -> $crate::lua::declarations::Type),+
                 ]),
             },
             |$lua: &::mlua::Lua, $this: &Self| -> ::mlua::Result<$ty> { $body },
@@ -128,7 +128,7 @@ macro_rules! handle {
     };
 
     (@receiver $receiver:ty) => {
-        $crate::lua::declarations::Receiver::Named($crate::lua::declarations::luau_of::<$receiver>)
+        $crate::lua::declarations::Receiver::Named($crate::lua::declarations::of::<$receiver>)
     };
 }
 
@@ -161,8 +161,8 @@ macro_rules! module {
                     ty: || $crate::lua::declarations::function_type(
                         None,
                         &[$(stringify!($argument)),*],
-                        &<($($argument_ty,)*) as $crate::lua::declarations::LuauArgs>::luau_args(),
-                        &<$returns as $crate::lua::declarations::LuauType>::luau(),
+                        &<($($argument_ty,)*) as $crate::lua::declarations::Arguments>::luau(),
+                        <$returns as $crate::lua::declarations::Typed>::luau(),
                     ),
                     build: |lua, session| {
                         let held = ::std::rc::Rc::clone(session);
@@ -246,15 +246,15 @@ macro_rules! record {
                         $crate::lua::declarations::RecordField {
                             name: stringify!($field),
                             doc: concat!($($field_doc),*),
-                            ty: $crate::lua::declarations::luau_of::<$field_ty>,
+                            ty: $crate::lua::declarations::of::<$field_ty>,
                         },
                     )*],
                 };
         }
 
-        impl $crate::lua::declarations::LuauType for $shape {
-            fn luau() -> String {
-                stringify!($name).to_owned()
+        impl $crate::lua::declarations::Typed for $shape {
+            fn luau() -> $crate::lua::declarations::Type {
+                $crate::lua::declarations::Type::Named(stringify!($name))
             }
         }
     };

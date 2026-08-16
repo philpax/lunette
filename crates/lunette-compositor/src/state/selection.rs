@@ -149,7 +149,7 @@ impl CompositorState {
         if let Some(previous) = rebind.withdrawn {
             self.unbridge(previous);
         }
-        for kind in SelectionKind::ALL {
+        for &kind in SelectionKind::ALL {
             match self.selection.offer(kind).cloned() {
                 Some(offer) => self.offer_to_bridge(&offer),
                 None => self.clear_on_bridge(kind),
@@ -177,7 +177,7 @@ impl CompositorState {
     /// and destroying it because the bridge moved would break a copy that had
     /// nothing to do with the host.
     fn unbridge(&mut self, seat: SeatId) {
-        for kind in SelectionKind::ALL {
+        for &kind in SelectionKind::ALL {
             self.selection.withdraw_from_host(kind);
             self.clear_lunettes_selection(seat, kind);
         }
@@ -240,7 +240,7 @@ impl CompositorState {
                     "the host clipboard connection ended; nothing bridges now"
                 );
                 self.selection.lose_host();
-                for kind in SelectionKind::ALL {
+                for &kind in SelectionKind::ALL {
                     self.clear_on_bridge(kind);
                 }
             }
