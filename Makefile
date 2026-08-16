@@ -76,8 +76,9 @@ check-test:
 	$(CARGO) test --workspace
 	$(CARGO) test --workspace --no-default-features
 
-# The definitions are generated and checked in, so a stale artifact is a
-# failure rather than something to notice later.
+# Both generated files are checked in — the LOVR definitions from lovr-docs, and
+# the `lunette` module from the Rust registration surface — so a stale artifact is
+# a failure rather than something to notice later.
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 

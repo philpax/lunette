@@ -21,8 +21,8 @@ crates/lunette/                       the binaries: lunette and lunctl, Lua inje
 crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
 crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
 crates/lunette-capture/               wrappers over wlx-capture and HidProvider
-crates/lunette-generate-definitions/  generates etc/lunette/definitions.luau from lovr-docs
-lua/lunette/                          the hand-written declarations for the native API
+crates/lunette-generate-definitions/  generates etc/lunette/definitions.luau and lua/lunette/init.luau
+lua/lunette/                          the generated declarations for the native API
 lua/mullion/                          the mullion standard library
 lua/spec/                             the standard library's own specs
 etc/lunette/                          the generated Luau definitions
@@ -205,7 +205,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
     - `cargo test --workspace`
     - `cargo test --workspace --no-default-features`
   - `make check-definitions`
-    - `cargo run -p lunette-generate-definitions -- --check` — regenerates `etc/lunette/definitions.luau` into memory and fails if it differs from what is checked in. It names the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
+    - `cargo run -p lunette-generate-definitions -- --check` — regenerates `etc/lunette/definitions.luau` and `lua/lunette/init.luau` into memory and fails if either differs from what is checked in. It names the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result.
   - `make check-luau`
     - `cargo run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:

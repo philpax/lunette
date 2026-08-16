@@ -12,8 +12,8 @@ lunette/
     lunette-compositor/           smithay; vendored fork of WayVR's backend/wayvr
     lunette-lovr/                 cmake build + FFI surface for LÖVR
     lunette-capture/              wrappers over wlx-capture and HidProvider
-    lunette-generate-definitions/ generates etc/lunette/definitions.luau from lovr-docs
-  lua/lunette/                    the hand-written declarations for the native API
+    lunette-generate-definitions/ generates etc/lunette/definitions.luau and lua/lunette/init.luau
+  lua/lunette/                    the generated declarations for the native API
   lua/mullion/                    the mullion standard library
   lua/spec/                       the standard library's own specs
   etc/lunette/                    the generated Luau definitions

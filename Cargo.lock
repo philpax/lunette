@@ -740,6 +740,7 @@ dependencies = [
 name = "lunette-generate-definitions"
 version = "0.1.0"
 dependencies = [
+ "lunette",
  "lunette-lovr",
  "mlua",
  "mlua-sys",

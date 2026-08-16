@@ -37,15 +37,20 @@ use std::{cell::RefCell, collections::HashMap, ffi::c_void, fmt, rc::Rc};
 
 use lunette_compositor::protocol::{PixelSize, WindowId};
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Layer};
-use mlua::{Lua, Table, UserData, UserDataFields, UserDataMethods, Value};
+use mlua::{Lua, Value};
 
 use crate::{
-    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
+    control::wire::HandleKind,
     layers::{
         ClaimId, ClaimState, LayerBackend, LayerKey, LayerPool, LayerProperties, LayerSize,
         LovrLayer, PoolOutcome, Priority,
     },
-    lua::{LuaTexture, Session, Window, pixel_size, reject_unknown_options},
+    lua::{
+        LuaTexture, Session, Window,
+        declarations::{NullTexture, Options, handle, record},
+        pixel_size,
+        values::MaybeLayer,
+    },
     texture::FrameGeneration,
 };
 
@@ -293,68 +298,49 @@ impl From<ClaimState> for Known {
     }
 }
 
-impl<T: LuaTexture> UserData for Claim<T> {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        // How `lunctl` recognises a handle. A metafield rather than a field,
-        // so it is invisible to `pairs` and to ordinary indexing; the
-        // serialiser reads it off the metatable and refuses any other
-        // userdata, which is how a LÖVR `Texture` comes to be reported rather
-        // than stringified.
-        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Claim.as_str());
+handle! {
+    /// A claim on a composition layer for a window's pixels. Layers are scarce, so a panel asks for one and is told whether it has it; an in-scene quad is the fallback, not a degraded mode.
+    Claim<T: LuaTexture> = HandleKind::Claim;
 
-        // Stable for the claim's whole life, so it is what a Lua table of
-        // per-claim state is keyed by.
-        fields.add_field_method_get("id", |_, claim| Ok(claim.id.get()));
+    /// Stable for the claim's whole life, so it is what a table of per-claim state is keyed by.
+    field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-        fields.add_field_method_get("dead", |_, claim| Ok(!claim.refresh()));
+    field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-        // Whether the panel draws itself on the layer this frame, or as an
-        // in-scene quad. Read every frame: a claim is revoked when a
-        // higher-priority one arrives at capacity, and re-granted when a layer
-        // frees, neither of which the holder initiates.
-        fields.add_field_method_get("granted", |_, claim| {
-            claim.refresh();
-            Ok(claim.known.borrow().granted)
-        });
-
-        // The real LÖVR `Layer`, with the full `Layer` metatable, or `false`
-        // when the claim holds none. Never cached across frames: what it names
-        // goes away on revoke, and the handle is cheap to ask for again.
-        fields.add_field_method_get("layer", |lua, claim| {
-            claim.refresh();
-            claim.session.claims().push_layer(lua, claim.id)
-        });
-
-        fields.add_field_method_get("priority", |_, claim| {
-            claim.refresh();
-            Ok(claim.known.borrow().priority)
-        });
-
-        // The layer's size, not the size that was asked for. Requested sizes
-        // are quantised to a ladder so that a panel resized by a drag settles on
-        // a rung the free list already holds, so the layer is at least as large
-        // as the request and usually larger — and a caller setting the layer's
-        // viewport needs the number the layer actually has.
-        fields.add_field_method_get("width", |_, claim| Ok(size(claim).map(|size| size.width)));
-
-        fields.add_field_method_get("height", |_, claim| Ok(size(claim).map(|size| size.height)));
-
-        // The source, as a fresh handle each read: it holds an identifier and
-        // an `Rc`, so there is nothing to gain by caching one and a stale cache
-        // to lose.
-        fields.add_field_method_get("window", |_, claim| {
-            Ok(claim
-                .source
-                .map(|source| Window::for_id(Rc::clone(&claim.session), source)))
-        });
+    /// Whether the panel draws itself on the layer this frame, or as an in-scene quad. Read every frame: a claim is revoked when a higher-priority one arrives at capacity, and re-granted when a layer frees.
+    field granted(_lua, this) -> bool {
+        this.refresh();
+        Ok(this.known.borrow().granted)
     }
 
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("setPriority", |_, claim, priority: f64| {
-            set_priority(claim, priority)
-        });
-        methods.add_method("release", |_, claim, ()| Ok(release(claim)));
+    /// The LÖVR layer, with the full `Layer` metatable, or false while the claim holds none. Never cached across frames: what it names goes away on revoke.
+    field layer(lua, this) -> MaybeLayer {
+        this.refresh();
+        this.session.claims().push_layer(lua, this.id).map(MaybeLayer)
     }
+
+    field priority(_lua, this) -> f64 {
+        this.refresh();
+        Ok(this.known.borrow().priority)
+    }
+
+    /// The layer's size, not the size that was asked for: a request is quantised up a ladder, so the layer is at least as large as the request and usually larger, and a caller setting the layer's viewport needs the number it actually has.
+    field width(_lua, this) -> Option<u32> { Ok(size(this).map(|size| size.width)) }
+
+    field height(_lua, this) -> Option<u32> { Ok(size(this).map(|size| size.height)) }
+
+    /// The source, as a fresh handle each read. Absent only for a claim the pool has already forgotten.
+    field window(_lua, this) -> Option<Window<T>> {
+        Ok(this
+            .source
+            .map(|source| Window::for_id(Rc::clone(&this.session), source)))
+    }
+
+    /// Changes where this claim ranks against the others, taking effect at the next frame boundary. Raising a claim above a granted one is what displaces it.
+    method setPriority(_lua, this, priority: f64) -> bool { set_priority(this, priority) }
+
+    /// Withdraws the claim, returning any layer to the pool. The handle is dead afterwards, and no revocation event fires.
+    method release(_lua, this) -> bool { Ok(release(this)) }
 }
 
 /// `lunette.claimLayer{ window = …, width = …, height = …, priority = … }`.
@@ -373,9 +359,9 @@ impl<T: LuaTexture> UserData for Claim<T> {
 /// priority is not a number.
 pub(crate) fn claim_layer<T: LuaTexture>(
     session: &Rc<Session<T>>,
-    options: &Table,
+    options: &Options<ClaimLayer>,
 ) -> mlua::Result<Claim<T>> {
-    reject_unknown_options(options, CLAIM_OPTIONS)?;
+    let options = options.table();
 
     let source = options
         .get::<Option<mlua::UserDataRef<Window<T>>>>("window")?
@@ -413,8 +399,17 @@ pub(crate) fn claim_layer<T: LuaTexture>(
     Ok(Claim::new(Rc::clone(session), id))
 }
 
-/// The options [`claim_layer`] accepts.
-const CLAIM_OPTIONS: &[&str] = &["height", "priority", "width", "window"];
+record! {
+    /// What `lunette.claimLayer` takes.
+    options ClaimLayer as ClaimOptions {
+        /// The window whose pixels the layer carries.
+        window: Window<NullTexture>,
+        width: f64,
+        height: f64,
+        /// Where this claim ranks against the others. Ranking is the caller's: lunette sorts by the number and never invents it.
+        priority: f64,
+    }
+}
 
 /// `claim:setPriority(n)`: changes where this claim ranks against the others.
 ///

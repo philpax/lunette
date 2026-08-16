@@ -53,6 +53,10 @@ const FORK_BRANCH: &str = "lunette";
 /// not describe.
 const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
 
+/// The `lunette` module as the checker sees it, rendered from the Rust
+/// registration surface rather than from lovr-docs.
+const MODULE_DECLARATIONS: &str = "lua/lunette/init.luau";
+
 /// What the checker needs that lovr-docs does not describe.
 ///
 /// Luau registers the standard functions itself, correctly typed, so declaring
@@ -146,9 +150,18 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let text = fs::read_to_string(&generated)?;
 
     let definitions = format!("{FORK_GLOBALS}\n{}", with_lunette_fields(&text)?);
+    let declarations = lunette::lua::declarations::render();
+
+    let generated = [
+        (CHECKER_DEFINITIONS, definitions),
+        (MODULE_DECLARATIONS, declarations),
+    ];
 
     if checking {
-        let current = compare(&root.join(CHECKER_DEFINITIONS), &definitions)?;
+        let mut current = true;
+        for (path, contents) in &generated {
+            current &= compare(&root.join(path), contents)?;
+        }
 
         if current {
             info!("the generated definitions are up to date");
@@ -159,13 +172,14 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
         return Ok(current);
     }
 
-    fs::create_dir_all(root.join("etc/lunette"))?;
-    fs::write(root.join(CHECKER_DEFINITIONS), &definitions)?;
-    info!(
-        path = %root.join(CHECKER_DEFINITIONS).display(),
-        bytes = definitions.len(),
-        "wrote"
-    );
+    for (path, contents) in &generated {
+        let path = root.join(path);
+        if let Some(directory) = path.parent() {
+            fs::create_dir_all(directory)?;
+        }
+        fs::write(&path, contents)?;
+        info!(path = %path.display(), bytes = contents.len(), "wrote");
+    }
 
     Ok(true)
 }

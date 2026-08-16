@@ -8,6 +8,10 @@ description = "Generates the LÖVR Luau definitions from lovr-docs metadata"
 build = "build.rs"
 
 [dependencies]
+# For `lua::declarations::render`, which is the Lua module's own surface as the
+# checker sees it. The declarations live beside the mlua registrations they
+# describe, so the generator reads them from there rather than restating them.
+lunette = { path = "../lunette" }
 lunette-lovr = { path = "../lunette-lovr" }
 mlua = { workspace = true, features = ["luau"] }
 mlua-sys = { workspace = true, features = ["external"] }

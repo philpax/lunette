@@ -44,6 +44,7 @@
 //! handler reports. Nothing here swallows an error to keep a frame alive.
 
 mod claim;
+pub mod declarations;
 mod monitor;
 mod output;
 mod process;
@@ -51,10 +52,12 @@ mod seat;
 mod sink;
 #[cfg(test)]
 mod tests;
+pub mod values;
 mod window;
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     ffi::{OsString, c_void},
     mem,
     os::unix::ffi::OsStringExt,
@@ -87,10 +90,11 @@ use crate::{
     host::HostSinks,
     keymaps::KeymapCache,
     lua::{
-        claim::claim_layer,
+        claim::{ClaimLayer, claim_layer},
+        declarations::{FunctionSpec, NullTexture, Options, Record, module, record},
         monitor::monitors,
-        output::{new_output, outputs},
-        seat::{new_seat, seats},
+        output::{NewOutput, new_output, outputs},
+        seat::{NewSeat, new_seat, seats},
     },
     mirrors::MirrorRegistry,
     properties::WindowProperties,
@@ -568,95 +572,9 @@ impl LuaTexture for LovrTexture {
 fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Table> {
     let module = lua.create_table()?;
 
-    let windows_session = Rc::clone(session);
-    module.set(
-        "windows",
-        lua.create_function(move |lua, ()| windows(lua, &windows_session))?,
-    )?;
-
-    let spawn_session = Rc::clone(session);
-    module.set(
-        "spawn",
-        lua.create_function(move |_, options: Table| spawn(&spawn_session, &options))?,
-    )?;
-
-    let monitors_session = Rc::clone(session);
-    module.set(
-        "monitors",
-        lua.create_function(move |lua, ()| monitors(lua, &monitors_session))?,
-    )?;
-
-    let claim_session = Rc::clone(session);
-    module.set(
-        "claimLayer",
-        lua.create_function(move |_, options: Table| claim_layer(&claim_session, &options))?,
-    )?;
-
-    let new_seat_session = Rc::clone(session);
-    module.set(
-        "newSeat",
-        lua.create_function(
-            move |_, (name, options): (mlua::LuaString, Option<Table>)| {
-                new_seat(&new_seat_session, &name.to_string_lossy(), options.as_ref())
-            },
-        )?,
-    )?;
-
-    let seats_session = Rc::clone(session);
-    module.set(
-        "seats",
-        lua.create_function(move |lua, ()| seats(lua, &seats_session))?,
-    )?;
-
-    let new_output_session = Rc::clone(session);
-    module.set(
-        "newOutput",
-        lua.create_function(move |_, options: Table| new_output(&new_output_session, &options))?,
-    )?;
-
-    let outputs_session = Rc::clone(session);
-    module.set(
-        "outputs",
-        lua.create_function(move |lua, ()| outputs(lua, &outputs_session))?,
-    )?;
-
-    let set_scene_session = Rc::clone(session);
-    module.set(
-        "setSceneEnabled",
-        lua.create_function(move |_, enabled: bool| {
-            set_scene_session.set_scene(SceneRendering::from_enabled(enabled));
-            Ok(())
-        })?,
-    )?;
-
-    let scene_session = Rc::clone(session);
-    module.set(
-        "sceneEnabled",
-        lua.create_function(move |_, ()| Ok(scene_session.requested_scene().drawn()))?,
-    )?;
-
-    // Captures nothing: the ladder is a constant of the build, not a property of
-    // a session.
-    module.set(
-        "scaleSteps",
-        lua.create_function(|lua, ()| scale_steps(lua))?,
-    )?;
-
-    // Captures nothing. A reload is entirely a matter of the Lua state — the
-    // compositor, the clients, and their textures are not touched by one — so
-    // this reaches for no session and holds no Lua value between calls.
-    module.set(
-        "reload",
-        lua.create_function(|lua, ()| reload_from_lua(lua))?,
-    )?;
-
-    // Captures nothing, for the same reason `reload` does not: the restart is
-    // asked for by pushing LÖVR's own event, and the teardown that follows it
-    // belongs to the frame loop rather than to anything reachable from here.
-    module.set(
-        "restart",
-        lua.create_function(|lua, ()| restart_from_lua(lua))?,
-    )?;
+    for function in module_functions::<T>() {
+        module.set(function.spec.name, (function.build)(lua, session)?)?;
+    }
 
     // Here rather than in `install`, because `boot.lua:345` creates
     // `lovr.handlers` after `package.preload` has been populated and before
@@ -667,16 +585,77 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     Ok(module)
 }
 
-/// `lunette.windows()`: every mapped toplevel, as of this frame's snapshot.
-fn windows<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Table> {
-    let snapshot = session.snapshot();
-    let windows = lua.create_table_with_capacity(snapshot.windows.len(), 0)?;
+/// One entry on the module table: what it is called, what its type is, and how
+/// it is built. The declaration and the closure are one item, so the generated
+/// Luau cannot describe a function that is not there.
+pub(crate) struct ModuleFunction<T> {
+    pub spec: FunctionSpec,
+    /// The Luau type, derived from what the closure takes and answers.
+    pub ty: fn() -> String,
+    pub build: fn(&Lua, &Rc<Session<T>>) -> mlua::Result<mlua::Function>,
+}
 
-    for (index, window) in (1..).zip(&snapshot.windows) {
-        windows.set(index, Window::new(Rc::clone(session), window))?;
+module! {
+    /// Every mapped toplevel, as of this frame's snapshot.
+    fn windows(lua, session) -> Vec<Window<T>> { window_handles(lua, session) }
+
+    /// Runs a program as a client of this compositor. The handle comes back before the compositor has seen the request, so it describes a process that does not exist yet: `alive` is false until the snapshot lists it.
+    fn spawn(_lua, session, options: Options<Spawn>) -> Process<T> { spawn(session, &options) }
+
+    /// The user's own screens, whether or not they are being mirrored.
+    fn monitors(lua, session) -> Vec<Monitor<T>> { monitors(lua, session) }
+
+    /// Asks for a composition layer for a window's pixels. Claims are ranked at the frame boundary, so a fresh claim is granted no earlier than the next frame.
+    fn claimLayer(_lua, session, options: Options<ClaimLayer>) -> Claim<T> {
+        claim_layer(session, &options)
     }
 
-    Ok(windows)
+    /// A seat with its own pointer, keyboard, and keymap. Dead until the compositor has created it, which is the rule `spawn` follows too.
+    fn newSeat(_lua, session, name: String, options: Option<Options<NewSeat>>) -> Seat<T> {
+        new_seat(session, &name, options.as_ref())
+    }
+
+    /// Every seat, including the one each session starts with.
+    fn seats(lua, session) -> Vec<Seat<T>> { seats(lua, session) }
+
+    /// An output for clients to lay out against.
+    fn newOutput(_lua, session, options: Options<NewOutput>) -> Output<T> {
+        new_output(session, &options)
+    }
+
+    /// Every output, including the default one.
+    fn outputs(lua, session) -> Vec<Output<T>> { outputs(lua, session) }
+
+    /// Whether lunette draws a scene of its own. Latched at the next frame boundary, and kept across a soft reload.
+    fn setSceneEnabled(_lua, session, enabled: bool) -> () {
+        session.set_scene(SceneRendering::from_enabled(enabled));
+        Ok(())
+    }
+
+    /// What `setSceneEnabled` was last told, which the next frame will latch.
+    fn sceneEnabled(_lua, session) -> bool { Ok(session.requested_scene().drawn()) }
+
+    /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises asks the pool for a size the free list already holds.
+    fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }
+
+    /// Discards the Lua state and re-runs the configuration, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
+    fn reload(lua, _session) -> (bool, Option<String>) { reload_from_lua(lua) }
+
+    /// Tears the session down and starts it again, graphics device included.
+    fn restart(lua, _session) -> () { restart_from_lua(lua) }
+}
+
+/// `lunette.windows()`: every mapped toplevel, as of this frame's snapshot.
+fn window_handles<T: LuaTexture>(
+    _lua: &Lua,
+    session: &Rc<Session<T>>,
+) -> mlua::Result<Vec<Window<T>>> {
+    let snapshot = session.snapshot();
+    Ok(snapshot
+        .windows
+        .iter()
+        .map(|window| Window::new(Rc::clone(session), window))
+        .collect())
 }
 
 /// `lunette.scaleSteps()`: the scale ladder, ascending, as plain numbers.
@@ -685,20 +664,11 @@ fn windows<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<T
 /// One ladder rather than two, so that a panel whose scale Lua raises asks the
 /// pool for a size the free list already holds instead of forcing an allocation
 /// — and an allocation blocks on `XR_INFINITE_DURATION`.
-///
-/// A fresh table each call rather than one shared table, so a configuration that
-/// writes into what it was handed cannot change what the next caller reads.
-fn scale_steps(lua: &Lua) -> mlua::Result<Table> {
-    let steps = lua.create_table_with_capacity(STEPS.len(), 0)?;
-
-    for (index, step) in (1..).zip(STEPS) {
-        steps.set(
-            index,
-            f64::from(step.in_120ths()) / f64::from(ScaleStep::DENOMINATOR),
-        )?;
-    }
-
-    Ok(steps)
+fn scale_steps() -> Vec<f64> {
+    STEPS
+        .iter()
+        .map(|step| f64::from(step.in_120ths()) / f64::from(ScaleStep::DENOMINATOR))
+        .collect()
 }
 
 /// `lunette.spawn{ argv = …, env = …, cwd = …, xwayland = … }`.
@@ -707,8 +677,11 @@ fn scale_steps(lua: &Lua) -> mlua::Result<Table> {
 /// describes a process that does not exist yet: `alive` is false until the
 /// snapshot lists it, and a spawn that fails outright is reported through
 /// `lovr.lunprocessexited` rather than by this call raising.
-fn spawn<T: LuaTexture>(session: &Rc<Session<T>>, options: &Table) -> mlua::Result<Process<T>> {
-    reject_unknown_options(options, SPAWN_OPTIONS)?;
+fn spawn<T: LuaTexture>(
+    session: &Rc<Session<T>>,
+    options: &Options<Spawn>,
+) -> mlua::Result<Process<T>> {
+    let options = options.table();
 
     let argv = Argv::from_list(strings(options, "argv")?).ok_or_else(|| {
         mlua::Error::runtime(
@@ -770,24 +743,37 @@ fn spawn_output<T: LuaTexture>(options: &Table) -> mlua::Result<Option<OutputId>
     }
 }
 
-/// The options `lunette.spawn` accepts.
-const SPAWN_OPTIONS: &[&str] = &["argv", "cwd", "env", "output", "xwayland"];
+record! {
+    /// What `lunette.spawn` takes.
+    options Spawn as SpawnOptions {
+        /// The program and its arguments. The list may not be empty.
+        argv: Vec<String>,
+        cwd: Option<String>,
+        /// Added to the environment the session was started with.
+        env: Option<HashMap<String, String>>,
+        /// The only output the client is shown. Absent means the default one, which is what a client lunette did not spawn is shown too.
+        output: Option<Output<NullTexture>>,
+        xwayland: Option<bool>,
+    }
+}
 
 /// Refuses a table carrying an option this build does not act on.
 ///
 /// A silently ignored option is a configuration that does not do what it says,
-/// and the failure surfaces as behaviour rather than as an error.
-pub(crate) fn reject_unknown_options(options: &Table, known: &[&str]) -> mlua::Result<()> {
+/// and the failure surfaces as behaviour rather than as an error. The accepted
+/// names come from the declaration the generated Luau is rendered from, so the
+/// two cannot disagree.
+pub(crate) fn reject_unknown_options(options: &Table, known: &Record) -> mlua::Result<()> {
     for pair in options.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let name = match &key {
             Value::String(name) => name.to_string_lossy(),
             other => other.type_name().to_owned(),
         };
-        if !known.contains(&name.as_str()) {
+        if !known.names().any(|accepted| accepted == name) {
             return Err(mlua::Error::runtime(format!(
                 "lunette: '{name}' is not an option here; this call takes {}",
-                known.join(", ")
+                known.names().collect::<Vec<_>>().join(", ")
             )));
         }
     }
@@ -842,16 +828,23 @@ fn pixel_size(width: f64, height: f64, noun: &str) -> mlua::Result<PixelSize> {
 /// Rejecting an unrecognised name rather than defaulting: `sink:button('lft',
 /// true)` is a typo, and a silent left click is harder to find than an error.
 fn pointer_button(name: &str) -> Option<PointerButton> {
-    match name {
-        "left" => Some(PointerButton::Left),
-        "right" => Some(PointerButton::Right),
-        "middle" => Some(PointerButton::Middle),
-        "back" => Some(PointerButton::Back),
-        "forward" => Some(PointerButton::Forward),
-        _ => None,
-    }
+    POINTER_BUTTONS
+        .iter()
+        .find(|(spelled, _)| *spelled == name)
+        .map(|(_, button)| *button)
 }
 
-/// The buttons [`pointer_button`] accepts, for the error message that lists
-/// them.
-const POINTER_BUTTONS: &str = "left, right, middle, back, forward";
+/// How Lua spells each button. The `PointerButton` type is rendered from this,
+/// so the type and the runtime name the same set.
+const POINTER_BUTTONS: &[(&str, PointerButton)] = &[
+    ("left", PointerButton::Left),
+    ("right", PointerButton::Right),
+    ("middle", PointerButton::Middle),
+    ("back", PointerButton::Back),
+    ("forward", PointerButton::Forward),
+];
+
+/// The button names, for the declaration and for the error that lists them.
+pub(crate) fn pointer_button_names() -> impl Iterator<Item = &'static str> {
+    POINTER_BUTTONS.iter().map(|(name, _)| *name)
+}

@@ -161,8 +161,9 @@ jobs:
 
       - run: make check-${{ matrix.half }}
 
-      # The definitions are generated and checked in. Nothing else notices when
-      # the metadata moves and the artifact does not.
+      # The definitions and the module declarations are generated and checked
+      # in. Nothing else notices when the metadata or the registration surface
+      # moves and the artifact does not.
       - run: make check-definitions
         if: matrix.half == 'test'
 

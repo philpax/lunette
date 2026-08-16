@@ -18,11 +18,15 @@ use lunette_compositor::{
     protocol::{Command, OutputId, OutputMode, OutputScale, OutputSnapshot, RefreshRate},
     state::DEFAULT_OUTPUT,
 };
-use mlua::{Lua, Table, UserData, UserDataFields, UserDataMethods};
+use mlua::{Lua, Table};
 
 use crate::{
-    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
-    lua::{LuaTexture, Session, pixel_size, reject_unknown_options},
+    control::wire::HandleKind,
+    lua::{
+        LuaTexture, Session,
+        declarations::{Options, handle, record},
+        pixel_size,
+    },
 };
 
 /// One virtual monitor, as Lua holds it.
@@ -69,45 +73,40 @@ impl<T> Output<T> {
     }
 }
 
-impl<T: LuaTexture> UserData for Output<T> {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        // How `lunctl` recognises a handle. A metafield rather than a field, so
-        // it is invisible to `pairs` and to ordinary indexing.
-        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Output.as_str());
+handle! {
+    /// One virtual monitor, which the clients assigned to it lay out against.
+    Output<T: LuaTexture> = HandleKind::Output;
 
-        fields.add_field_method_get("id", |_, output| Ok(output.id.get()));
+    field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-        fields.add_field_method_get("dead", |_, output| Ok(!output.refresh()));
+    field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-        fields.add_field_method_get("width", |_, output| {
-            output.refresh();
-            Ok(output.mode.borrow().size.width)
-        });
-
-        fields.add_field_method_get("height", |_, output| {
-            output.refresh();
-            Ok(output.mode.borrow().size.height)
-        });
-
-        fields.add_field_method_get("scale", |_, output| {
-            output.refresh();
-            Ok(output.mode.borrow().scale.get())
-        });
-
-        // Hertz, not the millihertz the protocol carries.
-        fields.add_field_method_get("refresh", |_, output| {
-            output.refresh();
-            Ok(hertz(output.mode.borrow().refresh))
-        });
+    field width(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.mode.borrow().size.width)
     }
 
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("setMode", |_, output, options: Table| {
-            set_mode(output, &options)
-        });
-
-        methods.add_method("destroy", |_, output, ()| Ok(destroy(output)));
+    field height(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.mode.borrow().size.height)
     }
+
+    field scale(_lua, this) -> f64 {
+        this.refresh();
+        Ok(this.mode.borrow().scale.get())
+    }
+
+    /// Hertz, not the millihertz the protocol carries.
+    field refresh(_lua, this) -> f64 {
+        this.refresh();
+        Ok(hertz(this.mode.borrow().refresh))
+    }
+
+    /// Changes the mode, keeping the fields the table does not name. Clients reallocate and re-lay-out in response, so a caller that changes this continuously will see them struggle.
+    method setMode(_lua, this, mode: Options<SetMode>) -> bool { set_mode(this, &mode) }
+
+    /// Withdraws the output's `wl_output` global. The output every session starts with is refused, because a client assigned no output is shown it.
+    method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 }
 
 /// `lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }`.
@@ -122,9 +121,9 @@ impl<T: LuaTexture> UserData for Output<T> {
 /// finite and positive, or an option is not one this call takes.
 pub(crate) fn new_output<T: LuaTexture>(
     session: &Rc<Session<T>>,
-    options: &Table,
+    options: &Options<NewOutput>,
 ) -> mlua::Result<Output<T>> {
-    let mode = read_mode(options, None)?;
+    let mode = read_mode(options.table(), None)?;
     let id = session
         .mint_output()
         .ok_or_else(|| mlua::Error::runtime("lunette: the output identifier space is exhausted"))?;
@@ -143,15 +142,16 @@ pub(crate) fn new_output<T: LuaTexture>(
 /// # Errors
 ///
 /// If the table could not be built.
-pub(crate) fn outputs<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Table> {
+pub(crate) fn outputs<T: LuaTexture>(
+    _lua: &Lua,
+    session: &Rc<Session<T>>,
+) -> mlua::Result<Vec<Output<T>>> {
     let snapshot = session.snapshot();
-    let outputs = lua.create_table_with_capacity(snapshot.outputs.len(), 0)?;
-
-    for (index, output) in (1..).zip(&snapshot.outputs) {
-        outputs.set(index, Output::new(Rc::clone(session), output))?;
-    }
-
-    Ok(outputs)
+    Ok(snapshot
+        .outputs
+        .iter()
+        .map(|output| Output::new(Rc::clone(session), output))
+        .collect())
 }
 
 /// `output:setMode{ … }`: changes the mode, keeping the fields not named.
@@ -159,9 +159,9 @@ pub(crate) fn outputs<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlu
 /// Clients reallocate and re-lay-out in response, so a caller that changes this
 /// continuously will see them struggle. `mullion` moves between discrete steps
 /// with hysteresis for that reason.
-fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Table) -> mlua::Result<bool> {
+fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> mlua::Result<bool> {
     let current = *output.mode.borrow();
-    let mode = read_mode(options, Some(current))?;
+    let mode = read_mode(options.table(), Some(current))?;
 
     if !output.refresh() {
         return Ok(false);
@@ -202,8 +202,6 @@ fn destroy<T: LuaTexture>(output: &Output<T>) -> bool {
 /// and height are required and the other two take a default: a monitor with no
 /// size means nothing, and a monitor with no stated refresh rate is a 60Hz one.
 fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<OutputMode> {
-    reject_unknown_options(options, OUTPUT_OPTIONS)?;
-
     let held = current.map(|current| current.size);
     let width = options
         .get::<Option<f64>>("width")?
@@ -244,13 +242,25 @@ fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<Outpu
     })
 }
 
-/// The options `lunette.newOutput` and `output:setMode` accept.
-///
-/// Four, as `docs/compositor.md` specifies. Transform and physical size are
-/// deliberately absent: adding them is a design change rather than an
-/// implementation detail, and the physical size is derived from the mode so a
-/// client's density guess agrees with the scale lunette advertises.
-const OUTPUT_OPTIONS: &[&str] = &["width", "height", "scale", "refresh"];
+record! {
+    /// What `output:setMode` changes. Every field is optional: what is left out keeps the value the output already has.
+    options SetMode as OutputMode {
+        width: Option<f64>,
+        height: Option<f64>,
+        scale: Option<f64>,
+        refresh: Option<f64>,
+    }
+}
+
+record! {
+    /// What `lunette.newOutput` takes. The size is required, because there is no previous mode to take it from and a client cannot lay out against an output with no size.
+    options NewOutput as OutputOptions {
+        width: f64,
+        height: f64,
+        scale: Option<f64>,
+        refresh: Option<f64>,
+    }
+}
 
 /// The scale an output that names none takes.
 const DEFAULT_SCALE: OutputScale = OutputScale::ONE;

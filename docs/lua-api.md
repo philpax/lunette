@@ -462,6 +462,14 @@ Three further cases needed an answer, and each is a source of silent corruption 
 
 A handle serialises as its kind and the identity the session keys it on, never as `tostring(handle)`. Addresses are reused after collection, so an id derived from one could come to refer to a different object — a defect that appears only under memory pressure. The identity is `win.id` and its siblings, which Phase 6 recorded as the stable thing; the userdata itself is minted fresh on every read and is not identity-stable at all.
 
+### The declarations are generated from the registration
+
+`lua/lunette/init.luau` is what the type checker reads `require '@lunette'` as, because Luau resolves a require to a file on disk and a definitions file can only declare globals. It is generated rather than written: each property and method is declared once, beside the closure that answers it, and the same declaration registers it with mlua and states its type, its parameter names, and its prose.
+
+The Luau type comes from the Rust one. `LuauType` maps a Rust type to its spelling — `f64` to `number`, `Option<T>` to `T?`, a handle to its own name — so a signature is derived rather than restated, and the spelling of a type exists in one impl rather than in every signature that uses it. Where Rust says less than Luau does, a wrapper type carries the difference: a texture that may be `false`, a string that is one of four words, an option table that validates its own keys as it is read. An option table's accepted names are the declaration's field names, so a table the runtime refuses cannot be one the type offers.
+
+The alternative was a hand-written stub kept in step by hand, which is what this replaced. It drifted: one reading of it against the Rust found `sink:scrollDiscrete`, `window.contentType`, `lunette.setSceneEnabled`, `lunette.sceneEnabled`, and `lunette.restart` declared nowhere, each of which made a documented call fail the check. A second list is a second thing to forget, and nothing was checking.
+
 ### Errors and safe mode
 
 The native side of the callback boundary rate-limits nothing. `crates/lunette/src/callback_error.rs` splits the message from the traceback and hands both to `mullion.error`, which owns the limiter, the wording, and the panel. Two limiters keyed differently would produce gaps that neither of them explains: an occurrence suppressed natively never reaches the Lua one, whose window then starts from the wrong occurrence. The cost is that a session with no standard library loaded has no limiter at all, and logs an error raised every frame every frame. That is stated in [Errors](#errors) rather than papered over.

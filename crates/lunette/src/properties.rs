@@ -162,6 +162,9 @@ impl fmt::Display for PropertyKey {
     }
 }
 
+/// How [`PropertyValue`] is spelled in Luau.
+pub const PROPERTY_VALUE: &str = "boolean | number | string";
+
 /// What a property may hold.
 ///
 /// Deliberately not a Lua value. See the module documentation: a stored Lua

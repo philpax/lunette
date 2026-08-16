@@ -8,11 +8,10 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::protocol::{Pid, ProcessId, ProcessSnapshot};
-use mlua::{UserData, UserDataFields};
 
 use crate::{
-    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
-    lua::Session,
+    control::wire::HandleKind,
+    lua::{LuaTexture, Session, declarations::handle},
 };
 
 /// A process lunette started, or adopted from outside.
@@ -73,30 +72,24 @@ impl From<&ProcessSnapshot> for Known {
     }
 }
 
-impl<T: 'static> UserData for Process<T> {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        // How `lunctl` recognises a handle. A metafield rather than a field,
-        // so it is invisible to `pairs` and to ordinary indexing; the
-        // serialiser reads it off the metatable and refuses any other
-        // userdata, which is how a LÖVR `Texture` comes to be reported rather
-        // than stringified.
-        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Process.as_str());
+handle! {
+    /// A process lunette started, or adopted from outside. The handle exists before the process does: `lunette.spawn` queues a request and returns in the same call.
+    Process<T: LuaTexture> = HandleKind::Process;
 
-        fields.add_field_method_get("id", |_, process| Ok(process.id.get()));
+    field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-        fields.add_field_method_get("alive", |_, process| Ok(process.refresh()));
+    /// False in three situations this deliberately does not distinguish: the request has not reached the compositor, the process has ended, and the process never started. `lovr.lunprocessexited` tells the last two apart.
+    field alive(_lua, this) -> bool { Ok(this.refresh()) }
 
-        // Absent until the child has been forked, and for an adopted process
-        // whose pid could not be read.
-        fields.add_field_method_get("pid", |_, process| {
-            process.refresh();
-            Ok(process.known.borrow().pid.map(Pid::get))
-        });
+    /// Absent until the child has been forked, and for an adopted process whose pid could not be read.
+    field pid(_lua, this) -> Option<i32> {
+        this.refresh();
+        Ok(this.known.borrow().pid.map(Pid::get))
+    }
 
-        // Whether the process connected from outside rather than being spawned.
-        fields.add_field_method_get("external", |_, process| {
-            process.refresh();
-            Ok(process.known.borrow().external)
-        });
+    /// Whether the process connected from outside rather than being spawned.
+    field external(_lua, this) -> bool {
+        this.refresh();
+        Ok(this.known.borrow().external)
     }
 }
