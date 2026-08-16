@@ -36,6 +36,7 @@ use std::{
     process::ExitCode,
 };
 
+use lunette::events::EVENT_NAMES;
 use mlua::{Lua, Table};
 use tracing::{error, info};
 
@@ -87,25 +88,39 @@ declare _G: {
 
 ";
 
-/// The fields lunette adds to the `lovr` table at boot (the custom event
-/// callbacks from `etc/boot.lua`), which lovr-docs does not know. They are
-/// spliced into the generated `declare lovr` table.
+/// The fields lunette adds to the `lovr` table at boot, which lovr-docs does
+/// not know. They are spliced into the generated `declare lovr` table.
 ///
-/// Optional, as every LÖVR callback is: nothing sets one by default, and a
-/// configuration defines the handlers it wants. Each takes the event table the
-/// dispatcher pushes, which carries the handle under a field rather than being
-/// the handle itself.
-const LUNETTE_LOVR_FIELDS: &str = "    lun: ((name: string, ...any) -> ())?,
-    lunerror: ((error: any) -> ())?,
-    lunlayergranted: ((event: any) -> ())?,
-    lunlayerrevoked: ((event: any) -> ())?,
-    lunmonitoradded: ((event: any) -> ())?,
-    lunprocessexited: ((event: any) -> ())?,
-    lunprocessoutput: ((event: any) -> ())?,
-    luntitlechanged: ((event: any) -> ())?,
-    lunwindowclosed: ((event: any) -> ())?,
-    lunwindowopened: ((event: any) -> ())?,
-";
+/// The event callbacks are read from [`lunette::events::EVENT_NAMES`], which is
+/// the list the dispatcher installs handlers from, so a callback this build
+/// delivers cannot go undeclared and a declaration cannot outlive the event it
+/// was written for. `declare lovr` is an exact table, so both directions
+/// matter: an undeclared callback is an error to assign, and a stale one
+/// promises a configuration something that never arrives.
+///
+/// Two are not events and are written here. `lun` is the catch-all the
+/// dispatcher offers, and `lunerror` carries the error rather than an event
+/// table.
+///
+/// Every one is optional, as every LÖVR callback is: nothing sets one by
+/// default, and a configuration defines the handlers it wants.
+fn lunette_lovr_fields() -> String {
+    let mut fields: Vec<(&str, &str)> = vec![
+        ("lun", "(name: string, ...any) -> ()"),
+        ("lunerror", "(error: any) -> ()"),
+    ];
+    fields.extend(
+        EVENT_NAMES
+            .iter()
+            .map(|name| (name.as_str(), "(event: any) -> ()")),
+    );
+    fields.sort_unstable();
+
+    fields
+        .iter()
+        .map(|(name, signature)| format!("    {name}: ({signature})?,\n"))
+        .collect()
+}
 
 fn main() -> ExitCode {
     // Diagnostics go to stderr, so that a caller redirecting stdout gets
@@ -427,9 +442,9 @@ fn with_lunette_fields(text: &str) -> Result<String, Box<dyn std::error::Error>>
         + opens
         + 1;
 
-    let mut spliced = String::with_capacity(text.len() + LUNETTE_LOVR_FIELDS.len());
+    let mut spliced = String::with_capacity(text.len() + lunette_lovr_fields().len());
     spliced.push_str(&text[..closes]);
-    spliced.push_str(LUNETTE_LOVR_FIELDS);
+    spliced.push_str(&lunette_lovr_fields());
     spliced.push_str(&text[closes..]);
     Ok(spliced)
 }

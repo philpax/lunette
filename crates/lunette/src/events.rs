@@ -360,7 +360,7 @@ pub(crate) fn install_dispatchers<T: LuaTexture>(
 }
 
 /// The `lun*` events this build delivers, and the order they are installed in.
-pub(crate) const EVENT_NAMES: [EventName; 8] = [
+pub const EVENT_NAMES: [EventName; 8] = [
     WINDOW_OPENED,
     WINDOW_CLOSED,
     TITLE_CHANGED,

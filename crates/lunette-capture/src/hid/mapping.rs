@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn every_transform_keeps_the_centre_at_the_centre() {
-        for transform in SurfaceTransform::ALL {
+        for &transform in SurfaceTransform::ALL {
             assert_eq!(
                 reorient(transform, PanelPoint::CENTRE),
                 PanelPoint::CENTRE,
@@ -517,7 +517,7 @@ mod tests {
             PanelPoint::new(1.0, 1.0),
         ];
 
-        for transform in SurfaceTransform::ALL {
+        for &transform in SurfaceTransform::ALL {
             let mut mapped: Vec<(u8, u8)> = corners
                 .into_iter()
                 .map(|corner| {
