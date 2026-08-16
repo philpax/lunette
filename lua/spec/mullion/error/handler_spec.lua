@@ -149,37 +149,6 @@ spec('the limiter rejects a time that is not a number', function()
   end, 'told the time', 'record')
 end)
 
-spec("hands a reported error to the configuration's lovr.lunerror", function()
-  fresh()
-  local seen = {}
-  local previous = lovr.lunerror
-
-  lovr.lunerror = function(event)
-    seen[#seen + 1] = event
-  end
-  errors.handle('it broke', 'a traceback', 0)
-  errors.handle('it broke', 'a traceback', 1)
-  lovr.lunerror = previous
-
-  expect.equal(#seen, 1, 'lunerror call count')
-  expect.equal(seen[1].message, 'it broke', 'the message')
-  expect.equal(seen[1].traceback, 'a traceback', 'the traceback')
-end)
-
-spec('a lovr.lunerror that raises does not take the report with it', function()
-  local reports = fresh()
-  local previous = lovr.lunerror
-
-  lovr.lunerror = function()
-    error 'the handler said no'
-  end
-  local reported = errors.handle('it broke', 'a traceback', 0)
-  lovr.lunerror = previous
-
-  expect.truthy(reported, 'handle')
-  expect.equal(#reports, 1, 'report count')
-end)
-
 spec('install replaces lovr.errhand and uninstall puts it back', function()
   fresh()
   local previous = lovr.errhand

@@ -71,7 +71,7 @@ Requested sizes are quantised to a ladder of discrete steps before becoming a ke
 The design keeps this from becoming policy implemented in Rust, through the following division.
 
 - A claim carries a Lua-supplied scalar priority, recomputed as often as Lua requires. Rust never invents the ranking; it sorts by the number it was given and assigns the top N deterministically. Focus, gaze, distance, a rule such as video ranking above a terminal, and hysteresis to stop flapping are all cases of Lua computing a different number.
-- Grants and revocations arrive as events (`lovr.lunlayergranted`, `lovr.lunlayerrevoked`) carrying the claim handle. The standard library degrades to an in-scene quad on revoke and upgrades back on grant. Upgrades are automatic: when a layer frees, the highest-priority ungranted claim takes it on the next frame.
+- Grants and revocations arrive as events (`lunette.onLayerGranted`, `lunette.onLayerRevoked`) carrying the claim handle. The standard library degrades to an in-scene quad on revoke and upgrades back on grant. Upgrades are automatic: when a layer frees, the highest-priority ungranted claim takes it on the next frame.
 - A granted claim yields a real LÖVR `Layer` userdata, not a wrapper. It exposes the full `setPose`/`setCurve`/`setViewport`/`getTexture` API and becomes invalid on revoke.
 - Rust makes the single `setLayers` call per frame from granted claims. `lovr.headset.setLayers` remains reachable for scripts that opt out of the scheme entirely.
 

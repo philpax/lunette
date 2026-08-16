@@ -13,9 +13,15 @@ use lunette_compositor::protocol::{
     ContentType, InputDomain, PointerButton, ProcessOutcome, Stream,
 };
 use lunette_luau::Type;
-use mlua::{FromLua, IntoLua, Lua, Table, Value};
+use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
 
-use crate::{lua::declarations::Typed, properties::property_value};
+use crate::{
+    lua::{
+        ErrorEvent,
+        declarations::{Parameter, Typed, of},
+    },
+    properties::property_value,
+};
 
 /// A texture, or `false` while the client is gone or has committed nothing.
 #[derive(Debug)]
@@ -246,5 +252,49 @@ impl IntoLua for OutcomeName {
 impl Typed for OutcomeName {
     fn luau() -> Type {
         Type::literals(ProcessOutcome::NAMES)
+    }
+}
+
+/// A function subscribing to errors, by what it is handed.
+#[derive(Debug)]
+pub struct ErrorListener(pub Function);
+
+impl FromLua for ErrorListener {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        Function::from_lua(value, lua).map(Self)
+    }
+}
+
+impl Typed for ErrorListener {
+    fn luau() -> Type {
+        Type::Function {
+            receiver: None,
+            parameters: vec![Parameter {
+                name: "event",
+                ty: of::<ErrorEvent>(),
+            }],
+            returns: Box::new(of::<()>()),
+        }
+    }
+}
+
+/// The function that ends a subscription. Calling it twice is harmless: the
+/// second call names a subscription that is no longer there.
+#[derive(Debug)]
+pub struct Cancel(pub Function);
+
+impl IntoLua for Cancel {
+    fn into_lua(self, _: &Lua) -> mlua::Result<Value> {
+        Ok(Value::Function(self.0))
+    }
+}
+
+impl Typed for Cancel {
+    fn luau() -> Type {
+        Type::Function {
+            receiver: None,
+            parameters: Vec::new(),
+            returns: Box::new(of::<()>()),
+        }
     }
 }

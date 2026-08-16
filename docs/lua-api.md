@@ -23,33 +23,25 @@ A config that never mentions `mullion` is a supported configuration.
 
 ## Events
 
-The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. Callbacks are prefixed `lun`, and every one of them takes a single table:
+The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. A listener subscribes through the module and is answered with the function that cancels it:
 
 ```lua
-function lovr.lunwindowopened(event) end
-function lovr.lunprocessexited(event) end
-function lovr.lunlayergranted(event) end
-```
-
-`crates/lunette/src/events/mod.rs` declares each event once — its name, the fields its payload carries, and the expression that fills each one — and both the callback list in `etc/lunette/definitions.luau` and a payload type in `lua/lunette/init.luau` are generated from that declaration. `lunprocessexited` reaches Lua as `ProcessExitedEvent`, whose `outcome` is the union of the three names it can hold.
-
-The callbacks themselves are declared taking `any`. A Luau definitions file declares globals and cannot name a module's exported types, so `lovr.lunwindowopened` cannot say it takes a `WindowOpenedEvent` when `Window` exists only inside `@lunette`. A configuration that wants the type annotates its own handler:
-
-```lua
-local lunette = require '@lunette'
-
-function lovr.lunwindowopened(event: lunette.WindowOpenedEvent)
+local cancel = lunette.onWindowOpened(function(event)
   print(event.window.title)
-end
+end)
 ```
 
-The prefix occupies LÖVR's callback namespace permanently and is chosen to be distinctive: `lovr.lun*` is unlikely to collide with any callback added upstream.
+Several listeners may wait on one event. They are called in the order they subscribed, each under a protected call, and a listener that raises does not stop the ones after it — a library and a configuration listening for the same event are peers, neither displacing the other.
+
+`crates/lunette/src/events/mod.rs` declares each event once — its name, the fields its payload carries, and the expression that fills each one — and both the subscription and its payload type are generated from that declaration. The handler's parameter is typed without an annotation: `event` above is a `WindowOpenedEvent`, and `lunprocessexited` hands over a `ProcessExitedEvent` whose `outcome` is the union of the three names it can hold.
+
+A soft reload forgets every subscription before it re-runs the configuration, so a listener registered by the configuration that has gone is not called again. A module that subscribes cancels in its teardown hook, which is what `mullion.error` does.
 
 `boot.lua`'s poll loop unpacks four arguments, so a payload of more than four values would not arrive. Every event carries a table instead, including the events with one field, so the shape does not differ between callbacks and a field added later is not a change to a signature.
 
 `event.outcome` on `lunprocessexited` says which of `event.code`, `event.signal`, and `event.message` is present, and `ProcessExitedEvent` carries the three names it can take. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
 
-An event is delivered against the snapshot of the frame it was drained in. `lovr.lunwindowclosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
+An event is delivered against the snapshot of the frame it was drained in. `onWindowClosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
 
 An error raised by one of these handlers is reported and does not stop the frame's remaining events from being delivered.
 
@@ -71,7 +63,7 @@ print(win.opaque)            -- true when the buffer's fourth component is paddi
 print(win.contentType)       -- 'none', 'photo', 'video', or 'game': what the client says it draws.
 win:resize(1920, 1080)       -- a configure request; the client may ignore it.
 win:setFrameRate(10)         -- how often this client is let draw; nil for unthrottled.
-win:close()                  -- a close request, not a kill; watch for lovr.lunwindowclosed.
+win:close()                  -- a close request, not a kill; watch for lunette.onWindowClosed.
 win:getTexture()             -- this frame's pixels; never cache it.
 win:stabilize()              -- a persistent texture, at a copy per damaged frame.
 win:setProperty('pose', p)   -- keeps a value for this window across a reload.
@@ -79,7 +71,7 @@ win:getProperty('pose')      -- what was kept, or nil.
 win:properties()             -- every key this window is carrying, as a table.
 ```
 
-`win:close()` sends the xdg-toplevel close request. The client decides what to do with it: an editor with unsaved work puts up a prompt, and a client is free to ignore it entirely. The window goes when the client unmaps it, which arrives as `lovr.lunwindowclosed`.
+`win:close()` sends the xdg-toplevel close request. The client decides what to do with it: an editor with unsaved work puts up a prompt, and a client is free to ignore it entirely. The window goes when the client unmaps it, which arrives as `lunette.onWindowClosed`.
 
 `win:resize(width, height)` configures the toplevel. The client resizes at its own pace, and `win.width` and `win.height` change when it commits a buffer — which may be at a different size, because a client is free to honour its own minimum or to round to a character cell. Nothing waits for that. The dimensions are whole pixel counts of at least one, and a value that is not raises.
 
@@ -111,7 +103,7 @@ The two are for different lifetimes and both are wanted. State a rule can derive
 
 A property is a number, a string, or a boolean. A table raises, with the key named: a table holds Lua values, which is the same problem one level down. A caller wanting structure encodes it into a string and knows that it did. A number that is not finite raises for the reason a layer priority that is not does — it is a defect in the caller's maths, and one that came back after a reload would be much harder to trace. `nil` removes the key.
 
-`win:setProperty` returns `false` on a dead handle, like every other mutation; the entries of a window that has gone are dropped, so there would be nothing to store into. `win:getProperty` still answers on one, for the reason a dead handle still reports its title: `lovr.lunwindowclosed` is dispatched against the frame the window has already left, and a handler tidying up after a panel is exactly who wants to read what that panel stored.
+`win:setProperty` returns `false` on a dead handle, like every other mutation; the entries of a window that has gone are dropped, so there would be nothing to store into. `win:getProperty` still answers on one, for the reason a dead handle still reports its title: `lunette.onWindowClosed` is dispatched against the frame the window has already left, and a handler tidying up after a panel is exactly who wants to read what that panel stored.
 
 `win:properties()` exists so that what survived a reload can be discovered rather than guessed at. A configuration that stores under a key it computed — a tag name, a monitor identity — cannot enumerate its own keys once the state holding them has gone.
 
@@ -194,7 +186,7 @@ The texture matches the captured output's resolution, which is `monitor.width` b
 
 `monitor:setPaused(paused)` is the middle case, for a panel that has left the user's view. The stream stops producing but is not given up, so resuming costs nothing. Reach for `dismiss` when the user closed the panel, and for `setPaused` when they merely turned away.
 
-`lovr.lunmonitoradded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
+`lunette.onMonitorAdded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
 
 ## Sinks and input domains
 
@@ -308,8 +300,8 @@ Grants and revocations land on frame boundaries and never mid-frame, so a panel'
 Grants and revocations also arrive as callbacks, so a panel does not have to poll for them:
 
 ```lua
-function lovr.lunlayergranted(event)  -- event.claim, event.layer.
-function lovr.lunlayerrevoked(event)  -- event.claim.
+function lunette.onLayerGranted(event)  -- event.claim, event.layer.
+function lunette.onLayerRevoked(event)  -- event.claim.
 ```
 
 Both fire at the boundary the change lands on, before `lovr.update`, so a handler reading `event.claim.granted` agrees with the event it was handed. `lunlayerrevoked` carries no layer because there is none by then. An error raised in either handler is reported and changes nothing: both had already happened before the handler ran.
@@ -361,11 +353,11 @@ Wayland clients survive both, because Rust holds the socket outside the Lua stat
 
 ## Errors
 
-Every user callback runs under `xpcall` with a traceback. An error is logged, emits `lovr.lunerror`, and displays a floating error panel; execution then continues. Identical repeated errors are rate-limited, so an error recurring every frame does not fill the display.
+Every user callback runs under `xpcall` with a traceback. An error is logged, emits `lunette.onError`, and displays a floating error panel; execution then continues. Identical repeated errors are rate-limited, so an error recurring every frame does not fill the display.
 
 The handler itself is `mullion` code and can be replaced wholesale, since `lovr.errhand` is overridable. It is `mullion.error`, and the two boundaries it serves are not the same one. A callback that raises is caught at the callback boundary, reported, and the frame continues. An error that escaped every callback boundary reaches `lovr.errhand`, by which point LÖVR has already unwound the frame loop and wants a replacement one back; there is no frame left to continue, so the handler reports and hands the loop decision on.
 
-The native side of the callback boundary is `crates/lunette/src/callback_error.rs`. It splits the message from the traceback, finds `mullion.error` in `package.loaded`, and calls `errors.handle`; everything after that — the limiter, the wording, the panel, `lovr.lunerror` — is Lua's. It deliberately does not rate-limit, because two limiters keyed differently produce gaps that neither explains. A session that never loaded `mullion` is supported and gets the log and a direct `lovr.lunerror` instead, with no rate limiting at all: the limiter is in the standard library, and a session without one has none.
+The native side of the callback boundary is `crates/lunette/src/callback_error.rs`. It splits the message from the traceback, finds `mullion.error` in `package.loaded`, and calls `errors.handle`; everything after that — the limiter, the wording, the panel, `lunette.onError` — is Lua's. It deliberately does not rate-limit, because two limiters keyed differently produce gaps that neither explains. A session that never loaded `mullion` is supported and gets the log and a direct `lunette.onError` instead, with no rate limiting at all: the limiter is in the standard library, and a session without one has none.
 
 The panel is `mullion.error.panel`, which wraps `mullion.error`'s `report` seam and draws the most recent report on a quad in front of the user. It is a separate module because drawing needs a `Pass` and reporting does not, and because a configuration that wants a different error surface should be able to leave it out rather than displace it. The shipped `etc/xdg/lunette/main.lua` installs it in `lovr.load` and draws it last in `lovr.draw`.
 

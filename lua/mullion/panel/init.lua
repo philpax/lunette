@@ -16,8 +16,8 @@
 --
 -- Grants and revocations land on frame boundaries and never mid-frame
 -- (docs/lua-api.md#layer-claims), so `update` reads `claim.granted` rather than
--- handling `lovr.lunlayergranted`. That is one code path instead of two, and it
--- leaves `lovr.lunlayergranted` free for a configuration that wants it: the
+-- handling `lunette.onLayerGranted`. That is one code path instead of two, and it
+-- leaves `lunette.onLayerGranted` free for a configuration that wants it: the
 -- callback namespace belongs to the configuration, and a library that claimed
 -- it would be taking it.
 --

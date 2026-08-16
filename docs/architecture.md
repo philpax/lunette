@@ -37,10 +37,11 @@ This is a property of Wayland rather than a concession to threading. Wayland is 
 A window handle is a persistent Lua object with stable identity, not a new table per frame. The native layer refreshes its fields at the start of each frame.
 
 ```lua
-function lovr.lunwindowopened(win)
+lunette.onWindowOpened(function(event)
+  local win = event.window
   win.userdata = { spawnedAt = lovr.timer.getTime() }   -- Application state may be attached.
   print(win == lunette.windows()[1])                    -- Identity comparison is valid.
-end
+end)
 ```
 
 Stable identity is required for tags, rules, and signals, each of which must refer to a window observed on an earlier frame.

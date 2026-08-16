@@ -145,7 +145,7 @@ local unplaced = {}
 _G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
 
 -- Which terminal candidate is being tried, and the handle it was tried with. A
--- spawn that never started arrives as lovr.lunprocessexited with an outcome of
+-- spawn that never started arrives through lunette.onProcessExited with an outcome of
 -- 'spawnFailed', and that is the only report a missing program produces, so the
 -- fallback is driven from there rather than from anything checkable up front.
 local attempt = 0
@@ -175,7 +175,7 @@ end
 
 -- Makes the panel for a window and files it under whichever source placed it.
 --
--- Shared by `lovr.lunwindowopened` and the adoption below, because a window that
+-- Shared by the window-opened subscription and the adoption below, because a window that
 -- was already open when this file ran and one that opens a moment later should
 -- end up in the same place. A reload is what makes the two happen in one
 -- session.
@@ -257,7 +257,7 @@ function lovr.load()
   laser.attach()
 
   -- After the sources are installed, and after a reload the only way this file
-  -- hears about the windows that are still open: `lovr.lunwindowopened` was
+  -- hears about the windows that are still open: the subscription was
   -- delivered to the state that has gone. On the first run of a session there is
   -- nothing to adopt yet, and this does nothing.
   for _, window in ipairs(adopt.windows()) do
@@ -274,18 +274,18 @@ function lovr.load()
   end
 end
 
-function lovr.lunwindowopened(event)
+lunette.onWindowOpened(function(event)
   place(event.window)
   arrange()
-end
+end)
 
-function lovr.lunwindowclosed()
+lunette.onWindowClosed(function()
   -- The panel over a window that has gone destroys itself on the next update;
   -- this is what closes the gap it left in the arc.
   arrange()
-end
+end)
 
-function lovr.lunprocessexited(event)
+lunette.onProcessExited(function(event)
   if not attempted or event.process.id ~= attempted.id then
     return
   end
@@ -296,7 +296,7 @@ function lovr.lunprocessexited(event)
   else
     attempted = nil
   end
-end
+end)
 
 -- The modifiers held on the desktop keyboard right now, as `sink:modifiers`
 -- names them. Shift is deliberately absent: a shifted character arrives through

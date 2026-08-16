@@ -24,32 +24,36 @@ fn process_id(raw: u64) -> ProcessId {
 /// The longest name `CustomEvent.name` can carry: 31 bytes and the NUL.
 const LONGEST: &str = "lunabcdefghijklmnopqrstuvwxyz01";
 
-/// The checked-in definitions, embedded rather than read, so the test needs
-/// no filesystem and cannot pass against a stale copy on disk.
-const DEFINITIONS: &str = include_str!("../../../../etc/lunette/definitions.luau");
+/// The checked-in module declarations, embedded rather than read, so the test
+/// needs no filesystem and cannot pass against a stale copy on disk.
+const DECLARATIONS: &str = include_str!("../../../../lua/lunette/init.luau");
 
-/// Every event this build delivers is declared, so a handler for one passes
-/// `lunette check`.
+/// Every event this build delivers can be subscribed to, and the subscription
+/// is declared.
 ///
-/// `declare lovr` is an exact table, so a callback the definitions omit is
-/// not merely unchecked: assigning it is an error, and a configuration
-/// following `docs/lua-api.md` fails the check. The two lists are written
-/// out separately — the names here, the declarations in
-/// `crates/lunette-generate-definitions` — and this is what keeps them in
-/// step.
+/// Both come from one declaration, so this cannot fail through the two parting;
+/// what it catches is an event whose declaration was written and whose file was
+/// not regenerated, which `make check-definitions` reports and this reports at
+/// the point a reader is looking at the events.
 #[test]
-fn every_event_this_build_delivers_is_declared_in_the_definitions() {
-    let missing: Vec<&str> = EVENT_NAMES
+fn every_event_this_build_delivers_can_be_subscribed_to() {
+    let functions = subscription_functions::<crate::lua::declarations::NullTexture>();
+    assert_eq!(
+        functions.len(),
+        EVENT_NAMES.len(),
+        "an event without a subscription is one nothing can hear"
+    );
+
+    let missing: Vec<&str> = functions
         .iter()
-        .map(|name| name.as_str())
-        .filter(|name| !DEFINITIONS.contains(&format!("\n    {name}: ")))
+        .map(|function| function.spec.name)
+        .filter(|name| !DECLARATIONS.contains(&format!("\n  read {name}: ")))
         .collect();
 
     assert_eq!(
         missing,
         Vec::<&str>::new(),
-        "each of these is dispatched and undeclared; declare it in \
-         LUNETTE_LOVR_FIELDS and regenerate"
+        "each of these is registered and undeclared; regenerate the declarations"
     );
 }
 

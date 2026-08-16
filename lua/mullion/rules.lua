@@ -20,7 +20,7 @@
 -- configuration says which wins.
 --
 -- This module takes no `lovr.lun*` callback. The callback namespace belongs to
--- the configuration (docs/stdlib.md), so `lovr.lunwindowopened` calls `place`
+-- the configuration (docs/stdlib.md), so `lunette.onWindowOpened` calls `place`
 -- rather than this module taking the callback out from under it.
 
 local lunette = require '@lunette'
@@ -346,7 +346,7 @@ end
 -- properties it was made from.
 --
 -- This is what makes a rule matching `appId` place a newly spawned window
--- without further scripting: a configuration's `lovr.lunwindowopened` calls
+-- without further scripting: a configuration's `lunette.onWindowOpened` calls
 -- this and writes nothing per window.
 --
 -- `options` is merged under the resolved properties, so a caller can supply

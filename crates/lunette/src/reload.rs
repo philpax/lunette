@@ -67,7 +67,7 @@ use tracing::{info, warn};
 /// do the clearing. A reload that already reached `main.lua` has already torn
 /// the previous configuration down, so the session continues with whatever the
 /// failed run managed to install rather than with what it had before.
-pub fn reload(lua: &Lua) -> Result<(), ReloadError> {
+pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadError> {
     // A configuration that reloads from the top of `main.lua` would otherwise
     // recurse until the stack ran out, and a stack overflow here takes every
     // connected client down with the process.
@@ -76,6 +76,10 @@ pub fn reload(lua: &Lua) -> Result<(), ReloadError> {
     run_teardown_hooks(lua);
 
     let globals = lua.globals();
+    // With the callbacks, and for the same reason: a listener the previous
+    // configuration registered would otherwise keep being called after the
+    // configuration that registered it is gone.
+    forget_subscriptions();
     clear_user_callbacks(&globals).map_err(ReloadError::State)?;
     clear_loaded_modules(&globals).map_err(ReloadError::State)?;
     run_configuration(&globals)?;
@@ -90,8 +94,11 @@ pub fn reload(lua: &Lua) -> Result<(), ReloadError> {
 /// is usually a key binding, and a session that stopped drawing because the
 /// configuration it was asked to load had a typo in it is the failure this whole
 /// mechanism exists to avoid. A caller that wants to raise has the message.
-pub(crate) fn reload_from_lua(lua: &Lua) -> mlua::Result<(bool, Option<String>)> {
-    match reload(lua) {
+pub(crate) fn reload_from_lua(
+    lua: &Lua,
+    forget_subscriptions: &dyn Fn(),
+) -> mlua::Result<(bool, Option<String>)> {
+    match reload(lua, forget_subscriptions) {
         Ok(()) => Ok((true, None)),
         Err(error) => {
             warn!("{error}");
@@ -506,7 +513,7 @@ mod tests {
             state("runs.main = runs.main + 1 function lovr.load() runs.load = runs.load + 1 end");
         run(&lua, "require 'main' lovr.load()");
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         assert_eq!(
             number(&lua, "runs.main"),
@@ -527,7 +534,7 @@ mod tests {
         let lua = state("function lovr.load(arguments) received = arguments end");
         run(&lua, "require 'main'");
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         assert_eq!(
             lua.load("return received[1]")
@@ -558,7 +565,7 @@ mod tests {
             "require 'main' package.loaded['a.module'] = { name = 'a' }",
         );
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return sawModule and sawCallback")
@@ -588,7 +595,7 @@ mod tests {
             ",
         );
 
-        reload(&lua).expect("a failing hook does not fail the reload");
+        reload(&lua, &|| ()).expect("a failing hook does not fail the reload");
 
         assert!(
             lua.load("return secondRan")
@@ -603,7 +610,7 @@ mod tests {
     fn a_configuration_with_no_teardown_registry_reloads() {
         let lua = state("runs.main = runs.main + 1");
 
-        reload(&lua).expect("a session without mullion reloads");
+        reload(&lua, &|| ()).expect("a session without mullion reloads");
 
         assert_eq!(number(&lua, "runs.main"), 1);
     }
@@ -616,7 +623,7 @@ mod tests {
             "package.loaded['lovr.headset'] = { name = 'headset' }",
         );
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         assert_eq!(
             lua.load("return package.loaded['lovr.graphics'].name")
@@ -636,7 +643,7 @@ mod tests {
     fn the_interpreters_own_modules_are_never_cleared() {
         let lua = state("");
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         // `package` itself is excluded: the fork's Luau `package` library keeps
         // its loaded table under the registry `_LOADED` and does not register
@@ -663,7 +670,7 @@ mod tests {
              package.loaded['@lunette'] = { n = 1 }",
         );
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         for name in [
             "@mullion/panel",
@@ -692,7 +699,7 @@ mod tests {
         run(&lua, "require 'main'");
 
         set_main(&lua, "function lovr.draw() end");
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return lovr.keypressed == nil and lovr.lunwindowopened == nil")
@@ -714,7 +721,7 @@ mod tests {
     fn boot_lua_s_own_defaults_survive() {
         let lua = state("");
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return lovr.log ~= nil and lovr.run ~= nil")
@@ -731,7 +738,7 @@ mod tests {
         let lua = state("");
         run(&lua, "lovr.handlers.lunwindowopened = function() end");
 
-        reload(&lua).expect("the reload succeeds");
+        reload(&lua, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return rawget(lovr.handlers, 'lunwindowopened') ~= nil")
@@ -747,7 +754,7 @@ mod tests {
         run(&lua, "require 'main'");
 
         set_main(&lua, "error('a deliberate defect')");
-        let error = reload(&lua).expect_err("a configuration that raises fails the reload");
+        let error = reload(&lua, &|| ()).expect_err("a configuration that raises fails the reload");
 
         assert!(
             error.to_string().contains("a deliberate defect"),
@@ -756,7 +763,7 @@ mod tests {
         // The session is still usable, which is the whole difference between
         // this and safe mode: the Lua state runs, and the next reload works.
         set_main(&lua, "runs.main = runs.main + 1");
-        reload(&lua).expect("the session can be reloaded again after a failure");
+        reload(&lua, &|| ()).expect("the session can be reloaded again after a failure");
         assert_eq!(number(&lua, "runs.main"), 2);
     }
 
@@ -764,7 +771,7 @@ mod tests {
     fn a_lovr_load_that_raises_is_reported_separately() {
         let lua = state("function lovr.load() error('a deliberate defect') end");
 
-        let error = reload(&lua).expect_err("lovr.load raising fails the reload");
+        let error = reload(&lua, &|| ()).expect_err("lovr.load raising fails the reload");
 
         assert!(
             matches!(error, ReloadError::Load(_)),
@@ -786,7 +793,7 @@ mod tests {
         run(&lua, "require 'main'");
 
         for _ in 0..10 {
-            reload(&lua).expect("the reload succeeds");
+            reload(&lua, &|| ()).expect("the reload succeeds");
             assert_eq!(
                 number(&lua, "#require('@mullion/teardown').pending()"),
                 2,
@@ -821,7 +828,7 @@ mod tests {
                     let module = lua.create_table()?;
                     module.set(
                         "reload",
-                        lua.create_function(|lua, ()| reload_from_lua(lua))?,
+                        lua.create_function(|lua, ()| reload_from_lua(lua, &|| ()))?,
                     )?;
                     Ok(module)
                 })
@@ -829,7 +836,7 @@ mod tests {
             )
             .expect("the module is reachable");
 
-        reload(&lua).expect("the outer reload succeeds");
+        reload(&lua, &|| ()).expect("the outer reload succeeds");
 
         assert!(
             !lua.load("return ok").eval::<bool>().expect("readable"),
@@ -846,10 +853,10 @@ mod tests {
     fn the_reload_is_available_again_after_one_that_failed() {
         let lua = state("error('a deliberate defect')");
 
-        reload(&lua).expect_err("the first reload fails");
+        reload(&lua, &|| ()).expect_err("the first reload fails");
         set_main(&lua, "runs.main = runs.main + 1");
 
-        reload(&lua).expect("the guard is released by the failure");
+        reload(&lua, &|| ()).expect("the guard is released by the failure");
     }
 
     #[test]

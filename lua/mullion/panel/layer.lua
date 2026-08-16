@@ -6,7 +6,7 @@
 -- a fixed size, which is granted and revoked on frame boundaries by something
 -- else. Grants land between frames and never mid-frame
 -- (docs/lua-api.md#layer-claims), so this reads `claim.granted` each update
--- rather than handling `lovr.lunlayergranted`.
+-- rather than handling `lunette.onLayerGranted`.
 --
 -- A monitor panel never reaches here. `lunette.claimLayer` takes a window and
 -- nothing else, so a mirrored screen has no way to ask for a layer and draws as

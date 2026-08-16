@@ -82,7 +82,7 @@ fn a_connected_client_does_not_notice_a_reload() {
     );
 
     let lua = configured_state();
-    lunette::reload::reload(&lua).expect("the reload succeeds");
+    lunette::reload::reload(&lua, &|| ()).expect("the reload succeeds");
 
     // The client is still able to speak, and the compositor still answers: a
     // disconnected client's next round trip is what would fail here.

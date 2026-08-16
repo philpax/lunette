@@ -2176,16 +2176,6 @@ declare lovr: {
   task: TaskModule,
   thread: ThreadModule,
   timer: TimerModule,
-    lun: ((name: string, ...any) -> ())?,
-    lunerror: ((error: any) -> ())?,
-    lunlayergranted: ((event: any) -> ())?,
-    lunlayerrevoked: ((event: any) -> ())?,
-    lunmonitoradded: ((event: any) -> ())?,
-    lunprocessexited: ((event: any) -> ())?,
-    lunprocessoutput: ((event: any) -> ())?,
-    luntitlechanged: ((event: any) -> ())?,
-    lunwindowclosed: ((event: any) -> ())?,
-    lunwindowopened: ((event: any) -> ())?,
 }
 
 declare extern type quaternion with

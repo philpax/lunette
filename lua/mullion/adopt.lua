@@ -3,7 +3,7 @@
 -- A soft reload discards the configuration's modules and callbacks and runs
 -- `main.lua` again (docs/lua-api.md#reload). The compositor, the clients, and
 -- their windows are untouched by that — which is the point — but the new Lua
--- state knows nothing about them, and `lovr.lunwindowopened` has already been
+-- state knows nothing about them, and `lunette.onWindowOpened` has already been
 -- and gone for every one. So a configuration that only ever placed windows from
 -- that callback comes back from a reload showing nothing at all.
 --
@@ -107,7 +107,7 @@ end
 --
 -- A window that closed while the reload was running is not in the snapshot and
 -- so is not resurrected. A window that opened while it was running is, and is
--- picked up here rather than being lost with the `lovr.lunwindowopened` the old
+-- picked up here rather than being lost with the `lunette.onWindowOpened` the old
 -- state was the last to hear.
 function adopt.windows()
   local pending = {}

@@ -322,6 +322,14 @@ export type Claim = {
   read release: (self: Claim) -> boolean,
 }
 
+-- What a listener for an error raised inside a callback is given.
+export type ErrorEvent = {
+  -- The error, with the boundary it came through leading it.
+  message: string,
+  -- Where it was raised, as Lua reports it.
+  traceback: string,
+}
+
 -- A toplevel was mapped and is in this frame's snapshot.
 export type WindowOpenedEvent = {
   -- The window that opened.
@@ -427,6 +435,10 @@ export type Lunette = {
   read setSceneEnabled: (enabled: boolean) -> (),
   -- What `setSceneEnabled` was last told, which the next frame will latch.
   read sceneEnabled: () -> boolean,
+  -- Calls `handler` whenever a callback raises, and answers the function that
+  -- stops it. The standard library's error module subscribes to draw a panel; a
+  -- configuration without it subscribing gets the log and nothing else.
+  read onError: (handler: (event: ErrorEvent) -> ()) -> () -> (),
   -- Every modifier name a seat accepts, in the order a keymap numbers them.
   -- What `seat:setModifiers` takes and `seat.modifiers` answers with are drawn
   -- from this set.
@@ -441,6 +453,38 @@ export type Lunette = {
   read reload: () -> (boolean, string?),
   -- Tears the session down and starts it again, graphics device included.
   read restart: () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onWindowOpened: (handler: (event: WindowOpenedEvent) -> ()) -> () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onWindowClosed: (handler: (event: WindowClosedEvent) -> ()) -> () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onTitleChanged: (handler: (event: TitleChangedEvent) -> ()) -> () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onMonitorAdded: (handler: (event: MonitorAddedEvent) -> ()) -> () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onProcessExited: (handler: (event: ProcessExitedEvent) -> ()) -> () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onProcessOutput: (handler: (event: ProcessOutputEvent) -> ()) -> () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onLayerGranted: (handler: (event: LayerGrantedEvent) -> ()) -> () -> (),
+  -- Calls `handler` whenever this event is delivered, and answers the function
+  -- that stops it. Every listener is called, in the order they subscribed, and
+  -- a soft reload forgets all of them.
+  read onLayerRevoked: (handler: (event: LayerRevokedEvent) -> ()) -> () -> (),
 }
 
 return (nil :: any) :: Lunette

@@ -63,7 +63,7 @@ use lunette_compositor::protocol::{
     Event as CompositorEvent, ProcessId, ProcessOutcome, SignalNumber, Stream, WindowId,
 };
 use lunette_lovr::raw::{CustomEvent, Event as LovrEvent, EventType_EVENT_CUSTOM, lovrEventPush};
-use mlua::{Function, Lua, Table};
+use mlua::{Lua, Table};
 
 use crate::{
     callback_error::report,
@@ -201,7 +201,7 @@ impl LuaEvent {
 /// wants, and is built on the way out by [`EventName::to_c_name`], but every
 /// name in the program is a literal and carrying it as one keeps the Rust side
 /// comparable, printable, and usable as a Lua key without a conversion.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EventName(&'static str);
 
 impl EventName {
@@ -366,9 +366,17 @@ pub(crate) fn install_dispatchers<T: LuaTexture>(
     Ok(())
 }
 
+/// Where an error raised inside a listener is offered.
+///
+/// Not one of the events below: nothing pushes it through the queue, because it
+/// is raised on the way out of a dispatch rather than reported by the
+/// compositor. It shares the registry so that subscribing to it is the same
+/// mechanism as subscribing to anything else.
+pub const ERROR: EventName = event_name("lunerror");
+
 events! {
     /// A toplevel was mapped and is in this frame's snapshot.
-    WINDOW_OPENED = lunwindowopened(_lua, session) as WindowOpenedEvent
+    WINDOW_OPENED = lunwindowopened(_lua, session) as WindowOpenedEvent via onWindowOpened
         from LuaEvent::WindowOpened { window } =>
     {
         /// The window that opened.
@@ -377,7 +385,7 @@ events! {
 
     /// A toplevel went away. The handle is already dead, because the snapshot the
     /// handler reads no longer lists the window; it still reports what it last knew.
-    WINDOW_CLOSED = lunwindowclosed(_lua, session) as WindowClosedEvent
+    WINDOW_CLOSED = lunwindowclosed(_lua, session) as WindowClosedEvent via onWindowClosed
         from LuaEvent::WindowClosed { window } =>
     {
         /// The window that closed.
@@ -385,7 +393,7 @@ events! {
     }
 
     /// A toplevel changed its title.
-    TITLE_CHANGED = luntitlechanged(_lua, session) as TitleChangedEvent
+    TITLE_CHANGED = luntitlechanged(_lua, session) as TitleChangedEvent via onTitleChanged
         from LuaEvent::TitleChanged { window, title } =>
     {
         /// The window whose title changed.
@@ -398,7 +406,7 @@ events! {
 
     /// One of the host's screens appeared, which includes every screen attached when
     /// lunette started.
-    MONITOR_ADDED = lunmonitoradded(_lua, session) as MonitorAddedEvent
+    MONITOR_ADDED = lunmonitoradded(_lua, session) as MonitorAddedEvent via onMonitorAdded
         from LuaEvent::MonitorAdded { monitor } =>
     {
         /// What `lunette-capture` resolved the screen by.
@@ -412,7 +420,7 @@ events! {
     }
 
     /// A spawned process ended, or never started.
-    PROCESS_EXITED = lunprocessexited(_lua, session) as ProcessExitedEvent
+    PROCESS_EXITED = lunprocessexited(_lua, session) as ProcessExitedEvent via onProcessExited
         from LuaEvent::ProcessExited { process, outcome } =>
     {
         /// The process that ended.
@@ -430,7 +438,7 @@ events! {
     }
 
     /// A spawned process wrote to one of its captured streams.
-    PROCESS_OUTPUT = lunprocessoutput(lua, session) as ProcessOutputEvent
+    PROCESS_OUTPUT = lunprocessoutput(lua, session) as ProcessOutputEvent via onProcessOutput
         from LuaEvent::ProcessOutput { process, stream, bytes } =>
     {
         /// The process that wrote.
@@ -445,7 +453,7 @@ events! {
 
     /// A claim was given a composition layer, and the panel holding it should draw
     /// onto the layer rather than as an in-scene quad.
-    LAYER_GRANTED = lunlayergranted(lua, session) as LayerGrantedEvent
+    LAYER_GRANTED = lunlayergranted(lua, session) as LayerGrantedEvent via onLayerGranted
         from LuaEvent::LayerGranted { claim } =>
     {
         /// The claim that was granted.
@@ -457,7 +465,7 @@ events! {
 
     /// A claim lost its layer to a higher-priority one, and the panel holding it
     /// should draw as an in-scene quad until it is granted again.
-    LAYER_REVOKED = lunlayerrevoked(_lua, session) as LayerRevokedEvent
+    LAYER_REVOKED = lunlayerrevoked(_lua, session) as LayerRevokedEvent via onLayerRevoked
         from LuaEvent::LayerRevoked { claim } =>
     {
         /// The claim that was revoked.
@@ -499,24 +507,32 @@ fn dispatch<T: LuaTexture>(
         return Ok(());
     };
 
-    let Some(handler) = lua
-        .globals()
-        .get::<Table>("lovr")?
-        .get::<Option<Function>>(name.as_str())?
-    else {
+    let listeners = session.listeners(name);
+    if listeners.is_empty() {
         return Ok(());
-    };
+    }
 
     let payload = payload(lua, session, &event)?;
 
+    // Every listener is called, including the ones after a listener that
+    // raised. They subscribed independently and one of them failing is not a
+    // reason the next does not hear about the event.
+    //
     // mlua calls through `lua_pcall` with `luaL_traceback` as the message
     // handler, so an error arrives here with its traceback rather than unwinding
     // `boot.lua`'s poll loop and taking the frame's remaining events with it.
     // `crate::callback_error` is what happens to it next: the rate limiting, the
     // wording, and the panel are `mullion.error`'s, and this is the boundary
     // that hands the error over.
-    if let Err(error) = handler.call::<()>(payload) {
-        report(lua, &format!("lovr.{name}"), &error);
+    for handler in listeners {
+        if let Err(error) = handler.call::<()>(payload.clone()) {
+            report(
+                lua,
+                &session.listeners(ERROR),
+                &format!("lunette.{}", registrar(name)),
+                &error,
+            );
+        }
     }
 
     Ok(())

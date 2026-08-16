@@ -82,7 +82,7 @@ local proc = lunette.spawn{
 }
 ```
 
-Returns a handle with stable identity, `pid`, and `alive`. Exit arrives as `lovr.lunprocessexited(proc, code)`.
+Returns a handle with stable identity, `pid`, and `alive`. Exit arrives through `lunette.onProcessExited`.
 
 ### Attribution
 
@@ -101,7 +101,7 @@ The native layer does the minimum: it reaps children and reports exit. There is 
 Two divergences from WayVR are deliberate.
 
 - Signal the process group, not the child. WayVR's `Drop` sends SIGTERM to the direct child only (`process.rs`), so a shell wrapper's grandchildren survive. lunette calls `setsid` and signals the group, with `PR_SET_PDEATHSIG` as a backstop so a lunette crash does not strand GUI applications with no compositor to render into.
-- Capture stdout and stderr. WayVR inherits stdio, so child output goes to whatever terminal started it. Debugging a spawned application inside a headset with no terminal available is impractical without this, so lunette pipes both streams, surfaces them as `lovr.lunprocessoutput` events, and mirrors them into lunette's log. The standard library can then build a log panel from this.
+- Capture stdout and stderr. WayVR inherits stdio, so child output goes to whatever terminal started it. Debugging a spawned application inside a headset with no terminal available is impractical without this, so lunette pipes both streams, surfaces them as `lunette.onProcessOutput` events, and mirrors them into lunette's log. The standard library can then build a log panel from this.
 
 ### Out of scope
 

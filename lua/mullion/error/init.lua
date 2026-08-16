@@ -8,14 +8,13 @@
 --
 -- Two boundaries, and they are not the same one.
 --
--- A callback boundary. crates/lunette/src/events.rs calls each `lun*` handler
+-- A callback boundary. crates/lunette/src/events/mod.rs calls each listener
 -- through a protected call and hands what comes back to
--- crates/lunette/src/callback_error.rs, which finds this module in
--- `package.loaded` and calls `errors.handle`. That is what such a boundary
--- reports through: it rate-limits, reports once, and hands the error to the
--- configuration's `lovr.lunerror`. A session without this module loaded gets
--- the log and a direct `lovr.lunerror` instead, and no rate limiting, because
--- the limiter is here.
+-- crates/lunette/src/callback_error.rs, which logs it and tells everyone who
+-- subscribed through `lunette.onError`. This module is one of them: requiring it
+-- subscribes, and what it adds is the rate limiting and a report a panel can
+-- draw. A session that never requires it still has the log and its own
+-- subscribers; it simply has no limiter, because the limiter is here.
 --
 -- The panel `docs/lua-api.md#errors` describes is `mullion.error.panel`, which
 -- wraps `errors.report` rather than being wired in from here: a report is a
@@ -35,6 +34,7 @@
 -- state machine over a key and a time, told the time rather than reading a
 -- clock, so the specs drive it without waiting for one.
 
+local lunette = require '@lunette'
 local teardown = require '@mullion/teardown'
 
 local errors = {}
@@ -160,6 +160,7 @@ local limiter: Limiter = errors.newLimiter()
 -- Whether `install` has run and `uninstall` has not, and what `lovr.errhand`
 -- held before it did.
 local installed = false
+local cancelSubscription: (() -> ())? = nil
 local previousHandler: ((string) -> () -> any)? = nil
 
 -- The key an error is rate-limited under.
@@ -170,8 +171,7 @@ function errors.keyFor(message: string, traceback: string?): string
   return message .. '\n' .. tostring(traceback or '')
 end
 
--- Reports one error, subject to the rate limit, and hands it to the
--- configuration's `lovr.lunerror` if it defined one.
+-- Reports one error, subject to the rate limit.
 --
 -- `now` is the time the error arrived at, so the caller owns the clock; it
 -- defaults to the session's own. Returns whether the error was reported, which
@@ -196,14 +196,6 @@ function errors.handle(message: string, traceback: string?, now: number?): boole
       .. ' suppressed since the last report)'
   end
   errors.report(text)
-
-  -- The configuration's own handler, per docs/lua-api.md#events. It runs under
-  -- `pcall`, and only for an occurrence that got past the limiter: a handler
-  -- that raises would otherwise be handled by this function, which is how one
-  -- defect becomes an unbounded recursion.
-  if type(lovr) == 'table' and type(lovr.lunerror) == 'function' then
-    pcall(lovr.lunerror, { message = message, traceback = traceback })
-  end
 
   return true
 end
@@ -241,6 +233,14 @@ function errors.install(clock: (() -> number)?): boolean
     end
   end
 
+  -- Subscribed rather than found: this module is one listener among however
+  -- many a configuration has, and the boundary calls them all. The subscription
+  -- is cancelled by the teardown hook, so a reload that does not reinstall
+  -- leaves nothing behind.
+  cancelSubscription = lunette.onError(function(event)
+    errors.handle(event.message, event.traceback)
+  end)
+
   teardown.register('mullion.error', function()
     errors.uninstall()
   end)
@@ -256,6 +256,11 @@ end
 function errors.uninstall(): boolean
   if not installed then
     return false
+  end
+
+  if cancelSubscription then
+    cancelSubscription()
+    cancelSubscription = nil
   end
 
   installed = false

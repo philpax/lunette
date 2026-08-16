@@ -8,9 +8,9 @@ use std::fmt::Write as _;
 use lunette_compositor::protocol::PointerButton;
 
 use crate::{
-    events::payload_records,
+    events::{payload_records, subscription_functions},
     lua::{
-        Claim, Monitor, Output, Process, Seat, Sink, Spawn, Window,
+        Claim, ErrorEvent, Monitor, Output, Process, Seat, Sink, Spawn, Window,
         claim::ClaimLayer,
         declarations::{
             Handle, NullTexture, Property, PropertyType, Record, Recorded, Textured, Type, Typed,
@@ -82,6 +82,7 @@ fn surface() -> Vec<Item> {
         Item::Record(Spawn::RECORD),
         Item::Record(ClaimLayer::RECORD),
         Item::Handle(collect::<Claim<NullTexture>>()),
+        Item::Record(ErrorEvent::RECORD),
     ];
     // The tables the `lovr.lun*` callbacks are called with. They are exported
     // from the module rather than declared beside the callbacks, because a
@@ -208,7 +209,10 @@ fn render_record(out: &mut String, record: &Record) {
 
 fn render_module(out: &mut String) {
     out.push_str("\nexport type Lunette = {\n");
-    for function in module_functions::<NullTexture>() {
+    for function in module_functions::<NullTexture>()
+        .into_iter()
+        .chain(subscription_functions::<NullTexture>())
+    {
         render_doc(out, function.spec.doc, "  ");
         let _ = writeln!(out, "  read {}: {},", function.spec.name, (function.ty)());
     }

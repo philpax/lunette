@@ -28,7 +28,8 @@
 /// ```text
 /// events! {
 ///     /// A toplevel was mapped.
-///     WINDOW_OPENED = lunwindowopened(_lua, session) as WindowOpenedEvent
+///     WINDOW_OPENED = lunwindowopened(_lua, session)
+///         as WindowOpenedEvent via onWindowOpened
 ///         from LuaEvent::WindowOpened { window } =>
 ///     {
 ///         /// The window that opened.
@@ -42,7 +43,8 @@ macro_rules! events {
     (
         $(
             $(#[doc = $doc:literal])*
-            $constant:ident = $name:ident($lua:ident, $session:ident) as $record:ident
+            $constant:ident = $name:ident($lua:ident, $session:ident)
+                as $record:ident via $register:ident
                 from $variant:pat =>
             {
                 $(
@@ -56,6 +58,15 @@ macro_rules! events {
             $(#[doc = $doc])*
             pub(crate) const $constant: EventName = event_name(stringify!($name));
         )+
+
+        /// Which function a listener for this event subscribed through, for
+        /// naming the handler that raised.
+        fn registrar(name: EventName) -> &'static str {
+            match name.as_str() {
+                $(_ if name.as_str() == stringify!($name) => stringify!($register),)+
+                _ => "a listener",
+            }
+        }
 
         /// The `lun*` events this build delivers, and the order they are
         /// installed in.
@@ -98,6 +109,12 @@ macro_rules! events {
                     };
             }
 
+            impl $crate::lua::declarations::Typed for $record {
+                fn luau() -> $crate::lua::declarations::Type {
+                    $crate::lua::declarations::Type::Named(stringify!($record))
+                }
+            }
+
             $(#[doc = $doc])*
             ///
             /// The table `lovr.
@@ -111,6 +128,57 @@ macro_rules! events {
         #[must_use]
         pub fn payload_records() -> Vec<$crate::lua::declarations::Record> {
             vec![$(<$record as $crate::lua::declarations::Recorded>::RECORD),+]
+        }
+
+        /// The module functions a configuration subscribes through.
+        ///
+        /// One per event, rather than one taking a name: a function per event
+        /// is what lets the handler's own parameter be typed, and a name would
+        /// be a string the checker could not hold to the set.
+        pub(crate) fn subscription_functions<T: $crate::lua::LuaTexture>()
+        -> Vec<$crate::lua::ModuleFunction<T>> {
+            vec![$(
+                $crate::lua::ModuleFunction {
+                    spec: $crate::lua::declarations::FunctionSpec {
+                        name: stringify!($register),
+                        doc: "Calls `handler` whenever this event is delivered, and answers \
+                              the function that stops it. Every listener is called, in the order \
+                              they subscribed, and a soft reload forgets all of them.",
+                    },
+                    ty: || {
+                        let handler = $crate::lua::declarations::Type::Function {
+                            receiver: None,
+                            parameters: vec![$crate::lua::declarations::Parameter {
+                                name: "event",
+                                ty: $crate::lua::declarations::of::<$record>(),
+                            }],
+                            returns: Box::new($crate::lua::declarations::of::<()>()),
+                        };
+                        let cancel = $crate::lua::declarations::Type::Function {
+                            receiver: None,
+                            parameters: Vec::new(),
+                            returns: Box::new($crate::lua::declarations::of::<()>()),
+                        };
+                        $crate::lua::declarations::function_type(
+                            None,
+                            &["handler"],
+                            &[handler],
+                            cancel,
+                        )
+                    },
+                    build: |lua, session| {
+                        let held = ::std::rc::Rc::clone(session);
+                        lua.create_function(move |lua, handler: ::mlua::Function| {
+                            let id = held.subscribe($constant, handler);
+                            let cancelling = ::std::rc::Rc::clone(&held);
+                            lua.create_function(move |_, ()| {
+                                cancelling.unsubscribe(id);
+                                Ok(())
+                            })
+                        })
+                    },
+                },
+            )+]
         }
     };
 }

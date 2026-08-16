@@ -50,6 +50,7 @@ mod output;
 mod process;
 mod seat;
 mod sink;
+mod subscribers;
 #[cfg(test)]
 mod tests;
 pub mod values;
@@ -74,7 +75,7 @@ use lunette_compositor::{
     state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
-use mlua::{Lua, Table, Value};
+use mlua::{Function, Lua, Table, Value};
 
 pub use crate::lua::{
     claim::{Claim, ClaimRegistry, LuaLayer, PoolRegistry},
@@ -86,7 +87,10 @@ pub use crate::lua::{
     window::Window,
 };
 use crate::{
-    events::{EventName, EventQueue, EventSink, LuaEvent, install_dispatchers},
+    events::{
+        ERROR, EventName, EventQueue, EventSink, LuaEvent, install_dispatchers,
+        subscription_functions,
+    },
     host::HostSinks,
     keymaps::KeymapCache,
     lua::{
@@ -95,6 +99,8 @@ use crate::{
         monitor::monitors,
         output::{NewOutput, new_output, outputs},
         seat::{NewSeat, new_seat, seats},
+        subscribers::{Subscribers, SubscriptionId},
+        values::{Cancel, ErrorListener},
     },
     mirrors::MirrorRegistry,
     properties::WindowProperties,
@@ -169,6 +175,14 @@ pub struct Session<T> {
     /// separate types.
     monitors: RefCell<MonitorTextures<T>>,
     events: RefCell<EventQueue>,
+    /// Who is listening for each event, and in what order they were told to.
+    ///
+    /// Held here rather than on the module table so that a handler registered
+    /// by a library and one registered by a configuration are peers: the
+    /// callback slot they would otherwise have contended for is gone. Cleared
+    /// by a soft reload, which discards the configuration that registered them
+    /// while keeping this state.
+    subscribers: RefCell<Subscribers>,
     /// Where a pushed event is announced. Boxed rather than a second type
     /// parameter: it is called a handful of times a frame, and threading
     /// another generic through every handle would cost more to read than the
@@ -232,6 +246,7 @@ impl<T> Session<T> {
             textures: RefCell::new(TextureLedger::new()),
             monitors: RefCell::new(MonitorTextures::new()),
             events: RefCell::new(EventQueue::default()),
+            subscribers: RefCell::new(Subscribers::default()),
             sink,
             claims,
             mirrors,
@@ -351,6 +366,34 @@ impl<T> Session<T> {
     pub fn push_event(&self, event: LuaEvent) {
         self.sink.push(event.name());
         self.events.borrow_mut().push(event);
+    }
+
+    /// Adds a listener, answering the ticket that removes it again.
+    pub(crate) fn subscribe(&self, name: EventName, handler: Function) -> SubscriptionId {
+        self.subscribers.borrow_mut().add(name, handler)
+    }
+
+    /// Removes a listener. A ticket that names nothing — because it was already
+    /// cancelled, or because a reload discarded it — removes nothing.
+    pub(crate) fn unsubscribe(&self, id: SubscriptionId) {
+        self.subscribers.borrow_mut().remove(id);
+    }
+
+    /// Everyone listening for an event, in the order they subscribed.
+    ///
+    /// Cloned rather than borrowed across the calls: a handler is Lua, and Lua
+    /// may subscribe or cancel while it runs. A subscription added during a
+    /// dispatch is not called by that dispatch, and one cancelled during it
+    /// still is; both are the price of not holding the borrow, and either
+    /// answer is defensible so long as it is stated.
+    pub(crate) fn listeners(&self, name: EventName) -> Vec<Function> {
+        self.subscribers.borrow().listeners(name)
+    }
+
+    /// Forgets every listener, which is what a soft reload does before it
+    /// re-runs the configuration.
+    pub fn clear_subscribers(&self) {
+        self.subscribers.borrow_mut().clear();
     }
 
     /// Takes the event a dispatch is for, if it is still pending.
@@ -572,7 +615,10 @@ impl LuaTexture for LovrTexture {
 fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Table> {
     let module = lua.create_table()?;
 
-    for function in module_functions::<T>() {
+    for function in module_functions::<T>()
+        .into_iter()
+        .chain(subscription_functions::<T>())
+    {
         module.set(function.spec.name, (function.build)(lua, session)?)?;
     }
 
@@ -635,6 +681,17 @@ module! {
     /// What `setSceneEnabled` was last told, which the next frame will latch.
     fn sceneEnabled(_lua, session) -> bool { Ok(session.requested_scene().drawn()) }
 
+    /// Calls `handler` whenever a callback raises, and answers the function that stops it. The standard library's error module subscribes to draw a panel; a configuration without it subscribing gets the log and nothing else.
+    fn onError(lua, session, handler: ErrorListener) -> Cancel {
+        let id = session.subscribe(ERROR, handler.0);
+        let cancelling = Rc::clone(session);
+        lua.create_function(move |_, ()| {
+            cancelling.unsubscribe(id);
+            Ok(())
+        })
+        .map(Cancel)
+    }
+
     /// Every modifier name a seat accepts, in the order a keymap numbers them. What `seat:setModifiers` takes and `seat.modifiers` answers with are drawn from this set.
     fn modifierNames(_lua, _session) -> Vec<String> { Ok(modifier_names()) }
 
@@ -642,7 +699,9 @@ module! {
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }
 
     /// Discards the Lua state and re-runs the configuration, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
-    fn reload(lua, _session) -> (bool, Option<String>) { reload_from_lua(lua) }
+    fn reload(lua, session) -> (bool, Option<String>) {
+        reload_from_lua(lua, &|| session.clear_subscribers())
+    }
 
     /// Tears the session down and starts it again, graphics device included.
     fn restart(lua, _session) -> () { restart_from_lua(lua) }
@@ -756,6 +815,16 @@ fn spawn_output<T: LuaTexture>(options: &Table) -> mlua::Result<Option<OutputId>
             "lunette: spawn's output takes an output handle from lunette.newOutput, not a {}",
             other.type_name()
         ))),
+    }
+}
+
+record! {
+    /// What a listener for an error raised inside a callback is given.
+    struct ErrorEvent {
+        /// The error, with the boundary it came through leading it.
+        message: String,
+        /// Where it was raised, as Lua reports it.
+        traceback: String,
     }
 }
 

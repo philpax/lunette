@@ -148,7 +148,7 @@ spec('a window that opened during the reload is picked up', function()
 
   reload()
   -- The client that connected while the reload was running. The
-  -- `lovr.lunwindowopened` for it went to the state that has gone, so the
+  -- `lunette.onWindowOpened` for it went to the state that has gone, so the
   -- enumeration is the only way this configuration hears about it.
   local second = newWindow 'browser'
 

@@ -36,7 +36,6 @@ use std::{
     process::ExitCode,
 };
 
-use lunette::events::EVENT_NAMES;
 use mlua::{Lua, Table};
 use tracing::{error, info};
 
@@ -87,40 +86,6 @@ declare _G: {
 }
 
 ";
-
-/// The fields lunette adds to the `lovr` table at boot, which lovr-docs does
-/// not know. They are spliced into the generated `declare lovr` table.
-///
-/// The event callbacks are read from [`lunette::events::EVENT_NAMES`], which is
-/// the list the dispatcher installs handlers from, so a callback this build
-/// delivers cannot go undeclared and a declaration cannot outlive the event it
-/// was written for. `declare lovr` is an exact table, so both directions
-/// matter: an undeclared callback is an error to assign, and a stale one
-/// promises a configuration something that never arrives.
-///
-/// Two are not events and are written here. `lun` is the catch-all the
-/// dispatcher offers, and `lunerror` carries the error rather than an event
-/// table.
-///
-/// Every one is optional, as every LÖVR callback is: nothing sets one by
-/// default, and a configuration defines the handlers it wants.
-fn lunette_lovr_fields() -> String {
-    let mut fields: Vec<(&str, &str)> = vec![
-        ("lun", "(name: string, ...any) -> ()"),
-        ("lunerror", "(error: any) -> ()"),
-    ];
-    fields.extend(
-        EVENT_NAMES
-            .iter()
-            .map(|name| (name.as_str(), "(event: any) -> ()")),
-    );
-    fields.sort_unstable();
-
-    fields
-        .iter()
-        .map(|(name, signature)| format!("    {name}: ({signature})?,\n"))
-        .collect()
-}
 
 fn main() -> ExitCode {
     // Diagnostics go to stderr, so that a caller redirecting stdout gets
@@ -176,7 +141,7 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let generated = PathBuf::from(source_dir).join("luau").join("lovr.d.luau");
     let text = fs::read_to_string(&generated)?;
 
-    let definitions = format!("{FORK_GLOBALS}\n{}", with_lunette_fields(&text)?);
+    let definitions = format!("{FORK_GLOBALS}\n{text}");
     let declarations = lunette::lua::declarations::render();
 
     let mut generated = vec![
@@ -425,26 +390,4 @@ fn install_require(lua: &Lua, api_root: &Path) -> mlua::Result<()> {
     lua.set_named_registry_value("lovr-docs-loaded", loaded)?;
     lua.globals().set("require", require)?;
     Ok(())
-}
-
-/// Splices lunette's own `lovr` fields into the generated table.
-///
-/// A second `declare lovr` block does not merge with the first, it replaces it,
-/// so the fields have to go inside the one the generator wrote. The closing
-/// brace is the first line that is a brace alone after the block opens.
-fn with_lunette_fields(text: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let opens = text
-        .find("declare lovr: {")
-        .ok_or("the generated definitions declare no lovr table")?;
-    let closes = text[opens..]
-        .find("\n}\n")
-        .ok_or("the generated lovr table is not closed")?
-        + opens
-        + 1;
-
-    let mut spliced = String::with_capacity(text.len() + lunette_lovr_fields().len());
-    spliced.push_str(&text[..closes]);
-    spliced.push_str(&lunette_lovr_fields());
-    spliced.push_str(&text[closes..]);
-    Ok(spliced)
 }

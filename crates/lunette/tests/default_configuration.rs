@@ -43,16 +43,12 @@ use mlua::{Function, Lua, Table};
 /// Named rather than counted: a configuration that stopped drawing would still
 /// define some callbacks, and the gate this stands in for is that a terminal
 /// appears and can be pointed at.
-const CALLBACKS: &[&str] = &[
-    "load",
-    "update",
-    "draw",
-    "quit",
-    "keypressed",
-    "lunwindowopened",
-    "lunwindowclosed",
-    "lunprocessexited",
-];
+const CALLBACKS: &[&str] = &["load", "update", "draw", "quit", "keypressed"];
+
+/// The events the shipped configuration subscribes to. Not `lovr` callbacks any
+/// more: a subscription is a call, so what this checks is that the call was
+/// made, which the stub records.
+const SUBSCRIPTIONS: &[&str] = &["onWindowOpened", "onWindowClosed", "onProcessExited"];
 
 #[test]
 fn the_default_configuration_compiles() {
@@ -104,6 +100,21 @@ fn the_default_configuration_defines_the_callbacks_the_session_calls() {
         assert!(
             defined.is_some(),
             "the configuration should define lovr.{name}"
+        );
+    }
+
+    let subscribed: Table = match lua.globals().get("subscribed") {
+        Ok(subscribed) => subscribed,
+        Err(error) => panic!("the stub's record could not be read: {error}"),
+    };
+    for name in SUBSCRIPTIONS {
+        let called: Option<bool> = match subscribed.get(*name) {
+            Ok(called) => called,
+            Err(error) => panic!("lunette.{name} could not be read: {error}"),
+        };
+        assert!(
+            called.unwrap_or(false),
+            "the configuration should subscribe through lunette.{name}"
         );
     }
 }
@@ -195,9 +206,29 @@ fn the_default_configuration_loads_against_the_standard_library() {
 fn stub_environment(lua: &Lua) -> mlua::Result<Table> {
     let lovr = lua.create_table()?;
     lua.globals().set("lovr", &lovr)?;
+    // A `require` answering an empty table is enough for every module the
+    // configuration reaches except `lunette`, whose subscriptions it calls at
+    // the top level rather than only from inside a callback.
+    let subscribed = lua.create_table()?;
+    lua.globals().set("subscribed", &subscribed)?;
     lua.globals().set(
         "require",
-        lua.create_function(|lua, _: String| lua.create_table())?,
+        lua.create_function(move |lua, name: String| {
+            let module = lua.create_table()?;
+            if name == "@lunette" {
+                for register in SUBSCRIPTIONS {
+                    let seen = lua.globals().get::<Table>("subscribed")?;
+                    module.set(
+                        *register,
+                        lua.create_function(move |lua, _: mlua::Function| {
+                            seen.set(*register, true)?;
+                            lua.create_function(|_, ()| Ok(()))
+                        })?,
+                    )?;
+                }
+            }
+            Ok(module)
+        })?,
     )?;
     Ok(lovr)
 }
@@ -254,6 +285,30 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
     loaders.set(2, path_loader)?;
 
     let lunette = lua.create_table()?;
+    // Each records that it was called and answers a cancel function, which is
+    // the shape the real module has.
+    let subscribed = lua.create_table()?;
+    for name in [
+        "onWindowOpened",
+        "onWindowClosed",
+        "onTitleChanged",
+        "onMonitorAdded",
+        "onProcessExited",
+        "onProcessOutput",
+        "onLayerGranted",
+        "onLayerRevoked",
+        "onError",
+    ] {
+        let seen = subscribed.clone();
+        lunette.set(
+            name,
+            lua.create_function(move |lua, _: mlua::Function| {
+                seen.set(name, true)?;
+                lua.create_function(|_, ()| Ok(()))
+            })?,
+        )?;
+    }
+    lua.globals().set("subscribed", subscribed)?;
     // The real names rather than a list written out here: this table is a fake
     // of lunette's own module, and a fake that invents values is a test that
     // passes against an API nothing has.

@@ -1,4 +1,4 @@
-//! What a configuration's `lovr.lun*` handlers are given, and when.
+//! What a subscriber is given, and when.
 //!
 //! [`poll`] reproduces `boot.lua`'s poll loop over the recording sink, so what
 //! is under test is the dispatch a running session performs rather than a
@@ -25,10 +25,10 @@ fn a_window_opening_hands_the_handler_a_handle_and_a_snapshot_that_holds_it() {
     let lua = lua(&session);
     run::<()>(
         &lua,
-        "function lovr.lunwindowopened(event)
+        "lunette.onWindowOpened(function(event)
              opened = { id = event.window.id, title = event.window.title, dead = event.window.dead }
              visible = #lunette.windows()
-         end",
+         end)",
     );
 
     session.push_event(LuaEvent::WindowOpened {
@@ -52,7 +52,7 @@ fn a_title_change_carries_both_the_window_and_the_new_title() {
     let lua = lua(&session);
     run::<()>(
         &lua,
-        "function lovr.luntitlechanged(event) changed = event end",
+        "lunette.onTitleChanged(function(event) changed = event end)",
     );
 
     session.push_event(LuaEvent::TitleChanged {
@@ -73,7 +73,7 @@ fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_
     let lua = lua(&session);
     run::<()>(
         &lua,
-        "function lovr.lunwindowclosed(event)
+        "lunette.onWindowClosed(function(event)
              closed = {
                  id = event.window.id,
                  dead = event.window.dead,
@@ -82,7 +82,7 @@ fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_
                  texture = event.window:getTexture(),
              }
              remaining = #lunette.windows()
-         end",
+         end)",
     );
 
     // The frame the window is absent from is the frame the event is drained in,
@@ -116,10 +116,10 @@ fn a_spawn_that_never_started_is_reported_as_an_exit_and_opens_no_window() {
     run::<()>(
         &lua,
         "opened = 0
-         function lovr.lunwindowopened() opened = opened + 1 end
-         function lovr.lunprocessexited(event)
+         lunette.onWindowOpened(function() opened = opened + 1 end)
+         lunette.onProcessExited(function(event)
              exited = { id = event.process.id, outcome = event.outcome, message = event.message }
-         end",
+         end)",
     );
 
     let process = ProcessId::new(run::<u64>(
@@ -160,9 +160,9 @@ fn an_exit_reports_its_code_and_a_signal_reports_its_number() {
     run::<()>(
         &lua,
         "seen = {}
-         function lovr.lunprocessexited(event)
+         lunette.onProcessExited(function(event)
              seen[#seen + 1] = { outcome = event.outcome, code = event.code, signal = event.signal }
-         end",
+         end)",
     );
 
     session.push_event(LuaEvent::ProcessExited {
@@ -192,7 +192,7 @@ fn output_arrives_as_bytes_under_the_stream_it_was_written_to() {
     let lua = lua(&session);
     run::<()>(
         &lua,
-        "function lovr.lunprocessoutput(event) wrote = event end",
+        "lunette.onProcessOutput(function(event) wrote = event end)",
     );
 
     // Not valid UTF-8, and a Lua string is a byte string, so it survives.
@@ -218,11 +218,11 @@ fn a_handler_that_raises_does_not_take_the_rest_of_the_frame_with_it() {
     run::<()>(
         &lua,
         "seen = {}
-         function lovr.lunwindowopened(event)
+         lunette.onWindowOpened(function(event)
              seen[#seen + 1] = event.window.id
              if event.window.id == 1 then error('a defect in the configuration') end
-         end
-         function lovr.luntitlechanged(event) titled = event.title end",
+         end)
+         lunette.onTitleChanged(function(event) titled = event.title end)",
     );
 
     session.push_event(LuaEvent::WindowOpened {
@@ -254,7 +254,7 @@ fn an_event_never_dispatched_is_not_delivered_against_a_later_frame() {
     let lua = lua(&session);
     run::<()>(
         &lua,
-        "count = 0 function lovr.lunwindowopened() count = count + 1 end",
+        "count = 0 lunette.onWindowOpened(function() count = count + 1 end)",
     );
 
     session.push_event(LuaEvent::WindowOpened {
@@ -287,7 +287,7 @@ fn an_event_with_no_handler_is_dispatched_and_dropped() {
     });
     poll(&lua, &sink);
 
-    // A configuration that never defines `lovr.lunwindowopened` is a supported
+    // A configuration that subscribes to nothing is a supported
     // configuration; `poll` raising would be the failure.
     assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
 }
@@ -337,12 +337,12 @@ fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
 fn a_displaced_claim_is_revoked_before_its_displacer_is_granted() {
     let (_session, lua) = contending(
         "seen = {}
-         function lovr.lunlayergranted(event)
+         lunette.onLayerGranted(function(event)
              seen[#seen + 1] = { name = 'granted', id = event.claim.id }
-         end
-         function lovr.lunlayerrevoked(event)
+         end)
+         lunette.onLayerRevoked(function(event)
              seen[#seen + 1] = { name = 'revoked', id = event.claim.id }
-         end",
+         end)",
     );
 
     let (count, first, revoked, second, granted): (usize, String, u64, String, u64) = run(
@@ -368,12 +368,12 @@ fn a_displaced_claim_is_revoked_before_its_displacer_is_granted() {
 #[test]
 fn a_grant_carries_the_layer_and_agrees_with_the_claim_the_handler_reads() {
     let (_session, lua) = contending(
-        "function lovr.lunlayergranted(event)
+        "lunette.onLayerGranted(function(event)
              gained = { layer = event.layer, granted = event.claim.granted, own = event.claim.layer }
-         end
-         function lovr.lunlayerrevoked(event)
+         end)
+         lunette.onLayerRevoked(function(event)
              lost = { granted = event.claim.granted, layer = event.claim.layer, dead = event.claim.dead }
-         end",
+         end)",
     );
 
     let (layer, granted, own): (Value, bool, Value) =
@@ -405,8 +405,8 @@ fn a_grant_carries_the_layer_and_agrees_with_the_claim_the_handler_reads() {
 #[test]
 fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
     let (_session, lua) = contending(
-        "function lovr.lunlayerrevoked() error('a defect in the configuration') end
-         function lovr.lunlayergranted() error('and another') end",
+        "lunette.onLayerRevoked(function() error('a defect in the configuration') end)
+         lunette.onLayerGranted(function() error('and another') end)",
     );
 
     let (first, second): (bool, bool) = run(&lua, "return held[1].granted, held[2].granted");
@@ -421,7 +421,7 @@ fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
 /// configuration's handler raised reaches the standard library's handler, with
 /// its traceback, and the configuration's `lovr.lunerror` after it.
 #[test]
-fn a_handlers_error_is_reported_through_the_standard_library_and_lunerror() {
+fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
     let (session, sink) =
         recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
@@ -429,8 +429,8 @@ fn a_handlers_error_is_reported_through_the_standard_library_and_lunerror() {
     run::<()>(
         &lua,
         "seen = {}
-         function lovr.lunerror(event) seen[#seen + 1] = event end
-         function lovr.lunwindowopened() error('a defect in the configuration') end",
+         lunette.onError(function(event) seen[#seen + 1] = event end)
+         lunette.onWindowOpened(function() error('a defect in the configuration') end)",
     );
 
     session.push_event(LuaEvent::WindowOpened {
@@ -444,7 +444,7 @@ fn a_handlers_error_is_reported_through_the_standard_library_and_lunerror() {
     );
     assert_eq!((reported, delivered), (1, 1));
     assert!(
-        message.contains("lovr.lunwindowopened") && message.contains("a defect"),
+        message.contains("lunette.onWindowOpened") && message.contains("a defect"),
         "the report should name the callback and what it said: {message}"
     );
     assert!(
@@ -465,7 +465,7 @@ fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues()
     run::<()>(
         &lua,
         "frames = 0
-         function lovr.luntitlechanged() frames = frames + 1 error('every frame') end",
+         lunette.onTitleChanged(function() frames = frames + 1 error('every frame') end)",
     );
 
     for _ in 0..200 {
@@ -488,17 +488,18 @@ fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues()
 }
 
 /// A session that never loaded the standard library still hears about the
-/// error, because `lovr.lunerror` is the configuration's and not `mullion`'s.
+/// error: the boundary tells every subscriber, and `mullion.error` is one
+/// subscriber rather than the one that matters.
 #[test]
-fn a_handlers_error_reaches_lunerror_with_no_standard_library_loaded() {
+fn a_handlers_error_reaches_a_subscriber_with_no_standard_library_loaded() {
     let (session, sink) =
         recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
     run::<()>(
         &lua,
         "seen = 0
-         function lovr.lunerror() seen = seen + 1 end
-         function lovr.lunwindowopened() error('a defect in the configuration') end",
+         lunette.onError(function() seen = seen + 1 end)
+         lunette.onWindowOpened(function() error('a defect in the configuration') end)",
     );
 
     session.push_event(LuaEvent::WindowOpened {
