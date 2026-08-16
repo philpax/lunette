@@ -11,41 +11,41 @@ use crate::lua::{
     Claim, Monitor, Output, Process, Seat, Sink, Spawn, Window,
     claim::ClaimLayer,
     declarations::{
-        Handle, NullTexture, Property, PropertyType, Record, Recorded, Type, Typed, collect,
+        Handle, NullTexture, Property, PropertyType, Record, Recorded, Textured, Type, Typed,
+        collect,
     },
     module_functions,
     output::{NewOutput, SetMode},
     seat::{NewSeat, Stroke},
+    values::PointerButtonName,
 };
 
 /// Renders the whole file.
 #[must_use]
 pub fn render() -> String {
     let mut out = String::from(HEADER);
+    let items = surface();
 
     render_alias(
         &mut out,
-        "Textured",
-        "The two handles that carry pixels. A caller with one and no interest in which reads \
-         the fields both have and calls `getTexture`, which is why that method names this as \
-         its receiver on both.",
-        &Type::Union(vec![
-            Window::<NullTexture>::luau(),
-            Monitor::<NullTexture>::luau(),
-        ]),
+        &Textured::luau(),
+        "The handles that carry pixels. A caller with one and no interest in which reads the \
+         fields both have and calls `getTexture`, which is why that method names this as its \
+         receiver on both.",
+        &textured(&items),
     );
 
     render_alias(
         &mut out,
-        "PointerButton",
+        &PointerButtonName::luau(),
         "Which pointer button an event names. The runtime refuses anything else.",
         &Type::literals(PointerButton::NAMES),
     );
 
-    for item in surface() {
+    for item in &items {
         match item {
-            Item::Handle(handle) => render_handle(&mut out, &handle),
-            Item::Record(record) => render_record(&mut out, &record),
+            Item::Handle(handle) => render_handle(&mut out, handle),
+            Item::Record(record) => render_record(&mut out, record),
         }
     }
 
@@ -99,10 +99,41 @@ const FOOTER: &str = "return (nil :: any) :: Lunette\n";
 /// Where a comment wraps, which is where the prose in the tree already sits.
 const COLUMNS: usize = 80;
 
-fn render_alias(out: &mut String, name: &str, doc: &str, definition: &Type) {
+/// Renders one `export type`, naming it by the type the Rust side declares
+/// itself as rather than by a second spelling written here.
+fn render_alias(out: &mut String, alias: &Type, doc: &str, definition: &Type) {
     out.push('\n');
     render_doc(out, doc, "");
-    let _ = writeln!(out, "export type {name} = {definition}");
+    let _ = writeln!(out, "export type {alias} = {definition}");
+}
+
+/// The handles that carry pixels.
+///
+/// Read from the surface rather than listed: a handle carries pixels exactly
+/// when one of its methods names `Textured` as its receiver, which is what
+/// `getTexture` does, so the union follows from the declarations instead of
+/// being a second statement of which handles have one.
+fn textured(items: &[Item]) -> Type {
+    let marker = Textured::luau();
+    Type::Union(
+        items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Handle(handle) => handle
+                    .methods
+                    .iter()
+                    .any(|method| {
+                        matches!(
+                            &method.ty,
+                            Type::Function { receiver: Some(receiver), .. }
+                                if **receiver == marker
+                        )
+                    })
+                    .then_some(Type::Named(handle.spec.name)),
+                Item::Record(_) => None,
+            })
+            .collect(),
+    )
 }
 
 /// Renders a handle as one table, or as the arms of a discriminated union and

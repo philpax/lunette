@@ -8,7 +8,7 @@
 -- so nothing below is executed. It exists because Luau resolves a require to a
 -- file on disk, and a definitions file can only declare globals.
 
--- The two handles that carry pixels. A caller with one and no interest in which
+-- The handles that carry pixels. A caller with one and no interest in which
 -- reads the fields both have and calls `getTexture`, which is why that method
 -- names this as its receiver on both.
 export type Textured = Window | Monitor
