@@ -32,7 +32,6 @@ vendor/lovr/                          submodule, LÖVR with lunette's patch bran
 vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
 docs/                                 the design specification
-issue-drafts/                         issues to file once the work they describe lands
 inspiration/                          reference checkouts, gitignored
 ```
 

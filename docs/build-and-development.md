@@ -23,7 +23,6 @@ lunette/
   vendor/lovr-docs/               submodule → the API metadata and its Luau generator, on lunette's branch
   vendor/mlua/                    submodule → mlua with lunette's Luau ABI patches
   docs/                           this
-  issue-drafts/                   issues to file once the work they describe lands
   inspiration/                    reference checkouts, gitignored
 ```
 
