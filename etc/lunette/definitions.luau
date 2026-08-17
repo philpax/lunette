@@ -1442,6 +1442,7 @@ export type HeadsetModule = {
   isActive: () -> boolean,
   isDown: (device: Device?, button: DeviceButton) -> boolean?,
   isFocused: () -> boolean,
+  isMainSessionVisible: () -> boolean,
   isMounted: () -> boolean,
   isSeated: () -> boolean,
   isTouched: (device: Device?, button: DeviceButton) -> boolean?,

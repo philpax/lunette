@@ -106,6 +106,14 @@ Monado reports 128 with a simulated HMD on Linux, which is `XRT_MAX_LAYERS`.
 
 The boolean cannot answer the question anything holding session-owned objects has to ask. `lovr.headset.stop()` and `lovr.headset.start()` are both bound, and a configuration that calls the pair inside one callback — to reconfigure the session, which is the ordinary reason to call `stop` at all — destroys every swapchain in between while `isActive` reads true on both sides of it. lunette's layer pool reads the generation at every frame boundary for that reason, and treats a changed one as a session loss ([Rendering](rendering.md)).
 
+#### Report whether a main session is visible
+
+An overlay session shares the runtime with whatever holds the primary one, and `XR_EXTX_overlay` reports the primary session's visibility through `XR_TYPE_EVENT_DATA_MAIN_SESSION_VISIBILITY_CHANGED_EXTX`. LÖVR's event loop handled every other event the module reacts to and dropped that one, so an overlay could not tell whether anything was behind it. The patch handles the event, keeps the flag beside `mounted` in the headset module's state, and answers it as `lovrHeadsetIsMainSessionVisible` and `lovr.headset.isMainSessionVisible`.
+
+An overlay that draws a background of its own is what needs it. Drawn while another application is presenting, an opaque background covers that application's frame; drawn when nothing else is, it is the only thing in the headset. WayVR decides its skybox the same way, on `!main_session_visible` and an opaque blend mode (`inspiration/wayvr/wayvr/src/backend/openxr/mod.rs`).
+
+The flag starts false and stays false for a session that never requested the extension, so a runtime that never sends the event reads as nothing behind. That is the direction worth being wrong in: an overlay alone in a headset draws its background, and one sharing the headset does not cover another application by accident. The metadata for the Lua binding is a matching patch to the lovr-docs fork, which is what puts it in the generated definitions.
+
 ### Rejected: a static library target
 
 LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Adding one would not produce a single binary. glfw, msdfgen, phonon, and joltc are each built shared, through `BUILD_SHARED_LIBS`, `GLFW_LIBRARY_TYPE`, or `JPH_BUILD_SHARED` depending on the dependency, so a statically linked `lunette` would still ship those libraries beside itself and would still need the rpath handling a static link is meant to remove. The single-binary property costs more than one build option, which is why v1 links LÖVR dynamically ([Build and development](build-and-development.md#building)). Revisit when packaging demands it.
