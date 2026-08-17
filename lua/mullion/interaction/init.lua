@@ -22,9 +22,12 @@
 -- two hands would share one cursor and one focus — which is the thing two seats
 -- exist to avoid.
 
-local pose = require 'mullion.pose'
-local signal = require 'mullion.signal'
-local teardown = require 'mullion.teardown'
+local lunette = require '@lunette'
+local types = require '@mullion/interaction/types'
+local grab = require '@mullion/interaction/grab'
+local pose = require '@mullion/pose'
+local signal = require '@mullion/signal'
+local teardown = require '@mullion/teardown'
 
 local interaction = {}
 
@@ -33,18 +36,30 @@ local interaction = {}
 -- because `newPointer` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
-local applyDeadZone, distanceBetween, grabberOf, remove
+
+-- Re-exported from `mullion.interaction.types`, which holds the vocabulary so
+-- that a lower tier can name `Surface` without requiring this one. These are
+-- the names the rest of the tree and docs/stdlib.md use.
+export type Tuning = types.Tuning
+export type Input = types.Input
+export type Surface = types.Surface
+export type Pointer = types.Pointer
+export type Grab = types.Grab
+export type Scaling = types.Scaling
+
+local applyDeadZone: (number, number) -> number
+local remove: (Pointer) -> ()
 
 -- Every live pointer, in creation order. Rebuilt when this file runs, so a soft
 -- reload starts with none.
-local pointers = {}
+local pointers: { Pointer } = {}
 
 -- The seat and sink of the last click, which is where a keyboard types.
 --
 -- Module state rather than per-pointer, because a virtual keyboard has one
 -- target and the user's answer to "which one" is whichever they last clicked.
 -- Both are nil until something has been clicked.
-local focusedSeat, focusedSink
+local focusedSeat: lunette.Seat?, focusedSink: lunette.Sink?
 
 -- Everything the feel of a pointer is tuned by, in one table.
 --
@@ -106,22 +121,31 @@ interaction.POSE_PROPERTY = 'mullion.pose'
 -- The direction is normalised first. `panel.rayQuadHit` reports the distance in
 -- units of the direction it was given, so an unnormalised ray would be compared
 -- against the reach in units of itself and a longer vector would see further.
-function interaction.pick(surfaces, origin, direction, tuning)
+function interaction.pick(
+  surfaces: { Surface },
+  origin: vector,
+  direction: vector,
+  tuning: Tuning
+): (Surface?, number?, number?, number?)
   tuning = tuning or interaction.TUNING
 
-  local x, y, z = interaction.components(direction, 'the ray direction')
-  local length = math.sqrt(x * x + y * y + z * z)
+  -- Scaled rather than `normalize`d, which writes in place: the caller handed
+  -- this in to be read, and a vector is a value under Luau, so multiplying it
+  -- answers a fresh one rather than allocating.
+  local length = direction:length()
   if not (length > 0) then
-    return nil
+    return nil, nil, nil, nil
   end
-  local ray = { x / length, y / length, z / length }
+  local ray = direction * (1 / length)
 
-  local hit, hitX, hitY, hitDistance
+  local hit: Surface?, hitX: number?, hitY: number?, hitDistance: number?
   for _, candidate in ipairs(surfaces) do
     if not candidate.dead then
       local pixelX, pixelY, distance = candidate:raycast(origin, ray)
       if
         pixelX
+        and pixelY
+        and distance
         and distance <= tuning.reach
         and (not hitDistance or distance < hitDistance)
       then
@@ -140,11 +164,10 @@ end
 -- The vertical axis is inverted. A stick pushed away from the user reads as
 -- "go up the page", and Wayland's vertical axis grows downwards, so up is a
 -- negative delta.
-function interaction.scrollDelta(x, y, dt, tuning)
+function interaction.scrollDelta(x: number, y: number, dt: number?, tuning: Tuning)
   tuning = tuning or interaction.TUNING
   local scale = tuning.scrollScale * (dt or 0)
-  return applyDeadZone(x, tuning.scrollDeadZone) * scale,
-    -applyDeadZone(y, tuning.scrollDeadZone) * scale
+  return applyDeadZone(x, tuning.scrollDeadZone) * scale, -applyDeadZone(y, tuning.scrollDeadZone) * scale
 end
 
 -- Writes a panel's pose to its window's property store, reporting whether it
@@ -158,30 +181,30 @@ end
 -- per-monitor one, so a mirrored screen's pose has nowhere native to live; that
 -- is a gap in the API rather than a decision made here, and until it closes a
 -- monitor's arrangement is `mullion.persist`'s to write to disk.
-function interaction.storePose(target)
-  if target.dead or target.kind ~= 'window' then
+function interaction.storePose(target: Surface): boolean
+  if target.dead or target.kind ~= 'window' or not target.pose then
     return false
   end
   local source = target.source
   if source.dead then
     return false
   end
-  return source:setProperty(interaction.POSE_PROPERTY, pose.encode(target.pose))
-    and true
+  return source:setProperty(interaction.POSE_PROPERTY, pose.encode(target.pose)) and true
 end
 
 -- Puts a panel back where the property store says it was, reporting whether
 -- there was anything to go on.
-function interaction.restorePose(target)
+function interaction.restorePose(target: Surface): boolean
   if target.dead or target.kind ~= 'window' then
     return false
   end
 
+  local setPose = target.setPose
   local kept = pose.decode(target.source:getProperty(interaction.POSE_PROPERTY))
-  if not kept then
+  if not kept or not setPose then
     return false
   end
-  target:setPose(kept)
+  setPose(target, kept)
   return true
 end
 
@@ -189,10 +212,9 @@ end
 --
 -- `options` takes `seat`, the seat every sink call is addressed to, and
 -- `tuning`, defaulting to `interaction.TUNING`.
-function interaction.newPointer(options)
-  options = options or {}
-
-  local pointer = setmetatable({
+function interaction.newPointer(options: { seat: lunette.Seat?, tuning: Tuning? }?): Pointer
+  options = options or ({} :: { seat: lunette.Seat?, tuning: Tuning? })
+  local pointer = {
     seat = options.seat,
     tuning = options.tuning or interaction.TUNING,
     -- What the ray is over, and where on it, in the source's pixels.
@@ -208,16 +230,18 @@ function interaction.newPointer(options)
     -- the press, even when the ray has left it.
     pressed = false,
     pressedSink = nil,
+    pressedSurface = nil,
     dead = false,
-  }, metatable)
+  } :: Pointer
+  setmetatable(pointer, metatable)
 
   pointers[#pointers + 1] = pointer
   return pointer
 end
 
 -- Every live pointer, in creation order, as a fresh table.
-function interaction.pointers()
-  local live = {}
+function interaction.pointers(): { Pointer }
+  local live: { Pointer } = {}
   for _, existing in ipairs(pointers) do
     if not existing.dead then
       live[#live + 1] = existing
@@ -227,13 +251,13 @@ function interaction.pointers()
 end
 
 -- The seat and sink of the last click, which is where typed text goes.
-function interaction.focused()
+function interaction.focused(): (lunette.Seat?, lunette.Sink?)
   return focusedSeat, focusedSink
 end
 
 -- Records where the keyboard went. Called by a pointer on a click, and by a
 -- configuration that focused a sink some other way.
-function interaction.setFocus(seat, sink)
+function interaction.setFocus(seat: lunette.Seat?, sink: lunette.Sink?)
   focusedSeat, focusedSink = seat, sink
 end
 
@@ -260,7 +284,7 @@ end
 -- `panels` is what the ray may hit. It is passed in rather than taken from
 -- `mullion.panel`, so that a configuration can point at a subset — one tag's
 -- worth — or at something of its own.
-function methods:update(input, panels)
+function methods:update(input: Input, panels: { Surface })
   if self.dead then
     return
   end
@@ -289,8 +313,7 @@ function methods:update(input, panels)
     return
   end
 
-  local hit, x, y, distance =
-    interaction.pick(panels or {}, input.origin, input.direction, self.tuning)
+  local hit, x, y, distance = interaction.pick(panels or {}, input.origin, input.direction, self.tuning)
   self:hover(hit)
   self.hitX, self.hitY, self.distance = x, y, distance
 
@@ -308,10 +331,9 @@ function methods:update(input, panels)
   end
 
   local sink = hit and hit.sink and hit:sink() or nil
-  if sink then
+  if sink and x and y then
     sink:pointer(x, y, self.seat)
-    local dx, dy =
-      interaction.scrollDelta(input.scrollX or 0, input.scrollY or 0, input.dt or 0, self.tuning)
+    local dx, dy = interaction.scrollDelta(input.scrollX or 0, input.scrollY or 0, input.dt or 0, self.tuning)
     if dx ~= 0 or dy ~= 0 then
       sink:scroll(dx, dy, self.seat)
     end
@@ -357,7 +379,7 @@ end
 -- The leave goes to the panel being left rather than to the one arrived at, and
 -- it is a hover withdrawal and not a focus change: `sink:leave` says the pointer
 -- stopped hovering and says nothing about the keyboard.
-function methods:hover(hit)
+function methods.hover(self: Pointer, hit: Surface?): ()
   local previous = self.hovered
   if previous == hit then
     return
@@ -391,7 +413,7 @@ end
 -- release that went to the panel currently under the ray — or nowhere, because
 -- the ray is over nothing — would leave the first client holding a button down
 -- for the rest of the session.
-function methods:setButton(pressed, sink, surface)
+function methods.setButton(self: Pointer, pressed: boolean, sink: lunette.Sink?, surface: Surface?): ()
   pressed = pressed and true or false
   if pressed == self.pressed then
     return
@@ -429,197 +451,16 @@ function methods:setButton(pressed, sink, surface)
 end
 
 -- Gives this pointer's seat to `sink`, and records it as where typing goes.
-function methods:focus(sink)
+function methods:focus(sink: lunette.Sink?)
   if self.seat then
     self.seat:setFocus(sink)
   end
   interaction.setFocus(self.seat, sink)
 end
 
--- Takes hold of a panel, remembering where the hand was relative to it.
---
--- The offset is what makes a grab feel like a grab: the panel keeps its
--- position and orientation relative to the hand rather than snapping to it, so
--- a panel grabbed from two metres away stays two metres away.
-function methods:beginGrab(target, handPose)
-  if not handPose then
-    return false
-  end
-
-  local x, y, z = handPose:getPosition()
-  self.grabbed = target
-
-  -- A panel already held by the other hand is being resized rather than taken
-  -- over. The hand that had it keeps carrying it, and this one measures.
-  local partner = grabberOf(target, self)
-  local separation = partner and distanceBetween({ x, y, z }, partner.handPosition)
-  if separation and separation > 0 then
-    self.scaling = { partner = partner, separation = separation, width = target.width }
-    signal.emit(target, 'grabbed', self)
-    return true
-  end
-
-  local base = lovr.math.newMat4(handPose):invert():mul(target.pose)
-  self.grab = {
-    -- The hand's inverse times the panel's pose: apply the hand's new pose to
-    -- it and the panel arrives where the hand has taken it.
-    offset = lovr.math.newMat4(base),
-    -- The same, kept unchanged. A push is applied to this rather than to the
-    -- offset it last produced, so the distance is a value rather than an
-    -- accumulation, and the clamp cannot walk the panel somewhere on its own.
-    base = base,
-    -- How far the stick has moved the panel from where it was picked up, and
-    -- how far away that was.
-    pushed = 0,
-    reach = -select(3, base:getPosition()),
-    x = x,
-    y = y,
-    z = z,
-    moving = false,
-  }
-  signal.emit(target, 'grabbed', self)
-  return true
-end
-
--- The pointer other than `except` holding `target`, if there is one.
-grabberOf = function(target, except)
-  for _, pointer in ipairs(pointers) do
-    if pointer ~= except and pointer.grabbed == target then
-      return pointer
-    end
-  end
-  return nil
-end
-
--- The distance between two positions, or nil when either is missing.
-distanceBetween = function(a, b)
-  if not a or not b then
-    return nil
-  end
-  local dx, dy, dz = a[1] - b[1], a[2] - b[2], a[3] - b[3]
-  return math.sqrt(dx * dx + dy * dy + dz * dz)
-end
-
--- Sizes the grabbed panel by how far apart the two hands holding it are.
---
--- The ratio is against the separation when the second hand closed, so the panel
--- keeps the size it had until the hands actually move apart or together.
-function methods:scaleWith(handPose)
-  local scaling = self.scaling
-  local target = self.grabbed
-  if not scaling or not target or not handPose then
-    return
-  end
-
-  local partner = scaling.partner
-  if not partner or partner.grabbed ~= target or partner.dead then
-    -- The other hand let go. This one inherits an ordinary grab rather than
-    -- dropping the panel, which is what a hand still holding something means.
-    self.scaling = nil
-    local x, y, z = handPose:getPosition()
-    local base = lovr.math.newMat4(handPose):invert():mul(target.pose)
-    self.grab = {
-      offset = lovr.math.newMat4(base),
-      base = base,
-      pushed = 0,
-      reach = -select(3, base:getPosition()),
-      x = x,
-      y = y,
-      z = z,
-      moving = false,
-    }
-    return
-  end
-
-  local separation =
-    distanceBetween({ handPose:getPosition() }, partner.handPosition)
-  if not separation or separation <= 0 then
-    return
-  end
-
-  local tuning = self.tuning
-  local width = scaling.width * (separation / scaling.separation)
-  width = math.max(tuning.resizeMinimum, math.min(tuning.resizeMaximum, width))
-  target:setSize(width)
-end
-
--- Moves a grabbed panel along the hand's forward axis.
---
--- The stick is the same one that scrolls, and it means this instead for as long
--- as something is held. The offset is what moves rather than the panel: a grab
--- is the hand's pose applied to an offset, so changing the offset is what makes
--- the new distance survive the next frame's drag.
-function methods:push(deflection, dt)
-  local grab = self.grab
-  if not grab or not grab.base or dt <= 0 then
-    return
-  end
-
-  local tuning = self.tuning
-  if math.abs(deflection) < tuning.scrollDeadZone then
-    return
-  end
-
-  -- Pushing the stick away moves the panel away, and away is -Z in the hand's
-  -- frame, so the sign is flipped once, here.
-  local wanted = grab.pushed + deflection * tuning.reachScale * dt
-  local reach = grab.reach + wanted
-  reach = math.max(tuning.reachMinimum, math.min(tuning.reachMaximum, reach))
-  local pushed = reach - grab.reach
-  if pushed == grab.pushed then
-    return
-  end
-
-  grab.pushed = pushed
-  grab.offset:set(lovr.math.mat4():translate(0, 0, -pushed):mul(grab.base))
-
-  -- The dead zone is about a hand that shook while the grip went down. A stick
-  -- deflected past its own dead zone is deliberate, so it starts the grab
-  -- moving rather than waiting for the hand to travel too.
-  grab.moving = true
-end
-
--- Moves the grabbed panel to where the hand has taken it.
---
--- Nothing moves until the hand has left the dead zone, and then everything does
--- for the rest of the grab. Re-checking each frame would make a slow drag
--- stutter, since a hand crossing a room a millimetre per frame never leaves it.
-function methods:dragTo(handPose)
-  local grab = self.grab
-  if not handPose or not grab then
-    return
-  end
-
-  local x, y, z = handPose:getPosition()
-  if not grab.moving then
-    local dx, dy, dz = x - grab.x, y - grab.y, z - grab.z
-    if dx * dx + dy * dy + dz * dz <= self.tuning.grabDeadZone ^ 2 then
-      return
-    end
-    grab.moving = true
-  end
-
-  self.grabbed:setPose(lovr.math.mat4(handPose):mul(grab.offset))
-end
-
--- Lets go, and writes where the panel ended up to the property store.
-function methods:endGrab()
-  local target = self.grabbed
-  self.grabbed, self.grab, self.scaling = nil, nil, nil
-  if not target then
-    return false
-  end
-
-  signal.emit(target, 'dropped', self)
-  if target.dead then
-    return false
-  end
-  return interaction.storePose(target)
-end
-
 -- A stick deflection with its dead zone removed, rescaled so that the first
 -- movement past the zone is a small one rather than a jump to the zone's width.
-function applyDeadZone(value, dead)
+function applyDeadZone(value: number, dead: number): number
   if type(value) ~= 'number' or value ~= value then
     return 0
   end
@@ -635,34 +476,9 @@ function applyDeadZone(value, dead)
   return sign * (magnitude - dead) / (1 - dead)
 end
 
--- Three numbers out of a `Vec3`, one of LÖVR's vector tables, or an array of
--- three.
---
--- Public because `mullion.laser` draws the beam it was handed and needs the
--- same three numbers this needs to normalise a direction. `panel.rayQuadHit`
--- reads the same three forms, and this does not hand its work to it: the reach
--- is in metres and a hit's distance is in units of the direction it was given,
--- so the length has to be known here rather than only passed through.
-function interaction.components(value, name)
-  local kind = type(value)
-  if kind == 'table' or kind == 'userdata' or kind == 'cdata' then
-    if value.unpack then
-      return value:unpack()
-    end
-    if
-      type(value[1]) == 'number'
-      and type(value[2]) == 'number'
-      and type(value[3]) == 'number'
-    then
-      return value[1], value[2], value[3]
-    end
-  end
-  error('mullion.interaction: ' .. name .. ' is a Vec3 or three numbers, not a ' .. kind, 3)
-end
-
 -- Takes a pointer out of the list, so that a long session does not accumulate
 -- dead entries.
-function remove(destroyed)
+function remove(destroyed: Pointer)
   for index = 1, #pointers do
     if pointers[index] == destroyed then
       table.remove(pointers, index)
@@ -670,6 +486,16 @@ function remove(destroyed)
     end
   end
 end
+
+-- The carrying half, installed as methods on a pointer. It is handed the
+-- registry and the pose store rather than reaching for either, so the state
+-- stays here.
+local carrying = grab.install { pointers = interaction.pointers, storePose = interaction.storePose }
+methods.beginGrab = carrying.beginGrab
+methods.scaleWith = carrying.scaleWith
+methods.push = carrying.push
+methods.dragTo = carrying.dragTo
+methods.endGrab = carrying.endGrab
 
 -- Registered by name, so that a module body running a second time — which is
 -- what a soft reload does — leaves one hook rather than two.

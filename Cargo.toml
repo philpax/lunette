@@ -4,6 +4,8 @@ members = [
     "crates/lunette-capture",
     "crates/lunette-compositor",
     "crates/lunette-lovr",
+    "crates/lunette-luau",
+    "crates/lunette-generate-definitions",
 ]
 resolver = "3"
 
@@ -23,15 +25,18 @@ expect_used = "warn"
 # exact pin makes a bump a reviewable change.
 [workspace.dependencies]
 arc-swap = "=1.9.2"
+ariadne = "=0.6.0"
 # 0.38.0+1.3.281 upstream. The build metadata is left off the requirement
 # because Cargo ignores it when matching and warns about every mention of it;
 # `=0.38.0` is what actually pins the release.
 ash = "=0.38.0"
 bindgen = "=0.72.1"
+cc = "=1.4.0"
 cmake = "=0.1.58"
 getrandom = "=0.3.4"
 libc = "=0.2.189"
 clap = { version = "=4.6.6", features = ["derive"] }
+lunette-luau = { path = "crates/lunette-luau" }
 mlua = "=0.12.0"
 mlua-sys = "=0.11.0"
 parking_lot = "=0.12.5"
@@ -79,3 +84,16 @@ xkbcommon = { version = "=0.8.0", features = ["wayland"] }
 wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719d3f23a20e50bd3237c29a8082cb", default-features = false, features = [
     "pipewire",
 ] }
+
+# mlua is vendored as a submodule at vendor/mlua (`philpax/mlua` `lunette`, a
+# fork of mlua-rs/mlua at v0.12.0) and mlua-sys is patched in from it: lunette
+# uses the LÖVR Luau fork (`philpax/luau` `lunette/luau-bump`), whose
+# LUA_TQUATERNION value type shifts Luau's type-tag numbering, and mlua-sys
+# compiles its luau ffi constants against upstream Luau. The submodule carries
+# the fork-aligned constants (one file, `mlua-sys/src/luau/lua.rs`) plus the ABI
+# matches for the fork (cstack 1M, two-arg userdata dtor) that the LÖVR build
+# provides, and pins mlua's reference thread under a string key so LÖVR's own
+# registry use cannot collide with it.
+[patch.crates-io]
+mlua = { path = "vendor/mlua" }
+mlua-sys = { path = "vendor/mlua/mlua-sys" }

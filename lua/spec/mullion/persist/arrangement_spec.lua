@@ -10,14 +10,14 @@
 -- the panel fixture, so that the `mullion.panel` this reaches through is the one
 -- holding the fake `lunette`.
 
-local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.persist.fixture'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local fixture = require '@spec/mullion/persist/fixture'
+local suite = require '@spec/suite'
 
-local persist = require 'mullion.persist'
-local pose = require 'mullion.pose'
-local rules = require 'mullion.rules'
-local tag = require 'mullion.tag'
+local persist = require '@mullion/persist'
+local pose = require '@mullion/pose'
+local rules = require '@mullion/rules'
+local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.persist.arrangement'
 
@@ -167,6 +167,21 @@ spec('apply refuses a destroyed panel', function()
   expect.equal(persist.apply(newEntry { kind = 'monitor', key = 'a screen', tags = {} }, screen), false, 'the outcome')
 end)
 
+spec('apply reports a size it cannot put back', function()
+  reset()
+  -- The contract makes `setSize` optional, so a surface can be movable and not
+  -- resizable. The pose goes back and the size cannot, and a size dropped in
+  -- silence would come back as a panel restored in the right place at the wrong
+  -- size, which reads as the arrangement having been saved wrong.
+  local moved = { setPose = function() end }
+
+  local outcome = persist.apply(newEntry { kind = 'window', key = 'terminal', tags = {} }, moved)
+
+  expect.equal(outcome, true, 'the outcome, because the pose went back')
+  expect.equal(#fixture.reported, 1, 'the reports')
+  expect.truthy(fixture.reported[1]:find 'cannot be resized', 'what was reported')
+end)
+
 spec('a key running into a slot does not collide with another entry', function()
   reset()
   -- 'a' at slot 11 and 'a1' at slot 1 would be one lookup if the parts of a key
@@ -302,8 +317,7 @@ spec('restore of a load carrying no arrangement places nothing rather than raisi
   reset()
   local screen = newMonitorPanel 'a screen'
 
-  local restored, stale =
-    persist.restore(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())), { screen })
+  local restored, stale = persist.restore(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())), { screen })
 
   expect.equal(#restored, 0, 'the panels restored')
   expect.equal(#stale, 0, 'the stale entries')

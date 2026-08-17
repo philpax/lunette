@@ -18,7 +18,7 @@
 -- be asserting how a temporary directory was spelled rather than which tree
 -- answered.
 local function loadMullion(marker)
-  local resolved, mullion = pcall(require, 'mullion')
+  local resolved, mullion = pcall(require, '@mullion')
   if not resolved then
     print(mullion)
     return nil, 11
@@ -40,7 +40,7 @@ end
 -- looks like. A session that needs none of it still has to boot, so this is the
 -- supported case rather than a failure.
 local function checkAbsent()
-  if pcall(require, 'mullion') then
+  if pcall(require, '@mullion') then
     return 16
   end
 
@@ -56,12 +56,12 @@ local function checkReadOnly(marker)
     return status
   end
 
-  lovr.filesystem.createDirectory('mullion')
-  lovr.filesystem.write('mullion/init.lua', 'return { overwritten = true }\n')
+  lovr.filesystem.createDirectory('@mullion')
+  lovr.filesystem.write('@mullion/init.lua', 'return { overwritten = true }\n')
 
   -- Dropped so that the require below resolves through the search path again
   -- rather than returning the cached table.
-  package.loaded.mullion = nil
+  package.loaded['@mullion'] = nil
 
   local reloaded, reloadedStatus = loadMullion(marker)
   if reloadedStatus ~= 9 then

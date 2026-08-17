@@ -18,109 +18,54 @@
 
 use std::{cmp::Ordering, fmt};
 
+use lunette_luau::closed_set;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use crate::monitor::geometry::LogicalPosition;
 
-/// A DRM connector's type, as the kernel names it.
-///
-/// A closed set rather than a string: the kernel's `drm_connector_enum_list` is
-/// the whole list, and parsing against it is what separates a real connector
-/// name from the opaque identifiers other portal backends put in the same
-/// field. See [`ConnectorName::parse`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ConnectorKind {
-    Unknown,
-    Vga,
-    DviI,
-    DviD,
-    DviA,
-    Composite,
-    SVideo,
-    Lvds,
-    Component,
-    Din,
-    DisplayPort,
-    HdmiA,
-    HdmiB,
-    Tv,
-    EmbeddedDisplayPort,
-    Virtual,
-    Dsi,
-    Dpi,
-    Writeback,
-    Spi,
-    Usb,
+closed_set! {
+    /// A DRM connector's type, as the kernel names it.
+    ///
+    /// A closed set rather than a string: the kernel's `drm_connector_enum_list` is
+    /// the whole list, and parsing against it is what separates a real connector
+    /// name from the opaque identifiers other portal backends put in the same
+    /// field. See [`ConnectorName::parse`].
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ConnectorKind {
+        Unknown = "Unknown",
+        Vga = "VGA",
+        DviI = "DVI-I",
+        DviD = "DVI-D",
+        DviA = "DVI-A",
+        Composite = "Composite",
+        SVideo = "SVIDEO",
+        Lvds = "LVDS",
+        Component = "Component",
+        Din = "DIN",
+        DisplayPort = "DP",
+        HdmiA = "HDMI-A",
+        HdmiB = "HDMI-B",
+        Tv = "TV",
+        EmbeddedDisplayPort = "eDP",
+        Virtual = "Virtual",
+        Dsi = "DSI",
+        Dpi = "DPI",
+        Writeback = "Writeback",
+        Spi = "SPI",
+        Usb = "USB",
+    }
 }
 
 impl ConnectorKind {
-    /// Every kind, so [`ConnectorName::parse`] can search by name.
+    /// The kind a name refers to, however the source cased it.
     ///
-    /// Listed in the kernel's own order, which is also the order of the type
-    /// constants, so a diff against `drm_mode.h` is readable.
-    const ALL: [Self; 21] = [
-        Self::Unknown,
-        Self::Vga,
-        Self::DviI,
-        Self::DviD,
-        Self::DviA,
-        Self::Composite,
-        Self::SVideo,
-        Self::Lvds,
-        Self::Component,
-        Self::Din,
-        Self::DisplayPort,
-        Self::HdmiA,
-        Self::HdmiB,
-        Self::Tv,
-        Self::EmbeddedDisplayPort,
-        Self::Virtual,
-        Self::Dsi,
-        Self::Dpi,
-        Self::Writeback,
-        Self::Spi,
-        Self::Usb,
-    ];
-
-    /// The name the kernel prints for this type, and so the name a compositor
-    /// hands out.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Unknown => "Unknown",
-            Self::Vga => "VGA",
-            Self::DviI => "DVI-I",
-            Self::DviD => "DVI-D",
-            Self::DviA => "DVI-A",
-            Self::Composite => "Composite",
-            Self::SVideo => "SVIDEO",
-            Self::Lvds => "LVDS",
-            Self::Component => "Component",
-            Self::Din => "DIN",
-            Self::DisplayPort => "DP",
-            Self::HdmiA => "HDMI-A",
-            Self::HdmiB => "HDMI-B",
-            Self::Tv => "TV",
-            Self::EmbeddedDisplayPort => "eDP",
-            Self::Virtual => "Virtual",
-            Self::Dsi => "DSI",
-            Self::Dpi => "DPI",
-            Self::Writeback => "Writeback",
-            Self::Spi => "SPI",
-            Self::Usb => "USB",
-        }
-    }
-
+    /// Case-insensitive because the name arrives from a compositor rather
+    /// than from the kernel, and `as_str` is what it is compared against.
     fn from_type_name(name: &str) -> Option<Self> {
         Self::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .find(|kind| kind.as_str().eq_ignore_ascii_case(name))
-    }
-}
-
-impl fmt::Display for ConnectorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
@@ -507,7 +452,7 @@ mod tests {
 
     #[test]
     fn every_connector_kind_parses_back_from_its_printed_name() {
-        for kind in ConnectorKind::ALL {
+        for &kind in ConnectorKind::ALL {
             assert_eq!(
                 ConnectorName::parse(&format!("{kind}-3")),
                 Some(ConnectorName::new(kind, 3)),

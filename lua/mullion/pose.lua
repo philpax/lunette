@@ -21,12 +21,13 @@ local pose = {}
 pose.ELEMENTS = 16
 
 -- A `Mat4` as a string of sixteen numbers.
-function pose.encode(matrix)
-  local elements = { matrix:unpack(true) }
+function pose.encode(matrix: Mat4): string
+  local elements: { number } = { matrix:unpack(true) }
+  local encoded: { string } = {}
   for index = 1, pose.ELEMENTS do
-    elements[index] = string.format('%.9g', elements[index])
+    encoded[index] = string.format('%.9g', elements[index])
   end
-  return table.concat(elements, ' ')
+  return table.concat(encoded, ' ')
 end
 
 -- What `encode` wrote, as a fresh `Mat4`, or nothing.
@@ -35,13 +36,15 @@ end
 -- partly-filled matrix. What is being read outlives the Lua state that wrote
 -- it, and a configuration that wrote the key itself is as likely a source as
 -- this module is.
-function pose.decode(text)
+function pose.decode(text: boolean | number | string | nil): Mat4?
   if type(text) ~= 'string' then
     return nil
   end
+  local encoded: string = text
 
-  local elements, count = {}, 0
-  for word in text:gmatch '%S+' do
+  local elements: { number } = {}
+  local count = 0
+  for word in encoded:gmatch '%S+' do
     count = count + 1
     if count > pose.ELEMENTS then
       return nil
@@ -59,7 +62,24 @@ function pose.decode(text)
   if count ~= pose.ELEMENTS then
     return nil
   end
-  return lovr.math.newMat4():set(unpack(elements))
+  return lovr.math.newMat4():set(
+    elements[1],
+    elements[2],
+    elements[3],
+    elements[4],
+    elements[5],
+    elements[6],
+    elements[7],
+    elements[8],
+    elements[9],
+    elements[10],
+    elements[11],
+    elements[12],
+    elements[13],
+    elements[14],
+    elements[15],
+    elements[16]
+  )
 end
 
 return pose

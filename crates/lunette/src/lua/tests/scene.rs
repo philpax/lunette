@@ -18,7 +18,7 @@ use crate::{
 /// A state with the module installed and a `lovr.headset` for the gate to wrap,
 /// which the plain [`crate::lua::tests::lua`] state deliberately lacks.
 fn gated_lua(session: &TestSession) -> Lua {
-    let lua = Lua::new();
+    let lua = crate::test_lua::session_lua();
     lua.load(
         r"
         headset = { passes = 0 }
@@ -38,7 +38,7 @@ fn gated_lua(session: &TestSession) -> Lua {
     lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
         .exec()
         .expect("the lovr scaffolding loads");
-    lua.load("lunette = require 'lunette'")
+    lua.load("lunette = require '@lunette'")
         .exec()
         .expect("require resolves the module");
     lua

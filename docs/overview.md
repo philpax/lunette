@@ -40,7 +40,7 @@ The result is a window manager in which a window is not a distinct object type. 
 2. Lua reads a snapshot and issues requests. The compositor runs on a separate thread. Window state published to Lua is a per-frame snapshot, and mutations are messages applied asynchronously. This reflects the asynchronous nature of Wayland, and matches the arrangement awesome uses with X11.
 3. Rust holds no long-lived references into the Lua state. There are no registry references to callbacks and no native objects with hidden back-pointers. All authoritative state is held in Rust and can be republished into a new Lua state at any time. This property is what makes soft reload possible.
 4. Errors do not terminate the session. Every user callback runs under `xpcall`. A failing configuration produces an error panel. A configuration that fails to load produces a built-in safe mode with a laser, a panel, and a reload key.
-5. The two API roots carry different contracts. `require 'lunette'` provides native mechanism. `require 'mullion'` provides the Lua standard library. The names differ so that the distinction is visible, and so that removing the second line is a recognisable option.
+5. The two API roots carry different contracts. `require '@lunette'` provides native mechanism. `require '@mullion'` provides the Lua standard library. The names differ so that the distinction is visible, and so that removing the second line is a recognisable option.
 6. Changes are contributed upstream where possible. The LÖVR fork remains narrow and additive, and its patches are shaped as upstream pull requests. Improvements to capture and injection are offered back to WayVR.
 
 ## Path of an input event
@@ -65,4 +65,4 @@ The result is a window manager in which a window is not a distinct object type. 
 9. [Audio](audio.md) — per-application spatialisation, deferred but specified.
 10. [Build and development](build-and-development.md) — repository layout, build system, Nix, development loop, and testing.
 11. [Roadmap](roadmap.md) — milestones in order, and the purpose of each.
-12. [Decisions and gaps](decisions.md) — recorded decisions, known gaps, licensing, and credit.
+12. [Credits](../CREDITS.md) — whose work lunette is built on, under what licence, and how each project is used. Each document records the decisions and the gaps of its own subject.

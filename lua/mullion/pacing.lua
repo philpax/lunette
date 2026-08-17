@@ -28,12 +28,6 @@
 
 local pacing = {}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
-local methods = {}
-local metatable = { __index = methods }
-local record, isBusy, isExempt
-
 -- Everything the choice is tuned by, in one table.
 --
 -- A tuning pass is a diff to this table rather than a hunt through functions for
@@ -68,7 +62,33 @@ pacing.TUNING = {
   exemptTypes = { video = true, game = true },
 }
 
--- A pacer for one window, holding what it has recently observed.
+-- The shape of a tuning table, and of a pacer, for the locals that hold them.
+type Tuning = typeof(pacing.TUNING)
+-- What one frame observed, as `observe` takes it.
+export type Observation = {
+  visible: boolean?,
+  contentType: string?,
+  drew: boolean?,
+}
+
+export type Pacer = {
+  tuning: Tuning,
+  samples: { boolean },
+  next: number,
+  committed: number,
+  seen: number,
+  chosen: number | false | nil,
+  read observe: (Pacer, Observation) -> (number?, boolean),
+  read current: (Pacer) -> number?,
+  read isExempt: (Pacer, string) -> boolean,
+  read reset: (Pacer) -> (),
+}
+
+-- Declared here and defined below the public API, so the file reads
+-- surface-first.
+local methods = {}
+local metatable = { __index = methods }
+local record, isBusy, isExempt
 --
 -- `options.tuning` replaces `pacing.TUNING` for this pacer.
 --
@@ -76,15 +96,18 @@ pacing.TUNING = {
 -- hint alone. That is the right way round: a window that has just opened has no
 -- commit history to judge it by, and treating no history as "not busy" would
 -- throttle a video player for its first second.
-function pacing.newPacer(options)
-  options = options or {}
-  local tuning = options.tuning or pacing.TUNING
+function pacing.newPacer(options: { tuning: Tuning? }?): Pacer
+  local opts: { tuning: Tuning } = (options or {}) :: { tuning: Tuning }
+  local tuning = opts.tuning or pacing.TUNING
 
   if type(tuning.history) ~= 'number' or tuning.history < 1 then
     error('mullion.pacing: a pacer keeps a history of at least one sample', 2)
   end
 
-  return setmetatable({
+  -- Luau cannot verify that setmetatable produces a Pacer, because the methods
+  -- are injected through __index rather than being on the table itself. The
+  -- same shape `mullion.scale`'s chooser has, for the same reason.
+  local _raw: any = setmetatable({
     tuning = tuning,
     -- How many of the last `tuning.history` samples carried a commit, and how
     -- many samples there have been. A ring rather than a list, so a pacer
@@ -94,6 +117,7 @@ function pacing.newPacer(options)
     committed = 0,
     seen = 0,
   }, metatable)
+  return _raw
 end
 
 -- Records what one frame observed, and answers the rate this window should be
@@ -108,14 +132,15 @@ end
 -- so a caller can skip the `window:setFrameRate` when it did not, and pass the
 -- rate straight on when it did. The tuning spells unthrottled as `false`
 -- because a table cannot hold nil; what comes back out here is nil.
-function methods:observe(state)
+function methods.observe(self: Pacer, state: Observation)
   if type(state) ~= 'table' then
     error('mullion.pacing: a pacer observes a table, not a ' .. type(state), 2)
   end
 
-  record(self, state.drew)
+  local drew: boolean? = state.drew
+  record(self, drew)
 
-  local chosen
+  local chosen: number | false | nil
   if state.visible then
     chosen = self.tuning.foreground
   elseif isExempt(self, state.contentType) then
@@ -131,7 +156,7 @@ end
 
 -- The rate this pacer last chose, or nil for unthrottled and before the first
 -- observation.
-function methods:current()
+function methods.current(self: Pacer): number?
   return self.chosen or nil
 end
 
@@ -140,7 +165,7 @@ end
 -- Exposed because a configuration showing why a window is not being throttled
 -- should not have to re-derive it, and because a caller wanting a different
 -- exemption rule needs to see what this one decided.
-function methods:isExempt(contentType)
+function methods.isExempt(self: Pacer, contentType: string): boolean
   return isExempt(self, contentType)
 end
 
@@ -148,8 +173,8 @@ end
 --
 -- For a window that was moved rather than looked away from: a panel dragged
 -- across the room has a history describing where it used to be.
-function methods:reset()
-  self.samples = {}
+function methods.reset(self: Pacer)
+  self.samples = {} :: { boolean }
   self.next = 1
   self.committed = 0
   self.seen = 0
@@ -161,7 +186,7 @@ end
 -- A slot holds `false` rather than nil for a frame that carried no commit, so
 -- that a slot never filled is distinguishable from one filled with a
 -- non-commit. Without that the count of samples taken would drift.
-function record(pacer, drew)
+function record(pacer: Pacer, drew: boolean | nil)
   local slot = pacer.next
   local evicted = pacer.samples[slot]
 
@@ -185,7 +210,7 @@ end
 -- Either rather than both, because each covers the other's blind spot. The hint
 -- catches a video that is paused on a still frame, which commits nothing; the
 -- commit rate catches a player that sets no hint at all, which is most of them.
-function isExempt(pacer, contentType)
+function isExempt(pacer: Pacer, contentType: string?)
   if pacer.tuning.exemptTypes[contentType] then
     return true
   end
@@ -196,7 +221,7 @@ end
 --
 -- Measured against the samples actually taken rather than the whole ring, so a
 -- window open for three frames is judged on those three.
-function isBusy(pacer)
+function isBusy(pacer: Pacer)
   if pacer.seen == 0 then
     return false
   end

@@ -14,7 +14,12 @@ links = "lovr"
 # LOVR exports no CMake interface, so the build script drives cmake directly and
 # generates the FFI surface with bindgen rather than consuming a package config.
 bindgen = { workspace = true }
+# Compiles the C surface over Luau's C++ frontend that `lunette check` drives.
+cc = { workspace = true }
 cmake = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

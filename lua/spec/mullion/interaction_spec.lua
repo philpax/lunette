@@ -11,12 +11,12 @@
 -- everything that decides is in this module, and `mullion.laser` is the shell
 -- that reads the device.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local interaction = require 'mullion.interaction'
-local pose = require 'mullion.pose'
-local fixture = require 'spec.mullion.panel.fixture'
+local interaction = require '@mullion/interaction'
+local pose = require '@mullion/pose'
+local fixture = require '@spec/mullion/panel/fixture'
 
 local spec = suite.new 'mullion.interaction'
 
@@ -45,8 +45,8 @@ end
 local function looking(options)
   options = options or {}
   return {
-    origin = options.origin or { 0, 0, 0 },
-    direction = options.direction or { 0, 0, -1 },
+    origin = options.origin or vector.pack(0, 0, 0),
+    direction = options.direction or vector.pack(0, 0, -1),
     pose = options.pose or poseAt(0, 0, 0),
     trigger = options.trigger or false,
     grip = options.grip or false,
@@ -75,7 +75,7 @@ spec('pick answers the nearest panel the ray meets', function()
   local far = panelAhead()
   far:setPose(poseAt(0, 0, -4))
 
-  local hit, x, y, distance = interaction.pick({ far, near }, { 0, 0, 0 }, { 0, 0, -1 })
+  local hit, x, y, distance = interaction.pick({ far, near }, vector.pack(0, 0, 0), vector.pack(0, 0, -1))
 
   expect.equal(hit, near, 'the panel')
   expect.near(x, 400, TOLERANCE, 'x')
@@ -87,7 +87,7 @@ spec('pick answers nothing when the ray meets none of them', function()
   fresh()
   local created = panelAhead()
 
-  expect.falsy(interaction.pick({ created }, { 0, 0, 0 }, { 0, 1, 0 }), 'the panel')
+  expect.falsy(interaction.pick({ created }, vector.pack(0, 0, 0), vector.pack(0, 1, 0)), 'the panel')
 end)
 
 spec('pick ignores a panel further away than the reach', function()
@@ -95,13 +95,13 @@ spec('pick ignores a panel further away than the reach', function()
   local created = panelAhead()
   created:setPose(poseAt(0, 0, -20))
 
-  expect.falsy(interaction.pick({ created }, { 0, 0, 0 }, { 0, 0, -1 }), 'the panel')
+  expect.falsy(interaction.pick({ created }, vector.pack(0, 0, 0), vector.pack(0, 0, -1)), 'the panel')
 end)
 
 spec('pick over no panels at all answers nothing', function()
   fresh()
 
-  expect.falsy(interaction.pick({}, { 0, 0, 0 }, { 0, 0, -1 }), 'the panel')
+  expect.falsy(interaction.pick({}, vector.pack(0, 0, 0), vector.pack(0, 0, -1)), 'the panel')
 end)
 
 spec('a deflection inside the dead zone scrolls nothing', function()
@@ -163,7 +163,7 @@ spec('leaving a panel withdraws the pointer from it', function()
   local pointer = interaction.newPointer { seat = newSeat() }
 
   pointer:update(looking(), { created })
-  pointer:update(looking { direction = { 0, 1, 0 } }, { created })
+  pointer:update(looking { direction = vector.pack(0, 1, 0) }, { created })
 
   expect.equal(sequence(window.sink), 'pointer,leave', 'what the sink was told')
   expect.falsy(created.highlighted, 'the highlight')
@@ -177,8 +177,8 @@ spec('moving between panels leaves the first before entering the second', functi
   right:setPose(poseAt(1, 0, -2))
   local pointer = interaction.newPointer { seat = newSeat() }
 
-  pointer:update(looking { direction = { -1, 0, -2 } }, { left, right })
-  pointer:update(looking { direction = { 1, 0, -2 } }, { left, right })
+  pointer:update(looking { direction = vector.pack(-1, 0, -2) }, { left, right })
+  pointer:update(looking { direction = vector.pack(1, 0, -2) }, { left, right })
 
   expect.equal(sequence(leftWindow.sink), 'pointer,leave', 'the panel left behind')
   expect.equal(sequence(rightWindow.sink), 'pointer', 'the panel arrived at')
@@ -229,7 +229,7 @@ spec('a trigger released off the panel still releases on it', function()
   -- Off the panel entirely, which is what a hand that slipped during a drag
   -- does. A release that went nowhere would leave the client holding a button
   -- down for the rest of the session.
-  pointer:update(looking { direction = { 0, 1, 0 } }, { created })
+  pointer:update(looking { direction = vector.pack(0, 1, 0) }, { created })
 
   local call = lastCall(window.sink, 'button')
   expect.equal(call.arguments[2], false, 'released')
@@ -380,8 +380,7 @@ spec('a pushed panel stops at the far limit rather than leaving the room', funct
   end
 
   local _, _, z = created.pose:getPosition()
-  expect.truthy(-z <= interaction.TUNING.reachMaximum + TOLERANCE,
-    'the panel to stop at reachMaximum')
+  expect.truthy(-z <= interaction.TUNING.reachMaximum + TOLERANCE, 'the panel to stop at reachMaximum')
 end)
 
 spec('a pulled panel stops before it reaches the hand', function()
@@ -395,8 +394,7 @@ spec('a pulled panel stops before it reaches the hand', function()
   end
 
   local _, _, z = created.pose:getPosition()
-  expect.truthy(-z >= interaction.TUNING.reachMinimum - TOLERANCE,
-    'the panel to stop at reachMinimum')
+  expect.truthy(-z >= interaction.TUNING.reachMinimum - TOLERANCE, 'the panel to stop at reachMinimum')
 end)
 
 spec('a stick held while grabbing scrolls nothing', function()
@@ -454,8 +452,7 @@ spec('a resize stops rather than shrinking a panel out of reach', function()
   -- Hands together: the ratio goes to nearly nothing.
   second:update(looking { grip = true, pose = poseAt(0.001, 0, 0) }, { created })
 
-  expect.truthy(created.width >= interaction.TUNING.resizeMinimum - TOLERANCE,
-    'the panel to stop at resizeMinimum')
+  expect.truthy(created.width >= interaction.TUNING.resizeMinimum - TOLERANCE, 'the panel to stop at resizeMinimum')
 end)
 
 spec('the hand that was carrying keeps carrying while the other resizes', function()
@@ -614,8 +611,7 @@ end)
 spec('restorePose puts a panel back where the store says', function()
   fresh()
   local created, window = panelAhead()
-  window.stored[interaction.POSE_PROPERTY] =
-    pose.encode(lovr.math.newMat4():translate(2, 1, -1))
+  window.stored[interaction.POSE_PROPERTY] = pose.encode(lovr.math.newMat4():translate(2, 1, -1))
 
   expect.truthy(interaction.restorePose(created), 'the restore')
   local x, y, z = created.pose:getPosition()
@@ -674,7 +670,7 @@ end)
 
 spec('requiring the module twice leaves one teardown hook', function()
   fresh()
-  local teardown = require 'mullion.teardown'
+  local teardown = require '@mullion/teardown'
 
   -- How many hooks this module has registered, counted rather than asserted to
   -- be there: the registry is shared with every other module and with
@@ -690,9 +686,9 @@ spec('requiring the module twice leaves one teardown hook', function()
   end
 
   local function reload()
-    package.loaded['mullion.interaction'] = nil
-    local loaded = require 'mullion.interaction'
-    package.loaded['mullion.interaction'] = interaction
+    package.loaded['@mullion/interaction'] = nil
+    local loaded = require '@mullion/interaction'
+    package.loaded['@mullion/interaction'] = interaction
     return loaded
   end
 

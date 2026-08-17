@@ -1,7 +1,10 @@
 -- The default lunette configuration.
 --
--- lunette loads this directory when the user has none of their own. Copy it to
--- $XDG_CONFIG_HOME/lunette and edit it there.
+-- lunette loads this directory when the user has none of their own. Run
+-- `lunette --dump-config` to put a copy in $XDG_CONFIG_HOME/lunette and edit it
+-- there. The command rather than a manual copy: it writes a `.luaurc` naming
+-- this installation's standard library, which is what makes `lunette check` and
+-- an editor resolve `@mullion` and `@lunette` from wherever the copy lands.
 
 function lovr.conf(t)
   t.identity = 'lunette'

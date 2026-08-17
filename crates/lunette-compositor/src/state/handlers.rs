@@ -122,7 +122,7 @@ impl compositor::CompositorHandler for CompositorState {
     ///
     /// What that state is otherwise wanted for is damage tracking, and the
     /// layer blit path counts lunette's own texture installs instead.
-    /// `docs/decisions.md` records why that predicate is the better one anyway.
+    /// `docs/rendering.md` records why that predicate is the better one anyway.
     fn commit(&mut self, surface: &WlSurface) {
         self.popups_commit(surface);
         self.apply_commit(surface);

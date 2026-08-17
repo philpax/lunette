@@ -13,9 +13,9 @@
 //! gets its own `XDG_RUNTIME_DIR` for the control socket and its own
 //! `XDG_DATA_HOME`.
 //!
-//! Nothing here waits for a duration. The socket appearing is what says the
-//! session is up, a chunk's answer is what says safe mode is running, and the
-//! session is stopped by a chunk rather than by a signal.
+//! Nothing here waits for a duration. A chunk's answer is what says the session
+//! is up and that safe mode is running, and the session is stopped by a chunk
+//! rather than by a signal.
 
 #![expect(
     clippy::expect_used,
@@ -35,10 +35,10 @@ use std::{
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
-/// How long a session gets to bind its socket before the test gives up.
+/// How long a session gets to start answering before the test gives up.
 ///
 /// A bound on a failure rather than a wait for a success: the poll returns as
-/// soon as the socket appears.
+/// soon as the session answers.
 const STARTUP_BOUND: Duration = Duration::from_secs(30);
 
 /// How long the session gets to stop once a chunk has told it to.
@@ -57,7 +57,7 @@ const STOPPED: i32 = 7;
 #[test]
 fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
     let mut session = Session::start("safe-mode");
-    session.wait_for_socket();
+    session.wait_until_answering();
 
     // Safe mode's callbacks, which are what a frame calls. `lovr.draw` is the
     // panel and `lovr.keypressed` is the reload key.
@@ -94,12 +94,11 @@ fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
 #[test]
 fn a_missing_main_lua_produces_safe_mode_too() {
     let mut session = Session::start("safe-mode-no-main");
-    session.wait_for_socket();
+    session.wait_until_answering();
 
-    assert_eq!(
-        stdout(&session.lunctl(&["return type(lovr.draw)"])),
-        "function"
-    );
+    let drawn = session.lunctl(&["return type(lovr.draw)"]);
+    assert_eq!(code(&drawn), 0, "stderr was:\n{}", stderr(&drawn));
+    assert_eq!(stdout(&drawn), "function");
 
     let outcome = session.stop();
     assert!(
@@ -122,17 +121,19 @@ fn safe_mode_runs_with_no_standard_library_mounted() {
         "safe-mode",
         &[("LUNETTE_STDLIB_PATH", &absent.to_string_lossy())],
     );
-    session.wait_for_socket();
+    session.wait_until_answering();
 
+    let mounted = session.lunctl(&["return package.loaded.mullion == nil"]);
+    assert_eq!(code(&mounted), 0, "stderr was:\n{}", stderr(&mounted));
     assert_eq!(
-        stdout(&session.lunctl(&["return package.loaded.mullion == nil"])),
+        stdout(&mounted),
         "true",
         "no standard library should have been loaded",
     );
-    assert_eq!(
-        stdout(&session.lunctl(&["return type(lovr.draw)"])),
-        "function"
-    );
+
+    let drawn = session.lunctl(&["return type(lovr.draw)"]);
+    assert_eq!(code(&drawn), 0, "stderr was:\n{}", stderr(&drawn));
+    assert_eq!(stdout(&drawn), "function");
 
     session.stop();
 }
@@ -190,14 +191,28 @@ impl Session {
         self.runtime.path().join("lunette").join("lunette-0.sock")
     }
 
-    /// Waits for the socket to appear, rather than for a duration.
-    fn wait_for_socket(&mut self) -> PathBuf {
+    /// Waits for the session to answer a chunk, rather than for a duration.
+    ///
+    /// The socket appearing is not that condition. It is bound before the Lua
+    /// state boots, so that a failure to bind is reported among the other
+    /// startup failures (`crates/lunette/src/main.rs:188`) — which is before
+    /// `main.lua` is loaded, before it fails, and before safe mode replaces it.
+    /// A test that started asking then would be racing the boot it is meant to
+    /// be asserting the outcome of.
+    ///
+    /// Answering is the condition, and it implies the rest: chunks are serviced
+    /// by the frame loop, and the only frame loop running after a failed load
+    /// is safe mode's.
+    fn wait_until_answering(&mut self) -> PathBuf {
         let socket = self.socket();
         let deadline = Instant::now() + STARTUP_BOUND;
 
         while Instant::now() < deadline {
             if socket.exists() {
-                return socket;
+                let ready = self.lunctl(&["return 'ready'"]);
+                if ready.status.code() == Some(0) && stdout(&ready) == "ready" {
+                    return socket;
+                }
             }
             if let Some(status) = self
                 .child
@@ -205,8 +220,8 @@ impl Session {
                 .expect("the child's status can be read")
             {
                 panic!(
-                    "the session exited {status} before it bound a control socket, so it fell out \
-                     of safe mode rather than into it; stderr was:\n{}",
+                    "the session exited {status} before it answered a chunk, so it fell out of \
+                     safe mode rather than into it; stderr was:\n{}",
                     self.read_stderr()
                 );
             }
@@ -214,7 +229,7 @@ impl Session {
         }
 
         panic!(
-            "no control socket appeared at {} within {STARTUP_BOUND:?}",
+            "the session at {} did not answer a chunk within {STARTUP_BOUND:?}",
             socket.display()
         );
     }

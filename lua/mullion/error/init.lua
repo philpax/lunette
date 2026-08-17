@@ -8,14 +8,13 @@
 --
 -- Two boundaries, and they are not the same one.
 --
--- A callback boundary. crates/lunette/src/events.rs calls each `lun*` handler
+-- A callback boundary. crates/lunette/src/events/mod.rs calls each listener
 -- through a protected call and hands what comes back to
--- crates/lunette/src/callback_error.rs, which finds this module in
--- `package.loaded` and calls `errors.handle`. That is what such a boundary
--- reports through: it rate-limits, reports once, and hands the error to the
--- configuration's `lovr.lunerror`. A session without this module loaded gets
--- the log and a direct `lovr.lunerror` instead, and no rate limiting, because
--- the limiter is here.
+-- crates/lunette/src/callback_error.rs, which logs it and tells everyone who
+-- subscribed through `lunette.onError`. This module is one of them: requiring it
+-- subscribes, and what it adds is the rate limiting and a report a panel can
+-- draw. A session that never requires it still has the log and its own
+-- subscribers; it simply has no limiter, because the limiter is here.
 --
 -- The panel `docs/lua-api.md#errors` describes is `mullion.error.panel`, which
 -- wraps `errors.report` rather than being wired in from here: a report is a
@@ -35,15 +34,38 @@
 -- state machine over a key and a time, told the time rather than reading a
 -- clock, so the specs drive it without waiting for one.
 
-local teardown = require 'mullion.teardown'
+local lunette = require '@lunette'
+local teardown = require '@mullion/teardown'
 
 local errors = {}
+
+type LimiterEntry = { suppressed: number, reportedAt: number }
+type LimiterEntries = { [string]: LimiterEntry }
+type LimiterOrder = { string }
+
+type Limiter = {
+  window: number,
+  maxKeys: number,
+  entries: LimiterEntries,
+  order: LimiterOrder,
+  record: (Limiter, string, number) -> (boolean, number),
+  suppressedCount: (Limiter, string) -> number,
+  evict: (Limiter) -> (),
+}
 
 -- Declared here and defined below the public API, so the file reads
 -- surface-first. The metatable is a table rather than a forward-declared local
 -- because `newLimiter` runs before the methods below are filled in.
 local limiterMethods = {}
 local limiterMetatable = { __index = limiterMethods }
+-- A representative limiter, so that the metatable and the fields line up with
+-- what `newLimiter` builds.
+local _limiterPrototype = setmetatable({
+  window = 0,
+  maxKeys = 0,
+  entries = {} :: LimiterEntries,
+  order = {} :: LimiterOrder,
+}, limiterMetatable) :: Limiter
 local touch, defaultClock
 
 -- How long identical errors are counted for before one is let through again, in
@@ -62,25 +84,30 @@ errors.MAX_KEYS = 64
 -- Where a report goes.
 --
 -- Replaceable, both so that a configuration can route errors into a panel it
--- draws and so that a spec can capture them. The default writes to stderr,
--- because stdout is for a program's own output.
+-- draws and so that a spec can capture them. The default logs the message,
+-- which the host routes to its own diagnostics.
 function errors.report(message)
-  io.stderr:write(message, '\n')
+  local log = lovr.log
+  if log then
+    log(message, 'error', 'mullion.error')
+  end
 end
 
 -- A fresh rate limiter over its own state.
 --
 -- `window` is how long identical occurrences are counted for and `maxKeys` how
 -- many distinct ones are tracked; both default to the constants above.
-function errors.newLimiter(window, maxKeys)
-  return setmetatable({
+function errors.newLimiter(window: number?, maxKeys: number?): Limiter
+  local created = {
     window = window or errors.WINDOW,
     maxKeys = maxKeys or errors.MAX_KEYS,
-    entries = {},
+    entries = {} :: LimiterEntries,
     -- The keys in least-recently-recorded order, so eviction has something to
     -- choose by.
-    order = {},
-  }, limiterMetatable)
+    order = {} :: LimiterOrder,
+  } :: Limiter
+  setmetatable(created, limiterMetatable)
+  return created
 end
 
 -- Records an occurrence of `key` at `now`, and says what to do with it.
@@ -88,7 +115,7 @@ end
 -- Returns whether this occurrence should be reported, and how many occurrences
 -- were counted and not reported since the last one that was. The first sighting
 -- of a key is always reported, with a suppressed count of zero.
-function limiterMethods:record(key, now)
+function limiterMethods.record(self: Limiter, key: string, now: number): (boolean, number)
   if type(key) ~= 'string' then
     error('mullion.error: a rate-limit key is a string, not a ' .. type(key), 2)
   end
@@ -96,7 +123,7 @@ function limiterMethods:record(key, now)
     error('mullion.error: a rate limiter is told the time, and ' .. type(now) .. ' is not one', 2)
   end
 
-  local entry = self.entries[key]
+  local entry: LimiterEntry? = self.entries[key]
   if not entry then
     self.entries[key] = { suppressed = 0, reportedAt = now }
     self.order[#self.order + 1] = key
@@ -121,41 +148,40 @@ end
 --
 -- For the specs, and for a configuration drawing a panel that wants to say an
 -- error is still recurring rather than only that it happened once.
-function limiterMethods:suppressedCount(key)
+function limiterMethods:suppressedCount(key: string): number
   local entry = self.entries[key]
   return entry and entry.suppressed or 0
 end
 
 -- The limiter `errors.handle` rate-limits against, replaced on `uninstall` so
 -- that a reload does not inherit the old state's suppression counts.
-local limiter = errors.newLimiter()
+local limiter: Limiter = errors.newLimiter()
 
--- Whether `install` has run and `uninstall` has not, what `lovr.errhand` held
--- before it did, and where `install` reads the time from.
+-- Whether `install` has run and `uninstall` has not, and what `lovr.errhand`
+-- held before it did.
 local installed = false
-local previousHandler = nil
-local clockSource = nil
+local cancelSubscription: (() -> ())? = nil
+local previousHandler: ((string) -> () -> any)? = nil
 
 -- The key an error is rate-limited under.
 --
 -- The traceback is part of it because the same message raised from two places
 -- is two defects, and conflating them would hide the second behind the first.
-function errors.keyFor(message, traceback)
-  return tostring(message) .. '\n' .. tostring(traceback or '')
+function errors.keyFor(message: string, traceback: string?): string
+  return message .. '\n' .. tostring(traceback or '')
 end
 
--- Reports one error, subject to the rate limit, and hands it to the
--- configuration's `lovr.lunerror` if it defined one.
+-- Reports one error, subject to the rate limit.
 --
 -- `now` is the time the error arrived at, so the caller owns the clock; it
 -- defaults to the session's own. Returns whether the error was reported, which
 -- is what a caller deciding whether to also draw it wants and what the specs
 -- assert on.
-function errors.handle(message, traceback, now)
+function errors.handle(message: string, traceback: string?, now: number?): boolean
   message = tostring(message)
   traceback = traceback and tostring(traceback) or debug.traceback('', 2)
 
-  local report, suppressed = limiter:record(errors.keyFor(message, traceback), now or defaultClock())
+  local report: boolean, suppressed: number = limiter:record(errors.keyFor(message, traceback), now or defaultClock())
   if not report then
     return false
   end
@@ -170,14 +196,6 @@ function errors.handle(message, traceback, now)
       .. ' suppressed since the last report)'
   end
   errors.report(text)
-
-  -- The configuration's own handler, per docs/lua-api.md#events. It runs under
-  -- `pcall`, and only for an occurrence that got past the limiter: a handler
-  -- that raises would otherwise be handled by this function, which is how one
-  -- defect becomes an unbounded recursion.
-  if type(lovr) == 'table' and type(lovr.lunerror) == 'function' then
-    pcall(lovr.lunerror, { message = message, traceback = traceback })
-  end
 
   return true
 end
@@ -194,24 +212,38 @@ end
 --
 -- `clock` is the time source, for a caller that wants one of its own. Returns
 -- whether it installed, so that installing twice is not an error.
-function errors.install(clock)
+function errors.install(clock: (() -> number)?): boolean
   if installed then
     return false
   end
 
   installed = true
   previousHandler = lovr and lovr.errhand
-  clockSource = clock or defaultClock
+  -- Captured rather than read through module state, which `uninstall` clears,
+  -- so the handler below has a non-nil source to call.
+  local source: () -> number = clock or defaultClock
 
-  lovr.errhand = function(message, ...)
-    errors.handle(message, debug.traceback('', 2), clockSource())
+  lovr.errhand = function(message: string): () -> any
+    errors.handle(message, debug.traceback('', 2), source())
     if previousHandler then
-      return previousHandler(message, ...)
+      return previousHandler(message)
     end
-    return nil
+    return function()
+      return 1
+    end
   end
 
-  teardown.register('mullion.error', errors.uninstall)
+  -- Subscribed rather than found: this module is one listener among however
+  -- many a configuration has, and the boundary calls them all. The subscription
+  -- is cancelled by the teardown hook, so a reload that does not reinstall
+  -- leaves nothing behind.
+  cancelSubscription = lunette.onError(function(event)
+    errors.handle(event.message, event.traceback)
+  end)
+
+  teardown.register('mullion.error', function()
+    errors.uninstall()
+  end)
   return true
 end
 
@@ -221,9 +253,14 @@ end
 -- the installed closure came from, and a configuration that does not reinstall
 -- should be left with LÖVR's own handling rather than with a closure over a
 -- state that has gone.
-function errors.uninstall()
+function errors.uninstall(): boolean
   if not installed then
     return false
+  end
+
+  if cancelSubscription then
+    cancelSubscription()
+    cancelSubscription = nil
   end
 
   installed = false
@@ -231,7 +268,6 @@ function errors.uninstall()
     lovr.errhand = previousHandler
   end
   previousHandler = nil
-  clockSource = nil
   errors.forget()
   return true
 end
@@ -267,7 +303,7 @@ function limiterMethods:evict()
 end
 
 -- Moves `key` to the end of the least-recently-recorded order.
-function touch(order, key)
+function touch(order: { string }, key: string)
   for index = 1, #order do
     if order[index] == key then
       table.remove(order, index)

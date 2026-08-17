@@ -12,7 +12,7 @@
 -- it is to run. Nothing here reaches for `lovr`, so the runner is exercised by
 -- its own spec without a filesystem at all.
 
-local suite = require 'spec.suite'
+local suite = require '@spec/suite'
 
 local runner = {}
 
@@ -26,8 +26,8 @@ local SPEC_SUFFIX = '_spec.lua'
 -- different names; the fixture adapts it, so this stays testable against a
 -- table of strings.
 --
--- `prefix` is the module path `directory` is reached by, with its trailing dot:
--- `spec.mullion.` for `spec/mullion`.
+-- `prefix` is the module path `directory` is reached by, with its trailing slash:
+-- `@spec/mullion/` for `@spec/mullion`.
 function runner.discover(filesystem, directory, prefix)
   local names = {}
 
@@ -37,7 +37,7 @@ function runner.discover(filesystem, directory, prefix)
     for _, item in ipairs(items) do
       local child = path .. '/' .. item
       if filesystem.isDirectory(child) then
-        walk(child, modulePrefix .. item .. '.')
+        walk(child, modulePrefix .. item .. '/')
       elseif item:sub(-#SPEC_SUFFIX) == SPEC_SUFFIX then
         names[#names + 1] = modulePrefix .. item:sub(1, #item - #'.lua')
       end

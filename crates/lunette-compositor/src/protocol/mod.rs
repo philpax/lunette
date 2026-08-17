@@ -40,7 +40,7 @@
 //! Not declared at all: the host-desktop capture surfaces. Selection *content*
 //! is also absent from this vocabulary, and deliberately: a transfer is a file
 //! descriptor passed between the two processes that own the bytes, so nothing
-//! about it crosses this boundary. `docs/decisions.md` records why.
+//! about it crosses this boundary. `docs/compositor.md` records why.
 
 mod input;
 mod keymap;
@@ -48,6 +48,7 @@ mod process;
 
 use std::{fmt, num::NonZeroU64, sync::Arc};
 
+use lunette_luau::closed_set;
 use smallvec::SmallVec;
 use smithay::backend::allocator::{Fourcc, Modifier};
 
@@ -565,44 +566,28 @@ pub enum FramePacing {
     Limited(FrameRate),
 }
 
-/// What a client says the content of its surface is.
-///
-/// `wp_content_type_v1`, which is a hint and nothing more: there is no handler
-/// trait, no events, and no way to ask. Adoption is thin and inconsistent, so a
-/// client playing video may well report [`ContentType::None`]. It is a strong
-/// signal rather than a detector, and what counts as video is decided in Lua by
-/// combining it with a commit-rate heuristic — `docs/rendering.md` exempts
-/// video from throttling, and the heuristic is policy.
-///
-/// An enum rather than a string, because the protocol's set is closed and a
-/// caller matching on it should not have to guard against a spelling.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ContentType {
-    /// The client said nothing, or said explicitly that it has no preference.
-    /// The protocol's own default.
-    #[default]
-    None,
-    Photo,
-    Video,
-    Game,
-}
-
-impl ContentType {
-    /// The name Lua reads on `win.contentType`.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Photo => "photo",
-            Self::Video => "video",
-            Self::Game => "game",
-        }
-    }
-}
-
-impl fmt::Display for ContentType {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
+closed_set! {
+    /// What a client says the content of its surface is.
+    ///
+    /// `wp_content_type_v1`, which is a hint and nothing more: there is no
+    /// handler trait, no events, and no way to ask. Adoption is thin and
+    /// inconsistent, so a client playing video may well report
+    /// [`ContentType::None`]. It is a strong signal rather than a detector, and
+    /// what counts as video is decided in Lua by combining it with a
+    /// commit-rate heuristic — `docs/rendering.md` exempts video from
+    /// throttling, and the heuristic is policy.
+    ///
+    /// An enum rather than a string, because the protocol's set is closed and a
+    /// caller matching on it should not have to guard against a spelling.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ContentType {
+        /// The client said nothing, or said explicitly that it has no
+        /// preference. The protocol's own default.
+        #[default]
+        None = "none",
+        Photo = "photo",
+        Video = "video",
+        Game = "game",
     }
 }
 

@@ -13,7 +13,18 @@
 -- This module holds no state and starts nothing, so it registers no teardown
 -- hook: there is nothing a reload could leave behind.
 
+local lunette = require '@lunette'
+
 local keycodes = {}
+
+-- One key in a row: a code, and optionally a label and a width in key units.
+export type Key = {
+  code: number,
+  label: string?,
+  width: number?,
+}
+-- A row of keys.
+export type Row = { Key }
 
 -- The keycodes with names of their own, for a caller that wants to press one
 -- without knowing evdev by heart.
@@ -40,12 +51,16 @@ keycodes.MODIFIERS = {
 
 -- The modifiers that stay on until pressed again, rather than clearing after
 -- the next key.
-keycodes.LOCKS = { capsLock = true }
+local locks: { [string]: boolean } = { capsLock = true }
+keycodes.LOCKS = locks
 
 -- The order modifiers are reported in, so that what a client is told does not
 -- depend on the order a table happened to be walked in.
-keycodes.MODIFIER_ORDER =
-  { 'shift', 'capsLock', 'control', 'alt', 'numLock', 'mod3', 'logo', 'mod5' }
+--
+-- Asked for rather than listed. The set is the runtime's, and a copy of it here
+-- would go stale the moment a modifier was added: `seat:setModifiers` would
+-- refuse a name this file never learned, or hold one it never reported.
+keycodes.MODIFIER_ORDER = lunette.modifierNames()
 
 -- Where the keys are, in evdev keycodes, one array per row.
 --
@@ -126,6 +141,6 @@ keycodes.ROWS = {
     { code = 100, label = 'altgr', width = 1.25 },
     { code = 97, label = 'ctrl', width = 1.25 },
   },
-}
+} :: { Row }
 
 return keycodes

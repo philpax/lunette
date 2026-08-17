@@ -20,6 +20,8 @@ use std::{
     fmt, ptr,
 };
 
+pub mod analyze;
+
 pub mod raw {
     //! The bindgen output, verbatim.
     //!

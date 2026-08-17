@@ -40,7 +40,7 @@
 //! under it the moment a user pressed the switch.
 //!
 //! So a keymap carrying more than one group is refused at compile rather than
-//! answered for the first. `docs/decisions.md` records the choice and what it
+//! answered for the first. `docs/input.md` records the choice and what it
 //! would take to lift it.
 //!
 //! That refusal is scoped to a layout the configuration named. A desktop whose

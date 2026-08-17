@@ -39,7 +39,20 @@ const LOVR_DEFINES: [&str; 4] = [
 
 /// The private include directories of the `lovr` target, from
 /// `vendor/lovr/CMakeLists.txt:330-336`, relative to `vendor/lovr`.
-const LOVR_INCLUDE_DIRS: [&str; 4] = ["src", "src/modules", "etc", "deps/luajit/src"];
+///
+/// `lua.h` comes from `deps/luau/VM/include`, alongside the Compiler and Ast
+/// headers LÖVR's own source pulls in through the Luau target's interface
+/// includes.
+const LOVR_INCLUDE_DIRS: [&str; 4] = [
+    "src",
+    "src/modules",
+    "etc",
+    // LÖVR's `api.h` includes `<lua.h>`; under `LOVR_USE_LUAU` the Luau
+    // headers are not on any include path bindgen sees, so the VM include
+    // directory is added by hand, mirroring what the `Luau.VM` target's
+    // interface includes give the compiler.
+    "deps/luau/VM/include",
+];
 
 fn main() -> ExitCode {
     match build() {
@@ -75,6 +88,7 @@ fn build() -> Result<(), BuildError> {
     let cmake_out = build_lovr(&lovr_dir, &jolt_source);
     let lovr_build = find_lovr_build(&cmake_out)?;
     emit_link_directives(&lovr_build);
+    build_analyze_shim(&lovr_dir);
     stage_boot_lua(&lovr_dir, &out_dir)?;
     generate_bindings(&manifest_dir, &lovr_dir, &out_dir)
 }
@@ -135,6 +149,13 @@ fn is_generated_header(path: &Path) -> bool {
 fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
     let configure = || {
         let mut config = cmake::Config::new(lovr_dir);
+        // mlua links the Lua C API out of `liblovr.so`, and `lunette check`
+        // drives the type checker from it.
+        config
+            .define("LOVR_USE_LUAU", "ON")
+            .define("LOVR_USE_LUAJIT", "OFF")
+            .define("LOVR_EXPORT_LUA_SYMBOLS", "ON")
+            .define("LOVR_LUAU_ANALYSIS", "ON");
         config
             .define("LOVR_BUILD_SHARED", "ON")
             .define("LOVR_BUILD_WITH_SYMBOLS", "ON")
@@ -149,7 +170,9 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
             //
             // The backslash survives into cmake's generated link script, where
             // the shell strips it and hands the linker a literal `$ORIGIN`.
-            .define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-rpath,\\$ORIGIN/bin");
+            .define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-rpath,\\$ORIGIN/bin")
+            // LÖVR sets it only on the targets it links.
+            .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
         config
     };
 
@@ -168,10 +191,9 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
 
 /// Emits the search paths, the libraries, and the rpath entries LÖVR needs.
 ///
-/// LuaJIT is a separate shared library (`vendor/lovr/CMakeLists.txt:151`), and
-/// the Lua C API symbols mlua declares need a link-time provider, so it is named
-/// alongside LÖVR itself. Its `SONAME` is plain `libluajit.so`, not the
-/// versioned `libluajit-5.1.so` a distribution package would carry.
+/// One library is named: `LOVR_USE_LUAU` links `Luau.VM`, `Luau.Compiler`, and
+/// `Luau.Ast` into `liblovr.so`, and `LUAU_EXTERN_C` exports the Lua C API from
+/// it, so the symbols mlua declares are resolved from there.
 fn emit_link_directives(build: &LovrBuild) {
     let library_dir = build.library_dir.display();
     let staged_dir = build.staged_dir.display();
@@ -179,7 +201,6 @@ fn emit_link_directives(build: &LovrBuild) {
     println!("cargo::rustc-link-search=native={library_dir}");
     println!("cargo::rustc-link-search=native={staged_dir}");
     println!("cargo::rustc-link-lib=dylib=lovr");
-    println!("cargo::rustc-link-lib=dylib=luajit");
 
     // `rustc-link-arg` rather than `rustc-link-arg-bins`, so test binaries under
     // `target/debug/deps/` resolve the library too. Cargo passes the string to
@@ -195,6 +216,36 @@ fn emit_link_directives(build: &LovrBuild) {
 
     println!("cargo::metadata=library_dir={library_dir}");
     println!("cargo::metadata=staged_dir={staged_dir}");
+}
+
+/// Compiles the C surface over Luau's frontend.
+///
+/// Nothing is linked beyond `liblovr.so`, which carries `Luau.Analysis`. Naming
+/// the archives here instead puts a second copy of Luau in the process, whose
+/// FFlag statics unify into a cycle that hangs static initialisation.
+fn build_analyze_shim(lovr_dir: &Path) {
+    let luau = lovr_dir.join("deps").join("luau");
+    let shim = Path::new("src").join("analyze.cpp");
+
+    println!("cargo::rerun-if-changed={}", shim.display());
+
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file(&shim)
+        // Luau's own require navigation, rather than a second reading of the
+        // rules. These carry no FFlag statics, so compiling them here does not
+        // reintroduce the duplicate-Luau problem the archives had.
+        .file(luau.join("CLI/src/AnalyzeRequirer.cpp"))
+        .file(luau.join("CLI/src/VfsNavigator.cpp"))
+        .file(luau.join("CLI/src/FileUtils.cpp"))
+        .include(luau.join("Analysis/include"))
+        .include(luau.join("Ast/include"))
+        .include(luau.join("Config/include"))
+        .include(luau.join("Common/include"))
+        .include(luau.join("Require/include"))
+        .include(luau.join("CLI/include"))
+        .compile("lunette_analyze");
 }
 
 /// Copies `etc/boot.lua` into `OUT_DIR` for the crate to embed.
@@ -226,7 +277,8 @@ fn generate_bindings(
     let wrapper = manifest_dir.join("wrapper.h");
     println!("cargo::rerun-if-changed={}", wrapper.display());
 
-    let includes = LOVR_INCLUDE_DIRS
+    let include_dirs = LOVR_INCLUDE_DIRS.as_slice();
+    let includes = include_dirs
         .iter()
         .map(|relative| format!("-I{}", lovr_dir.join(relative).display()));
 
@@ -372,10 +424,6 @@ fn find_lovr_build(cmake_out: &Path) -> Result<LovrBuild, BuildError> {
 
     let library_dir = library.parent().ok_or(BuildError::LibraryAtRoot)?;
     let staged_dir = library_dir.join("bin");
-    let luajit = staged_dir.join("libluajit.so");
-    if !luajit.is_file() {
-        return Err(BuildError::MissingStagedLibrary { expected: luajit });
-    }
 
     Ok(LovrBuild {
         library_dir: library_dir.to_path_buf(),
@@ -451,9 +499,6 @@ enum BuildError {
         found: Vec<PathBuf>,
     },
     LibraryAtRoot,
-    MissingStagedLibrary {
-        expected: PathBuf,
-    },
     CopyBootScript {
         source_path: PathBuf,
         destination: PathBuf,
@@ -501,12 +546,6 @@ impl fmt::Display for BuildError {
             Self::LibraryAtRoot => {
                 write!(f, "liblovr.so has no parent directory to link against")
             }
-            Self::MissingStagedLibrary { expected } => write!(
-                f,
-                "expected LÖVR's staged runtime tree to hold {}; the move_files target at \
-                 vendor/lovr/CMakeLists.txt:912-938 is what populates it",
-                expected.display()
-            ),
             Self::CopyBootScript {
                 source_path,
                 destination,
@@ -537,10 +576,7 @@ impl Error for BuildError {
             | Self::ReadDirectory { cause, .. }
             | Self::WriteBindings { cause, .. } => Some(cause),
             Self::GenerateBindings(cause) => Some(cause),
-            Self::MissingVariable(_)
-            | Self::LocateLibrary { .. }
-            | Self::LibraryAtRoot
-            | Self::MissingStagedLibrary { .. } => None,
+            Self::MissingVariable(_) | Self::LocateLibrary { .. } | Self::LibraryAtRoot => None,
         }
     }
 }

@@ -1,11 +1,11 @@
 -- Covers lua/mullion/error/panel.lua.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local errors = require 'mullion.error'
-local panel = require 'mullion.error.panel'
-local teardown = require 'mullion.teardown'
+local errors = require '@mullion/error'
+local panel = require '@mullion/error/panel'
+local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.error.panel'
 
@@ -60,7 +60,7 @@ spec('an error reported through the handler reaches the panel', function()
   errors.handle('it broke', 'a traceback', 0)
 
   expect.truthy(panel.current(), 'the current report')
-  expect.truthy(panel.current():find('it broke'), 'the message: ' .. tostring(panel.current()))
+  expect.truthy(panel.current():find 'it broke', 'the message: ' .. tostring(panel.current()))
   expect.equal(panel.count(), 1, 'the count')
 
   panel.uninstall()
@@ -101,7 +101,7 @@ spec('a second distinct error replaces the first and counts', function()
   errors.handle('the second', 'a traceback', 0)
 
   expect.equal(panel.count(), 2, 'the count')
-  expect.truthy(panel.current():find('the second'), 'the current report')
+  expect.truthy(panel.current():find 'the second', 'the current report')
 
   panel.uninstall()
 end)
@@ -113,8 +113,8 @@ spec('draws a fill and the report over it', function()
   local pass = recordingPass()
   expect.truthy(panel.draw(pass), 'draw')
   expect.equal(pass.planes, 1, 'the fill')
-  expect.truthy(drawnText(pass):find('it broke'), 'the report: ' .. drawnText(pass))
-  expect.truthy(drawnText(pass):find('lunette'), 'the heading: ' .. drawnText(pass))
+  expect.truthy(drawnText(pass):find 'it broke', 'the report: ' .. drawnText(pass))
+  expect.truthy(drawnText(pass):find 'lunette', 'the heading: ' .. drawnText(pass))
 end)
 
 spec('the heading says how many reports there have been', function()
@@ -122,7 +122,7 @@ spec('the heading says how many reports there have been', function()
   panel.show 'the first'
   panel.show 'the second'
 
-  expect.truthy(panel.lines()[1]:find('2 so far'), 'the heading: ' .. panel.lines()[1])
+  expect.truthy(panel.lines()[1]:find '2 so far', 'the heading: ' .. panel.lines()[1])
 end)
 
 spec('a long report is wrapped rather than run off the panel', function()
@@ -156,8 +156,8 @@ spec('wrapping breaks between words when it can', function()
   local lines = panel.lines()
   for index = 2, #lines do
     if lines[index] ~= '…' then
-      expect.falsy(lines[index]:find('^ '), 'line ' .. index .. ' starts with a space')
-      expect.truthy(lines[index]:match('^[word ]*$'), 'line ' .. index .. ': ' .. lines[index])
+      expect.falsy(lines[index]:find '^ ', 'line ' .. index .. ' starts with a space')
+      expect.truthy(lines[index]:match '^[word ]*$', 'line ' .. index .. ': ' .. lines[index])
     end
   end
 end)
@@ -211,7 +211,7 @@ spec('install registers a teardown hook that uninstalls', function()
 end)
 
 spec('requiring twice returns the same module', function()
-  expect.equal(require 'mullion.error.panel', panel, 'the module')
+  expect.equal(require '@mullion/error/panel', panel, 'the module')
 end)
 
 return spec

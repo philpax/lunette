@@ -158,62 +158,54 @@ impl fmt::Display for LogicalGeometry {
     }
 }
 
-/// How a monitor's panel is oriented relative to the rectangle it occupies.
-///
-/// The eight values of `wl_output.transform`, as a closed set. The logical
-/// geometry already accounts for the rotation — a portrait-mounted 1920x1080
-/// panel reports a logical size of 1080x1920 — so this describes only which
-/// corner of the panel corresponds to which corner of that rectangle.
-///
-/// Here rather than beside the pointer mapping that consumes it, because this is
-/// what `wl_output.geometry` reports alongside the position, the make, and the
-/// model: [`crate::monitor::outputs`] reads all four from the one event.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SurfaceTransform {
-    #[default]
-    Normal,
-    Rotate90,
-    Rotate180,
-    Rotate270,
-    /// Mirrored about the vertical axis.
-    Flipped,
-    Flipped90,
-    Flipped180,
-    Flipped270,
+variants! {
+    /// How a monitor's panel is oriented relative to the rectangle it occupies.
+    ///
+    /// The eight values of `wl_output.transform`, as a closed set. The logical
+    /// geometry already accounts for the rotation — a portrait-mounted 1920x1080
+    /// panel reports a logical size of 1080x1920 — so this describes only which
+    /// corner of the panel corresponds to which corner of that rectangle.
+    ///
+    /// Here rather than beside the pointer mapping that consumes it, because this is
+    /// what `wl_output.geometry` reports alongside the position, the make, and the
+    /// model: [`crate::monitor::outputs`] reads all four from the one event.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum SurfaceTransform {
+        #[default]
+        Normal,
+        Rotate90,
+        Rotate180,
+        Rotate270,
+        /// Mirrored about the vertical axis.
+        Flipped,
+        Flipped90,
+        Flipped180,
+        Flipped270,
+    }
 }
 
 impl SurfaceTransform {
-    /// Every transform, in `wl_output.transform`'s own order.
-    pub const ALL: [Self; 8] = [
-        Self::Normal,
-        Self::Rotate90,
-        Self::Rotate180,
-        Self::Rotate270,
-        Self::Flipped,
-        Self::Flipped90,
-        Self::Flipped180,
-        Self::Flipped270,
-    ];
-
     /// The transform a `wl_output.geometry` event's value names.
     ///
     /// `None` for anything outside the protocol's eight, rather than a silent
     /// fallback to [`Self::Normal`]: a value this does not recognise would put
     /// the cursor in the wrong corner, which is worse than reporting that the
     /// monitor cannot be mapped.
+    /// Searched rather than matched, so the mapping is stated once in
+    /// [`Self::as_wl_output`]. A second match would carry a wildcard, and a
+    /// transform missing from it would arrive as an unmappable monitor rather
+    /// than as a compilation failure.
     #[must_use]
     pub const fn from_wl_output(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::Normal),
-            1 => Some(Self::Rotate90),
-            2 => Some(Self::Rotate180),
-            3 => Some(Self::Rotate270),
-            4 => Some(Self::Flipped),
-            5 => Some(Self::Flipped90),
-            6 => Some(Self::Flipped180),
-            7 => Some(Self::Flipped270),
-            _ => None,
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            let candidate = Self::ALL[index];
+            if candidate.as_wl_output() == value {
+                return Some(candidate);
+            }
+            index += 1;
         }
+        None
     }
 
     /// The value `wl_output.geometry` carries for this transform.
@@ -284,7 +276,7 @@ mod tests {
 
     #[test]
     fn every_transform_round_trips_through_its_protocol_value() {
-        for transform in SurfaceTransform::ALL {
+        for &transform in SurfaceTransform::ALL {
             assert_eq!(
                 SurfaceTransform::from_wl_output(transform.as_wl_output()),
                 Some(transform),
@@ -301,7 +293,8 @@ mod tests {
     #[test]
     fn exactly_the_quarter_turns_exchange_the_axes() {
         let swapping: Vec<SurfaceTransform> = SurfaceTransform::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|transform| transform.swaps_axes())
             .collect();
 

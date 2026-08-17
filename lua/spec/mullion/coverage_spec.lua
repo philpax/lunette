@@ -10,15 +10,15 @@
 -- install rule guards against by walking the tree: a file the list misses
 -- resolves in development and is absent from an installed session.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local tree = require 'spec.mullion.tree'
+local tree = require '@spec/mullion/tree'
 
 local spec = suite.new 'mullion.coverage'
 
--- Where the specs covering the standard library are, under `spec.SPEC_ROOT`.
-local MULLION_SPECS = 'spec/mullion'
+-- Where the specs covering the standard library are, under the `@spec` mount.
+local MULLION_SPECS = '@spec/mullion'
 
 -- What covers each module: a spec path under `spec/mullion`, an array of them
 -- for a module whose specs were split along a seam, or `false` with the reason
@@ -34,13 +34,25 @@ local COVERAGE = {
   ['adopt.lua'] = 'adopt_spec.lua',
   ['error/init.lua'] = 'error/handler_spec.lua',
   ['error/panel.lua'] = 'error/panel_spec.lua',
-  ['interaction.lua'] = 'interaction_spec.lua',
-  ['keyboard.lua'] = 'keyboard_spec.lua',
+  ['interaction/init.lua'] = 'interaction_spec.lua',
+  -- Types and nothing else: it declares the pointer protocol's vocabulary and
+  -- returns an empty table, so there is no behaviour for a spec to assert. The
+  -- Luau check is what covers it.
+  ['interaction/types.lua'] = false,
+  -- The carrying half, exercised through the pointer that installs it.
+  ['interaction/grab.lua'] = 'interaction_spec.lua',
+  ['keyboard/init.lua'] = 'keyboard_spec.lua',
+  -- Pure geometry and legends, exercised through the keyboard that calls it.
+  ['keyboard/layout.lua'] = 'keyboard_spec.lua',
+  -- Drawing, which the spec's recording pass exercises through `draw`.
+  ['keyboard/draw.lua'] = 'keyboard_spec.lua',
   ['keycodes.lua'] = 'keycodes_spec.lua',
   ['laser.lua'] = 'laser_spec.lua',
   ['layout/arc.lua'] = 'layout/arc_spec.lua',
   ['pacing.lua'] = 'pacing_spec.lua',
   ['panel/init.lua'] = 'panel/panel_spec.lua',
+  -- The claim and the layer it is granted, exercised through a panel's update.
+  ['panel/layer.lua'] = 'panel/panel_spec.lua',
   ['panel/raycast.lua'] = 'panel/raycast_spec.lua',
   ['persist/format.lua'] = 'persist/format_spec.lua',
   -- Split along the module's own seam: one half is arrangements and panels, the
@@ -57,9 +69,9 @@ local COVERAGE = {
 -- The specs that cover the suite itself rather than a module, so the check
 -- below does not ask which module they are for.
 local ABOUT_THE_SUITE = {
-  ['spec/mullion/coverage_spec.lua'] = true,
-  ['spec/mullion/reload_spec.lua'] = true,
-  ['spec/runner_spec.lua'] = true,
+  ['@spec/mullion/coverage_spec.lua'] = true,
+  ['@spec/mullion/reload_spec.lua'] = true,
+  ['@spec/runner_spec.lua'] = true,
 }
 
 -- The path under `mullion/` that `path` names.
@@ -87,11 +99,7 @@ spec('every module is named in the coverage table', function()
     end
   end
 
-  expect.equal(
-    table.concat(missing, ', '),
-    '',
-    'modules with no entry in the coverage table'
-  )
+  expect.equal(table.concat(missing, ', '), '', 'modules with no entry in the coverage table')
 end)
 
 spec('every module the coverage table names exists', function()

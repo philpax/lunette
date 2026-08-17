@@ -57,14 +57,16 @@ use lunette_compositor::{
     },
     state::DEFAULT_SEAT,
 };
-use mlua::{Table, UserData, UserDataFields, UserDataMethods};
+use mlua::UserDataRef;
 
 use crate::{
-    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
+    control::wire::HandleKind,
     host::{host_button, host_key, host_modifiers},
     lua::{
-        LuaTexture, Monitor, POINTER_BUTTONS, Seat, Session, Window, pointer_button,
+        LuaTexture, Monitor, Seat, Session, Window,
+        declarations::{Nil, handle},
         seat::read_modifiers,
+        values::{HostDomain, PointerButtonName, SinkDomain, WindowDomain},
     },
 };
 
@@ -143,170 +145,145 @@ impl<T> Sink<T> {
     }
 }
 
-impl<T: LuaTexture> UserData for Sink<T> {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        // How `lunctl` recognises a handle. A metafield rather than a field,
-        // so it is invisible to `pairs` and to ordinary indexing; the
-        // serialiser reads it off the metatable and refuses any other
-        // userdata, which is how a LÖVR `Texture` comes to be reported rather
-        // than stringified.
-        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Sink.as_str());
+handle! {
+    /// Somewhere pixel input can be delivered. Discriminated on `domain`, which is what says whether `window` or `monitor` names something: testing it is how a caller reaches the handle behind a sink without a nil check that cannot fail.
+    Sink<T: LuaTexture> = HandleKind::Sink, variants = [WindowSink, HostSink];
 
-        // Which pipeline this sink's events travel: 'window' or 'host'. Read
-        // rather than inferred from the handle it came from, so a panel library
-        // holding a list of sinks can report what each one reaches.
-        fields.add_field_method_get("domain", |_, sink| Ok(sink.domain().as_str()));
+    /// Whether anything is still listening. A window sink is alive while its window is in the snapshot, and a host sink while its monitor is attached.
+    field dead(_lua, this) -> bool { Ok(!this.alive()) }
 
-        // The compositor's identifier for a window sink, and nil for a host one:
-        // a mirrored monitor is not a `wl_surface` and has no such identifier.
-        // `sink.monitor` is what names a host sink.
-        fields.add_field_method_get("id", |_, sink| {
-            Ok(match &sink.target {
-                SinkTarget::Window(id) => Some(id.get()),
-                SinkTarget::Host(_) => None,
-            })
-        });
-
-        // The monitor a host sink reaches, and nil for a window sink. A fresh
-        // handle each read, for the reason `window.sink` is: it holds an
-        // identity and an `Rc`, so there is nothing to gain by caching one and a
-        // stale cache to lose.
-        fields.add_field_method_get("monitor", |_, sink| {
-            let SinkTarget::Host(monitor) = &sink.target else {
-                return Ok(None);
-            };
-            Ok(sink
-                .session
-                .mirrors()
-                .state(monitor)
-                .map(|state| Monitor::new(Rc::clone(&sink.session), state)))
-        });
-
-        // The window a window sink reaches, and nil for a host sink.
-        fields.add_field_method_get("window", |_, sink| {
-            let SinkTarget::Window(id) = &sink.target else {
-                return Ok(None);
-            };
-            let snapshot = sink.session.snapshot();
-            Ok(snapshot
-                .windows
-                .iter()
-                .find(|window| window.sink == *id)
-                .map(|window| Window::new(Rc::clone(&sink.session), window)))
-        });
-
-        fields.add_field_method_get("dead", |_, sink| Ok(!sink.alive()));
+    /// Which pipeline this sink's events travel. Read rather than inferred from the handle it came from, so a list of sinks can report what each one reaches.
+    field domain(_lua, this) -> SinkDomain as [WindowDomain, HostDomain] {
+        Ok(SinkDomain(this.domain()))
     }
 
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method(
-            "pointer",
-            |_, sink, (x, y, seat): (f64, f64, Option<mlua::AnyUserData>)| {
-                let position = pixel_point(x, y)?;
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(pointer(sink, seat, position))
-            },
-        );
+    /// The compositor's identifier for a window sink, and nothing for a host one: a mirrored monitor is not a `wl_surface` and has nothing the compositor could address.
+    field id(_lua, this) -> Option<u64> {
+        Ok(match &this.target {
+            SinkTarget::Window(id) => Some(id.get()),
+            SinkTarget::Host(_) => None,
+        })
+    }
 
-        methods.add_method(
-            "button",
-            |_, sink, (name, pressed, seat): (mlua::LuaString, bool, Option<mlua::AnyUserData>)| {
-                let name = name.to_string_lossy();
-                let button = pointer_button(&name).ok_or_else(|| {
-                    mlua::Error::runtime(format!(
-                        "lunette: '{name}' is not a pointer button; the buttons are \
-                         {POINTER_BUTTONS}"
-                    ))
-                })?;
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(button_pressed(sink, seat, button, pressed))
-            },
-        );
+    /// The window this sink reaches. A fresh handle each read: it holds an identifier and an `Rc`, so there is nothing to gain by caching one and a stale cache to lose.
+    field window(_lua, this) -> Option<Window<T>> as [Option<Window<T>>, Nil] {
+        let SinkTarget::Window(id) = &this.target else {
+            return Ok(None);
+        };
+        let snapshot = this.session.snapshot();
+        Ok(snapshot
+            .windows
+            .iter()
+            .find(|window| window.sink == *id)
+            .map(|window| Window::new(Rc::clone(&this.session), window)))
+    }
 
-        methods.add_method(
-            "leave",
-            |_, sink, seat: Option<mlua::AnyUserData>| -> mlua::Result<bool> {
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(leave(sink, seat))
-            },
-        );
+    /// The monitor this sink reaches, behind which is the user's own desktop.
+    field monitor(_lua, this) -> Option<Monitor<T>> as [Nil, Option<Monitor<T>>] {
+        let SinkTarget::Host(monitor) = &this.target else {
+            return Ok(None);
+        };
+        Ok(this
+            .session
+            .mirrors()
+            .state(monitor)
+            .map(|state| Monitor::new(Rc::clone(&this.session), state)))
+    }
 
-        methods.add_method(
-            "scroll",
-            |_, sink, (dx, dy, seat): (f64, f64, Option<mlua::AnyUserData>)| {
-                let (dx, dy) = scroll_delta(dx, dy)?;
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(scroll(
-                    sink,
-                    seat,
-                    ScrollDelta::Continuous(dx),
-                    ScrollDelta::Continuous(dy),
-                ))
-            },
-        );
+    /// Moves the pointer to a pixel of the surface. The seat defaults to the one every session starts with.
+    method pointer(_lua, this, x: f64, y: f64, seat: Option<UserDataRef<Seat<T>>>) -> bool {
+        let position = pixel_point(x, y)?;
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(pointer(this, seat, position))
+    }
 
-        methods.add_method(
-            "scrollDiscrete",
-            |_, sink, (dx, dy, seat): (i32, i32, Option<mlua::AnyUserData>)| {
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(scroll(
-                    sink,
-                    seat,
-                    ScrollDelta::Discrete(dx),
-                    ScrollDelta::Discrete(dy),
-                ))
-            },
-        );
+    /// Presses or releases a pointer button.
+    method button(
+        _lua,
+        this,
+        button: PointerButtonName,
+        pressed: bool,
+        seat: Option<UserDataRef<Seat<T>>>,
+    ) -> bool {
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(button_pressed(this, seat, button.0, pressed))
+    }
 
-        methods.add_method(
-            "key",
-            |_, sink, (key, pressed, seat): (u32, bool, Option<mlua::AnyUserData>)| {
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(key_pressed(sink, seat, Keycode::from_evdev(key), pressed))
-            },
-        );
+    /// Takes the pointer off this sink, which is what ends a hover.
+    method leave(_lua, this, seat: Option<UserDataRef<Seat<T>>>) -> bool {
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(leave(this, seat))
+    }
 
-        methods.add_method(
-            "typeText",
-            |_, sink, (text, seat): (mlua::LuaString, Option<mlua::AnyUserData>)| {
-                let text = text.to_str()?.to_owned();
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(type_text(sink, seat, text))
-            },
-        );
+    /// Scrolls by a distance in surface pixels. A client uses the difference from `scrollDiscrete` to decide whether to scroll kinetically.
+    method scroll(_lua, this, dx: f64, dy: f64, seat: Option<UserDataRef<Seat<T>>>) -> bool {
+        let (dx, dy) = scroll_delta(dx, dy)?;
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(scroll(
+            this,
+            seat,
+            ScrollDelta::Continuous(dx),
+            ScrollDelta::Continuous(dy),
+        ))
+    }
 
-        methods.add_method(
-            "modifiers",
-            |_, sink, (names, seat): (Option<Table>, Option<mlua::AnyUserData>)| {
-                let modifiers = read_modifiers(names.as_ref())?;
-                let seat = seat_of::<T>(seat.as_ref())?;
-                if !sink.alive() {
-                    return Ok(false);
-                }
-                Ok(modifiers_held(sink, seat, &modifiers))
-            },
-        );
+    /// Scrolls by whole wheel clicks.
+    method scrollDiscrete(_lua, this, dx: i32, dy: i32, seat: Option<UserDataRef<Seat<T>>>) -> bool {
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(scroll(
+            this,
+            seat,
+            ScrollDelta::Discrete(dx),
+            ScrollDelta::Discrete(dy),
+        ))
+    }
+
+    /// Presses or releases an evdev keycode on the seat's keyboard.
+    method key(_lua, this, key: u32, pressed: bool, seat: Option<UserDataRef<Seat<T>>>) -> bool {
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(key_pressed(this, seat, Keycode::from_evdev(key), pressed))
+    }
+
+    /// Enters text, which the seat resolves to the strokes that produce it.
+    method typeText(_lua, this, text: String, seat: Option<UserDataRef<Seat<T>>>) -> bool {
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(type_text(this, seat, text))
+    }
+
+    /// Sets which modifiers the seat holds while delivering to this sink.
+    method modifiers(
+        _lua,
+        this,
+        names: Option<Vec<String>>,
+        seat: Option<UserDataRef<Seat<T>>>,
+    ) -> bool {
+        let modifiers = read_modifiers(names.as_deref())?;
+        let seat = seat_of(seat.as_deref());
+        if !this.alive() {
+            return Ok(false);
+        }
+        Ok(modifiers_held(this, seat, &modifiers))
     }
 }
 
@@ -315,11 +292,8 @@ impl<T: LuaTexture> UserData for Sink<T> {
 /// A configuration that never called `lunette.newSeat` addresses the default
 /// seat by leaving the argument off, which is what keeps the single-handed
 /// examples in `docs/input.md` correct.
-fn seat_of<T: LuaTexture>(seat: Option<&mlua::AnyUserData>) -> mlua::Result<SeatId> {
-    match seat {
-        Some(seat) => Ok(seat.borrow::<Seat<T>>()?.id()),
-        None => Ok(DEFAULT_SEAT),
-    }
+fn seat_of<T: LuaTexture>(seat: Option<&Seat<T>>) -> SeatId {
+    seat.map_or(DEFAULT_SEAT, Seat::id)
 }
 
 /// `sink:pointer(x, y)`: moves the pointer to a pixel coordinate on this sink.

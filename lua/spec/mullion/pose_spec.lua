@@ -6,10 +6,10 @@
 -- decoder that lost the last digit would move every panel a little further from
 -- where the user put it at every reload.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local pose = require 'mullion.pose'
+local pose = require '@mullion/pose'
 
 local spec = suite.new 'mullion.pose'
 

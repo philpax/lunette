@@ -1,7 +1,7 @@
 -- Runs the lua/spec/ suite inside the real binary.
 --
 -- The suite lives in the repository's `lua/` tree, which reaches this session
--- through LUNETTE_STDLIB_PATH, so `spec.runner` and `mullion.signal` both
+-- through LUNETTE_STDLIB_PATH, so `@spec/runner` and `@mullion/signal` both
 -- resolve through the same mount a session resolves the standard library
 -- through. That is deliberate: the specs run against the tree as it is
 -- installed rather than against a copy assembled for them.
@@ -11,9 +11,10 @@
 -- run. crates/lunette/tests/mullion_spec.rs is the caller.
 
 -- Where the specs are, as a path in the virtual filesystem and as the module
--- prefix that path is reached by.
-local SPEC_DIRECTORY = 'spec'
-local SPEC_PREFIX = 'spec.'
+-- prefix that path is reached by. The explicit mount point is the filesystem
+-- path as well as the require root.
+local SPEC_DIRECTORY = '@spec'
+local SPEC_PREFIX = '@spec/'
 
 -- Quit statuses. Distinct from each other so that the run says what went wrong
 -- rather than only that something did.
@@ -22,7 +23,7 @@ local FAILED = 1
 local BROKEN = 2
 local EMPTY = 3
 
--- `lovr.filesystem` under the two names `spec.runner` asks for. Adapting it
+-- `lovr.filesystem` under the two names `@spec/runner` asks for. Adapting it
 -- here rather than in the runner keeps the runner free of `lovr`, so its
 -- discovery is exercised against a table of strings in a spec of its own.
 local filesystem = {
@@ -45,7 +46,7 @@ local function drainTemporaries()
 end
 
 function lovr.load()
-    local runner = require 'spec.runner'
+    local runner = require '@spec/runner'
 
     local names = runner.discover(filesystem, SPEC_DIRECTORY, SPEC_PREFIX)
     if #names == 0 then

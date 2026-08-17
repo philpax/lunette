@@ -2,7 +2,7 @@
 
 ## What this is
 
-lunette is an XR window manager and Wayland compositor. It runs as an OpenXR overlay, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR; the scripting layer is Lua on LuaJIT; the compositor is smithay, vendored from WayVR.
+lunette is an XR window manager and Wayland compositor. It runs as an OpenXR overlay, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR; the scripting layer is Luau; the compositor is smithay, vendored from WayVR.
 
 The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code. Contributions are accepted under that licence.
 
@@ -17,24 +17,32 @@ The workspace builds, links LÖVR, and opens a window running a Lua configuratio
 The layout is recorded in [docs/build-and-development.md](docs/build-and-development.md). In summary:
 
 ```
-crates/lunette/              the binaries: lunette and lunctl, Lua injection, frame orchestration
-crates/lunette-compositor/   smithay; vendored fork of WayVR's backend/wayvr
-crates/lunette-lovr/         cmake build and FFI surface for LÖVR
-crates/lunette-capture/      wrappers over wlx-capture and HidProvider
-lua/                         the mullion standard library
-etc/xdg/lunette/             the default configuration
-vendor/lovr/                 submodule, LÖVR with lunette's patch branch (recursive)
-docs/                        the design specification
-inspiration/                 reference checkouts, gitignored
+crates/lunette/                       the binaries: lunette and lunctl, Lua injection, frame orchestration
+crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
+crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
+crates/lunette-luau/                  the Luau type language, and the closed-set macro
+crates/lunette-capture/               wrappers over wlx-capture and HidProvider
+crates/lunette-generate-definitions/  generates the Luau definitions, declarations, and .luaurc files
+lua/lunette/                          the generated declarations for the native API
+lua/mullion/                          the mullion standard library
+lua/spec/                             the standard library's own specs
+etc/lunette/                          the generated Luau definitions
+etc/xdg/lunette/                      the default configuration
+vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
+vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
+vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
+docs/                                 the design specification
+issue-drafts/                         issues to file once the work they describe lands
+inspiration/                          reference checkouts, gitignored
 ```
 
-`lunette-compositor` must not depend on `lunette-lovr`. Logic-headless testing depends on that separation.
+`lunette-compositor` must not depend on `lunette-lovr`. Logic-headless testing depends on that separation. It does depend on `lunette-luau`, which carries no Lua binding of its own: mlua is a feature there, off by default and turned on only by `lunette`.
 
 ## Documentation
 
 `docs/` is the design specification, not a description of the code. It is normative. A change that alters behaviour described there updates the relevant document in the same change.
 
-`docs/decisions.md` records decisions with their reasoning, known gaps, and deliberately-open questions. A change that reverses a recorded decision updates that file and states why. This exists so that settled questions are not reopened by accident.
+A document that has decisions, known gaps, or deliberately-open questions about its own subject records them in a `Decisions`, `Known gaps`, or `Deliberately left open` section at its end. A decision carries the reasoning that produced it and, where an alternative was rejected, what it was and why; a change that reverses one updates that section and states why. This exists so that settled questions are not reopened by accident, and it puts each decision beside its subject, so a reader of the document sees what shaped it. Facts that belong to no one document, such as licensing, are in [CREDITS.md](CREDITS.md).
 
 The documents use a plain technical register: short declarative sentences, active voice, no second person, no emphasis formatting. New documentation matches it.
 
@@ -46,17 +54,23 @@ Vendored code is exempt from the house style in this document until it is rewrit
 
 `wlx-capture` is a git-pinned external dependency, not a vendor. Fixes to it go upstream. Upstream is the `wlx-capture` directory of the WayVR monorepo, not the standalone `galister/wlx-capture` repository: that repository stopped at 0.5.4, which pulls `ashpd` with an `async-std` executor and a personal fork of pipewire-rs, while 0.6.0 removed both and exists only inside the monorepo with no independent tag. The pin therefore names a WayVR revision, and repointing it at the standalone repository is a regression rather than a tidy-up.
 
-## The LÖVR fork
+## The forks
 
 `vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a readable series. Its own `deps/` are nested submodules, so clone recursively.
 
-Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths. Each patch is shaped as an upstream pull request and opened upstream early. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md).
+Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths, with one exception: a patch that fixes an upstream defect changes the path it fixes, and says in its message which defect and why the fix belongs upstream rather than here. Each patch is shaped as an upstream pull request. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md), which also records what has been proposed and what has not.
+
+Three more forks carry patches the same way: `philpax/lovr-docs` on `lunette`, for the API metadata and its Luau generator; `philpax/mlua` on `lunette`, for the Luau ABI the LÖVR fork presents; and `philpax/luau` on `lunette/luau-bump`, which sits beneath `vendor/lovr` as its `deps/luau`. A change to any of them is a commit in the submodule, pushed to the fork, and the pointer bumped here in the same change; a pointer that names an unpushed commit fails every clone but the one it was made on. The recorded URLs are HTTPS so an anonymous clone resolves. A checkout that pushes repoints `origin` at the fork over SSH and keeps the original as `upstream`, which is what makes a rebase onto upstream reachable from the same checkout; in `deps/luau` the parent it was forked from, `bjornbytes/luau`, is a third remote named `lovr`.
 
 ## Lua conventions
 
 There is no upstream Lua template. These conventions apply to the `mullion` standard library and to example configurations.
 
-- Target LuaJIT, which is Lua 5.1 syntax. Do not use 5.2 or later syntax such as integer division or `goto` labels outside LuaJIT's support.
+- Target Luau, which accepts Lua 5.1 syntax and adds type annotations. Do not use LuaJIT-only or 5.2+ syntax that Luau rejects, and no `goto` (Luau has none).
+- Write a contract's data properties as `read`. Luau compares a read-write property invariantly, so `pose: Mat4` does not satisfy `pose: Mat4?` and a type carrying no such field does not satisfy an optional one. A read-only property is compared covariantly and both do. `interaction.Surface` is the worked example.
+- Name the contract as a method's receiver, in the contract and in the implementer both. A receiver is a parameter and parameters are contravariant, so an implementer naming its own type there cannot answer the contract; `any` on both sides typechecks and checks nothing. Where the tiers forbid naming it — a tier 1 module cannot require a tier 2 one, and naming a type means requiring the module that declares it — put the vocabulary in a types-only module, as `mullion.interaction.types` is.
+- Model a closed set as a union, and discriminate it where its members differ. A field that tells the arms apart is what narrows the others: testing `panel.kind` is what reaches the `lunette.Window` behind a window panel.
+- Fix a wrong declaration in the metadata or the generator, never in the calling code. Every workaround for a declaration that misdescribes LÖVR has changed behaviour: returning `true` from `lovr.quit` to satisfy its declared return vetoed the quit, and spelling an identity matrix out as sixteen numbers followed from an ambiguous constructor.
 - Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
 - Keep the two roots distinct. `lunette` is native mechanism; `mullion` is policy implemented in Lua. Do not add policy to `lunette` or expect mechanism from `mullion`.
@@ -67,6 +81,30 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 - Raise errors normally. Callbacks run under `xpcall`, and the handler reports them. Do not swallow errors to keep a frame alive.
 - The file-size threshold is around 500 lines, lower than the Rust threshold because Lua modules carry less ceremony.
 - Comments end with a period. Headings and titles use sentence case.
+
+### Formatting
+
+`stylua.toml` configures StyLua for the tree, and `stylua --check lua etc/xdg/lunette` is one of the standing checks. The settings describe what the tree already did rather than imposing something new: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width, which is where the code already sat.
+
+`syntax = "Luau"` is set because the tree carries type annotations that the Lua grammars reject.
+
+### The Luau static check
+
+`lunette check` typechecks `lua/mullion` and the shipped configuration against the generated definitions. It is the same in-process checker the user-facing command and `make check` run, so the two paths cannot drift.
+
+The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types.
+
+`lua/spec/suite.lua` and `lua/spec/expect.lua` are checked: they are ordinary modules that happen to be used by tests. The spec files themselves are not, and neither is `lua/spec/runner.lua`. The runner requires by a name it computes from a directory walk, which is the one require form the checker cannot follow. The spec files construct the windows, seats, and sources they drive the standard library with as the smallest table each case needs, and the handle types are exact, so checking them would mean either building a whole handle per case or casting each one. Both make the tests worse at the thing they are for. A case that needs a real shape gets it from the module under test.
+
+The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
+
+### The module roots
+
+`require '@mullion/panel'` resolves twice by two mechanisms that cannot see each other. A running session answers it from LÖVR's virtual filesystem, where `crates/lunette/src/boot.rs` mounts the standard library; the checker and a user's editor answer it from a `.luaurc` on disk, which is Luau's own mechanism and is why a require means the same thing in both. `@lunette` is a third case: it is `package.preload`, so nothing on disk answers it at runtime, while the checker reads the generated declarations at `lua/lunette/init.luau`.
+
+`crates/lunette/src/aliases.rs` states the roots once and everything derives from it. The session mounts what it says to mount; `lua/.luaurc` and `etc/xdg/lunette/.luaurc` are generated from it and verified by `make check-definitions`; and `lunette --dump-config` writes one beside the configuration it copies, naming this installation's standard library by an absolute path.
+
+That last one is why a configuration is copied with the command rather than by hand. A `.luaurc` in the tree resolves its aliases relative to itself, so a copy of it beside a user's own configuration names a directory that is not there and every `require` fails to resolve — for `lunette check` and for their editor both.
 
 ## General conventions
 
@@ -166,12 +204,11 @@ The two sections that follow are the Rust template. They apply to Rust code in t
 
 - Use Rust 2024 edition.
 - Format with **nightly rustfmt**: `cargo +nightly fmt --all`. `rustfmt.toml` opts into `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"`, which are nightly-only — stable rustfmt prints a warning about each and then silently skips them, so a stable-formatted file is *not* equivalent to a nightly-formatted one.
-- Ensure the following checks pass at the end of each complete task (you don't need to do this for intermediate steps):
-  - `cargo +nightly fmt --all -- --check`
-  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-  - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`
-  - `cargo test --workspace`
-  - `cargo test --workspace --no-default-features`
+- Ensure the checks pass at the end of each complete task (you don't need to do this for intermediate steps). `make check` runs all of them and `.github/workflows/ci.yml` calls the same targets, so a check added to the Makefile is added to both. The Makefile carries the commands; what each target is for:
+  - `make check-format` — nightly rustfmt, and stylua over the Luau (see [formatting](#formatting))
+  - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
+  - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).
+  - `make check-luau` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

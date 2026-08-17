@@ -38,6 +38,8 @@ use std::{
     time::Duration,
 };
 
+use lunette_luau::closed_set;
+
 /// The version every frame in this build carries.
 ///
 /// Version 2 is version 1 plus [`Reply::Oversized`] and [`Reply::Malformed`]. A
@@ -113,52 +115,29 @@ pub struct Handle {
     pub id: Option<HandleId>,
 }
 
-/// Which of the native handle types a [`Handle`] refers to.
-///
-/// A closed set, so a handle type added without a wire tag is a compilation
-/// failure here rather than a string nobody recognises at the other end.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HandleKind {
-    Window,
-    Monitor,
-    Process,
-    Seat,
-    Sink,
-    Claim,
-    Output,
+closed_set! {
+    /// Which of the native handle types a [`Handle`] refers to.
+    ///
+    /// A closed set, so a handle type added without a wire tag is a compilation
+    /// failure here rather than a string nobody recognises at the other end.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum HandleKind {
+        Window = "window",
+        Monitor = "monitor",
+        Process = "process",
+        Seat = "seat",
+        Sink = "sink",
+        Claim = "claim",
+        Output = "output",
+    }
 }
 
 impl HandleKind {
-    /// The name the handle's own metatable is tagged with.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Window => "window",
-            Self::Monitor => "monitor",
-            Self::Process => "process",
-            Self::Seat => "seat",
-            Self::Sink => "sink",
-            Self::Claim => "claim",
-            Self::Output => "output",
-        }
-    }
-
-    /// The kind that name refers to.
-    #[must_use]
-    pub fn named(name: &str) -> Option<Self> {
-        [
-            Self::Window,
-            Self::Monitor,
-            Self::Process,
-            Self::Seat,
-            Self::Sink,
-            Self::Claim,
-            Self::Output,
-        ]
-        .into_iter()
-        .find(|kind| kind.as_str() == name)
-    }
-
+    /// The byte this kind travels as.
+    ///
+    /// Written out rather than taken from the position in [`HandleKind::ALL`]:
+    /// the tag is a wire format, and deriving it from declaration order would
+    /// make reordering the variants a silent protocol break.
     const fn tag(self) -> u8 {
         match self {
             Self::Window => 0,
@@ -171,23 +150,14 @@ impl HandleKind {
         }
     }
 
-    const fn from_tag(tag: u8) -> Option<Self> {
-        match tag {
-            0 => Some(Self::Window),
-            1 => Some(Self::Monitor),
-            2 => Some(Self::Process),
-            3 => Some(Self::Seat),
-            4 => Some(Self::Sink),
-            5 => Some(Self::Claim),
-            6 => Some(Self::Output),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for HandleKind {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
+    /// The kind a tag refers to.
+    ///
+    /// Searched rather than matched, so that the mapping is stated once. A
+    /// second match here would carry a wildcard, and a kind missing from it
+    /// would arrive as an unrecognised tag rather than as a compilation
+    /// failure.
+    fn from_tag(tag: u8) -> Option<Self> {
+        Self::ALL.iter().copied().find(|kind| kind.tag() == tag)
     }
 }
 

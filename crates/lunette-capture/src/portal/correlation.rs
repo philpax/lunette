@@ -10,7 +10,7 @@
 //! That geometry match is the portable mechanism, and it is what wlx-overlay-s
 //! does. `mapping_id` is read opportunistically and wins where it is a real
 //! connector name, but it cannot be the mechanism: two of the three portal
-//! backends do not supply a usable one. `docs/decisions.md` records the
+//! backends do not supply a usable one. `docs/host-desktop.md` records the
 //! evidence.
 //!
 //! Pure over plain data. Nothing here touches the portal, PipeWire, or a

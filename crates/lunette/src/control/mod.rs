@@ -502,7 +502,7 @@ mod tests {
             thread::spawn(move || ask(&path, "return { count = 2, names = { 'a', 'b' } }"));
 
         // The frame loop's part, on the thread that owns the state.
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         until(|| {
             queue.drain(CHUNKS_PER_FRAME, |chunk| {
                 answer(&lua, chunk, Budget::DEFAULT)
@@ -557,7 +557,7 @@ mod tests {
 
         // The budget is what is under test here, so this duration is the
         // measurement rather than a wait for something else to happen.
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         let budget = Budget::of(Duration::from_millis(50));
         until(|| queue.drain(CHUNKS_PER_FRAME, |chunk| answer(&lua, chunk, budget)) > 0);
 

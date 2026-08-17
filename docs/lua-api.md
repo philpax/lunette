@@ -3,8 +3,8 @@
 ## Two roots
 
 ```lua
-local lunette = require 'lunette'   -- native mechanism.
-local mullion = require 'mullion'   -- the Lua standard library, optional.
+local lunette = require '@lunette'  -- native mechanism.
+local mullion = require '@mullion'  -- the Lua standard library, optional.
 ```
 
 The two names carry different contracts. `lunette` covers surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. It is implemented in Rust and represents the full capability of the system. `mullion` covers panels, layouts, rules, signals, keybindings, and chrome. It is implemented in Lua, installed as readable files, and can be replaced.
@@ -23,27 +23,25 @@ A config that never mentions `mullion` is a supported configuration.
 
 ## Events
 
-The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. Callbacks are prefixed `lun`, and every one of them takes a single table:
+The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. A listener subscribes through the module and is answered with the function that cancels it:
 
 ```lua
-function lovr.lunwindowopened(event) end   -- window.
-function lovr.lunwindowclosed(event) end   -- window.
-function lovr.luntitlechanged(event) end   -- window, title.
-function lovr.lunmonitoradded(event) end   -- id, monitor.
-function lovr.lunprocessexited(event) end  -- process, outcome, and one of code, signal, message.
-function lovr.lunprocessoutput(event) end  -- process, stream, text.
-function lovr.lunlayergranted(event) end   -- claim, layer.
-function lovr.lunlayerrevoked(event) end   -- claim.
-function lovr.lunerror(event) end          -- message, traceback.
+local cancel = lunette.onWindowOpened(function(event)
+  print(event.window.title)
+end)
 ```
 
-The prefix occupies LÖVR's callback namespace permanently and is chosen to be distinctive: `lovr.lun*` is unlikely to collide with any callback added upstream.
+Several listeners may wait on one event. They are called in the order they subscribed, each under a protected call, and a listener that raises does not stop the ones after it — a library and a configuration listening for the same event are peers, neither displacing the other.
+
+`crates/lunette/src/events/mod.rs` declares each event once — its name, the fields its payload carries, and the expression that fills each one — and both the subscription and its payload type are generated from that declaration. The handler's parameter is typed without an annotation: `event` above is a `WindowOpenedEvent`, and `lunprocessexited` hands over a `ProcessExitedEvent` whose `outcome` is the union of the three names it can hold.
+
+A soft reload forgets every subscription before it re-runs the configuration, so a listener registered by the configuration that has gone is not called again. A module that subscribes cancels in its teardown hook, which is what `mullion.error` does.
 
 `boot.lua`'s poll loop unpacks four arguments, so a payload of more than four values would not arrive. Every event carries a table instead, including the events with one field, so the shape does not differ between callbacks and a field added later is not a change to a signature.
 
-`event.outcome` on `lunprocessexited` is `'exited'`, `'signalled'`, or `'spawnFailed'`, and says which of `event.code`, `event.signal`, and `event.message` is present. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
+`event.outcome` on `lunprocessexited` says which of `event.code`, `event.signal`, and `event.message` is present, and `ProcessExitedEvent` carries the three names it can take. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
 
-An event is delivered against the snapshot of the frame it was drained in. `lovr.lunwindowclosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
+An event is delivered against the snapshot of the frame it was drained in. `onWindowClosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
 
 An error raised by one of these handlers is reported and does not stop the frame's remaining events from being delivered.
 
@@ -65,7 +63,7 @@ print(win.opaque)            -- true when the buffer's fourth component is paddi
 print(win.contentType)       -- 'none', 'photo', 'video', or 'game': what the client says it draws.
 win:resize(1920, 1080)       -- a configure request; the client may ignore it.
 win:setFrameRate(10)         -- how often this client is let draw; nil for unthrottled.
-win:close()                  -- a close request, not a kill; watch for lovr.lunwindowclosed.
+win:close()                  -- a close request, not a kill; watch for lunette.onWindowClosed.
 win:getTexture()             -- this frame's pixels; never cache it.
 win:stabilize()              -- a persistent texture, at a copy per damaged frame.
 win:setProperty('pose', p)   -- keeps a value for this window across a reload.
@@ -73,7 +71,7 @@ win:getProperty('pose')      -- what was kept, or nil.
 win:properties()             -- every key this window is carrying, as a table.
 ```
 
-`win:close()` sends the xdg-toplevel close request. The client decides what to do with it: an editor with unsaved work puts up a prompt, and a client is free to ignore it entirely. The window goes when the client unmaps it, which arrives as `lovr.lunwindowclosed`.
+`win:close()` sends the xdg-toplevel close request. The client decides what to do with it: an editor with unsaved work puts up a prompt, and a client is free to ignore it entirely. The window goes when the client unmaps it, which arrives as `lunette.onWindowClosed`.
 
 `win:resize(width, height)` configures the toplevel. The client resizes at its own pace, and `win.width` and `win.height` change when it commits a buffer — which may be at a different size, because a client is free to honour its own minimum or to round to a character cell. Nothing waits for that. The dimensions are whole pixel counts of at least one, and a value that is not raises.
 
@@ -105,7 +103,7 @@ The two are for different lifetimes and both are wanted. State a rule can derive
 
 A property is a number, a string, or a boolean. A table raises, with the key named: a table holds Lua values, which is the same problem one level down. A caller wanting structure encodes it into a string and knows that it did. A number that is not finite raises for the reason a layer priority that is not does — it is a defect in the caller's maths, and one that came back after a reload would be much harder to trace. `nil` removes the key.
 
-`win:setProperty` returns `false` on a dead handle, like every other mutation; the entries of a window that has gone are dropped, so there would be nothing to store into. `win:getProperty` still answers on one, for the reason a dead handle still reports its title: `lovr.lunwindowclosed` is dispatched against the frame the window has already left, and a handler tidying up after a panel is exactly who wants to read what that panel stored.
+`win:setProperty` returns `false` on a dead handle, like every other mutation; the entries of a window that has gone are dropped, so there would be nothing to store into. `win:getProperty` still answers on one, for the reason a dead handle still reports its title: `lunette.onWindowClosed` is dispatched against the frame the window has already left, and a handler tidying up after a panel is exactly who wants to read what that panel stored.
 
 `win:properties()` exists so that what survived a reload can be discovered rather than guessed at. A configuration that stores under a key it computed — a tag name, a monitor identity — cannot enumerate its own keys once the state holding them has gone.
 
@@ -188,7 +186,7 @@ The texture matches the captured output's resolution, which is `monitor.width` b
 
 `monitor:setPaused(paused)` is the middle case, for a panel that has left the user's view. The stream stops producing but is not given up, so resuming costs nothing. Reach for `dismiss` when the user closed the panel, and for `setPaused` when they merely turned away.
 
-`lovr.lunmonitoradded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
+`lunette.onMonitorAdded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
 
 ## Sinks and input domains
 
@@ -221,7 +219,7 @@ The two scroll methods are separate because the protocol keeps the two sources a
 
 `sink:key(keycode, pressed)` takes an evdev keycode, which is what `wl_keyboard` carries and what `seat:strokeFor` hands back. On a window sink it goes to the seat's keyboard and so reaches whichever client that seat is focused on; a seat with no focus delivers to nobody. On a host sink it reaches whatever the host compositor currently focuses, and lunette does not choose what that is. A keycode outside the set lunette's host provider declared is refused with `false` rather than sent, because the kernel would otherwise drop it without a word.
 
-`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. The names are `shift`, `capsLock`, `control`, `alt`, `numLock`, `mod3`, `logo`, and `mod5`; an unrecognised one raises. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
+`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. `lunette.modifierNames()` answers with the names it takes, in the order a keymap numbers them, and an unrecognised one raises; `KeyModifier` in `crates/lunette-compositor/src/protocol/input.rs` is where the set is declared and everything else derives from it. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
 
 `sink:typeText(text)` is an escape hatch, and explicitly stateful. Text the active layout can type goes down the ordinary path and changes nothing; the rest makes lunette generate a temporary keymap, upload it, type against it, and put the client's own back. So it must not be interleaved with `sink:key` on the same seat, and a client may see its keymap change while it runs — which is legal, and is the price of entering text no layout binds. Text needing more distinct keysyms than one keymap holds is split into runs that fit rather than refused. It is refused on a host sink, because lunette does not own the host's keyboard well enough to promise the layout it took can be given back.
 
@@ -254,7 +252,7 @@ end
 
 The options are the five names libxkbcommon compiles a layout from — `rules`, `model`, `layout`, `variant`, and `options` — plus `repeatDelay` in milliseconds and `repeatRate` in repeats per second. An absent layout name takes the desktop's own default, read from the `XKB_DEFAULT_*` variables, which is what a user who configured a layout for their session expects lunette to inherit. Key repeat defaults to a 200ms delay and 50Hz, and a rate of zero disables it; the timing is policy, so it lives here rather than in the native layer. A layout that does not compile is reported in the log and the seat never appears.
 
-A seat carries exactly one layout, so `layout` naming several — `'us,de'` — is refused and the seat never appears. Every keymap query answers for the seat's one layout and nothing can read or set an active group, so a seat with two would answer for the first whichever one the user had switched to. A configuration wanting two layouts makes two seats. [Decisions](decisions.md#recorded-decisions) records the reasoning and what lifting it would take.
+A seat carries exactly one layout, so `layout` naming several — `'us,de'` — is refused and the seat never appears. Every keymap query answers for the seat's one layout and nothing can read or set an active group, so a seat with two would answer for the first whichever one the user had switched to. A configuration wanting two layouts makes two seats. [Input](input.md#decisions) records the reasoning and what lifting it would take.
 
 An inherited default naming several layouts is treated differently, because a desktop configured with `us,de` is ordinary and the user did not ask lunette for anything. The list is narrowed to its first entry, with the matching entry of the variant list, and the seat is created on that one layout. The narrowing is reported in the log, with the note that a second layout wants a second seat. So `layout = 'us,de'` leaves the seat uncreated, and `XKB_DEFAULT_LAYOUT=us,de` does not.
 
@@ -264,7 +262,7 @@ An inherited default naming several layouts is treated differently, because a de
 
 `seat:strokeFor(value)` is the reverse lookup. A string is read as the character to type and a number as a keysym, and the answer prefers the fewest modifiers and then the lowest keycode, so a digit resolves to the number row rather than the keypad. It returns `nil` for anything the layout cannot express — that is what `sink:typeText` is for — and raises on a string of more than one character, because a stroke produces one keysym.
 
-`seat.clipboardBridge` and `seat:setClipboardBridge(bridged)` are the host clipboard's one connection to a seat. The host desktop has one clipboard and one primary selection while every seat has its own, so exactly one seat is bridged: its selections are the host's in both directions, and every other seat's stay inside lunette. Bridging a seat takes the bridge off whichever seat had it, and passing `false` on a seat that is not the bridged one does nothing, so a configuration can call either without first asking which seat holds it. The seat every session starts with is bridged, so a configuration that never mentions the clipboard behaves as a single-seat compositor does. [Input](input.md#clipboard) states the mapping and [Decisions](decisions.md#recorded-decisions) states why it is one seat rather than all of them.
+`seat.clipboardBridge` and `seat:setClipboardBridge(bridged)` are the host clipboard's one connection to a seat. The host desktop has one clipboard and one primary selection while every seat has its own, so exactly one seat is bridged: its selections are the host's in both directions, and every other seat's stay inside lunette. Bridging a seat takes the bridge off whichever seat had it, and passing `false` on a seat that is not the bridged one does nothing, so a configuration can call either without first asking which seat holds it. The seat every session starts with is bridged, so a configuration that never mentions the clipboard behaves as a single-seat compositor does. [Input](input.md#clipboard) states the mapping and [its decisions](input.md#decisions) state why it is one seat rather than all of them.
 
 A selection the newly bridged seat already held is not pushed to the host retroactively; the next copy on that seat crosses. Both calls return `false` on a dead seat, like every other seat method.
 
@@ -302,8 +300,8 @@ Grants and revocations land on frame boundaries and never mid-frame, so a panel'
 Grants and revocations also arrive as callbacks, so a panel does not have to poll for them:
 
 ```lua
-function lovr.lunlayergranted(event)  -- event.claim, event.layer.
-function lovr.lunlayerrevoked(event)  -- event.claim.
+function lunette.onLayerGranted(event)  -- event.claim, event.layer.
+function lunette.onLayerRevoked(event)  -- event.claim.
 ```
 
 Both fire at the boundary the change lands on, before `lovr.update`, so a handler reading `event.claim.granted` agrees with the event it was handed. `lunlayerrevoked` carries no layer because there is none by then. An error raised in either handler is reported and changes nothing: both had already happened before the handler ran.
@@ -355,11 +353,11 @@ Wayland clients survive both, because Rust holds the socket outside the Lua stat
 
 ## Errors
 
-Every user callback runs under `xpcall` with a traceback. An error is logged, emits `lovr.lunerror`, and displays a floating error panel; execution then continues. Identical repeated errors are rate-limited, so an error recurring every frame does not fill the display.
+Every user callback runs under `xpcall` with a traceback. An error is logged, emits `lunette.onError`, and displays a floating error panel; execution then continues. Identical repeated errors are rate-limited, so an error recurring every frame does not fill the display.
 
 The handler itself is `mullion` code and can be replaced wholesale, since `lovr.errhand` is overridable. It is `mullion.error`, and the two boundaries it serves are not the same one. A callback that raises is caught at the callback boundary, reported, and the frame continues. An error that escaped every callback boundary reaches `lovr.errhand`, by which point LÖVR has already unwound the frame loop and wants a replacement one back; there is no frame left to continue, so the handler reports and hands the loop decision on.
 
-The native side of the callback boundary is `crates/lunette/src/callback_error.rs`. It splits the message from the traceback, finds `mullion.error` in `package.loaded`, and calls `errors.handle`; everything after that — the limiter, the wording, the panel, `lovr.lunerror` — is Lua's. It deliberately does not rate-limit, because two limiters keyed differently produce gaps that neither explains. A session that never loaded `mullion` is supported and gets the log and a direct `lovr.lunerror` instead, with no rate limiting at all: the limiter is in the standard library, and a session without one has none.
+The native side of the callback boundary is `crates/lunette/src/callback_error.rs`. It splits the message from the traceback, finds `mullion.error` in `package.loaded`, and calls `errors.handle`; everything after that — the limiter, the wording, the panel, `lunette.onError` — is Lua's. It deliberately does not rate-limit, because two limiters keyed differently produce gaps that neither explains. A session that never loaded `mullion` is supported and gets the log and a direct `lunette.onError` instead, with no rate limiting at all: the limiter is in the standard library, and a session without one has none.
 
 The panel is `mullion.error.panel`, which wraps `mullion.error`'s `report` seam and draws the most recent report on a quad in front of the user. It is a separate module because drawing needs a `Pass` and reporting does not, and because a configuration that wants a different error surface should be able to leave it out rather than displace it. The shipped `etc/xdg/lunette/main.lua` installs it in `lovr.load` and draws it last in `lovr.draw`.
 
@@ -367,7 +365,7 @@ The native layer owns exactly one failure path: if `main.lua` fails to load, saf
 
 The trigger is a wrapper around `lovr.boot`, installed after `boot.lua`'s chunk has run and before its coroutine is first resumed. `lovr.boot` is the function whose failure means the configuration did not start: a source that will not mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, and an error at the top level of `main.lua` all raise inside it. So does a `lovr.load` that raises, because `lovr.boot` ends with `return lovr.run()` and `lovr.run` calls `lovr.load` before it returns the frame loop. That is intended: `lovr.load` is where a configuration builds the state its later callbacks assume, and a session whose `lovr.load` raised halfway is not one those callbacks can run in. Everything after `lovr.load` happens once the frame loop has been returned, and goes to the callback boundary above instead. `lovr.errhand` would be the wrong hook, because it is reached by every error that escaped a callback boundary and because it belongs to the configuration. Safe mode replaces the callbacks a half-run `main.lua` installed, so a configuration that raised partway through does not keep running alongside it, and the load error is shown on the panel rather than only logged.
 
-Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never `mullion`, since a broken standard library is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](decisions.md#recorded-decisions) records why the duplication is deliberate.
+Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never `mullion`, since a broken standard library is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](#decisions) below records why the duplication is deliberate.
 
 ## lunctl
 
@@ -379,10 +377,10 @@ The directory is what makes the 0600 requirement enforceable, and reproducing th
 $ lunctl 'return #lunette.windows()'
 3
 $ lunctl 'for _, w in ipairs(lunette.windows()) do print(w.appId, w.title) end'
-$ lunctl "local arc = require 'mullion.layout.arc' arc(require('mullion.tag').current())"
+$ lunctl "local arc = require '@mullion/layout/arc' arc(require('@mullion/tag').current())"
 ```
 
-A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
+A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and a module name is tried as written and then under the `@` root the session registers it at, so `lunette` finds `@lunette`. Only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
 
 `mullion`'s submodules are not reachable through the root, here or anywhere. The root deliberately re-exports nothing, so `mullion.layout.arc` is `nil` and the submodule is required by its own path.
 
@@ -408,10 +406,96 @@ No network transport is provided. The type is a Unix listener and nothing accept
 
 ## Bindings
 
-The API is bound with `mlua`, via `Lua::get_or_init_from_ptr`, attaching to the `lua_State` that LÖVR created. That entry point constructs mlua's view of the state with its `owned` flag clear, so mlua never closes a state it did not create; the boot sequence keeps that responsibility. Hand-written `lua_State` C API calls are reserved for measured hot paths, realistically only per-frame snapshot publication, if profiling shows it is necessary.
+The API is bound with `mlua`, which creates the session's Luau state and owns it for the session's lifetime. LÖVR steps that same state through the raw C entry points, and `mlua` reads and writes it through the Luau feature. The boot sequence keeps ownership with mlua and never closes a state it created a second time.
 
 This choice is motivated by failure mode, not throughput. A Lua mistake should raise a catchable error rather than crash the window manager, because the premise of this project is that users write Lua that reshapes the system. mlua's per-call cost is negligible relative to the cost of a compositor and a GPU frame.
 
-LuaJIT's FFI remains available to a script that wants to call a C ABI directly, at its own risk. The standard library is not built on it.
+Luau has no FFI. A script that wants a C ABI directly has the standard library and the `lunette` API, and nothing else; calling native code from a configuration is not part of the contract. The `lunette check` command is available to catch a configuration that reaches for it.
 
 The API is available only in the main Lua state. `lovr.thread` and `lovr.task` states do not receive it.
+
+## Decisions
+
+Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+mlua, on Luau, not the raw C API or LuaJIT FFI. A Lua mistake must raise a catchable error, not crash the window manager. lunette runs Luau (via mlua and the LÖVR-linked fork) so that the standard library and configurations are statically checked, and because a typed dialect catches the two defect classes the interpreter alone does not (a local referenced before its declaration, and an accidental global). LuaJIT was a supported build mode until the standard library carried annotations LuaJIT cannot parse, at which point the mode was removed rather than kept as something that builds and cannot run.
+
+Control socket over Lua eval, not a typed protocol. awesome's design has held for seventeen years. lunette changes the transport (a 0600 Unix socket, not the session D-Bus), makes it deliberate rather than incidental, and serialises properly.
+
+`LUNETTE_CONTROL` fails closed: anything that is not `on` disables the socket. The first version failed open on an unrecognised value, on the reasoning that the failure worth protecting against is one that silently enables the endpoint — which is right, and was implemented backwards. Unset and empty already mean enabled, so nobody sets the variable to turn the endpoint on; the only reason to set it is to turn it off, and every unrecognised value is therefore a misspelt `off` — `false`, `0`, `no`, `disabled`. Answering one by opening a socket that evaluates arbitrary Lua, having warned on stderr that a user who set the variable in a systemd unit or a `.desktop` file will never read, is the failure the switch exists to prevent. The cost is a session whose `lunctl` stopped working because of a typo, which is visible the moment it is used and is fixed by writing `on`.
+
+Per-window state lives in a native store as well as in `win.userdata`, and the redundancy is the point. `userdata` is a Lua table on a Lua handle, and a soft reload discards the Lua state, so nothing in it survives one. That is the right lifetime for most of what a configuration attaches: state a rule derived comes back when the rules re-run, and keeping a stale copy of it across a reload would defeat the reload. What it is the wrong lifetime for is state no rule can derive — a pose the user placed by hand, a size they dragged, a tag they assigned by hand — which a reload that lost it would scramble, on the one operation the design promises is instant and invisible. So `win:setProperty` and `win:getProperty` keep those in Rust, where the reload cannot reach. The lineage is awesome's, which keeps per-client state in X properties on the window because those outlive the window manager's own process and lets a restart skip or alter rule application when it finds some; lunette has no X server, so the store is native. The store holds a number, a string, or a boolean and refuses a table by name, because a table would hold Lua values and put the same problem one level down; a caller wanting structure encodes it into a string and knows that it did. The alternative considered was making `userdata` itself survive by serialising it at teardown, and it was not taken for that reason — it can hold a function, a coroutine, or a handle, none of which serialises, so it would either fail on ordinary contents or silently drop them. Entries are keyed by `WindowId` and last as long as the window, which works because a soft reload does not restart the compositor thread and so does not change an identifier. A hard restart does, and anything that has to cross one is `mullion`'s to write to disk under a key the compositor did not mint.
+
+Safe mode is a Lua chunk compiled into the binary, not a file installed beside the default configuration. It exists for the moment `main.lua` fails to load, and a broken standard library, a missing install, or a `LUNETTE_STDLIB_PATH` pointing at nothing is one of the reasons it might have — so a fallback that read anything off disk would be unavailable in a fair share of the cases it exists for. It therefore requires `lunette` and nothing else, never `mullion`, and does its own ray-plane solve for one fixed axis-aligned panel rather than reaching for `mullion.panel`. That duplicates a little of the shipped configuration, which is the price of always working, and both sites say so, so neither is later simplified by pointing at the other. `crates/lunette/src/safe_mode.lua` is the chunk and `safe_mode.rs` embeds it with `include_str!`, so it stays a Lua file that an editor highlights and a diff can be read against `etc/xdg/lunette/main.lua`. The alternative considered was installing it as a third file under `$SYSCONFDIR`, which reads better and fails in exactly the case the feature is for.
+
+### The lunctl time budget is best-effort
+
+Decided 2026-08-06, built in Phase 7 Task 6. Mechanism changed 2026-08-10 when lunette moved from LuaJIT to Luau: a LuaJIT count hook became a native `lua_callbacks(L)->interrupt` that raises via `lua_error` once the wall clock passes the budget.
+
+A `lunctl` chunk runs under a native interrupt callback that raises once the wall clock passes its budget. The interrupt fires at safepoints (loop back edges, calls, returns, GC), which is the bound Luau offers; it is the first safepoint at or after the deadline, not one every N instructions as the LuaJIT hook was. The chunk is abandoned at that safepoint. Three things escape it, and none is fixable from inside Lua.
+
+Compiled code still reaches an interrupt: the VM checks the callback at safepoints, so even a compiled function is interrupted at call or loop-back-edge boundaries. LÖVR builds Luau without native codegen, so the interpreter is the engine and safepoints fire at every back edge; the escape that LuaJIT's `jit.off` existed to close (a compiled trace never returning to the interpreter) does not arise.
+
+A function the chunk merely calls is bounded by the next call or loop-back-edge interrupt safepoint, not by a hook count. This was the LuaJIT escape (a hot callee entered its trace and the hook did not fire); under Luau it is closed by the same safepoint the chunk itself runs under, unless the callee is a native call.
+
+The bound stays advisory. An `error()` raised from the interrupt is catchable, so a `pcall` inside the user's own chunk swallows it; and a loop inside a C function, a blocking allocator, or a native call is uninterruptible by any VM callback — the loop does not reach a safepoint. This is the same best-effort posture the LuaJIT hook had, re-expressed for the interrupt mechanism.
+
+A hard bound would need a watchdog outside Lua. Since the chunk holds the Lua thread, the only thing such a watchdog could do is abort the process — turning a bad `lunctl` command into a crash that takes every connected client with it. That is worse than the hang it prevents, so it is not built. `lunette-v1.AC8.2`'s first clause is stated as best-effort in the design plan for the same reason, and the tests assert the escape as the behaviour it is rather than as an aspiration.
+
+### lunctl refuses what it cannot represent
+
+Decided 2026-08-07, building Phase 7 Task 7.
+
+A serialiser meets values with no wire form: functions, coroutines, userdata that is not a lunette handle, and table or function keys. It errors on each, naming the path to the offending value, rather than falling back to `tostring`. Dropping content silently is a correctness bug per `CONTRIBUTING.md`, and the `tostring` fallback is exactly what [lunctl](#lunctl) criticises awesome's remote control for.
+
+Three further cases needed an answer, and each is a source of silent corruption if left implicit.
+
+**A cycle is an error, not a back-reference.** A back-reference would be more faithful, and it would make the value tree a graph that every consumer — including `lunctl`'s own renderer — has to be total over. A `lunctl` chunk that wants to inspect a cyclic structure can break the cycle itself; a renderer that has to guard against one cannot.
+
+**Shared subtables are duplicated, and identity is not preserved.** That follows from the choice above: without back-references there is nothing to share with. The node cap is what keeps a wide directed acyclic graph from expanding without bound, and it produces a clean error rather than an allocation failure.
+
+**Metamethods are not honoured.** Traversal is raw, so what is serialised is what the table actually holds. `__index` can fabricate fields that do not exist and `__pairs` can hide ones that do, and a wire format whose contents depend on which of those a caller happened to install is not an inspection tool.
+
+**An answer too large to send is an answer, not a closed connection.** The frame cap is checked before anything is written, so a reply that does not fit leaves the session with nothing on the socket and something to say. Closing instead reaches the client as an end of file, which it can only report as a session it could not reach — a lie about a session that is running and a chunk that succeeded. So `Reply::Oversized` carries the size back, and `Reply::Malformed` does the same for a request the session could not read. Both are new tags, which is why the protocol version is 2. The node cap does not make this unreachable: it bounds how many values a reply holds and not how many bytes, so an ordinary chunk returning one long string reaches it without being pathological.
+
+A handle serialises as its kind and the identity the session keys it on, never as `tostring(handle)`. Addresses are reused after collection, so an id derived from one could come to refer to a different object — a defect that appears only under memory pressure. The identity is `win.id` and its siblings, which Phase 6 recorded as the stable thing; the userdata itself is minted fresh on every read and is not identity-stable at all.
+
+### The declarations are generated from the registration
+
+`lua/lunette/init.luau` is what the type checker reads `require '@lunette'` as, because Luau resolves a require to a file on disk and a definitions file can only declare globals. It is generated rather than written: each property and method is declared once, beside the closure that answers it, and the same declaration registers it with mlua and states its type, its parameter names, and its prose.
+
+The Luau type comes from the Rust one. `LuauType` maps a Rust type to its spelling — `f64` to `number`, `Option<T>` to `T?`, a handle to its own name — so a signature is derived rather than restated, and the spelling of a type exists in one impl rather than in every signature that uses it. Where Rust says less than Luau does, a wrapper type carries the difference: a texture that may be `false`, a string that is one of four words, an option table that validates its own keys as it is read. An option table's accepted names are the declaration's field names, so a table the runtime refuses cannot be one the type offers.
+
+The alternative was a hand-written stub kept in step by hand, which is what this replaced. It drifted: one reading of it against the Rust found `sink:scrollDiscrete`, `window.contentType`, `lunette.setSceneEnabled`, `lunette.sceneEnabled`, and `lunette.restart` declared nowhere, each of which made a documented call fail the check. A second list is a second thing to forget, and nothing was checking.
+
+### An event is subscribed to, not assigned
+
+`lunette.onWindowOpened(handler)` answers the function that cancels the subscription, and several listeners may wait on one event. The events were `lovr.lunwindowopened` and its siblings before this: a function a configuration assigned, which is how LÖVR's own callbacks work.
+
+The convention was reversed because assignment gives each event exactly one handler for the whole session, and lunette has two parties who want to hear: the configuration, and whatever library it loaded. Both workarounds that produced were in `mullion` before the change. `mullion.panel` polled `claim.granted` every frame rather than handle the grant, because taking the callback would have taken it from the configuration. `mullion.error` did take `lovr.lunerror`, and then called by hand whatever handler it had displaced. LÖVR shows the same cost in its own house: `lovr.errhand` is a slot, so `mullion.error` saves the previous handler and calls it, which is the dance a slot forces on anyone polite enough to do it.
+
+The typing followed from the same place. A Luau definitions file declares globals and cannot name a module's exported types, so a callback on `lovr` could not say it takes a payload carrying a `Window`, and every payload was declared `any`. A module function can, so a handler's parameter is typed with no annotation.
+
+What it costs is a second convention in a file that already has LÖVR's: `function lovr.draw(pass)` sits a few lines from `lunette.onWindowOpened(function(event)`, and this document asks elsewhere for one convention rather than two. The two are different things — a frame hook has one owner and a notification has any number — and giving them the same shape is what produced the workarounds above. That is the trade, made knowingly.
+
+`lunette.onWindowOpened = handler` was the alternative: assignment on the module table, which keeps LÖVR's feel and would have been typed, since the module can name its own types. It keeps the single slot, which is the defect, so it answers the smaller half of the problem and not the larger.
+
+Only the way a listener is reached changed. The events still travel LÖVR's queue and are still drained through `lovr.handlers`, so they interleave with `lovr.keypressed` as they did, and the layering above stands: the native layer pushes flat events, and per-object and per-window signals are `mullion`'s.
+
+### Errors and safe mode
+
+The native side of the callback boundary rate-limits nothing. `crates/lunette/src/callback_error.rs` splits the message from the traceback and hands both to `mullion.error`, which owns the limiter, the wording, and the panel. Two limiters keyed differently would produce gaps that neither of them explains: an occurrence suppressed natively never reaches the Lua one, whose window then starts from the wrong occurrence. The cost is that a session with no standard library loaded has no limiter at all, and logs an error raised every frame every frame. That is stated in [Errors](#errors) rather than papered over.
+
+The error panel is a module of its own, `mullion.error.panel`, rather than part of `mullion.error`. Drawing needs a `Pass` and reporting does not, and `mullion.error` is loaded by sessions that switch the graphics module off — the spec run is one. It wraps the handler's documented `report` seam rather than being wired in from the handler, so a configuration that wants a different error surface leaves it out instead of displacing it.
+
+Safe mode is triggered by wrapping `lovr.boot`, not by installing a `lovr.errhand`. `lovr.boot` is the function whose failure means the configuration did not load. `lovr.errhand` is reached by every error that escaped a callback boundary and belongs to the configuration — `mullion.error` installs one — so taking it would both over-trigger and displace policy.
+
+The boundary the wrapper draws is one callback wider than "the configuration did not load", and that is deliberate rather than unnoticed. `lovr.boot` ends with `return lovr.run()`, and `lovr.run` calls `lovr.load` before it returns the frame loop, so a `lovr.load` that raises is caught by the wrapper and replaced with safe mode rather than being reported through `mullion.error` like every other callback. Treating it as a load failure is the right answer: `lovr.load` is where a configuration builds the state its later callbacks assume, and a session whose `lovr.load` raised halfway is not one those callbacks can run in. Everything after `lovr.load` — `lovr.update`, `lovr.draw`, and the `lun*` callbacks — happens after the frame loop has been returned, and goes to [the callback boundary](#errors) instead.
+
+## Known gaps
+
+Named, not solved.
+
+The `lovr.lun*` prefix squats in LÖVR's callback namespace permanently. It is distinctive enough that a collision is unlikely, but this remains an assumption rather than a guarantee.
+
+`lunctl` has root-equivalent access to the session. Anything that can write to the socket controls the machine. This follows from the single-user assumption, stated explicitly, and the socket is never network-reachable.

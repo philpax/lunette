@@ -1,11 +1,18 @@
 -- Covers lua/mullion/teardown.lua.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local teardown = require 'mullion.teardown'
+local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.teardown'
+
+-- The module's own `report`, captured before any case replaces it.
+--
+-- Every case below substitutes the hook, which is why nothing here covered the
+-- default until the default was found to raise: it called `io.stderr`, and Luau
+-- has no `io` at all.
+local defaultReport = teardown.report
 
 -- Empties the registry and captures reports, returning the list they land in.
 --
@@ -59,7 +66,7 @@ spec('a hook that raises does not prevent the others running', function()
     ran[#ran + 1] = 'before'
   end)
   teardown.register('raises', function()
-    error('the hook said no')
+    error 'the hook said no'
   end)
   teardown.register('after', function()
     ran[#ran + 1] = 'after'
@@ -73,15 +80,15 @@ spec('a hook that raises is reported and returned', function()
   local reports = fresh()
 
   teardown.register('raises', function()
-    error('the hook said no')
+    error 'the hook said no'
   end)
   local failures = teardown.run()
 
   expect.equal(#failures, 1, 'failure count')
   expect.equal(failures[1].name, 'raises', 'the failing hook')
-  expect.truthy(failures[1].message:find('the hook said no'), 'the message')
+  expect.truthy(failures[1].message:find 'the hook said no', 'the message')
   expect.equal(#reports, 1, 'report count')
-  expect.truthy(reports[1]:find("'raises'"), 'the report names the hook')
+  expect.truthy(reports[1]:find "'raises'", 'the report names the hook')
 end)
 
 spec('a run in which nothing raised reports nothing', function()
@@ -175,7 +182,7 @@ spec('a hook that raised is not left registered', function()
   fresh()
 
   teardown.register('raises', function()
-    error('the hook said no')
+    error 'the hook said no'
   end)
   teardown.run()
 
@@ -209,6 +216,32 @@ local function pendingCount(name)
   return found
 end
 
+spec('the default report logs rather than raising', function()
+  fresh()
+  teardown.report = defaultReport
+
+  local logged = {}
+  local previousLog = lovr.log
+  lovr.log = function(message, level, tag)
+    logged[#logged + 1] = { message = message, level = level, tag = tag }
+  end
+
+  teardown.register('raises', function()
+    error 'deliberate'
+  end)
+  -- `run` reports outside the `xpcall` that guards the hook, so a `report` that
+  -- raises takes the reload down with it rather than being contained.
+  local ran, raised = pcall(teardown.run)
+
+  lovr.log = previousLog
+  teardown.report = function() end
+
+  expect.truthy(ran, 'run with the default report: ' .. tostring(raised))
+  expect.equal(#logged, 1, 'the log lines')
+  expect.equal(logged[1].level, 'error', 'the level')
+  expect.equal(logged[1].tag, 'mullion.teardown', 'the tag')
+end)
+
 spec('a module body running twice leaves one hook, not two', function()
   fresh()
 
@@ -218,16 +251,16 @@ spec('a module body running twice leaves one hook, not two', function()
   -- may still hold what the first run put there. Registering by name is what
   -- makes that leave one hook. This spec runs last, so the fresh module table
   -- it leaves behind reaches nothing.
-  local cached = package.loaded['mullion.signal']
-  package.loaded['mullion.signal'] = nil
-  require 'mullion.signal'
+  local cached = package.loaded['@mullion/signal']
+  package.loaded['@mullion/signal'] = nil
+  require '@mullion/signal'
   expect.equal(pendingCount 'mullion.signal', 1, 'hooks after the first body run')
 
-  package.loaded['mullion.signal'] = nil
-  require 'mullion.signal'
+  package.loaded['@mullion/signal'] = nil
+  require '@mullion/signal'
   expect.equal(pendingCount 'mullion.signal', 1, 'hooks after the second body run')
 
-  package.loaded['mullion.signal'] = cached
+  package.loaded['@mullion/signal'] = cached
 end)
 
 return spec

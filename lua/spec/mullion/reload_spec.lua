@@ -16,10 +16,10 @@
 -- the copies it makes are its own, and `package.loaded` is put back the way it
 -- was found before the case returns.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local tree = require 'spec.mullion.tree'
+local tree = require '@spec/mullion/tree'
 
 local spec = suite.new 'mullion.reload'
 
@@ -82,21 +82,21 @@ spec('requiring every module twice leaves one teardown hook each', function()
     -- about this case rather than about whatever the rest of the suite has
     -- registered.
     requireAll(names)
-    local teardown = require 'mullion.teardown'
+    local teardown = require '@mullion/teardown'
     local first = teardown.pending()
 
     -- The second pass keeps that registry and re-runs every other module body,
     -- which is what a soft reload does.
-    requireAll(names, 'mullion.teardown')
+    -- Named as the tree names it. A name in any other form matches nothing,
+    -- which would clear the registry the first pass filled and leave the two
+    -- passes reading different ones — and the local above still holds the
+    -- first, so every assertion below would compare it against itself.
+    requireAll(names, tree.MODULE_ROOT .. '/teardown')
     local second = teardown.pending()
 
     expect.equal(duplicates(first), '', 'duplicate hooks after the first pass')
     expect.equal(duplicates(second), '', 'duplicate hooks after the second pass')
-    expect.equal(
-      table.concat(second, ','),
-      table.concat(first, ','),
-      'the hooks registered'
-    )
+    expect.equal(table.concat(second, ','), table.concat(first, ','), 'the hooks registered')
     expect.truthy(#first > 0, 'some module should register a teardown hook')
   end)
 
@@ -120,9 +120,9 @@ spec('no module writes a global', function()
   local held = snapshot(names)
   -- A registry of its own, so that the bodies run below register their hooks
   -- somewhere the rest of the suite is not looking at.
-  local heldTeardown = package.loaded['mullion.teardown']
-  package.loaded['mullion.teardown'] = nil
-  require 'mullion.teardown'
+  local heldTeardown = package.loaded['@mullion/teardown']
+  package.loaded['@mullion/teardown'] = nil
+  require '@mullion/teardown'
 
   local written = {}
   local environment = setmetatable({}, {
@@ -147,7 +147,7 @@ spec('no module writes a global', function()
     end
   end)
 
-  package.loaded['mullion.teardown'] = heldTeardown
+  package.loaded['@mullion/teardown'] = heldTeardown
   restore(held)
   if not ok then
     error(raised, 0)

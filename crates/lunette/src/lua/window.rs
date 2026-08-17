@@ -18,12 +18,18 @@ use lunette_compositor::protocol::{
     Command, ContentType, FramePacing, FrameRate, PixelSize, SinkId, SurfaceId, ToplevelStates,
     WindowId, WindowSnapshot,
 };
-use mlua::{UserData, UserDataFields, UserDataMethods, Value};
+use mlua::{LuaString, Value};
 
 use crate::{
-    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
+    control::wire::HandleKind,
     import::formats::Alpha,
-    lua::{LuaTexture, Session, pixel_size, sink::Sink},
+    lua::{
+        LuaTexture, Session,
+        declarations::{Textured, handle},
+        pixel_size,
+        sink::Sink,
+        values::{ContentTypeName, MaybeTexture, PropertyArgument, PropertyMap, StoredProperty},
+    },
     properties::{PropertyError, PropertyKey, PropertyValue},
     texture::{TextureRef, TextureUnavailable},
 };
@@ -126,104 +132,80 @@ impl From<&WindowSnapshot> for Known {
     }
 }
 
-impl<T: LuaTexture> UserData for Window<T> {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        // How `lunctl` recognises a handle. A metafield rather than a field,
-        // so it is invisible to `pairs` and to ordinary indexing; the
-        // serialiser reads it off the metatable and refuses any other
-        // userdata, which is how a LÖVR `Texture` comes to be reported rather
-        // than stringified.
-        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Window.as_str());
+handle! {
+    /// A mapped toplevel. A handle keeps answering once its window has gone, with what it last knew, and every mutation it offers is refused.
+    Window<T: LuaTexture> = HandleKind::Window;
 
-        // Stable for the window's whole life, so it is the identifier a Lua
-        // table of per-window state is keyed by, and what `lunctl` serialises
-        // a handle as. A soft reload does not restart the compositor thread and
-        // so does not change it, which is what lets a configuration re-associate
-        // with its windows — and their properties — after one.
-        fields.add_field_method_get("id", |_, window| Ok(window.id.get()));
+    /// Stable for the window's whole life, and across a soft reload, so it is what a table of per-window state is keyed by.
+    field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-        fields.add_field_method_get("dead", |_, window| Ok(!window.refresh()));
+    field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-        fields.add_field_method_get("title", |_, window| {
-            window.refresh();
-            Ok(window.known.borrow().title.clone())
-        });
-
-        fields.add_field_method_get("appId", |_, window| {
-            window.refresh();
-            Ok(window.known.borrow().app_id.clone())
-        });
-
-        // Pixels, and the size the client last committed rather than the size
-        // last asked of it. A panel converts a ray hit into a pixel coordinate
-        // with these, so they are part of the public surface and are recorded
-        // in `docs/lua-api.md`.
-        fields.add_field_method_get("width", |_, window| {
-            window.refresh();
-            Ok(window.known.borrow().size.width)
-        });
-
-        fields.add_field_method_get("height", |_, window| {
-            window.refresh();
-            Ok(window.known.borrow().size.height)
-        });
-
-        // Whether the fourth component of this window's pixels is padding
-        // rather than alpha, which a client negotiating an X-variant fourcc —
-        // `XR24` is the commonest opaque format there is — leaves at whatever
-        // it happened to write, usually zero. A caller drawing such a texture
-        // forces alpha to one instead of sampling it; `docs/rendering.md`
-        // records how, and `etc/xdg/lunette/main.lua` does it.
-        //
-        // False for a window with no texture yet, which is the answer that
-        // makes an unanswerable question harmless: there is nothing to draw.
-        fields.add_field_method_get("opaque", |_, window| Ok(is_opaque(window)));
-
-        // What the client says it is drawing, as one of 'none', 'photo',
-        // 'video', or 'game'. A hint and nothing more: `wp_content_type_v1` has
-        // no events and thin adoption, so a client playing video may well
-        // report 'none'. `mullion.pacing` combines it with a commit-rate
-        // heuristic rather than trusting it, which is why the heuristic is
-        // there and not here.
-        fields.add_field_method_get("contentType", |_, window| {
-            window.refresh();
-            let content_type = window.known.borrow().content_type;
-            Ok(content_type.as_str())
-        });
-
-        // Where input for this window goes. A fresh handle each read: it holds
-        // an identifier and an `Rc`, so there is nothing to gain by caching one
-        // and a stale cache to lose.
-        //
-        // Nil only for a handle that has never seen its window in a snapshot,
-        // which a `lunwindowclosed` handler can produce by holding on to the
-        // payload for a frame too long. A dead window still names its sink.
-        fields.add_field_method_get("sink", |_, window| {
-            window.refresh();
-            let sink = window.known.borrow().sink;
-            Ok(sink.map(|sink| Sink::window(Rc::clone(&window.session), sink)))
-        });
+    field title(_lua, this) -> Option<String> {
+        this.refresh();
+        Ok(this.known.borrow().title.clone())
     }
 
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("getTexture", |lua, window, ()| get_texture(lua, window));
-        methods.add_method("stabilize", |lua, window, ()| stabilize(lua, window));
-        methods.add_method("close", |_, window, ()| Ok(close(window)));
-        methods.add_method("resize", |_, window, (width, height): (f64, f64)| {
-            resize(window, width, height)
-        });
-        methods.add_method("setFrameRate", |_, window, hertz: Option<f64>| {
-            set_frame_rate(window, hertz)
-        });
-        methods.add_method(
-            "setProperty",
-            |_, window, (key, value): (mlua::LuaString, Value)| set_property(window, &key, &value),
-        );
-        methods.add_method("getProperty", |lua, window, key: mlua::LuaString| {
-            get_property(lua, window, &key)
-        });
-        methods.add_method("properties", |lua, window, ()| properties(lua, window));
+    field appId(_lua, this) -> Option<String> {
+        this.refresh();
+        Ok(this.known.borrow().app_id.clone())
     }
+
+    /// Pixels, and the size the client last committed rather than the size last asked of it.
+    field width(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.known.borrow().size.width)
+    }
+
+    field height(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.known.borrow().size.height)
+    }
+
+    /// Whether the fourth component of this window's pixels is padding rather than alpha, which a client negotiating an X-variant fourcc leaves at whatever it happened to write. A caller drawing such a texture forces alpha to one instead of sampling it. False for a window with no texture yet, because there is nothing to draw.
+    field opaque(_lua, this) -> bool { Ok(is_opaque(this)) }
+
+    /// What the client says it draws, as `wp_content_type_v1` reports it. A hint and nothing more: adoption is thin, so a client playing video may well report 'none'.
+    field contentType(_lua, this) -> ContentTypeName {
+        this.refresh();
+        let content_type = this.known.borrow().content_type;
+        Ok(ContentTypeName(content_type))
+    }
+
+    /// Where input for this window goes. Nil only for a handle that has never seen its window in a snapshot; a dead window still names its sink.
+    field sink(_lua, this) -> Option<Sink<T>> {
+        this.refresh();
+        let sink = this.known.borrow().sink;
+        Ok(sink.map(|sink| Sink::window(Rc::clone(&this.session), sink)))
+    }
+
+    /// This frame's pixels. False while the client is gone or has committed nothing. Never cached across frames: textures rotate as the client cycles its buffers.
+    method getTexture(lua, this: Textured) -> MaybeTexture { get_texture(lua, this) }
+
+    /// A texture whose identity outlives the frame, at the cost of a copy of the surface on every frame it is damaged.
+    method stabilize(lua, this) -> MaybeTexture { stabilize(lua, this) }
+
+    /// Asks the client to close the window. A request, not a kill: the client decides what to do with it.
+    method close(_lua, this) -> bool { Ok(close(this)) }
+
+    /// Configures the toplevel to a size in pixels. The client resizes at its own pace and may settle somewhere else.
+    method resize(_lua, this, width: f64, height: f64) -> bool { resize(this, width, height) }
+
+    /// A ceiling on how often this window's client is let draw, in hertz. Nil returns it to unthrottled.
+    method setFrameRate(_lua, this, hertz: Option<f64>) -> bool { set_frame_rate(this, hertz) }
+
+    /// Keeps a value for this window across a soft reload. Nil removes the key.
+    method setProperty(_lua, this, key: LuaString, value: PropertyArgument) -> bool {
+        set_property(this, &key, &value.0)
+    }
+
+    /// What was kept under a key, or nil. Readable on a dead handle, unlike the mutations.
+    method getProperty(lua, this, key: LuaString) -> StoredProperty {
+        get_property(lua, this, &key)
+    }
+
+    /// Every key this window is carrying, so that what survived a reload can be discovered rather than guessed at.
+    method properties(lua, this) -> PropertyMap { properties(lua, this) }
 }
 
 /// `window:getTexture()`: the texture holding this frame's pixels.
@@ -234,9 +216,9 @@ impl<T: LuaTexture> UserData for Window<T> {
 ///
 /// `false` rather than an error in two cases, both of which are ordinary: the
 /// client is gone, and the client has not committed anything yet.
-fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<Value> {
+fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<MaybeTexture> {
     let Some(reference) = texture_ref(window) else {
-        return Ok(Value::Boolean(false));
+        return Ok(MaybeTexture(Value::Boolean(false)));
     };
 
     let generation = window.session.generation();
@@ -267,9 +249,9 @@ fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Resu
 ///
 /// `false` in the same two ordinary cases as `window:getTexture()`: the client
 /// is gone, and the client has not committed anything yet.
-fn stabilize<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<Value> {
+fn stabilize<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<MaybeTexture> {
     let Some(reference) = texture_ref(window) else {
-        return Ok(Value::Boolean(false));
+        return Ok(MaybeTexture(Value::Boolean(false)));
     };
 
     let generation = window.session.generation();
@@ -392,7 +374,7 @@ fn set_frame_rate<T>(window: &Window<T>, hertz: Option<f64>) -> mlua::Result<boo
 ///
 /// If the key is empty or is not UTF-8, or the value is of a kind a property
 /// cannot hold.
-fn set_property<T>(window: &Window<T>, key: &mlua::LuaString, value: &Value) -> mlua::Result<bool> {
+fn set_property<T>(window: &Window<T>, key: &LuaString, value: &Value) -> mlua::Result<bool> {
     // Validated before the liveness check, for the reason `resize` validates
     // first: a defect in the caller is worth reporting whether or not the
     // window happened to still be there.
@@ -439,14 +421,17 @@ fn set_property<T>(window: &Window<T>, key: &mlua::LuaString, value: &Value) -> 
 fn get_property<T>(
     lua: &mlua::Lua,
     window: &Window<T>,
-    key: &mlua::LuaString,
-) -> mlua::Result<Value> {
+    key: &LuaString,
+) -> mlua::Result<StoredProperty> {
     let key = property_key(key)?;
-    window.session.with_properties(|properties| {
-        properties
-            .get(window.id, key.as_str())
-            .map_or(Ok(Value::Nil), |value| push_property(lua, value))
-    })
+    window
+        .session
+        .with_properties(|properties| {
+            properties
+                .get(window.id, key.as_str())
+                .map_or(Ok(Value::Nil), |value| push_property(lua, value))
+        })
+        .map(StoredProperty)
 }
 
 /// `window:properties()`: every key this window is carrying, as a table.
@@ -459,18 +444,18 @@ fn get_property<T>(
 ///
 /// A fresh table each call, holding a copy. Nothing here hands Lua a reference
 /// into the store.
-fn properties<T>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<mlua::Table> {
+fn properties<T>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<PropertyMap> {
     let table = lua.create_table()?;
     window.session.with_properties(|properties| {
         for (key, value) in properties.of(window.id) {
             table.set(key.as_str(), push_property(lua, value)?)?;
         }
-        Ok(table)
+        Ok(PropertyMap(table))
     })
 }
 
 /// Reads the name a property call was made against.
-fn property_key(key: &mlua::LuaString) -> mlua::Result<PropertyKey> {
+fn property_key(key: &LuaString) -> mlua::Result<PropertyKey> {
     // Not `to_string_lossy`: a key is what a later lookup is spelled with, and
     // replacing an unrepresentable byte would silently merge two distinct keys
     // into one.
@@ -478,7 +463,7 @@ fn property_key(key: &mlua::LuaString) -> mlua::Result<PropertyKey> {
 }
 
 /// Reads a string property, refusing bytes that are not text.
-fn text(value: &mlua::LuaString, key: &PropertyKey) -> mlua::Result<String> {
+fn text(value: &LuaString, key: &PropertyKey) -> mlua::Result<String> {
     value.to_str().map(|text| text.to_owned()).map_err(|_| {
         raised(PropertyError::Unsupported {
             key: key.clone(),
@@ -544,13 +529,15 @@ fn texture_ref<T>(window: &Window<T>) -> Option<TextureRef> {
 fn answer<T: LuaTexture>(
     lua: &mlua::Lua,
     answered: Result<&T, TextureUnavailable>,
-) -> mlua::Result<Value> {
+) -> mlua::Result<MaybeTexture> {
     match answered {
         // The push runs while the ledger is borrowed. That is safe here and
         // only here: it pushes a value, and no Lua the caller wrote runs until
         // this returns.
-        Ok(texture) => texture.push(lua),
-        Err(TextureUnavailable::Dead | TextureUnavailable::Unknown) => Ok(Value::Boolean(false)),
+        Ok(texture) => texture.push(lua).map(MaybeTexture),
+        Err(TextureUnavailable::Dead | TextureUnavailable::Unknown) => {
+            Ok(MaybeTexture(Value::Boolean(false)))
+        }
         // Staleness is unreachable through either caller, because the reference
         // is built from the generation it is about to be checked against.
         // Stated rather than assumed, so that a future caller holding one across

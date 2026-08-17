@@ -6,7 +6,7 @@
 -- behind it, and a spec asserting what the pool did would be asserting Phase
 -- 3's work rather than this module's. The fake is installed into
 -- `package.loaded` before `mullion.panel` is required, which is what the module
--- captures, and `package.loaded.lunette` is put back afterwards so nothing else
+-- captures, and `package.loaded['@lunette']` is put back afterwards so nothing else
 -- in the run sees it.
 --
 -- This is required by both panel specs rather than each installing its own
@@ -36,8 +36,8 @@ fixture.TOLERANCE = 1e-4
 -- re-enumerates. A fresh array each call, as the native one hands back.
 fixture.windows = {}
 
-local previousLunette = package.loaded.lunette
-package.loaded.lunette = {
+local previousLunette = package.loaded['@lunette']
+package.loaded['@lunette'] = {
   claimLayer = function(options)
     return newClaim(options)
   end,
@@ -49,13 +49,13 @@ package.loaded.lunette = {
     return listed
   end,
 }
-package.loaded['mullion.panel'] = nil
-package.loaded['mullion.adopt'] = nil
-fixture.panel = require 'mullion.panel'
+package.loaded['@mullion/panel'] = nil
+package.loaded['@mullion/adopt'] = nil
+fixture.panel = require '@mullion/panel'
 -- Required inside the same window, so the `lunette` it captures is this fake
 -- and the `mullion.panel` it captures is the one above.
-fixture.adopt = require 'mullion.adopt'
-package.loaded.lunette = previousLunette
+fixture.adopt = require '@mullion/adopt'
+package.loaded['@lunette'] = previousLunette
 
 -- A pixel source. Windows and monitors both carry these fields, which is what
 -- lets one panel implementation serve both.

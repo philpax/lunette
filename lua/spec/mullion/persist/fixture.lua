@@ -11,12 +11,12 @@
 -- Not a spec file: the runner collects `*_spec.lua` and this is not one, so it
 -- runs no cases of its own.
 
-local panels = require 'spec.mullion.panel.fixture'
+local panels = require '@spec/mullion/panel/fixture'
 
-local persist = require 'mullion.persist'
-local pose = require 'mullion.pose'
-local rules = require 'mullion.rules'
-local tag = require 'mullion.tag'
+local persist = require '@mullion/persist'
+local pose = require '@mullion/pose'
+local rules = require '@mullion/rules'
+local tag = require '@mullion/tag'
 
 local fixture = {}
 

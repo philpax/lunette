@@ -45,7 +45,7 @@
 //! considered was a nonce MIME type appended to what lunette publishes, which
 //! an echo would carry and a genuine selection could not; it was not taken,
 //! because it gives up the property that lunette re-offers a source's own list
-//! unchanged. `docs/decisions.md` records the choice.
+//! unchanged. `docs/input.md` records the choice.
 
 mod objects;
 
@@ -796,7 +796,7 @@ impl Host {
     }
 
     fn kind_of(&self, source: &Source) -> Option<SelectionKind> {
-        SelectionKind::ALL.into_iter().find(|kind| {
+        SelectionKind::ALL.iter().copied().find(|kind| {
             self.sources[kind.index()]
                 .as_ref()
                 .is_some_and(|held| held.key() == source.key())

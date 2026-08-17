@@ -47,16 +47,46 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build install install-binary install-lua install-config check clean
+.PHONY: all build install install-binary install-lua install-config check check-format check-rust check-clippy check-test check-definitions check-luau clean
 
 all: build
 
 build:
 	$(CARGO) build --profile $(PROFILE) --workspace
 
-check:
+# The standing checks CONTRIBUTING.md lists, in the order .github/workflows/ci.yml
+# runs them. Each is its own target so that a failure can be repeated on its own.
+check: check-format check-rust check-definitions check-luau
+
+check-format:
+	$(CARGO) +nightly fmt --all -- --check
+	stylua --check lua etc/xdg/lunette
+
+# Split in two because clippy and the tests share no artifacts — clippy builds
+# through RUSTC_WORKSPACE_WRAPPER and keeps its own — so CI runs the halves as
+# separate jobs at the same time. `check-rust` runs both, which is what a
+# contributor wants.
+check-rust: check-clippy check-test
+
+check-clippy:
 	$(CARGO) clippy --workspace --all-targets --all-features -- -D warnings
+	$(CARGO) clippy --workspace --all-targets --no-default-features -- -D warnings
+
+check-test:
 	$(CARGO) test --workspace
+	$(CARGO) test --workspace --no-default-features
+
+# Both generated files are checked in — the LOVR definitions from lovr-docs, and
+# the `lunette` module from the Rust registration surface — so a stale artifact is
+# a failure rather than something to notice later.
+check-definitions:
+	$(CARGO) run -p lunette-generate-definitions -- --check
+
+# `lua/spec/suite.lua` and `lua/spec/expect.lua` are in: they are ordinary
+# modules. The specs themselves and `lua/spec/runner.lua` are not; see
+# CONTRIBUTING.md.
+check-luau:
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
 
 install: install-binary install-lua install-config
 

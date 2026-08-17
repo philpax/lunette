@@ -6,10 +6,10 @@
 -- table this shape invites and that nothing else would notice until a client
 -- refused a modifier set at runtime.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local keycodes = require 'mullion.keycodes'
+local keycodes = require '@mullion/keycodes'
 
 local spec = suite.new 'mullion.keycodes'
 
@@ -55,7 +55,7 @@ spec('every modifier keycode names a modifier the native surface takes', functio
   -- The names are passed to `sink:modifiers` unchanged, and it raises on one it
   -- does not know. A typo here would be a runtime error in the user's face.
   for code, name in pairs(keycodes.MODIFIERS) do
-    expect.truthy(isModifierName(name), "keycode " .. code .. " names '" .. name .. "'")
+    expect.truthy(isModifierName(name), 'keycode ' .. code .. " names '" .. name .. "'")
   end
 end)
 

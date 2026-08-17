@@ -21,12 +21,16 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_capture::{mirror::MirrorOutcome, monitor::MonitorKey};
-use mlua::{Table, UserData, UserDataFields, UserDataMethods, Value};
+use mlua::Value;
 use tracing::warn;
 
 use crate::{
-    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
-    lua::{LuaTexture, Session, Sink},
+    control::wire::HandleKind,
+    lua::{
+        LuaTexture, Session, Sink,
+        declarations::{Textured, handle},
+        values::MaybeTexture,
+    },
     mirrors::MonitorState,
 };
 
@@ -62,100 +66,82 @@ impl<T> Monitor<T> {
     }
 }
 
-impl<T: LuaTexture> UserData for Monitor<T> {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        // How `lunctl` recognises a handle. A metafield rather than a field,
-        // so it is invisible to `pairs` and to ordinary indexing; the
-        // serialiser reads it off the metatable and refuses any other
-        // userdata, which is how a LÖVR `Texture` comes to be reported rather
-        // than stringified.
-        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Monitor.as_str());
+handle! {
+    /// One of the user's own screens, mirrored through the screencast portal rather than hosted by this compositor.
+    Monitor<T: LuaTexture> = HandleKind::Monitor;
 
-        // The saved identity, and what a Lua table of per-monitor state is keyed
-        // by. Stable across a restart and across the monitor moving to another
-        // port, which is what `lunette-v1.AC3.4` asks for.
-        fields.add_field_method_get("id", |_, monitor| Ok(monitor.key.to_string()));
+    /// The saved identity, and what a table of per-monitor state is keyed by. Stable across a restart and across the monitor moving to another port.
+    field id(_lua, this) -> String { Ok(this.key.to_string()) }
 
-        // The identity as a user would recognise it: `Acme X24 on DP-1`.
-        fields.add_field_method_get("name", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().name.clone())
-        });
-
-        fields.add_field_method_get("dead", |_, monitor| Ok(!monitor.refresh()));
-
-        // Whether a capture stream is running for this monitor right now.
-        fields.add_field_method_get("mirrored", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().mirrored)
-        });
-
-        // Whether a mirror has been asked for and has not arrived. True while a
-        // portal dialog is on the user's screen, and false again whether they
-        // accept or decline.
-        fields.add_field_method_get("pending", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().pending)
-        });
-
-        // The monitor's resolution, which is the size a captured frame arrives
-        // at. Zero on both axes when the host did not report a mode.
-        fields.add_field_method_get("width", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().pixels.width)
-        });
-
-        fields.add_field_method_get("height", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().pixels.height)
-        });
-
-        // Where the monitor sits on the host desktop, and how large it is there,
-        // in the compositor's logical coordinates. Not pixels: on a scaled
-        // display the two differ by the scale factor, and a pointer is placed in
-        // this space.
-        fields.add_field_method_get("x", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().geometry.position.x)
-        });
-
-        fields.add_field_method_get("y", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().geometry.position.y)
-        });
-
-        fields.add_field_method_get("logicalWidth", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().geometry.size.width)
-        });
-
-        fields.add_field_method_get("logicalHeight", |_, monitor| {
-            monitor.refresh();
-            Ok(monitor.known.borrow().geometry.size.height)
-        });
-
-        // Where input for this monitor goes: a sink in the host domain, whose
-        // events reach the user's own desktop rather than a client lunette
-        // hosts. A fresh handle each read, for the reason `window.sink` is.
-        //
-        // Present whether or not the monitor is mirrored. Pointing at the host
-        // desktop does not require lunette to be showing it, and a sink that
-        // appeared and disappeared with the mirror would be a handle a
-        // configuration had to re-fetch on every grant.
-        fields.add_field_method_get("sink", |_, monitor| {
-            monitor.refresh();
-            Ok(Sink::host(Rc::clone(&monitor.session), monitor.key.clone()))
-        });
+    /// The identity as a user would recognise it, such as `Acme X24 on DP-1`.
+    field name(_lua, this) -> String {
+        this.refresh();
+        Ok(this.known.borrow().name.clone())
     }
 
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("getTexture", |lua, monitor, ()| get_texture(lua, monitor));
-        methods.add_method("mirror", |_, monitor, ()| Ok(mirror(monitor)));
-        methods.add_method("dismiss", |_, monitor, ()| Ok(dismiss(monitor)));
-        methods.add_method("setPaused", |_, monitor, paused: bool| {
-            Ok(set_paused(monitor, paused))
-        });
+    field dead(_lua, this) -> bool { Ok(!this.refresh()) }
+
+    /// Whether a capture stream is running for this monitor right now.
+    field mirrored(_lua, this) -> bool {
+        this.refresh();
+        Ok(this.known.borrow().mirrored)
     }
+
+    /// Whether a mirror has been asked for and has not arrived. True while a portal dialog is on the user's screen, and false again whether they accept or decline.
+    field pending(_lua, this) -> bool {
+        this.refresh();
+        Ok(this.known.borrow().pending)
+    }
+
+    /// The monitor's resolution, which is the size a captured frame arrives at. Zero on both axes when the host reported no mode.
+    field width(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.known.borrow().pixels.width)
+    }
+
+    field height(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.known.borrow().pixels.height)
+    }
+
+    /// Where the monitor sits on the host desktop, in the compositor's logical coordinates rather than in pixels. A pointer is placed in this space.
+    field x(_lua, this) -> i32 {
+        this.refresh();
+        Ok(this.known.borrow().geometry.position.x)
+    }
+
+    field y(_lua, this) -> i32 {
+        this.refresh();
+        Ok(this.known.borrow().geometry.position.y)
+    }
+
+    field logicalWidth(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.known.borrow().geometry.size.width)
+    }
+
+    field logicalHeight(_lua, this) -> u32 {
+        this.refresh();
+        Ok(this.known.borrow().geometry.size.height)
+    }
+
+    /// Where input for this monitor goes: a sink in the host domain, present whether or not the monitor is mirrored. Pointing at the host desktop does not require lunette to be showing it.
+    field sink(_lua, this) -> Sink<T> {
+        this.refresh();
+        Ok(Sink::host(Rc::clone(&this.session), this.key.clone()))
+    }
+
+    /// This monitor's latest captured frame. False while it has gone, is not mirrored, or has produced no frame yet, which is what a still desktop looks like.
+    method getTexture(lua, this: Textured) -> MaybeTexture { get_texture(lua, this) }
+
+    /// Asks for this screen to be captured. True once a stream is running or has been asked for; a dialog the user has not answered is a true, and `pending` is what says it has not landed.
+    method mirror(_lua, this) -> bool { Ok(mirror(this)) }
+
+    /// Stops capturing this screen, tearing the stream down rather than pausing it. The portal session is kept, so mirroring again does not prompt.
+    method dismiss(_lua, this) -> bool { Ok(dismiss(this)) }
+
+    /// Stops the stream without giving up the session, for a panel that has left the user's view.
+    method setPaused(_lua, this, paused: bool) -> bool { Ok(set_paused(this, paused)) }
 }
 
 /// `lunette.monitors()`: every screen lunette can mirror, this frame.
@@ -168,17 +154,15 @@ impl<T: LuaTexture> UserData for Monitor<T> {
 ///
 /// If the table could not be built.
 pub(crate) fn monitors<T: LuaTexture>(
-    lua: &mlua::Lua,
+    _lua: &mlua::Lua,
     session: &Rc<Session<T>>,
-) -> mlua::Result<Table> {
-    let states = session.mirrors().monitors();
-    let monitors = lua.create_table_with_capacity(states.len(), 0)?;
-
-    for (index, state) in (1..).zip(states) {
-        monitors.set(index, Monitor::new(Rc::clone(session), state))?;
-    }
-
-    Ok(monitors)
+) -> mlua::Result<Vec<Monitor<T>>> {
+    Ok(session
+        .mirrors()
+        .monitors()
+        .into_iter()
+        .map(|state| Monitor::new(Rc::clone(session), state))
+        .collect())
 }
 
 /// `monitor:getTexture()`: the texture holding this monitor's latest frame.
@@ -191,9 +175,9 @@ pub(crate) fn monitors<T: LuaTexture>(
 /// gone, it is not mirrored, and it is mirrored but has produced no frame yet —
 /// which is what a still desktop looks like, since a monitor that is not
 /// changing sends nothing at all.
-fn get_texture<T: LuaTexture>(lua: &mlua::Lua, monitor: &Monitor<T>) -> mlua::Result<Value> {
+fn get_texture<T: LuaTexture>(lua: &mlua::Lua, monitor: &Monitor<T>) -> mlua::Result<MaybeTexture> {
     if !monitor.refresh() {
-        return Ok(Value::Boolean(false));
+        return Ok(MaybeTexture(Value::Boolean(false)));
     }
 
     // The push runs while the ledger is borrowed. That is safe here and only
@@ -203,6 +187,7 @@ fn get_texture<T: LuaTexture>(lua: &mlua::Lua, monitor: &Monitor<T>) -> mlua::Re
         textures
             .texture(&monitor.key)
             .map_or_else(|| Ok(Value::Boolean(false)), |texture| texture.push(lua))
+            .map(MaybeTexture)
     })
 }
 

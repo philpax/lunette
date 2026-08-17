@@ -29,7 +29,7 @@
 //! outlive the window manager's own process, and skips or alters rule
 //! application at startup when it finds some. lunette has no X server, so this
 //! is the adaptation: a native store that outlives the Lua state for the same
-//! reason. `docs/decisions.md` records the choice.
+//! reason. `docs/lua-api.md` records the choice.
 //!
 //! Writing any of this to disk, so that it survives a full restart rather than a
 //! reload, is the standard library's own business and is not here. This store is
@@ -43,6 +43,7 @@ use std::{
 };
 
 use lunette_compositor::protocol::WindowId;
+use lunette_luau::Type;
 
 /// The properties every window is carrying, keyed by window.
 ///
@@ -162,6 +163,18 @@ impl fmt::Display for PropertyKey {
     }
 }
 
+/// The Luau type of [`PropertyValue`], in the order the union states it.
+///
+/// Built rather than written out, so that what a property is declared to hold
+/// carries no punctuation of its own: whether it ends up optional, or inside a
+/// table, is the caller's to say and the rendering follows from the structure.
+/// `the_declared_union_covers_every_variant` is what keeps it in step with the
+/// enum.
+#[must_use]
+pub fn property_value() -> Type {
+    Type::Union(vec![Type::BOOLEAN, Type::NUMBER, Type::STRING])
+}
+
 /// What a property may hold.
 ///
 /// Deliberately not a Lua value. See the module documentation: a stored Lua
@@ -242,6 +255,39 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    /// The declared union and the enum are two statements of one set, and this
+    /// is what stops them parting. The match is exhaustive, so a variant added
+    /// to [`PropertyValue`] fails to compile here rather than going unmentioned
+    /// in what Lua is told a property holds.
+    #[test]
+    fn the_declared_union_covers_every_variant() {
+        let Type::Union(members) = property_value() else {
+            panic!("a property value is a union")
+        };
+
+        for value in [
+            PropertyValue::Boolean(false),
+            PropertyValue::Number(0.0),
+            PropertyValue::Text(String::new()),
+        ] {
+            let declared = match value {
+                PropertyValue::Boolean(_) => Type::BOOLEAN,
+                PropertyValue::Number(_) => Type::NUMBER,
+                PropertyValue::Text(_) => Type::STRING,
+            };
+            assert!(
+                members.contains(&declared),
+                "{declared} is missing from the declared union"
+            );
+        }
+
+        assert_eq!(
+            members.len(),
+            3,
+            "the union carries a member with no variant"
+        );
+    }
 
     fn window(raw: u64) -> WindowId {
         WindowId::new(raw).expect("non-zero")

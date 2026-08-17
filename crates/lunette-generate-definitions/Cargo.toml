@@ -1,0 +1,22 @@
+[package]
+name = "lunette-generate-definitions"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Generates the LÖVR Luau definitions from lovr-docs metadata"
+build = "build.rs"
+
+[dependencies]
+# For `lua::declarations::render`, which is the Lua module's own surface as the
+# checker sees it. The declarations live beside the mlua registrations they
+# describe, so the generator reads them from there rather than restating them.
+lunette = { path = "../lunette" }
+lunette-lovr = { path = "../lunette-lovr" }
+mlua = { workspace = true, features = ["luau"] }
+mlua-sys = { workspace = true, features = ["external"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

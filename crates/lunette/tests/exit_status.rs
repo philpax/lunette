@@ -7,7 +7,7 @@
 //!
 //! It spawns the real binary, which sets aside the "no real subprocesses" rule
 //! in CONTRIBUTING.md's testing conventions. The exception is recorded there
-//! and in `docs/decisions.md`, and the reason is that the exit status is an
+//! and in `docs/build-and-development.md`, and the reason is that the exit status is an
 //! observable property of the process rather than a value any function returns:
 //! `boot::run` produces an `ExitCode`, which is opaque and has no accessor, and
 //! the path that produces it needs a live LÖVR Lua thread that only the real

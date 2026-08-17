@@ -1,4 +1,4 @@
-//! Linux-only: the shipped default configuration compiles under the LuaJIT the
+//! Linux-only: the shipped default configuration compiles under the Luau the
 //! session runs it on.
 //!
 //! `etc/xdg/lunette/` is what a user with no configuration of their own gets, so
@@ -8,7 +8,7 @@
 //!
 //! This compiles the two files and no more. Running them needs a compositor, a
 //! graphics device, and a headset, so what they do is a human gate; what is
-//! checked here is that they parse, that they parse under LuaJIT rather than
+//! checked here is that they parse, that they parse under Luau rather than
 //! under some other Lua, and that the callbacks the session calls are the ones
 //! they define.
 
@@ -17,12 +17,25 @@ use std::{
     path::{Path, PathBuf},
 };
 
-// Unused as a name, and load-bearing as a link. The LuaJIT this compiles under
-// is the one `lunette-lovr` builds, and rustc emits its link flags only for a
+// Unused as a name, and load-bearing as a link. The Lua this compiles under is
+// the one `lunette-lovr` builds, and rustc emits its link flags only for a
 // crate the binary actually depends on — so a test that never named `lunette`
 // would link no Lua at all and fail with undefined symbols rather than with a
 // verdict.
 use lunette as _;
+use lunette_compositor::protocol::KeyModifier;
+
+/// An mlua state with LÖVR's fork library set opened on it, the way the real
+/// session state has it (the session handlers and `mullion` read `package`).
+fn session_lua() -> mlua::Lua {
+    let lua = mlua::Lua::new();
+    // SAFETY: the state is not mid-call; opening libraries is what production
+    // does before any chunk runs.
+    unsafe {
+        lua.exec_raw_lua(|raw| mlua::ffi::luaL_openlibs(raw.state()));
+    }
+    lua
+}
 use mlua::{Function, Lua, Table};
 
 /// The callbacks `main.lua` is expected to leave on `lovr`.
@@ -30,20 +43,16 @@ use mlua::{Function, Lua, Table};
 /// Named rather than counted: a configuration that stopped drawing would still
 /// define some callbacks, and the gate this stands in for is that a terminal
 /// appears and can be pointed at.
-const CALLBACKS: &[&str] = &[
-    "load",
-    "update",
-    "draw",
-    "quit",
-    "keypressed",
-    "lunwindowopened",
-    "lunwindowclosed",
-    "lunprocessexited",
-];
+const CALLBACKS: &[&str] = &["load", "update", "draw", "quit", "keypressed"];
+
+/// The events the shipped configuration subscribes to. Not `lovr` callbacks any
+/// more: a subscription is a call, so what this checks is that the call was
+/// made, which the stub records.
+const SUBSCRIPTIONS: &[&str] = &["onWindowOpened", "onWindowClosed", "onProcessExited"];
 
 #[test]
 fn the_default_configuration_compiles() {
-    let lua = Lua::new();
+    let lua = session_lua();
 
     for name in ["main.lua", "conf.lua"] {
         let path = configuration_directory().join(name);
@@ -67,7 +76,7 @@ fn the_default_configuration_compiles() {
 /// stopped defining is the defect this catches.
 #[test]
 fn the_default_configuration_defines_the_callbacks_the_session_calls() {
-    let lua = Lua::new();
+    let lua = session_lua();
     let path = configuration_directory().join("main.lua");
     let source = match fs::read_to_string(&path) {
         Ok(source) => source,
@@ -93,6 +102,21 @@ fn the_default_configuration_defines_the_callbacks_the_session_calls() {
             "the configuration should define lovr.{name}"
         );
     }
+
+    let subscribed: Table = match lua.globals().get("subscribed") {
+        Ok(subscribed) => subscribed,
+        Err(error) => panic!("the stub's record could not be read: {error}"),
+    };
+    for name in SUBSCRIPTIONS {
+        let called: Option<bool> = match subscribed.get(*name) {
+            Ok(called) => called,
+            Err(error) => panic!("lunette.{name} could not be read: {error}"),
+        };
+        assert!(
+            called.unwrap_or(false),
+            "the configuration should subscribe through lunette.{name}"
+        );
+    }
 }
 
 /// `lovr.load` runs against the real standard library.
@@ -110,7 +134,7 @@ fn the_default_configuration_defines_the_callbacks_the_session_calls() {
 /// between them is the code a session runs.
 #[test]
 fn the_default_configuration_loads_against_the_standard_library() {
-    let lua = Lua::new();
+    let lua = session_lua();
     let path = configuration_directory().join("main.lua");
     let source = match fs::read_to_string(&path) {
         Ok(source) => source,
@@ -137,7 +161,7 @@ fn the_default_configuration_loads_against_the_standard_library() {
     // The arrangement source is what `lovr.load` had to reach `mullion.persist`
     // to register, so its absence would mean the callback ran and did nothing.
     let registered: bool = match lua
-        .load("local rules = require 'mullion.rules'\nfor _, source in ipairs(rules.sources()) do\n  if source.name == 'mullion.persist' then return true end\nend\nreturn false")
+        .load("local rules = require '@mullion/rules'\nfor _, source in ipairs(rules.sources()) do\n  if source.name == 'mullion.persist' then return true end\nend\nreturn false")
         .eval()
     {
         Ok(registered) => registered,
@@ -153,7 +177,7 @@ fn the_default_configuration_loads_against_the_standard_library() {
     // workspace comes back scrambled.
     let sources: Vec<String> = match lua
         .load(
-            "local rules = require 'mullion.rules'\nlocal names = {}\nfor _, source in \
+            "local rules = require '@mullion/rules'\nlocal names = {}\nfor _, source in \
              ipairs(rules.sources()) do names[#names + 1] = source.name end\nreturn names",
         )
         .eval::<Vec<String>>()
@@ -182,9 +206,29 @@ fn the_default_configuration_loads_against_the_standard_library() {
 fn stub_environment(lua: &Lua) -> mlua::Result<Table> {
     let lovr = lua.create_table()?;
     lua.globals().set("lovr", &lovr)?;
+    // A `require` answering an empty table is enough for every module the
+    // configuration reaches except `lunette`, whose subscriptions it calls at
+    // the top level rather than only from inside a callback.
+    let subscribed = lua.create_table()?;
+    lua.globals().set("subscribed", &subscribed)?;
     lua.globals().set(
         "require",
-        lua.create_function(|lua, _: String| lua.create_table())?,
+        lua.create_function(move |lua, name: String| {
+            let module = lua.create_table()?;
+            if name == "@lunette" {
+                for register in SUBSCRIPTIONS {
+                    let seen = lua.globals().get::<Table>("subscribed")?;
+                    module.set(
+                        *register,
+                        lua.create_function(move |lua, _: mlua::Function| {
+                            seen.set(*register, true)?;
+                            lua.create_function(|_, ()| Ok(()))
+                        })?,
+                    )?;
+                }
+            }
+            Ok(module)
+        })?,
     )?;
     Ok(lovr)
 }
@@ -208,7 +252,70 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
         format!("{root}/?.lua;{root}/?/init.lua", root = root.display()),
     )?;
 
+    // The standard-library loader, in Rust: LÖVR's production loader reads the
+    // mounted virtual filesystem, which this test has no `lovr.filesystem` for.
+    // The same shape — resolve `?.lua` against `package.path`, read the file,
+    // load it — is what makes `require 'mullion.adopt'` resolve here the way
+    // the session's does.
+    let loaders: Table = package.get("loaders")?;
+    let path_loader =
+        lua.create_function(|lua, name: String| -> mlua::Result<mlua::MultiValue> {
+            let package: Table = lua.globals().get("package")?;
+            let path: String = package.get("path")?;
+            for template in path.split(';').filter(|part| !part.is_empty()) {
+                let module_path = name.strip_prefix("@mullion").map_or_else(
+                    || name.replace('.', "/"),
+                    |suffix| format!("mullion{suffix}"),
+                );
+                let candidate = template.replace('?', &module_path);
+                if let Ok(source) = std::fs::read_to_string(&candidate) {
+                    let function = lua
+                        .load(&source)
+                        .set_name(format!("={candidate}"))
+                        .into_function()?;
+                    return Ok(vec![mlua::Value::Function(function)].into());
+                }
+            }
+            // A loader that finds nothing returns nil, and `require` moves on to
+            // the next loader.
+            Ok(Vec::new().into())
+        })?;
+    // Position 2, matching LÖVR's `luax_registerloader(L, luaLoader, 2, 0)`;
+    // position 1 is preload, which production consults first.
+    loaders.set(2, path_loader)?;
+
     let lunette = lua.create_table()?;
+    // Each records that it was called and answers a cancel function, which is
+    // the shape the real module has.
+    let subscribed = lua.create_table()?;
+    for name in [
+        "onWindowOpened",
+        "onWindowClosed",
+        "onTitleChanged",
+        "onMonitorAdded",
+        "onProcessExited",
+        "onProcessOutput",
+        "onLayerGranted",
+        "onLayerRevoked",
+        "onError",
+    ] {
+        let seen = subscribed.clone();
+        lunette.set(
+            name,
+            lua.create_function(move |lua, _: mlua::Function| {
+                seen.set(name, true)?;
+                lua.create_function(|_, ()| Ok(()))
+            })?,
+        )?;
+    }
+    lua.globals().set("subscribed", subscribed)?;
+    // The real names rather than a list written out here: this table is a fake
+    // of lunette's own module, and a fake that invents values is a test that
+    // passes against an API nothing has.
+    lunette.set(
+        "modifierNames",
+        lua.create_function(|_, ()| Ok(KeyModifier::NAMES.to_vec()))?,
+    )?;
     lunette.set(
         "newSeat",
         lua.create_function(|lua, _: mlua::MultiValue| {
@@ -240,7 +347,7 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|lua, ()| lua.create_table())?,
     )?;
     let loaded: Table = package.get("loaded")?;
-    loaded.set("lunette", lunette)?;
+    loaded.set("@lunette", lunette)?;
 
     let filesystem = lua.create_table()?;
     filesystem.set(

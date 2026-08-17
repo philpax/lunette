@@ -33,6 +33,7 @@
 //! rest in the order they require, once per frame, and is the only thing that
 //! starts the compositor thread.
 
+pub mod aliases;
 pub mod callback_error;
 pub mod control;
 pub mod events;
@@ -50,3 +51,24 @@ pub mod safe_mode;
 pub mod scale;
 pub mod scene;
 pub mod texture;
+
+/// Test-only helpers shared across the crate's unit tests.
+///
+/// A test that evaluates Lua against an mlua-owned state needs LÖVR's fork
+/// library set opened the way production's LÖVR state has it (`luaL_openlibs`
+/// adds the fork's `package` library, which `scope_to_modules` and the library
+/// handlers read). mlua's own `Lua::new()` opens only its StdLib set, which has
+/// no `package`.
+#[cfg(test)]
+pub(crate) mod test_lua {
+    /// An mlua state with LÖVR's fork library set opened on top.
+    pub(crate) fn session_lua() -> mlua::Lua {
+        let lua = mlua::Lua::new();
+        // SAFETY: the state is not mid-call; opening libraries is what
+        // production does on the LÖVR state before any chunk runs.
+        lua.exec_raw_lua(|raw| unsafe {
+            mlua::ffi::luaL_openlibs(raw.state());
+        });
+        lua
+    }
+}

@@ -18,21 +18,29 @@
 
 local teardown = {}
 
+type Hook = () -> ()
+type Failure = { name: string, message: string }
+
 -- Every registered hook, as `{ [name] = run }`, and the order the names were
 -- first registered in.
 --
 -- Rebuilt when this file runs, which is what makes a reload that re-runs every
 -- module start from an empty registry rather than from the old state's.
-local hooks = {}
-local order = {}
+local hooks: { [string]: Hook } = {}
+local order: { string } = {}
 
 -- Where a hook that raised is reported.
 --
 -- Replaceable, so that Phase 7's reload can route it wherever it routes
 -- everything else, and so that a spec can capture it rather than printing it.
--- The default writes to stderr, because stdout is for a program's own output.
-function teardown.report(message)
-  io.stderr:write(message, '\n')
+-- The default logs the message, which the host routes to its own diagnostics.
+function teardown.report(message: string)
+  -- Through a local: `lovr.log` is a callback, so a configuration may have
+  -- cleared it, and a report is not worth raising over.
+  local log = lovr.log
+  if log then
+    log(message, 'error', 'mullion.teardown')
+  end
 end
 
 -- Registers `run` under `name`, replacing any hook already registered under it.
@@ -44,7 +52,7 @@ end
 --
 -- The name is the module's own path — `mullion.signal` — so that two modules
 -- cannot collide and a report names the module rather than an index.
-function teardown.register(name, run)
+function teardown.register(name: string, run: Hook)
   if type(name) ~= 'string' then
     error('mullion.teardown: a hook is named by a string, not a ' .. type(name), 2)
   end
@@ -59,7 +67,7 @@ function teardown.register(name, run)
 end
 
 -- Removes the hook registered under `name`, reporting whether there was one.
-function teardown.unregister(name)
+function teardown.unregister(name: string): boolean
   if hooks[name] == nil then
     return false
   end
@@ -76,8 +84,8 @@ end
 
 -- The names registered, in reverse registration order: the order `run` will
 -- call them in.
-function teardown.pending()
-  local names = {}
+function teardown.pending(): { string }
+  local names: { string } = {}
   for index = #order, 1, -1 do
     names[#names + 1] = order[index]
   end
@@ -98,7 +106,7 @@ end
 -- The registry is emptied whether or not a hook raised. A hook that failed has
 -- already had its chance, and leaving it registered would run it again at the
 -- next reload against state that has gone.
-function teardown.run()
+function teardown.run(): { Failure }
   local names = teardown.pending()
   -- Taken before the registry is emptied, and emptied before the first hook
   -- runs: a hook is free to register another, and one registered during a run
@@ -107,14 +115,26 @@ function teardown.run()
   hooks = {}
   order = {}
 
-  local failures = {}
+  local failures: { Failure } = {}
   for _, name in ipairs(names) do
-    local ok, message = xpcall(registered[name], function(raised)
-      return debug.traceback(tostring(raised), 2)
-    end)
-    if not ok then
+    local run = registered[name]
+    if not run then
+      -- The order and the registry are written together, so a name in one and
+      -- not the other is a defect in this module rather than a state to skip.
+      local message = 'the order names it and the registry does not'
       failures[#failures + 1] = { name = name, message = message }
-      teardown.report("mullion.teardown: the hook '" .. name .. "' failed: " .. message)
+      teardown.report("the hook '" .. name .. "' failed: " .. message)
+    else
+      local raised: string?
+      local ok = xpcall(run, function(value): string
+        raised = debug.traceback(tostring(value), 2)
+        return raised
+      end)
+      if not ok then
+        local message = tostring(raised)
+        failures[#failures + 1] = { name = name, message = message }
+        teardown.report("the hook '" .. name .. "' failed: " .. message)
+      end
     end
   end
 

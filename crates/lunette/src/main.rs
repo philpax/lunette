@@ -54,6 +54,7 @@
 //! which knows whether the bridge is running.
 
 mod boot;
+mod check;
 mod cli;
 
 use std::{
@@ -128,6 +129,15 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
+    if let Some(cli::Command::Check {
+        roots,
+        definitions,
+        old_solver,
+    }) = &arguments.command
+    {
+        return check::run(roots, definitions.as_deref(), *old_solver);
+    }
+
     if let Some(destination) = &arguments.dump_config {
         // An empty value is what the flag takes when it is given without one,
         // and the first candidate is where a user's own configuration belongs.
@@ -138,7 +148,13 @@ fn main() -> ExitCode {
         };
 
         let source = PathBuf::from(SYSCONFDIR).join("xdg").join("lunette");
-        return match cli::dump(&source, destination) {
+        // Absolute, because the file it is written into is one the user may
+        // open from anywhere, and a relative alias would resolve against
+        // whichever directory their editor happened to start in.
+        let standard_library = absolute(&standard_library_directory(
+            &StandardLibrarySources::from_environment(),
+        ));
+        return match cli::dump(&source, destination, &standard_library) {
             Ok(written) => {
                 for path in written {
                     info!(path = %path.display(), "wrote");
@@ -160,6 +176,13 @@ fn main() -> ExitCode {
     info!(path = %config_directory.display(), "loading the configuration");
 
     let standard_library = standard_library_directory(&StandardLibrarySources::from_environment());
+    if standard_library_conflicts_with_configuration(config_directory, &standard_library) {
+        error!(
+            "config: the standard-library path {} is also the configuration directory; the two directories cannot be mounted separately",
+            standard_library.display()
+        );
+        return ExitCode::FAILURE;
+    }
     info!(path = %standard_library.display(), "mounting the standard library");
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
@@ -598,7 +621,7 @@ const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::INFO;
 /// A packager sets `LUNETTE_PREFIX` when building, and the `Makefile` passes its
 /// own `PREFIX` down so that a build and the install that follows it agree
 /// without either being told twice. The default is the one the `Makefile` uses.
-const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
+pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
     Some(path) => path,
     None => "/usr/local",
 };
@@ -663,6 +686,17 @@ fn standard_library_directory(sources: &StandardLibrarySources) -> PathBuf {
         .override_path
         .clone()
         .unwrap_or_else(|| sources.prefix.join("share").join("lunette").join("lua"))
+}
+
+/// Whether mounting the standard library would ask PhysFS to mount the
+/// configuration directory twice.
+///
+/// The paths are compared as supplied. The standard-library override is
+/// deliberately allowed to be relative, and canonicalising either path here
+/// would change the documented resolution semantics rather than only making
+/// the duplicate error clearer.
+fn standard_library_conflicts_with_configuration(config: &Path, standard_library: &Path) -> bool {
+    config == standard_library
 }
 
 /// The environment values configuration-directory resolution depends on.
@@ -732,6 +766,20 @@ fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
 /// asked for and not something they would see.
 fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
     value.filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
+/// Resolves a path against the working directory when it is relative.
+///
+/// The standard-library override is deliberately allowed to be relative, so
+/// that `LUNETTE_STDLIB_PATH=lua` works from the source tree. A `.luaurc`
+/// carrying that path verbatim would resolve against the reader's directory
+/// rather than the writer's, so it is made absolute where it is written and
+/// nowhere else.
+fn absolute(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_owned();
+    }
+    env::current_dir().map_or_else(|_| path.to_owned(), |current| current.join(path))
 }
 
 fn absolute_path(value: Option<OsString>) -> Option<PathBuf> {
@@ -934,6 +982,23 @@ mod tests {
         // Unlike the XDG variables, which the specification requires to be
         // absolute. `LUNETTE_STDLIB_PATH=lua cargo run` is the case it is for.
         assert_eq!(standard_library(Some("lua"), "/usr"), PathBuf::from("lua"));
+    }
+
+    #[test]
+    fn the_configuration_directory_cannot_also_be_the_standard_library() {
+        let directory = Path::new("/tmp/lunette");
+
+        assert!(standard_library_conflicts_with_configuration(
+            directory, directory
+        ));
+        assert!(!standard_library_conflicts_with_configuration(
+            directory,
+            Path::new("/tmp/lunette/lua"),
+        ));
+        assert!(!standard_library_conflicts_with_configuration(
+            directory,
+            Path::new("/tmp/other/lunette"),
+        ));
     }
 
     #[test]

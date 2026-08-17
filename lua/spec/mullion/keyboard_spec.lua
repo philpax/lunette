@@ -9,13 +9,13 @@
 -- So the fake layout is deliberately not QWERTY. A keyboard that hardcoded one
 -- would pass every case that asked "is this key an A" and fail every case here.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local interaction = require 'mullion.interaction'
-local keyboard = require 'mullion.keyboard'
-local keycodes = require 'mullion.keycodes'
-local fixture = require 'spec.mullion.panel.fixture'
+local interaction = require '@mullion/interaction'
+local keyboard = require '@mullion/keyboard'
+local keycodes = require '@mullion/keycodes'
+local fixture = require '@spec/mullion/panel/fixture'
 
 local spec = suite.new 'mullion.keyboard'
 
@@ -323,7 +323,7 @@ spec('a ray hits the key it is pointed at', function()
   local x = wanted.x + wanted.width / 2 - created.width / 2
   local y = created.height / 2 - (wanted.y + wanted.height / 2)
 
-  local hit = created:hit({ x, y, 0 }, { 0, 0, -1 })
+  local hit = created:hit(vector.pack(x, y, 0), vector.pack(0, 0, -1))
 
   expect.truthy(hit, 'a hit')
   expect.equal(hit.code, A_KEY, 'the key hit')
@@ -333,7 +333,7 @@ spec('a ray past the edge of the keyboard hits nothing', function()
   fresh()
   local created = newKeyboard { pose = poseAt(0, 0, -1) }
 
-  expect.falsy(created:hit({ created.width, 0, 0 }, { 0, 0, -1 }), 'a hit')
+  expect.falsy(created:hit(vector.pack(created.width, 0, 0), vector.pack(0, 0, -1)), 'a hit')
 end)
 
 spec('a ray between two keys still hits one', function()
@@ -346,7 +346,7 @@ spec('a ray between two keys still hits one', function()
   local x = first.x + first.width - created.width / 2
   local y = created.height / 2 - (first.y + first.height / 2)
 
-  local hit = created:hit({ x, y, 0 }, { 0, 0, -1 })
+  local hit = created:hit(vector.pack(x, y, 0), vector.pack(0, 0, -1))
 
   expect.truthy(hit, 'a hit')
 end)
@@ -359,7 +359,7 @@ spec('an invisible keyboard is not hit and is not drawn', function()
   created:setVisible(false)
   created:draw(pass)
 
-  expect.falsy(created:hit({ 0, 0, 0 }, { 0, 0, -1 }), 'a hit')
+  expect.falsy(created:hit(vector.pack(0, 0, 0), vector.pack(0, 0, -1)), 'a hit')
   expect.equal(pass.planes, 0, 'planes drawn')
 end)
 
@@ -391,12 +391,7 @@ spec('the keyboard is as wide as its widest row', function()
   end
 
   expect.near(created.width, widest * keyboard.STYLE.keyUnit, TOLERANCE, 'the width')
-  expect.near(
-    created.height,
-    #keycodes.ROWS * keyboard.STYLE.keyUnit,
-    TOLERANCE,
-    'the height'
-  )
+  expect.near(created.height, #keycodes.ROWS * keyboard.STYLE.keyUnit, TOLERANCE, 'the height')
 end)
 
 spec('every key in the matrix carries a legend or a label', function()
@@ -470,8 +465,8 @@ spec('two pointers each keep their own highlighted key', function()
   created:setHovered(keys[1], 'left')
   created:setHovered(keys[2], 'right')
 
-  expect.truthy(created:isHovered(keys[1].code), 'the left hand\'s key')
-  expect.truthy(created:isHovered(keys[2].code), 'the right hand\'s key')
+  expect.truthy(created:isHovered(keys[1].code), "the left hand's key")
+  expect.truthy(created:isHovered(keys[2].code), "the right hand's key")
 
   created:setHovered(nil, 'left')
   expect.falsy(created:isHovered(keys[1].code), "the left hand's key after it moved off")
@@ -480,7 +475,7 @@ end)
 
 spec('requiring the module twice leaves one teardown hook', function()
   fresh()
-  local teardown = require 'mullion.teardown'
+  local teardown = require '@mullion/teardown'
 
   local function hooks()
     local found = 0
@@ -493,9 +488,9 @@ spec('requiring the module twice leaves one teardown hook', function()
   end
 
   local function reload()
-    package.loaded['mullion.keyboard'] = nil
-    local loaded = require 'mullion.keyboard'
-    package.loaded['mullion.keyboard'] = keyboard
+    package.loaded['@mullion/keyboard'] = nil
+    local loaded = require '@mullion/keyboard'
+    package.loaded['@mullion/keyboard'] = keyboard
     return loaded
   end
 

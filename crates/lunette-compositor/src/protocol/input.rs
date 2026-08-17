@@ -8,65 +8,54 @@
 
 use std::fmt;
 
-/// A pointer button.
-///
-/// The five a mouse actually has, rather than the whole evdev range. Mapping to
-/// a `BTN_*` code belongs with the seat, which is the only place that speaks
-/// the protocol's numbering.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PointerButton {
-    Left,
-    Right,
-    Middle,
-    Back,
-    Forward,
-}
+use lunette_luau::closed_set;
 
-/// Which pipeline a sink's input travels down.
-///
-/// A sink is somewhere pixel-space input can be delivered, and there are two
-/// kinds of somewhere. A window sink reaches a client this compositor hosts,
-/// through its seat. A host sink reaches the user's own desktop, through the
-/// `HidProvider` in `lunette-capture`, and nothing in this crate ever sees one:
-/// the domain is defined here because it is the closed set both halves name, and
-/// because a caller routing input has to be able to ask which it is holding.
-///
-/// A type rather than a flag, so routing is an exhaustive match and a domain
-/// added later cannot be silently unhandled.
-///
-/// This is new work. WayVR has one global binary `InputFocus { PhysicalScreen,
-/// WayVR }` (`subsystem/input.rs:10`), toggled for the whole session, which
-/// cannot express two hands pointing at two kinds of surface at once.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum InputDomain {
-    /// A surface this compositor hosts.
+closed_set! {
+    /// A pointer button.
     ///
-    /// Each window is independently addressable: two seats pointing at two
-    /// windows produce two cursors and two focuses.
-    Window,
-    /// The host desktop, behind a mirrored monitor.
-    ///
-    /// Every host sink shares one cursor and one keyboard focus, because the
-    /// host has one of each. Two seats pointing at two mirrored monitors cannot
-    /// produce two cursors, and `docs/host-desktop.md` records why that
-    /// difference is exposed rather than hidden.
-    Host,
-}
-
-impl InputDomain {
-    /// The name Lua reads on `sink.domain`.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Window => "window",
-            Self::Host => "host",
-        }
+    /// The five a mouse actually has, rather than the whole evdev range. Mapping to
+    /// a `BTN_*` code belongs with the seat, which is the only place that speaks
+    /// the protocol's numbering.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum PointerButton {
+        Left = "left",
+        Right = "right",
+        Middle = "middle",
+        Back = "back",
+        Forward = "forward",
     }
 }
 
-impl fmt::Display for InputDomain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+closed_set! {
+    /// Which pipeline a sink's input travels down.
+    ///
+    /// A sink is somewhere pixel-space input can be delivered, and there are two
+    /// kinds of somewhere. A window sink reaches a client this compositor hosts,
+    /// through its seat. A host sink reaches the user's own desktop, through the
+    /// `HidProvider` in `lunette-capture`, and nothing in this crate ever sees one:
+    /// the domain is defined here because it is the closed set both halves name, and
+    /// because a caller routing input has to be able to ask which it is holding.
+    ///
+    /// A type rather than a flag, so routing is an exhaustive match and a domain
+    /// added later cannot be silently unhandled.
+    ///
+    /// This is new work. WayVR has one global binary `InputFocus { PhysicalScreen,
+    /// WayVR }` (`subsystem/input.rs:10`), toggled for the whole session, which
+    /// cannot express two hands pointing at two kinds of surface at once.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum InputDomain {
+        /// A surface this compositor hosts.
+        ///
+        /// Each window is independently addressable: two seats pointing at two
+        /// windows produce two cursors and two focuses.
+        Window = "window",
+        /// The host desktop, behind a mirrored monitor.
+        ///
+        /// Every host sink shares one cursor and one keyboard focus, because
+        /// the host has one of each. Two seats pointing at two mirrored
+        /// monitors cannot produce two cursors, and `docs/host-desktop.md`
+        /// records why that difference is exposed rather than hidden.
+        Host = "host",
     }
 }
 
@@ -119,64 +108,27 @@ impl Keycode {
     }
 }
 
-/// A keyboard modifier that a seat can hold down.
-///
-/// The order is the XKB modifier index order — shift, lock, control, then
-/// `Mod1` through `Mod5` — because that is the order the masks on the wire are
-/// numbered in, and a reader comparing this against a keymap's modifier list
-/// should not have to reorder it in their head.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum KeyModifier {
-    Shift,
-    CapsLock,
-    Control,
-    Alt,
-    NumLock,
-    Mod3,
-    Logo,
-    Mod5,
+closed_set! {
+    /// A keyboard modifier that a seat can hold down.
+    ///
+    /// The order is the XKB modifier index order — shift, lock, control, then
+    /// `Mod1` through `Mod5` — because that is the order the masks on the wire are
+    /// numbered in, and a reader comparing this against a keymap's modifier list
+    /// should not have to reorder it in their head.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum KeyModifier {
+        Shift = "shift",
+        CapsLock = "capsLock",
+        Control = "control",
+        Alt = "alt",
+        NumLock = "numLock",
+        Mod3 = "mod3",
+        Logo = "logo",
+        Mod5 = "mod5",
+    }
 }
 
 impl KeyModifier {
-    /// Every modifier a keymap can name.
-    pub const ALL: &'static [Self] = &[
-        Self::Shift,
-        Self::CapsLock,
-        Self::Control,
-        Self::Alt,
-        Self::NumLock,
-        Self::Mod3,
-        Self::Logo,
-        Self::Mod5,
-    ];
-
-    /// The name Lua spells this modifier with, and the name it reads back.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Shift => "shift",
-            Self::CapsLock => "capsLock",
-            Self::Control => "control",
-            Self::Alt => "alt",
-            Self::NumLock => "numLock",
-            Self::Mod3 => "mod3",
-            Self::Logo => "logo",
-            Self::Mod5 => "mod5",
-        }
-    }
-
-    /// The modifier a Lua name refers to, rejecting anything else.
-    ///
-    /// `None` rather than a default: `'shft'` is a typo, and a modifier that
-    /// silently does nothing is harder to find than an error.
-    #[must_use]
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|modifier| modifier.as_str() == name)
-    }
-
     /// A modifier that only latches rather than tracking the key.
     ///
     /// A lock is reported to a client in the locked mask and never in the
@@ -185,12 +137,6 @@ impl KeyModifier {
     #[must_use]
     pub const fn is_lock(self) -> bool {
         matches!(self, Self::CapsLock | Self::NumLock)
-    }
-}
-
-impl fmt::Display for KeyModifier {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 

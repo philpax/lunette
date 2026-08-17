@@ -5,7 +5,7 @@
 
 -- A global, not a local: a chunk is evaluated in the main state and cannot
 -- see this file's locals, so anything a chunk should reach is reached this way.
-lunette = require 'lunette'
+lunette = require '@lunette'
 
 answer = 42
 title = 'a terminal'

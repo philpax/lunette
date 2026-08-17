@@ -23,9 +23,24 @@
 -- when that matters, and a panel connecting to something that outlives it is
 -- exactly the case.
 
-local teardown = require 'mullion.teardown'
+local teardown = require '@mullion/teardown'
 
 local signal = {}
+
+-- A handler, parameterised by what it is connected to: `connect` infers it from
+-- the object, so a handler's first parameter is the object's own type and not a
+-- value the checker has stopped looking at.
+type Handler<T> = (object: T, ...any) -> ()
+
+-- A connection: the handler to call, nil once the handler it held weakly has
+-- been collected.
+type Record = {
+  -- The registry spans every object, so what it holds is the erased form.
+  handler: Handler<any>?,
+}
+-- The registry, as `{ [object] = { [name] = { Record, ... } } }`.
+type Records = { Record }
+type ByName = { [string]: Records }
 
 -- Declared here and defined below the public API, so that the file reads
 -- surface-first. `function name()` assigns to the local when one is in scope,
@@ -37,13 +52,13 @@ local newRecord, recordsFor, prune
 -- Weak keys, per the note above. Rebuilt rather than appended to when the
 -- module is loaded, which is what makes a soft reload — which discards the Lua
 -- state and re-runs this file — leave no connections behind.
-local connections = setmetatable({}, { __mode = 'k' })
+local connections: { [unknown]: ByName } = setmetatable({}, { __mode = 'k' })
 
 -- The name a property's change is announced under.
 --
 -- awesome spells it `property::<key>` and configurations written against it
 -- read the same way here, which is worth more than a spelling of lunette's own.
-function signal.propertyName(key)
+function signal.propertyName(key: string): string
   if type(key) ~= 'string' then
     error('mullion.signal: a property is named by a string, not a ' .. type(key), 2)
   end
@@ -59,8 +74,9 @@ end
 -- Connecting the same handler twice connects it twice, and it is then called
 -- twice. That is deliberate: deduplicating would make `disconnect` ambiguous
 -- about which of the two it removed.
-function signal.connect(object, name, handler)
-  local records = recordsFor(object, name, true)
+function signal.connect<T>(object: T, name: string, handler: Handler<T>)
+  -- `create` is true, so the list is guaranteed to exist.
+  local records: Records = assert(recordsFor(object, name, true))
   -- Pruned on every connect, so that a signal connected and dropped
   -- repeatedly does not grow a list of records whose handlers have gone.
   prune(records)
@@ -78,8 +94,9 @@ end
 -- directly into this call is unreachable the moment the call returns and may be
 -- collected before it is ever invoked, so a caller stores it — usually on the
 -- object it belongs to — and passes that.
-function signal.weakConnect(object, name, handler)
-  local records = recordsFor(object, name, true)
+function signal.weakConnect<T>(object: T, name: string, handler: Handler<T>)
+  -- `create` is true, so the list is guaranteed to exist.
+  local records: Records = assert(recordsFor(object, name, true))
   prune(records)
   records[#records + 1] = newRecord(handler, true)
 end
@@ -89,7 +106,7 @@ end
 -- Returns whether one was found. Disconnecting something that was never
 -- connected is not an error: a teardown path that runs after the object has
 -- already dropped its connections should not have to ask first.
-function signal.disconnect(object, name, handler)
+function signal.disconnect<T>(object: T, name: string, handler: Handler<T>): boolean
   local records = recordsFor(object, name, false)
   if not records then
     return false
@@ -105,7 +122,7 @@ function signal.disconnect(object, name, handler)
 end
 
 -- Removes every connection on `object`, on `name` alone when one is given.
-function signal.disconnectAll(object, name)
+function signal.disconnectAll(object: unknown, name: string?)
   local byName = connections[object]
   if not byName then
     return
@@ -128,7 +145,7 @@ end
 -- reporting and continuing is `lovr.errhand`'s job, at the callback boundary,
 -- and doing it here as well would report the same error twice and hide which
 -- handler stopped the emission.
-function signal.emit(object, name, ...)
+function signal.emit(object: unknown, name: string, ...)
   local records = recordsFor(object, name, false)
   if not records then
     return
@@ -138,7 +155,8 @@ function signal.emit(object, name, ...)
   -- runs and iterating the live list would then skip or repeat one. The
   -- snapshot is of this instant: a handler connected during the emission is
   -- not called by it.
-  local handlers, count = {}, 0
+  local handlers: { Handler<any> } = {}
+  local count = 0
   for index = 1, #records do
     local handler = records[index].handler
     if handler then
@@ -158,7 +176,7 @@ end
 -- of the count. Written for the specs and for the reload check
 -- CONTRIBUTING.md's teardown rule asks for, both of which need to assert that
 -- nothing accumulated.
-function signal.connectionCount(object, name)
+function signal.connectionCount(object: unknown, name: string): number
   local records = recordsFor(object, name, false)
   if not records then
     return 0
@@ -175,7 +193,10 @@ end
 --
 -- A value equal to the one already there emits nothing and returns false, so a
 -- setter called every frame with the same number is silent.
-function signal.setProperty(object, key, value)
+-- `object` is `any` rather than a type parameter: this reads and writes
+-- `object[key]` for a key the caller names, which no parameterised shape
+-- describes.
+function signal.setProperty(object: any, key: string, value: any): boolean
   local name = signal.propertyName(key)
   local previous = object[key]
   if previous == value then
@@ -192,7 +213,7 @@ end
 -- Registered below with `mullion.teardown`, so that a soft reload does not
 -- leave the old state's handlers connected to objects the new one is about to
 -- reach.
-function signal.teardown()
+function signal.teardown(): ()
   connections = setmetatable({}, { __mode = 'k' })
 end
 
@@ -203,11 +224,11 @@ end
 -- A weak-valued record rather than the weak-keyed table of handlers awesome
 -- uses, because the records are an ordered list: handlers run in the order they
 -- were connected, and a table keyed by handler has no order to run in.
-function newRecord(handler, weak)
+function newRecord(handler: Handler<any>, weak: boolean): Record
   if type(handler) ~= 'function' then
     error('mullion.signal: a handler is a function, not a ' .. type(handler), 3)
   end
-  local record = { handler = handler }
+  local record: Record = { handler = handler }
   if weak then
     setmetatable(record, { __mode = 'v' })
   end
@@ -215,7 +236,7 @@ function newRecord(handler, weak)
 end
 
 -- The record list for `name` on `object`, creating it when `create` is true.
-function recordsFor(object, name, create)
+function recordsFor(object: unknown, name: string, create: boolean): Records?
   if object == nil then
     error('mullion.signal: a signal is on an object, and nil is not one', 3)
   end
@@ -228,7 +249,7 @@ function recordsFor(object, name, create)
     if not create then
       return nil
     end
-    byName = {}
+    byName = {} :: ByName
     connections[object] = byName
   end
 
@@ -237,7 +258,7 @@ function recordsFor(object, name, create)
     if not create then
       return nil
     end
-    records = {}
+    records = {} :: Records
     byName[name] = records
   end
   return records
@@ -245,7 +266,7 @@ end
 
 -- Drops records whose weakly-held handler has been collected, in place and in
 -- order.
-function prune(records)
+function prune(records: Records)
   local kept = 0
   for index = 1, #records do
     local record = records[index]

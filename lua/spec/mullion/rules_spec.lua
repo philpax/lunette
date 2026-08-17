@@ -10,12 +10,12 @@
 -- `mullion.panel` the module captures is the one holding the fake `lunette`. A
 -- real `lunette.claimLayer` would want a layer pool with no headset behind it.
 
-local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.panel.fixture'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local fixture = require '@spec/mullion/panel/fixture'
+local suite = require '@spec/suite'
 
-local rules = require 'mullion.rules'
-local tag = require 'mullion.tag'
+local rules = require '@mullion/rules'
+local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.rules'
 
@@ -28,6 +28,9 @@ local function newWindow(appId, title)
   window.title = title
   return window
 end
+
+-- The module's own `report`, captured before any case replaces it.
+local defaultReport = rules.report
 
 -- What `rules.report` was told, so that a case can assert a rule was reported
 -- rather than let it print into the run's output.
@@ -362,7 +365,7 @@ end)
 
 spec('placing a window accepts an encoded pose', function()
   reset()
-  local pose = require 'mullion.pose'
+  local pose = require '@mullion/pose'
   rules.setRules {
     { properties = { pose = pose.encode(lovr.math.newMat4():translate(0, 2, -3)) } },
   }
@@ -488,10 +491,10 @@ end)
 
 spec('requiring twice leaves one teardown hook', function()
   reset()
-  local teardown = require 'mullion.teardown'
-  package.loaded['mullion.rules'] = nil
-  local reloaded = require 'mullion.rules'
-  package.loaded['mullion.rules'] = rules
+  local teardown = require '@mullion/teardown'
+  package.loaded['@mullion/rules'] = nil
+  local reloaded = require '@mullion/rules'
+  package.loaded['@mullion/rules'] = rules
 
   local registered = 0
   for _, name in ipairs(teardown.pending()) do
@@ -504,6 +507,30 @@ spec('requiring twice leaves one teardown hook', function()
   -- The second body's `register` replaced the hook with its own sources', so the
   -- first one's is put back: the rest of the suite holds the first module table.
   teardown.register('mullion.rules', rules.teardown)
+end)
+
+spec('the default report logs at the level it is given', function()
+  local logged = {}
+  local previousLog = lovr.log
+  lovr.log = function(message, level, tag)
+    logged[#logged + 1] = { message = message, level = level, tag = tag }
+  end
+
+  -- A rule the configuration wrote that could not be honoured is a warning, and
+  -- that is the default. A tag created on demand is documented behaviour rather
+  -- than a mistake, so it is passed `info` explicitly.
+  local ran, raised = pcall(function()
+    defaultReport 'a rule that could not be honoured'
+    defaultReport('a tag created on demand', 'info')
+  end)
+
+  lovr.log = previousLog
+
+  expect.truthy(ran, 'the default report: ' .. tostring(raised))
+  expect.equal(#logged, 2, 'the log lines')
+  expect.equal(logged[1].level, 'warn', 'the default level')
+  expect.equal(logged[2].level, 'info', 'the level it was given')
+  expect.equal(logged[1].tag, 'mullion.rules', 'the tag')
 end)
 
 return spec

@@ -16,15 +16,15 @@
 -- `lunette` these reach through are the fakes. A real `lunette.windows()` would
 -- want a compositor.
 
-local expect = require 'spec.expect'
-local fixture = require 'spec.mullion.panel.fixture'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local fixture = require '@spec/mullion/panel/fixture'
+local suite = require '@spec/suite'
 
-local adopt = require 'mullion.adopt'
-local interaction = require 'mullion.interaction'
-local pose = require 'mullion.pose'
-local rules = require 'mullion.rules'
-local tag = require 'mullion.tag'
+local adopt = require '@mullion/adopt'
+local interaction = require '@mullion/interaction'
+local pose = require '@mullion/pose'
+local rules = require '@mullion/rules'
+local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.adopt'
 
@@ -148,7 +148,7 @@ spec('a window that opened during the reload is picked up', function()
 
   reload()
   -- The client that connected while the reload was running. The
-  -- `lovr.lunwindowopened` for it went to the state that has gone, so the
+  -- `lunette.onWindowOpened` for it went to the state that has gone, so the
   -- enumeration is the only way this configuration hears about it.
   local second = newWindow 'browser'
 
@@ -204,7 +204,7 @@ spec('the store outranks the rules table and the saved arrangement', function()
 
   expect.equal(table.concat(names, ','), 'mullion.rules,mullion.adopt', 'the source order')
   expect.truthy(
-    adopt.PRECEDENCE > require('mullion.persist').PRECEDENCE,
+    adopt.PRECEDENCE > require('@mullion/persist').PRECEDENCE,
     'the live store should outrank the file the last session wrote'
   )
 end)

@@ -29,17 +29,21 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::{
-    keymap::{KeyStroke, Keymap},
+    keymap::Keymap,
     protocol::{
         Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, Keysym, ModifierState,
         RepeatDelay, RepeatPolicy, RepeatRate, SeatId, SeatSnapshot,
     },
 };
-use mlua::{Lua, Table, UserData, UserDataFields, UserDataMethods, Value};
+use mlua::{Lua, Table, UserDataRef, Value};
 
 use crate::{
-    control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
-    lua::{LuaTexture, Session, Sink, reject_unknown_options},
+    control::wire::HandleKind,
+    lua::{
+        LuaTexture, Session, Sink,
+        declarations::{Options, handle, record},
+        values::StrokeQuery,
+    },
 };
 
 /// One `wl_seat`, as Lua holds it.
@@ -108,109 +112,95 @@ impl<T> Seat<T> {
     }
 }
 
-impl<T: LuaTexture> UserData for Seat<T> {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        // How `lunctl` recognises a handle. A metafield rather than a field,
-        // so it is invisible to `pairs` and to ordinary indexing; the
-        // serialiser reads it off the metatable and refuses any other
-        // userdata, which is how a LÖVR `Texture` comes to be reported rather
-        // than stringified.
-        fields.add_meta_field(HANDLE_METAFIELD, HandleKind::Seat.as_str());
+handle! {
+    /// A seat with its own pointer and keyboard, which is what a client sees as `wl_seat`.
+    Seat<T: LuaTexture> = HandleKind::Seat;
 
-        // The compositor's identifier for this seat.
-        fields.add_field_method_get("id", |_, seat| Ok(seat.id.get()));
+    field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-        // What clients see on `wl_seat.name`, and the only thing on the wire
-        // that tells two seats apart.
-        fields.add_field_method_get("name", |_, seat| {
-            seat.refresh();
-            Ok(seat.name.borrow().clone())
-        });
-
-        fields.add_field_method_get("dead", |_, seat| Ok(!seat.refresh()));
-
-        // Whether this seat's clipboard and primary selection are the host
-        // desktop's. At most one seat's are, because the host has one of each.
-        fields.add_field_method_get("clipboardBridge", |_, seat| {
-            seat.refresh();
-            Ok(seat
-                .known
-                .borrow()
-                .as_ref()
-                .is_some_and(|known| known.clipboard_bridge))
-        });
-
-        // The modifiers this seat is holding, as clients were last told. An
-        // array of names, in the order `KeyModifier` declares them.
-        fields.add_field_method_get("modifiers", |lua, seat| {
-            seat.refresh();
-            modifier_names(lua, &seat.modifiers())
-        });
-
-        // Every layout the seat's keymap carries, as a user would read them:
-        // 'English (US)', not 'us'. What a layout switcher puts on screen.
-        fields.add_field_method_get("layouts", |lua, seat| {
-            let Some(keymap) = seat.keymap() else {
-                return lua.create_table();
-            };
-            let layouts = lua.create_table_with_capacity(keymap.layouts().len(), 0)?;
-            for (index, layout) in (1..).zip(keymap.layouts()) {
-                layouts.set(index, layout.as_str())?;
-            }
-            Ok(layouts)
-        });
+    /// What clients see on `wl_seat.name`, and the only thing on the wire that tells two seats apart.
+    field name(_lua, this) -> String {
+        this.refresh();
+        Ok(this.name.borrow().clone())
     }
 
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("destroy", |_, seat, ()| Ok(destroy(seat)));
+    /// True before the compositor has created the seat as well as after it has been destroyed. The two are indistinguishable from here, and nothing can be delivered to either.
+    field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-        methods.add_method(
-            "setModifiers",
-            |_, seat, names: Option<Table>| -> mlua::Result<bool> {
-                let modifiers = read_modifiers(names.as_ref())?;
-                if !seat.refresh() {
-                    return Ok(false);
-                }
-                seat.session.queue(Command::Modifiers {
-                    seat: seat.id,
-                    modifiers,
-                });
-                Ok(true)
-            },
-        );
+    /// Whether this seat's clipboard and primary selection are the host desktop's. At most one seat's are, because the host has one of each.
+    field clipboardBridge(_lua, this) -> bool {
+        this.refresh();
+        Ok(this
+            .known
+            .borrow()
+            .as_ref()
+            .is_some_and(|known| known.clipboard_bridge))
+    }
 
-        methods.add_method("setFocus", |_, seat, sink: Option<mlua::AnyUserData>| {
-            set_focus(seat, sink.as_ref())
+    /// The modifiers this seat is holding, as clients were last told.
+    field modifiers(_lua, this) -> Vec<String> {
+        this.refresh();
+        Ok(modifier_names(&this.modifiers()))
+    }
+
+    /// Every layout the seat's keymap carries, as a user would read them: 'English (US)', not 'us'.
+    field layouts(_lua, this) -> Vec<String> {
+        let Some(keymap) = this.keymap() else {
+            return Ok(Vec::new());
+        };
+        Ok(keymap
+            .layouts()
+            .iter()
+            .map(|layout| layout.as_str().to_owned())
+            .collect())
+    }
+
+    /// Withdraws the seat's `wl_seat` global. The default seat is refused: every command that names no seat resolves to it.
+    method destroy(_lua, this) -> bool { Ok(destroy(this)) }
+
+    /// Sets which modifiers this seat holds. Clients are told, so a modifier left held stays held.
+    method setModifiers(_lua, this, names: Option<Vec<String>>) -> bool {
+        let modifiers = read_modifiers(names.as_deref())?;
+        if !this.refresh() {
+            return Ok(false);
+        }
+        this.session.queue(Command::Modifiers {
+            seat: this.id,
+            modifiers,
         });
+        Ok(true)
+    }
 
-        methods.add_method("setClipboardBridge", |_, seat, bridged: bool| {
-            Ok(set_clipboard_bridge(seat, bridged))
-        });
+    /// Gives this seat's keyboard to a sink, or takes it away. A host sink is refused: which window holds the host's focus is the host compositor's decision.
+    method setFocus(_lua, this, sink: Option<UserDataRef<Sink<T>>>) -> bool {
+        set_focus(this, sink.as_deref())
+    }
 
-        methods.add_method(
-            "symbolFor",
-            |_, seat, (key, names): (u32, Option<Table>)| -> mlua::Result<Option<u32>> {
-                let modifiers = read_modifiers(names.as_ref())?;
-                Ok(seat
-                    .keymap()
-                    .and_then(|keymap| keymap.symbol(Keycode::from_evdev(key), &modifiers))
-                    .map(Keysym::raw))
-            },
-        );
+    /// Makes this seat's selections the host desktop's, or stops them being. One seat at a time, because the host has one clipboard.
+    method setClipboardBridge(_lua, this, bridged: bool) -> bool {
+        Ok(set_clipboard_bridge(this, bridged))
+    }
 
-        methods.add_method(
-            "characterFor",
-            |_, seat, (key, names): (u32, Option<Table>)| -> mlua::Result<Option<String>> {
-                let modifiers = read_modifiers(names.as_ref())?;
-                Ok(seat
-                    .keymap()
-                    .and_then(|keymap| keymap.character(Keycode::from_evdev(key), &modifiers)))
-            },
-        );
+    /// Which keysym a keycode produces with those modifiers held, under this seat's keymap.
+    method symbolFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<u32> {
+        let modifiers = read_modifiers(names.as_deref())?;
+        Ok(this
+            .keymap()
+            .and_then(|keymap| keymap.symbol(Keycode::from_evdev(key), &modifiers))
+            .map(Keysym::raw))
+    }
 
-        methods.add_method("strokeFor", |lua, seat, wanted: Value| {
-            stroke_for(lua, seat, &wanted)
-        });
+    /// Which character a keycode produces with those modifiers held.
+    method characterFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<String> {
+        let modifiers = read_modifiers(names.as_deref())?;
+        Ok(this
+            .keymap()
+            .and_then(|keymap| keymap.character(Keycode::from_evdev(key), &modifiers)))
+    }
+
+    /// Which key and modifiers produce a character or a keysym. A string is read as the character to type, and a number as a keysym.
+    method strokeFor(_lua, this, wanted: StrokeQuery) -> Option<Stroke> {
+        stroke_for(this, &wanted.0)
     }
 }
 
@@ -228,7 +218,7 @@ impl<T: LuaTexture> UserData for Seat<T> {
 pub(crate) fn new_seat<T: LuaTexture>(
     session: &Rc<Session<T>>,
     name: &str,
-    options: Option<&Table>,
+    options: Option<&Options<NewSeat>>,
 ) -> mlua::Result<Seat<T>> {
     if name.trim().is_empty() {
         return Err(mlua::Error::runtime(
@@ -248,7 +238,7 @@ pub(crate) fn new_seat<T: LuaTexture>(
     }
 
     let keyboard = match options {
-        Some(options) => read_keyboard(options)?,
+        Some(options) => read_keyboard(options.table())?,
         None => KeyboardConfig::default(),
     };
     let id = session
@@ -274,15 +264,16 @@ pub(crate) fn new_seat<T: LuaTexture>(
 /// # Errors
 ///
 /// If the table could not be built.
-pub(crate) fn seats<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Table> {
+pub(crate) fn seats<T: LuaTexture>(
+    _lua: &Lua,
+    session: &Rc<Session<T>>,
+) -> mlua::Result<Vec<Seat<T>>> {
     let snapshot = session.snapshot();
-    let seats = lua.create_table_with_capacity(snapshot.seats.len(), 0)?;
-
-    for (index, seat) in (1..).zip(&snapshot.seats) {
-        seats.set(index, Seat::new(Rc::clone(session), seat))?;
-    }
-
-    Ok(seats)
+    Ok(snapshot
+        .seats
+        .iter()
+        .map(|seat| Seat::new(Rc::clone(session), seat))
+        .collect())
 }
 
 /// `seat:destroy()`: withdraws the seat's `wl_seat` global.
@@ -308,13 +299,9 @@ fn destroy<T>(seat: &Seat<T>) -> bool {
 /// `nil` withdraws focus. A host sink is refused: the host desktop has one
 /// keyboard focus, and which window holds it is the host compositor's decision
 /// rather than lunette's.
-fn set_focus<T: LuaTexture>(
-    seat: &Seat<T>,
-    sink: Option<&mlua::AnyUserData>,
-) -> mlua::Result<bool> {
+fn set_focus<T: LuaTexture>(seat: &Seat<T>, sink: Option<&Sink<T>>) -> mlua::Result<bool> {
     let target = match sink {
         Some(sink) => {
-            let sink = sink.borrow::<Sink<T>>()?;
             match sink.window_id() {
                 Some(id) => Some(id),
                 // A host sink names a monitor rather than a surface, so there
@@ -374,11 +361,7 @@ fn set_clipboard_bridge<T>(seat: &Seat<T>, bridged: bool) -> bool {
 /// A string of more than one character is a caller mistake rather than a race —
 /// a stroke produces one keysym — so it raises. Text is what `sink:typeText`
 /// is for.
-fn stroke_for<T: LuaTexture>(
-    lua: &Lua,
-    seat: &Seat<T>,
-    wanted: &Value,
-) -> mlua::Result<Option<Table>> {
+fn stroke_for<T: LuaTexture>(seat: &Seat<T>, wanted: &Value) -> mlua::Result<Option<Stroke>> {
     let Some(keymap) = seat.keymap() else {
         return Ok(None);
     };
@@ -409,43 +392,44 @@ fn stroke_for<T: LuaTexture>(
         }
     };
 
-    stroke.map(|stroke| describe(lua, &stroke)).transpose()
+    Ok(stroke.map(|stroke| Stroke {
+        keycode: stroke.key.evdev(),
+        modifiers: modifier_names(&stroke.modifiers),
+    }))
 }
 
-/// A stroke as the table Lua reads: the keycode to send and the modifiers to
-/// hold with it.
-fn describe(lua: &Lua, stroke: &KeyStroke) -> mlua::Result<Table> {
-    let table = lua.create_table_with_capacity(0, 2)?;
-    table.set("keycode", stroke.key.evdev())?;
-    table.set("modifiers", modifier_names(lua, &stroke.modifiers)?)?;
-    Ok(table)
+record! {
+    /// A key and the modifiers to hold with it, which together produce one keysym.
+    struct Stroke {
+        /// The evdev keycode `sink:key` takes.
+        keycode: u32,
+        modifiers: Vec<String>,
+    }
 }
 
 /// A modifier set as the array of names Lua reads and writes.
-fn modifier_names(lua: &Lua, modifiers: &ModifierState) -> mlua::Result<Table> {
-    let names = lua.create_table_with_capacity(modifiers.len(), 0)?;
-    for (index, modifier) in (1..).zip(modifiers) {
-        names.set(index, modifier.as_str())?;
-    }
-    Ok(names)
+fn modifier_names(modifiers: &ModifierState) -> Vec<String> {
+    modifiers
+        .into_iter()
+        .map(|modifier| modifier.as_str().to_owned())
+        .collect()
 }
 
 /// The modifier set an array of names describes.
 ///
 /// An unrecognised name raises rather than being skipped: `'shft'` is a typo,
 /// and a modifier that silently does nothing is harder to find than an error.
-pub(crate) fn read_modifiers(names: Option<&Table>) -> mlua::Result<ModifierState> {
+pub(crate) fn read_modifiers(names: Option<&[String]>) -> mlua::Result<ModifierState> {
     let Some(names) = names else {
         return Ok(ModifierState::new());
     };
 
     let mut modifiers = ModifierState::new();
-    for name in names.sequence_values::<mlua::LuaString>() {
-        let name = name?;
-        let name = name.to_string_lossy();
-        let modifier = KeyModifier::from_name(&name).ok_or_else(|| {
+    for name in names {
+        let modifier = KeyModifier::from_name(name).ok_or_else(|| {
             mlua::Error::runtime(format!(
-                "lunette: '{name}' is not a modifier; the modifiers are {MODIFIER_NAMES}"
+                "lunette: '{name}' is not a modifier; the modifiers are {}",
+                KeyModifier::NAMES.join(", ")
             ))
         })?;
         modifiers.insert(modifier);
@@ -454,14 +438,8 @@ pub(crate) fn read_modifiers(names: Option<&Table>) -> mlua::Result<ModifierStat
     Ok(modifiers)
 }
 
-/// The modifiers [`read_modifiers`] accepts, for the error message that lists
-/// them.
-const MODIFIER_NAMES: &str = "shift, capsLock, control, alt, numLock, mod3, logo, mod5";
-
 /// The keyboard a `lunette.newSeat` option table describes.
 fn read_keyboard(options: &Table) -> mlua::Result<KeyboardConfig> {
-    reject_unknown_options(options, SEAT_OPTIONS)?;
-
     Ok(KeyboardConfig {
         keymap: KeymapConfig {
             rules: options.get("rules")?,
@@ -481,17 +459,15 @@ fn read_keyboard(options: &Table) -> mlua::Result<KeyboardConfig> {
     })
 }
 
-/// The options `lunette.newSeat` accepts.
-///
-/// The first five are the RMLVO names libxkbcommon compiles a layout from, and
-/// an absent one takes the system default — which is what a user who has
-/// configured a layout for their desktop expects lunette to inherit.
-const SEAT_OPTIONS: &[&str] = &[
-    "rules",
-    "model",
-    "layout",
-    "variant",
-    "options",
-    "repeatDelay",
-    "repeatRate",
-];
+record! {
+    /// What `lunette.newSeat` takes. The first five are the RMLVO names libxkbcommon compiles a layout from, and an absent one takes the system default.
+    options NewSeat as SeatOptions {
+        rules: Option<String>,
+        model: Option<String>,
+        layout: Option<String>,
+        variant: Option<String>,
+        options: Option<String>,
+        repeatDelay: Option<u32>,
+        repeatRate: Option<u32>,
+    }
+}

@@ -1,10 +1,10 @@
 -- Covers lua/mullion/error.lua.
 
-local expect = require 'spec.expect'
-local suite = require 'spec.suite'
+local expect = require '@spec/expect'
+local suite = require '@spec/suite'
 
-local errors = require 'mullion.error'
-local teardown = require 'mullion.teardown'
+local errors = require '@mullion/error'
+local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.error'
 
@@ -44,8 +44,8 @@ spec('reports the first occurrence of an error', function()
 
   expect.truthy(errors.handle('it broke', 'a traceback', 0), 'handle')
   expect.equal(#reports, 1, 'report count')
-  expect.truthy(reports[1]:find('it broke'), 'the message')
-  expect.truthy(reports[1]:find('a traceback'), 'the traceback')
+  expect.truthy(reports[1]:find 'it broke', 'the message')
+  expect.truthy(reports[1]:find 'a traceback', 'the traceback')
 end)
 
 spec('suppresses identical errors within the window', function()
@@ -68,7 +68,7 @@ spec('reports a count when the window has elapsed', function()
   expect.truthy(errors.handle('it broke', 'a traceback', errors.WINDOW), 'the occurrence after the window')
 
   expect.equal(#reports, 2, 'report count')
-  expect.truthy(reports[2]:find('2 identical errors were suppressed'), 'the count: ' .. reports[2])
+  expect.truthy(reports[2]:find '2 identical errors were suppressed', 'the count: ' .. reports[2])
 end)
 
 spec('a single suppressed error is counted in the singular', function()
@@ -78,7 +78,7 @@ spec('a single suppressed error is counted in the singular', function()
   errors.handle('it broke', 'a traceback', 1)
   errors.handle('it broke', 'a traceback', errors.WINDOW)
 
-  expect.truthy(reports[2]:find('1 identical error was suppressed'), 'the count: ' .. reports[2])
+  expect.truthy(reports[2]:find '1 identical error was suppressed', 'the count: ' .. reports[2])
 end)
 
 spec('a report with nothing suppressed says nothing about suppression', function()
@@ -87,7 +87,7 @@ spec('a report with nothing suppressed says nothing about suppression', function
   errors.handle('it broke', 'a traceback', 0)
   errors.handle('it broke', 'a traceback', errors.WINDOW)
 
-  expect.falsy(reports[2]:find('suppressed'), 'the second report')
+  expect.falsy(reports[2]:find 'suppressed', 'the second report')
 end)
 
 spec('does not conflate distinct messages', function()
@@ -147,37 +147,6 @@ spec('the limiter rejects a time that is not a number', function()
   expect.raises(function()
     limiter:record('a', 'now')
   end, 'told the time', 'record')
-end)
-
-spec("hands a reported error to the configuration's lovr.lunerror", function()
-  fresh()
-  local seen = {}
-  local previous = lovr.lunerror
-
-  lovr.lunerror = function(event)
-    seen[#seen + 1] = event
-  end
-  errors.handle('it broke', 'a traceback', 0)
-  errors.handle('it broke', 'a traceback', 1)
-  lovr.lunerror = previous
-
-  expect.equal(#seen, 1, 'lunerror call count')
-  expect.equal(seen[1].message, 'it broke', 'the message')
-  expect.equal(seen[1].traceback, 'a traceback', 'the traceback')
-end)
-
-spec('a lovr.lunerror that raises does not take the report with it', function()
-  local reports = fresh()
-  local previous = lovr.lunerror
-
-  lovr.lunerror = function()
-    error('the handler said no')
-  end
-  local reported = errors.handle('it broke', 'a traceback', 0)
-  lovr.lunerror = previous
-
-  expect.truthy(reported, 'handle')
-  expect.equal(#reports, 1, 'report count')
 end)
 
 spec('install replaces lovr.errhand and uninstall puts it back', function()
@@ -280,7 +249,7 @@ spec('uninstall forgets what was rate-limited', function()
 end)
 
 spec('requiring twice returns the same module', function()
-  expect.equal(require 'mullion.error', errors, 'the module')
+  expect.equal(require '@mullion/error', errors, 'the module')
 end)
 
 return spec

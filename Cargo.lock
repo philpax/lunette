@@ -96,6 +96,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ariadne"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8454c8a44ce2cb9cc7e7fae67fc6128465b343b92c6631e94beca3c8d1524ea5"
+dependencies = [
+ "unicode-width",
+ "yansi",
+]
+
+[[package]]
 name = "ash"
 version = "0.38.0+1.3.281"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -214,6 +224,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex 2.0.1",
 ]
 
@@ -569,6 +581,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -648,15 +670,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "luau0-src"
+version = "0.20.7+luau728"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aa644236297645ba62215330b2a2d60cf7ee6263c33578baf8e54662868ed59"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "lunette"
 version = "0.1.0"
 dependencies = [
+ "ariadne",
  "ash",
  "clap",
  "libc",
  "lunette-capture",
  "lunette-compositor",
  "lunette-lovr",
+ "lunette-luau",
  "mlua",
  "mlua-sys",
  "parking_lot",
@@ -672,6 +705,7 @@ name = "lunette-capture"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "lunette-luau",
  "parking_lot",
  "pretty_assertions",
  "serde",
@@ -693,6 +727,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "lunette-compositor",
+ "lunette-luau",
  "pretty_assertions",
  "smallvec",
  "smithay",
@@ -705,11 +740,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "lunette-generate-definitions"
+version = "0.1.0"
+dependencies = [
+ "lunette",
+ "lunette-lovr",
+ "mlua",
+ "mlua-sys",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lunette-lovr"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "cc",
  "cmake",
+ "tempfile",
+]
+
+[[package]]
+name = "lunette-luau"
+version = "0.1.0"
+dependencies = [
+ "mlua",
 ]
 
 [[package]]
@@ -745,8 +801,6 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 [[package]]
 name = "mlua"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad72ffa037cf5970c9860674f32f703fda25d86cf217475fe7a79c5f9961bcaa"
 dependencies = [
  "bstr",
  "either",
@@ -760,12 +814,11 @@ dependencies = [
 [[package]]
 name = "mlua-sys"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92136787b906d4e55cfe96cd6c62e010bb1a56889d0d6cf83eb016dbad07576b"
 dependencies = [
  "cc",
  "cfg-if",
  "libc",
+ "luau0-src",
  "pkg-config",
 ]
 

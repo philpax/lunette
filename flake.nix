@@ -72,6 +72,9 @@
               # stable compiler and `cargo +nightly` only works through rustup's
               # proxies.
               rustup
+
+              # Formats the Luau tree, as `make check` requires.
+              stylua
             ];
 
             buildInputs = with pkgs; [

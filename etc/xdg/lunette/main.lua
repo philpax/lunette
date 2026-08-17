@@ -12,30 +12,31 @@
 --
 -- Everything here is policy. `lunette` is the mechanism underneath, `mullion` is
 -- policy written in Lua on top of it, and this file is one arrangement of that
--- policy — copy it to $XDG_CONFIG_HOME/lunette and change whatever you like. A
--- configuration that never mentions `mullion` is supported too; nothing in the
--- loading path assumes this one does.
+-- policy — `lunette --dump-config` copies it to $XDG_CONFIG_HOME/lunette, where
+-- you can change whatever you like. A configuration that never mentions
+-- `mullion` is supported too; nothing in the loading path assumes this one
+-- does.
 --
 -- Anything this does not draw stays transparent, because conf.lua requests the
 -- overlay extension, so lunette composites over whatever holds the primary
 -- session.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
-local adopt = require 'mullion.adopt'
-local arc = require 'mullion.layout.arc'
-local errors = require 'mullion.error'
-local errorPanel = require 'mullion.error.panel'
-local interaction = require 'mullion.interaction'
-local keyboardModule = require 'mullion.keyboard'
-local keycodes = require 'mullion.keycodes'
-local laser = require 'mullion.laser'
-local panel = require 'mullion.panel'
-local raycast = require 'mullion.panel.raycast'
-local persist = require 'mullion.persist'
-local rules = require 'mullion.rules'
-local signal = require 'mullion.signal'
-local tag = require 'mullion.tag'
+local adopt = require '@mullion/adopt'
+local arc = require '@mullion/layout/arc'
+local errors = require '@mullion/error'
+local errorPanel = require '@mullion/error/panel'
+local interaction = require '@mullion/interaction'
+local keyboardModule = require '@mullion/keyboard'
+local keycodes = require '@mullion/keycodes'
+local laser = require '@mullion/laser'
+local panel = require '@mullion/panel'
+local raycast = require '@mullion/panel/raycast'
+local persist = require '@mullion/persist'
+local rules = require '@mullion/rules'
+local signal = require '@mullion/signal'
+local tag = require '@mullion/tag'
 
 -- The one tag this session shows. Tags are a set, and a configuration wanting
 -- workspaces declares several and switches between them with `tag.only`.
@@ -67,7 +68,7 @@ local NAMED_KEYS = {
 
 -- Modifiers a chord may carry, as the desktop names them against the names
 -- `sink:modifiers` takes.
-local MODIFIER_KEYS = {
+local MODIFIER_KEYS: { { names: { KeyCode }, modifier: string } } = {
   { names = { 'lctrl', 'rctrl' }, modifier = 'control' },
   { names = { 'lalt', 'ralt' }, modifier = 'alt' },
   { names = { 'lgui', 'rgui' }, modifier = 'logo' },
@@ -104,7 +105,7 @@ local WRIST = {
 
 -- The keyboard the wrist button shows, created on first use so a session that
 -- never asks for one never builds it.
-local virtualKeyboard
+local virtualKeyboard: keyboardModule.Keyboard
 
 -- Where the "no windows yet" note is drawn, in metres, and how tall it is.
 local NOTE_X, NOTE_Y, NOTE_Z = 0, 1.5, -1.5
@@ -121,8 +122,7 @@ local NOTE_HEIGHT = 0.08
 --   WAYLAND_DISPLAY=wayland-20 foot
 --
 -- lunette logs the display name it bound as it starts.
-local DEMONSTRATION_TERMINALS =
-  { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
+local DEMONSTRATION_TERMINALS = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
 
 -- The tag every panel joins, and the panels no source gave a pose for.
 --
@@ -130,7 +130,7 @@ local DEMONSTRATION_TERMINALS =
 -- pose, keeps that pose; the arc arranges what is left around it. Rebuilt in
 -- `lovr.load`, so a soft reload starts from the tags and panels the new state
 -- makes rather than from the old one's.
-local workspace = nil
+local workspace: tag.Tag? = nil
 local unplaced = {}
 
 -- Whether this session has already tried to open its demonstration terminal.
@@ -141,10 +141,11 @@ local unplaced = {}
 -- and the session would open another terminal each time the user pressed F5.
 -- Asking whether any panels exist instead answers the wrong question: a user who
 -- closed every window and then reloaded would get a fresh one.
-lunetteDemonstrationSpawned = lunetteDemonstrationSpawned or false
+-- Written through `_G` so the assignment is visible to the checker.
+_G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
 
 -- Which terminal candidate is being tried, and the handle it was tried with. A
--- spawn that never started arrives as lovr.lunprocessexited with an outcome of
+-- spawn that never started arrives through lunette.onProcessExited with an outcome of
 -- 'spawnFailed', and that is the only report a missing program produces, so the
 -- fallback is driven from there rather than from anything checkable up front.
 local attempt = 0
@@ -155,7 +156,7 @@ local function spawnNextTerminal()
   local program = DEMONSTRATION_TERMINALS[attempt]
   if not program then
     attempted = nil
-    print('lunette: no terminal emulator was found; start a client yourself with WAYLAND_DISPLAY')
+    print 'lunette: no terminal emulator was found; start a client yourself with WAYLAND_DISPLAY'
     return
   end
 
@@ -174,7 +175,7 @@ end
 
 -- Makes the panel for a window and files it under whichever source placed it.
 --
--- Shared by `lovr.lunwindowopened` and the adoption below, because a window that
+-- Shared by the window-opened subscription and the adoption below, because a window that
 -- was already open when this file ran and one that opens a moment later should
 -- end up in the same place. A reload is what makes the two happen in one
 -- session.
@@ -256,7 +257,7 @@ function lovr.load()
   laser.attach()
 
   -- After the sources are installed, and after a reload the only way this file
-  -- hears about the windows that are still open: `lovr.lunwindowopened` was
+  -- hears about the windows that are still open: the subscription was
   -- delivered to the state that has gone. On the first run of a session there is
   -- nothing to adopt yet, and this does nothing.
   for _, window in ipairs(adopt.windows()) do
@@ -267,24 +268,24 @@ function lovr.load()
   -- Once per session, and not once per `lovr.load`. A reload runs this callback
   -- again, and one that opened another terminal each time would fill the room by
   -- the third edit.
-  if not lunetteDemonstrationSpawned then
-    lunetteDemonstrationSpawned = true
+  if not _G.lunetteDemonstrationSpawned then
+    _G.lunetteDemonstrationSpawned = true
     spawnNextTerminal()
   end
 end
 
-function lovr.lunwindowopened(event)
+lunette.onWindowOpened(function(event)
   place(event.window)
   arrange()
-end
+end)
 
-function lovr.lunwindowclosed()
+lunette.onWindowClosed(function()
   -- The panel over a window that has gone destroys itself on the next update;
   -- this is what closes the gap it left in the arc.
   arrange()
-end
+end)
 
-function lovr.lunprocessexited(event)
+lunette.onProcessExited(function(event)
   if not attempted or event.process.id ~= attempted.id then
     return
   end
@@ -295,7 +296,7 @@ function lovr.lunprocessexited(event)
   else
     attempted = nil
   end
-end
+end)
 
 -- The modifiers held on the desktop keyboard right now, as `sink:modifiers`
 -- names them. Shift is deliberately absent: a shifted character arrives through
@@ -316,7 +317,7 @@ end
 
 -- Presses and releases one keycode on whatever holds focus, with `modifiers`
 -- held for the duration and cleared afterwards.
-local function stroke(keycode, modifiers)
+local function stroke(keycode: number, modifiers: { string }): boolean
   local seat, sink = interaction.focused()
   if not seat or not sink then
     return false
@@ -343,7 +344,7 @@ end
 -- A character the seat's layout cannot express is dropped. `sink:typeText` is
 -- what that case is for, and it may not be interleaved with `sink:key` on the
 -- same seat, so it is not reached from here.
-function lovr.textinput(text)
+function lovr.textinput(text: string, _code: number)
   local seat, sink = interaction.focused()
   if not seat or not sink then
     return
@@ -355,7 +356,7 @@ function lovr.textinput(text)
     return
   end
 
-  for character in text:gmatch('.') do
+  for character in text:gmatch '.' do
     local found = seat:strokeFor(character)
     if found then
       stroke(found.keycode, found.modifiers or {})
@@ -365,26 +366,36 @@ end
 
 -- Puts the keyboard where it can be typed on: ahead of the head and below the
 -- line of sight, upright, facing the user.
-local function placeKeyboard(target)
-  local hx, hy, hz, angle, ax, ay, az = lovr.headset.getPose('head')
-  local forward = lovr.math.quat(angle, ax, ay, az):direction()
+local function placeKeyboard(target: keyboardModule.Keyboard)
+  local hx, hy, hz = lovr.headset.getPosition 'head'
+  local forwardX, _, forwardZ = lovr.headset.getDirection 'head'
 
-  local flat = lovr.math.vec3(forward.x, 0, forward.z)
+  local flat = vector.pack(forwardX, 0, forwardZ)
   if flat:length() < 0.001 then
-    flat:set(0, 0, -1)
+    flat = vector.pack(0, 0, -1)
   end
   flat:normalize()
 
-  target:setPose(lovr.math.mat4()
-    :translate(
-      hx + flat.x * WRIST.keyboardDistance,
-      hy - WRIST.keyboardDrop,
-      hz + flat.z * WRIST.keyboardDistance
-    )
-    :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
-    -- Tilted back, so it faces a head looking down at it rather than straight
-    -- ahead past it.
-    :rotate(-math.pi / 6, 1, 0, 0))
+  local setPose = target.setPose
+  if not setPose then
+    return
+  end
+  setPose(
+    target,
+    lovr
+      .math
+      .newMat4()
+      :translate(hx + flat.x * WRIST.keyboardDistance, hy - WRIST.keyboardDrop, hz + flat.z * WRIST.keyboardDistance)
+      :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
+      -- Tilted back, so it faces a head looking down at it rather than straight
+      -- ahead past it.
+      :rotate(
+        -math.pi / 6,
+        1,
+        0,
+        0
+      )
+  )
 end
 
 -- Shows the keyboard, or hides it if it is already up.
@@ -409,40 +420,65 @@ end
 -- It rides a hand, so its pose is recomputed every frame rather than stored.
 -- Everything else about it is the surface contract `mullion.interaction` picks
 -- against: a raycast, what a press does, and a refusal to be picked up.
-local wristButton = {
-  width = WRIST.size,
-  height = WRIST.size,
-  -- Built on first use, and nothing before it. A configuration is loaded before
-  -- the modules it will draw with exist, so a table built at load time cannot
-  -- reach for `lovr.math` any more than it can for `lovr.graphics`.
-  pose = nil,
-  -- A button that could be dragged off the wrist is one the user has to put
-  -- back. WayVR's watch declines for the same reason.
-  grabbable = false,
-  tracked = false,
+type WristButton = {
+  width: number,
+  height: number,
+  pose: Mat4?,
+  grabbable: boolean,
+  tracked: boolean,
+  dead: boolean,
+  follow: (WristButton) -> boolean,
+  -- `any` where `mullion`'s own surfaces name the contract's receiver: the
+  -- methods below are assigned straight onto this table, so the annotation has
+  -- to be the type whose fields their bodies read.
+  raycast: (any, vector, vector, boolean?) -> (number?, number?, number?),
+  onPress: (any, number?, number?, unknown?) -> (),
 }
 
+local wristButton = (
+  {
+    width = WRIST.size,
+    height = WRIST.size,
+    -- Built on first use, and nothing before it. A configuration is loaded before
+    -- the modules it will draw with exist, so a table built at load time cannot
+    -- reach for `lovr.math` any more than it can for `lovr.graphics`.
+    pose = nil,
+    -- A button that could be dragged off the wrist is one the user has to put
+    -- back. WayVR's watch declines for the same reason.
+    grabbable = false,
+    tracked = false,
+    dead = false,
+  }
+) :: WristButton
+
 -- Moves the button to where the wrist is, and says whether it is there at all.
-function wristButton:follow()
+function wristButton.follow(self: WristButton)
   self.tracked = lovr.headset.isTracked(WRIST.hand)
   if not self.tracked then
     return false
   end
 
-  self.pose = self.pose or lovr.math.newMat4()
-  self.pose:set(lovr.headset.getPose(WRIST.hand))
-  self.pose:translate(WRIST.offsetX, WRIST.offsetY, WRIST.offsetZ)
-  self.pose:rotate(WRIST.turn, WRIST.axisX, WRIST.axisY, WRIST.axisZ)
+  local pose = self.pose or lovr.math.newMat4()
+  local mx, my, mz, qx, qy, qz, qw = lovr.headset.getPose(WRIST.hand)
+  local tmp = lovr.math.newMat4(mx, my, mz, qx, qy, qz, qw)
+  pose:set(tmp)
+  pose:translate(WRIST.offsetX, WRIST.offsetY, WRIST.offsetZ)
+  pose:rotate(WRIST.turn, WRIST.axisX, WRIST.axisY, WRIST.axisZ)
+  self.pose = pose
   return true
 end
 
-function wristButton:raycast(origin, direction)
+function wristButton.raycast(self: WristButton, origin: vector, direction: vector)
   if not self.tracked then
-    return nil
+    local x: number? = nil
+    local y: number? = nil
+    local z: number? = nil
+    return x, y, z
   end
 
+  local pose = self.pose or lovr.math.newMat4()
   return raycast.hit({
-    pose = self.pose,
+    pose = pose,
     width = self.width,
     height = self.height,
     -- The raycast answers a coordinate this surface has no use for, and refuses
@@ -456,33 +492,42 @@ function wristButton:raycast(origin, direction)
   }, origin, direction)
 end
 
-function wristButton:onPress()
+function wristButton.onPress(self: WristButton, _x: number?, _y: number?, _pointer: unknown?)
   toggleKeyboard()
-  lovr.headset.vibrate(WRIST.hand, 0.3, 0.05)
+  lovr.headset.vibrate(WRIST.hand, 0.3, 0.05, 0)
 end
 
 -- Draws the wrist button, so there is something to aim at.
-local function drawWrist(pass)
+local function drawWrist(pass: Pass)
   if not wristButton.tracked then
     return
   end
 
   local showing = virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead
   if showing then
-    pass:setColor(0.35, 0.75, 0.45)
+    pass:setColor(0.35, 0.75, 0.45, 1)
   else
-    pass:setColor(0.2, 0.2, 0.24)
+    pass:setColor(0.2, 0.2, 0.24, 1)
   end
-  pass:plane(
-    lovr.math.mat4(wristButton.pose):scale(wristButton.width, wristButton.height, 1)
-  )
+  local buttonPose: Mat4? = wristButton.pose
+  if not buttonPose then
+    return
+  end
+  pass:plane(lovr.math.mat4(buttonPose):scale(wristButton.width, wristButton.height, 1), 'fill', 1, 1)
 
   -- In front of the face rather than on it. Text at the same depth as the quad
   -- fights it for the depth buffer and flickers as the hand moves.
-  pass:setColor(1, 1, 1)
+  pass:setColor(1, 1, 1, 1)
+  local textPose: Mat4? = wristButton.pose
+  if not textPose then
+    return
+  end
   pass:text(
     'kbd',
-    lovr.math.mat4(wristButton.pose):translate(0, 0, 0.002):scale(wristButton.width * 0.35)
+    lovr.math.mat4(textPose):translate(0, 0, 0.002):scale(vector.pack(wristButton.width * 0.35)),
+    0,
+    'center',
+    'middle'
   )
 end
 
@@ -491,21 +536,36 @@ end
 --
 -- The pointer picks the nearest and routes to it. Nothing here raycasts, which
 -- is what keeps one raycaster rather than several that have to agree.
-local function surfaces()
-  local list = {}
-  for _, existing in ipairs(workspace and workspace:panels() or {}) do
-    list[#list + 1] = existing
+local function surfaces(): { interaction.Surface }
+  local list: { interaction.Surface } = {}
+  -- Appended through a function rather than written into the list directly:
+  -- writing through an index checks against the element type exactly, where a
+  -- parameter checks that the argument satisfies the contract, which is the
+  -- question being asked.
+  local function add(surface: interaction.Surface)
+    list[#list + 1] = surface
   end
-  if wristButton:follow() then
-    list[#list + 1] = wristButton
+
+  -- Walked from the panels rather than from the tag's members, because a tag
+  -- holds anything with a pose and this needs what a pointer can hit. The
+  -- membership test is the same question asked the other way round.
+  if workspace then
+    for _, existing in ipairs(panel.all()) do
+      if workspace:has(existing) then
+        add(existing)
+      end
+    end
+  end
+  if wristButton and wristButton.follow(wristButton) then
+    add(wristButton)
   end
   if virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead then
-    list[#list + 1] = virtualKeyboard
+    add(virtualKeyboard)
   end
   return list
 end
 
-function lovr.keypressed(key)
+function lovr.keypressed(key: KeyCode, _scancode: number, _isrepeat: boolean)
   if key ~= RELOAD_KEY then
     local named = NAMED_KEYS[key]
     if named then
@@ -535,12 +595,12 @@ function lovr.keypressed(key)
   end
 end
 
-function lovr.update()
+function lovr.update(_dt: number)
   panel.update()
   laser.update(surfaces())
 end
 
-function lovr.draw(pass)
+function lovr.draw(pass: Pass): boolean
   panel.draw(pass)
   drawWrist(pass)
   keyboardModule.draw(pass)
@@ -549,13 +609,28 @@ function lovr.draw(pass)
   laser.draw(pass)
 
   if #panel.all() == 0 then
-    pass:text('lunette: no windows yet', NOTE_X, NOTE_Y, NOTE_Z, NOTE_HEIGHT)
+    -- The height rides in the transform. `Pass:text` reads the argument after a
+    -- `Mat4` as the wrap width, so a scale passed there would set the wrap
+    -- instead and leave the text at its full size.
+    pass:text(
+      'lunette: no windows yet',
+      lovr.math.mat4():translate(NOTE_X, NOTE_Y, NOTE_Z):scale(NOTE_HEIGHT),
+      0,
+      'center',
+      'middle'
+    )
   end
 
   -- Last, so it is drawn over whatever it is in front of.
   errorPanel.draw(pass)
+  -- False, not true: a truthy return tells boot.lua the callback submitted the
+  -- pass itself, and the frame is then never presented.
+  return false
 end
 
-function lovr.quit()
+function lovr.quit(): boolean
   saveArrangement()
+  -- False, not true: a truthy return vetoes the quit, and the session cannot
+  -- then be closed.
+  return false
 end

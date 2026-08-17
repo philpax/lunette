@@ -220,7 +220,7 @@ mod tests {
 
     impl Fake {
         fn new() -> Self {
-            let lua = Lua::new();
+            let lua = crate::test_lua::session_lua();
             lua.load(
                 r"
                 lovr = { graphics = { submits = 0 } }
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn a_state_without_lovr_is_left_alone() {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         lua.load("package.preload['lovr.headset'] = nil")
             .exec()
             .expect("the state loads");

@@ -1,6 +1,8 @@
 //! The wire format's own cases: what round-trips, and what a hostile or
 //! mismatched frame is answered with.
 
+use std::collections::HashSet;
+
 use pretty_assertions::assert_eq;
 
 use super::*;
@@ -81,19 +83,16 @@ fn a_handle_round_trips_by_kind_and_id() {
 
 #[test]
 fn every_handle_kind_has_a_distinct_tag_and_name() {
-    let kinds = [
-        HandleKind::Window,
-        HandleKind::Monitor,
-        HandleKind::Process,
-        HandleKind::Seat,
-        HandleKind::Sink,
-        HandleKind::Claim,
-    ];
-    for kind in kinds {
+    for &kind in HandleKind::ALL {
         assert_eq!(HandleKind::from_tag(kind.tag()), Some(kind));
-        assert_eq!(HandleKind::named(kind.as_str()), Some(kind));
+        assert_eq!(HandleKind::from_name(kind.as_str()), Some(kind));
     }
-    assert_eq!(HandleKind::named("texture"), None);
+
+    let tags: HashSet<u8> = HandleKind::ALL.iter().map(|kind| kind.tag()).collect();
+    assert_eq!(tags.len(), HandleKind::ALL.len(), "two kinds share a tag");
+    let names: HashSet<&str> = HandleKind::NAMES.iter().copied().collect();
+    assert_eq!(names.len(), HandleKind::ALL.len(), "two kinds share a name");
+    assert_eq!(HandleKind::from_name("texture"), None);
 }
 
 #[test]

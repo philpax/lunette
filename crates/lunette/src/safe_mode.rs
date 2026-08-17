@@ -28,7 +28,7 @@
 //! other callback. That is the right answer rather than an accident: `lovr.load`
 //! is where a configuration builds the state its later callbacks assume, and a
 //! session whose `lovr.load` raised halfway is not one those callbacks can run
-//! in. `docs/decisions.md` records it.
+//! in. `docs/lua-api.md` records it.
 //!
 //! Everything after `lovr.load` — `lovr.update`, `lovr.draw`, and the `lun*`
 //! callbacks — happens once the frame loop has been returned, so the wrapper
@@ -186,7 +186,7 @@ mod tests {
         return self.texture
       end
 
-      package.preload.lunette = function()
+      package.preload['@lunette'] = function()
         return {
           windows = function()
             return recorded.showWindow and { recorded.window } or {}
@@ -256,7 +256,7 @@ mod tests {
 
     /// A state carrying the fakes, with the recorder in the global `recorded`.
     fn environment() -> Lua {
-        let lua = Lua::new();
+        let lua = crate::test_lua::session_lua();
         let recorded: Table = lua
             .load(ENVIRONMENT)
             .set_name("environment")
@@ -364,7 +364,7 @@ mod tests {
         added.sort();
         assert_eq!(
             added,
-            vec!["lunette".to_owned()],
+            vec!["@lunette".to_owned()],
             "safe mode should require lunette and nothing else"
         );
     }

@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# The `closed_set!` macro, for the connector kinds the kernel names.
+lunette-luau.workspace = true
 # The uinput device: the `input_event` and `uinput_setup` structures, plus
 # `ioctl`, `write`, and `memfd_create`. The ioctl request numbers and the
 # event-type constants are not in `libc` and are written out in

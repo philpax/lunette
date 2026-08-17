@@ -3,7 +3,7 @@
 -- A soft reload discards the configuration's modules and callbacks and runs
 -- `main.lua` again (docs/lua-api.md#reload). The compositor, the clients, and
 -- their windows are untouched by that — which is the point — but the new Lua
--- state knows nothing about them, and `lovr.lunwindowopened` has already been
+-- state knows nothing about them, and `lunette.onWindowOpened` has already been
 -- and gone for every one. So a configuration that only ever placed windows from
 -- that callback comes back from a reload showing nothing at all.
 --
@@ -38,11 +38,11 @@
 -- behind and no teardown hook to register. The source it installs is
 -- `mullion.rules`'s to discard, and that module's hook does.
 
-local lunette = require 'lunette'
+local lunette = require '@lunette'
 
-local interaction = require 'mullion.interaction'
-local panel = require 'mullion.panel'
-local rules = require 'mullion.rules'
+local interaction = require '@mullion/interaction'
+local panel = require '@mullion/panel'
+local rules = require '@mullion/rules'
 
 local adopt = {}
 
@@ -62,13 +62,18 @@ adopt.PRECEDENCE = 300
 -- The pose stays the string `mullion.pose` wrote, which is what the store holds
 -- and what `mullion.rules` decodes. Handing it through unchanged keeps one
 -- encoding rather than two.
-function adopt.properties(window)
-  if type(window) ~= 'table' and type(window) ~= 'userdata' then
-    error('mullion.adopt: a window carries the properties, and a ' .. type(window) .. ' does not', 2)
+function adopt.properties(window: lunette.Window): rules.Resolved?
+  -- Through a local, so that the test does not narrow `window` itself: a
+  -- handle is userdata, and refining on that loses the fields it carries.
+  local kind = type(window)
+  if kind ~= 'table' and kind ~= 'userdata' then
+    error('mullion.adopt: a window carries the properties, and a ' .. kind .. ' does not', 2)
   end
 
+  -- The store holds booleans and numbers too, and a pose written by anything
+  -- but `mullion.pose` is not one this can hand on: `rules` decodes a string.
   local kept = window:getProperty(interaction.POSE_PROPERTY)
-  if kept == nil then
+  if type(kept) ~= 'string' then
     return nil
   end
   return { pose = kept }
@@ -88,7 +93,7 @@ end
 -- `precedence` defaults to `adopt.PRECEDENCE`. Passing a lower one is how a
 -- configuration says that its rules should beat what the user last dragged the
 -- window to.
-function adopt.install(precedence)
+function adopt.install(precedence: number?)
   rules.addSource(adopt.SOURCE, precedence or adopt.PRECEDENCE, adopt.source())
 end
 
@@ -102,7 +107,7 @@ end
 --
 -- A window that closed while the reload was running is not in the snapshot and
 -- so is not resurrected. A window that opened while it was running is, and is
--- picked up here rather than being lost with the `lovr.lunwindowopened` the old
+-- picked up here rather than being lost with the `lunette.onWindowOpened` the old
 -- state was the last to hear.
 function adopt.windows()
   local pending = {}

@@ -82,7 +82,7 @@ impl LayerProperties {
     /// while it holds a layer. A panel that wants translucency renders as an
     /// in-scene quad, where the shader path resolves alpha correctly, and
     /// choosing between sharpness and translucency is Lua's to make by claiming
-    /// or not claiming. `docs/decisions.md` records this.
+    /// or not claiming. `docs/rendering.md` records this.
     pub const PANEL: Self = Self {
         stereo: false,
         immutable: false,
