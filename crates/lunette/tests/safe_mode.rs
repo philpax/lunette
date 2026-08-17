@@ -163,6 +163,10 @@ impl Session {
 
         let mut command = Command::new(env!("CARGO_BIN_EXE_lunette"));
         command
+            // Removed for the reason `HOME` is: a developer's shell exports it to
+            // point a session at the working copy, and a fixture that is mislaid
+            // would otherwise load the shipped configuration and pass confusingly.
+            .env_remove("LUNETTE_CONFIG_PATH")
             .env("XDG_CONFIG_HOME", fixture_directory(fixture))
             .env("XDG_DATA_HOME", data.path())
             .env("XDG_RUNTIME_DIR", runtime.path())

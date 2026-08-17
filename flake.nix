@@ -106,6 +106,25 @@
 
             LUNETTE_JOLTPHYSICS_SRC = joltPhysicsSrc;
 
+            # The standard library a session run from here reads. Without it,
+            # `cargo run -p lunette` resolves the installed
+            # $PREFIX/share/lunette/lua rather than the working copy, and a
+            # configuration that requires `@mullion` fails to load.
+            #
+            # Anchored at the repository root rather than at the working
+            # directory: the path is taken as it stands, so `nix develop` from a
+            # crate directory would otherwise point it at a `lua` beside that
+            # crate. `docs/build-and-development.md` records why there is no
+            # `./lua` fallback that would make the variable unnecessary.
+            # The configuration a session run from here loads, for the same
+            # reason: a working copy is not on the search path. `--config-path`
+            # outranks it, so a session started with the flag is unaffected.
+            shellHook = ''
+              lunetteRoot="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
+              export LUNETTE_STDLIB_PATH="$lunetteRoot/lua"
+              export LUNETTE_CONFIG_PATH="$lunetteRoot/etc/xdg/lunette"
+            '';
+
             SHADERC_LIB_DIR = "${nixpkgs.lib.getLib pkgs.shaderc}/lib";
 
             LD_LIBRARY_PATH = nixpkgs.lib.makeLibraryPath runtimeLibs;

@@ -165,6 +165,10 @@ fn run(standard_library: &Path, arguments: &[&str]) -> Outcome {
         // developer's own configuration cannot be reached if the fixture is ever
         // mislaid, which would otherwise turn a missing fixture into a confusing
         // pass.
+        // Removed for the reason `HOME` is: a developer's shell exports it to
+        // point a session at the working copy, and a fixture that is mislaid
+        // would otherwise load the shipped configuration and pass confusingly.
+        .env_remove("LUNETTE_CONFIG_PATH")
         .env("XDG_CONFIG_HOME", &directory)
         .env("XDG_DATA_HOME", data_directory.path())
         .env("LUNETTE_STDLIB_PATH", standard_library)

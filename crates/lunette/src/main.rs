@@ -632,6 +632,17 @@ pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
 /// which is why it wins outright rather than merely being consulted first.
 const STDLIB_PATH: &str = "LUNETTE_STDLIB_PATH";
 
+/// The development override for which configuration directory is loaded.
+///
+/// It exists for the same reason [`STDLIB_PATH`] does: a working copy is not
+/// on the search path, and pointing `$XDG_CONFIG_HOME` at one instead would
+/// reach every client the session spawns, each of which would then look for its
+/// own configuration under it. Only lunette reads this one.
+///
+/// `--config-path` outranks it, so a session started with the flag is loading
+/// what the flag says whatever the environment holds.
+const CONFIG_PATH: &str = "LUNETTE_CONFIG_PATH";
+
 /// The install-time system configuration directory.
 ///
 /// A packager sets `LUNETTE_SYSCONFDIR` when building. The default matches the
@@ -706,6 +717,13 @@ fn standard_library_conflicts_with_configuration(config: &Path, standard_library
 /// place.
 #[derive(Debug)]
 struct ConfigDirectorySources {
+    /// `$LUNETTE_CONFIG_PATH`, when it is set to something.
+    ///
+    /// Taken as it stands rather than required to be absolute, which is what
+    /// the XDG variables are held to: `LUNETTE_CONFIG_PATH=etc/xdg/lunette
+    /// cargo run` from a working copy is the case it exists for, and that is
+    /// the same latitude [`STDLIB_PATH`] is given.
+    override_path: Option<PathBuf>,
     /// `$XDG_CONFIG_HOME`, when it is set to an absolute path.
     xdg_config_home: Option<PathBuf>,
     /// `$HOME`, when it is set to an absolute path.
@@ -717,6 +735,7 @@ struct ConfigDirectorySources {
 impl ConfigDirectorySources {
     fn from_environment() -> Self {
         Self {
+            override_path: non_empty_path(env::var_os(CONFIG_PATH)),
             xdg_config_home: absolute_path(env::var_os("XDG_CONFIG_HOME")),
             home: absolute_path(env::var_os("HOME")),
             sysconfdir: PathBuf::from(SYSCONFDIR),
@@ -730,7 +749,10 @@ impl ConfigDirectorySources {
 /// The result is never empty: the system directory has no precondition, so
 /// there is always something to fall back to.
 fn config_directory_candidates(sources: &ConfigDirectorySources) -> Vec<PathBuf> {
-    let mut candidates = Vec::with_capacity(3);
+    let mut candidates = Vec::with_capacity(4);
+    if let Some(override_path) = &sources.override_path {
+        candidates.push(override_path.clone());
+    }
     if let Some(xdg_config_home) = &sources.xdg_config_home {
         candidates.push(xdg_config_home.join("lunette"));
     }
@@ -1015,10 +1037,48 @@ mod tests {
 
     fn sources(xdg_config_home: Option<&str>, home: Option<&str>) -> ConfigDirectorySources {
         ConfigDirectorySources {
+            override_path: None,
             xdg_config_home: xdg_config_home.map(PathBuf::from),
             home: home.map(PathBuf::from),
             sysconfdir: PathBuf::from("/etc"),
         }
+    }
+
+    /// The override wins, and the rest stay behind it: a session pointed at a
+    /// working copy still falls back to the installed configuration if the
+    /// working copy has none.
+    #[test]
+    fn the_override_outranks_every_other_candidate() {
+        let sources = ConfigDirectorySources {
+            override_path: Some(PathBuf::from("etc/xdg/lunette")),
+            ..sources(Some("/xdg"), Some("/home/user"))
+        };
+
+        assert_eq!(
+            config_directory_candidates(&sources),
+            vec![
+                PathBuf::from("etc/xdg/lunette"),
+                PathBuf::from("/xdg/lunette"),
+                PathBuf::from("/home/user/.config/lunette"),
+                PathBuf::from("/etc/xdg/lunette"),
+            ]
+        );
+    }
+
+    /// A relative override is taken as it stands, unlike the XDG variables,
+    /// which are ignored unless absolute. `LUNETTE_CONFIG_PATH=etc/xdg/lunette`
+    /// from a working copy is the case it is for.
+    #[test]
+    fn a_relative_configuration_override_is_taken_as_it_stands() {
+        let sources = ConfigDirectorySources {
+            override_path: Some(PathBuf::from("etc/xdg/lunette")),
+            ..sources(None, None)
+        };
+
+        assert_eq!(
+            config_directory_candidates(&sources).first(),
+            Some(&PathBuf::from("etc/xdg/lunette"))
+        );
     }
 
     #[test]

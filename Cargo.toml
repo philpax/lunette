@@ -9,6 +9,12 @@ members = [
 ]
 resolver = "3"
 
+# `cargo run` and `cargo build` with no package named are the development loop,
+# and lunette is what a contributor means by them. The checks name
+# `--workspace` explicitly, so narrowing the default does not narrow what CI
+# covers; a bare `cargo test` covers this crate alone, which is the cost.
+default-members = ["crates/lunette"]
+
 [workspace.package]
 edition = "2024"
 license = "GPL-3.0-only"

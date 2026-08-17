@@ -174,6 +174,10 @@ fn assert_exit_status(fixture: &str, expected: i32) {
     };
 
     let run = Command::new(env!("CARGO_BIN_EXE_lunette"))
+        // Removed for the reason `HOME` is: a developer's shell exports it to
+        // point a session at the working copy, and a fixture that is mislaid
+        // would otherwise load the shipped configuration and pass confusingly.
+        .env_remove("LUNETTE_CONFIG_PATH")
         .env("XDG_CONFIG_HOME", &directory)
         .env("XDG_DATA_HOME", data_directory.path())
         // Removed so that the developer's own configuration cannot be reached

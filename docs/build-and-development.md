@@ -69,6 +69,12 @@ Embedding via `rust-embed` exists as an optional build feature, off by default, 
 
 ## The development loop
 
+`cargo run` starts the working copy against itself. The workspace's `default-members` is `crates/lunette` and that crate's `default-run` is `lunette`, so neither the package nor the binary has to be named from the repository root; `cargo run --bin lunctl` reaches the control client. A bare `cargo build` or `cargo test` covers that crate alone for the same reason, which is why the standing checks name `--workspace`. The devshell exports `LUNETTE_STDLIB_PATH` and `LUNETTE_CONFIG_PATH`, pointing at `lua/` and `etc/xdg/lunette` in the repository, so no flag is needed and the working directory does not matter: both are anchored at the repository root rather than at `$PWD`. `--config-path` outranks the variable, and the decisions below record why neither location has a default that would find a working copy without them.
+
+`.envrc` carries `use flake`, so `direnv allow` puts that environment in the running shell. Using direnv rather than `nix develop` matters for what a session spawns. `nix develop` starts its own bash and sets `SHELL` to it, lunette hands its environment to every client it starts, and a terminal opened from such a session runs a shell from the store with none of the user's setup. direnv exports into the shell that is already running and leaves `SHELL` alone.
+
+A test that spawns the binary against a fixture configuration removes `LUNETTE_CONFIG_PATH` from the environment it passes, for the reason it removes `HOME`: a fixture that is mislaid would otherwise load the developer's configuration and pass.
+
 Most work happens in the desktop simulator. LÖVR's built-in simulator runs with no XR runtime, in a normal window on the desktop, with WASD and mouse control. Panels, compositor, clients, and input are all real; only the headset is faked. It must work from day one and stay working.
 
 The simulator drives input sinks from mouse and keyboard, which costs nothing extra: [Input](input.md) already defines sinks as taking pixel coordinates from an arbitrary source.
