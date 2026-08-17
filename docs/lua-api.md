@@ -468,6 +468,20 @@ The Luau type comes from the Rust one. `LuauType` maps a Rust type to its spelli
 
 The alternative was a hand-written stub kept in step by hand, which is what this replaced. It drifted: one reading of it against the Rust found `sink:scrollDiscrete`, `window.contentType`, `lunette.setSceneEnabled`, `lunette.sceneEnabled`, and `lunette.restart` declared nowhere, each of which made a documented call fail the check. A second list is a second thing to forget, and nothing was checking.
 
+### An event is subscribed to, not assigned
+
+`lunette.onWindowOpened(handler)` answers the function that cancels the subscription, and several listeners may wait on one event. The events were `lovr.lunwindowopened` and its siblings before this: a function a configuration assigned, which is how LÖVR's own callbacks work.
+
+The convention was reversed because assignment gives each event exactly one handler for the whole session, and lunette has two parties who want to hear: the configuration, and whatever library it loaded. Both workarounds that produced were in `mullion` before the change. `mullion.panel` polled `claim.granted` every frame rather than handle the grant, because taking the callback would have taken it from the configuration. `mullion.error` did take `lovr.lunerror`, and then called by hand whatever handler it had displaced. LÖVR shows the same cost in its own house: `lovr.errhand` is a slot, so `mullion.error` saves the previous handler and calls it, which is the dance a slot forces on anyone polite enough to do it.
+
+The typing followed from the same place. A Luau definitions file declares globals and cannot name a module's exported types, so a callback on `lovr` could not say it takes a payload carrying a `Window`, and every payload was declared `any`. A module function can, so a handler's parameter is typed with no annotation.
+
+What it costs is a second convention in a file that already has LÖVR's: `function lovr.draw(pass)` sits a few lines from `lunette.onWindowOpened(function(event)`, and this document asks elsewhere for one convention rather than two. The two are different things — a frame hook has one owner and a notification has any number — and giving them the same shape is what produced the workarounds above. That is the trade, made knowingly.
+
+`lunette.onWindowOpened = handler` was the alternative: assignment on the module table, which keeps LÖVR's feel and would have been typed, since the module can name its own types. It keeps the single slot, which is the defect, so it answers the smaller half of the problem and not the larger.
+
+Only the way a listener is reached changed. The events still travel LÖVR's queue and are still drained through `lovr.handlers`, so they interleave with `lovr.keypressed` as they did, and the layering above stands: the native layer pushes flat events, and per-object and per-window signals are `mullion`'s.
+
 ### Errors and safe mode
 
 The native side of the callback boundary rate-limits nothing. `crates/lunette/src/callback_error.rs` splits the message from the traceback and hands both to `mullion.error`, which owns the limiter, the wording, and the panel. Two limiters keyed differently would produce gaps that neither of them explains: an occurrence suppressed natively never reaches the Lua one, whose window then starts from the wrong occurrence. The cost is that a session with no standard library loaded has no limiter at all, and logs an error raised every frame every frame. That is stated in [Errors](#errors) rather than papered over.

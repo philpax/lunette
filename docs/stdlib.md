@@ -56,7 +56,7 @@ Minimum viable: create a panel from a window or a monitor, place it with a `mat4
 
 Design constraint: a panel is an abstraction built over the primitives, not a privileged object. Windows and sinks can be used without ever creating one.
 
-A panel reads `claim.granted` each frame rather than handling `lunette.onLayerGranted`. Grants and revocations land on frame boundaries and never mid-frame, so the two agree, and polling is one code path where handling the callbacks would be two. Subscribing would also be correct now that several listeners may wait on one event; polling stays because it is the shorter path, not because the callback is somebody else's.
+A panel reads `claim.granted` each frame rather than handling `lunette.onLayerGranted`. Grants and revocations land on frame boundaries and never mid-frame, so the two agree, and polling is one code path where handling the events would be two. The original reason is no longer one: a panel could not take `lovr.lunlayergranted` without taking it from the configuration, and events are subscribed to now, so several listeners may wait on one ([The Lua API](lua-api.md#an-event-is-subscribed-to-not-assigned)). Polling stays on the shorter-path argument alone.
 
 A panel over a monitor never claims a layer. `lunette.claimLayer` takes a window and nothing else, so a mirrored screen has no way to ask for one and always draws as an in-scene quad. That is a gap in the native API rather than a decision the standard library made, and closing it is a change to `claimLayer`.
 
