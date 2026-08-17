@@ -12,17 +12,17 @@ The definitions are also not installed. `lunette check` looks for `$PREFIX/share
 
 ## Change
 
-`--dump-config` becomes `lunette init`, keeping what it does and writing the editor files with it.
+`lunette --dump-config` becomes `lunette init`, keeping what it does and writing the editor files with it.
 
-`lua/.luaurc` and `etc/xdg/lunette/.luaurc` are checked in rather than generated: they carry relative paths, so the tree resolves where it stands. The files `lunette init` writes carry absolute paths, because a configuration directory is not inside the tree: `<config>/.luaurc`, and `<config>/.vscode/settings.json` naming `"luau-lsp.platform.type": "standard"` and `"luau-lsp.types.definitionFiles"`. Both keys were confirmed through `luau-lsp analyze --settings=`, which takes what a client sends.
+`lua/.luaurc` and `etc/xdg/lunette/.luaurc` are checked in rather than generated: they carry relative paths, so the tree resolves where it stands. The files `lunette init` writes carry absolute paths, because a configuration directory is not inside the tree: `<config>/.luaurc`, and `<config>/.vscode/settings.json` naming `"luau-lsp.platform.type": "standard"` and `"luau-lsp.types.definitionFiles"`. Both keys were verified through `luau-lsp analyze --settings=`, which takes what a client sends.
 
-Re-running merges rather than writing only what is absent. The existing JSON is read, every key that is not lunette's is kept, and lunette's are replaced. That is what lets an upgrade correct the definitions path without discarding the user's own settings, and it is what lune does.
+Re-running merges rather than writing only what is absent. The existing JSON is read, every key that is not lunette's is kept, and lunette's are replaced. This lets an upgrade correct the definitions path without discarding the user's own settings. lune uses the same pattern.
 
 The settings name the install path rather than a versioned copy of the definitions, so the definitions travel with the binary and cannot go stale against the runtime they describe. A configuration that is out of date against the runtime still reports as type errors in the user's own file.
 
 Installing the definitions is a prerequisite. Nothing installs `etc/lunette/definitions.luau`, and both the generated settings and `lunette check`'s fallback name a path under the prefix.
 
-`lunette init --force-regenerate` replaces the Lua as well. It destroys work, so it names the files it will replace and asks first.
+`lunette init --force-regenerate` replaces the Lua as well. This overwrites work, so the command names the files it will replace and asks for confirmation first.
 
 Neovim cannot be configured by a dropped file, so the lspconfig snippet is documented rather than written.
 
