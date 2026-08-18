@@ -260,10 +260,19 @@ function lovr.load()
   -- hears about the windows that are still open: the subscription was
   -- delivered to the state that has gone. On the first run of a session there is
   -- nothing to adopt yet, and this does nothing.
-  for _, window in ipairs(adopt.windows()) do
+  local adopted = adopt.windows()
+  for _, window in ipairs(adopted) do
     place(window)
   end
   arrange()
+
+  -- A restart closes the Lua state, so the global below is gone even though the
+  -- windows it was tracking are not (docs/architecture.md#survival-across-lifecycle-events).
+  -- Anything to adopt is a terminal this configuration already opened, so the
+  -- guard is restored from what survived rather than from what is remembered.
+  if #adopted > 0 then
+    _G.lunetteDemonstrationSpawned = true
+  end
 
   -- Once per session, and not once per `lovr.load`. A reload runs this callback
   -- again, and one that opened another terminal each time would fill the room by
