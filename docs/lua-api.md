@@ -347,6 +347,10 @@ A reload asked for from inside a reload is refused with that message rather than
 
 `lunette.restart()` performs a hard restart, using LÖVR's `lovr.event.restart`. This closes the entire Lua state and rebuilds it, tearing down graphics and the XR session with it. See [LÖVR integration](lovr-integration.md#restart-semantics). The result is a clean slate, with a visible hitch and brief blackness in the headset. It is used when a soft reload is not sufficient.
 
+A restart runs the teardown hooks and nothing else the reload runs. The reload also clears the callbacks and `package.loaded`, because the state it clears them in carries on; a restart closes that state a moment later, so clearing them is work with no observer. The hooks are the part that is not about Lua at all: a seat, a pointer, or an output the configuration created belongs to the compositor, which keeps running, and the only handle that could release it is in the state about to close. Without the hooks the next configuration asks for a seat by the name the last one used, is told the name is taken, and raises inside `lovr.load`.
+
+The hooks run before the frame's mutations are delivered, so what they release reaches the compositor on the same frame. They run when the event loop takes the restart, not when it is asked for, so `lunette.restart()`, a bare `lovr.event.restart()`, and LÖVR's own `lovr.filechanged` all tear down the same way.
+
 The call pushes the event and returns; the restart is taken once the frame's callbacks have returned and the event loop reads it. Nothing is performed inline, so there is no counterpart to the reload's refusal: a restart asked for from `lovr.load`, from inside a reload, or twice in one frame is one restart at the end of that frame. `lunette.restart()` raises only if `lovr.event.restart` cannot be reached, which is a broken build rather than a mistake in the configuration.
 
 Wayland clients survive both, because Rust holds the socket outside the Lua state.

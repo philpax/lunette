@@ -46,6 +46,7 @@ use lunette::{
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install_on_state},
+    reload::run_teardown_hooks,
     safe_mode,
     texture::LovrTexture,
 };
@@ -259,7 +260,7 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        let outcome = run_steps(state, thread, driver, control, cookie, &lua_handle);
+        let outcome = run_steps(state, thread, session, driver, control, cookie, &lua_handle);
 
         // `run_steps` closed the state via `luax_close` (LÖVR's finalizers ran).
         // Mark the mlua state closed so that ValueRefs dropped during this
@@ -286,6 +287,7 @@ fn run_session(
 unsafe fn run_steps(
     state: *mut lua::lua_State,
     thread: *mut lua::lua_State,
+    session: &Rc<Session<LovrTexture>>,
     driver: &mut FrameDriver,
     control: Option<&ChunkQueue>,
     cookie: &mut raw::Variant,
@@ -300,6 +302,30 @@ unsafe fn run_steps(
         // SAFETY: the caller guarantees `thread` is live, and nothing in this
         // loop closes it before returning.
         let step = unsafe { step(thread) };
+
+        // Before `end_frame`, because the hooks make their releases as ordinary
+        // Lua mutations and `end_frame` is what delivers a frame's mutations to
+        // the compositor. Run from the arm below they would be made against a
+        // frame nothing sends, and the seats would survive after all.
+        //
+        // A restart closes the Lua state while the compositor keeps running, so
+        // every seat, pointer, and output the configuration created outlives the
+        // only handle that could destroy it. The next configuration then asks
+        // for a seat by the name the last one used and is told it is taken,
+        // which raises inside `lovr.load` and leaves the session with no
+        // configuration at all. `crate::reload::run_teardown_hooks` records why
+        // this is the restart's problem and not the reload's.
+        if matches!(step, Step::Restart) {
+            run_teardown_hooks(lua_handle, "restart");
+            // The session outlives the Lua state, and a listener is an
+            // `mlua::Function` belonging to the state about to close. Left in
+            // place, the next session dispatches its first event into freed
+            // memory, which is a segmentation fault rather than an error. The
+            // reload clears them for the milder version of the same reason:
+            // there the functions are still callable, and calling a previous
+            // configuration's listener is merely wrong.
+            session.clear_subscribers();
+        }
 
         // Before the branch, so that a session ending still delivers the
         // mutations its last frame made — a `win:close()` from a quit handler,

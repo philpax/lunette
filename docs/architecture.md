@@ -87,6 +87,8 @@ lunette-lovr       cmake build, FFI surface, the patch set
 
 Clients survive both reload paths because they are owned by Rust, outside the Lua state, on a socket that remains open. This property is what makes iterative development of the compositor practical.
 
+Seats, pointers, and outputs are owned by Rust too, so they would survive both paths for the same reason. A reload leaves them, because the Lua state carries on and the handles naming them carry on with it. A restart releases them through the standard library's teardown hooks, because the state closes and every handle in it goes at once, leaving compositor objects that nothing can name and names that the next configuration cannot claim. Windows are the exception on both paths: they belong to their clients, they are re-enumerable through `lunette.windows`, and neither path disturbs them.
+
 ## Decisions
 
 Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.

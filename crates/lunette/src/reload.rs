@@ -58,8 +58,7 @@ use tracing::{info, warn};
 ///
 /// The steps run in the order the module documentation gives them, and the
 /// first three are best-effort in the sense that a hook raising does not stop
-/// the rest — that is the teardown registry's own contract, and this is its only
-/// caller.
+/// the rest, which is the teardown registry's own contract.
 ///
 /// # Errors
 ///
@@ -73,7 +72,7 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
     // connected client down with the process.
     let _guard = ReloadGuard::acquire().ok_or(ReloadError::Reentered)?;
 
-    run_teardown_hooks(lua);
+    run_teardown_hooks(lua, "reload");
 
     let globals = lua.globals();
     // With the callbacks, and for the same reason: a listener the previous
@@ -242,15 +241,22 @@ const TEARDOWN_MODULE: &str = "@mullion/teardown";
 /// The registry is `mullion`'s, and running one hook's failure into the next is
 /// its contract: reload has to complete either way, and a half-torn-down state
 /// is worse than a reported failure.
-fn run_teardown_hooks(lua: &Lua) {
+///
+/// A restart runs it for a different reason. A reload keeps the Lua state, so a
+/// handle the configuration is holding survives and the hooks release what would
+/// otherwise be held twice. A restart closes the state, so every handle in it
+/// goes at once while the compositor object each one named stays — and the next
+/// configuration finds the names taken. `crate::boot` is the other caller, and
+/// `context` is what its warnings say.
+pub fn run_teardown_hooks(lua: &Lua, context: &str) {
     match teardown_failures(lua) {
         Ok(failures) if failures.is_empty() => (),
         Ok(failures) => warn!(
-            "reload: {} teardown hook(s) failed and the reload continued: {}",
+            "{context}: {} teardown hook(s) failed and the {context} continued: {}",
             failures.len(),
             failures.join(", ")
         ),
-        Err(error) => warn!("reload: the teardown registry could not be run: {error}"),
+        Err(error) => warn!("{context}: the teardown registry could not be run: {error}"),
     }
 }
 
@@ -604,6 +610,53 @@ mod tests {
             "the hook that ran after the one that raised should still have run"
         );
         assert_eq!(number(&lua, "runs.main"), 1, "main.lua should have run");
+    }
+
+    /// The restart's half of the registry. `crate::boot` runs the hooks and
+    /// nothing else, because the state it would clear is about to be closed;
+    /// what the hooks release is native, and that is what has to happen before
+    /// the handles holding it go.
+    #[test]
+    fn a_restart_runs_the_hooks_without_clearing_the_state() {
+        let lua = state(
+            r"
+              local teardown = require '@mullion/teardown'
+              teardown.register('a.module', function() released = true end)
+              function lovr.update() end
+            ",
+        );
+        install_teardown(&lua);
+        run(
+            &lua,
+            "require 'main' package.loaded['a.module'] = { name = 'a' }",
+        );
+
+        run_teardown_hooks(&lua, "restart");
+
+        assert!(
+            lua.load("return released")
+                .eval::<bool>()
+                .expect("the hook ran"),
+            "the hook should have run, because a restart is the case where nothing else releases what it holds"
+        );
+        assert!(
+            lua.load("return lovr.update ~= nil and package.loaded['a.module'] ~= nil")
+                .eval::<bool>()
+                .expect("the state is readable"),
+            "a restart should not clear the callbacks or the modules a reload clears: the state is \
+             closed a moment later, so clearing them is work with no observer"
+        );
+    }
+
+    /// The same tolerance a reload has, at the other entry point: a restart is
+    /// asked for by `lovr.filechanged` as well as by `lunette.restart`, and
+    /// neither is refusable by a configuration that never loaded the standard
+    /// library.
+    #[test]
+    fn a_restart_with_no_teardown_registry_runs_the_hooks_it_has() {
+        let lua = state("runs.main = runs.main + 1");
+
+        run_teardown_hooks(&lua, "restart");
     }
 
     #[test]
