@@ -487,12 +487,12 @@ Split on a seam, not at the line count. A cohesive single-concern file slightly 
 
 **Step 4: Record the findings**
 
-Append to `docs/milestone-0-findings.md`: which clients honoured `wp_fractional_scale_v1` and which ignored it; whether any client set `wp_content_type_v1`; whether the scale ladder's steps were the right ones in practice; and the measured cost of an idle frame with scene rendering skipped.
+Append to `docs/2026-08-06-milestone-0-findings.md`: which clients honoured `wp_fractional_scale_v1` and which ignored it; whether any client set `wp_content_type_v1`; whether the scale ladder's steps were the right ones in practice; and the measured cost of an idle frame with scene rendering skipped.
 
 **Step 5: Commit**
 
 ```bash
-git add docs/milestone-0-findings.md
+git add docs/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record output, scale, and pacing findings"
 ```
 <!-- END_TASK_9 -->

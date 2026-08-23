@@ -14,9 +14,9 @@ use tracing::warn;
 /// How the barrier around an imported texture is recorded.
 ///
 /// Both fields are open questions rather than settled ones, which is why they
-/// are runtime settings. `docs/milestone-0-findings.md` is where the answers
-/// go, and a run has to be able to try the other value without a rebuild to
-/// produce them.
+/// are runtime settings. `docs/2026-08-06-milestone-0-findings.md` is where the
+/// answers go, and a run has to be able to try the other value without a
+/// rebuild to produce them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BarrierPolicy {
     pub source_family: QueueFamilyMode,

@@ -604,12 +604,12 @@ Test pointer mapping under GNOME specifically. It is unverified whether mutter m
 
 **Step 5: Record the findings**
 
-Append to `docs/milestone-0-findings.md`: which portal backend was tested and what it put in `mapping_id`; whether restore actually avoided a prompt on the second run; whether the uinput mapping was correct on a scaled or rotated display; and the GNOME result.
+Append to `docs/2026-08-06-milestone-0-findings.md`: which portal backend was tested and what it put in `mapping_id`; whether restore actually avoided a prompt on the second run; whether the uinput mapping was correct on a scaled or rotated display; and the GNOME result.
 
 **Step 6: Commit**
 
 ```bash
-git add docs/milestone-0-findings.md
+git add docs/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record monitor mirroring findings"
 ```
 <!-- END_TASK_10 -->

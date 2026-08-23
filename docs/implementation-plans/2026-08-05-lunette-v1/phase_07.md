@@ -654,12 +654,12 @@ All five commands from `CONTRIBUTING.md:171-175`, inside `nix develop`.
 
 **Step 5: Record the restart findings**
 
-Append to `docs/milestone-0-findings.md`: whether the quiesce covered every GPU object, whether re-import succeeded for every retained dmabuf, whether any client noticed, and how long the restart took end to end.
+Append to `docs/2026-08-06-milestone-0-findings.md`: whether the quiesce covered every GPU object, whether re-import succeeded for every retained dmabuf, whether any client noticed, and how long the restart took end to end.
 
 **Step 6: Commit**
 
 ```bash
-git add tests/e2e/ docs/milestone-0-findings.md
+git add tests/e2e/ docs/2026-08-06-milestone-0-findings.md
 git commit -m "test: drive lunctl end to end"
 ```
 <!-- END_TASK_11 -->

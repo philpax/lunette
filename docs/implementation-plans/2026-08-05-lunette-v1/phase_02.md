@@ -900,7 +900,7 @@ git commit -m "test: add logic-headless compositor tests"
 **Verifies:** All Phase 2 criteria, observationally.
 
 **Files:**
-- Create: `docs/milestone-0-findings.md`
+- Create: `docs/2026-08-06-milestone-0-findings.md`
 
 **Step 1: Run the check suite**
 
@@ -936,7 +936,7 @@ An honest negative finding here is worth more than a passing gate. If the approa
 **Step 5: Commit**
 
 ```bash
-git add docs/milestone-0-findings.md
+git add docs/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record milestone 0 findings"
 ```
 <!-- END_TASK_16 -->
@@ -950,7 +950,7 @@ git commit -m "docs: record milestone 0 findings"
 - The same build runs as an overlay under Monado alongside another OpenXR application, compositing over it with undrawn areas transparent.
 - Every ported file carries a provenance header, `CREDITS.md` exists, and `vendor/lovr` patches are MIT.
 - All five check commands pass.
-- `docs/milestone-0-findings.md` records what the three Vulkan unknowns actually did.
+- `docs/2026-08-06-milestone-0-findings.md` records what the three Vulkan unknowns actually did.
 
 ## Deliberately not in this phase
 

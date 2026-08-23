@@ -105,7 +105,7 @@ impl LayerBudget {
     /// compositor, where 128 is `XRT_MAX_LAYERS` rather than anything about the
     /// hardware. The number is not universal: the same Monado headless with the
     /// null compositor reports a limit of zero and serves no quad layer at all.
-    /// `docs/milestone-0-findings.md` records both.
+    /// `docs/2026-08-06-milestone-0-findings.md` records both.
     pub const CEILING: u32 = 12;
 
     /// The fraction of the runtime's limit lunette is willing to be.

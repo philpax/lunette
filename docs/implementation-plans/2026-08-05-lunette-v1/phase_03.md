@@ -564,7 +564,7 @@ Check it under Monado in service mode. Overlay sessions do not work in monolithi
 
 **Step 4: Record the layer findings**
 
-Append to `docs/milestone-0-findings.md`:
+Append to `docs/2026-08-06-milestone-0-findings.md`:
 
 - The value of `maxLayerCount` Monado reported, and the conservative cap chosen against it.
 - Free-list hit rate in ordinary use, and whether the size ladder's steps were the right ones.
@@ -574,7 +574,7 @@ Append to `docs/milestone-0-findings.md`:
 **Step 5: Commit**
 
 ```bash
-git add docs/milestone-0-findings.md
+git add docs/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record layer pool findings"
 ```
 <!-- END_TASK_9 -->
