@@ -1,27 +1,7 @@
--- A virtual keyboard, driven by the seat's own keymap.
+-- A virtual keyboard driven by the seat's keymap.
 --
--- docs/stdlib.md's tier 2, the last item on its minimum viable line: a keyboard
--- that can type into the focused sink. What is drawn on a key comes from
--- `seat:characterFor`, and what a key sends comes from the same keycode the
--- legend was read for. Nothing here holds a layout.
---
--- The rows come from `mullion.keycodes` and are physical, not linguistic: they
--- say where the keys are, and the seat says what they are. A table of legends
--- here would be a second and worse copy of something lunette already knows.
---
--- Modifiers are sticky. A user pointing at a keyboard with one laser cannot
--- hold shift and press a letter at the same time, so pressing shift latches it
--- and the next key clears it. `capsLock` locks instead, because that is what a
--- lock is.
---
--- Modifier state is set rather than synthesised: `sink:modifiers` replaces the
--- set held, as docs/input.md#keyboard describes, instead of sending a press of
--- a representative key. A client that queries the state is then not misled and
--- no key event is produced that nothing asked for.
---
--- The drawing is `Pass:plane` and `Pass:text` and nothing else. This sits on
--- the boundary of the widget toolkit docs/stdlib.md defers and docs/stdlib.md
--- records as possibly a separate library, and it does not cross it.
+-- The layout is physical. The seat supplies legends and key meanings.
+-- Modifiers are state sent through `sink:modifiers`, not synthetic key events.
 
 local lunette = require '@lunette'
 

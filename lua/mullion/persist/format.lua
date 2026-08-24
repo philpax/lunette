@@ -1,38 +1,12 @@
--- The arrangement file: its text, its versions, and the one type that may be
--- written.
+-- The pure arrangement format. `mullion.persist` owns filesystem access.
 --
--- Pure. Nothing here reads or writes a file; `mullion.persist` is the shell that
--- does, and it is the module a configuration requires. This half is separate
--- because the version matrix is the part worth reasoning about on its own, and
--- because a format that takes text in and hands data back needs no filesystem to
--- be exercised.
+-- A newer reader accepts fields absent from older files. An older reader returns
+-- `fromTheFuture` without an arrangement, so saving cannot discard unknown fields.
+-- Bump the version when a field is added. A default alone does not protect a new
+-- field when an old writer rewrites the file.
 --
--- # The versions
---
--- The matrix is answered by construction, which is the shape
--- `crates/lunette-capture/src/tokens.rs` uses for the same problem:
---
--- - A new mullion reading an old file finds the fields it knows and nothing for
---   the ones that did not exist yet, which read as absent.
--- - An old mullion reading a new file gets a `fromTheFuture` load, and
---   `loaded:forSession()` answers nothing at all. That is the case worth
---   designing for: rewriting a file holding fields this version cannot
---   represent would drop them, corrupting the file rather than failing on it.
---   There is no arrangement to render and no file object to hand `save`, so the
---   rule cannot be lost to a later refactor that stops checking the kind.
--- - The version is bumped when a field is added, not when one is first depended
---   on. A default lets a new reader parse an old file; only the version stops an
---   old writer rewriting a new one.
---
--- # The text
---
--- A Lua chunk returning a table, loaded under an empty environment so that it
--- can build tables and reach nothing. `string.format`'s `%q` is the escaping,
--- which is the one part of writing a serialiser that has a tail worth not
--- writing again.
---
--- This module holds no state and starts nothing, so it registers no teardown
--- hook: there is nothing a reload could leave behind.
+-- Files contain Lua tables loaded in an empty environment. `%q` supplies string
+-- escaping.
 
 local format = {}
 

@@ -370,10 +370,10 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
 
     let (stored, tokens) = read_tokens(state_directory);
 
-    // `wl_virtual` is deliberately not configured: it requires a keymap to
-    // upload before its first keystroke, and building one belongs to Phase 5.
-    // Naming the socket without one would produce a provider the first key
-    // disconnects, so the chain reports "not configured" and falls to uinput.
+    // `wl_virtual` is deliberately not configured: it requires a keymap before
+    // its first keystroke. Naming the socket without one would produce a provider
+    // the first key disconnects, so the chain reports "not configured" and falls
+    // to uinput.
     let input = hid::open(&HidConfig::default());
     if let Some(error) = input.unreachable() {
         warn!("{error}");
@@ -462,8 +462,8 @@ impl HostWaylandSocket {
 ///
 /// One function because the order between the two is load-bearing and invisible
 /// from either side. Everything that reaches the *host* compositor — the output
-/// enumeration, and the `wl_virtual` input provider when Phase 5 gives it a
-/// keymap — needs the socket the user's own session is on, and after the export
+/// enumeration and the `wl_virtual` input provider when configured — needs the
+/// socket the user's own session is on, and after the export
 /// the variable names lunette's. A read that moved below the export would
 /// enumerate lunette's own compositor and report zero monitors, which in the log
 /// is indistinguishable from a machine with no readable screens.
@@ -602,13 +602,10 @@ const XKB_DEFAULT_OPTIONS: &str = "XKB_DEFAULT_OPTIONS";
 /// The file the screencast portal's restore tokens are kept in.
 const TOKEN_FILE: &str = "screencast-tokens.toml";
 
-/// The two diagnostic settings milestone 0 exists to answer.
+/// The queue family and layout used when importing an image.
 ///
-/// Neither the queue family an imported image is acquired from nor the layout it
-/// is taken to be in is settled, and the point of measuring is to try the other
-/// value without a rebuild. `crates/lunette/src/texture/mod.rs` documents what
-/// each accepts; an unrecognised value falls back with a warning rather than
-/// stopping a session.
+/// `crates/lunette/src/texture/mod.rs` documents the accepted values; an
+/// unrecognised value falls back with a warning rather than stopping a session.
 const IMPORT_QUEUE_FAMILY: &str = "LUNETTE_IMPORT_QUEUE_FAMILY";
 const IMPORT_LAYOUT: &str = "LUNETTE_IMPORT_LAYOUT";
 

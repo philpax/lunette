@@ -1,10 +1,8 @@
 -- Covers lua/mullion/keyboard.lua.
 --
--- The seat is a fake carrying a small invented keymap. The real one answers
--- from libxkbcommon, and a spec asserting what it said would be asserting Phase
--- 5's work rather than this module's — and would say nothing about the thing
--- worth checking here, which is that the legends and the keycodes come from
--- whatever keymap the seat has rather than from a table of this module's own.
+-- The seat is a fake carrying an invented keymap. The real one answers from
+-- libxkbcommon, but this spec checks that legends and keycodes come from the
+-- seat's keymap rather than from a table owned by this module.
 --
 -- So the fake layout is deliberately not QWERTY. A keyboard that hardcoded one
 -- would pass every case that asked "is this key an A" and fail every case here.

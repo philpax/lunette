@@ -102,8 +102,7 @@ pub struct Startup {
     /// Where to find xwayland-satellite. Absent means X11 clients are not
     /// served.
     pub satellite: Option<XwaylandSatellite>,
-    /// How the two open questions about the import barrier are answered for
-    /// this run. Both are milestone 0's to measure.
+    /// How the import barrier is configured for this run.
     pub barriers: BarrierPolicy,
     /// The host's own screens, or `None` when lunette cannot reach them.
     pub host: Option<HostDesktop>,

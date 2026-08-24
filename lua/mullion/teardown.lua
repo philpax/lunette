@@ -1,20 +1,7 @@
 -- The teardown registry.
 --
--- A soft reload discards the Lua state and re-runs the configuration
--- (docs/lua-api.md#reload). Timers, signal connections, coroutines, and stashed
--- handles from the state being discarded outlive it unless something takes them
--- down, and CONTRIBUTING.md makes a module that leaks one across a reload a
--- defect. This is what makes that checkable rather than aspirational: a module
--- registers a hook, and reload runs them.
---
--- `lunette.reload()` is the caller, and runs the hooks before it clears
--- anything, so a hook still has the modules and callbacks it is tearing down.
--- This is the registry and the contract.
---
--- Hooks are keyed by name and run in reverse registration order, so a module
--- tears down before whatever it depends on: `mullion.panel` registered after
--- `mullion.signal` because it requires it, and runs before it, so it still has
--- signals to disconnect from when it does.
+-- Hooks run in reverse registration order. A module therefore tears down before
+-- the modules it depends on.
 
 local teardown = {}
 
@@ -31,12 +18,10 @@ local order: { string } = {}
 
 -- Where a hook that raised is reported.
 --
--- Replaceable, so that Phase 7's reload can route it wherever it routes
--- everything else, and so that a spec can capture it rather than printing it.
+-- Replaceable so the host can route errors and specs can capture them.
 -- The default logs the message, which the host routes to its own diagnostics.
 function teardown.report(message: string)
-  -- Through a local: `lovr.log` is a callback, so a configuration may have
-  -- cleared it, and a report is not worth raising over.
+  -- Read the callback once because a configuration may clear `lovr.log`.
   local log = lovr.log
   if log then
     log(message, 'error', 'mullion.teardown')

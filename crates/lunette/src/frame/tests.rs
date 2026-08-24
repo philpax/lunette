@@ -62,10 +62,9 @@ fn monitor(index: u32) -> MonitorKey {
 
 #[test]
 fn a_surface_going_away_takes_its_texture_out_of_the_ledger() {
-    // The regression: every `wl_surface` mints an identifier and can hold
-    // a texture, and only a toplevel is ever reported closed. A popup or a
-    // cursor surface that was never forgotten left a texture naming an
-    // image the compositor had already retired.
+    // Every `wl_surface` can hold a texture, but only a toplevel is reported
+    // closed. Forgetting the surface is what prevents the ledger from retaining
+    // an image after the compositor retires it.
     assert_eq!(
         ledger_change(
             &Event::SurfaceGone {
@@ -225,11 +224,8 @@ fn a_stabilised_copy_is_offered_a_barrier_alongside_its_source() {
 
 #[test]
 fn a_monitor_that_retains_buffers_but_holds_no_texture_is_still_swept() {
-    // The regression: the sweep read only the texture ledger, and a monitor
-    // whose frames import as images but whose textures the device refuses is
-    // never in it. Every frame retained a buffer, the dismissal released
-    // nothing, and the dmabuf descriptors and their imported memory stayed for
-    // the rest of the process.
+    // A monitor can retain imported images even when the device refuses to
+    // provide textures for them. The sweep must release those buffers as well.
     assert_eq!(
         stopped_monitors(vec![], vec![monitor(1)], |_| false),
         vec![monitor(1)],
@@ -355,11 +351,9 @@ fn torn_down(disposal: Disposal) -> Vec<Step> {
     recorder.0
 }
 
-/// The ordering `crate::restart` documents, which reordering produces a
-/// use-after-free on the GPU rather than a failure anything reports. A layer is
-/// destroyed by `xrDestroySwapchain` and so goes while the XR session lives; a
-/// released texture retires LÖVR's image view, which has to happen before the
-/// image it names is given up.
+/// Layers are destroyed while the XR session lives. Released textures retire
+/// LÖVR's image views before the images they name are given up; reversing either
+/// order can leave the GPU using a destroyed resource.
 #[test]
 fn the_device_teardown_destroys_layers_then_releases_textures_then_gives_up_the_images() {
     assert_eq!(
@@ -375,10 +369,8 @@ fn the_device_teardown_destroys_layers_then_releases_textures_then_gives_up_the_
     );
 }
 
-/// The restart the compositor did not acknowledge, and the session ending, run
-/// the same teardown. The regression: the failed-quiesce path took a shortcut
-/// that skipped the claims, leaving the next session's layer budget spoken for
-/// by panels from a Lua state that had been closed.
+/// A failed compositor quiesce and a session ending use the same teardown,
+/// including forgetting claims from the closed Lua state.
 #[test]
 fn a_teardown_that_stops_the_compositor_gives_up_everything_the_restart_does() {
     let abandoning = torn_down(Disposal::Abandon);

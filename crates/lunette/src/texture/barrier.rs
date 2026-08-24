@@ -168,12 +168,8 @@ mod tests {
 
     #[test]
     fn a_release_hands_the_image_back_in_a_layout_a_barrier_may_name() {
-        // The regression: the release passed the policy's own layout as the
-        // barrier's `newLayout`, so `LUNETTE_IMPORT_LAYOUT=undefined` recorded
-        // `VK_IMAGE_LAYOUT_UNDEFINED` as a destination, which
-        // VUID-VkImageMemoryBarrier2-newLayout-01198 forbids. Asserting on the
-        // arguments the call is made with, rather than on the constant, is what
-        // makes reintroducing the switch on the release side fail here.
+        // Release always uses `GENERAL`; the configured layout applies only to
+        // acquire because `UNDEFINED` is forbidden as a barrier destination.
         for old_layout in [ForeignLayout::General, ForeignLayout::Undefined] {
             let policy = BarrierPolicy {
                 source_family: QueueFamilyMode::Foreign,

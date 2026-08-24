@@ -1,42 +1,8 @@
--- Adopting the windows that were already there.
+-- Adopt windows that were already open when the current Lua state started.
 --
--- A soft reload discards the configuration's modules and callbacks and runs
--- `main.lua` again (docs/lua-api.md#reload). The compositor, the clients, and
--- their windows are untouched by that — which is the point — but the new Lua
--- state knows nothing about them, and `lunette.onWindowOpened` has already been
--- and gone for every one. So a configuration that only ever placed windows from
--- that callback comes back from a reload showing nothing at all.
---
--- This is the other half: `adopt.windows()` is the re-enumeration, and
--- `adopt.install()` is the source that puts a hand-placed panel back where the
--- user left it rather than where a rule would have chosen.
---
--- # Why the store is a source and not a fix-up
---
--- Re-running the rules over a surviving window and then moving it to its stored
--- pose would place it twice, and would place it wrongly for the frame in
--- between. Worse, a rule that spawns something or reads something expensive
--- would run for a window it did not decide anything about.
---
--- So the store is a `mullion.rules` source like any other, above the rules
--- table and above the saved arrangement, and the answer is composed once. A
--- window that has stored state is restored; a window that has none is placed by
--- rule. That is the distinction awesome draws with its startup flag, and it is
--- why the precedence is declarable rather than implicit.
---
--- # What is stored, and by whom
---
--- `mullion.interaction` writes a panel's pose to the native property store when
--- the user drops it, under `interaction.POSE_PROPERTY`. That is the only key
--- mullion writes, so it is the only key this reads. A configuration keeping more
--- of its own — a size it dragged, a tag it assigned — writes its own source
--- against `win:properties()`, which exists so that what survived a reload can be
--- discovered rather than guessed at.
---
--- This module holds no state of its own: the store is native and the source
--- function is pure over a window, so there is nothing a reload could leave
--- behind and no teardown hook to register. The source it installs is
--- `mullion.rules`'s to discard, and that module's hook does.
+-- The native property store is a rules source. Stored poses take precedence over
+-- the saved arrangement and ordinary rules, so a hand-placed panel is restored
+-- without applying another placement first.
 
 local lunette = require '@lunette'
 

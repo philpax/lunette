@@ -210,7 +210,7 @@ pub fn quiesce(handle: &CompositorHandle, timeout: Duration) -> Result<Quiesced,
     }
 }
 
-/// What the quiesce cost, for the log line the milestone findings want.
+/// The result of quiescing the compositor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Quiesced {
     /// How long the frame thread waited.

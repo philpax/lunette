@@ -665,7 +665,6 @@ mod tests {
 
     #[test]
     fn a_source_that_has_not_changed_is_not_copied_again() {
-        // lunette-v1.AC7.2.
         let mut harness = Harness::new();
         let claim = harness.claim(surface(1));
         harness.commit(surface(1));
@@ -977,9 +976,8 @@ mod tests {
 
     #[test]
     fn a_counter_that_jumped_far_ahead_is_copied_like_any_other_change() {
-        // smithay's damage bag keeps four commits of history and reports full
-        // damage past that. Counting installs has no history to age out, and
-        // every copy is whole-surface, so a jump of any size is one copy.
+        // Counting installs has no history to age out, and every copy is
+        // whole-surface, so a jump of any size is one copy.
         let mut far = SurfaceCommit::INITIAL;
         for _ in 0..64 {
             far = far.next();

@@ -1,16 +1,7 @@
--- The composition layer a window panel draws on: claiming one, keeping the
--- claim in step with the source, and driving what it was granted.
+-- Composition layers for window panels.
 --
--- Split from `mullion.panel` because the two halves have nothing in common.
--- That one is a pose, a size, and a source; this is a claim against a pool of
--- a fixed size, which is granted and revoked on frame boundaries by something
--- else. Grants land between frames and never mid-frame
--- (docs/lua-api.md#layer-claims), so this reads `claim.granted` each update
--- rather than handling `lunette.onLayerGranted`.
---
--- A monitor panel never reaches here. `lunette.claimLayer` takes a window and
--- nothing else, so a mirrored screen has no way to ask for a layer and draws as
--- a quad. That is a gap in the native API rather than a decision made here.
+-- Claims are granted and revoked between frames. The panel reads `claim.granted`
+-- during each update.
 
 local lunette = require '@lunette'
 
@@ -108,21 +99,15 @@ function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number): b
     return false
   end
 
-  -- On every grant and on every resize, which is what this phase owes Phase 3.
-  -- The size ladder quantises upwards, so the layer is usually larger than the
-  -- source and the blit lands at the layer's origin; the viewport is what
-  -- excludes the margin. The blit clears that margin, but blank is not the same
-  -- as absent — an 800x600 window in a 1024x1024 layer would otherwise be drawn
-  -- squeezed into the top-left corner of a square.
+  -- The quantised layer can exceed the source size. Match the viewport to the
+  -- source so the runtime does not squeeze it into the larger layer.
   if resized or not self.granted then
     held:setViewport(0, 0, pixelWidth, pixelHeight)
     self.appliedWidth, self.appliedHeight = pixelWidth, pixelHeight
   end
 
   held:setPosition(self.pose:getPosition())
-  -- As an angle and an axis, which is what `Mat4:getOrientation` hands back and
-  -- what `luax_readquat` takes from four numbers. `lovr.math.quat` does not
-  -- construct from a `Mat4`.
+  -- Apply the pose using the orientation representation expected by the layer.
   held:setOrientation(self.pose:getOrientation())
   held:setDimensions(self.width, self.height)
 

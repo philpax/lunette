@@ -100,12 +100,8 @@ pub struct LayerBudget {
 impl LayerBudget {
     /// The most slots lunette asks for however generous the runtime is.
     ///
-    /// Twelve is what milestone 0 submitted for sixty frames without trouble,
-    /// against a reported limit of 128. That was Monado carrying a real
-    /// compositor, where 128 is `XRT_MAX_LAYERS` rather than anything about the
-    /// hardware. The number is not universal: the same Monado headless with the
-    /// null compositor reports a limit of zero and serves no quad layer at all.
-    /// `docs/2026-08-06-milestone-0-findings.md` records both.
+    /// Twelve is a conservative ceiling that leaves most of the runtime's
+    /// reported capacity available to the primary application.
     pub const CEILING: u32 = 12;
 
     /// The fraction of the runtime's limit lunette is willing to be.

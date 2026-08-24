@@ -13,9 +13,7 @@ use crate::lua::tests::{error, lua, run, session, snapshot, window};
 
 #[test]
 fn a_stored_value_survives_the_lua_state_being_discarded() {
-    // The soft reload, simulated: the Lua state goes and another is built
-    // against the same session, which is what `boot.rs` does for a restart and
-    // what Phase 7's reload does without even rebuilding the session.
+    // Simulate a soft reload by rebuilding the Lua state against the same session.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
 
     {

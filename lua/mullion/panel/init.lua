@@ -1,35 +1,8 @@
--- Panels: a pixel source bound to a pose and a size in metres.
+-- Panels bind a window or monitor to a pose and size.
 --
--- docs/stdlib.md's tier 1. A panel binds a window or a monitor to a place in
--- the world, decides between a composition layer and an in-scene quad, turns a
--- ray hit into a pixel coordinate, and draws a little chrome around it.
---
--- It is not a privileged object. docs/stdlib.md:21 is explicit that a panel is
--- an abstraction over the primitives and that windows and sinks are usable
--- without one, so nothing here reaches for anything a configuration could not
--- call: `lunette.claimLayer`, the source's own fields, and LÖVR.
---
--- Both realisations are live from the start. docs/rendering.md treats the
--- in-scene quad as the fallback rather than as a degraded mode, and a claim is
--- revoked whenever a higher-priority one arrives at capacity, so a panel that
--- only drew when it held a layer would disappear.
---
--- Grants and revocations land on frame boundaries and never mid-frame
--- (docs/lua-api.md#layer-claims), so `update` reads `claim.granted` rather than
--- handling `lunette.onLayerGranted`. That is one code path instead of two, and it
--- leaves `lunette.onLayerGranted` free for a configuration that wants it: the
--- callback namespace belongs to the configuration, and a library that claimed
--- it would be taking it.
---
--- A monitor panel never claims a layer. `lunette.claimLayer` takes `window`
--- and nothing else (docs/lua-api.md#layer-claims), so a mirrored screen has no
--- way to ask for one and draws as a quad. That is a gap in the native API
--- rather than a decision made here.
---
--- The ray-quad intersection lives in `mullion.panel.raycast` and is re-exported
--- here as `panel.rayQuadHit`, which is the name docs/stdlib.md gives it. It is
--- pure arithmetic over a matrix and this file is claims, sources, and draw
--- calls, so the two were split when this one outgrew the size threshold.
+-- A panel draws through a composition layer when it holds a claim and through
+-- an in-scene quad otherwise. Both paths remain available because claims can be
+-- revoked at frame boundaries.
 
 local lunette = require '@lunette'
 local pointing = require '@mullion/interaction/types'
@@ -128,8 +101,7 @@ panel.STYLE = {
   borderThickness = 0.008,
   borderDepth = 0.001,
   borderColor = { 0.14, 0.14, 0.17, 0.95 },
-  -- The highlight a hovered panel's border takes. Interaction is Task 6's, and
-  -- this is the colour it will reach for.
+  -- The highlight colour for a hovered panel's border.
   borderHighlightColor = { 0.35, 0.55, 0.95, 0.95 },
   -- The title's height in metres, and how far above the panel it sits.
   titleHeight = 0.04,

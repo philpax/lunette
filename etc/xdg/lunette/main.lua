@@ -1,25 +1,7 @@
 -- The default lunette session.
 --
--- lunette loads this when the user has none of their own. It is also the worked
--- example every new user reads, so it stays small: docs/stdlib.md's tier 4 asks
--- for a terminal on a panel, a laser, and a reload key, and a large default
--- configuration would teach that a large one is necessary.
---
--- It carries two things past that line, both because the phase's acceptance
--- criteria are about them: a rules table matched on `appId`, and a saved
--- arrangement that is restored at startup. Neither is more than a handful of
--- lines, and without them nothing demonstrates that either mechanism exists.
---
--- Everything here is policy. `lunette` is the mechanism underneath, `mullion` is
--- policy written in Lua on top of it, and this file is one arrangement of that
--- policy — `lunette --dump-config` copies it to $XDG_CONFIG_HOME/lunette, where
--- you can change whatever you like. A configuration that never mentions
--- `mullion` is supported too; nothing in the loading path assumes this one
--- does.
---
--- Anything this does not draw stays transparent, because conf.lua requests the
--- overlay extension, so lunette composites over whatever holds the primary
--- session.
+-- This file contains policy implemented with the `mullion` standard library.
+-- The overlay remains transparent outside the configured panels.
 
 local lunette = require '@lunette'
 
