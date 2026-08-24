@@ -94,8 +94,3 @@ install-config:
 
 clean:
 	$(CARGO) clean
-confdir)
-	$(INSTALL_DATA) etc/xdg/lunette/main.lua etc/xdg/lunette/conf.lua $(confdir)/
-
-clean:
-	$(CARGO) clean
