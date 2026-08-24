@@ -1,12 +1,5 @@
--- Requires the native module from LÖVR's own Lua state.
---
--- The host registers `@lunette` in `package.preload` between `luax_preload` and
--- loading `boot.lua`. Nothing else in the suite exercises that state: the unit
--- tests build their own, which proves the module works and not that it was
--- installed where a configuration can reach it.
---
--- Each failure quits with its own status, so the run says which assertion did
--- not hold rather than only that one did not.
+-- Requires the native module from the Lua state created by the real host. The
+-- host registers it in `package.preload` before loading `boot.lua`.
 
 function lovr.load()
   local resolved, lunette = pcall(require, '@lunette')

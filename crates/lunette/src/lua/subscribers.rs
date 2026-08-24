@@ -77,9 +77,7 @@ impl Subscribers {
 mod tests {
     use super::*;
 
-    /// A `Function` needs a state, and these cases are about the bookkeeping
-    /// rather than the calling, so the state is the smallest one that hands out
-    /// functions.
+    /// Creates handlers without exercising callback dispatch.
     fn handler(lua: &mlua::Lua) -> Function {
         lua.create_function(|_, ()| Ok(()))
             .expect("a state hands out functions")

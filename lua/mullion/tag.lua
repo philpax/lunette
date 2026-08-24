@@ -4,12 +4,9 @@
 -- name, an index, a selected flag, and a layout attached, and a panel belongs to
 -- a set of tags rather than to one workspace.
 --
--- The set is the load-bearing part. "Show this panel on two tags" is expressible
--- without a special case only when membership is a set, and viewing two tags at
--- once is possible only when selection is. A single-current-workspace model
--- cannot be widened into either afterwards without breaking every caller, so it
--- is a set from the start. This is awesome's shape and none of its code:
--- CREDITS.md records that awesome is GPL-2 and lunette GPL-3-only.
+-- The set is load-bearing: membership supports panels on several tags, and
+-- selection supports viewing several tags. This is awesome's shape and none of
+-- its code; CREDITS.md records that awesome is GPL-2 and lunette GPL-3-only.
 --
 -- Membership is held strongly and dead panels are dropped when they are next
 -- looked for. A panel is destroyed explicitly rather than collected, so there is

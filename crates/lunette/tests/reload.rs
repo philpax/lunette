@@ -1,6 +1,6 @@
 //! The soft reload, driven by doing one.
 //!
-//! `lunette-v1.AC5.4` is about a reload applying an edited configuration without
+//! This covers a reload applying an edited configuration without
 //! disconnecting any client, and about teardown hooks running so that timers and
 //! signal connections do not accumulate. Neither half can be established by
 //! asserting a flag, so this file establishes them by reloading.

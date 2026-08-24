@@ -1,7 +1,7 @@
 //! `lunctl` against a real running lunette, over a real socket.
 //!
-//! `lunette-v1.AC8.1` and `AC8.2` are about what happens between two processes,
-//! and neither can be established by a unit test on a Lua state a test built.
+//! These cases cover what happens between two processes, and neither can be
+//! established by a unit test on a Lua state a test built.
 //! These drive the shipped binary: the session is the real one, the module is
 //! the one the host registered, the socket is one lunette bound, and `lunctl` is
 //! the binary a user would run.
@@ -163,7 +163,7 @@ fn code(output: &Output) -> i32 {
         .expect("lunctl exits rather than being signalled")
 }
 
-/// The whole of `lunette-v1.AC8.1`: a chunk evaluated between frames, with
+/// A chunk evaluated between frames, with
 /// nested tables coming back.
 #[test]
 fn a_chunk_is_evaluated_between_frames_and_its_nested_table_comes_back() {
@@ -260,7 +260,7 @@ fn an_answer_larger_than_a_message_is_named_rather_than_read_as_an_absent_sessio
     assert_eq!(stdout(&after), "42");
 }
 
-/// `lunette-v1.AC8.2`'s first clause, end to end: the session keeps running.
+/// End to end, the session keeps running after a control request.
 #[test]
 fn a_chunk_that_overruns_is_abandoned_and_the_session_carries_on() {
     let mut session = Session::start();
@@ -276,7 +276,7 @@ fn a_chunk_that_overruns_is_abandoned_and_the_session_carries_on() {
     assert_eq!(stdout(&after), "42");
 }
 
-/// `lunette-v1.AC8.2`'s second clause, measured on the socket a real session
+/// Measured on the socket, a real session
 /// bound rather than on one a test bound.
 #[test]
 fn the_socket_is_0600_inside_a_0700_directory_and_is_not_a_network_address() {

@@ -57,7 +57,7 @@ fn the_compositors_only_output_is_enumerated_as_one_monitor() {
 
 #[test]
 fn the_monitors_resolution_is_the_mode_the_compositor_set() {
-    // `lunette-v1.AC3.1` is about this number: what a mirrored monitor reports
+    // This is the number a mirrored monitor reports
     // has to be the resolution of the output behind it.
     let (roster, _) = enumerate(config(PixelSize::new(2560, 1440)));
 

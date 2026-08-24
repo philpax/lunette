@@ -1,6 +1,6 @@
 -- Covers pose encoding and decoding.
--- Exact round-trips matter because encoded poses cross reload and restart boundaries;
--- drift would move a panel on each decode and re-encode.
+-- Exact round-trips matter across reload and restart boundaries; drift would move
+-- a panel on each decode and re-encode.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'

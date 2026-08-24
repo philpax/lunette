@@ -1,10 +1,8 @@
 -- Covers lua/mullion/persist/format.lua.
 --
--- The case that matters most is the one nobody writes: an old reader handed a
--- new file must not rewrite it, because a default would let it parse the file
--- and then drop on write-back the fields it did not know about. Here that is
--- checked as the absence of anything writable rather than as a rule somebody
--- remembered to follow.
+-- The key case is an old reader handed a new file: it must not rewrite fields it
+-- does not know. The spec checks that nothing is writable rather than relying on
+-- a remembered rule.
 --
 -- The round-trip earns its place: this is a file format that outlives the
 -- process, which is exactly the case a round-trip test is for.

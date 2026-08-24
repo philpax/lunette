@@ -4,8 +4,8 @@
 -- libxkbcommon, but this spec checks that legends and keycodes come from the
 -- seat's keymap rather than from a table owned by this module.
 --
--- So the fake layout is deliberately not QWERTY. A keyboard that hardcoded one
--- would pass every case that asked "is this key an A" and fail every case here.
+-- The fake layout is deliberately not QWERTY, so a hardcoded keyboard fails
+-- rather than passing cases that only ask whether a key is A.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'

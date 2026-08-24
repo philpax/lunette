@@ -1,7 +1,7 @@
 -- The teardown registry.
 --
--- Hooks run in reverse registration order. A module therefore tears down before
--- the modules it depends on.
+-- Hooks run in reverse registration order, so a module tears down before its
+-- dependencies.
 
 local teardown = {}
 

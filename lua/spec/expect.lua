@@ -1,10 +1,7 @@
 -- Assertions for the spec suite.
 --
--- Each raises on failure with a message saying what was wanted and what
--- arrived, and `spec.runner` turns that into the case's report. They raise
--- rather than returning a verdict so that a case stops at its first failure,
--- which is what makes the message about the first thing that went wrong rather
--- than about the wreckage after it.
+-- Each raises with the expected and actual values; `spec.runner` turns that
+-- into the case report. Stopping at the first failure keeps the message focused.
 
 local expect = {}
 

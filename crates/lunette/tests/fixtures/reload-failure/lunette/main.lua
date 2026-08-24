@@ -1,13 +1,6 @@
--- A reload whose configuration raises leaves the session running.
---
--- Safe mode is for a `main.lua` that fails to load at startup. A reload that
--- fails is a different case and deliberately does not fall into it: the user has
--- a working session in front of them, so the error is reported, the session
--- keeps running, and the next reload works. This fixture is that sequence.
---
--- The second run raises, which stands in for the user saving a file with a
--- defect in it. Globals survive a soft reload, so the run counter is how this
--- one file is three different configurations in turn.
+-- A failed reload leaves the running session usable and reloadable. The run
+-- counter makes this file act as the initial configuration, the defective reload,
+-- and the recovered configuration.
 
 local lunette = require '@lunette'
 
@@ -19,7 +12,7 @@ end
 
 function lovr.load()
   if runs == 3 then
-    -- Reached only because the failed reload left the session running.
+    -- The failed reload left the session running.
     lovr.event.quit(9)
     return
   end
@@ -36,8 +29,7 @@ function lovr.load()
     return
   end
 
-  -- The Lua state is still running and still reloadable, which is the whole
-  -- difference between this and safe mode.
+  -- The Lua state remained running and reloadable after the failure.
   local recovered, recoveredMessage = lunette.reload()
   if not recovered then
     print('lunette: the session did not recover: ' .. tostring(recoveredMessage))

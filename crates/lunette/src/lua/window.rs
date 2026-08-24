@@ -1,10 +1,8 @@
 //! Linux-only: the window handle Lua holds.
 //!
-//! A handle names a toplevel by identifier and caches what the last snapshot
-//! said about it. Every read refreshes that cache against the frame's snapshot
-//! first, so a handle picked up three frames ago reports this frame's title —
-//! and once the window is gone it reports the last title it had, rather than
-//! nothing.
+//! A handle names a toplevel by identifier and caches its last known state.
+//! Every read refreshes that cache against the frame's snapshot. A dead handle
+//! continues to report the last state it knew.
 //!
 //! Refreshing on read, rather than at frame start, is what the prohibition on
 //! holding Lua references costs and buys. Rust does not know which handles Lua

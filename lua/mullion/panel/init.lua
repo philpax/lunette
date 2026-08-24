@@ -1,8 +1,7 @@
 -- Panels bind a window or monitor to a pose and size.
 --
--- A panel draws through a composition layer when it holds a claim and through
--- an in-scene quad otherwise. Both paths remain available because claims can be
--- revoked at frame boundaries.
+-- A panel draws through a composition layer while it holds a claim, and through
+-- an in-scene quad otherwise. Claims can be revoked at frame boundaries.
 
 local lunette = require '@lunette'
 local pointing = require '@mullion/interaction/types'

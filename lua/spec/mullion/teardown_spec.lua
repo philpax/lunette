@@ -9,9 +9,8 @@ local spec = suite.new 'mullion.teardown'
 
 -- The module's own `report`, captured before any case replaces it.
 --
--- Every case below substitutes the hook, which is why nothing here covered the
--- default until the default was found to raise: it called `io.stderr`, and Luau
--- has no `io` at all.
+-- Cases substitute the hook. The default was uncovered until it raised because
+-- it called `io.stderr`, and Luau has no `io`.
 local defaultReport = teardown.report
 
 -- Empties the registry and captures reports, returning the list they land in.

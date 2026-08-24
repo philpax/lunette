@@ -7,13 +7,9 @@
 -- handler is a function, a signal is a string, and an object is anything that
 -- can key a table.
 --
--- Two things about identity, both of which decide how a caller uses this:
---
--- A native handle is not a usable key. docs/lua-api.md#handles gives a window's
--- identity as `win.id`, and every read that produces a handle produces a fresh
--- one, so two reads of the same window are two different Lua values and would
--- be two different keys here. A caller wanting per-window signals emits on its
--- own object — a panel — or on a table it keys by `win.id` itself.
+-- A native handle is not a usable key: every read produces a fresh Lua value.
+-- Use the stable `win.id` as the key, or emit on a caller-owned object such as a
+-- panel. See docs/lua-api.md#handles.
 --
 -- The registry holds objects weakly, so a connection is not the reason an
 -- object is still reachable. That is not the whole story, because Lua 5.1 has

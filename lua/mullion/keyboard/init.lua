@@ -1,7 +1,5 @@
--- A virtual keyboard driven by the seat's keymap.
---
--- The layout is physical. The seat supplies legends and key meanings.
--- Modifiers are state sent through `sink:modifiers`, not synthetic key events.
+-- A virtual keyboard driven by the seat's physical keymap. The seat supplies
+-- legends and key meanings, while modifiers travel through `sink:modifiers`.
 
 local lunette = require '@lunette'
 

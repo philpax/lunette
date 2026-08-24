@@ -339,7 +339,7 @@ fn a_coordinate_that_is_not_a_number_is_reported() {
     assert!(session.flush().is_empty());
 }
 
-/// A restart is requested through LÖVR's own event queue.
+/// Requests a restart through LÖVR's own event queue.
 #[test]
 fn a_restart_is_asked_for_through_lovrs_own_event() {
     let session = session(Vec::new());

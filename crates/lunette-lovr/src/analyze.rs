@@ -16,7 +16,6 @@ use std::{
 pub struct Request {
     /// Loaded into the global scope before anything is checked.
     pub definitions: Option<PathBuf>,
-    /// The files to check. Each is its own module name.
     pub roots: Vec<PathBuf>,
     pub strict: bool,
     /// The old type solver, which is not upstream's default.

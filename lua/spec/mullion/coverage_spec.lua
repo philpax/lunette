@@ -1,9 +1,7 @@
 -- Every module of the standard library has a spec, or is exempt on purpose.
 --
--- A module with no spec is not necessarily a defect — some are thin — but the
--- absence has to be deliberate rather than accidental. This is what makes it
--- deliberate: the table below names every module and what covers it, and a
--- module added without an entry fails here rather than going unnoticed.
+-- A module without a spec may be deliberately thin, but the table below records
+-- that decision. An unlisted module fails here rather than going unnoticed.
 --
 -- The tree is read from the mount rather than listed by hand, so a module added
 -- under a new subdirectory is seen. That is the same defect the `Makefile`'s

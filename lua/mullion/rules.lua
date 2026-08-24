@@ -161,9 +161,8 @@ end
 -- higher one layers over a lower one and wins where both name a key. Two at the
 -- same precedence apply in registration order.
 --
--- Replacing rather than appending is what makes a module safe to `require`
--- twice, and what lets a configuration re-register its rules after editing them
--- without accumulating copies of the old ones.
+-- Replacing rather than appending makes repeated `require` calls safe and lets a
+-- configuration re-register edited rules without accumulating old copies.
 function rules.addSource(name: string, precedence: number, resolve: (window: lunette.Window) -> Properties?)
   if type(name) ~= 'string' then
     error('mullion.rules: a source is named by a string, not a ' .. type(name), 2)

@@ -20,7 +20,7 @@
 //! frame that calls one of them and then sets `main = false` pays for the
 //! acquire and the wait and throws the result away.
 //!
-//! # Which is why this gates the two calls rather than the flag
+//! # Why this gates the two calls rather than the flag
 //!
 //! `vendor/lovr/etc/boot.lua:215` calls `lovr.headset.getPass()`
 //! unconditionally, before it has looked at whether `lovr.draw` exists, and

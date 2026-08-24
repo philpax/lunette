@@ -1,4 +1,5 @@
--- Covers the raycast arithmetic without compositor fixtures.
+-- Covers raycast arithmetic without compositor fixtures. A panel's ray is in
+-- source pixels, unlike a keyboard's metre-space ray.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'

@@ -161,9 +161,7 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
 
 /// Compares a checked-in file against what the generator produced.
 ///
-/// Reports the first line that differs, with its number, so that a stale file
-/// says what changed rather than only that something did. A file that is
-/// missing entirely is reported as such.
+/// Reports the first differing line, or that the file is missing.
 fn compare(path: &Path, generated: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let Ok(current) = fs::read_to_string(path) else {
         error!(path = %path.display(), "the file is not there");
