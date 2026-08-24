@@ -358,8 +358,8 @@ pub enum PortalError {
     UnusableNode { raw: u32 },
     /// A persistence mode the underlying client cannot express was requested.
     ///
-    /// `wlx-capture`'s `ScreenCastParams.persist` is a bool mapping to 0 or 2
-    /// (`pipewire/mod.rs:513`), so [`PersistMode::WhileRunning`] has no
+    /// The capture backend maps persistence to a boolean, so
+    /// [`PersistMode::WhileRunning`] has no
     /// representation. Sending 2 instead would ask for a longer-lived grant
     /// than the caller wanted, which is the wrong direction to guess in.
     UnsupportedPersistMode(PersistMode),

@@ -43,8 +43,6 @@ check-format:
 	$(CARGO) +nightly fmt --all -- --check
 	stylua --check lua etc/xdg/lunette
 
-# Clippy and tests use separate artifact caches, so CI runs them in parallel;
-# this target runs both for local development.
 check-rust: check-clippy check-test
 
 check-clippy:

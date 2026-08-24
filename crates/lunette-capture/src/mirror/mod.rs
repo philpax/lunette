@@ -4,13 +4,8 @@
 //!
 //! # Pause is not stop
 //!
-//! The distinction is the whole of `lunette-v1.AC3.5`. A panel that is
-//! temporarily out of view is paused: the stream stays, PipeWire deactivates it
-//! (`pipewire/capture.rs:144`), and resuming costs nothing. A dismissed monitor
-//! is stopped: the stream is dropped, which stops PipeWire's thread and closes
-//! its descriptors, so the mirror has no ongoing cost at all — which is what
-//! `docs/host-desktop.md:27` promises and what WayVR cannot do, since `pause()`
-//! is an empty no-op in three of its four backends.
+//! A temporarily hidden monitor is paused and keeps its stream. A dismissed
+//! monitor is stopped, which drops the stream and closes its resources.
 //!
 //! The portal session survives a dismissal. Re-adding the monitor opens a
 //! stream on the node the session already granted, so it does not prompt.

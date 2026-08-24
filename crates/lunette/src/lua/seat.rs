@@ -4,12 +4,12 @@
 //! two seats and the protocol offers nothing else. WayVR has one, which is why
 //! pointing the off hand at a window steals hover from the main hand;
 //! `lunette.newSeat` is the primitive that removes that limit, and the
-//! collapse-to-one-seat mode `docs/input.md:39` describes is Lua policy over it
+//! collapse-to-one-seat mode is Lua policy over it
 //! rather than a mode here.
 //!
 //! # What the keymap queries are for
 //!
-//! `docs/input.md:47-54` records the shape of the problem: Wayland clients want
+//! Wayland clients want
 //! an xkb keymap plus raw keycodes and do their own keysym translation, so
 //! anything drawing a keyboard has to be able to ask what a key means. The three
 //! queries here — the layout list, forward lookup, and reverse lookup — are

@@ -8,9 +8,6 @@
   outputs =
     { nixpkgs, ... }:
     let
-      # x86_64-linux only: bindgen names the x86_64 varargs type differently from
-      # aarch64, and the generated Rust FFI currently depends on that name.
-
       systems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in
@@ -46,7 +43,6 @@
           ];
         in
         {
-          # Match the gcc14 environment used by the nixpkgs LÖVR derivation.
           default = (pkgs.mkShell.override { stdenv = pkgs.gcc14Stdenv; }) {
             name = "lunette";
 
@@ -62,12 +58,10 @@
               # the stable compiler.
               rustup
 
-              # Formats the Luau tree, as `make check` requires.
               stylua
             ];
 
             buildInputs = with pkgs; [
-              # LOVR.
               libx11
               libxrandr
               libxinerama

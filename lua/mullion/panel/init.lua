@@ -102,12 +102,9 @@ panel.DEFAULT_HEIGHT = 0.8
 
 -- The fragment stage a source whose buffer has no alpha channel is drawn with.
 --
--- An X-variant fourcc such as XR24 has no Vulkan format of its own, so it is
--- imported as the alpha-carrying format with the same component order and the
--- client's padding byte arrives as alpha. Most renderers leave that byte at
--- zero, so sampling it draws the window fully invisible. `source.opaque` is what
--- The source marks the padding byte as meaningless, so this shader forces alpha
--- to one rather than sampling it.
+-- An X-variant fourcc has no alpha. Import treats its padding byte as alpha,
+-- so `source.opaque` makes the shader force alpha to one.
+
 panel.OPAQUE_FRAGMENT = [[
   vec4 lovrmain() {
     return vec4((Color * getPixel(ColorTexture, UV)).rgb, Color.a);

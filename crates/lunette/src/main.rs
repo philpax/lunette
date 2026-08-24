@@ -42,7 +42,7 @@
 //! own is a way to deadlock: the window's toolkit would connect to a socket
 //! whose compositor thread has not started, and wait for a registry that cannot
 //! arrive until it has. LÖVR's GLFW is built with `GLFW_BUILD_WAYLAND OFF`
-//! (`vendor/lovr/CMakeLists.txt:113`), so it is X11-only and never reads the
+//! , so it is X11-only and never reads the
 //! variable. A LÖVR build with Wayland support would have to save the host's
 //! value and hand it back, or defer the export until after the window exists —
 //! which the soundness rule above forbids.

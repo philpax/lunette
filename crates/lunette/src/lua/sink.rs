@@ -453,7 +453,7 @@ fn key_pressed<T>(sink: &Sink<T>, seat: SeatId, key: Keycode, pressed: bool) -> 
 /// `sink:modifiers(names, seat)`: replaces the modifiers held on this sink.
 ///
 /// Explicit state rather than synthesised keypresses, which is what
-/// `docs/input.md:51` asks for on the window side and what the host provider
+/// window sinks and the host provider
 /// already implements on the other.
 fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) -> bool {
     match &sink.target {
@@ -480,8 +480,7 @@ fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) ->
 ///
 /// An escape hatch, and explicitly stateful: it generates and uploads a
 /// temporary keymap, so it must not be interleaved with `sink:key` on the same
-/// seat. `docs/input.md:58-62` records what it is for — clipboard-less paste,
-/// dictation, and `lunctl` telling a terminal to run a command.
+/// seat. It supports clipboard-less paste, dictation, and remote terminal input.
 ///
 /// Refused on a host sink. The technique needs a keymap that can be uploaded
 /// and then taken back, and lunette does not own the host's keyboard well
