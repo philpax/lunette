@@ -2,8 +2,8 @@
 --
 -- docs/stdlib.md's tier 3, the part that decides where a window goes. The
 -- minimum-viable line asks for a rules table matched on `appId`, and this is it,
--- plus the composition that Task 10's saved arrangement needs to sit alongside
--- it rather than inside it.
+-- plus the composition that saved arrangements need to sit alongside it rather
+-- than inside it.
 --
 -- The shape is awesome's and none of its code: awesome is GPL-2 and lunette
 -- GPL-3-only (CREDITS.md), so nothing was copied and its source was not
@@ -32,8 +32,6 @@ local teardown = require '@mullion/teardown'
 
 local rules = {}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
 local byPrecedence, layer, evaluate, applyTags, poseFrom
 
 -- Every source, as `{ { name, precedence, resolve, sequence } }` in registration
@@ -140,8 +138,8 @@ rules.PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chro
 
 -- Where a rule that could not be honoured is reported.
 --
--- Replaceable, so that Phase 7's error handling can route it wherever it routes
--- everything else, and so that a spec can capture it rather than printing it.
+-- Replaceable, so that the host's error handling can route it with everything
+-- else, and so that a spec can capture it rather than printing it.
 -- The default logs the message, which the host routes to its own diagnostics.
 --
 -- `level` carries a LÖVR log level and defaults to `warn`, because most of what
@@ -355,10 +353,9 @@ end
 -- everything else is left in the returned table for the caller.
 --
 -- A tag named by a rule and not yet declared is created rather than refused, and
--- reported. A rule saying "this application lives on 'web'" is describing a
--- workspace, and refusing the window because the workspace has not been declared
--- yet would lose the window over a declaration order; a misspelt name reaches the
--- same path, so the creation is said out loud rather than assumed deliberate.
+-- reported. A rule saying "this application lives on 'web'" describes a workspace;
+-- a misspelt name reaches the same path, so the creation is said out loud rather
+-- than assumed deliberate.
 function rules.place(window: lunette.Window, options: Resolved?): (panel.Panel, Resolved)
   if window == nil then
     error('mullion.rules: a window is placed, and nil is not one', 2)
@@ -446,11 +443,8 @@ function applyTags(created: panel.Panel, tags: { read [number]: string | tag.Tag
     if tag.isTag(named) and type(named) == 'table' then
       named:add(created)
     elseif type(named) == 'string' then
-      -- Created rather than refused, per `place`'s note: losing the window over
-      -- a declaration order is worse than a tag nothing declared. Reported all
-      -- the same, because the other way to arrive here is a misspelt name, and
-      -- an unreported one is a workspace nobody asked for holding a window
-      -- nobody can find.
+      -- A missing tag is created rather than refused, as described by `place`.
+      -- Report it because the same path handles a misspelt name.
       local found = tag.find(named)
       if not found then
         found = tag.new(named, nil)

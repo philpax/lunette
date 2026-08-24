@@ -1,10 +1,6 @@
--- Covers lua/mullion/pose.lua.
---
--- The round-trip earns its place here rather than being a test of LÖVR's own
--- formatting: what this writes goes into the native property store and into a
--- file on disk, both of which outlive the process that wrote them, and a
--- decoder that lost the last digit would move every panel a little further from
--- where the user put it at every reload.
+-- Covers pose encoding and decoding.
+-- Exact round-trips matter because encoded poses cross reload and restart boundaries;
+-- drift would move a panel on each decode and re-encode.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -13,8 +9,7 @@ local pose = require '@mullion/pose'
 
 local spec = suite.new 'mullion.pose'
 
--- Exact, not near: the encoding claims to bring a 32-bit float back unchanged,
--- and a tolerance would be asserting something weaker than the claim.
+-- Encoding must preserve every matrix element exactly.
 local function expectSame(recovered, original, context)
   local wanted = { original:unpack(true) }
   local got = { recovered:unpack(true) }
@@ -30,8 +25,7 @@ spec('a translated pose round-trips exactly', function()
 end)
 
 spec('a rotated and scaled pose round-trips exactly', function()
-  -- Rotation and scale are the two a decomposition into a position and an
-  -- orientation would lose, which is why the encoding is sixteen numbers.
+  -- Rotation and scale require all sixteen matrix elements.
   local original = lovr.math.newMat4():translate(0.1, 2, -1.25):rotate(0.7, 0, 1, 0):scale(2, 3, 1)
 
   expectSame(pose.decode(pose.encode(original)), original, 'the recovered pose')

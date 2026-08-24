@@ -1,24 +1,13 @@
-//! Which monitor each granted stream shows.
+//! Correlates granted portal streams with the attached monitors.
 //!
-//! The portal hands out anonymous streams. Nothing in the response says which
-//! screen a stream came from, and nothing guarantees the order corresponds to
-//! the user's selection order or to output enumeration order, so the tie has to
-//! be made from what the stream properties carry: `position` and `size`, in the
-//! compositor's logical space, which is the same space a `wl_output`'s geometry
-//! is reported in.
+//! Portal backends do not consistently provide a usable connector name, so the
+//! portable fallback is positional geometry in the compositor's logical space,
+//! which is compatible with `wl_output` geometry. A size mismatch can still be
+//! valid when a backend reports physical pixels for a scaled output.
 //!
-//! That geometry match is the portable mechanism, and it is what wlx-overlay-s
-//! does. `mapping_id` is read opportunistically and wins where it is a real
-//! connector name, but it cannot be the mechanism: two of the three portal
-//! backends do not supply a usable one. `docs/host-desktop.md` records the
-//! evidence.
-//!
-//! Pure over plain data. Nothing here touches the portal, PipeWire, or a
-//! display. Both passes walk the streams in node order rather than in the order
-//! the portal listed them, and the result is sorted, so correlating the same
-//! streams in a different order produces the same answer — including in the
-//! cases where two streams contend for one monitor and only one of them can
-//! have it.
+//! Matching is independent of portal response order. Connector matches take
+//! precedence over positional matches, and ambiguous positional matches remain
+//! unmatched.
 
 use std::{collections::BTreeMap, fmt};
 
@@ -33,24 +22,13 @@ use crate::{
 
 /// Ties each granted stream to the monitor it shows.
 ///
-/// The connector pass runs first and across every stream, then the position
-/// pass over what is left, so a stream that names its connector never loses its
-/// monitor to a stream that merely sits at the same coordinates.
-///
-/// Both halves of the answer are reported. A stream matching no monitor is
-/// listed in [`Correlation::unmatched`] with the reason, and a monitor no
-/// stream showed is listed in [`Correlation::unmirrored`]: dropping either
-/// would turn a portal or arrangement problem into a mirror that silently never
-/// appears.
+/// Both successful and unsuccessful matches are reported. Monitors with no
+/// corresponding stream are listed separately.
 #[must_use]
 pub fn correlate(streams: &[PortalStream], roster: &Roster) -> Correlation {
     let mut claims = Claims::new(roster);
 
-    // By node rather than in the order the portal listed them. Two streams
-    // naming one connector cannot both have it, and taking the first in slice
-    // order would make which one wins a property of the portal's response
-    // ordering, which it guarantees nothing about. The position pass is already
-    // node-ordered, because it groups through a `BTreeMap`.
+    // Node order makes connector contention independent of portal response order.
     let mut ordered: Vec<&PortalStream> = streams.iter().collect();
     ordered.sort_by_key(|stream| stream.node);
 
@@ -167,16 +145,14 @@ impl fmt::Display for NoMatch {
     }
 }
 
-/// Which monitor each stream has taken, while the passes run.
+/// Tracks monitor claims and rejected matches.
 struct Claims<'a> {
     monitors: &'a [Monitor],
     /// The node that claimed each monitor, indexed alongside `monitors`.
     claimed_by: Vec<Option<NodeId>>,
-    /// The monitor each node claimed, and how. Ordered, so the finished result
-    /// is too.
+    /// The monitor each node claimed and the strength of the match.
     taken: BTreeMap<NodeId, (usize, MatchStrength)>,
-    /// The nodes that failed, and why. Only consulted for a node that never
-    /// claimed anything.
+    /// Rejected nodes and their reasons.
     refused: BTreeMap<NodeId, NoMatch>,
 }
 
@@ -191,7 +167,7 @@ impl<'a> Claims<'a> {
         }
     }
 
-    /// Takes the monitor a stream's `mapping_id` names, where it names one.
+    /// Claims the monitor named by the stream's connector, when present.
     fn claim_by_connector(&mut self, stream: &PortalStream) {
         let Some(connector) = stream.connector else {
             return;
@@ -220,13 +196,7 @@ impl<'a> Claims<'a> {
         }
     }
 
-    /// Takes a monitor for each remaining stream whose position names exactly
-    /// one.
-    ///
-    /// Grouped by position rather than walked stream by stream, because the
-    /// ambiguous case is a property of the group: two streams at one position
-    /// are indistinguishable from each other, not merely from the monitors
-    /// there.
+    /// Claims uniquely identified positional matches and rejects ambiguity.
     fn claim_by_position(&mut self, streams: &[PortalStream]) {
         let mut by_position: BTreeMap<(i32, i32), Vec<NodeId>> = BTreeMap::new();
 
@@ -375,13 +345,12 @@ mod tests {
         LogicalGeometry::new(LogicalPosition::new(x, 0), LogicalSize::new(width, 1080))
     }
 
-    /// A resolution correlation does not read: streams are tied to monitors by
-    /// logical geometry and by connector name, never by mode.
+    /// Correlation does not use display mode resolution.
     fn resolution() -> PixelExtent {
         PixelExtent::new(1920, 1080)
     }
 
-    /// An unrotated monitor, which is what every correlation test is about.
+    /// Correlation uses the monitor's unrotated logical geometry.
     fn report(name: MonitorName, geometry: LogicalGeometry) -> MonitorReport {
         MonitorReport {
             name,
@@ -391,7 +360,7 @@ mod tests {
         }
     }
 
-    /// Two monitors side by side, each 1920 wide, distinguishable by model.
+    /// Two monitors with distinct logical positions.
     fn two_monitors() -> Roster {
         let mut roster = Roster::new();
         roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
@@ -442,8 +411,6 @@ mod tests {
 
     #[test]
     fn the_answer_does_not_depend_on_the_order_the_portal_listed_the_streams_in() {
-        // The portal guarantees nothing about stream order, so an arrangement
-        // derived from it would change between runs with nothing else changing.
         let forwards = [
             stream(3, Some(0), Some(1920)),
             stream(7, Some(1920), Some(1920)),
@@ -458,9 +425,6 @@ mod tests {
 
     #[test]
     fn a_connector_name_beats_the_geometry_of_a_stream_that_sits_elsewhere() {
-        // The stream says it is at the right-hand monitor's position, but names
-        // the left-hand monitor's connector. The connector is the more specific
-        // of the two, so it wins.
         let mut stream = stream(3, Some(1920), Some(1920));
         stream.connector = ConnectorName::parse("DP-1");
 
@@ -491,10 +455,6 @@ mod tests {
 
     #[test]
     fn a_size_disagreement_lowers_the_confidence_rather_than_rejecting_the_match() {
-        // A backend reporting the stream's pixel size on a 2x display disagrees
-        // with the logical size by exactly the scale factor. The position is
-        // still right, and refusing here would leave a scaled monitor
-        // unmirrorable.
         let correlation = correlate(&[stream(3, Some(0), Some(3840))], &two_monitors());
 
         assert_eq!(
@@ -545,8 +505,6 @@ mod tests {
 
     #[test]
     fn two_monitors_stacked_at_one_position_leave_both_streams_ambiguous() {
-        // Mirrored outputs occupy one logical rectangle. Picking one would put
-        // the mirror on whichever the enumeration happened to list first.
         let mut roster = Roster::new();
         roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
         roster.add(report(named(Some("HDMI-A-1"), "Right"), geometry(0, 1920)));
@@ -585,9 +543,6 @@ mod tests {
 
     #[test]
     fn a_connector_match_frees_the_position_for_the_stream_that_is_left() {
-        // Two monitors at one position, but one stream names its connector. The
-        // connector pass takes that monitor, so the position pass sees exactly
-        // one candidate and one stream, which is no longer ambiguous.
         let mut roster = Roster::new();
         roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
         roster.add(report(named(Some("HDMI-A-1"), "Right"), geometry(0, 1920)));
@@ -608,8 +563,6 @@ mod tests {
 
     #[test]
     fn which_of_two_streams_naming_one_connector_wins_does_not_depend_on_portal_order() {
-        // Only one of them can have the monitor. Deciding it by slice position
-        // would make the answer a property of the portal's response ordering.
         let mut first = stream(3, None, None);
         first.connector = ConnectorName::parse("DP-1");
         let mut second = stream(7, None, None);
@@ -648,8 +601,6 @@ mod tests {
 
     #[test]
     fn the_monitors_no_stream_showed_are_named() {
-        // Ordinary when the user selected one of two screens, and the only way
-        // a configuration can say which mirror it did not get.
         let correlation = correlate(&[stream(3, Some(0), Some(1920))], &two_monitors());
 
         assert_eq!(

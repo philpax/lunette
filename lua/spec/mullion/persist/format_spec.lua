@@ -57,8 +57,6 @@ spec('an arrangement round-trips through render and read', function()
 end)
 
 spec('an entry with no size round-trips as one with no size', function()
-  -- Built rather than overridden, because a table constructor cannot carry a nil
-  -- and `newEntry` would not see the key at all.
   local written = format.newFile {
     { kind = 'window', key = 'terminal', slot = 1, pose = pose.encode(lovr.math.newMat4()), tags = {} },
   }
@@ -69,9 +67,8 @@ spec('an entry with no size round-trips as one with no size', function()
 end)
 
 spec('a size round-trips to the last digit', function()
-  -- A metre size that lost its last digit would shrink a panel a little at every
-  -- restart, and the drift would be diagnosed as a layout defect rather than as
-  -- a formatting one.
+  -- A metre size that loses its last digit shrinks a panel at every restart, so
+  -- the format must preserve the value rather than introduce layout drift.
   local width, height = 1 / 3, 0.8999999999999999
   local written = format.newFile { newEntry { width = width, height = height } }
 
@@ -81,8 +78,7 @@ spec('a size round-trips to the last digit', function()
 end)
 
 spec('an arrangement does not share an array with its caller', function()
-  -- In both directions: what `newFile` was handed and what `entries` hands back
-  -- are copies, so a caller sorting or trimming a list does not quietly rewrite
+  -- Both boundaries return copies, so changing a caller's list does not rewrite
   -- the arrangement that is about to be saved.
   local given = { newEntry() }
   local file = format.newFile(given)
@@ -124,9 +120,8 @@ spec('a file from a later version carries no arrangement to write back', functio
   expect.equal(loaded.kind, 'fromTheFuture', 'the kind')
   expect.equal(loaded.found, format.CURRENT_VERSION + 1, 'the version found')
   expect.equal(loaded.supported, format.CURRENT_VERSION, 'the version supported')
-  -- The whole of the old-writer guard: nothing to render, so nothing `save`
-  -- accepts, so the field this version has never heard of cannot be dropped on
-  -- write-back.
+  -- Nothing is renderable, so the field this version has never heard of cannot be
+  -- dropped on write-back.
   expect.falsy(loaded:forSession(), 'the arrangement')
 end)
 
@@ -150,9 +145,8 @@ spec('a file chunk cannot reach anything outside itself', function()
 end)
 
 spec('an entry that is not the shape is skipped and named while the rest loads', function()
-  -- Written by hand rather than through `render`, because these are shapes this
-  -- version does not write and a reader has to survive anyway: a file edited by
-  -- hand, or one written by a version that spelt an entry differently.
+  -- These shapes represent a file edited by hand or written by another version;
+  -- the reader must skip them without losing the valid entries.
   local text = [[return {
   version = 1,
   entries = {
@@ -184,9 +178,8 @@ spec('an entry with a slot that is not a number takes the first slot', function(
 end)
 
 spec('a load and an arrangement are told apart', function()
-  -- The two are what a caller holding the wrong one confuses, and the shipped
-  -- configuration hands a load where an arrangement is wanted. Telling them
-  -- apart is what lets that be unwrapped rather than raised on.
+  -- A load and an arrangement have different capabilities, so callers must be
+  -- able to distinguish them before unwrapping a load.
   local loaded = format.empty()
   local file = loaded:forSession()
 

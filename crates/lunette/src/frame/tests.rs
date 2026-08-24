@@ -27,8 +27,7 @@ use crate::{
     texture::{FrameGeneration, TextureDescription, TextureLedger, TextureRef, TextureUnavailable},
 };
 
-/// A texture that is a counter, so the ledger's bookkeeping can be
-/// exercised without a graphics device.
+/// A counter-shaped texture fake that exercises ledger bookkeeping without a graphics device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Counted(u64);
 
@@ -247,8 +246,6 @@ fn a_monitor_holding_a_texture_with_nothing_retained_is_swept() {
 
 #[test]
 fn a_monitor_that_is_still_mirroring_keeps_what_it_holds() {
-    // Neither the texture nor the retained buffers go while frames are still
-    // arriving, and a paused mirror is still mirroring.
     assert_eq!(
         stopped_monitors(vec![monitor(1)], vec![monitor(1)], |_| true),
         Vec::new(),
@@ -257,8 +254,7 @@ fn a_monitor_that_is_still_mirroring_keeps_what_it_holds() {
 
 #[test]
 fn a_monitor_named_by_both_is_released_once() {
-    // `forget_monitor_texture` is idempotent, but a repeat would log a second
-    // release for buffers already gone.
+    // Forgetting a monitor is idempotent, so already-released buffers are not released again.
     assert_eq!(
         stopped_monitors(vec![monitor(1)], vec![monitor(1)], |_| false),
         vec![monitor(1)],
@@ -312,8 +308,7 @@ fn teardown_hands_back_every_texture_once() {
     );
 }
 
-/// One step of the device teardown, so that the order can be compared rather
-/// than described.
+/// One teardown step, recorded so lifecycle order can be compared.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     DestroyLayers,
@@ -324,12 +319,7 @@ enum Step {
     GiveUpImages(Disposal),
 }
 
-/// A teardown target that records what it was asked to do, in order.
-///
-/// The real target is `FrameDriver`, whose steps each need an XR session, a
-/// graphics device, or both. What is under test is not what a step does — the
-/// pool, the ledger, and the arena each have their own cases — but the order
-/// they are asked in, and that is a property of `tear_down_device` alone.
+/// A teardown target that records the order of calls without a graphics device.
 #[derive(Debug, Default)]
 struct Recorder(Vec<Step>);
 

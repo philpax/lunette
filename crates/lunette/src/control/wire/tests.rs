@@ -169,8 +169,7 @@ fn a_request_round_trips() {
 
 #[test]
 fn a_frame_from_another_protocol_version_is_named_rather_than_parsed() {
-    // The version byte is at a fixed offset that will not move, so a peer
-    // from either side of a change can always read it.
+    // The version byte has a stable offset so peers can identify mismatches before parsing the frame.
     let mut buffer = Vec::new();
     write_reply(&mut buffer, &Reply::Busy).expect("the reply fits a frame");
     buffer[4] = PROTOCOL_VERSION.wrapping_add(1);
@@ -178,8 +177,7 @@ fn a_frame_from_another_protocol_version_is_named_rather_than_parsed() {
     assert_eq!(
         read_reply(&mut buffer.as_slice()).expect("the version is still readable"),
         Reply::Incompatible {
-            // The reader of a reply is the client, so the version in the
-            // frame is the session's whichever side wrote it.
+            // The reply reader is the client, so the frame's version is the session version.
             session: PROTOCOL_VERSION.wrapping_add(1),
             client: PROTOCOL_VERSION,
         }
@@ -206,6 +204,7 @@ fn a_reply_larger_than_a_frame_is_refused_before_any_of_it_is_written() {
 /// would let eight bytes ask for four billion slots.
 #[test]
 fn a_count_past_what_the_frame_holds_reserves_only_what_could_follow() {
+    // A peer-supplied count must not cause a large allocation; each following value needs at least one byte.
     let mut body = vec![PROTOCOL_VERSION, REPLY_RETURNED];
     encode_count(&mut body, usize::try_from(u32::MAX).expect("it fits"));
     let mut buffer = (body.len() as u32).to_le_bytes().to_vec();
@@ -214,9 +213,7 @@ fn a_count_past_what_the_frame_holds_reserves_only_what_could_follow() {
     let error = read_reply(&mut buffer.as_slice()).expect_err("nothing follows the count");
     assert!(matches!(error, WireError::Truncated), "{error}");
 
-    // The clamp itself, which is what the frame above would otherwise
-    // defeat: no value is shorter than a byte, so a count larger than the
-    // bytes left cannot describe what follows.
+    // Reserve no more than bytes that can contain the following value; every value needs at least one byte.
     let cursor = Cursor::new(&[0u8; 4]);
     assert_eq!(cursor.at_most(usize::MAX, 1), 4);
     assert_eq!(cursor.at_most(usize::MAX, 2), 2);
