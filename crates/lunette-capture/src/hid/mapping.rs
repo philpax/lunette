@@ -1,43 +1,17 @@
-//! From a hit on a mirrored panel to a position on a physical monitor.
+//! Maps a hit on a mirrored panel to a position on a physical monitor.
 //!
-//! Two coordinate spaces meet here, and keeping them apart is the whole job.
+//! A [`HidProvider`](crate::hid::HidProvider) uses the host desktop bounding box for absolute pointer input. This module maps a panel hit to one monitor's logical rectangle before the provider maps it to the desktop.
 //!
-//! A [`HidProvider`](crate::hid::HidProvider) knows only the host desktop's
-//! bounding box: uinput's device spans it in a fixed normalised range
-//! (as in WayVR), and `zwlr_virtual_pointer_v1.motion_absolute`
-//! takes it as the extent a position is expressed against. Neither knows what a
-//! monitor is.
+//! [`MonitorMapping`] applies the monitor's [`SurfaceTransform`](crate::monitor::SurfaceTransform), including rotation and reflection.
 //!
-//! Per-monitor targeting is upstream of that, and is what lives here. A
-//! [`MonitorMapping`] turns a normalised hit on the panel into a position inside
-//! one monitor's logical rectangle, including its rotation and flip, exactly as
-//! WayVR builds an `Affine2` per screen.
-//! The provider then places it on the desktop.
+//! # Logical coordinates
 //!
-//! The rotation itself is
-//! [`SurfaceTransform`](crate::monitor::SurfaceTransform), which lives with the
-//! rest of a monitor's geometry because that is where it is read from; what to
-//! do with it is [`reorient`], here.
+//! All dimensions use the compositor's logical geometry. Logical dimensions differ from pixel dimensions when display scaling is enabled. Pointer mapping through pixel dimensions produces incorrect positions on scaled displays.
 //!
-//! # Logical, never pixels
+//! # Desktop layout updates
 //!
-//! Every dimension here is the compositor's logical geometry. On a display
-//! scaled by two the logical and pixel sizes differ by that factor, and a
-//! pointer mapped through pixels lands wrong by exactly that ratio. Two
-//! monitors at different scales sitting side by side is the case that makes it
-//! visible.
+//! [`DesktopLayout`] is derived from the current monitor mappings. Adding, removing, or moving a monitor changes the desktop origin or extent. The provider's normalised input range remains fixed.
 //!
-//! # Recompute on every output change
-//!
-//! [`DesktopLayout`] is derived, not stored: a monitor added, removed, or moved
-//! changes the bounding box, and the origin and extent handed to the provider
-//! change with it. WayVR applies them once at screen enumeration and nothing
-//! observed re-runs it. Neither
-//! provider needs anything recreated for a change — uinput's range is fixed and
-//! normalised, which is what that abstraction buys.
-//!
-//! Pure. Nothing here touches a device, a compositor, or a display.
-
 use std::{error::Error, fmt};
 
 use crate::{
@@ -47,14 +21,9 @@ use crate::{
 
 /// A hit on a mirrored panel, normalised over its surface.
 ///
-/// `(0, 0)` is the panel's top-left corner and `(1, 1)` its bottom-right, in the
-/// panel's own orientation. Normalised rather than in pixels so that nothing
-/// here depends on the resolution the panel happens to be rendered at.
+/// `(0, 0)` is the panel's top-left corner. `(1, 1)` is its bottom-right corner in the panel's orientation. The coordinates do not depend on the panel's render resolution.
 ///
-/// Values outside the unit square are representable, because a laser that has
-/// left the panel produces them, and [`MonitorMapping::map`] clamps rather than
-/// refusing: a pointer at the edge of a panel should reach the edge of the
-/// monitor, not vanish.
+/// Coordinates outside the unit square are valid. [`MonitorMapping::map`] clamps them to the unit square so an out-of-panel hit reaches the corresponding monitor edge.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct PanelPoint {
     pub u: f64,
@@ -71,11 +40,9 @@ impl PanelPoint {
         Self { u, v }
     }
 
-    /// The same point with both axes brought into the unit square.
+    /// Returns the point with both coordinates clamped to the unit square.
     ///
-    /// A non-finite coordinate becomes zero rather than propagating: a NaN
-    /// through `clamp` stays NaN, and a NaN reaching the provider becomes a
-    /// pointer position the host cannot interpret.
+    /// A non-finite coordinate becomes zero. `clamp` preserves NaN, but the host cannot interpret a NaN pointer position.
     #[must_use]
     fn clamped(self) -> Self {
         let unit = |value: f64| {
@@ -95,14 +62,11 @@ impl fmt::Display for PanelPoint {
     }
 }
 
-/// Moves a normalised panel coordinate into its monitor's own orientation.
+/// Maps a normalised panel coordinate into the monitor's orientation.
 ///
-/// A bijection of the unit square, so a corner always lands on a corner and the
-/// centre always stays the centre.
+/// The mapping is a bijection of the unit square. It maps corners to corners and preserves the centre.
 ///
-/// A free function rather than a method on [`SurfaceTransform`], because the
-/// type describes what the host reported and belongs with the rest of a
-/// monitor's geometry, while what to do with it belongs here with the mapping.
+/// This function applies [`SurfaceTransform`] within the mapping module. [`SurfaceTransform`] describes monitor geometry and remains defined in that module.
 #[must_use]
 pub fn reorient(transform: SurfaceTransform, point: PanelPoint) -> PanelPoint {
     let PanelPoint { u, v } = point;
@@ -118,11 +82,9 @@ pub fn reorient(transform: SurfaceTransform, point: PanelPoint) -> PanelPoint {
     }
 }
 
-/// How to reach one physical monitor from its mirrored panel.
+/// Maps a mirrored panel to one physical monitor.
 ///
-/// Non-empty by construction, so nothing downstream has to guard against a
-/// division by a zero-sized monitor: [`Self::new`] is the only way to build one
-/// and it rejects that case by name.
+/// Every instance has non-zero logical width and height. [`Self::new`] rejects empty monitors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MonitorMapping {
     geometry: LogicalGeometry,
@@ -130,13 +92,9 @@ pub struct MonitorMapping {
 }
 
 impl MonitorMapping {
-    /// The mapping for a monitor, or [`MappingError::EmptyMonitor`] when it has
-    /// no area to map onto.
+    /// Creates a mapping for a monitor.
     ///
-    /// A compositor can report a monitor with a zero logical dimension — one
-    /// being reconfigured, or one whose mode has not been set. It is not a
-    /// monitor a pointer can be placed on, and saying so once here is better
-    /// than every consumer checking for it.
+    /// A monitor can have a zero logical dimension while it is being reconfigured or before its mode is set. Such a monitor cannot receive pointer input, so this constructor rejects it.
     ///
     /// # Errors
     ///
@@ -164,17 +122,11 @@ impl MonitorMapping {
         self.transform
     }
 
-    /// Where on the host desktop a hit on this monitor's panel lands.
+    /// Maps a panel hit to the host desktop.
     ///
-    /// The hit is clamped into the unit square before the transform, which is
-    /// what keeps a pointer near a panel's edge inside this monitor's rectangle.
-    /// The desktop's bounding box is not enough on its own: a non-rectangular
-    /// arrangement leaves dead zones inside it, and a hit clamped only to the
-    /// box could land in the gap between two screens.
+    /// The method clamps the hit to the unit square before applying the transform. The result stays inside this monitor's rectangle, including its edges. Clamping to the desktop bounding box could place a hit in a gap between monitors.
     ///
-    /// The result spans the monitor's rectangle inclusively, corner to corner.
-    /// [`DesktopLayout::monitor_at`] partitions with half-open rectangles
-    /// instead, for the reason given there.
+    /// [`DesktopLayout::monitor_at`] uses half-open rectangles for partitioning.
     #[must_use]
     pub fn map(&self, hit: PanelPoint) -> DesktopPoint {
         let local = reorient(self.transform, hit.clamped());
@@ -184,11 +136,9 @@ impl MonitorMapping {
         )
     }
 
-    /// Whether `point` is on this monitor.
+    /// Returns whether `point` is inside this monitor.
     ///
-    /// Half-open on both axes: the top-left corner is on the monitor and the
-    /// bottom-right one is not. Two monitors sharing an edge therefore partition
-    /// it rather than both claiming it.
+    /// Both axes use half-open intervals. The top-left corner is inside. The bottom-right corner is outside. Adjacent monitors therefore do not both contain a shared edge.
     #[must_use]
     pub fn contains(&self, point: DesktopPoint) -> bool {
         let within = |value: f64, start: i32, span: u32| {
@@ -206,13 +156,9 @@ impl fmt::Display for MonitorMapping {
     }
 }
 
-/// The host desktop's bounding box over every mappable monitor.
+/// The host desktop bounding box over all mappable monitors.
 ///
-/// What a [`HidProvider`](crate::hid::HidProvider) is told through
-/// `set_desktop_origin` and `set_desktop_extent`. Rebuilt on every output
-/// change rather than kept up to date in place, because a monitor moving
-/// changes the box in ways an incremental update gets wrong far more easily than
-/// recomputing gets it wrong.
+/// The [`HidProvider`](crate::hid::HidProvider) receives this value through `set_desktop_origin` and `set_desktop_extent`. The layout is rebuilt after every output change so monitor movement updates the complete bounding box.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DesktopLayout {
     monitors: Vec<MonitorMapping>,
@@ -221,12 +167,9 @@ pub struct DesktopLayout {
 }
 
 impl DesktopLayout {
-    /// The bounding box over `monitors`.
+    /// Creates the bounding box over `monitors`.
     ///
-    /// Every [`MonitorMapping`] is non-empty by construction, so the box is too,
-    /// and [`Self::extent`] is a divisor that can never be zero. That is why
-    /// this takes mappings rather than geometries: the one degenerate case is
-    /// rejected where it can be named, not here where it could only be counted.
+    /// Every [`MonitorMapping`] is non-empty, so the resulting extent is non-zero. The constructor accepts mappings rather than geometries because [`MonitorMapping::new`] rejects empty monitors.
     ///
     /// # Errors
     ///
@@ -246,8 +189,7 @@ impl DesktopLayout {
             return Err(MappingError::NoMonitors);
         };
 
-        // Every mapping has a positive width and height, so the union of at
-        // least one of them does too, and `DesktopExtent::new` cannot refuse it.
+        // Each mapping has positive width and height, so the union has a non-zero extent.
         let extent = DesktopExtent::new(
             (bounds.right - bounds.left) as f64,
             (bounds.bottom - bounds.top) as f64,
@@ -261,11 +203,9 @@ impl DesktopLayout {
         })
     }
 
-    /// Where the bounding box begins.
+    /// Returns the bounding box's minimum position.
     ///
-    /// Not the coordinate origin in general: a monitor placed to the left of or
-    /// above the primary one has a negative logical position, and the box starts
-    /// there.
+    /// The origin can be negative when a monitor is placed left of or above the primary monitor.
     #[must_use]
     pub const fn origin(&self) -> DesktopPoint {
         self.origin
@@ -282,16 +222,11 @@ impl DesktopLayout {
         &self.monitors
     }
 
-    /// Which monitor a desktop position is on, if any.
+    /// Returns the monitor containing `point`, if one exists.
     ///
-    /// `None` for a position in a dead zone — a non-rectangular arrangement
-    /// leaves gaps inside the bounding box — and for one outside the box
-    /// entirely. Reported rather than resolved to the nearest monitor, because
-    /// the two cases mean different things to a caller and only the caller knows
-    /// which it wants.
+    /// Returns `None` for a point in a gap between monitors or outside the bounding box. The method does not select the nearest monitor because a gap and an out-of-bounds point have different meanings.
     ///
-    /// Where two monitors share an edge, the position belongs to the one whose
-    /// rectangle begins there, since [`MonitorMapping::contains`] is half-open.
+    /// A point on a shared edge belongs to the monitor whose rectangle begins at that edge. [`MonitorMapping::contains`] uses half-open rectangles.
     #[must_use]
     pub fn monitor_at(&self, point: DesktopPoint) -> Option<&MonitorMapping> {
         self.monitors.iter().find(|monitor| monitor.contains(point))
@@ -310,13 +245,12 @@ impl fmt::Display for DesktopLayout {
     }
 }
 
-/// Why a monitor or a desktop could not be mapped.
+/// An error from monitor or desktop mapping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MappingError {
-    /// The monitor has a zero logical width or height, so there is nothing to
-    /// place a pointer on.
+    /// The monitor has zero logical width or height and cannot receive pointer input.
     EmptyMonitor { geometry: LogicalGeometry },
-    /// There are no monitors, so there is no desktop coordinate space.
+    /// No monitors define a desktop coordinate space.
     NoMonitors,
 }
 
@@ -337,11 +271,9 @@ impl fmt::Display for MappingError {
 
 impl Error for MappingError {}
 
-/// A rectangle's edges, in the logical coordinate space.
+/// Rectangle edges in logical coordinates.
 ///
-/// `i64` rather than `i32` because the right edge is a position plus a size and
-/// both are at their type's full range; the sum of `i32::MAX` and `u32::MAX`
-/// does not fit in an `i32`.
+/// The edges use `i64` because each right or bottom edge adds an `i32` position to a `u32` size. The sum can exceed the `i32` range.
 #[derive(Clone, Copy, Debug)]
 struct Bounds {
     left: i64,
@@ -431,8 +363,7 @@ mod tests {
 
     #[test]
     fn a_monitor_at_a_negative_logical_position_maps_into_negative_coordinates() {
-        // A screen placed to the left of and above the primary one. The whole
-        // reason the desktop's origin is a value rather than assumed zero.
+        // A monitor can have a negative logical position when it is left of or above the primary monitor.
         let monitor = mapping(-1920, -1080, 1920, 1080);
 
         assert_eq!(
@@ -447,9 +378,7 @@ mod tests {
 
     #[test]
     fn two_monitors_at_different_scales_map_by_logical_size_rather_than_pixels() {
-        // A 1920x1080 monitor at scale 1, and a 3840x2160 monitor at scale 2
-        // beside it. In pixels the second is twice as wide; logically the two
-        // are the same width, and the centre of the second is at 2880.
+        // Pixel dimensions differ, but both monitors have a logical width of 1920. The second monitor's centre is at 2880 logical units.
         let unscaled = mapping(0, 0, 1920, 1080);
         let scaled = mapping(1920, 0, 1920, 1080);
 
@@ -468,9 +397,7 @@ mod tests {
 
     #[test]
     fn a_rotated_monitor_maps_through_its_transform() {
-        // A 1920x1080 panel mounted portrait: the compositor reports a logical
-        // size of 1080x1920, and the panel's top-left corner is the monitor's
-        // bottom-left one.
+        // A portrait monitor has logical size 1080x1920. A 90-degree transform maps the panel's top-left corner to the monitor's bottom-left corner.
         let monitor = MonitorMapping::new(geometry(0, 0, 1080, 1920), SurfaceTransform::Rotate90)
             .expect("a monitor with an area");
 
@@ -508,8 +435,7 @@ mod tests {
 
     #[test]
     fn every_transform_sends_corners_to_corners() {
-        // A bijection of the unit square: the four corners permute among
-        // themselves, so no transform can fold the panel onto itself.
+        // A bijection of the unit square maps the four corners to four distinct corners.
         let corners = [
             PanelPoint::new(0.0, 0.0),
             PanelPoint::new(1.0, 0.0),
@@ -545,8 +471,7 @@ mod tests {
 
     #[test]
     fn a_hit_past_a_panels_edge_is_clamped_into_its_monitor() {
-        // A laser that has left the panel should reach the monitor's edge, not
-        // a coordinate on the neighbouring screen.
+        // An out-of-panel hit clamps to the target monitor's edge.
         let monitor = mapping(0, 0, 1920, 1080);
 
         assert_eq!(
@@ -583,8 +508,7 @@ mod tests {
 
     #[test]
     fn a_desktop_of_only_an_empty_monitor_has_no_extent() {
-        // The empty monitor is refused where it can be named, so the desktop
-        // built from what is left is empty rather than zero-sized.
+        // Empty monitors are rejected before layout construction. No usable mappings remain.
         let usable: Vec<MonitorMapping> = [geometry(0, 0, 1920, 0)]
             .into_iter()
             .filter_map(|geometry| MonitorMapping::new(geometry, SurfaceTransform::Normal).ok())
@@ -618,9 +542,7 @@ mod tests {
 
     #[test]
     fn a_coordinate_on_the_boundary_between_two_monitors_belongs_to_exactly_one() {
-        // Half-open rectangles: the shared edge belongs to the monitor whose
-        // rectangle begins there, so the two partition the desktop rather than
-        // both claiming the column.
+        // Half-open rectangles assign the shared edge to the monitor whose rectangle begins there.
         let left = mapping(0, 0, 1920, 1080);
         let right = mapping(1920, 0, 1920, 1080);
         let desktop = layout([left, right]);
@@ -642,9 +564,7 @@ mod tests {
 
     #[test]
     fn a_coordinate_in_a_dead_zone_inside_the_bounding_box_belongs_to_none() {
-        // Two monitors of different heights side by side leave a gap under the
-        // shorter one that is inside the box and on no screen. This is why
-        // `map` clamps to the target monitor rather than to the box.
+        // Different monitor heights can leave a gap inside the bounding box. `map` clamps to the target monitor rather than to the bounding box.
         let desktop = layout([mapping(0, 0, 1920, 1080), mapping(1920, 0, 1280, 720)]);
 
         assert_eq!(desktop.monitor_at(DesktopPoint::new(2000.0, 900.0)), None);
@@ -680,8 +600,7 @@ mod tests {
 
     #[test]
     fn a_hit_on_the_second_monitor_lands_on_the_second_monitor() {
-        // A pointer sent to a monitor's sink reaches that physical display,
-        // whichever it is.
+        // The mapped point belongs to the selected physical monitor.
         let second = mapping(1920, 0, 1920, 1080);
         let desktop = layout([mapping(0, 0, 1920, 1080), second]);
 

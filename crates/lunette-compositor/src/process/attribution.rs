@@ -1,20 +1,17 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/process.rs and backend/wayvr/mod.rs (the spawn and attribution fragments at :1232-1349), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! Linux-only: reads `/proc/<pid>/environ`.
 //!
-//! How lunette looks at a process it did not start.
+//! Inspects processes that the compositor did not start.
 
 use std::{fs, io};
 
 use crate::{process::registry::find_environment_value, protocol::Pid};
 
-/// Looks at a process lunette did not start.
+/// Inspects a process that the compositor did not start.
 ///
-/// A seam over `/proc`, so both the matching logic and the liveness check can
-/// be tested without a real process existing. One trait rather than two,
-/// because both answers come from the same directory and every caller wants
-/// both.
+/// The implementation reads `/proc`. The trait keeps attribution and liveness
+/// checks testable without a real process.
 pub trait ProcessInspector: Send {
     /// The value of one variable in a process's environment, as bytes.
     ///
