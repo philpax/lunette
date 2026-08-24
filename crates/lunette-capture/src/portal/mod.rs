@@ -15,14 +15,13 @@
 //! # A prompt is normal
 //!
 //! Restore is best-effort and the portal says so. A rejected token produces no
-//! error — the user simply sees a dialog. xdg-desktop-portal-wlr's v1 restore
-//! payload carries only `output_name`, so an unplugged or renamed monitor falls
+//! error — the user simply sees a dialog. The restore payload carries only
+//! `output_name`, so an unplugged or renamed monitor falls
 //! back to a prompt silently. Persist mode also does not reliably preserve which
 //! monitors were selected.
 //!
 //! [`RequestProgress::AwaitingUser`] is therefore an ordinary state rather than
-//! an error, and every call on the seam returns immediately. Nothing here
-//! blocks, so nothing here can be on a frame's critical path.
+//! an error. Every call on the seam returns immediately.
 
 pub mod correlation;
 #[cfg(any(test, feature = "test-fakes"))]
@@ -45,16 +44,11 @@ pub use crate::portal::{
 /// The portal, as lunette needs it.
 ///
 /// Two calls, both non-blocking. [`Self::begin`] states what is wanted and
-/// [`Self::poll`] reports how far the portal has got, so the caller drives the
-/// exchange from wherever it already runs rather than the portal owning a
-/// thread or an executor.
+/// [`Self::poll`] reports progress, so the exchange does not own a thread or
+/// an executor.
 ///
-/// Not `Send`. `wlx-capture`'s `ScreenCastManager` polls D-Bus futures with a
-/// no-op waker on the calling thread (`pipewire/mod.rs:840`), its `DbusFuture`
-/// is not `Send` (`mod.rs:632`), and `ScreenCastParams.token` is an `Rc<str>`
-/// (`mod.rs:46`). The trait does not require `Send` so that the implementation
-/// does not have to lie about it: a portal lives on one thread, and it is the
-/// capture thread's.
+/// Implementations are thread-affine because the portal client and its futures
+/// are not `Send`; the trait therefore remains usable only on the capture thread.
 pub trait ScreenCastPortal {
     /// Asks for a session. Returns as soon as the request is recorded.
     ///
@@ -68,7 +62,7 @@ pub trait ScreenCastPortal {
     /// Polling an identifier that has already reported a terminal progress, or
     /// one this portal never issued, yields
     /// [`PortalError::UnknownRequest`]: a terminal result is delivered once,
-    /// and the caller owns it afterwards.
+    /// and the result is owned by the caller afterwards.
     fn poll(&mut self, request: RequestId) -> RequestProgress;
 }
 
@@ -288,9 +282,8 @@ pub enum GrantedPersistMode {
     Granted(PersistMode),
     /// The response's `persist_mode` was not observed.
     ///
-    /// `wlx-capture`'s `parse_start_response` (`pipewire/mod.rs:686-691`) reads
-    /// `streams` and `restore_token` and discards the rest, so
-    /// [`wlx::WlxPortal`] cannot see it. Recorded as its own case rather than
+    /// The portal client exposes `streams` and `restore_token` but not this
+    /// field, so [`wlx::WlxPortal`] cannot see it. Recorded as its own case rather than
     /// defaulted to the requested mode: an unobserved grant and a confirmed one
     /// are different facts, and only the second is worth writing down as one.
     Unstated,

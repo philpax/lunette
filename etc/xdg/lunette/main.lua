@@ -56,23 +56,17 @@ local MODIFIER_KEYS: { { names: { KeyCode }, modifier: string } } = {
   { names = { 'lgui', 'rgui' }, modifier = 'logo' },
 }
 
--- The button on the left wrist that shows and hides the keyboard, after
--- WayVR's watch. It rides the left hand, so it is always reachable and never
--- occupies the room.
+-- The button on the left wrist that shows and hides the keyboard. It stays on
+-- the hand so it remains reachable without occupying the room.
 local WRIST = {
-  -- Which hand wears it, and which one presses it. The pointing device is the
-  -- aim pose rather than the grip: the grip points along the handle, and a ray
-  -- cast down it misses everything the user is aiming at.
+  -- Use the aim pose for pointing so the ray follows what the user is aiming at.
   hand = 'hand/left',
-  -- Where it sits relative to the wearing hand, and how big it is. Taken from
-  -- WayVR's watch, whose dimensions and offset account for the grip pose's +Z
-  -- direction along the handle. The offset places 12.5cm at the wrist.
+  -- Position and size relative to the wearing hand.
   offsetX = -0.03,
   offsetY = -0.01,
   offsetZ = 0.125,
   size = 0.115,
-  -- A half turn about the axis WayVR uses, which stands the face up off the
-  -- wrist the way a watch sits rather than lying in line with the arm.
+  -- Rotate the face up from the wrist instead of aligning it with the arm.
   turn = math.pi,
   axisX = -0.7071066,
   axisY = 0.0007963618,
@@ -97,12 +91,6 @@ local NOTE_HEIGHT = 0.08
 -- something without a client being attached by hand, and so that the spawn path
 -- is exercised on every run.
 --
--- Delete this list and the two functions below it for a session that only adopts
--- clients started from elsewhere, which is the other half of the same workflow:
---
---   WAYLAND_DISPLAY=wayland-20 foot
---
--- lunette logs the display name it bound as it starts.
 local DEMONSTRATION_TERMINALS = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
 
 -- The tag every panel joins, and the panels no source gave a pose for.
@@ -116,13 +104,8 @@ local unplaced = {}
 
 -- Whether this session has already tried to open its demonstration terminal.
 --
--- A global, deliberately. A soft reload discards this file's locals along with
--- everything else it loaded, and keeps globals
--- (docs/lua-api.md#reload) — so a local here would be nil again on every reload
--- and the session would open another terminal each time the user pressed F5.
--- Asking whether any panels exist instead answers the wrong question: a user who
--- closed every window and then reloaded would get a fresh one.
--- Written through `_G` so the assignment is visible to the checker.
+-- This state is global so it survives configuration reloads and prevents another
+-- demonstration terminal from being opened.
 _G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
 
 -- Which terminal candidate is being tried, and the handle it was tried with. A
@@ -156,10 +139,8 @@ end
 
 -- Makes the panel for a window and files it under whichever source placed it.
 --
--- Shared by the window-opened subscription and the adoption below, because a window that
--- was already open when this file ran and one that opens a moment later should
--- end up in the same place. A reload is what makes the two happen in one
--- session.
+-- Shared by the window-opened subscription and adoption so both paths place
+-- windows consistently.
 local function place(window)
   local created, properties = rules.place(window, { tags = { WORKSPACE } })
 
@@ -188,27 +169,17 @@ local function arrange()
 end
 
 function lovr.load()
-  -- Rate-limits errors and reports them, and is replaceable: it is mullion code
-  -- rather than native, so a configuration wanting different reporting writes
-  -- its own `lovr.errhand` instead of calling this.
+  -- Install error handling before the rest of the session starts.
   errors.install()
 
-  -- The panel the reports are shown on. Separate from the handler because
-  -- drawing needs a Pass and reporting does not, and it is drawn from
-  -- `lovr.draw` below: a session that reported an error only to the log would
-  -- be one where the user has to take the headset off to find out why nothing
-  -- moved.
+  -- Install the panel that displays errors in the session.
   errorPanel.install()
 
-  -- Found before it is made, so that `lovr.load` running a second time — which
-  -- is what a soft reload does — does not raise on a name it declared itself.
+  -- Reuse the tag when the session is loaded again.
   workspace = tag.find(WORKSPACE) or tag.new(WORKSPACE, { selected = true })
   unplaced = {}
 
-  -- One rule, as the worked example. The match is on `appId`, and the property
-  -- is a function so that it is evaluated when a window opens rather than when
-  -- this file loads — which is what lets a rule say "wherever the user is now"
-  -- rather than baking in wherever they were at startup.
+  -- Place Firefox windows at a fixed size and pose.
   rules.setRules {
     {
       match = { appId = 'firefox' },
@@ -221,43 +192,28 @@ function lovr.load()
     },
   }
 
-  -- The saved arrangement is a second source rather than another rule: after a
-  -- restart a window that was hand-placed should come back where it was, and a
-  -- window opening fresh should be placed by rule. `persist.PRECEDENCE` is above
-  -- the rules table, so the saved pose wins; passing a lower number is how a
-  -- configuration says the rules should.
+  -- Restore saved arrangements with higher precedence than the default rules.
   persist.install(persist.load())
 
-  -- The third source, above both, and the reason a reload does not scramble a
-  -- hand-arranged workspace: a panel the user dragged wrote its pose to the
-  -- native property store, which outlives the Lua state, and this is what reads
-  -- it back.
+  -- Restore properties retained by the native window state.
   adopt.install()
 
-  -- One laser per hand, each with its own seat, so two hands work independently.
+  -- Attach an independent laser and seat for each hand.
   laser.attach()
 
-  -- After the sources are installed, and after a reload the only way this file
-  -- hears about the windows that are still open: the subscription was
-  -- delivered to the state that has gone. On the first run of a session there is
-  -- nothing to adopt yet, and this does nothing.
+  -- Adopt windows that were already open when this state started.
   local adopted = adopt.windows()
   for _, window in ipairs(adopted) do
     place(window)
   end
   arrange()
 
-  -- A restart closes the Lua state, so the global below is gone even though the
-  -- windows it was tracking are not (docs/architecture.md#survival-across-lifecycle-events).
-  -- Anything to adopt is a terminal this configuration already opened, so the
-  -- guard is restored from what survived rather than from what is remembered.
+  -- Existing windows indicate that the demonstration terminal was already opened.
   if #adopted > 0 then
     _G.lunetteDemonstrationSpawned = true
   end
 
-  -- Once per session, and not once per `lovr.load`. A reload runs this callback
-  -- again, and one that opened another terminal each time would fill the room by
-  -- the third edit.
+  -- Open at most one demonstration terminal for the session.
   if not _G.lunetteDemonstrationSpawned then
     _G.lunetteDemonstrationSpawned = true
     spawnNextTerminal()
@@ -288,10 +244,9 @@ lunette.onProcessExited(function(event)
   end
 end)
 
--- The modifiers held on the desktop keyboard right now, as `sink:modifiers`
--- names them. Shift is deliberately absent: a shifted character arrives through
--- `lovr.textinput` already shifted, and `seat:strokeFor` says which modifiers
--- that character needs.
+-- The modifiers held on the desktop keyboard, using the names accepted by the
+-- input sink. Shifted characters arrive through `lovr.textinput` already resolved.
+
 local function heldModifiers()
   local held = {}
   for _, entry in ipairs(MODIFIER_KEYS) do
@@ -433,8 +388,8 @@ local wristButton = (
     -- the modules it will draw with exist, so a table built at load time cannot
     -- reach for `lovr.math` any more than it can for `lovr.graphics`.
     pose = nil,
-    -- A button that could be dragged off the wrist is one the user has to put
-    -- back. WayVR's watch declines for the same reason.
+    -- Keep the button attached to the wrist.
+
     grabbable = false,
     tracked = false,
     dead = false,
@@ -576,9 +531,7 @@ function lovr.keypressed(key: KeyCode, _scancode: number, _isrepeat: boolean)
     return
   end
 
-  -- Answers false and the message rather than raising, so a configuration with
-  -- a typo in it leaves the session running and says so. The clients are not
-  -- disturbed either way: a soft reload is a matter of the Lua state alone.
+  -- Report reload errors without interrupting the running session.
   local reloaded, message = lunette.reload()
   if not reloaded then
     print('lunette: the configuration was not reloaded: ' .. tostring(message))
@@ -613,14 +566,12 @@ function lovr.draw(pass: Pass): boolean
 
   -- Last, so it is drawn over whatever it is in front of.
   errorPanel.draw(pass)
-  -- False, not true: a truthy return tells boot.lua the callback submitted the
-  -- pass itself, and the frame is then never presented.
+  -- Return false so the frame is presented normally.
   return false
 end
 
 function lovr.quit(): boolean
   saveArrangement()
-  -- False, not true: a truthy return vetoes the quit, and the session cannot
-  -- then be closed.
+  -- Return false so quitting proceeds.
   return false
 end

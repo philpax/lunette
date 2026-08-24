@@ -113,21 +113,21 @@ impl<T> Seat<T> {
 }
 
 handle! {
-    /// A seat with its own pointer and keyboard, which is what a client sees as `wl_seat`.
+    /// A seat with its own pointer and keyboard.
     Seat<T: LuaTexture> = HandleKind::Seat;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-    /// What clients see on `wl_seat.name`, and the only thing on the wire that tells two seats apart.
+    /// The name exposed to Wayland clients.
     field name(_lua, this) -> String {
         this.refresh();
         Ok(this.name.borrow().clone())
     }
 
-    /// True before the compositor has created the seat as well as after it has been destroyed. The two are indistinguishable from here, and nothing can be delivered to either.
+    /// Whether the seat has not been created or has been destroyed.
     field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-    /// Whether this seat's clipboard and primary selection are the host desktop's. At most one seat's are, because the host has one of each.
+    /// Whether this seat bridges the host clipboard and primary selection.
     field clipboardBridge(_lua, this) -> bool {
         this.refresh();
         Ok(this
@@ -137,13 +137,13 @@ handle! {
             .is_some_and(|known| known.clipboard_bridge))
     }
 
-    /// The modifiers this seat is holding, as clients were last told.
+    /// The modifiers this seat is holding.
     field modifiers(_lua, this) -> Vec<String> {
         this.refresh();
         Ok(modifier_names(&this.modifiers()))
     }
 
-    /// Every layout the seat's keymap carries, as a user would read them: 'English (US)', not 'us'.
+    /// The user-facing layouts in this seat's keymap.
     field layouts(_lua, this) -> Vec<String> {
         let Some(keymap) = this.keymap() else {
             return Ok(Vec::new());
@@ -155,10 +155,10 @@ handle! {
             .collect())
     }
 
-    /// Withdraws the seat's `wl_seat` global. The default seat is refused: every command that names no seat resolves to it.
+    /// Destroys this seat, except for the default seat.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 
-    /// Sets which modifiers this seat holds. Clients are told, so a modifier left held stays held.
+    /// Sets the modifiers reported to clients.
     method setModifiers(_lua, this, names: Option<Vec<String>>) -> bool {
         let modifiers = read_modifiers(names.as_deref())?;
         if !this.refresh() {
@@ -171,17 +171,17 @@ handle! {
         Ok(true)
     }
 
-    /// Gives this seat's keyboard to a sink, or takes it away. A host sink is refused: which window holds the host's focus is the host compositor's decision.
+    /// Gives this seat's keyboard to a sink, or removes its focus.
     method setFocus(_lua, this, sink: Option<UserDataRef<Sink<T>>>) -> bool {
         set_focus(this, sink.as_deref())
     }
 
-    /// Makes this seat's selections the host desktop's, or stops them being. One seat at a time, because the host has one clipboard.
+    /// Enables or disables this seat's host clipboard bridge.
     method setClipboardBridge(_lua, this, bridged: bool) -> bool {
         Ok(set_clipboard_bridge(this, bridged))
     }
 
-    /// Which keysym a keycode produces with those modifiers held, under this seat's keymap.
+    /// Returns the keysym produced by a keycode and modifier set.
     method symbolFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<u32> {
         let modifiers = read_modifiers(names.as_deref())?;
         Ok(this
@@ -190,7 +190,7 @@ handle! {
             .map(Keysym::raw))
     }
 
-    /// Which character a keycode produces with those modifiers held.
+    /// Returns the character produced by a keycode and modifier set.
     method characterFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<String> {
         let modifiers = read_modifiers(names.as_deref())?;
         Ok(this
@@ -198,7 +198,7 @@ handle! {
             .and_then(|keymap| keymap.character(Keycode::from_evdev(key), &modifiers)))
     }
 
-    /// Which key and modifiers produce a character or a keysym. A string is read as the character to type, and a number as a keysym.
+    /// Returns the key and modifiers that produce a character or keysym.
     method strokeFor(_lua, this, wanted: StrokeQuery) -> Option<Stroke> {
         stroke_for(this, &wanted.0)
     }
@@ -259,11 +259,11 @@ pub(crate) fn new_seat<T: LuaTexture>(
     })
 }
 
-/// `lunette.seats()`: every seat, as of this frame's snapshot.
+/// Returns every seat in the current frame's snapshot.
 ///
 /// # Errors
 ///
-/// If the table could not be built.
+/// If the seat list cannot be built.
 pub(crate) fn seats<T: LuaTexture>(
     _lua: &Lua,
     session: &Rc<Session<T>>,

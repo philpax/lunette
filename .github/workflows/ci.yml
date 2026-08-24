@@ -1,7 +1,5 @@
 name: check
 
-# CI delegates its checks to Makefile targets, matching `make check`.
-
 # Check pushes to main and all pull requests. Pull-request runs validate the
 # merge result without duplicating the push run for branches with open PRs.
 on:

@@ -88,7 +88,6 @@
               openxr-loader
               pipewire
 
-              # The compositor crate, from Phase 2 onward.
               wayland
               wayland-protocols
             ];
@@ -109,6 +108,13 @@
 
             LD_LIBRARY_PATH = nixpkgs.lib.makeLibraryPath runtimeLibs;
           };
+        }
+      );
+    };
+}
+};
+}
+ };
         }
       );
     };

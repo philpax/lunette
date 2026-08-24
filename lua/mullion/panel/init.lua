@@ -12,9 +12,6 @@ local teardown = require '@mullion/teardown'
 
 local panel = {}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first. The metatable is a table rather than a forward-declared local
--- because `create` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
 local create, sourceSize, remove, opaqueShaderFor
@@ -23,16 +20,11 @@ local create, sourceSize, remove, opaqueShaderFor
 -- property store and only a window may claim a layer.
 export type Kind = 'window' | 'monitor'
 
--- A pixel source: one of the two the runtime has, and not a shape either might
--- fit. The set is closed, so it is a union, and `kind` below is what tells a
--- panel's own apart. `lunette.Textured` is the same union under the name the
--- native API gives it.
+-- A pixel source: one of the two sources the runtime provides. `kind` identifies
+-- which source a panel holds.
 export type Source = lunette.Textured
--- A panel: a pixel source bound to a pose and a size in metres, plus the
--- methods that move it, size it, update it, draw it, and destroy it. The
--- method signatures are listed so that the checker resolves `created:setSize`
--- and narrows `self` fields; the created tables reach them through the
--- metatable, so the type and the implementations must agree by hand.
+-- A panel: a pixel source bound to a pose and a size in metres, plus methods
+-- that move it, size it, update it, draw it, and destroy it.
 -- The half of a panel that does not depend on what it is over.
 type PanelFields = {
   pose: Mat4,
@@ -47,8 +39,6 @@ type PanelFields = {
   claim: layer.Claim?,
   appliedWidth: number?,
   appliedHeight: number?,
-  -- The four `mullion.interaction` declares take its receiver, which is what
-  -- makes a panel answer the surface contract with the receiver still checked.
   setPose: (pointing.Surface, Mat4) -> (),
   setSize: (pointing.Surface, number?, number?) -> (),
   raycast: (pointing.Surface, vector, vector, boolean?) -> (number?, number?, number?),
@@ -61,9 +51,7 @@ type PanelFields = {
   destroy: (Panel) -> boolean,
 }
 
--- A panel, discriminated on `kind`: testing it is what narrows `source` to the
--- handle that kind has, which is how `mullion.panel.layer` comes to know that
--- the thing it claims a layer for is a window.
+-- A panel, discriminated on `kind`, with the source handle for that kind.
 export type WindowPanel = PanelFields & { kind: 'window', source: lunette.Window }
 export type MonitorPanel = PanelFields & { kind: 'monitor', source: lunette.Monitor }
 export type Panel = WindowPanel | MonitorPanel
@@ -135,9 +123,6 @@ panel.OPAQUE_FRAGMENT = [[
 panel.DEFAULT_ASPECT = 16 / 9
 
 -- Where a ray meets a quad, in the quad's own pixels.
---
--- `mullion.panel.raycast` holds it, and this is the name it is documented
--- under. A caller wanting it without the rest of this module requires that one.
 panel.rayQuadHit = raycast.hit
 
 -- A panel over a window lunette hosts.
@@ -222,9 +207,7 @@ end
 -- The shader an opaque source is drawn with, or nothing when there is no
 -- graphics module to build one from.
 --
--- Public because a configuration drawing a source itself needs the same
--- correction, and because a spec asserting the quad path has to know which
--- shader it is looking at.
+-- Public so other drawing code can use the same correction.
 function panel.opaqueShader(): Shader?
   if opaqueShader then
     return opaqueShader
@@ -251,8 +234,7 @@ function panel.teardown()
   panels = {}
 end
 
--- Moves the panel. `pose` is a `Mat4`, and is copied rather than kept: a caller
--- reusing a temporary would otherwise move every panel it placed.
+-- Moves the panel. `pose` is a `Mat4`, and is copied rather than retained.
 function methods.setPose(self: Panel, pose)
   self.pose:set(pose)
   signal.emit(self, signal.propertyName 'pose', self.pose)
@@ -312,9 +294,7 @@ end
 
 -- The sink this panel's input goes to, or nothing when the source has gone.
 --
--- A panel is not the only way to reach a sink and does not own it; this is here
--- so that a caller holding a panel does not have to remember which of `window`
--- and `monitor` it wrapped.
+-- A panel does not own its sink and returns nothing when its source is gone.
 function methods.sink(self: Panel): lunette.Sink?
   if self.dead or self.source.dead then
     return nil
@@ -329,9 +309,7 @@ function methods.update(self: Panel)
   if self.dead then
     return
   end
-  -- CONTRIBUTING.md: never assume a handle survives a frame. A client can exit
-  -- between one frame and the next, and a panel over a window that has gone has
-  -- nothing left to show.
+  -- A source may disappear between frames, leaving the panel with nothing to show.
   if self.source.dead then
     self:destroy()
     return
@@ -355,8 +333,6 @@ end
 -- sharp one. The chrome is still drawn, because the layer carries the source
 -- and nothing else.
 function methods.draw(self: Panel, pass: Pass)
-  -- Through a local: refining `self.source` here would fix it to the union it
-  -- already is, and the `kind` test below would have nothing left to narrow.
   local source = self.source
   if self.dead or source.dead then
     return
@@ -390,10 +366,7 @@ function methods.draw(self: Panel, pass: Pass)
   end
 
   pass:setMaterial(texture)
-  -- The size rides in the transform. `luax_readmat4` consumes a whole `Mat4`
-  -- and reads the argument after it as the draw style, so a plane placed by
-  -- matrix takes its extent from that matrix's scale and not from two more
-  -- arguments.
+  -- The size rides in the transform so the plane uses the panel's dimensions.
   local transform = lovr.math.newMat4():set(self.pose):scale(self.width, self.height, 1)
   pass:plane(transform, 'fill', 1, 1)
   pass:setMaterial(nil)
@@ -455,9 +428,7 @@ end
 -- The shader a window whose buffer carries no alpha is drawn with, or nothing.
 --
 -- A monitor's capture has no padding byte to mistake for alpha, so only a window
--- answers one. Takes the panel rather than reading it inline, because the
--- `kind` test is what narrows `source` to the handle that kind has, and a
--- `self` the guards above have already refined has no discriminant left.
+-- needs this correction.
 function opaqueShaderFor(target: Panel): Shader?
   if target.kind ~= 'window' then
     return nil

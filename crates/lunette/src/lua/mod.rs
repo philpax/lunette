@@ -642,45 +642,45 @@ pub(crate) struct ModuleFunction<T> {
 }
 
 module! {
-    /// Every mapped toplevel, as of this frame's snapshot.
+    /// Returns every mapped toplevel in the current frame's snapshot.
     fn windows(lua, session) -> Vec<Window<T>> { window_handles(lua, session) }
 
     fn spawn(_lua, session, options: Options<Spawn>) -> Process<T> { spawn(session, &options) }
 
-    /// The user's own screens, whether or not they are being mirrored.
+    /// Returns the user's screens, whether or not they are mirrored.
     fn monitors(lua, session) -> Vec<Monitor<T>> { monitors(lua, session) }
 
-    /// Asks for a composition layer for a window's pixels. Claims are ranked at the frame boundary, so a fresh claim is granted no earlier than the next frame.
+    /// Creates a composition-layer claim for a window; allocation occurs at a frame boundary.
     fn claimLayer(_lua, session, options: Options<ClaimLayer>) -> Claim<T> {
         claim_layer(session, &options)
     }
 
-    /// A seat with its own pointer, keyboard, and keymap. Dead until the compositor has created it, which is the rule `spawn` follows too.
+    /// Creates a seat with its own pointer, keyboard, and keymap.
     fn newSeat(_lua, session, name: String, options: Option<Options<NewSeat>>) -> Seat<T> {
         new_seat(session, &name, options.as_ref())
     }
 
-    /// Every seat, including the one each session starts with.
+    /// Returns every seat, including the default seat.
     fn seats(lua, session) -> Vec<Seat<T>> { seats(lua, session) }
 
-    /// An output for clients to lay out against.
+    /// Creates an output for clients to lay out against.
     fn newOutput(_lua, session, options: Options<NewOutput>) -> Output<T> {
         new_output(session, &options)
     }
 
-    /// Every output, including the default one.
+    /// Returns every output, including the default output.
     fn outputs(lua, session) -> Vec<Output<T>> { outputs(lua, session) }
 
-    /// Whether lunette draws a scene of its own. Latched at the next frame boundary, and kept across a soft reload.
+    /// Enables or disables lunette's own scene at the next frame boundary.
     fn setSceneEnabled(_lua, session, enabled: bool) -> () {
         session.set_scene(SceneRendering::from_enabled(enabled));
         Ok(())
     }
 
-    /// What `setSceneEnabled` was last told, which the next frame will latch.
+    /// Returns the scene-enabled value queued for the next frame boundary.
     fn sceneEnabled(_lua, session) -> bool { Ok(session.requested_scene().drawn()) }
 
-    /// Calls `handler` whenever a callback raises, and answers the function that stops it. The standard library's error module subscribes to draw a panel; a configuration without it subscribing gets the log and nothing else.
+    /// Subscribes a handler to callback errors and returns a function that removes it.
     fn onError(lua, session, handler: ErrorListener) -> Cancel {
         let id = session.subscribe(ERROR, handler.0);
         let cancelling = Rc::clone(session);
@@ -691,13 +691,13 @@ module! {
         .map(Cancel)
     }
 
-    /// Every modifier name a seat accepts, in the order a keymap numbers them. What `seat:setModifiers` takes and `seat.modifiers` answers with are drawn from this set.
+    /// Returns every accepted modifier name in keymap order.
     fn modifierNames(_lua, _session) -> Vec<String> { Ok(modifier_names()) }
 
-    /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises asks the pool for a size the free list already holds.
+    /// Returns the ascending layer-size quantisation steps.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }
 
-    /// Discards the Lua state and re-runs the configuration, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
+    /// Reloads the configuration while keeping the compositor, clients, and textures.
     fn reload(lua, session) -> (bool, Option<String>) {
         reload_from_lua(lua, &|| session.clear_subscribers())
     }
@@ -819,9 +819,9 @@ fn spawn_output<T: LuaTexture>(options: &Table) -> mlua::Result<Option<OutputId>
 record! {
     /// What a listener for an error raised inside a callback is given.
     struct ErrorEvent {
-        /// The error, with the boundary it came through leading it.
+        /// The callback error message.
         message: String,
-        /// Where it was raised, as Lua reports it.
+        /// The callback error traceback.
         traceback: String,
     }
 }
@@ -829,12 +829,12 @@ record! {
 record! {
     /// What `lunette.spawn` takes.
     options Spawn as SpawnOptions {
-        /// The program and its arguments. The list may not be empty.
+        /// The program and its arguments; the list must not be empty.
         argv: Vec<String>,
         cwd: Option<String>,
-        /// Added to the environment the session was started with.
+        /// Environment variables added to the session environment.
         env: Option<HashMap<String, String>>,
-        /// The only output the client is shown. Absent means the default one, which is what a client lunette did not spawn is shown too.
+        /// The only output shown to the client; absent selects the default output.
         output: Option<Output<NullTexture>>,
         xwayland: Option<bool>,
     }

@@ -84,48 +84,28 @@ use crate::{
 /// alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LuaEvent {
-    /// `lovr.lunwindowopened{ window = … }`.
+    /// A window was opened.
     WindowOpened { window: WindowId },
-    /// `lovr.lunwindowclosed{ window = … }`. The handle is already dead by the
-    /// time the handler runs, because the snapshot it reads no longer lists the
-    /// window.
+    /// A window was closed; the event handle is already dead.
     WindowClosed { window: WindowId },
-    /// `lovr.luntitlechanged{ window = …, title = … }`.
+    /// A window's title changed.
     TitleChanged { window: WindowId, title: String },
-    /// `lovr.lunmonitoradded{ id = …, monitor = … }`.
-    ///
-    /// One of the *host's* screens, not a compositor output: the identity is the
-    /// key `lunette-capture` resolved, and the handle is what
-    /// `lunette.monitors()` hands out. Pushed by the frame loop whenever the
-    /// mirror lifecycle reports a monitor it had not seen, which includes every
-    /// monitor present when lunette started.
+    /// A host monitor became available to mirror.
     MonitorAdded { monitor: MonitorKey },
-    /// `lovr.lunprocessexited{ process = …, outcome = …, … }`.
-    ///
-    /// The only report a caller of `lunette.spawn` gets for a program that
-    /// never started, which is why the outcome travels with it rather than
-    /// being reduced to an exit code.
+    /// A spawned or adopted process exited, including its outcome.
     ProcessExited {
         process: ProcessId,
         outcome: ProcessOutcome,
     },
-    /// `lovr.lunprocessoutput{ process = …, stream = …, text = … }`.
+    /// A process produced output.
     ProcessOutput {
         process: ProcessId,
         stream: Stream,
         bytes: Vec<u8>,
     },
-    /// `lovr.lunlayergranted{ claim = …, layer = … }`.
-    ///
-    /// The layer travels alongside the claim although `claim.layer` reads it
-    /// too, because the event is about the panel gaining one and a handler that
-    /// does nothing else should not have to go looking.
+    /// A claim was granted a layer.
     LayerGranted { claim: ClaimId },
-    /// `lovr.lunlayerrevoked{ claim = … }`.
-    ///
-    /// No layer, because there is none: the claim holds nothing by the time the
-    /// handler runs, which is what the event reports. The claim itself is alive
-    /// and takes a layer again as soon as one frees and nothing outranks it.
+    /// A claim lost its layer.
     LayerRevoked { claim: ClaimId },
 }
 

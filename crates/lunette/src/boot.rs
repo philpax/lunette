@@ -14,10 +14,8 @@
 //! The `arg` table places the configuration directory at `arg[1]`, where
 //! `src/main.c` places only `argv[0]` at `arg[0]`. See [`arg_entries`].
 //!
-//! `src/main.c` calls `exit()` from inside the step function. This module
-//! returns the status up to `main` instead. Observable behaviour is identical
-//! today; the seam is what lets the compositor and control threads be torn
-//! down in order once they exist.
+//! The step function returns the status to `main` instead of calling `exit()`.
+//! This keeps teardown ordered as the compositor and control threads are added.
 //!
 //! The exit status is read from stack index 1, where `src/main.c` reads
 //! index -1. `vendor/lovr/etc/boot.lua` returns `result, cookie`, so a
@@ -57,10 +55,8 @@ use tracing::{debug, error, info, warn};
 
 /// The directories a session is loaded from.
 ///
-/// Both are resolved by the entry point, which is the only part of the program
-/// permitted to read the environment. They travel together because they are two
-/// paths of the same shape, and a positional pair of them is a swap waiting to
-/// happen.
+/// Both paths are resolved before the session starts. They travel together
+/// because they describe the two roots used by one session.
 #[derive(Debug, Clone, Copy)]
 pub struct SessionPaths<'a> {
     /// Where LÖVR loads `main.lua` and `conf.lua` from.
@@ -86,10 +82,8 @@ pub struct SessionPaths<'a> {
 /// started without a control socket. It outlives every Lua state for the reason
 /// the session does: the socket and its thread are not disturbed by a restart.
 ///
-/// `startup` is what the entry point resolved while the process was still
-/// single-threaded. The compositor is built from it on the first frame at which
-/// LÖVR has a graphics device to lend, which is why it travels this far rather
-/// than being used in `main`.
+/// `startup` contains the resources resolved before the session starts. The
+/// compositor is built from them once LÖVR has a graphics device to lend.
 ///
 /// # A restart keeps the compositor and its clients
 ///
@@ -123,9 +117,7 @@ pub fn run(
     let blits = unsafe { LovrBlits::new() };
     let mut driver = FrameDriver::new(Rc::clone(session), Rc::clone(layers), blits, startup);
 
-    // The restart cookie outlives every Lua state: one session writes it and
-    // the next reads it back. `src/main.c` gets that lifetime from a
-    // function-static; here the enclosing scope provides it.
+    // The restart cookie outlives each Lua state so the next session can read it.
     //
     // SAFETY: `Variant`'s discriminant is `TYPE_NIL`, which is zero, and every
     // payload it selects is valid when zeroed. This is the initial state
@@ -140,9 +132,8 @@ pub fn run(
         }
     };
 
-    // Nothing after the last session should reach the compositor, but a load
-    // failure leaves it running: `run_session` returns before `run_steps` is
-    // reached, so nothing has stopped it.
+    // A load failure can leave the compositor running, so shut it down after
+    // the restart loop in every case.
     driver.shutdown();
     platform.destroy();
     ExitCode::from(status)
@@ -241,10 +232,8 @@ fn run_session(
             return Outcome::LoadFailed;
         }
 
-        // After the chunk, which is what creates the `lovr` table, and before
-        // the first resume, which is when `boot.lua` reads `lovr.boot` back.
-        // There is no other moment: the coroutine boots the modules and runs
-        // `main.lua` on the same resume.
+        // Install safe mode after the `lovr` table exists and before the
+        // coroutine resumes.
         //
         // SAFETY: `state` is live until the `luax_close` below, and the
         // reference mlua constructs over it is consumed inside this call.
@@ -293,9 +282,8 @@ unsafe fn run_steps(
     lua_handle: &Lua,
 ) -> Outcome {
     loop {
-        // The frame's snapshot and the frame's events are installed together,
-        // before `boot.lua` polls, so a `lun*` handler reads a snapshot that
-        // already accounts for the event it was handed.
+        // Install the frame snapshot and events together so handlers see a
+        // snapshot that includes the events delivered in this frame.
         driver.begin_frame();
 
         // SAFETY: the caller guarantees `thread` is live, and nothing in this
@@ -333,10 +321,8 @@ unsafe fn run_steps(
 
         match step {
             Step::Continue => {
-                // Between two frames, which is the whole of what makes a chunk
-                // safe: `lovr.update` and `lovr.draw` have both finished and the
-                // next frame has not begun, so a chunk touching the same state a
-                // callback touches has nobody to race.
+                // Run control chunks between frames, when no Lua callback is
+                // executing.
                 //
                 // The single session `lua_handle` is used here directly; it is
                 // not closed until after `run_steps` returns, so the `&Lua`
@@ -461,12 +447,10 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 ///
 /// # Why this is a hook rather than a call
 ///
-/// Mounting needs `lovr.filesystem`, and that module is created by
-/// `vendor/lovr/etc/boot.lua` — inside the coroutine, on the same resume that
-/// goes on to run `main.lua` during the same resume. So there is no moment between the two
-/// that the host can reach: before the resume the module does not exist, and
-/// after it the configuration has already run. Wrapping the `package.preload`
-/// entry the module is created by is what puts the mount between them.
+/// Mounting needs `lovr.filesystem`, which is created inside the boot
+/// coroutine before the configuration runs. Wrapping its `package.preload`
+/// entry installs the mount at that boundary.
+
 ///
 /// The wrapper is a C closure holding the original loader and the path as Lua
 /// upvalues, not a Rust closure holding Lua values. Rust keeps no reference into

@@ -13,8 +13,6 @@ getrandom.workspace = true
 # Only for `dev_t` and `makedev`: `DmabufFeedbackBuilder::new` takes a device
 # number, and naming the C type is better than assuming it is `u64` here.
 libc.workspace = true
-# The `closed_set!` macro, for the enums whose members are named outside Rust.
-# Pure by default: naming a closed set does not link a Lua binding.
 lunette-luau.workspace = true
 smallvec.workspace = true
 # `desktop` supplies `Window` and `PopupManager`. `backend_vulkan` stays off:

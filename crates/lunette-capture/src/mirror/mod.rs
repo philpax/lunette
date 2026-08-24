@@ -1,11 +1,6 @@
 //! Linux-only: when a monitor's capture starts, and when it really stops.
 //!
-//! WayVR requests the portal from `ScreenCastBackend::init`
-//! (`overlays/screen/pw.rs:156-176`) at screen creation — eagerly, for every
-//! monitor, at startup — and its only notion of stopping is visibility:
-//! `after_input` pauses and resumes as alpha crosses 0.05
-//! (`backend/openxr/overlay.rs:208-223`). lunette asks for nothing until a
-//! monitor is first mirrored, and dismissing one tears its stream down.
+//! Capture starts when a monitor is mirrored and stops when it is dismissed.
 //!
 //! # Pause is not stop
 //!
@@ -22,11 +17,9 @@
 //!
 //! # Nothing here blocks
 //!
-//! [`MirrorSet::mirror`] records what is wanted and returns. The portal
-//! exchange is advanced by [`MirrorSet::poll`], once a frame, and a dialog on
-//! the user's screen is an ordinary non-terminal progress rather than something
-//! to wait on. That is what keeps a first mirror — which may prompt — off a
-//! frame's critical path.
+//! [`MirrorSet::mirror`] records what is wanted and returns.
+//! [`MirrorSet::poll`] advances the portal exchange without blocking, including
+//! while a user dialog is open.
 //!
 //! # The roster arrives from outside
 //!
@@ -40,13 +33,12 @@
 //!
 //! A PipeWire stream negotiates against the DRM formats the importer accepts,
 //! and those are not known until LOVR has created a graphics device — several
-//! steps into the boot sequence, and long after this type exists. So a
-//! [`MirrorSet`] starts with [`NoStreams`] and the entry point installs the real
-//! source through [`MirrorSet::set_streams`] once the device exists. This is the
-//! same deferral the compositor thread uses, for the same reason.
+//! steps into the boot sequence. So a
+//! [`MirrorSet`] starts with [`NoStreams`] and installs the real source through
+//! [`MirrorSet::set_streams`] once the device exists.
 //!
 //! A monitor mirrored before then stays wanted, and [`MirrorSet::poll`] opens it
-//! on the first frame after the source arrives.
+//! when the source arrives.
 
 pub mod source;
 
@@ -120,9 +112,9 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Installs the source that opens capture streams.
     ///
-    /// Called once, by the entry point, on the first frame at which the graphics
-    /// device exists and the DRM formats the importer accepts are therefore
-    /// known. Replacing the source does not disturb the streams already open:
+    /// Installs the source once the graphics device exists and the DRM formats
+    /// accepted by the importer are known. Replacing the source does not disturb
+    /// streams already open:
     /// there are none, because a source that could open one is exactly what was
     /// missing.
     pub fn set_streams(&mut self, streams: Box<dyn MonitorStreams>) {
@@ -168,7 +160,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         &self.roster
     }
 
-    /// The portal, for a caller that has to report on what it was asked.
+    /// The portal used by this set.
     #[must_use]
     pub const fn portal(&self) -> &P {
         &self.portal
@@ -265,9 +257,8 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Advances the portal exchange, without blocking.
     ///
-    /// Called once a frame. Every non-terminal progress — including a dialog the
-    /// user has not answered — is [`Progress::Waiting`], because there is
-    /// nothing for a caller to do about any of them.
+    /// Advances the exchange without blocking. Every non-terminal progress,
+    /// including an unanswered dialog, is [`Progress::Waiting`].
     pub fn poll(&mut self) -> Progress {
         let SessionState::Requested(request) = self.session else {
             // A held session still has work on most frames only in one case:
@@ -376,7 +367,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     /// The tokens to persist, once something has changed them.
     ///
     /// Reported rather than written from here: this is a library, and where the
-    /// file lives is the entry point's knowledge.
+    /// file location belongs to the application layer.
     pub fn take_changed_tokens(&mut self) -> Option<&TokenStore> {
         mem::take(&mut self.tokens_changed).then_some(&self.tokens)
     }
@@ -475,8 +466,8 @@ enum SessionState {
     Held(Held),
     /// The last request failed.
     ///
-    /// Kept rather than falling back to [`Self::Idle`] so that a monitor
-    /// mirrored on a machine with no portal asks once, not once a frame.
+    /// Kept rather than falling back to [`Self::Idle`] so a monitor on a host
+    /// without a portal does not retry automatically.
     Failed(PortalError),
 }
 
