@@ -1,7 +1,5 @@
 [package]
 name = "lunette"
-# Two binaries ship from this crate, and `cargo run` needs to know which one a
-# bare invocation means. lunctl is reached with `--bin lunctl`.
 default-run = "lunette"
 version = "0.1.0"
 edition.workspace = true

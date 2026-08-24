@@ -4,12 +4,10 @@
 //! tries. uinput injects below the display server, so it works under any Wayland
 //! compositor and under X11, and nothing about the host needs to cooperate.
 //!
-//! What it costs is a permission. `/dev/uinput` is not writable by an ordinary
-//! user on most distributions, and granting it means either a udev rule tagged
-//! `uaccess` or membership of the `input` group. [`Advice`] renders the
-//! instructions, including the part a user should know before following them:
-//! the `input` group grants read access to every input device on the machine,
-//! which is a keylogging surface.
+//! Access requires permission to write `/dev/uinput`, typically through a udev
+//! rule tagged `uaccess` or membership in the `input` group. The latter also
+//! grants read access to every input device on the machine, which is a keylogging
+//! surface. [`Advice`] reports these alternatives.
 //!
 //! Two devices are created, a keyboard and a mouse, following WayVR. One device
 //! declaring both would
@@ -45,10 +43,8 @@ use crate::hid::{
 /// Where the uinput device node is, and how the created devices identify
 /// themselves.
 ///
-/// The device path is a field rather than a constant read from the environment,
-/// because this is a library: configuration arrives as a parameter, and only the
-/// application entry point decides where it came from. [`Self::default`] is what
-/// the entry point uses when the user said nothing.
+/// The device path is a parameter so the library does not read configuration
+/// from the environment. [`Self::default`] supplies the standard path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UinputConfig {
     pub device: PathBuf,
@@ -282,12 +278,10 @@ impl HidProvider for UinputProvider {
 
 /// What to tell a user whose `/dev/uinput` could not be opened.
 ///
-/// Structured rather than a formatted string so the caller decides how to
-/// present it — a log line now, a panel in the headset later — and so the one
-/// piece of environment it needs, the user's login name, arrives as a parameter
-/// rather than being read here.
+/// Structured so presentation remains separate from the diagnostic data, and
+/// the login name arrives as a parameter rather than being read here.
 ///
-/// Modelled on WayVR's diagnostic, with the security note it does not carry.
+/// Includes the security implications of granting input-device access.
 #[derive(Clone, Copy, Debug)]
 pub struct Advice<'a> {
     /// The login name to put in the `usermod` command, if the caller knows it.

@@ -1,17 +1,10 @@
 //! Linux-only: PipeWire's frames, carried raw to the main thread.
 //!
-//! PipeWire delivers on a thread of its own, through a bare `fn` pointer rather
-//! than a closure (`wlx-capture/src/lib.rs:24`). What that callback does here is
-//! convert the frame into a plain owned message and put it in a queue. Every
-//! Vulkan import happens on the main thread, through the same path a Wayland
-//! client's buffer takes.
-//!
-//! This differs from WayVR deliberately. WayVR imports inside the receive
-//! callback (`overlays/screen/capture.rs`), which needs a second GPU queue, and
-//! falls back to wrapping the capture in `MainThreadWlxCapture` where none
-//! exists. lunette has one import path and makes no assumption about LÖVR's
-//! queue topology, since nothing currently exposes it. The cost is a channel hop
-//! per frame.
+//! PipeWire delivers on its own thread through a bare `fn` pointer. The callback
+//! converts each frame into a plain owned message and queues it. Vulkan imports
+//! happen on the main thread through the same path as Wayland client buffers.
+//! This gives lunette one import path without assuming a particular GPU queue
+//! topology. The cost is one channel hop per frame.
 //!
 //! # Who is allowed to block
 //!
@@ -74,7 +67,7 @@ impl CaptureStream {
     ///
     /// `formats` is what the importer can accept, passed in rather than decided
     /// here: this crate must not depend on a graphics API, so which DRM formats
-    /// and modifiers are importable is the caller's knowledge.
+    /// and modifiers are determined by the importer.
     #[must_use]
     pub fn start(name: impl Into<Arc<str>>, node: NodeId, formats: &[DrmFormat]) -> Self {
         let name = name.into();
@@ -433,7 +426,7 @@ impl<T> FrameQueue<T> {
     }
 
     /// Records a frame that could not be converted. Reports whether it is the
-    /// first, so the caller can say so once rather than every frame.
+    /// first, so the stream reports the condition once rather than every frame.
     pub fn record_refusal(&self) -> Refusal {
         let mut inner = self.inner.lock();
         inner.counts.refused = inner.counts.refused.saturating_add(1);
@@ -579,7 +572,7 @@ const QUEUE_DEPTH: NonZeroUsize = NonZeroUsize::MIN.saturating_add(1);
 /// What PipeWire's callback is handed.
 ///
 /// A named type rather than the `Arc` itself, because the callback is a bare
-/// `fn` and its user-data parameter is the only channel through which anything
+/// `fn` and its user-data parameter are the only channel through which data
 /// reaches it.
 struct Delivery(Arc<FrameQueue<CapturedFrame>>);
 
@@ -603,9 +596,8 @@ fn control(capture: &mut PipewireCapture<Never>) -> &mut impl WlxCapture<Deliver
 
 /// Runs on PipeWire's thread, once per frame.
 ///
-/// A bare `fn` because that is what `WlxCapture::init` takes
-/// (`wlx-capture/src/lib.rs:24`); everything it needs arrives through
-/// [`Delivery`].
+/// A bare `fn` because that is what `WlxCapture::init` takes; everything it needs
+/// arrives through [`Delivery`].
 fn deliver(delivery: &Delivery, frame: WlxFrame) -> Option<Never> {
     let queue = &delivery.0;
 

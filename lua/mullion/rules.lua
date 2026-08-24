@@ -1,27 +1,5 @@
--- Rules: what a window should look like, decided before anything draws it.
---
--- docs/stdlib.md's tier 3, the part that decides where a window goes. The
--- minimum-viable line asks for a rules table matched on `appId`, and this is it,
--- plus the composition that saved arrangements need to sit alongside it rather
--- than inside it.
---
--- The shape is awesome's and none of its code: awesome is GPL-2 and lunette
--- GPL-3-only (CREDITS.md), so nothing was copied and its source was not
--- consulted while this was written. What was taken is a design, which is not
--- copyrightable — a flat ordered list of match-and-properties tables, and a
--- matcher that composes several *sources* with a declared precedence.
---
--- The precedence is the load-bearing part. Restore-on-startup and
--- apply-rules-on-open answer the same question about the same window and want
--- different answers: a window that was hand-placed should come back where it
--- was, and a window opening fresh should be placed by rule. Collapsing them into
--- one list makes one of those cases wrong, and which one depends on the order
--- the configuration happened to write its entries in. As sources, the
--- configuration says which wins.
---
--- This module takes no `lovr.lun*` callback. The callback namespace belongs to
--- the configuration (docs/stdlib.md), so `lunette.onWindowOpened` calls `place`
--- rather than this module taking the callback out from under it.
+-- Rules resolve window properties from ordered, composable sources.
+-- Higher-precedence sources override lower-precedence sources.
 
 local lunette = require '@lunette'
 

@@ -68,11 +68,7 @@ type PanelOptions = {
 -- starts with none.
 local panels: { Panel } = {}
 
--- The shader `opaqueShader` builds on first use, and nothing before it: the
--- graphics module does not exist while a configuration is being loaded, and a
--- module body that reached for it would make requiring this file depend on when
--- it was required. Dropped when this file runs again, so a soft reload builds
--- one against the state that will draw with it.
+-- Build the shader lazily because graphics may be unavailable during loading.
 local opaqueShader: Shader?
 
 -- Everything a panel's appearance is tuned by, in one table.
@@ -110,8 +106,8 @@ panel.DEFAULT_HEIGHT = 0.8
 -- imported as the alpha-carrying format with the same component order and the
 -- client's padding byte arrives as alpha. Most renderers leave that byte at
 -- zero, so sampling it draws the window fully invisible. `source.opaque` is what
--- says the byte means nothing, and docs/rendering.md#alpha says a consumer
--- forces alpha to one rather than sampling it. This is that consumer.
+-- The source marks the padding byte as meaningless, so this shader forces alpha
+-- to one rather than sampling it.
 panel.OPAQUE_FRAGMENT = [[
   vec4 lovrmain() {
     return vec4((Color * getPixel(ColorTexture, UV)).rgb, Color.a);
@@ -376,9 +372,7 @@ function methods.draw(self: Panel, pass: Pass)
   pass:setBlendMode('alpha', 'alphamultiply')
 end
 
--- A border and a title. Not a widget layer: docs/stdlib.md defers 2D widgets,
--- and docs/stdlib.md records the toolkit as possibly a separate library
--- entirely, so this stays within `Pass:plane` and `Pass:text`.
+-- Draws the panel border and title using the pass primitives.
 function methods.drawChrome(self: Panel, pass: Pass)
   local style = panel.STYLE
   local color = self.highlighted and style.borderHighlightColor or style.borderColor

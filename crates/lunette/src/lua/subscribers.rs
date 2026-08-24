@@ -1,12 +1,8 @@
 //! Who is listening for each event.
 //!
-//! lunette's events used to be delivered to `lovr.lunwindowopened` and its
-//! siblings, which gave each event exactly one handler for the whole session.
-//! That is one slot for every listener there could be, so a library taking it
-//! took it from the configuration: `mullion.panel` polled a claim rather than
-//! handling the grant, and `mullion.error` had to call whatever handler it had
-//! displaced. Listeners are peers here, and a subscription is a ticket rather
-//! than a name nobody else may use.
+//! Each event supports multiple independent listeners. A subscription is a
+//! ticket, so listeners can be removed without comparing functions or reserving
+//! a single handler slot.
 
 use std::collections::HashMap;
 
@@ -27,8 +23,7 @@ pub struct SubscriptionId(u64);
 #[derive(Debug, Default)]
 pub struct Subscribers {
     listeners: HashMap<EventName, Vec<(SubscriptionId, Function)>>,
-    /// Never reused, including across a reload, so a ticket held past a
-    /// cancellation cannot name a later subscription.
+    /// Never reused, so an old ticket cannot name a later subscription.
     next: u64,
 }
 
@@ -62,8 +57,7 @@ impl Subscribers {
             .unwrap_or_default()
     }
 
-    /// Forgets everyone. The identifiers keep climbing, so a ticket from before
-    /// a reload cannot name a subscription made after it.
+    /// Forgets everyone while preserving identifier uniqueness.
     pub fn clear(&mut self) {
         self.listeners.clear();
     }
@@ -132,8 +126,7 @@ mod tests {
         assert!(subscribers.listeners(name()).is_empty());
     }
 
-    /// The case a reload leaves behind: a configuration holds a ticket, the
-    /// reload forgets every listener, and the configuration cancels afterwards.
+    /// A stale ticket does not cancel a subscription created after clearing.
     #[test]
     fn a_ticket_from_before_a_reload_cancels_nothing_after_it() {
         let lua = mlua::Lua::new();

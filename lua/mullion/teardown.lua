@@ -72,18 +72,7 @@ function teardown.pending(): { string }
 end
 
 -- Runs every hook in reverse registration order and empties the registry.
---
--- Each runs under `xpcall`, so one raising does not stop the others. The error
--- is reported rather than swallowed, because reload must finish tearing down the
--- discarded state.
---
--- Returns the failures, as `{ { name, message } }`, as well as reporting each
--- through `teardown.report`. The return is for a caller that wants to act on
--- them; the report is so that a caller that does not still says something.
---
--- The registry is emptied whether or not a hook raised. A hook that failed has
--- already had its chance, and leaving it registered would run it again at the
--- next reload against state that has gone.
+-- Hook failures are reported and collected, while other hooks still run.
 function teardown.run(): { Failure }
   local names = teardown.pending()
   -- Taken before the registry is emptied, and emptied before the first hook

@@ -20,8 +20,7 @@ use crate::monitor::{
 
 /// What a source knows about one monitor before its identity is resolved.
 ///
-/// A parameter struct rather than four positional arguments, because three of
-/// the four are sizes and positions that a caller can transpose silently.
+/// A parameter struct keeps the size and position fields distinct at call sites.
 #[derive(Clone, Debug)]
 pub struct MonitorReport {
     pub name: MonitorName,
@@ -121,11 +120,9 @@ impl Roster {
     /// monitor that appears while lunette is running is resolved the same way
     /// as one present at startup.
     ///
-    /// Following niri (`src/backend/tty.rs:1050-1080`), a monitor whose
-    /// descriptor another already carries is demoted to its connector: the
-    /// earlier one keeps the descriptor and the later one loses it. lunette has
-    /// no serial to separate them with, so this is commoner here than in niri
-    /// rather than rarer.
+    /// A monitor whose descriptor another already carries is demoted to its
+    /// connector. The earlier monitor keeps the descriptor, and the later one
+    /// loses it because no serial is available to distinguish them.
     pub fn add(&mut self, report: MonitorReport) {
         let MonitorReport {
             name,
@@ -171,10 +168,8 @@ impl Roster {
 
     /// The monitors ordered by identity rather than by enumeration.
     ///
-    /// `Niri::reposition_outputs` (`src/niri.rs:2700-2760`) sorts before
-    /// assigning positions for the same reason: udev connector order is
-    /// arbitrary, so an arrangement derived from enumeration order changes when
-    /// the user replugs a cable and nothing else has.
+    /// Connector enumeration order is arbitrary, so sorting prevents the
+    /// arrangement from changing when a cable is replugged.
     #[must_use]
     pub fn sorted(&self) -> Vec<&Monitor> {
         let mut sorted: Vec<&Monitor> = self.monitors.iter().collect();

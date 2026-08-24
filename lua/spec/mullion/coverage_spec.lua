@@ -3,10 +3,7 @@
 -- A module without a spec may be deliberately thin, but the table below records
 -- that decision. An unlisted module fails here rather than going unnoticed.
 --
--- The tree is read from the mount rather than listed by hand, so a module added
--- under a new subdirectory is seen. That is the same defect the `Makefile`'s
--- install rule guards against by walking the tree: a file the list misses
--- resolves in development and is absent from an installed session.
+-- Discover the tree from the mount so new subdirectories are covered.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -33,9 +30,7 @@ local COVERAGE = {
   ['error/init.lua'] = 'error/handler_spec.lua',
   ['error/panel.lua'] = 'error/panel_spec.lua',
   ['interaction/init.lua'] = 'interaction_spec.lua',
-  -- Types and nothing else: it declares the pointer protocol's vocabulary and
-  -- returns an empty table, so there is no behaviour for a spec to assert. The
-  -- Luau check is what covers it.
+  -- This module declares types and has no runtime behaviour.
   ['interaction/types.lua'] = false,
   -- The carrying half, exercised through the pointer that installs it.
   ['interaction/grab.lua'] = 'interaction_spec.lua',

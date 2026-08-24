@@ -31,7 +31,7 @@ tracing.workspace = true
 # one. The pin keeps both halves on one copy of the xkb types.
 xkbcommon.workspace = true
 # Two uses, one crate. `src/selection/data_control.rs` speaks
-# `ext_data_control_v1` to the *host* compositor as a client, which is how the
+# `ext_data_control_v1` to the compositor as a client, which is how the
 # clipboard crosses the boundary; and `src/test_client.rs` drives lunette's own
 # protocol from a real client. Pinned to the versions smithay's `wayland-server`
 # shares a `wayland-backend` with; a split would make the two halves unable to
@@ -44,8 +44,7 @@ wayland-protocols = { workspace = true, features = [
     "staging",
     "unstable",
 ] }
-# `zwlr_data_control_v1`, the fallback for a host that has not gained
-# ext-data-control yet — which today is every wlroots compositor.
+# `zwlr_data_control_v1`, the fallback for a host without ext-data-control.
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [features]

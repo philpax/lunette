@@ -18,21 +18,19 @@
 //! The compositor never speaks Vulkan to a client. It receives descriptors and
 //! imports them. The Wayland socket, the connections, and the `wl_buffer`
 //! objects are all plain Rust and plain file descriptors, and none of them is
-//! invalidated by a device going away. `docs/architecture.md` records the rule
-//! this rests on: Rust holds no long-lived reference into Lua, so nothing the
-//! compositor owns is reachable from the state being discarded.
+//! invalidated by a device going away. Rust holds no long-lived reference into
+//! Lua, so nothing the compositor owns is reachable from the state being discarded.
 //!
-//! # The ordering, which is the deliverable
+//! # The ordering
 //!
-//! Getting this wrong is a use-after-free on the GPU rather than a failed
-//! assertion, so the sequence is stated once, here, and
-//! [`crate::frame::FrameDriver::quiesce`] performs exactly it.
+//! The sequence prevents GPU use-after-free, and
+//! [`crate::frame::FrameDriver::quiesce`] performs it.
 //!
 //! 1. **Ask the compositor to release the device, and wait for it to say it
 //!    has.** Until that acknowledgement arrives the compositor may be inside
 //!    `vkCreateImage` for a client that committed a microsecond ago. This is the
-//!    one place in the design where the frame thread waits on the compositor
-//!    thread, and [`quiesce`] records why it cannot deadlock.
+//!    one place where the frame thread waits on the compositor thread, and
+//!    [`quiesce`] records why it cannot deadlock.
 //! 2. **Destroy the composition layers, while the XR session still exists.**
 //!    `lovrLayerDestroy` calls `xrDestroySwapchain` inline, and a handle
 //!    `xrDestroySession` has already invalidated cannot be passed to it.
@@ -42,8 +40,8 @@
 //!    [`ImageArena::abandon_all`] records the reasoning; the short version is
 //!    that a view still names each one, and destroying an image a view names is
 //!    a use-after-free the driver may act on, where leaving it is a
-//!    `vkDestroyDevice` valid-usage violation the validation layers report and
-//!    nothing else observes. `docs/rendering.md` records the trade.
+//!    `vkDestroyDevice` valid-usage violation that validation layers report, but
+//!    no live object can observe.
 //! 5. **Close the Lua state**, which is `crate::boot`'s to do, and is what
 //!    performs the destruction the four steps above prepared for.
 //!
@@ -51,15 +49,9 @@
 //! build a new importer against a new arena, and hand it to the compositor,
 //! which re-imports every buffer its clients still hold.
 //!
-//! # Why this is not a `luax_atexit` finalizer
-//!
-//! It would be the obvious place, and it would be wrong. The chain is a linked
-//! list with no ordering guarantee relative to `lovrGraphicsDestroy`, and
-//! `vendor/lovr/src/modules/graphics/graphics.c` carries LÖVR's own
-//! comment calling the existing headset-versus-graphics ordering "really hacky".
-//! Adding a third participant with a hard ordering requirement to an ordering
-//! nobody is confident in is how this breaks intermittently, on one driver, six
-//! months later.
+//! The cleanup does not run from a `luax_atexit` finalizer. Finalizers have no
+//! ordering guarantee relative to `lovrGraphicsDestroy`, but this protocol must
+//! release compositor references before the graphics device is destroyed.
 //!
 //! [`ImageArena::abandon_all`]: crate::import::ImageArena::abandon_all
 
@@ -78,23 +70,13 @@ use tracing::{debug, info};
 
 /// `lunette.restart()`: asks for a hard restart.
 ///
-/// Nothing here performs one. The call pushes LÖVR's own restart event and
-/// returns; `vendor/lovr/etc/boot.lua` reads it out of the queue once the
-/// frame's callbacks have returned, ends the boot coroutine, and [`crate::boot`]
-/// answers with the quiesce this module documents.
+/// The call pushes LÖVR's restart event and returns. The boot loop processes it
+/// after the frame callbacks return, then [`crate::boot`] performs the quiesce.
 ///
-/// # Why there is no re-entry guard
-///
-/// [`crate::reload::reload`] refuses a reload asked for from inside one,
-/// because it re-runs `main.lua` inline and a configuration that reloads as it
-/// loads would recurse until the stack ran out. This recurses into nothing: the
-/// event is read after the frame, so a restart asked for from `lovr.load`, from
-/// inside a reload, or twice in the same frame is one restart at the end of the
-/// frame rather than a nested call.
-///
-/// `lovr.event.restart` is reached through the globals at each call rather than
-/// held, so the module keeps no Lua value between calls and a configuration that
-/// replaced the event module is honoured rather than bypassed.
+/// The event is processed after the frame, so requests made during callbacks or
+/// multiple times in one frame result in one restart rather than nested calls.
+/// The function is looked up on each call, so the module retains no Lua value
+/// between calls.
 ///
 /// # Errors
 ///
@@ -124,11 +106,9 @@ fn lovr_event_restart(lua: &Lua) -> mlua::Result<Function> {
 
 /// How long the frame thread waits for the compositor to give up the device.
 ///
-/// Generous, because the alternative to waiting is worse than a stall: the
-/// caller's answer to a timeout is to stop the compositor thread outright,
-/// which disconnects every client. The compositor reaches the command between
-/// two dispatches, so the only thing that makes this slow is a client flooding
-/// it, and a second of that is a great deal of flooding.
+/// The timeout bounds the wait before the compositor is stopped, which would
+/// disconnect every client. The compositor handles the command between
+/// dispatches, so the main delay is a busy client.
 pub const QUIESCE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// How long one wait for an event lasts before the send is retried.
@@ -168,8 +148,8 @@ const RETRY_SLICE: Duration = Duration::from_millis(20);
 /// # Errors
 ///
 /// If the compositor thread is gone, or does not acknowledge within `timeout`.
-/// Either is a session that cannot restart safely, and the caller's answer is to
-/// stop the compositor rather than to destroy a device it may still be using.
+/// Either condition makes a safe restart impossible, so the compositor must be
+/// stopped rather than destroying a device it may still be using.
 pub fn quiesce(handle: &CompositorHandle, timeout: Duration) -> Result<Quiesced, QuiesceError> {
     let started = Instant::now();
     let deadline = started + timeout;
@@ -358,10 +338,7 @@ mod tests {
     }
 
     /// A compositor that takes the command and never answers is reported rather
-    /// than waited on forever, which is what the bound is for. This is the path
-    /// a restart takes when the compositor is wedged behind a flooding client,
-    /// and the caller answers it by stopping the thread rather than destroying a
-    /// device it may still be inside `vkCreateImage` on.
+    /// than waited on forever. The device may still be inside `vkCreateImage`.
     #[test]
     fn a_compositor_that_never_acknowledges_is_reported_when_the_bound_passes() {
         let (compositor, silent) = silent_compositor();

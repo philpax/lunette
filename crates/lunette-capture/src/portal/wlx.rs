@@ -7,19 +7,17 @@
 //! # Not `Send`, deliberately
 //!
 //! `ScreenCastManager` polls D-Bus futures with a no-op waker on the calling
-//! thread (`pipewire/mod.rs:840`), `DbusFuture` is not `Send` (`mod.rs:632`),
-//! and `ScreenCastParams.token` is an `Rc<str>` (`mod.rs:46`). This type is
-//! constructed on the thread that will drive it and never leaves it.
+//! thread, and its futures are not `Send`. `ScreenCastParams.token` is also an
+//! `Rc<str>`. This type is constructed on the thread that drives it and never
+//! leaves that thread.
 //!
 //! # What this adapter cannot observe
 //!
 //! Two fields the portal sends are discarded before they reach here.
-//! `parse_start_response` (`pipewire/mod.rs:686-691`) reads `streams` and
-//! `restore_token` and drops the response's `persist_mode`, so
-//! [`GrantedPersistMode::Unstated`] is what every grant reports. `parse_streams`
-//! (`mod.rs:693-733`) reads `node_id`, `position`, and `size` and drops
-//! `mapping_id`, so [`PortalStream::connector`] is always `None`. Both are
-//! upstream changes, and neither is load-bearing: geometry is the mechanism.
+//! The underlying adapter drops the response's `persist_mode`, so
+//! [`GrantedPersistMode::Unstated`] is what every grant reports. It also drops
+//! `mapping_id`, so [`PortalStream::connector`] is always `None`. Geometry is
+//! sufficient for correlating streams with monitors.
 
 use std::{collections::HashMap, rc::Rc};
 
@@ -181,8 +179,8 @@ fn translate_error(error: ScreenCastError) -> PortalError {
         error @ (ScreenCastError::Dbus(_)
         | ScreenCastError::DbusDisconnected
         | ScreenCastError::InvalidObjectPath(_)) => PortalError::Dbus(error.to_string()),
-        // Only reachable by polling an identifier `wlx-capture` has already
-        // retired, which this adapter's own bookkeeping prevents.
+        // The adapter's bookkeeping normally removes a request before this
+        // response can occur.
         ScreenCastError::UnknownRequest => {
             PortalError::Dbus("the portal client lost track of the request".to_owned())
         }

@@ -63,18 +63,8 @@ function adopt.install(precedence: number?)
   rules.addSource(adopt.SOURCE, precedence or adopt.PRECEDENCE, adopt.source())
 end
 
--- The live windows nothing is showing yet, in `lunette.windows()` order.
---
--- What a configuration calls once its rules and sources are installed, so that
--- the windows a reload found already open are placed the way a window opening
--- now would be. The windows rather than panels made from them, because what to
--- do with one is the configuration's decision: `mullion.rules.place` is the
--- usual answer and is not the only one.
---
--- A window that closed while the reload was running is not in the snapshot and
--- so is not resurrected. A window that opened while it was running is, and is
--- picked up here rather than being lost with the `lunette.onWindowOpened` the old
--- state was the last to hear.
+-- Returns live windows that do not already have panels, in enumeration order.
+-- The caller decides how to place them after installing its rules and sources.
 function adopt.windows()
   local pending = {}
   for _, window in ipairs(lunette.windows()) do

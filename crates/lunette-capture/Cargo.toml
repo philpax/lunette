@@ -37,7 +37,6 @@ wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 # because it started as a GNOME-adjacent proposal, but only wlroots implements
 # it, so it travels with `zwlr_virtual_pointer_v1` in practice.
 wayland-protocols-misc = { workspace = true, features = ["client"] }
-# `zwlr_virtual_pointer_v1`.
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 

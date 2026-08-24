@@ -19,11 +19,10 @@
 //!
 //! # The division with Lua
 //!
-//! Lua supplies a scalar [`Priority`] per claim and Rust assigns the top N
-//! deterministically. Ranking is application knowledge — focus, gaze, distance,
-//! a rule putting video above a terminal — and lunette never invents it. This
-//! is a recorded decision, revisited once during design; the first proposal put
-//! the pool itself in Lua, and layer churn is what ruled it out.
+//! Lua supplies a scalar [`Priority`] per claim, and Rust assigns the top N
+//! deterministically. Ranking is application knowledge, such as focus, gaze,
+//! distance, or a rule putting video above a terminal. The pool remains in Rust
+//! because layer creation is expensive and must be bounded and recyclable.
 
 mod backend;
 mod blit;

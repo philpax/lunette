@@ -9,8 +9,6 @@ members = [
 ]
 resolver = "3"
 
-# Keep lunette as the default development member; CI names `--workspace`
-# explicitly, while bare cargo commands intentionally cover this crate only.
 default-members = ["crates/lunette"]
 
 [workspace.package]
@@ -30,9 +28,6 @@ expect_used = "warn"
 [workspace.dependencies]
 arc-swap = "=1.9.2"
 ariadne = "=0.6.0"
-# 0.38.0+1.3.281 upstream. The build metadata is left off the requirement
-# because Cargo ignores it when matching and warns about every mention of it;
-# `=0.38.0` is what actually pins the release.
 ash = "=0.38.0"
 bindgen = "=0.72.1"
 cc = "=1.4.0"
@@ -56,17 +51,12 @@ smol_str = "=0.3.6"
 # Handrolling one invites the optimiser to reintroduce the early exit.
 subtle = "=2.6.1"
 tempfile = "=3.27.0"
-# The build metadata is left off the requirement for the reason given on `ash`:
-# Cargo ignores it when matching and warns about every mention of it. The
-# release is `1.1.4+spec-1.1.0`.
 toml = "=1.1.4"
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
 wayland-client = "=0.31.15"
 wayland-protocols = "=0.32.13"
-# `zwp_virtual_keyboard_v1`, for the host-input provider.
 wayland-protocols-misc = { version = "=0.3.12", default-features = false }
-# `zwlr_virtual_pointer_v1`, for the host-input provider.
 wayland-protocols-wlr = { version = "=0.3.12", default-features = false }
 # Pin wlx-capture to the WayVR monorepo: the required 0.6.0 code exists there,
 # not as an independent release. Fixes belong upstream in that subdirectory.

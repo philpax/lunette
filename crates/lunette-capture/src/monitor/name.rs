@@ -1,20 +1,15 @@
 //! Which physical monitor a mirror belongs to.
 //!
-//! Modelled on niri's `OutputName` (`niri-config/src/output.rs:307`), minus the
-//! field a Wayland client cannot obtain. niri reads the connector's EDID blob
-//! directly, because it is the compositor; lunette is a client of the host
-//! compositor, and the `wl_output.geometry` event carries make and model only.
-//! There is no serial, so lunette's identity is strictly weaker than a
-//! compositor's and two identical monitors of the same model are
-//! indistinguishable by descriptor alone. [`crate::monitor::Roster`] handles
-//! that case rather than pretending it does not arise.
+//! A monitor identity from the fields available to a Wayland client.
 //!
-//! The type deliberately has no [`PartialEq`]. Identity is decided by
-//! [`MonitorName::matches`], as niri decides it, and for the same reason:
-//! structurally comparing two partially-populated identities is almost always a
-//! bug. The ordering helper is a plain method, [`MonitorName::compare`], rather
-//! than an [`Ord`] implementation, so nothing acquires a structural comparison
-//! by accident.
+//! The `wl_output.geometry` event provides make and model, while the portal may
+//! provide a connector name. It does not provide a serial, so identical monitors
+//! can share a descriptor. [`crate::monitor::Roster`] resolves that ambiguity.
+//!
+//! Identity is decided by [`MonitorName::matches`], not structural equality,
+//! because partially populated identities do not have equality semantics. The
+//! ordering helper is a method rather than an [`Ord`] implementation, so ordering
+//! cannot be mistaken for identity.
 
 use std::{cmp::Ordering, fmt};
 
@@ -87,20 +82,10 @@ impl ConnectorName {
 
     /// Reads a connector name, or `None` if the text is not one.
     ///
-    /// The caller for this is the ScreenCast portal's `mapping_id`, whose
-    /// content is backend-defined and inconsistent.
-    /// xdg-desktop-portal-wlr sets it to the `wl_output` name, which on wlroots
-    /// is the connector name (`src/screencast/screencast.c:666-668`). mutter
-    /// sets it to `g_uuid_string_random()` from a per-EIS table
-    /// (`src/backends/meta-eis.c:526-538`), which names nothing and changes
-    /// every session. xdg-desktop-portal-kde omits it.
-    ///
-    /// So the shape check is not defensiveness against malformed input; it is
-    /// the only way to tell mutter's random UUID from wlroots' real connector
-    /// name, since both arrive in the same field. Matching against the kernel's
-    /// closed list of connector types is what makes the check decisive:
-    /// splitting on the last hyphen and requiring a numeric tail alone would
-    /// accept a UUID whose final group happens to be all digits.
+    /// The portal's mapping field is backend-defined and may contain a connector
+    /// name, an opaque identifier, or no value. Matching the closed set of kernel
+    /// connector types distinguishes connector names from opaque identifiers;
+    /// checking only for a numeric suffix would accept some identifiers.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         let (type_name, index) = text.rsplit_once('-')?;
@@ -237,8 +222,8 @@ impl MonitorName {
 
     /// Whether `target` names this monitor.
     ///
-    /// The connector is tried first and wins outright, as in niri
-    /// (`output.rs:195-256`), because it is the more specific of the two. Both
+    /// The connector is tried first and wins outright because it is the more
+    /// specific of the two. Both
     /// comparisons ignore ASCII case.
     ///
     /// A descriptor two monitors share matches both of them. That is not a
@@ -256,11 +241,10 @@ impl MonitorName {
 
     /// The strongest key this name can produce on its own.
     ///
-    /// niri's `format_make_model_serial_or_connector` (`output.rs:177-184`),
-    /// minus the serial: the descriptor is preferred because it survives the
-    /// monitor moving to a different port, and the connector is the graceful
-    /// degradation when no descriptor exists. `None` when neither does, which
-    /// is where [`MonitorKey::for_monitor`] falls back to the position.
+    /// The descriptor is preferred because it survives the monitor moving to a
+    /// different port. The connector is the fallback when no descriptor exists.
+    /// Returns `None` when neither is available, so [`MonitorKey::for_monitor`]
+    /// falls back to the position.
     #[must_use]
     pub fn descriptor_or_connector(&self) -> Option<MonitorKey> {
         if let Some(descriptor) = self.descriptor() {
@@ -271,8 +255,7 @@ impl MonitorName {
 
     /// The same monitor, identified by connector alone.
     ///
-    /// niri strips the descriptor from the newer of two connectors reporting
-    /// the same one (`src/backend/tty.rs:1050-1080`); this is that operation.
+    /// Removes the descriptor while retaining the connector identity.
     #[must_use]
     pub fn demoted(&self) -> Self {
         Self {
@@ -285,10 +268,8 @@ impl MonitorName {
     /// A total order over names, for arranging monitors independently of the
     /// order they were enumerated in.
     ///
-    /// A method rather than an [`Ord`] implementation, following niri's
-    /// `compare`: use [`Self::matches`] to decide identity. Ordering here is
-    /// only about presentation, and treating it as equality is the bug this
-    /// type exists to prevent.
+    /// A method rather than an [`Ord`] implementation: use [`Self::matches`]
+    /// to decide identity. Ordering is only for presentation, not equality.
     ///
     /// A monitor that reports nothing sorts after one that does, rather than
     /// before it as [`Option`]'s own ordering would have it, so the monitors
@@ -348,10 +329,8 @@ impl MonitorKey {
     /// The key to record for a monitor, falling back to its position when the
     /// name carries nothing.
     ///
-    /// A positional key is the honest outcome for two identical monitors under
-    /// a portal backend that supplies no connector, and it does not survive the
-    /// user rearranging them. The caller warns; see
-    /// [`crate::monitor::Roster::add`].
+    /// A positional key is the only available identity when the portal supplies
+    /// no connector. It does not survive rearranging the monitors.
     #[must_use]
     pub fn for_monitor(name: &MonitorName, position: LogicalPosition) -> Self {
         name.descriptor_or_connector()
@@ -379,12 +358,9 @@ impl MonitorKey {
 
     /// A stronger key for the same monitor, if one is now available.
     ///
-    /// niri re-normalises a stored output name when a workspace lands on a
-    /// matching output (`workspace.rs:517`), so a key written when the monitor
-    /// reported no make and model upgrades to a descriptor once it does. The
-    /// key has to still identify the monitor for the upgrade to be sound —
-    /// otherwise a positional key would be rewritten to name whichever monitor
-    /// happened to be at that position.
+    /// The key must still identify the monitor for the upgrade to be sound.
+    /// Otherwise a positional key could be rewritten to name whichever monitor
+    /// occupies that position.
     #[must_use]
     pub fn upgraded(&self, name: &MonitorName, position: LogicalPosition) -> Option<Self> {
         if !self.identifies(name, position) {
