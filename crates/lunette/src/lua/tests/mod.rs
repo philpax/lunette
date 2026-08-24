@@ -183,7 +183,7 @@ const GENEROUS_LAYER_LIMIT: u32 = 128;
 /// A Lua state with the module installed and `lunette` already required, which
 /// is the state a `main.lua` runs in.
 ///
-/// The `lovr` table and its `handlers` are what `boot.lua:340-345` leaves
+/// The `lovr` table and its `handlers` are what `boot.lua` leaves
 /// behind, reproduced here because the module's event dispatchers are installed
 /// into them.
 fn lua(session: &TestSession) -> Lua {
@@ -200,7 +200,7 @@ fn lua(session: &TestSession) -> Lua {
 
 /// Runs `boot.lua`'s poll loop over what the session pushed.
 ///
-/// `vendor/lovr/etc/boot.lua:193-198` reads a name and up to four payload
+/// `vendor/lovr/etc/boot.lua` reads a name and up to four payload
 /// values out of `lovr.event.poll` and calls `lovr.handlers[name]` with them.
 /// A `lun*` event carries no payload values, so the call takes none.
 fn poll(lua: &Lua, sink: &RecordingEventSink) {

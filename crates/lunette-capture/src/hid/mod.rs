@@ -4,8 +4,7 @@
 //! Driving the host desktop, as distinct from driving the Wayland clients
 //! lunette hosts itself — those go through `lunette-compositor`'s seat, and the
 //! two must not be confused. A key sent here reaches whatever the *host*
-//! compositor currently focuses, which is `lunette-v1.AC3.3`, and lunette does
-//! not choose what that is.
+//! compositor currently focuses, and lunette does not choose what that is.
 //!
 //! # The chain is real
 //!
@@ -15,8 +14,8 @@
 //! the wlroots family only. A configuration override reorders them.
 //!
 //! WayVR has no such chain: `HidWrapper::new` matches a configuration enum,
-//! calls exactly one initialiser, and installs a
-//! installs a dummy on failure, so the documented behaviour does
+//! calls exactly one initialiser, and installs a dummy on failure, so the
+//! documented behaviour does
 //! not exist there. [`crate::hid::selection`] is where it exists here, and it is
 //! pure, so the ordering is tested without a device and without a compositor.
 //!

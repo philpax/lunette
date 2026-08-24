@@ -93,8 +93,8 @@ impl<T> MonitorTextures<T> {
     /// No frame generation is checked, unlike the surface ledger's `lookup`.
     /// The one caller builds and consumes the answer inside a single Lua call,
     /// and the value it hands on is LOVR's own `Texture` object rather than a
-    /// reference this type could invalidate. `docs/lua-api.md` states the rule
-    /// that follows from that: never cache the result across a frame.
+    /// reference this type could invalidate. The Lua API requires callers to avoid
+    /// caching the result across a frame.
     #[must_use]
     pub fn texture(&self, monitor: &MonitorKey) -> Option<&T> {
         self.entries.get(monitor).map(|entry| &entry.texture)
@@ -296,8 +296,7 @@ mod tests {
 
     #[test]
     fn the_description_records_the_size_a_frame_arrived_at() {
-        // `lunette-v1.AC3.1` is about exactly this number matching the captured
-        // output's resolution.
+        // A captured frame must retain the output resolution it arrived at.
         let mut textures = MonitorTextures::new();
         textures.install(monitor(1), image(1), 10_u32, description());
 

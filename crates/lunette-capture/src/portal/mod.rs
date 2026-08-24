@@ -16,10 +16,9 @@
 //!
 //! Restore is best-effort and the portal says so. A rejected token produces no
 //! error — the user simply sees a dialog. xdg-desktop-portal-wlr's v1 restore
-//! payload carries only `output_name` (`src/screencast/screencast.c:706-711`),
-//! so an unplugged or renamed monitor falls back to a prompt silently, and
-//! there is a standing upstream issue that persist mode does not reliably
-//! preserve which monitors were selected.
+//! payload carries only `output_name`, so an unplugged or renamed monitor falls
+//! back to a prompt silently. Persist mode also does not reliably preserve which
+//! monitors were selected.
 //!
 //! [`RequestProgress::AwaitingUser`] is therefore an ordinary state rather than
 //! an error, and every call on the seam returns immediately. Nothing here
@@ -80,8 +79,8 @@ pub trait ScreenCastPortal {
 /// window belongs to lunette's own compositor, not to a mirror. `multiple` is
 /// always true, which is what removes the prescribed selection order — WayVR's
 /// Wayland path requests one stream per output with `allow_multiple: false`
-/// (`overlays/screen/pw.rs:93-99`) and prompts once per screen, and that ritual
-/// is the thing `lunette-v1.AC3.4` exists to eliminate.
+/// and prompts once per screen. Requesting multiple streams removes that
+/// repeated prompt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionRequest {
     /// A token from a previous session, if one was stored for these monitors.
@@ -116,8 +115,8 @@ impl SessionRequest {
 /// Two variants rather than the portal's three. The portal distinguishes
 /// `EMBEDDED`, which draws the cursor into the pixels, from `METADATA`, which
 /// reports its position alongside them; `wlx-capture` collapses the choice to a
-/// bool and picks the first available of `EMBEDDED`, `METADATA`, and `HIDDEN`
-/// (`pipewire/mod.rs:796-805`), and reports nothing about which it got.
+/// bool and picks the first available of `EMBEDDED`, `METADATA`, and `HIDDEN`,
+/// and reports nothing about which mode it got.
 /// Offering a `Metadata` variant this seam cannot honour would be a promise
 /// broken silently, so the type says only what it can deliver.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -261,10 +260,9 @@ pub struct PortalStream {
     /// xdg-desktop-portal-kde omits it. [`ConnectorName::parse`] is what
     /// separates the first case from the second.
     ///
-    /// `wlx-capture` does not read `mapping_id` at all — `parse_streams`
-    /// (`pipewire/mod.rs:693-733`) takes `node_id`, `position`, and `size` —
-    /// so [`wlx::WlxPortal`] always leaves this `None`. Lifting that is an
-    /// upstream change, and geometry is the mechanism either way.
+    /// `wlx-capture` does not read `mapping_id` at all. It uses `node_id`,
+    /// `position`, and `size`, so [`wlx::WlxPortal`] always leaves this `None`.
+    /// Lifting that is an upstream change, and geometry is the mechanism either way.
     pub connector: Option<ConnectorName>,
 }
 

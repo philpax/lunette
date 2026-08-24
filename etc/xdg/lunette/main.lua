@@ -65,9 +65,8 @@ local WRIST = {
   -- cast down it misses everything the user is aiming at.
   hand = 'hand/left',
   -- Where it sits relative to the wearing hand, and how big it is. Taken from
-  -- WayVR's watch (`overlays/watch.rs:28-29`, scale at `:149`), whose numbers
-  -- are the ones a person arrived at: the grip pose has +Z running back along
-  -- the handle, so 12.5cm of it is the wrist rather than the fist.
+  -- WayVR's watch, whose dimensions and offset account for the grip pose's +Z
+  -- direction along the handle. The offset places 12.5cm at the wrist.
   offsetX = -0.03,
   offsetY = -0.01,
   offsetZ = 0.125,

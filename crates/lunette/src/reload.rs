@@ -36,7 +36,7 @@
 //!
 //! [`USER_CALLBACKS`] is therefore a closed list, and it deliberately excludes
 //! the callbacks `vendor/lovr/etc/boot.lua` defines defaults for. Clearing
-//! `lovr.log` would remove `boot.lua:340`'s default and nothing would put it
+//! `lovr.log` would remove `boot.lua`'s default and nothing would put it
 //! back, because `boot.lua` runs once per Lua state and a soft reload does not
 //! make a new one.
 //!
@@ -151,8 +151,8 @@ impl Error for ReloadError {
 
 /// The module `require` resolves the user's configuration through.
 ///
-/// `vendor/lovr/etc/boot.lua:183` runs `require(main:sub(1, -5))`, and `main` is
-/// `main.lua` for a source that is a directory (`boot.lua:115`). lunette always
+/// `vendor/lovr/etc/boot.lua` runs `require(main:sub(1, -5))`, and `main` is
+/// `main.lua` for a source that is a directory (`boot.lua`). lunette always
 /// points LÖVR at the configuration *directory*, so the module is always this.
 const MAIN_MODULE: &str = "main";
 
@@ -346,7 +346,7 @@ fn is_protected(name: &str) -> bool {
 
 /// Runs `main.lua`, then `lovr.load`.
 ///
-/// `lovr.load` is called for the reason `vendor/lovr/etc/boot.lua:190` calls it
+/// `lovr.load` is called for the reason `vendor/lovr/etc/boot.lua` calls it
 /// at startup: `main.lua` conventionally defines callbacks and does its setup in
 /// `lovr.load`, so a reload that ran only the file would install the new
 /// callbacks and never run the new setup. It receives the global `arg`, which is

@@ -198,7 +198,7 @@ impl Session {
     ///
     /// The socket appearing is not that condition. It is bound before the Lua
     /// state boots, so that a failure to bind is reported among the other
-    /// startup failures (`crates/lunette/src/main.rs:188`) — which is before
+    /// startup failures (`crates/lunette/src/main.rs`) — which is before
     /// `main.lua` is loaded, before it fails, and before safe mode replaces it.
     /// A test that started asking then would be racing the boot it is meant to
     /// be asserting the outcome of.

@@ -39,7 +39,7 @@ pub enum Alpha {
 pub struct FormatMapping {
     pub fourcc: Fourcc,
     pub vulkan: vk::Format,
-    /// LÖVR's `TextureFormat`, which `convertFormat` (`gpu_vk.c:4374-4387`)
+    /// LÖVR's `TextureFormat`, which `convertFormat` (`gpu_vk.c`)
     /// turns back into [`FormatMapping::vulkan`]. The two have to agree: LÖVR
     /// takes an imported image's format on trust and has no way to detect a
     /// mismatch.
@@ -141,7 +141,7 @@ pub fn advertise(fourcc: Fourcc, usable: &[Modifier]) -> Vec<Format> {
 }
 
 /// LÖVR's `FORMAT_RGB10A2`, which `convertFormat` spells
-/// `VK_FORMAT_A2B10G10R10_UNORM_PACK32` (`gpu_vk.c:4387`).
+/// `VK_FORMAT_A2B10G10R10_UNORM_PACK32` (`gpu_vk.c`).
 ///
 /// Named here rather than imported because bindgen emits it as a bare constant
 /// whose name repeats the enum, and the three uses read better against one

@@ -12,15 +12,15 @@
 //! Three things depart from a literal replication, all deliberately.
 //!
 //! The `arg` table places the configuration directory at `arg[1]`, where
-//! `src/main.c:43-46` places only `argv[0]` at `arg[0]`. See [`arg_entries`].
+//! `src/main.c` places only `argv[0]` at `arg[0]`. See [`arg_entries`].
 //!
-//! `src/main.c:24` calls `exit()` from inside the step function. This module
+//! `src/main.c` calls `exit()` from inside the step function. This module
 //! returns the status up to `main` instead. Observable behaviour is identical
 //! today; the seam is what lets the compositor and control threads be torn
 //! down in order once they exist.
 //!
-//! The exit status is read from stack index 1, where `src/main.c:21` reads
-//! index -1. `vendor/lovr/etc/boot.lua:374` returns `result, cookie`, so a
+//! The exit status is read from stack index 1, where `src/main.c` reads
+//! index -1. `vendor/lovr/etc/boot.lua` returns `result, cookie`, so a
 //! finished coroutine leaves two values behind and index -1 is the nil cookie.
 //! Upstream's `lua_tointeger` on that nil yields 0, which makes every exit
 //! report success. See [`step`]; do not "correct" this back to match `main.c`.
@@ -97,9 +97,8 @@ pub struct SessionPaths<'a> {
 /// graphics module and the `VkDevice` the compositor borrowed. The compositor
 /// thread survives that, because the device is taken back from it before the
 /// state closes and a new one is lent to it afterwards. [`crate::restart`] is
-/// that protocol and states the ordering; the Wayland socket, the connections,
-/// and the clients' buffers are untouched throughout, which is what
-/// `lunette-v1.AC5.5` asks for.
+/// that protocol and states the ordering. The Wayland socket, the connections,
+/// and the clients' buffers remain untouched throughout the restart.
 ///
 /// `lunette::reload` is the cheaper path for a reconfiguration, and it works by
 /// not discarding anything native at all.
@@ -125,12 +124,12 @@ pub fn run(
     let mut driver = FrameDriver::new(Rc::clone(session), Rc::clone(layers), blits, startup);
 
     // The restart cookie outlives every Lua state: one session writes it and
-    // the next reads it back. `src/main.c:40` gets that lifetime from a
+    // the next reads it back. `src/main.c` gets that lifetime from a
     // function-static; here the enclosing scope provides it.
     //
     // SAFETY: `Variant`'s discriminant is `TYPE_NIL`, which is zero, and every
     // payload it selects is valid when zeroed. This is the initial state
-    // `src/main.c:40`'s static gets from C's zero-initialisation.
+    // `src/main.c`'s static gets from C's zero-initialisation.
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
 
     let status = loop {
@@ -151,7 +150,7 @@ pub fn run(
 
 /// The exit status of a session whose `boot.lua` never started.
 ///
-/// `src/main.c:54` returns 1 from `main` in this case.
+/// `src/main.c` returns 1 from `main` in this case.
 const FAILURE_STATUS: u8 = 1;
 
 /// How one pass through the restart loop ended.
@@ -178,7 +177,7 @@ fn run_session(
     control: Option<&ChunkQueue>,
     cookie: &mut raw::Variant,
 ) -> Outcome {
-    // SAFETY: this is the sequence at `vendor/lovr/src/main.c:34-74`, in the
+    // SAFETY: this is the sequence at `vendor/lovr/src/main.c`, in the
     // same order, on a state this function exclusively owns for its lifetime.
     // Each `cast` converts between bindgen's opaque `lua_State` and mlua-sys',
     // which are two declarations of the same C type.
@@ -348,7 +347,7 @@ unsafe fn run_steps(
                     });
                 }
 
-                // SAFETY: yielding to the platform is what `src/main.c:66` does
+                // SAFETY: yielding to the platform is what `src/main.c` does
                 // between frames; `os_sleep` touches no Lua state.
                 unsafe { raw::os_sleep(0.0) };
             }
@@ -365,12 +364,12 @@ unsafe fn run_steps(
                 // records why.
                 driver.quiesce();
                 // SAFETY: `boot.lua` leaves the cookie at index 2 of the thread
-                // when it yields "restart"; `src/main.c:68` reads it there.
+                // when it yields "restart"; `src/main.c` reads it there.
                 unsafe {
                     raw::luax_checkvariant(thread.cast(), 2, cookie);
                     // An object cookie holds a reference counted by the state
                     // that is about to close, so it cannot cross the restart.
-                    // `src/main.c:69` drops it the same way.
+                    // `src/main.c` drops it the same way.
                     if cookie.__bindgen_anon_1.type_ == raw::VariantType_TYPE_OBJECT {
                         *cookie = mem::zeroed();
                     }
@@ -393,7 +392,7 @@ unsafe fn run_steps(
                 // dropped during `luax_close`'s finalizer GC skip the freed
                 // ref thread.
                 lua_handle.exec_raw_lua(|raw| raw.mark_closed());
-                // `src/main.c:23` closes the thread rather than the state on
+                // `src/main.c` closes the thread rather than the state on
                 // this path, which LÖVR resolves back to the main state.
                 //
                 // SAFETY: no Lua value obtained above outlives this call.
@@ -432,7 +431,7 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 
         // The type is checked before reading, because `lua_tolstring` converts
         // a number to a string in place and that would corrupt the status the
-        // exit path reads back at the same index. `src/main.c:18` checks first
+        // exit path reads back at the same index. `src/main.c` checks first
         // too.
         if lua::lua_type(thread, 1) == lua::LUA_TSTRING
             && string_bytes(thread, 1) == Some(b"restart".as_slice())
@@ -440,8 +439,8 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
             return Step::Restart;
         }
 
-        // Index 1, not the -1 that `src/main.c:21` uses.
-        // `vendor/lovr/etc/boot.lua:374` finishes with `return result, cookie`,
+        // Index 1, not the -1 that `src/main.c` uses.
+        // `vendor/lovr/etc/boot.lua` finishes with `return result, cookie`,
         // so the resumed coroutine leaves two values on its stack: the status
         // at index 1 and the restart cookie at index 2. Index -1 is therefore
         // the cookie, which is nil on the exit path, and `lua_tointeger` on nil
@@ -449,7 +448,7 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
         // above already reads index 1, and `run_steps` already reads the cookie
         // at index 2, so index 1 is the only reading consistent with both.
         //
-        // `src/main.c:25` passes this to `exit()`, which narrows it to the low
+        // `src/main.c` passes this to `exit()`, which narrows it to the low
         // byte before the kernel sees it. Narrowing here is the same value.
         Step::Exit {
             status: lua::lua_tointeger(thread, 1) as u8,
@@ -463,8 +462,8 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 /// # Why this is a hook rather than a call
 ///
 /// Mounting needs `lovr.filesystem`, and that module is created by
-/// `vendor/lovr/etc/boot.lua:76` — inside the coroutine, on the same resume that
-/// goes on to run `main.lua` at `:183`. So there is no moment between the two
+/// `vendor/lovr/etc/boot.lua` — inside the coroutine, on the same resume that
+/// goes on to run `main.lua` during the same resume. So there is no moment between the two
 /// that the host can reach: before the resume the module does not exist, and
 /// after it the configuration has already run. Wrapping the `package.preload`
 /// entry the module is created by is what puts the mount between them.
@@ -476,7 +475,7 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 ///
 /// # Precedence
 ///
-/// The configuration is mounted at the filesystem root by `boot.lua:125`, while
+/// The configuration is mounted at the filesystem root by `boot.lua`, while
 /// the standard library is mounted at `@mullion` and the optional specs at
 /// `@spec`. A configuration therefore cannot shadow a mullion module by name,
 /// and the standard library cannot shadow the `main.lua` it is loaded alongside.
@@ -611,7 +610,7 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
         lua::lua_pushboolean(state, 1);
         lua::lua_call(state, 3, 2);
 
-        // `luax_pushsuccess` (`vendor/lovr/src/api/api.c:403`) returns `true`, or
+        // `luax_pushsuccess` (`vendor/lovr/src/api/api.c`) returns `true`, or
         // `false` and the message.
         if lua::lua_toboolean(state, -2) == 0 {
             let message = match string_bytes(state, -1) {
@@ -670,7 +669,7 @@ unsafe fn push_arg_table(
     let entries = arg_entries(executable, config_directory, forwarded.iter().cloned());
 
     // SAFETY: every push below is balanced by the store that follows it, and
-    // the sequence matches `src/main.c:39-47`.
+    // the sequence matches `src/main.c`.
     unsafe {
         lua::lua_newtable(state);
 
@@ -692,13 +691,13 @@ unsafe fn push_arg_table(
 /// `arg[0]` is the executable, `arg[1]` is the configuration directory, and
 /// `arg[2..]` are the user's own arguments.
 ///
-/// The middle entry is the whole point. `src/main.c:43-46` copies `argv`
+/// The middle entry is the whole point. `src/main.c` copies `argv`
 /// verbatim, which leaves `arg[1]` holding whatever the user typed.
-/// `vendor/lovr/etc/boot.lua:90-102` requires `arg[1]` to name a source: if it
+/// `vendor/lovr/etc/boot.lua` requires `arg[1]` to name a source: if it
 /// is absent or starts with `-`, boot.lua prints `usage: lovr <source>` and
 /// quits. Otherwise it shifts every index down by one so the source lands at
 /// `arg[0]`, and calls `lovr.filesystem.setSource` on it at
-/// `vendor/lovr/etc/boot.lua:131`. Putting the configuration directory at
+/// `vendor/lovr/etc/boot.lua`. Putting the configuration directory at
 /// `arg[1]` is therefore how LÖVR comes to be pointed at it; lunette never
 /// calls `setSource` itself.
 fn arg_entries(

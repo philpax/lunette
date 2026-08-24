@@ -55,7 +55,7 @@
 //!
 //! It would be the obvious place, and it would be wrong. The chain is a linked
 //! list with no ordering guarantee relative to `lovrGraphicsDestroy`, and
-//! `vendor/lovr/src/modules/graphics/graphics.c:891-894` carries LÖVR's own
+//! `vendor/lovr/src/modules/graphics/graphics.c` carries LÖVR's own
 //! comment calling the existing headset-versus-graphics ordering "really hacky".
 //! Adding a third participant with a hard ordering requirement to an ordering
 //! nobody is confident in is how this breaks intermittently, on one driver, six
@@ -79,7 +79,7 @@ use tracing::{debug, info};
 /// `lunette.restart()`: asks for a hard restart.
 ///
 /// Nothing here performs one. The call pushes LÖVR's own restart event and
-/// returns; `vendor/lovr/etc/boot.lua:196` reads it out of the queue once the
+/// returns; `vendor/lovr/etc/boot.lua` reads it out of the queue once the
 /// frame's callbacks have returned, ends the boot coroutine, and [`crate::boot`]
 /// answers with the quiesce this module documents.
 ///
@@ -114,7 +114,7 @@ pub(crate) fn restart_from_lua(lua: &Lua) -> mlua::Result<()> {
     Ok(())
 }
 
-/// LÖVR's own `lovr.event.restart`, as `boot.lua:336` reaches it.
+/// LÖVR's own `lovr.event.restart`, as `boot.lua` reaches it.
 fn lovr_event_restart(lua: &Lua) -> mlua::Result<Function> {
     lua.globals()
         .get::<Table>("lovr")?

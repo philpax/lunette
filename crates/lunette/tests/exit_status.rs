@@ -1,7 +1,7 @@
 //! Linux-only: the exit status a Lua session asks for reaches the process.
 //!
 //! This is the regression test for reading the status from the wrong slot of
-//! the coroutine's stack. `vendor/lovr/etc/boot.lua:374` finishes with
+//! the coroutine's stack. `vendor/lovr/etc/boot.lua` finishes with
 //! `return result, cookie`, so index -1 is the nil cookie and `lua_tointeger`
 //! on it yields 0 — a host reading -1 reports success for every exit, silently.
 //!

@@ -23,12 +23,12 @@
 //!
 //! # Two limits `CustomEvent` imposes
 //!
-//! The name is `char name[32]` (`event.h:102-106`), so it caps at 31 bytes and
-//! a NUL. `l_event.c:165` copies the name in with no bound of its own, so a
+//! The name is `char name[32]` (`event.h`), so it caps at 31 bytes and
+//! a NUL. `l_event.c` copies the name in with no bound of its own, so a
 //! longer one would be a buffer overrun rather than a truncation; [`EventName`]
 //! is where that is refused, at compile time for the names below.
 //!
-//! `boot.lua:193` unpacks four payload arguments and dispatches them at `:198`,
+//! `boot.lua` unpacks four payload arguments and dispatches them during dispatch,
 //! so at most four values reach a handler. Every `lun*` event therefore carries
 //! exactly one table, even the events with a single field: the shape is then
 //! the same across every phase, and a field added later is not a change to the
@@ -36,7 +36,7 @@
 //!
 //! # Why a dispatcher sits in front of the handler
 //!
-//! `boot.lua:345` sets `lovr.handlers = setmetatable({}, { __index = lovr })`,
+//! `boot.lua` sets `lovr.handlers = setmetatable({}, { __index = lovr })`,
 //! so pushing `lunwindowopened` would call `lovr.lunwindowopened` with nothing
 //! installed here at all. Two things make that insufficient.
 //!
@@ -280,11 +280,11 @@ pub trait EventSink: fmt::Debug {
 pub struct LovrEventSink;
 
 impl EventSink for LovrEventSink {
-    /// Builds the `CustomEvent` `l_event.c:162-179` builds, with no payload.
+    /// Builds the `CustomEvent` `l_event.c` builds, with no payload.
     ///
     /// No payload for a reason worth stating. `l_lovrEventPoll` destroys each
     /// `Variant` of a custom event but never frees the array holding them
-    /// (`l_event.c:139-145`), so every event carrying one leaks the allocation
+    /// (`l_event.c`), so every event carrying one leaks the allocation
     /// for the life of the process. A count of zero and a null pointer avoid
     /// that entirely, and nothing is lost: the payload is built from Rust at
     /// dispatch time, so the only thing a `Variant` could have carried across
@@ -344,7 +344,7 @@ impl EventQueue {
 /// Installs the dispatcher for every `lun*` event this build delivers.
 ///
 /// Called when the module is built, which is the first `require('lunette')`.
-/// That is late enough for `lovr.handlers` to exist — `boot.lua:345` creates it
+/// That is late enough for `lovr.handlers` to exist — `boot.lua` creates it
 /// before `main.lua` runs — and it is the only moment at which the module is
 /// known to be wanted at all.
 ///
@@ -538,7 +538,7 @@ fn dispatch<T: LuaTexture>(
     Ok(())
 }
 
-/// The `lovr.handlers` table `boot.lua:345` installs.
+/// The `lovr.handlers` table `boot.lua` installs.
 fn handlers_table(lua: &Lua) -> mlua::Result<Table> {
     let lovr = lua.globals().get::<Option<Table>>("lovr")?.ok_or_else(|| {
         mlua::Error::runtime(

@@ -1,10 +1,8 @@
 -- Covers lua/mullion/rules.lua.
 --
--- The acceptance criterion this module carries is that a rule matching on
--- `appId` places a newly spawned window without further scripting, so the case
--- that matters most is the one that goes all the way to a panel at the pose the
--- rule named. The rest is matching and composition, both pure over synthetic
--- window tables.
+-- A rule matching on `appId` must place a newly spawned window without further
+-- scripting. The main case reaches a panel at the pose named by the rule. The
+-- remaining cases cover matching and composition over synthetic window tables.
 --
 -- The panel fixture is required before `mullion.rules` is, so that the
 -- `mullion.panel` the module captures is the one holding the fake `lunette`. A

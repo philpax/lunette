@@ -57,7 +57,7 @@ pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// How deep a value tree may nest, on the wire and in the serialiser.
 ///
-/// `vendor/lovr/src/api/api.c:561`'s `luax_checkvariant` uses the same figure
+/// `vendor/lovr/src/api/api.c`'s `luax_checkvariant` uses the same figure
 /// for the same reason, and it is the precedent this follows. The decoder
 /// enforces it as well as the encoder's producer, because a decoder that trusted
 /// its input would overflow the stack on a hostile frame.

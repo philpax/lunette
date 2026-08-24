@@ -22,7 +22,7 @@ use crate::{layers::key::LayerKey, scene::SceneRendering};
 /// `xrDestroySession` invalidated.
 ///
 /// Not derivable from [`LayerBackend::layer_limit`] either. LÖVR reads the
-/// limit off the *system* rather than off the session (`headset.c:980-982`),
+/// limit off the *system* rather than off the session (`headset.c`),
 /// and the system survives a session being stopped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionPresence {
@@ -84,7 +84,7 @@ pub trait LayerBackend {
     ///
     /// Read at every frame boundary. A session can go away underneath a live
     /// Lua state — `lovr.headset.stop()` releases every layer and calls
-    /// `xrDestroySession` (`headset.c:1248-1297`) — and it can be replaced by
+    /// `xrDestroySession` (`headset.c`) — and it can be replaced by
     /// another one before the next boundary, because `lovr.headset.start()` is
     /// callable from the same callback. The pool gives up everything it holds
     /// for either, so the answer names the session rather than reporting that

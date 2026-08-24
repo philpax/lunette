@@ -130,7 +130,7 @@ impl LuaLayer for LovrLayer {
         // pointer under a stack guard, and it runs the closure inside a
         // protected call, so the allocation `_luax_pushtype` performs cannot
         // longjmp past mlua. `_luax_pushtype` retains the object itself
-        // (`api/api.c:262`), so the reference the pool holds is untouched.
+        // (`api/api.c`), so the reference the pool holds is untouched.
         unsafe {
             lua.exec_raw((), |state| {
                 _luax_pushtype(state.cast(), ObjectType_T_Layer as i32, pointer);

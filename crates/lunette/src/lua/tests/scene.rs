@@ -33,7 +33,7 @@ fn gated_lua(session: &TestSession) -> Lua {
     .expect("the fake headset module loads");
 
     install(&lua, session).expect("the module installs");
-    // What `boot.lua:340-345` leaves behind, which the module's event
+    // What `boot.lua` leaves behind, which the module's event
     // dispatchers are installed into.
     lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
         .exec()

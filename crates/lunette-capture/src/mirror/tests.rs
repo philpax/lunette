@@ -2,8 +2,8 @@
 //! opens nothing.
 //!
 //! No portal, no PipeWire, no display, and no GPU: every seam the lifecycle
-//! reaches through is substituted, which is what lets `lunette-v1.AC3.5` be
-//! stated as a test rather than only as a thing to try in a headset.
+//! reaches through is substituted, so the lifecycle can be tested without a
+//! headset.
 
 #![expect(
     clippy::expect_used,

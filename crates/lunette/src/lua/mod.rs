@@ -602,7 +602,7 @@ impl LuaTexture for LovrTexture {
         // pointer under a stack guard, and it runs the closure inside a
         // protected call, so the allocation `_luax_pushtype` performs cannot
         // longjmp past mlua. `_luax_pushtype` retains the object itself
-        // (`api/api.c:262`), so the reference this type holds is untouched.
+        // (`api/api.c`), so the reference this type holds is untouched.
         unsafe {
             lua.exec_raw((), |state| {
                 _luax_pushtype(state.cast(), ObjectType_T_Texture as i32, pointer);
@@ -622,7 +622,7 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
         module.set(function.spec.name, (function.build)(lua, session)?)?;
     }
 
-    // Here rather than in `install`, because `boot.lua:345` creates
+    // Here rather than in `install`, because `boot.lua` creates
     // `lovr.handlers` after `package.preload` has been populated and before
     // `main.lua` runs — so the first `require` is the earliest moment the table
     // exists, and the only one at which the module is known to be wanted.

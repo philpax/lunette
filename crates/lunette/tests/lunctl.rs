@@ -99,7 +99,7 @@ impl Session {
     ///
     /// The socket appearing is not that condition. It is bound before the Lua
     /// state boots, so that a failure to bind is reported among the other
-    /// startup failures (`crates/lunette/src/main.rs:188`), and a chunk sent
+    /// startup failures (`crates/lunette/src/main.rs`), and a chunk sent
     /// between the two has nothing servicing it yet: chunks are answered by the
     /// frame loop.
     fn wait_until_answering(&mut self) -> PathBuf {

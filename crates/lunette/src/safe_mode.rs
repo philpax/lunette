@@ -14,16 +14,16 @@
 //! # How it is reached
 //!
 //! [`install_trigger`] wraps `lovr.boot`, which is the function whose failure
-//! means the configuration did not load. `vendor/lovr/etc/boot.lua:369` calls it
+//! means the configuration did not load. `vendor/lovr/etc/boot.lua` calls it
 //! under `xpcall`, and everything a load failure can be — a source that will not
 //! mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, an
 //! error at the top level of `main.lua` — raises inside it.
 //!
 //! # `lovr.load` is inside the boundary, deliberately
 //!
-//! `lovr.boot` ends with `return lovr.run()` (`vendor/lovr/etc/boot.lua:185`),
+//! `lovr.boot` ends with `return lovr.run()` (`vendor/lovr/etc/boot.lua`),
 //! and `lovr.run` calls `lovr.load(arg)` before it returns the frame loop
-//! (`:190`). A `lovr.load` that raises is therefore caught here and replaced with
+//! during the frame-loop setup. A `lovr.load` that raises is therefore caught here and replaced with
 //! safe mode, rather than reported through [`crate::callback_error`] like every
 //! other callback. That is the right answer rather than an accident: `lovr.load`
 //! is where a configuration builds the state its later callbacks assume, and a
@@ -90,7 +90,7 @@ pub fn load(lua: &Lua) -> mlua::Result<Function> {
 ///
 /// # What `boot.lua` does with what this returns
 ///
-/// `vendor/lovr/etc/boot.lua:369` is `local thread = select(2, xpcall(lovr.boot,
+/// `vendor/lovr/etc/boot.lua` is `local thread = select(2, xpcall(lovr.boot,
 /// onerror))`, and `lovr.boot` ends with `return lovr.run()` — a function that
 /// runs one frame per call. So the wrapper returns a frame loop either way, and
 /// the loop it returns after a failure is safe mode's.
@@ -649,7 +649,7 @@ mod tests {
         lua
     }
 
-    /// Calls `lovr.boot` the way `vendor/lovr/etc/boot.lua:369` does, and
+    /// Calls `lovr.boot` the way `vendor/lovr/etc/boot.lua` does, and
     /// answers what the frame loop it got back returns.
     fn boot(lua: &Lua) -> String {
         let boot: Function = lovr(lua).get("boot").expect("lovr.boot should be readable");

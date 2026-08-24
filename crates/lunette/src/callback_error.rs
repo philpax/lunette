@@ -70,7 +70,7 @@ impl TracedError {
     /// Splits what mlua reports into the two halves a report is made of.
     ///
     /// `Function::call` installs `luaL_traceback` as the message handler
-    /// (`mlua-0.12.0/src/function.rs:201`), which appends the traceback to the
+    /// (`mlua-0.12.0/src/function.rs`), which appends the traceback to the
     /// error string with [`TRACEBACK_MARKER`] between them. An error raised by a
     /// Rust callback instead arrives as [`mlua::Error::CallbackError`], which
     /// already carries the two apart.

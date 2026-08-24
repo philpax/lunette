@@ -1,17 +1,14 @@
 -- Covers the file half of lua/mullion/persist/init.lua: the path, the load, the
 -- save, and the refusal that keeps a file this version cannot read.
 --
--- The acceptance criterion the module carries is that a saved arrangement is
--- restored after a restart, so one case writes a real file into
--- `lovr.filesystem`'s save directory, reads its bytes back off disk, and
--- restores from what it read. A table copied in memory would satisfy a weaker
--- test and none of the criterion. Everything else runs against the in-memory
--- filesystem the seam takes, so the cases about an absent or unwritable file do
--- not depend on the state of a real directory.
+-- A saved arrangement must be restored after a restart. One case writes a real
+-- file into `lovr.filesystem`'s save directory, reads its bytes back off disk,
+-- and restores from what it read. A table copied in memory would test less.
+-- The other cases use the in-memory filesystem seam, so absent and unwritable
+-- files do not depend on a real directory.
 --
--- The other half — capture, restore, and the rules source — is
--- `spec/mullion/persist/arrangement_spec.lua`, and the fakes both build are
--- `spec.mullion.persist.fixture`.
+-- `spec/mullion/persist/arrangement_spec.lua` covers capture, restore, and the
+-- rules source. `spec.mullion.persist.fixture` provides both sets of fakes.
 
 local expect = require '@spec/expect'
 local fixture = require '@spec/mullion/persist/fixture'
