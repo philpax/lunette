@@ -8,11 +8,7 @@ local teardown = {}
 type Hook = () -> ()
 type Failure = { name: string, message: string }
 
--- Every registered hook, as `{ [name] = run }`, and the order the names were
--- first registered in.
---
--- Rebuilt when this file runs, which is what makes a reload that re-runs every
--- module start from an empty registry rather than from the old state's.
+-- Every registered hook and the order in which names were first registered.
 local hooks: { [string]: Hook } = {}
 local order: { string } = {}
 

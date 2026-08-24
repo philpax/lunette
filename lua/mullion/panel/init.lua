@@ -436,12 +436,6 @@ function methods.drawChrome(self: Panel, pass: Pass)
   pass:setColor(1, 1, 1, 1)
 end
 
--- Withdraws the panel: releases its claim, drops its connections, and takes it
--- out of the list.
---
--- Releasing is explicit, because nothing releases a claim when its handle is
--- collected (docs/lua-api.md#layer-claims). A configuration that drops a panel
--- without destroying it holds a layer out of the pool for the session's life.
 function methods.destroy(self: Panel): boolean
   if self.dead then
     return false

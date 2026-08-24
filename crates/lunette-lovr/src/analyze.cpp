@@ -181,10 +181,9 @@ lunette_luau_report* check_within(const lunette_luau_request* request);
 extern "C"
 {
 
-// `noexcept`, and the body is wrapped: Rust declares this `extern "C"` rather
-// than `extern "C-unwind"`, so an exception crossing the boundary is undefined
-// behaviour. The frontend's construction, the definitions load, and `freeze`
-// can all raise, and only `check` was covered before.
+// Rust declares this boundary `extern "C"`, so exceptions must not escape.
+// Wrap the complete frontend setup and check because construction, definition
+// loading, and freezing can all throw.
 lunette_luau_report* lunette_luau_check(const lunette_luau_request* request) noexcept
 {
     try

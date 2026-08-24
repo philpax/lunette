@@ -645,7 +645,6 @@ module! {
     /// Every mapped toplevel, as of this frame's snapshot.
     fn windows(lua, session) -> Vec<Window<T>> { window_handles(lua, session) }
 
-    /// Runs a program as a client of this compositor. The handle comes back before the compositor has seen the request, so it describes a process that does not exist yet: `alive` is false until the snapshot lists it.
     fn spawn(_lua, session, options: Options<Spawn>) -> Process<T> { spawn(session, &options) }
 
     /// The user's own screens, whether or not they are being mirrored.
@@ -703,7 +702,6 @@ module! {
         reload_from_lua(lua, &|| session.clear_subscribers())
     }
 
-    /// Tears the session down and starts it again, graphics device included.
     fn restart(lua, _session) -> () { restart_from_lua(lua) }
 }
 
