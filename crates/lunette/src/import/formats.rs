@@ -16,7 +16,7 @@
 //! to the alpha-carrying format with the same component order, and whatever the
 //! client left in the padding byte arrives as alpha. [`Alpha::Opaque`] records
 //! that, and a consumer must force alpha to one rather than sampling it. WayVR
-//! maps the same six fourccs (`dmabuf.rs:406-413`) without recording the
+//! maps the same six fourccs without recording the
 //! distinction, which is why its X-format content renders with arbitrary
 //! transparency.
 
@@ -49,7 +49,7 @@ pub struct FormatMapping {
 
 /// The formats lunette imports, in the order they are advertised.
 ///
-/// The same six WayVR covers (`dmabuf.rs:406-413`). Multi-plane YUV is a
+/// The same six WayVR covers. Multi-plane YUV is a
 /// recorded gap rather than an oversight: importing it needs a per-plane
 /// binding path this design does not have.
 pub const SUPPORTED: [FormatMapping; 6] = [
@@ -103,7 +103,7 @@ pub fn mapping_for(fourcc: Fourcc) -> Option<FormatMapping> {
 /// plane and `VkBindImagePlaneMemoryInfo` to bind them, which is the disjoint
 /// path this design rejects. Filtering here means such a modifier is never
 /// advertised, so a client does not choose one and then have its buffer
-/// refused. WayVR applies the same filter at `dmabuf.rs:384`.
+/// refused. WayVR applies the same filter.
 #[must_use]
 pub fn single_plane_modifiers(properties: &[vk::DrmFormatModifierPropertiesEXT]) -> Vec<Modifier> {
     properties
@@ -119,7 +119,7 @@ pub fn single_plane_modifiers(properties: &[vk::DrmFormatModifierPropertiesEXT])
 /// [`Modifier::Invalid`] is always present. It is how a client asks for an
 /// implicit modifier — the driver picks the layout and neither side names it —
 /// and dropping it turns away every client that does not negotiate explicitly.
-/// WayVR adds it unconditionally for the same reason (`dmabuf.rs:393-397`).
+/// WayVR adds it unconditionally for the same reason.
 /// Duplicates are removed rather than advertised twice, because a driver may
 /// report the same modifier under more than one plane count.
 #[must_use]

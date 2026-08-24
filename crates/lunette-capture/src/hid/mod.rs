@@ -14,9 +14,9 @@
 //! compositor and under X11; `wl_virtual` is second because it is implemented by
 //! the wlroots family only. A configuration override reorders them.
 //!
-//! WayVR has no such chain: `HidWrapper::new` (`subsystem/input.rs:22-41`)
-//! matches a configuration enum, calls exactly one initialiser, and installs a
-//! dummy on failure, so `docs/host-desktop.md:37` describes behaviour that does
+//! WayVR has no such chain: `HidWrapper::new` matches a configuration enum,
+//! calls exactly one initialiser, and installs a
+//! installs a dummy on failure, so the documented behaviour does
 //! not exist there. [`crate::hid::selection`] is where it exists here, and it is
 //! pure, so the ordering is tested without a device and without a compositor.
 //!
@@ -25,7 +25,7 @@
 //! [`HidProvider`] requires neither `Send` nor `Sync`.
 //! [`wl_virtual::WlVirtualProvider`] owns a `wayland_client::EventQueue` and
 //! commits with a roundtrip on it, so it is thread-affine whatever bound the
-//! trait carries — WayVR declares `Sync + Send` (`provider/mod.rs:8`) and is
+//! trait carries — WayVR declares `Sync + Send` and is
 //! thread-affine regardless. Not declaring it is how the type stays honest.
 
 pub mod dummy;
@@ -57,7 +57,7 @@ pub use crate::hid::{
 
 /// What lunette can ask of the host's keyboard and pointer.
 ///
-/// Ported from WayVR's `HidProvider` (`subsystem/hid/provider/mod.rs:8`), with
+/// Ported from WayVR's `HidProvider`, with
 /// the same division: pointer and button calls accumulate, and [`Self::commit`]
 /// flushes once per frame. The differences are that the fallible calls say so
 /// rather than logging and continuing, and that the trait requires neither
@@ -164,7 +164,7 @@ impl HidConfig {
 /// Owns the provider rather than exposing it, so that a fatal error has one
 /// place to be handled: a host compositor that goes away degrades the session to
 /// the dummy provider with a logged reason, which is the behaviour WayVR gets by
-/// panicking instead (`wl_virtual.rs:146`, `:176`, `:199`, `:204`).
+/// panicking instead.
 pub struct HostInput {
     provider: Box<dyn HidProvider>,
     kind: ProviderKind,

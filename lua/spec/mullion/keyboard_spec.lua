@@ -1,4 +1,4 @@
--- Covers lua/mullion/keyboard.lua.
+-- Covers the keyboard module.
 --
 -- The seat is a fake carrying an invented keymap. The real one answers from
 -- libxkbcommon, but this spec checks that legends and keycodes come from the

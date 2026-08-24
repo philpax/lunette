@@ -32,7 +32,7 @@
 //!
 //! [`ControlSocket`] holds a [`UnixListener`], and nothing here accepts a host or
 //! a port. There is no configuration that makes this listen on a network
-//! address, which is what `lunette-v1.AC8.2` asks for.
+//! address.
 
 use std::{
     error::Error,
@@ -364,8 +364,8 @@ mod tests {
 
     #[test]
     fn the_directory_is_0700_and_the_socket_is_0600() {
-        // The security property `lunette-v1.AC8.2` states. The directory mode is
-        // what makes it enforceable; the socket mode is defence in depth.
+        // The directory mode is what makes the security boundary enforceable;
+        // the socket mode is defence in depth.
         let runtime = runtime();
 
         let socket = ControlSocket::bind(runtime.path()).expect("it binds");

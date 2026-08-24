@@ -417,8 +417,8 @@ fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
     );
 }
 
-/// `lunette-v1.AC8.3`'s first half at the boundary it applies to: an error a
-/// configuration's handler raised reaches the standard library's handler, with
+/// At the boundary where it applies, an error a configuration's handler raised
+/// reaches the standard library's handler, with
 /// its traceback, and the configuration's `lovr.lunerror` after it.
 #[test]
 fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
@@ -454,8 +454,8 @@ fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
     );
 }
 
-/// `lunette-v1.AC8.3`'s second half, by raising the same error every frame for
-/// two hundred frames rather than by asserting that a limiter exists.
+/// Raising the same error every frame for two hundred frames verifies the
+/// limiter through its observable behaviour rather than asserting that one exists.
 #[test]
 fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues() {
     let (session, sink) =

@@ -490,8 +490,8 @@ mod tests {
         );
     }
 
-    /// The whole path `lunette-v1.AC8.1` asks for: a chunk over the socket, an
-    /// evaluation on the thread that owns the state, and a nested table back.
+    /// A chunk over the socket, evaluated on the thread that owns the state, with
+    /// a nested table returned.
     #[test]
     fn a_chunk_over_the_socket_is_evaluated_and_its_nested_table_comes_back() {
         let runtime = runtime();

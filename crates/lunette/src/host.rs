@@ -66,8 +66,8 @@ pub trait HostSinks: fmt::Debug {
     /// emits nothing it did not declare at creation and the kernel would drop it
     /// without saying so.
     ///
-    /// This is the last link of `lunette-v1.AC3.3`: what the key reaches is
-    /// whatever the *host* compositor currently focuses, and lunette does not
+    /// What the key reaches is whatever the *host* compositor currently focuses,
+    /// and lunette does not
     /// choose what that is.
     fn key(&self, key: VirtualKey, pressed: bool) -> bool;
 

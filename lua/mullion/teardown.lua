@@ -30,10 +30,8 @@ end
 
 -- Registers `run` under `name`, replacing any hook already registered under it.
 --
--- Replacing rather than appending is what makes a module safe to `require`
--- twice: a module body that runs a second time registers the same name again
--- and there is still one hook, so a reload does not run two copies of a
--- teardown or leave one of them registered against state that has gone.
+-- Replacing rather than appending keeps repeated `require` calls from leaving
+-- duplicate teardown hooks against discarded state.
 --
 -- The name is the module's own path — `mullion.signal` — so that two modules
 -- cannot collide and a report names the module rather than an index.
@@ -79,10 +77,9 @@ end
 
 -- Runs every hook in reverse registration order and empties the registry.
 --
--- Each runs under `xpcall`, so one raising does not stop the others. That is a
--- deliberate exception to CONTRIBUTING.md's rule against swallowing an error:
--- the error is reported rather than swallowed, and a half-torn-down state is
--- worse than a reported failure, because reload has to complete either way.
+-- Each runs under `xpcall`, so one raising does not stop the others. The error
+-- is reported rather than swallowed, because reload must finish tearing down the
+-- discarded state.
 --
 -- Returns the failures, as `{ { name, message } }`, as well as reporting each
 -- through `teardown.report`. The return is for a caller that wants to act on

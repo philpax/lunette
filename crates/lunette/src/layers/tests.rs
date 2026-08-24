@@ -385,8 +385,8 @@ fn a_new_layer_is_not_submitted_until_its_first_blit_has_been_issued() {
 
 #[test]
 fn a_revoked_layer_is_reused_by_the_next_claim_of_the_same_key_with_no_allocation() {
-    // lunette-v1.AC2.4. One slot, so the second claim can only be served by the
-    // first claim's layer.
+    // One slot, so the second claim can only be served by the first claim's
+    // layer.
     let mut harness = Harness::new(LayerBudget::SHARE);
     assert_eq!(harness.pool.budget().slots(), 1);
 

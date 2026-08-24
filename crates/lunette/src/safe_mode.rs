@@ -659,8 +659,8 @@ mod tests {
             .expect("the frame loop should run")
     }
 
-    /// `lunette-v1.AC8.4`: a configuration that will not load produces safe
-    /// mode rather than a black headset.
+    /// A configuration that will not load produces safe mode rather than a black
+    /// headset.
     #[test]
     fn a_configuration_that_does_not_load_produces_safe_mode() {
         let lua = booting("error('main.lua:1: a deliberate defect')");

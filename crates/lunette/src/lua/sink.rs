@@ -27,8 +27,8 @@
 //! compositor currently focuses, and lunette does not choose what that is and
 //! must not try.
 //!
-//! A key sent to a host sink is what `lunette-v1.AC3.3` asks for. It reaches the
-//! host through `HidProvider::send_key`, under the layout of the seat it was
+//! A key sent to a host sink reaches the host through `HidProvider::send_key`,
+//! under the layout of the seat it was
 //! addressed to — uploaded to the host first, because
 //! `zwp_virtual_keyboard_v1` treats a key sent before a keymap as a protocol
 //! error and disconnects the provider.
@@ -427,8 +427,8 @@ fn detents(delta: ScrollDelta) -> f64 {
 /// that seat is focused on — nothing here chooses that, and a seat with no
 /// focus delivers to nobody.
 ///
-/// The host path is `lunette-v1.AC3.3`. The seat's layout is uploaded to the
-/// host first: `zwp_virtual_keyboard_v1` treats a key before a keymap as a
+/// The seat's layout is uploaded to the host first: `zwp_virtual_keyboard_v1`
+/// treats a key before a keymap as a
 /// protocol error, so the provider would be disconnected by its very first
 /// keystroke otherwise. A keycode the provider never declared is refused rather
 /// than sent, because the kernel would drop it without a word.

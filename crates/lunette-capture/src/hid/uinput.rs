@@ -11,8 +11,8 @@
 //! the `input` group grants read access to every input device on the machine,
 //! which is a keylogging surface.
 //!
-//! Two devices are created, a keyboard and a mouse, following WayVR
-//! (`subsystem/hid/provider/uinput.rs:28-109`). One device declaring both would
+//! Two devices are created, a keyboard and a mouse, following WayVR. One device
+//! declaring both would
 //! be reported to the host as a single peripheral, and a compositor that
 //! classifies devices by capability handles that inconsistently.
 
@@ -241,7 +241,7 @@ impl HidProvider for UinputProvider {
     /// uinput injects raw keycodes below the display server, and the host
     /// applies whatever layout it is configured with. There is nothing to
     /// upload and nothing that would honour it if there were. WayVR's is also
-    /// empty (`uinput.rs:219`) with no comment, which reads as unfinished; only
+    /// empty with no comment, which reads as unfinished; only
     /// [`crate::hid::wl_virtual`] can carry a layout.
     fn set_keymap(&mut self, _keymap: &XkbKeymap) -> Result<(), ProviderError> {
         Ok(())
@@ -287,8 +287,7 @@ impl HidProvider for UinputProvider {
 /// piece of environment it needs, the user's login name, arrives as a parameter
 /// rather than being read here.
 ///
-/// Modelled on WayVR's diagnostic (`uinput.rs:237-266`), with the security note
-/// it does not carry.
+/// Modelled on WayVR's diagnostic, with the security note it does not carry.
 #[derive(Clone, Copy, Debug)]
 pub struct Advice<'a> {
     /// The login name to put in the `usermod` command, if the caller knows it.
@@ -330,7 +329,7 @@ const MOUSE_EXTENT: f64 = 32768.0;
 /// The `resolution` reported for the absolute axes, in units per millimetre.
 ///
 /// Nonzero because a host that reads zero may classify the device as a touchpad
-/// rather than a pointer. WayVR reports the same 10 (`uinput.rs:59`).
+/// rather than a pointer. WayVR reports the same value.
 const ABS_RESOLUTION: i32 = 10;
 
 /// `BUS_USB`, which is what a virtual device conventionally claims.
@@ -517,7 +516,7 @@ impl OpenNode {
 ///
 /// The kernel discards the timestamp a uinput write supplies and stamps the
 /// event itself, so filling it in would be work with no observable effect.
-/// WayVR calls `gettimeofday` for every group (`hid/mod.rs:48-55`).
+/// WayVR calls `gettimeofday` for every group, but the kernel discards it.
 const fn event(kind: u16, code: u16, value: i32) -> libc::input_event {
     libc::input_event {
         time: libc::timeval {

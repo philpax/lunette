@@ -881,8 +881,8 @@ fn strings(options: &Table, name: &str) -> mlua::Result<Vec<OsString>> {
 ///
 /// Lua strings are byte strings and a program's arguments and environment are
 /// byte strings, so this passes bytes through rather than requiring UTF-8. A
-/// path or a variable that is not valid UTF-8 is unusual and legal, and WayVR's
-/// equivalent read fails on exactly that case.
+/// path or a variable that is not valid UTF-8 is unusual and legal, unlike in
+/// WayVR's equivalent read.
 fn os_string(value: &mlua::LuaString) -> OsString {
     OsString::from_vec(value.as_bytes().to_vec())
 }

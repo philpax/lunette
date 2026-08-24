@@ -4,8 +4,8 @@
 //! string the compositor would have published, and the answers come out of the
 //! same compiled copy production uses.
 //!
-//! The host half is `lunette-v1.AC3.3`. What is established here is that a
-//! keystroke addressed to a host sink reaches the provider, under the seat's
+//! What is established here is that a keystroke addressed to a host sink reaches
+//! the provider, under the seat's
 //! layout, having uploaded that layout first — the last of those being the
 //! reason `wl_virtual` was left unconfigured before this.
 

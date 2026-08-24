@@ -91,8 +91,8 @@ impl fmt::Display for DesktopVector {
 /// How large the host desktop's bounding box is.
 ///
 /// Validated positive and finite at construction, because it is a divisor:
-/// uinput normalises a position by dividing through it (`uinput.rs:124` in
-/// WayVR), and `zwlr_virtual_pointer_v1.motion_absolute` takes it as the extent
+/// uinput normalises a position by dividing through it, and
+/// `zwlr_virtual_pointer_v1.motion_absolute` takes it as the extent
 /// a position is expressed against. A zero extent would produce an infinity in
 /// the first case and a division by zero in the compositor in the second, and
 /// neither reports anything back.
@@ -162,7 +162,7 @@ impl fmt::Display for WheelDelta {
 /// What a frame's pointer calls add up to.
 ///
 /// Pointer and button calls accumulate and `commit` flushes once per frame, as
-/// WayVR's `MouseAction` does (`subsystem/hid/mod.rs:28-34`). The reason is that
+/// WayVR's `MouseAction` does. The reason is that
 /// a frame may produce several pointer calls — two hands, a laser that moved and
 /// then clicked — and sending each one as it arrives puts the host cursor
 /// somewhere it was never asked to stop.
@@ -194,7 +194,7 @@ impl PendingPointer {
     /// Asks for an absolute position.
     ///
     /// The first position of a frame wins rather than the last, following
-    /// WayVR (`uinput.rs:157-160`): a laser that crosses a panel produces a
+    /// WayVR: a laser that crosses a panel produces a
     /// stream of positions, and the one that matters is where it was when the
     /// frame's other events were decided.
     ///
@@ -244,7 +244,7 @@ impl PendingPointer {
 
     /// Records a scroll, and suppresses this frame's motion.
     ///
-    /// WayVR drops the motion for the same reason (`uinput.rs:181-184`):
+    /// WayVR drops the motion for the same reason:
     /// Chromium and everything built on it stop scrolling when a motion event
     /// interleaves with the wheel events.
     pub fn scroll(&mut self, delta: WheelDelta) {

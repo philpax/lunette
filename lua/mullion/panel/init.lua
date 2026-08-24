@@ -77,8 +77,6 @@ type PanelOptions = {
   title: string?,
   chrome: boolean?,
 }
--- A LÖVR `Pass`, passed to draw callbacks and used for all drawing.
-
 -- Every panel, in creation order. Rebuilt when this file runs, so a soft reload
 -- starts with none.
 local panels: { Panel } = {}

@@ -221,8 +221,8 @@ const USER_CALLBACKS: &[&str] = &[
 /// What lunette's own callbacks are named with.
 ///
 /// Cleared by prefix rather than by name, because the prefix is reserved for
-/// lunette (`docs/lua-api.md#events`) and a handler for an event a later phase
-/// delivers is as much the configuration's as `lovr.lunwindowopened` is. The
+/// lunette (`docs/lua-api.md#events`) and a handler for an event delivered later
+/// is as much the configuration's as `lovr.lunwindowopened` is. The
 /// dispatchers live on `lovr.handlers` rather than on `lovr`, so this reaches
 /// the configuration's handlers and not the module's own.
 const EVENT_PREFIX: &str = "lun";
@@ -832,8 +832,8 @@ mod tests {
         );
     }
 
-    /// AC5.4's second half: ten reloads leave the registry the size one reload
-    /// leaves it, so hooks and the connections they stand for do not accumulate.
+    /// Ten reloads leave the registry the size one reload leaves it, so hooks and
+    /// the connections they stand for do not accumulate.
     #[test]
     fn ten_reloads_accumulate_no_teardown_hooks() {
         let lua = state(

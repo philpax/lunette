@@ -88,8 +88,7 @@ impl LovrTexture {
     ///
     /// The shared-memory path. LÖVR's own upload machinery is what does the
     /// work, so the copy is batched into the frame's stream rather than
-    /// submitted on its own — which is the departure from WayVR's blocking
-    /// submit at `image_importer.rs:96-97`.
+    /// submitted on its own — unlike WayVR's blocking submit.
     ///
     /// # Safety
     ///

@@ -4,14 +4,14 @@
 //!
 //! A [`HidProvider`](crate::hid::HidProvider) knows only the host desktop's
 //! bounding box: uinput's device spans it in a fixed normalised range
-//! (`uinput.rs:124` in WayVR), and `zwlr_virtual_pointer_v1.motion_absolute`
+//! (as in WayVR), and `zwlr_virtual_pointer_v1.motion_absolute`
 //! takes it as the extent a position is expressed against. Neither knows what a
 //! monitor is.
 //!
 //! Per-monitor targeting is upstream of that, and is what lives here. A
 //! [`MonitorMapping`] turns a normalised hit on the panel into a position inside
 //! one monitor's logical rectangle, including its rotation and flip, exactly as
-//! WayVR builds an `Affine2` per screen (`overlays/screen/backend.rs:93-145`).
+//! WayVR builds an `Affine2` per screen.
 //! The provider then places it on the desktop.
 //!
 //! The rotation itself is
@@ -31,8 +31,8 @@
 //!
 //! [`DesktopLayout`] is derived, not stored: a monitor added, removed, or moved
 //! changes the bounding box, and the origin and extent handed to the provider
-//! change with it. WayVR applies them once at screen enumeration
-//! (`overlays/screen/wl.rs:114-122`) and nothing observed re-runs it. Neither
+//! change with it. WayVR applies them once at screen enumeration and nothing
+//! observed re-runs it. Neither
 //! provider needs anything recreated for a change — uinput's range is fixed and
 //! normalised, which is what that abstraction buys.
 //!
@@ -680,8 +680,8 @@ mod tests {
 
     #[test]
     fn a_hit_on_the_second_monitor_lands_on_the_second_monitor() {
-        // The criterion `lunette-v1.AC3.2` states: a pointer sent to a
-        // monitor's sink reaches that physical display, whichever it is.
+        // A pointer sent to a monitor's sink reaches that physical display,
+        // whichever it is.
         let second = mapping(1920, 0, 1920, 1080);
         let desktop = layout([mapping(0, 0, 1920, 1080), second]);
 

@@ -1,7 +1,7 @@
 //! Which input provider lunette ends up using, and why the others were not.
 //!
 //! The order is a real fallback chain rather than a switch. WayVR's
-//! `HidWrapper::new` (`subsystem/input.rs:22-41`) matches a configuration enum,
+//! `HidWrapper::new` matches a configuration enum,
 //! calls exactly one initialiser, and installs a dummy provider on failure; it
 //! never tries the next mechanism. `docs/host-desktop.md:37` — "uinput is tried
 //! first because it works regardless of the host compositor" — describes a chain
@@ -246,7 +246,7 @@ pub enum ProviderError {
     ///
     /// A host session ending is ordinary rather than exceptional, which is why
     /// it is an error the caller can act on rather than the panic WayVR takes
-    /// at `wl_virtual.rs:146`, `:176`, `:199`, and `:204`.
+    /// in the virtual provider.
     Disconnected { detail: String },
 }
 
