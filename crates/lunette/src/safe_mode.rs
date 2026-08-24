@@ -5,17 +5,17 @@
 //! panel, a terminal, and a reload key. Enough to see something and recover from
 //! inside the headset rather than by taking it off to edit a file.
 //!
-//! It is embedded rather than installed. Safe mode exists for the moment
-//! `main.lua` fails to load, and a broken standard library, a missing install,
-//! or a bad `LUNETTE_STDLIB_PATH` is one of the reasons it might have — so the
+//! It is embedded rather than installed. Safe mode handles a `main.lua` load
+//! failure, including failures caused by a broken standard library, a missing
+//! install, or a bad `LUNETTE_STDLIB_PATH` — so the
 //! fallback must not depend on anything on disk. [`SOURCE`] therefore requires
 //! `lunette` and nothing else, and in particular never `mullion`.
 //!
 //! # How it is reached
 //!
-//! [`install_trigger`] wraps `lovr.boot`, which is the function whose failure
-//! means the configuration did not load. `vendor/lovr/etc/boot.lua` calls it
-//! under `xpcall`, and everything a load failure can be — a source that will not
+//! [`install_trigger`] wraps `lovr.boot`, whose failure means the configuration
+//! did not load. `boot.lua` calls it under `xpcall`, and every load failure — a
+//! source that will not
 //! mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, an
 //! error at the top level of `main.lua` — raises inside it.
 //!
@@ -50,11 +50,7 @@ use crate::reload;
 /// resembles, and the tests below read the same bytes the session runs.
 pub const SOURCE: &str = include_str!("safe_mode.lua");
 
-/// What a traceback names the chunk.
-///
-/// The leading `@` is LuaJIT's marker for a chunk named after a file, which is
-/// what makes an error inside safe mode read as `safe-mode.lua:12:` rather than
-/// as the first line of the source quoted back.
+/// The chunk name used in safe-mode tracebacks.
 pub const CHUNK_NAME: &str = "@safe-mode.lua";
 
 /// Compiles [`SOURCE`] against `lua`, without running it.
@@ -153,8 +149,7 @@ mod tests {
 
     use crate::safe_mode::{CHUNK_NAME, install_trigger, load};
 
-    /// The fake `lunette` module, the fake `lovr`, and the recording pass every
-    /// case below runs the chunk against.
+    /// The fake APIs and recording pass used by the cases below.
     ///
     /// In Lua rather than assembled through `mlua`, because what these fakes
     /// have to be is a Lua-shaped API: a window with a `sink` whose methods take
@@ -428,11 +423,8 @@ mod tests {
         );
     }
 
-    /// A hand aimed at the middle of the panel puts the pointer at the middle of
-    /// the window, and a trigger press reaches the sink as a button.
-    ///
-    /// The panel is at eye height, 1.5 metres ahead, and the window is 800x600,
-    /// so the centre is (400, 300).
+    /// A hand aimed at the panel's centre moves the pointer there and sends a
+    /// button press.
     #[test]
     fn a_hand_aimed_at_the_panel_clicks_it() {
         let lua = started();
@@ -573,8 +565,7 @@ mod tests {
 
         call(&lua, "keypressed", "f5");
 
-        // The frame after still runs, which is what "leaves safe mode running"
-        // means from in here.
+        // The next frame still runs, confirming that safe mode remains active.
         call(&lua, "update", ());
         let pass: Table = recorder(&lua).get("pass").expect("the pass should exist");
         call(&lua, "draw", pass);

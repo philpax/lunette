@@ -1,10 +1,9 @@
 //! Linux-only: the `lunette` module, which is the native mechanism Lua is
 //! written against.
 //!
-//! `require('@lunette')` resolves to the table [`install`] registers. Everything
-//! reachable from it is mechanism: what a window is, where its pixels are, and
-//! where a pointer event goes. Policy — panels, layouts, placement rules — is
-//! `@mullion`, is written in Lua against this same surface, and is not here.
+//! `require('@lunette')` resolves to the table [`install`] registers. It exposes
+//! native mechanism: windows, pixels, and input routing. Policy belongs to
+//! `@mullion`.
 //!
 //! # Rust holds no reference into Lua
 //!
@@ -13,18 +12,14 @@
 //! [`Rc<Session>`] and nothing else, and every handle answers by reading
 //! through that `Rc`.
 //!
-//! That is a prohibition rather than a preference. The soft reload discards the
-//! Lua state and re-runs `main.lua` while the compositor, the clients, and the
-//! textures keep running, and it can only do that if the Rust side is holding
-//! nothing the discarded state owned. A cached `Table` here would be a dangling
-//! registry reference the moment a reload happened.
+//! Soft reload discards the Lua state while the compositor, clients, and
+//! textures keep running. Rust must not retain values owned by that state; a
+//! cached `Table` would become invalid on reload.
 //!
 //! # The frame
 //!
-//! [`Session::begin`] installs the frame's snapshot and advances the frame
-//! generation. Every read a callback performs during that frame answers from
-//! that one snapshot, so two reads cannot straddle a publication and describe
-//! two different instants.
+//! [`Session::begin`] installs the frame's snapshot and advances its
+//! generation. Reads during the frame use that snapshot.
 //!
 //! Mutations do not reach the compositor as they are made. They queue on the
 //! session, and [`Session::flush`] hands the frame's queue over once, at frame
@@ -111,16 +106,13 @@ use crate::{
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
 
-/// The name `require` resolves through, and the root of the native surface.
+/// The module name used by `require` for the native surface.
 pub const MODULE_NAME: &str = "@lunette";
 
 /// Registers the module so that `require('@lunette')` resolves.
 ///
-/// Called on LÖVR's own state before `boot.lua` runs. The module is built by
-/// the loader rather than being built once and captured, so that a soft reload
-/// — which clears `package.loaded` and re-runs `main.lua` — gets a fresh table
-/// built against the same session, and so that no Lua value is held in Rust
-/// between calls.
+/// Registers a loader on LÖVR's state. Each load builds a fresh table against
+/// the same session, so soft reload does not leave Rust holding a Lua value.
 ///
 /// # Errors
 ///
@@ -524,23 +516,18 @@ impl<T> Session<T> {
         ProcessId::new(frame.processes)
     }
 
-    /// Allocates the identifier a seat is created under.
-    ///
-    /// Minted here for the reason a process identifier is: `lunette.newSeat`
-    /// returns a handle in the same call, so the identifier exists before the
-    /// compositor has seen the request. Counting from the default seat rather
-    /// than from one, because the default seat already holds the first.
+    /// Allocates the identifier for a newly created seat. It must exist before
+    /// the compositor sees the request because `lunette.newSeat` returns its
+    /// handle immediately.
     fn mint_seat(&self) -> Option<SeatId> {
         let mut frame = self.frame.borrow_mut();
         frame.seats = frame.seats.checked_add(1)?;
         SeatId::new(DEFAULT_SEAT.get().checked_add(frame.seats)?)
     }
 
-    /// Allocates the identifier an output is created under.
-    ///
-    /// Minted here for the reason a seat identifier is, and counted from the
-    /// default output for the reason a seat is counted from the default seat:
-    /// that one already holds the first.
+    /// Allocates the identifier for a newly created output. It must exist before
+    /// the compositor sees the request because `lunette.newOutput` returns its
+    /// handle immediately.
     fn mint_output(&self) -> Option<OutputId> {
         let mut frame = self.frame.borrow_mut();
         frame.outputs = frame.outputs.checked_add(1)?;

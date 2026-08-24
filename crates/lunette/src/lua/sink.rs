@@ -146,13 +146,13 @@ impl<T> Sink<T> {
 }
 
 handle! {
-    /// Somewhere pixel input can be delivered. Discriminated on `domain`, which is what says whether `window` or `monitor` names something: testing it is how a caller reaches the handle behind a sink without a nil check that cannot fail.
+    /// A pixel-input target, discriminated by `domain`.
     Sink<T: LuaTexture> = HandleKind::Sink, variants = [WindowSink, HostSink];
 
     /// Whether anything is still listening. A window sink is alive while its window is in the snapshot, and a host sink while its monitor is attached.
     field dead(_lua, this) -> bool { Ok(!this.alive()) }
 
-    /// Which pipeline this sink's events travel. Read rather than inferred from the handle it came from, so a list of sinks can report what each one reaches.
+    /// Which pipeline receives this sink's events.
     field domain(_lua, this) -> SinkDomain as [WindowDomain, HostDomain] {
         Ok(SinkDomain(this.domain()))
     }
@@ -165,7 +165,7 @@ handle! {
         })
     }
 
-    /// The window this sink reaches. A fresh handle each read: it holds an identifier and an `Rc`, so there is nothing to gain by caching one and a stale cache to lose.
+    /// The window this sink reaches, if it is a window sink.
     field window(_lua, this) -> Option<Window<T>> as [Option<Window<T>>, Nil] {
         let SinkTarget::Window(id) = &this.target else {
             return Ok(None);
@@ -224,7 +224,7 @@ handle! {
         Ok(leave(this, seat))
     }
 
-    /// Scrolls by a distance in surface pixels. A client uses the difference from `scrollDiscrete` to decide whether to scroll kinetically.
+    /// Scrolls by a distance in surface pixels.
     method scroll(_lua, this, dx: f64, dy: f64, seat: Option<UserDataRef<Seat<T>>>) -> bool {
         let (dx, dy) = scroll_delta(dx, dy)?;
         let seat = seat_of(seat.as_deref());
@@ -287,7 +287,7 @@ handle! {
     }
 }
 
-/// Which seat an argument named, defaulting to the one every session has.
+/// Resolves an optional seat, defaulting to the session's default seat.
 ///
 /// A configuration that never called `lunette.newSeat` addresses the default
 /// seat by leaving the argument off, which is what keeps the single-handed

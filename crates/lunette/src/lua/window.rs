@@ -4,11 +4,9 @@
 //! Every read refreshes that cache against the frame's snapshot. A dead handle
 //! continues to report the last state it knew.
 //!
-//! Refreshing on read, rather than at frame start, is what the prohibition on
-//! holding Lua references costs and buys. Rust does not know which handles Lua
-//! is keeping, so it cannot walk them at frame start; in exchange, a soft
-//! reload can throw the whole Lua state away without leaving Rust holding
-//! anything.
+//! Refreshing on read avoids retaining Lua references. Rust does not know which
+//! handles Lua keeps, so it cannot refresh them all at frame start; soft reload
+//! can instead discard the Lua state without Rust retaining its values.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -50,8 +48,7 @@ impl<T> Window<T> {
         }
     }
 
-    /// Builds a handle for a window named by an event rather than found in a
-    /// list.
+    /// Builds a handle for a window named by an event.
     ///
     /// The window may already be gone: `lunwindowclosed` is dispatched against
     /// the snapshot that no longer holds it, which is the whole content of the
@@ -78,7 +75,7 @@ impl<T> Window<T> {
 
     /// Brings the cache up to date, reporting whether the window still exists.
     ///
-    /// A window absent from the snapshot has unmapped or its client has
+    /// A window absent from the snapshot was unmapped or its client has
     /// disconnected. Either way the handle is dead: it keeps answering, with
     /// what it last knew, and every mutation it offers is refused.
     fn refresh(&self) -> bool {
@@ -206,7 +203,8 @@ handle! {
     method properties(lua, this) -> PropertyMap { properties(lua, this) }
 }
 
-/// Returns this frame's client texture, or false if the client is gone or has no committed buffer. The texture is valid only for this frame.
+/// Returns this frame's client texture, or false if unavailable. The texture is
+/// valid only for this frame.
 fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<MaybeTexture> {
     let Some(reference) = texture_ref(window) else {
         return Ok(MaybeTexture(Value::Boolean(false)));
@@ -218,7 +216,8 @@ fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Resu
         .with_textures(|textures| answer(lua, textures.lookup(reference, generation)))
 }
 
-/// Returns a texture whose identity survives buffer rotation, copying the surface when damaged; returns false if no client texture exists.
+/// Returns a texture whose identity survives buffer rotation, or false if no
+/// client texture exists.
 fn stabilize<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<MaybeTexture> {
     let Some(reference) = texture_ref(window) else {
         return Ok(MaybeTexture(Value::Boolean(false)));

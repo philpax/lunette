@@ -6,10 +6,6 @@
 -- change, and where a grabbed panel ends up. `mullion.laser` is the shell that
 -- reads `lovr.headset`, owns the seat, and draws the beam.
 --
--- The split is so that this half can be tested. Nothing here reads a device, a
--- clock, or a global; every input arrives as an argument, and the specs drive a
--- pointer through a grab without a headset in the room.
---
 -- Hover and focus are separate, as docs/input.md#seats keeps them separate in
 -- the compositor. A hover sends `sink:pointer` and takes `sink:leave` off
 -- whatever it left; only a click calls `seat:setFocus`. Deriving focus from
@@ -31,9 +27,6 @@ local teardown = require '@mullion/teardown'
 
 local interaction = {}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first. The metatable is a table rather than a forward-declared local
--- because `newPointer` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
 
@@ -62,11 +55,6 @@ local pointers: { Pointer } = {}
 local focusedSeat: lunette.Seat?, focusedSink: lunette.Sink?
 
 -- Everything the feel of a pointer is tuned by, in one table.
---
--- docs/stdlib.md says this tier is tuning-heavy and that feel accounts for most
--- of the work, so a tuning pass is a diff to this table rather than a hunt
--- through functions for a number. A caller wanting different numbers for one
--- pointer passes its own table as `options.tuning` rather than editing this one.
 interaction.TUNING = {
   -- How far a ray reaches, in metres. A panel further away than this is not
   -- hovered, so a laser does not click through a wall at something behind it.
@@ -129,9 +117,7 @@ function interaction.pick(
 ): (Surface?, number?, number?, number?)
   tuning = tuning or interaction.TUNING
 
-  -- Scaled rather than `normalize`d, which writes in place: the caller handed
-  -- this in to be read, and a vector is a value under Luau, so multiplying it
-  -- answers a fresh one rather than allocating.
+  -- Scale rather than normalize in place, since the input belongs to the caller.
   local length = direction:length()
   if not (length > 0) then
     return nil, nil, nil, nil
@@ -173,9 +159,7 @@ end
 -- Writes a panel's pose to its window's property store, reporting whether it
 -- went.
 --
--- This is the whole reason the store exists: a pose the user placed by hand is
--- derivable from no rule, and a soft reload that lost it would scramble a
--- hand-arranged workspace.
+-- A hand-placed pose is not derivable from a rule and must survive reload.
 --
 -- A panel over a monitor answers false. `lunette` has a per-window store and no
 -- per-monitor one, so a mirrored screen's pose has nowhere native to live; that
@@ -263,9 +247,7 @@ end
 
 -- Destroys every pointer and forgets the focus.
 --
--- Registered as this module's teardown hook. A reload that left a pointer
--- behind would leave a client holding a button that nothing will release and a
--- panel highlighted that nothing is pointing at.
+-- Registered as this module's teardown hook.
 function interaction.teardown()
   for _, existing in ipairs(interaction.pointers()) do
     existing:destroy()
@@ -497,8 +479,7 @@ methods.push = carrying.push
 methods.dragTo = carrying.dragTo
 methods.endGrab = carrying.endGrab
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name so repeated module loading leaves one hook.
 teardown.register('mullion.interaction', interaction.teardown)
 
 return interaction

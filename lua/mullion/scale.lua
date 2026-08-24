@@ -18,14 +18,6 @@
 -- second ladder written here would be consistent with that one only for as long
 -- as nobody edited either.
 --
--- Pure. Nothing here reads a headset, a clock, or a panel; a chooser is handed a
--- distance and answers with a scale, so the specs drive a user walking toward a
--- panel and away from it without a room to do it in.
---
--- This module starts nothing and holds no handle, so it registers no teardown
--- hook: a chooser is owned by whatever made it, and the ladder is rebuilt when
--- this file runs. There is nothing a reload could leave behind.
-
 local lunette = require '@lunette'
 
 local scale = {}
@@ -50,9 +42,7 @@ local idealScale, settle, largestAtMost
 -- Everything the choice is tuned by, in one table.
 --
 -- A tuning pass is a diff to this table rather than a hunt through functions for
--- a number, as `mullion.interaction.TUNING` is for the feel of a pointer. A
--- caller wanting different numbers for one output passes its own table as
--- `options.tuning` rather than editing this one.
+-- a number, as `mullion.interaction.TUNING` is for the feel of a pointer.
 scale.TUNING = {
   -- The distance in metres at which a panel is rendered at scale 1. Closer than
   -- this the ideal scale rises in proportion, further away it falls, because a
@@ -76,9 +66,6 @@ scale.TUNING = {
 }
 
 -- The ladder every chooser quantises to, ascending.
---
--- Read once when this file runs rather than per call. It is a constant of the
--- build, and a soft reload re-runs this file and reads it again.
 scale.STEPS = lunette.scaleSteps()
 
 -- A chooser for one output, holding the step it last settled on.
@@ -131,9 +118,7 @@ end
 
 -- Forgets the settled step, so the next choice is made without hysteresis.
 --
--- For a panel that was moved rather than approached: teleporting one across the
--- room and then stepping it one rung a frame until it caught up would make the
--- client re-render at every rung on the way.
+-- Resetting avoids stepping through every rung after a panel moves.
 function methods.reset(self: Chooser): ()
   self.index = nil
 end
@@ -160,8 +145,7 @@ end
 -- fires — which is what stops a panel at a boundary flapping between two scales
 -- while the user breathes.
 --
--- Loops rather than steps once, so that a panel that jumped several rungs
--- arrives where it belongs in one call rather than one rung per frame.
+-- A panel that jumps several rungs reaches its destination in one call.
 function settle(steps: { number }, index: number?, ideal: number, tuning: Tuning): number
   if not index then
     return largestAtMost(steps, ideal)

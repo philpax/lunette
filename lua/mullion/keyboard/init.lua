@@ -14,15 +14,11 @@ local teardown = require '@mullion/teardown'
 
 local keyboard = {}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first. The metatable is a table rather than a forward-declared local
--- because `new` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
 local remove
 
--- Whoever is hovering, held only as an identity and never read: a pointer
--- hovers as itself, and a caller driving the keyboard by hand passes a name.
+-- The pointer or name identifying the hover source.
 export type HoverSource = string | interaction.Pointer
 
 export type Keyboard = {
@@ -67,8 +63,7 @@ export type Keyboard = {
 export type Key = layout.Key
 export type KeyRow = layout.KeyRow
 export type RenderedKey = layout.RenderedKey
--- Everything the look of a keyboard is tuned by. `typeof(keyboard.STYLE)`
--- would chase the values, so the shape is written out once.
+-- Everything the look of a keyboard is tuned by.
 type Style = {
   keyUnit: number,
   gap: number,
@@ -92,8 +87,7 @@ type KeyboardOptions = {
   target: Target?,
 }
 
--- Every live keyboard, in creation order. Rebuilt when this file runs, so a
--- soft reload starts with none.
+-- Every live keyboard, in creation order.
 local keyboards: { Keyboard } = {}
 
 -- One UTF-8 character: a lead byte and its continuation bytes. LuaJIT is Lua
@@ -101,8 +95,7 @@ local keyboards: { Keyboard } = {}
 -- a character to `strokeFor`.
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
--- Everything the look of a keyboard is tuned by, in one table, for the same
--- reason the other tier-2 modules keep one.
+-- Everything the look of a keyboard is tuned by.
 keyboard.STYLE = {
   -- One key unit, in metres. Every width in the rows is a multiple of it, and
   -- the keyboard's size follows from it.
@@ -192,9 +185,7 @@ function keyboard.draw(pass: Pass): ()
   end
 end
 
--- Destroys every keyboard. Registered as this module's teardown hook: a reload
--- that left one behind would leave a keyboard floating in front of the user
--- with nothing left to type into.
+-- Destroys every keyboard and releases its teardown resources.
 function keyboard.teardown(): ()
   for _, existing in ipairs(keyboard.all()) do
     existing:destroy()
@@ -267,9 +258,7 @@ end
 
 -- Every key, with its legend and its place on the keyboard.
 --
--- Fresh each call, and the legends are read from the seat each time, because
--- the legends depend on the modifiers held and those change under the user's
--- hands. A cached set would show the unshifted legends while shift was latched.
+-- Fresh each call because legends depend on the current modifiers.
 function methods.keys(self: Keyboard): { RenderedKey }
   local modifiers: { string } = self:modifiers()
   local seat: lunette.Seat? = self:legendSeat()
@@ -559,8 +548,7 @@ function remove(destroyed: Keyboard)
   end
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name so repeated module loading leaves one hook.
 teardown.register('mullion.keyboard', keyboard.teardown)
 
 return keyboard

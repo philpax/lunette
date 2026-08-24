@@ -72,10 +72,7 @@ impl<T> Seat<T> {
 
     /// Brings the cache up to date, reporting whether the seat exists now.
     ///
-    /// False both before the compositor has created the seat and after it has
-    /// been destroyed. The two are indistinguishable from here and a caller
-    /// treats them the same way: nothing can be delivered to a seat that is not
-    /// there.
+    /// Returns false when the seat is not present in the snapshot.
     fn refresh(&self) -> bool {
         let snapshot = self.session.snapshot();
         let Some(current) = snapshot.seats.iter().find(|seat| seat.seat == self.id) else {
@@ -206,10 +203,9 @@ handle! {
 
 /// `lunette.newSeat(name, options)`: a seat with its own pointer and keyboard.
 ///
-/// The handle comes back before the compositor has seen the request, so it
-/// describes a seat that does not exist yet: `seat.dead` is true until the
-/// snapshot lists it, which is the same rule `lunette.spawn` follows. A layout
-/// that does not compile is reported in the log and the seat never appears.
+/// The handle is initially dead until the snapshot lists the new seat. A layout
+/// that does not compile is reported in the log, and the seat never appears.
+
 ///
 /// # Errors
 ///
@@ -355,6 +351,7 @@ fn set_clipboard_bridge<T>(seat: &Seat<T>, bridged: bool) -> bool {
 /// keysym.
 ///
 /// A string is read as the character to type, and a number as a keysym. Both
+
 /// are wanted: a virtual keyboard resolves characters, and a caller replaying a
 /// keysym it read from `seat:symbolFor` resolves numbers.
 ///

@@ -55,10 +55,7 @@ impl<T> Output<T> {
 
     /// Brings the cache up to date, reporting whether the output exists now.
     ///
-    /// False both before the compositor has created the output and after it has
-    /// been destroyed. The two are indistinguishable from here and a caller
-    /// treats them the same way: nothing can be shown on an output that is not
-    /// there.
+    /// Returns false when the output is not present in the snapshot.
     fn refresh(&self) -> bool {
         let snapshot = self.session.snapshot();
         let Some(current) = snapshot
@@ -109,7 +106,7 @@ handle! {
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 }
 
-/// Creates an output from a size, scale, and refresh rate; the handle is dead until the next snapshot.
+/// Creates an output from a size, scale, and refresh rate.
 ///
 /// # Errors
 ///

@@ -8,8 +8,7 @@
 -- can key a table.
 --
 -- A native handle is not a usable key: every read produces a fresh Lua value.
--- Use the stable `win.id` as the key, or emit on a caller-owned object such as a
--- panel. See docs/lua-api.md#handles.
+-- Use the stable `win.id` as the key, or emit on an object with stable identity.
 --
 -- The registry holds objects weakly, so a connection is not the reason an
 -- object is still reachable. That is not the whole story, because Lua 5.1 has
@@ -38,16 +37,11 @@ type Record = {
 type Records = { Record }
 type ByName = { [string]: Records }
 
--- Declared here and defined below the public API, so that the file reads
--- surface-first. `function name()` assigns to the local when one is in scope,
--- so none of these becomes a global.
 local newRecord, recordsFor, prune
 
 -- Every connection, as `{ [object] = { [name] = { record, ... } } }`.
 --
--- Weak keys, per the note above. Rebuilt rather than appended to when the
--- module is loaded, which is what makes a soft reload — which discards the Lua
--- state and re-runs this file — leave no connections behind.
+-- Weak keys. Rebuilding this on load prevents connections from surviving a reload.
 local connections: { [unknown]: ByName } = setmetatable({}, { __mode = 'k' })
 
 -- The name a property's change is announced under.
@@ -206,9 +200,7 @@ end
 
 -- Discards every connection.
 --
--- Registered below with `mullion.teardown`, so that a soft reload does not
--- leave the old state's handlers connected to objects the new one is about to
--- reach.
+-- Registered with `mullion.teardown` so old handlers do not survive a reload.
 function signal.teardown(): ()
   connections = setmetatable({}, { __mode = 'k' })
 end
@@ -276,8 +268,7 @@ function prune(records: Records)
   end
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name so repeated module loading leaves one hook.
 teardown.register('mullion.signal', signal.teardown)
 
 return signal

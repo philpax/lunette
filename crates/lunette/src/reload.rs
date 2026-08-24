@@ -54,11 +54,9 @@ use std::{cell::Cell, error::Error, fmt};
 use mlua::{Function, Lua, Table, Value};
 use tracing::{info, warn};
 
-/// Applies the configuration on disk to the running session.
+/// Applies the configuration to the running session.
 ///
-/// The steps run in the order the module documentation gives them, and the
-/// first three are best-effort in the sense that a hook raising does not stop
-/// the rest, which is the teardown registry's own contract.
+/// Teardown hooks are best-effort: one failure does not stop the rest.
 ///
 /// # Errors
 ///
@@ -87,12 +85,9 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
     Ok(())
 }
 
-/// `lunette.reload()`: the reload, as Lua sees it.
+/// Implements `lunette.reload()` without raising configuration errors.
 ///
-/// Answers `true`, or `false` and the message, rather than raising. The caller
-/// is usually a key binding, and a session that stopped drawing because the
-/// configuration it was asked to load had a typo in it is the failure this whole
-/// mechanism exists to avoid. A caller that wants to raise has the message.
+/// Returns `true`, or `false` and the error message.
 pub(crate) fn reload_from_lua(
     lua: &Lua,
     forget_subscriptions: &dyn Fn(),
@@ -149,11 +144,7 @@ impl Error for ReloadError {
     }
 }
 
-/// The module `require` resolves the user's configuration through.
-///
-/// `vendor/lovr/etc/boot.lua` runs `require(main:sub(1, -5))`, and `main` is
-/// `main.lua` for a source that is a directory (`boot.lua`). lunette always
-/// points LÖVR at the configuration *directory*, so the module is always this.
+/// The module name used to load the user's configuration.
 const MAIN_MODULE: &str = "main";
 
 /// The `package.loaded` roots a reload keeps.
@@ -374,7 +365,7 @@ fn run_configuration(globals: &Table) -> Result<(), ReloadError> {
     load.call::<()>(arguments).map_err(ReloadError::Load)
 }
 
-/// Holds the reentrancy flag for the length of one reload.
+/// Holds the reentrancy flag for one reload.
 ///
 /// Thread-local rather than global: the Lua API is available only in the main
 /// state and a `lovr.thread` state never receives it, so the flag belongs to the

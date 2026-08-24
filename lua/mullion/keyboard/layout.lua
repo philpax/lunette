@@ -1,11 +1,6 @@
 -- Where the keys of a keyboard are, how large the board is, and what is drawn
 -- on each key.
 --
--- Pure, and separate for the reason `mullion.panel.raycast` is: this is
--- arithmetic over rows and a lookup against a seat's keymap, while the other
--- half is a live object with a pose, a target, and modifier state. It reaches
--- for no module state and registers no teardown hook.
---
 -- `mullion.keyboard` re-exports the types, so a caller naming a `RenderedKey`
 -- has one name for it.
 
@@ -47,10 +42,7 @@ export type Measurements = {
 -- The origin is the board's top-left with y downwards, which is the frame a
 -- raycast against it answers in.
 --
--- `legendFor` is called per key rather than the legends being passed in,
--- because a legend depends on the modifiers held and those change under the
--- user's hands. A cached set would show the unshifted legends while shift was
--- latched.
+-- `legendFor` is called per key because legends depend on the held modifiers.
 function layout.keysOf(rows: { KeyRow }, measurements: Measurements, legendFor: (Key) -> string): { RenderedKey }
   local unit = measurements.keyUnit
 

@@ -16,9 +16,7 @@ export type Textured = Window | Monitor
 -- Which pointer button an event names. The runtime refuses anything else.
 export type PointerButton = 'left' | 'right' | 'middle' | 'back' | 'forward'
 
--- Somewhere pixel input can be delivered. Discriminated on `domain`, which is
--- what says whether `window` or `monitor` names something: testing it is how a
--- caller reaches the handle behind a sink without a nil check that cannot fail.
+-- A pixel-input target, discriminated by `domain`.
 type SinkFields = {
   -- Whether anything is still listening. A window sink is alive while its
   -- window is in the snapshot, and a host sink while its monitor is attached.
@@ -34,8 +32,7 @@ type SinkFields = {
   read button: (self: Sink, button: PointerButton, pressed: boolean, seat: Seat?) -> boolean,
   -- Takes the pointer off this sink, which is what ends a hover.
   read leave: (self: Sink, seat: Seat?) -> boolean,
-  -- Scrolls by a distance in surface pixels. A client uses the difference from
-  -- `scrollDiscrete` to decide whether to scroll kinetically.
+  -- Scrolls by a distance in surface pixels.
   read scroll: (self: Sink, dx: number, dy: number, seat: Seat?) -> boolean,
   -- Scrolls by whole wheel clicks.
   read scrollDiscrete: (self: Sink, dx: number, dy: number, seat: Seat?) -> boolean,

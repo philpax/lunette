@@ -17,10 +17,8 @@ use crate::{
 
 /// One monitor's frames, as the lifecycle consumes them.
 ///
-/// Stopping is dropping. There is no `stop` method because there is no state a
-/// stopped stream should still be able to answer from: releasing the value
-/// stops PipeWire's thread and closes the descriptors, which is what
-/// `lunette-v1.AC3.5` asks for and what a `pause` deliberately does not do.
+/// Dropping stops the stream. There is no `stop` method because a stopped
+/// stream has no state to answer from; `pause` deliberately retains its state.
 pub trait MonitorStream {
     /// The newest frame produced since the last call, discarding older ones.
     fn latest(&mut self) -> Option<CapturedFrame>;
@@ -28,10 +26,8 @@ pub trait MonitorStream {
     /// What this stream has done with the frames it produced.
     fn counts(&self) -> FrameCounts;
 
-    /// Stops the stream producing, keeping everything it holds.
-    ///
-    /// For a panel that is temporarily out of view. A dismissed monitor is
-    /// dropped instead.
+    /// Stops producing frames while retaining the stream. Used when a panel is
+    /// temporarily out of view; a dismissed monitor is dropped instead.
     fn pause(&mut self);
 
     fn resume(&mut self);
@@ -64,15 +60,14 @@ impl MonitorStream for CaptureStream {
 pub trait MonitorStreams {
     /// Connects to `node` and starts delivering frames.
     ///
-    /// `name` is the monitor's identity, for the stream's own logging.
+    /// `name` is the monitor identity used for logging.
     ///
-    /// `None` when the source cannot open a stream yet, which is
+    /// Returns `None` when the source cannot open a stream yet. This is
     /// [`NoStreams`]'s only answer and is a real state at startup: a PipeWire
     /// stream negotiates against the DRM formats the importer accepts, and
     /// those are not known until LOVR has created a graphics device. The
     /// lifecycle keeps the monitor wanted and asks again on the next
-    /// [`MirrorSet::poll`], which is how the compositor's deferred start works
-    /// too.
+    /// [`MirrorSet::poll`], which also provides deferred startup.
     ///
     /// [`MirrorSet::poll`]: crate::mirror::MirrorSet::poll
     fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>>;

@@ -51,8 +51,6 @@ type BrokenLoad = {
 }
 export type Loaded = ArrangementLoad | FutureLoad | BrokenLoad
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
 local fileMetatable, loadedMetatable, quote
 local renderEntry: (Entry) -> string
 local readEntry: (any) -> (Entry?, string?)
@@ -67,10 +65,8 @@ format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' } :: { 
 
 -- An arrangement, from a list of entries.
 --
--- The only constructor of something `render` accepts, and so the only thing
--- `mullion.persist.save` accepts. A caller cannot assemble one out of a plain
--- table, which is what makes the from-the-future rule structural rather than a
--- check somebody has to remember.
+-- The only constructor of values accepted by `render` and
+-- `mullion.persist.save`, preserving the from-the-future distinction.
 --
 -- The list is copied, so a caller sorting or trimming its own array afterwards
 -- does not quietly rewrite the arrangement that is about to be saved.
@@ -93,9 +89,8 @@ end
 
 -- Whether `value` is a load `read`, `empty`, or `broken` produced.
 --
--- A load and an arrangement are two different things and a caller holding the
--- wrong one is the mistake worth naming, so the two are told apart by their
--- metatables rather than by which fields happen to be present.
+-- Loads and arrangements are distinguished by their metatables rather than by
+-- whichever fields happen to be present.
 function format.isLoaded(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == loadedMetatable
 end

@@ -16,9 +16,6 @@
 -- and it is attested as a call — `mullion.layout.arc(mullion.tag.current())` —
 -- so the module is callable and `apply` is the same function under a name.
 --
--- This module holds no state and starts nothing, so it registers no teardown
--- hook: there is nothing a reload could leave behind.
-
 local tag = require '@mullion/tag'
 
 type Tuning = {
@@ -40,10 +37,8 @@ type Target = { Panel } | tag.Tag
 
 -- Everything the shape of the arc is tuned by, in one table.
 --
--- Feel accounts for most of the work at this tier, so a tuning pass is a diff to
--- one table rather than a hunt through functions for a number. A caller wanting
--- a different arc for one call passes its own numbers as `options` rather than
--- editing this.
+-- A tuning pass is a diff to this table rather than a hunt through functions for
+-- a number.
 local tuning: Tuning = {
   radius = 1.6,
   step = 0.55,
@@ -52,8 +47,6 @@ local tuning: Tuning = {
 }
 local arc = { TUNING = tuning }
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
 local angles
 
 -- The angle of each of `count` panels, in radians, centred on zero.
@@ -62,17 +55,15 @@ local angles
 -- at the arc's midpoint and two straddle it, and the step shrinks rather than
 -- the arc growing past `span`.
 --
--- Pure, and the whole of the layout's decision-making: `poses` turns these into
--- matrices and `apply` writes those onto panels.
+-- `poses` turns these angles into matrices and `apply` writes them onto panels.
 function arc.angles(count: number, options: Options?): { number }
   return angles(count, options)
 end
 
 -- Where `count` panels go, as an array of fresh `Mat4`s.
 --
--- Each faces the centre. A quad drawn by `Pass:plane` faces +z, and a panel at
--- angle θ has its +z pointing back along the radius, so a panel is readable from
--- the middle of the arc without the caller rotating it itself.
+-- Each panel faces the centre. A quad drawn by `Pass:plane` faces +z, and a
+-- panel at angle θ has its +z pointing back along the radius.
 --
 -- Fresh matrices rather than temporaries: LÖVR's temporary pool is drained at
 -- each frame boundary, and a caller holding a pose for longer than the frame it

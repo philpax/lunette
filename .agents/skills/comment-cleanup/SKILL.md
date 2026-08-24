@@ -4,13 +4,13 @@ Use this skill when reducing comments in maintained source files.
 
 ## Scope
 
-Read the whole file before editing comments. Include Rust, Luau, Lua, Luau definitions, manifests, build files, and configuration files when they are in scope. Exclude vendored code, submodules, generated files, and existing documents unless the task explicitly includes them.
+Read the whole file before editing comments. Include Rust, Luau, Lua, Luau definitions, manifests, build files, and configuration files when they are in scope. Exclude submodules and generated files unless the task explicitly includes them. Fix generated comments in their metadata or generator source, not in the generated output. Existing documents are out of scope unless the task changes their specification; update normative documents when behavior or public contracts change. Vendored files retain their upstream style unless a substantial rewrite includes them.
 
 Change comments only. Do not change executable code, formatting unrelated to comments, or generated output.
 
 ## Decide whether a comment stays
 
-Keep a comment only when it gives information that a reader cannot get from the nearby code and that matters to the consumer or maintainer. Valid reasons include:
+Keep a comment only when it gives information that a reader cannot get from the nearby code and that matters to the consumer or maintainer. Comments explain why, not what. Function-body comments are limited to non-obvious behavior or deeper rationale. Valid reasons include:
 
 - a public API contract;
 - a safety, FFI, ABI, or ownership constraint;
@@ -33,11 +33,11 @@ Apply theory of mind. Ask whether the comment helps the external user or the mai
 
 ## Rewrite rules
 
-Use plain technical prose. State one fact per sentence in present tense. Use active voice and simple terms. Avoid metaphors, idioms, allusions, rhetorical questions, and language about what the code wants or knows.
+Use plain technical prose. State one fact per sentence in present tense. Use active voice and simple terms. End comments with periods. Use sentence case for headings and titles, the Oxford comma, and the required articles. Avoid metaphors, idioms, allusions, rhetorical questions, and language about what the code wants or knows.
 
 Keep item documentation to three or four lines at most. Prefer one short sentence. Describe the public contract, not the implementation. Reference a document by filename when it owns the detail. Never include a line number or character range.
 
-Keep inline comments shorter than item documentation. Explain why the code is non-obvious. Do not narrate the next statement.
+Keep inline comments shorter than item documentation. Explain why the code is non-obvious. Do not narrate the next statement. A platform-dependent Rust file starts with a module comment naming the platform and facility it uses.
 
 ## Review
 

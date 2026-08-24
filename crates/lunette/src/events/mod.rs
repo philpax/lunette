@@ -1,14 +1,10 @@
 //! Linux-only: turning what the compositor reports into `lovr.lun*` callbacks.
 //!
-//! Eight of the nine events `docs/lua-api.md` specifies are delivered from
-//! here. `lunerror` is the ninth and is not one of them: it is not pushed onto
-//! LÖVR's queue at all, because an error is reported where it happened rather
-//! than a frame later. [`crate::callback_error`] is where it is emitted from.
+//! The compositor and layer events are delivered from here. `lunerror` is
+//! reported at the dispatch boundary rather than pushed onto LÖVR's queue.
 //!
-//! Six of the eight are the compositor's, and are drained from its channel at
-//! frame start. The two layer events are lunette's own: nothing outside the
-//! process decides them, and [`crate::lua::Session::resolve_layers`] pushes them
-//! at the boundary the grant or revocation actually lands on.
+//! Compositor events are drained from its channel at frame start. Layer events
+//! are lunette's own and are pushed when the grant or revocation is resolved.
 //!
 //! # Why the compositor thread does not push these itself
 //!
@@ -23,12 +19,11 @@
 //!
 //! # Two limits `CustomEvent` imposes
 //!
-//! The name is `char name[32]` (`event.h`), so it caps at 31 bytes and
-//! a NUL. `l_event.c` copies the name in with no bound of its own, so a
-//! longer one would be a buffer overrun rather than a truncation; [`EventName`]
-//! is where that is refused, at compile time for the names below.
+//! The name is a 32-byte C array, so it holds at most 31 bytes and a NUL.
+//! [`EventName`] rejects names that would not fit instead of allowing an
+//! overflow.
 //!
-//! `boot.lua` unpacks four payload arguments and dispatches them during dispatch,
+//! The event dispatcher unpacks four payload arguments,
 //! so at most four values reach a handler. Every `lun*` event therefore carries
 //! exactly one table, even the events with a single field: the shape is then
 //! the same across every phase, and a field added later is not a change to the
@@ -323,10 +318,9 @@ impl EventQueue {
 
 /// Installs the dispatcher for every `lun*` event this build delivers.
 ///
-/// Called when the module is built, which is the first `require('lunette')`.
-/// That is late enough for `lovr.handlers` to exist — `boot.lua` creates it
-/// before `main.lua` runs — and it is the only moment at which the module is
-/// known to be wanted at all.
+/// Installs dispatchers when the module is first required, after
+/// `lovr.handlers` exists.
+
 ///
 /// # Errors
 ///
@@ -460,9 +454,7 @@ events! {
 const fn event_name(name: &'static str) -> EventName {
     match EventName::new(name) {
         Some(name) => name,
-        None => panic!(
-            "a lun* event name has to fit CustomEvent.name, which is char[32] at event.h:102-106"
-        ),
+        None => panic!("a lun* event name has to fit CustomEvent.name, which is a 32-byte array"),
     }
 }
 

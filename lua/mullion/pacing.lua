@@ -23,17 +23,12 @@
 -- what its caller observed and answers with a rate, so the specs drive a panel
 -- through a whole session without one existing.
 --
--- This module starts nothing and holds no handle, so it registers no teardown
--- hook: a pacer is owned by whatever made it, and a reload rebuilds it.
-
 local pacing = {}
 
 -- Everything the choice is tuned by, in one table.
 --
 -- A tuning pass is a diff to this table rather than a hunt through functions for
--- a number, as `mullion.scale.TUNING` and `mullion.interaction.TUNING` are. A
--- caller wanting different numbers for one window passes its own table as
--- `options.tuning` rather than editing this one.
+-- a number, as `mullion.scale.TUNING` and `mullion.interaction.TUNING` are.
 pacing.TUNING = {
   -- The rate a window in view is paced at. `false` means unthrottled, which is
   -- what a panel the user is looking at should be: the compositor already skips
@@ -84,8 +79,6 @@ export type Pacer = {
   read reset: (Pacer) -> (),
 }
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
 local methods = {}
 local metatable = { __index = methods }
 local record, isBusy, isExempt
@@ -162,9 +155,7 @@ end
 
 -- Whether this pacer currently counts its window as exempt from throttling.
 --
--- Exposed because a configuration showing why a window is not being throttled
--- should not have to re-derive it, and because a caller wanting a different
--- exemption rule needs to see what this one decided.
+-- Exposed so a configuration can inspect the exemption decision.
 function methods.isExempt(self: Pacer, contentType: string): boolean
   return isExempt(self, contentType)
 end
