@@ -1,11 +1,11 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/comp.rs and backend/wayvr/mod.rs (the globals and output fragments), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the protocol handlers in WayVR (https://github.com/wayvr-org/wayvr),
+//! backend/wayvr/comp.rs and backend/wayvr/mod.rs, at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! The protocol handlers, and the `delegate_*!` macros that route into them.
 //!
-//! Split from [`crate::state::compositor`] rather than left beside it: the two
-//! answer different questions, and together they are more than one file's worth.
-//! Nothing here decides anything — each handler translates a protocol request
+//! Nothing here decides anything. Each handler translates a protocol request
 //! into a call on [`CompositorState`] and reports what happened.
 
 use std::os::fd::OwnedFd;
@@ -112,17 +112,17 @@ impl compositor::CompositorHandler for CompositorState {
     /// `on_commit_buffer_handler` is deliberately not called here, though
     /// smithay documents it as the first thing a commit handler does.
     ///
-    /// Its first act is `attrs.buffer.take()`, and that buffer is what
-    /// [`CompositorState::apply_commit`] reads to perform the import — so
-    /// calling it would leave the import path with nothing to import and no
-    /// client would ever display anything. Reading the buffer back out of
+    /// Its first act is `attrs.buffer.take()`, and the buffer it takes is what
+    /// [`CompositorState::apply_commit`] reads to perform the import. Calling
+    /// it would leave the import path with nothing to import and no client
+    /// would ever display anything. Reading the buffer back out of
     /// `RendererSurfaceState` instead would hand buffer ownership to smithay,
     /// which releases a `wl_buffer` when it drops its own `Arc`, and lunette
     /// already releases the same buffer itself.
     ///
-    /// What that state is otherwise wanted for is damage tracking, and the
-    /// layer blit path counts lunette's own texture installs instead.
-    /// `docs/rendering.md` records why that predicate is the better one anyway.
+    /// That state's remaining use would be damage tracking, and the layer blit
+    /// path counts lunette's own texture installs instead.
+    /// `docs/rendering.md` records why that predicate is the better one.
     fn commit(&mut self, surface: &WlSurface) {
         self.popups_commit(surface);
         self.apply_commit(surface);
@@ -139,22 +139,22 @@ impl FractionalScaleHandler for CompositorState {
     ///
     /// `send_initial_surface_state` pre-sets the preferred scale at surface
     /// creation, and smithay replays a pre-set value when the client creates its
-    /// `wp_fractional_scale_v1` (`fractional_scale/mod.rs:160-166`) — so by the
-    /// time this runs the client already has the right number and
-    /// `set_preferred_scale` sends nothing. What it covers is a surface whose
-    /// client was reassigned, or one that reached the compositor by some path
-    /// that did not go through surface creation: answering with the scale the
-    /// output currently advertises is right in every case, and cheap.
+    /// `wp_fractional_scale_v1` — so by the time this runs the client already has
+    /// the right number and `set_preferred_scale` sends nothing. What it covers
+    /// is a surface whose client was reassigned, or one that reached the
+    /// compositor by some path that did not go through surface creation:
+    /// answering with the scale the output currently advertises is right in
+    /// every case, and cheap.
     fn new_fractional_scale(&mut self, surface: WlSurface) {
         self.send_surface_scale(&surface);
     }
 }
 
-/// Every method here is handed the seat the call is about, because `SeatHandler`
-/// is per-compositor rather than per-seat
-/// (`smithay-0.7.0/src/input/mod.rs:145-165`). Ignoring that argument is what
-/// makes a compositor single-seat by accident: WayVR's `cursor_image` does
-/// (`comp.rs:341-343`), and the result is one cursor image shared by every hand.
+/// Every method here is handed the seat the call is about, because
+/// `SeatHandler` is implemented once per compositor rather than once per seat.
+/// Ignoring that argument is what makes a compositor single-seat by accident:
+/// WayVR's `cursor_image` ignores it, and the result is one cursor image shared
+/// by every hand.
 impl SeatHandler for CompositorState {
     type KeyboardFocus = WlSurface;
     type PointerFocus = WlSurface;
@@ -241,9 +241,9 @@ impl XdgShellHandler for CompositorState {
 
         // The initial configure. A client may not attach a buffer until it has
         // one, so a toplevel that is never configured never maps. WayVR sends
-        // it indirectly, from the window manager's first size configure
-        // (`window.rs:68-84`); sending it here means a toplevel is configured
-        // even when no policy has an opinion about its size yet.
+        // it indirectly, from the window manager's first size configure;
+        // sending it here means a toplevel is configured even when no policy
+        // has an opinion about its size yet.
         let bounds = self.surface_bounds(&wl_surface);
         surface.with_pending_state(|pending| {
             pending.bounds = Some(bounds);
@@ -543,13 +543,11 @@ impl GlobalDispatch<WlOutput, OutputGlobal> for CompositorState {
 
     /// Which clients may see and bind an output.
     ///
-    /// Consulted at registry advertisement
-    /// (`wayland-backend-0.3.15/src/rs/server_impl/registry.rs:199` and `:224`)
-    /// and again at bind (`:120`), where a `false` makes the bind fail. The
-    /// second is what makes the filter enforceable rather than advisory: a
-    /// client that guesses a global name it was never advertised still cannot
-    /// bind it. It is not redundant with the advertisement check and must not be
-    /// optimised away as though it were.
+    /// Consulted at registry advertisement and again at bind, where a `false`
+    /// makes the bind fail. The second check is what makes the filter
+    /// enforceable rather than advisory: a client that guesses a global name it
+    /// was never advertised still cannot bind it. It is not redundant with the
+    /// advertisement check and must not be optimised away as though it were.
     ///
     /// There is no `&mut D` here, which is why the assignment lives in
     /// [`ClientState`] rather than in compositor state keyed by `ClientId`.
@@ -602,7 +600,7 @@ delegate_xdg_decoration!(CompositorState);
 delegate_xdg_shell!(CompositorState);
 
 /// Forces server-side decorations, as WayVR does in all three
-/// `XdgDecorationHandler` methods (`comp.rs:638-663`).
+/// `XdgDecorationHandler` methods.
 ///
 /// A client that draws its own titlebar draws it inside lunette's panel, where
 /// it is decoration for a window that has no frame to decorate. GTK and Qt both

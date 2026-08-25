@@ -1,15 +1,15 @@
 //! What the clipboard and the primary selection do, in both directions.
 //!
-//! Split from [`crate::state::compositor`] for the reason [`crate::state::input`]
-//! is: that file owns the globals and the state they are served from, and this
-//! one owns what happens when a selection changes. The vocabulary — MIME types,
-//! offer identifiers, the bridge seat — lives in [`crate::selection`], which has
-//! no smithay state in it and can be reasoned about on its own.
+//! This module owns what happens when a selection changes.
+//! [`crate::state::compositor`] owns the globals and the state they are
+//! served from. The vocabulary — MIME types, offer identifiers, the bridge
+//! seat — lives in [`crate::selection`], which has no smithay state in it and
+//! can be reasoned about on its own.
 //!
 //! Three paths meet here.
 //!
-//! - A lunette client sets a selection, and if it did so on the bridge seat the
-//!   offer is published to the host.
+//! - A lunette client sets a selection, and if it does so on the bridge seat
+//!   the offer is published to the host.
 //! - The host sets a selection, and it is offered to the bridge seat as a
 //!   compositor-owned selection whose user data names the offer it came from.
 //! - Either side asks the other for the bytes, and a descriptor is passed
@@ -55,9 +55,9 @@ impl CompositorState {
 
     /// A client set, or cleared, one of its seat's selections.
     ///
-    /// Only the bridge seat reaches the host. Another seat's selection is stored
-    /// by smithay against that seat and is offered to the clients focused on it,
-    /// which is what makes two hands able to hold two different clipboards.
+    /// Only the bridge seat reaches the host. Another seat's selection is
+    /// stored by smithay against that seat and offered to the clients focused
+    /// on it, so two seats can hold two different clipboards.
     pub(super) fn client_selection(
         &mut self,
         kind: SelectionKind,
@@ -80,11 +80,12 @@ impl CompositorState {
             .filter_map(MimeType::new)
             .collect();
 
-        // A source that advertises nothing can answer no request, so publishing
-        // it would put a selection on the host that every paste comes back empty
-        // from. Taking lunette's own offer off says the same thing honestly —
-        // and does nothing at all when lunette had no offer there, because the
-        // host's clipboard then belongs to something on the desktop.
+        // A source that advertises nothing can answer no request, so
+        // publishing it would put a selection on the host that every paste
+        // comes back empty from. Withdrawing lunette's own offer says that
+        // instead, and does nothing at all when lunette had no offer there,
+        // because the host's clipboard then belongs to something on the
+        // desktop.
         if mimes.is_empty() {
             self.selection.withdraw_from_host(kind);
             return;
@@ -129,7 +130,7 @@ impl CompositorState {
     /// the command is applied, and the snapshot that reports it is published at
     /// the end of the same tick.
     ///
-    /// A selection the new seat already held is *not* pushed to the host. Only a
+    /// A selection the new seat already holds is not pushed to the host. Only a
     /// compositor-owned selection can be read back, and one a client owns cannot
     /// be re-advertised without asking that client for a MIME list smithay does
     /// not expose. The next copy on the seat crosses; the one from before the
@@ -166,16 +167,16 @@ impl CompositorState {
     /// Detaches a seat from the host: lunette's offer comes off the host, and
     /// the host's offers come off the seat.
     ///
-    /// Both halves, because leaving either would be a seat that still speaks for
-    /// the host in one direction — a paste on the desktop reaching a hand that
-    /// no longer owns the clipboard, or a stale offer sitting on a seat nothing
-    /// refreshes.
+    /// Both halves happen. Leaving either would leave the seat speaking for
+    /// the host in one direction: a paste on the desktop would reach a hand
+    /// that no longer owns the clipboard, or a stale offer would sit on a seat
+    /// nothing refreshes.
     ///
     /// Neither half touches a selection lunette does not own. The stale-offer
-    /// argument holds only for the compositor-owned selection lunette put on the
-    /// seat from the host; a selection a lunette client set is that client's,
-    /// and destroying it because the bridge moved would break a copy that had
-    /// nothing to do with the host.
+    /// argument holds only for the compositor-owned selection lunette put on
+    /// the seat from the host; a selection a lunette client set is that
+    /// client's, and destroying it because the bridge moved would break a copy
+    /// that had nothing to do with the host.
     fn unbridge(&mut self, seat: SeatId) {
         for &kind in SelectionKind::ALL {
             self.selection.withdraw_from_host(kind);

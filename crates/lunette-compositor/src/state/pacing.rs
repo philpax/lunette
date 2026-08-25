@@ -1,12 +1,10 @@
-//! How often each surface is answered, and the clock that decides.
+//! Frame callback delivery, and the clock it is measured against.
 //!
-//! The decision is [`crate::pacing::FramePacer`], which is arithmetic over a
-//! rate and a timestamp; this is the shell around it — the callbacks a surface
-//! has accumulated, the timer that wakes the loop when the earliest of them
-//! comes due, and the monotonic clock both are measured against.
-//!
-//! Split out of `compositor.rs` because it is a self-contained concern with one
-//! entry point per tick, not because of its size.
+//! The pacing decision itself is [`crate::pacing::FramePacer`], arithmetic over
+//! a rate and a timestamp. This module is the shell around it: the frame
+//! callbacks a surface has accumulated, the timer that wakes the loop when the
+//! earliest of them comes due, and the monotonic clock both are measured
+//! against.
 
 use std::{collections::HashMap, time::Duration};
 
@@ -24,9 +22,9 @@ impl CompositorState {
     ///
     /// A surface the compositor no longer knows is dropped rather than
     /// recorded: identifiers are never reused, so an entry made for one could
-    /// never be matched again and would be carried for the rest of the session.
-    /// Lua reaching a window a frame after it closed is ordinary, so this is
-    /// not worth reporting.
+    /// never be matched again and would be carried for the rest of the
+    /// session. Lua reaching a window a frame after it closed is ordinary, so
+    /// this is not reported.
     pub(super) fn set_frame_pacing(&mut self, surface: SurfaceId, pacing: FramePacing) {
         if !self.surfaces.knows(surface) {
             debug!(%surface, "frame pacing was set for a surface that has gone; ignoring it");
@@ -38,10 +36,10 @@ impl CompositorState {
 
     /// Answers the frame callbacks of every surface that is due one.
     ///
-    /// Called once a tick. A client that is not answered stops drawing, and
-    /// most clients stop pumping their event loop with it, so this is what
-    /// keeps a window responsive as well as animated — which is why a
-    /// throttled surface is paced to a floor rather than starved, and why a
+    /// Called once a tick. A client that receives no callback stops drawing,
+    /// and most clients stop pumping their event loop with it, so delivery
+    /// keeps a window responsive as well as animated. For that reason a
+    /// throttled surface is paced to a floor rather than starved, and a
     /// withheld one arms a timer to come back for it.
     ///
     /// Withholding loses nothing. smithay's `SurfaceAttributes::merge_into`
@@ -129,10 +127,9 @@ impl CompositorState {
         }
     }
 
-    /// Since the compositor started, on the clock every timestamp is measured
-    /// against.
+    /// Elapsed time since the compositor started, on the clock every timestamp
+    /// is measured against.
     ///
-    /// WayVR reads the wall clock and unwraps the conversion (`time.rs:4-9`).
     /// Wayland's timestamps must be monotonic and a wall clock is not, so this
     /// is monotonic by construction.
     #[cfg(not(any(test, feature = "test-fakes")))]
@@ -143,11 +140,10 @@ impl CompositorState {
     /// The same, on the virtual clock a test drives.
     ///
     /// Real time is deliberately absent. A test that reaches a pacing interval
-    /// by advancing the clock is measuring one thing, and a test that reaches
-    /// it by taking a hundred milliseconds to settle a round on a loaded
-    /// machine is measuring another: with both summed, a surface came due
-    /// because the runner was busy, and the case asserting it was not yet due
-    /// failed.
+    /// by advancing the clock measures only the interval; one that waits for
+    /// the interval to pass measures the runner's load as well, and the case
+    /// asserting a surface was not yet due then fails whenever the machine is
+    /// busy.
     #[cfg(any(test, feature = "test-fakes"))]
     fn elapsed(&self) -> Duration {
         self.clock_offset

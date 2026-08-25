@@ -1,17 +1,14 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/mod.rs (the seat and pointer command paths at :1128-1226) and backend/wayvr/client.rs (the input methods at :229-408), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the seat and pointer command paths in WayVR (https://github.com/wayvr-org/wayvr),
+//! backend/wayvr/mod.rs, and the input methods in backend/wayvr/client.rs, at
+//! commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! What the main thread's input commands do.
 //!
-//! Split from [`crate::state::compositor`] because the two answer different
-//! questions and together they are past the size threshold: that file owns the
-//! globals and the state they are served from, and this one owns what arrives
-//! over the protocol in [`crate::protocol::Command`] and where it is delivered.
-//!
 //! Every path here starts by resolving a [`SeatId`], because a command that
-//! names a seat lunette does not have is refused rather than routed to whichever
-//! seat happens to exist. That is the whole difference from WayVR, where one
-//! seat is reached directly and a second hand has nowhere to go.
+//! names a seat lunette does not have is refused rather than routed to
+//! whichever seat happens to exist. That is the difference from WayVR, where
+//! one seat is reached directly and a second hand has nowhere to go.
 
 use std::{error::Error, fmt, sync::Arc};
 
@@ -61,9 +58,9 @@ impl CompositorState {
 
     /// Presses or releases a key on a seat's keyboard.
     ///
-    /// The filter always forwards, as WayVR's does (`client.rs:229-245`): the
-    /// compositor never intercepts a binding, because binding policy is Lua's
-    /// and a key swallowed here would be a key a configuration could not see.
+    /// The filter always forwards, as WayVR's does: the compositor never
+    /// intercepts a binding, because binding policy is Lua's, and a key
+    /// swallowed here would be a key a configuration could not see.
     pub(super) fn press_key(&mut self, seat: SeatId, key: Keycode, pressed: bool) {
         let Some(keyboard) = self.seats.get(seat).map(SeatEntry::keyboard) else {
             warn!(%seat, "a key was addressed to a seat that does not exist");
@@ -91,9 +88,9 @@ impl CompositorState {
 
     /// Gives a seat's keyboard focus to a sink, or takes it away.
     ///
-    /// Focus is applied here, never decided here. WayVR infers it from pointer
-    /// motion (`mod.rs:1128-1148`); with two hands that heuristic is per-seat
-    /// policy, and `docs/input.md` puts policy in Lua.
+    /// Focus is applied here, never decided here. Inferring it from pointer
+    /// motion is per-seat policy once there are two hands, and `docs/input.md`
+    /// puts policy in Lua.
     ///
     /// A key delivered to a seat with no focus reaches nobody, which is what
     /// `KeyboardHandle::input_forward` does with an empty focus and is the
@@ -122,10 +119,10 @@ impl CompositorState {
     /// Replaces a seat's modifier state wholesale.
     ///
     /// The mask is set directly rather than synthesised as presses of a
-    /// representative key per bit, which is what WayVR does
-    /// (`mod.rs:1215-1226`). Faking modifiers as keypresses misreports the state
-    /// to a client that queries it and produces key events nothing asked for;
-    /// `docs/input.md:51` asks for explicit state, and this is it.
+    /// representative key per bit, which is what WayVR does. Faking modifiers
+    /// as keypresses misreports the state to a client that queries it and
+    /// produces key events nothing asked for; `docs/input.md` asks for
+    /// explicit state, and this is it.
     ///
     /// smithay updates its own authoritative state but does not broadcast, so
     /// the focused surface is told separately. Without that the client would
@@ -151,8 +148,8 @@ impl CompositorState {
     /// The restore is unconditional. `lunette-v1.AC4.3` requires the client's own
     /// keymap handling to work afterwards, and a client left holding lunette's
     /// synthetic layout has a keyboard on which every key types the wrong thing
-    /// — which is worse than whatever failure produced it. This is the one place
-    /// in the phase where a failure path does not simply propagate.
+    /// — worse than whatever failure produced it. This is the one failure path
+    /// here that does not simply propagate.
     ///
     /// [`Command::Key`]: crate::protocol::Command::Key
     pub(super) fn type_text(&mut self, seat: SeatId, text: &str) {

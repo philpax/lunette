@@ -175,10 +175,10 @@ fn unmapping_a_window_reports_the_surface_gone_after_the_window_closed() {
 
 #[test]
 fn a_dispatch_sweeps_the_importer_even_though_it_imported_nothing() {
-    // Retirement was driven by imports alone, so a client that disconnected —
-    // or fell quiet — left its images held for the life of the process, and
-    // the live count the shutdown path logs described buffers freed long
-    // before.
+    // Only a sweep notices a disconnect. Retirement driven by imports alone
+    // leaves a disconnected or quiet client's images held for the life of the
+    // process, and the live count the shutdown path logs describes buffers
+    // freed long before.
     let (mut compositor, client) = with_one_window();
     let imports = compositor.imports();
     let (sweeps, dmabufs) = (imports.sweep_count(), imports.dmabuf_count());

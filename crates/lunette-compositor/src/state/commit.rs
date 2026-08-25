@@ -1,4 +1,5 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/comp.rs (the `CompositorHandler::commit` path at :229-322), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the commit path in WayVR (https://github.com/wayvr-org/wayvr),
+//! backend/wayvr/comp.rs, at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! What happens when a client commits.

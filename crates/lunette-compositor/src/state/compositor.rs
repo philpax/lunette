@@ -1,15 +1,14 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/comp.rs and backend/wayvr/mod.rs (the globals and output fragments), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the global and output fragments in WayVR (https://github.com/wayvr-org/wayvr),
+//! backend/wayvr/comp.rs and backend/wayvr/mod.rs, at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! The state every global is served from: what it owns, how it is built, and
-//! the commands it answers.
+//! This module owns the Smithay globals and the compositor-thread state that
+//! serves them. It also applies commands received from the main thread.
 //!
-//! Three concerns that were here have their own files beside this one, each
-//! adding methods to [`CompositorState`] rather than a type of its own:
-//! [`crate::state::outputs`] for the virtual monitors and what changing one
-//! means, [`crate::state::processes`] for the processes lunette starts and the
-//! clients attributed to them, and [`crate::state::pacing`] for how often each
-//! surface's frame callbacks are answered.
+//! Output management, process tracking, and frame pacing add methods to
+//! [`CompositorState`] in [`crate::state::outputs`],
+//! [`crate::state::processes`], and [`crate::state::pacing`].
 
 use std::{
     collections::HashMap,
@@ -75,54 +74,42 @@ use crate::{
     window::{Window, WindowManager},
 };
 
-/// The seat lunette starts with, which is the one a caller that has not asked
-/// for any gets.
-///
-/// Fixed rather than allocated, because it exists before anything has run that
-/// could allocate one. Further seats are named by whoever creates them, through
-/// [`Command::CreateSeat`].
+/// The default seat exists before callers create additional seats.
+/// Additional seats are created through [`Command::CreateSeat`].
 pub const DEFAULT_SEAT: SeatId = match SeatId::new(1) {
     Some(seat) => seat,
     None => unreachable!(),
 };
 
-/// The output a client that was not assigned one is shown.
-///
-/// Fixed rather than allocated, for the reason [`DEFAULT_SEAT`] is: it exists
-/// before anything has run that could have created one. A client adopted from
-/// outside lunette is never assigned an output — nothing spawned it, so nothing
-/// named one for it — and a client with no `wl_output` at all cannot pick a
-/// scale or a refresh rate. Further outputs are created from Lua, through
-/// [`Command::CreateOutput`].
+/// The default output displays clients without an explicit output assignment.
+/// It must remain available because adopted clients and clients without an assignment
+/// use it. Additional outputs are created through [`Command::CreateOutput`].
 pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
     Some(output) => output,
     None => unreachable!(),
 };
 
-/// The default seat's name, which clients see on `wl_seat.name`.
+/// The name that clients receive through `wl_seat.name`.
 const SEAT_NAME: &str = "lunette";
 
-/// How lunette configures its virtual monitor and its buffer support.
-///
-/// WayVR fixes the resolution at `mod.rs:172` as `WAYVR_SCREEN_RES`. Lunette's
-/// outputs are configurable from Phase 8, so this is a value with a default
-/// rather than a constant.
+/// The default virtual output mode and the buffer formats that lunette advertises.
 #[derive(Debug)]
 pub struct CompositorConfig {
     pub output: OutputMode,
     pub dmabuf: DmabufSupport,
-    /// How the host desktop's clipboard is reached. Absent means selections stay
-    /// inside lunette, which is what a session with no host Wayland socket gets.
+    /// How the host desktop's clipboard is reached. When absent, selections stay
+    /// inside lunette, as in a session with no host Wayland socket.
     pub host_selection: Option<Box<dyn HostSelectionSource>>,
-    /// Which display lunette is. Absent when no socket was bound, which is the
-    /// case in a test: a spawned client is then told nothing about where to
-    /// connect, because there is nowhere to connect to.
+    /// The display name spawned clients receive. It is absent when no socket is
+    /// bound, which happens in a test: a spawned client is then told nothing
+    /// about where to connect, because there is nowhere to connect.
     pub display: Option<DisplayName>,
-    /// Where to find xwayland-satellite. Absent means X11 clients are not
-    /// served, which is a session worth having.
+    /// Where to find xwayland-satellite. When absent, X11 clients are not
+    /// served, and the rest of the session runs normally.
     pub satellite: Option<XwaylandSatellite>,
-    /// The desktop's own keyboard layout, which a seat that names none inherits.
-    /// The binary reads it from the environment; nothing in this crate does.
+    /// The desktop's own keyboard layout, which a seat that names none
+    /// inherits. The binary reads it from the environment; nothing else in this
+    /// crate does.
     pub keymap_defaults: KeymapDefaults,
 }
 
@@ -130,9 +117,9 @@ impl Default for CompositorConfig {
     fn default() -> Self {
         Self {
             output: OutputMode {
-                // WayVR's `WAYVR_SCREEN_RES`, kept because it is a size that
-                // suits a panel a user reads at arm's length rather than a
-                // monitor they sit in front of.
+                // Kept from WayVR's `WAYVR_SCREEN_RES`. A size that suits a
+                // panel read at arm's length rather than a monitor viewed from
+                // across a desk.
                 size: PixelSize::new(2560, 1440),
                 scale: OutputScale::new(1.0).unwrap_or_else(|| unreachable!("one is positive")),
                 refresh: RefreshRate::from_millihertz(60_000),
@@ -146,12 +133,9 @@ impl Default for CompositorConfig {
     }
 }
 
-/// What lunette can accept over `zwp_linux_dmabuf_v1`.
-///
-/// Both fields come from the graphics device, which this crate does not have,
-/// so they arrive as a parameter. Without a device — in a test, or on a machine
-/// whose driver lacks the import extensions — the global is still advertised
-/// with no formats, and clients fall back to `wl_shm`.
+/// The render-node and pixel formats used to advertise `zwp_linux_dmabuf_v1`.
+/// An absent render node prevents version 4 feedback, so clients use shared memory
+/// when no import-capable graphics device is available.
 #[derive(Clone, Debug, Default)]
 pub struct DmabufSupport {
     /// The DRM render node the formats belong to. Version 4 feedback cannot be
@@ -161,11 +145,8 @@ pub struct DmabufSupport {
     pub formats: Vec<Format>,
 }
 
-/// A DRM render node, as the `st_rdev` of its device file.
-///
-/// `libc::dev_t` is what smithay's feedback builder takes. Wrapping it means a
-/// caller cannot pass a major or a minor by mistake, and it names where the
-/// number has to come from.
+/// A DRM render node represented by its device number.
+/// The newtype prevents callers from passing a major or minor number separately.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RenderNode(libc::dev_t);
 
@@ -183,11 +164,9 @@ impl RenderNode {
     }
 }
 
-/// Everything the compositor thread owns other than the display itself.
-///
-/// This is WayVR's `Application` (`comp.rs:68-94`). Every `delegate_*!` at the
-/// bottom of this file names it, so it is the single type smithay dispatches
-/// protocol traffic into.
+/// The state owned by the compositor thread besides the display handle.
+/// Smithay dispatches protocol requests into this type. It corresponds to WayVR's
+/// `Application` type and is named by the `delegate_*!` macros.
 pub(crate) struct CompositorState {
     pub(super) display: DisplayHandle,
     pub(super) config: CompositorConfig,
@@ -215,9 +194,7 @@ pub(crate) struct CompositorState {
     /// its `wl_output` global advertised.
     pub(super) outputs: OutputRegistry,
 
-    // Held for their lifetime rather than their API: dropping any of these
-    // withdraws the global it created, so a client that binds it afterwards is
-    // talking to a protocol lunette no longer speaks.
+    // These handles must remain alive because dropping one withdraws its global.
     #[expect(dead_code, reason = "held so the global stays advertised")]
     dmabuf_global: DmabufGlobal,
     #[expect(dead_code, reason = "held so the global stays advertised")]
@@ -248,25 +225,25 @@ pub(crate) struct CompositorState {
     /// while there is something to reap.
     pub(super) process_poll: Option<RegistrationToken>,
     pub(super) loop_handle: LoopHandle<'static, LoopData>,
-    /// Polled with the spawned processes, and dropped with the state: dropping
-    /// it asks the bridge's process group to stop, which is how
-    /// xwayland-satellite and the `Xwayland` it started are reaped.
+    /// Polled together with the spawned processes, and dropped when this state
+    /// is dropped. Dropping it stops the bridge's process group, which reaps
+    /// xwayland-satellite and the `Xwayland` process it started.
     pub(super) satellite: Satellite,
-    /// The callbacks each surface has accumulated and not yet been answered.
+    /// The frame callbacks each surface has accumulated and not yet answered.
     ///
-    /// Keyed on [`SurfaceId`] rather than on the object, so that the pacing
-    /// Lua asks for by surface and the callbacks withheld under it are keyed
-    /// the same way and cannot drift apart.
+    /// Keyed by [`SurfaceId`] rather than by protocol object, so that the
+    /// pacing Lua requests per surface and the callbacks withheld under that
+    /// pacing share one key.
     pub(super) frame_callbacks: HashMap<SurfaceId, Vec<WlCallback>>,
     /// How often each surface is answered.
     pub(super) pacing: FramePacer,
-    /// The timer that wakes the loop to answer a withheld surface, with the
-    /// moment it is armed for.
+    /// The timer that wakes the loop to answer a withheld surface, paired with
+    /// the moment it is armed for.
     ///
     /// A client waiting on a frame callback sends nothing, and the event loop
-    /// runs with no timeout, so without this a withheld callback would wait for
-    /// unrelated traffic to wake the compositor — which for an idle throttled
-    /// window may be never.
+    /// runs without a timeout. Without this timer, a withheld callback waits
+    /// for unrelated traffic to wake the compositor, which may not happen at
+    /// all for an idle throttled window.
     pub(super) pacing_wakeup: Option<(RegistrationToken, Duration)>,
     /// How many keymap uploads to let through, and how many to fail after
     /// them. Always `(0, 0)` in production; see
@@ -274,13 +251,12 @@ pub(crate) struct CompositorState {
     #[cfg(any(test, feature = "test-fakes"))]
     failing_uploads: std::cell::Cell<(usize, usize)>,
 
-    /// The baseline for the millisecond timestamps the protocol wants.
-    ///
-    /// WayVR reads the wall clock and unwraps the conversion (`time.rs:4-9`).
-    /// Wayland's timestamps must be monotonic, and a wall clock is not: a clock
-    /// step backwards makes a client see time reverse, and NTP steps happen.
-    /// A test reads the virtual clock instead, so this is unread there. It is
-    /// still constructed, so that the two builds hold the same state.
+    /// Started from the instant the compositor begins running, because Wayland
+    /// requires monotonic timestamps and a wall clock does not provide them: a
+    /// clock stepped backwards makes a client observe time running in reverse,
+    /// and NTP corrections do step clocks. Tests drive a virtual clock
+    /// instead, so no test build reads this field. Both builds construct it so
+    /// their state matches.
     #[cfg_attr(
         any(test, feature = "test-fakes"),
         expect(
@@ -289,9 +265,9 @@ pub(crate) struct CompositorState {
         )
     )]
     pub(super) started: Instant,
-    /// The compositor's clock under test, which advances only when a test says
-    /// so. Absent in production, where time comes from `started`; see
-    /// [`CompositorState::advance_clock`].
+    /// The compositor's clock under test, which advances only when a test
+    /// advances it. Production builds have none, and take time from `started`;
+    /// see [`CompositorState::advance_clock`].
     #[cfg(any(test, feature = "test-fakes"))]
     pub(super) clock_offset: Duration,
 
@@ -304,10 +280,9 @@ pub(crate) struct CompositorState {
 impl CompositorState {
     /// Advertises every global and returns the state that serves them.
     ///
-    /// Nine globals, and `wl_compositor` brings a tenth: `CompositorState::new`
-    /// creates `wl_subcompositor` unconditionally
-    /// (`smithay-0.7.0/src/wayland/compositor/mod.rs:685-710`), so omitting it
-    /// is not an option a caller has.
+    /// This function creates nine globals directly. Smithay creates
+    /// `wl_subcompositor` unconditionally alongside `wl_compositor`, so the
+    /// display carries a tenth global that clients expect to find.
     pub(crate) fn new(parts: StateParts<'_>) -> Self {
         let StateParts {
             display,
@@ -321,33 +296,19 @@ impl CompositorState {
             loop_handle,
             host_selection,
         } = parts;
-        // Version 6 rather than the 5 `CompositorState::new` defaults to
-        // (`smithay-0.7.0/src/wayland/compositor/mod.rs:680-685`). Six is the
-        // version that carries `wl_surface.preferred_buffer_scale`, which is
-        // how a client learns the whole-number scale of the output it is on
-        // without binding a `wl_output` at all — and binding one is exactly what
-        // lunette's filter may refuse it. Below six, `send_surface_state`
-        // returns without sending anything
-        // (`compositor/mod.rs:409-412`), so the call would be dead.
+        // Version 6 sends `wl_surface.preferred_buffer_scale`, including to clients
+        // that cannot bind a `wl_output`. Older compositor versions omit this state.
         let compositor = compositor::CompositorState::new_v6::<Self>(display);
         let xdg_shell = XdgShellState::new::<Self>(display);
-        // An empty extra-format list, as WayVR passes at `mod.rs:185`, so only
-        // `wl_shm`'s two mandatory formats are advertised. Anything further is
-        // a format the importer would have to be taught.
+        // Advertise only the two mandatory `wl_shm` formats until the importer
+        // supports additional formats.
         let shm = ShmState::new::<Self>(display, Vec::new());
         let viewporter = ViewporterState::new::<Self>(display);
-        // Paired with the viewporter above, and useless without it: a client
-        // told to render at 1.5 lands the buffer at the right logical size by
-        // setting an integer `wl_surface.set_buffer_scale` and correcting with
-        // `wp_viewport.set_destination`. WayVR advertises the viewporter and not
-        // this, which is why its own `with_fractional_scale` calls write user
-        // data no client can read.
+        // The fractional-scale manager complements the viewporter. The client uses
+        // the integer buffer scale and viewport destination to produce the logical size.
         let fractional_scale = FractionalScaleManagerState::new::<Self>(display);
-        // A client hint and nothing more: there is no handler trait and no
-        // events, and a client that plays video may set nothing at all. So it
-        // is reported to Lua rather than acted on, and Lua decides what counts
-        // as video — `docs/rendering.md` exempts video from throttling, and a
-        // heuristic in this crate would be policy in the mechanism layer.
+        // Content type is a hint. Report it to Lua so policy stays outside the
+        // compositor mechanism.
         let content_type = ContentTypeState::new::<Self>(display);
         let xdg_decoration = XdgDecorationState::new::<Self>(display);
         let kde_decoration = KdeDecorationState::new::<Self>(
@@ -382,10 +343,8 @@ impl CompositorState {
         let (dmabuf, dmabuf_global, dmabuf_feedback) =
             create_dmabuf_global(display, &config.dmabuf);
 
-        // Every client may read and write both selections. lunette hosts the
-        // applications a user started deliberately, so there is no privilege
-        // boundary here to draw; WayVR admits every client too
-        // (`mod.rs:176-178`).
+        // Every connected client may access both selection protocols: this
+        // compositor draws no privilege boundary between clients.
         let data_device = DataDeviceState::new::<Self>(display);
         let primary_selection = PrimarySelectionState::new::<Self>(display);
         let wlr_data_control =
@@ -465,8 +424,7 @@ impl CompositorState {
             dirty: true,
         };
 
-        // The bridge is a child like any other and has to be waited on, so the
-        // poll timer starts with it rather than with the first `lunette.spawn`.
+        // The X11 bridge is a child process, so start process polling when it runs.
         if state.satellite.is_running() {
             state.watch_processes();
         }
@@ -481,10 +439,8 @@ impl CompositorState {
 
     /// Applies one command from the main thread.
     ///
-    /// The match is exhaustive on purpose. A variant that gains a handler in a
-    /// later phase has to be moved out of the unhandled arm deliberately, and a
-    /// variant added to the protocol fails to compile here until someone
-    /// decides what it does.
+    /// The match is exhaustive on purpose: a command added to the protocol
+    /// fails to compile here until it gains a handler.
     pub(crate) fn handle(&mut self, command: Command) {
         match command {
             Command::Shutdown => {
@@ -541,8 +497,9 @@ impl CompositorState {
 
     /// Asks a toplevel to close.
     ///
-    /// A request, not a kill: the client may prompt the user, or refuse. The
-    /// window disappears when the client destroys the toplevel, not here.
+    /// The close is a request rather than a kill, and the client may prompt the
+    /// user or refuse. The window disappears when the client destroys the
+    /// toplevel, not when lunette sends the request.
     fn close_window(&mut self, window: WindowId) {
         let Some(tracked) = self.windows.get(window) else {
             debug!(%window, "a close was asked for a window that is already gone");
@@ -571,8 +528,7 @@ impl CompositorState {
             return;
         };
 
-        // The states are applied first, because a client reads them alongside
-        // the size in the same configure.
+        // Clients read the states and size from the same configure event.
         tracked.toplevel().with_pending_state(|pending| {
             for state in states {
                 pending.states.set(protocol_state(*state));
@@ -603,14 +559,14 @@ impl CompositorState {
         self.dirty = true;
     }
 
-    /// Lets the importer release what the clients no longer hold.
+    /// Lets the importer release buffers that clients no longer hold.
     ///
-    /// Called once per dispatch, because a dispatch is the only thing that can
-    /// have made an import collectable: the strong reference to a client's
-    /// dmabuf is the `wl_buffer` this side retains, and it is dropped either
-    /// when the client destroys the buffer or when the compositor forgets the
-    /// surface. Driving retirement from imports alone holds every image of a
-    /// client that has disconnected or fallen quiet, since neither performs one.
+    /// Called once per dispatch, because only a dispatch can make a buffer
+    /// collectable. The last strong reference to a client's dmabuf is the
+    /// `wl_buffer` this side retains, and dispatch drops it when the client
+    /// destroys the buffer or when the compositor forgets the surface. Sweeping
+    /// at any other point pins the images of a client that has disconnected or
+    /// fallen silent, since neither performs another dispatch.
     pub(crate) fn sweep_imports(&mut self) {
         self.importer.sweep();
     }
@@ -669,23 +625,23 @@ impl CompositorState {
 impl CompositorState {
     /// What a seat's focused client last asked its cursor to look like.
     ///
-    /// Inspection for the test that holds per-seat cursor state honest, which is
-    /// the property `SeatHandler::cursor_image` breaks by ignoring its seat
-    /// argument. Nothing in the compositor renders a cursor.
+    /// Exists for test inspection only; nothing in the compositor renders a
+    /// cursor. Smithay's own cursor-image handler ignores its seat argument,
+    /// and the tests using this accessor check that per-seat cursor state stays
+    /// correct despite that.
     pub(crate) fn cursor_image(&self, seat: SeatId) -> Option<CursorImageStatus> {
         self.seats
             .get(seat)
             .map(|entry| crate::seat::cursor_image(entry.seat()))
     }
 
-    /// Lets the next `skip` keymap uploads through and fails the `count` after
-    /// them.
+    /// Lets the next `skip` keymap uploads through and fails the following
+    /// `count`.
     ///
-    /// The seam `lunette-v1.AC4.3`'s failure clause needs. A real upload fails
-    /// only on a layout that does not compile, and the generator refuses to
-    /// produce one, so the restore path has no other way to be exercised.
-    /// `skip` is what picks out *which* upload fails, which is the whole
-    /// question: failing the first leaves nothing loaded to restore.
+    /// A real upload fails only on a layout that does not compile, and the
+    /// generator refuses to produce one, so this seam is the only way to
+    /// exercise the restore path. `skip` selects which upload fails: failing
+    /// the first upload would leave no temporary layout loaded to restore.
     pub(crate) fn fail_keymap_uploads(&self, skip: usize, count: usize) {
         self.failing_uploads.set((skip, count));
     }
@@ -705,8 +661,7 @@ impl CompositorState {
     }
 }
 
-/// Everything [`CompositorState::new`] needs, bundled so the constructor takes
-/// one argument rather than nine.
+/// The dependencies required to construct [`CompositorState`].
 pub(crate) struct StateParts<'a> {
     pub(crate) display: &'a DisplayHandle,
     pub(crate) config: CompositorConfig,
@@ -722,23 +677,21 @@ pub(crate) struct StateParts<'a> {
     pub(crate) loop_handle: LoopHandle<'static, LoopData>,
 }
 
-/// What lunette attaches to each connected client.
-///
-/// The assigned output lives here rather than in [`CompositorState`] because
-/// `GlobalDispatch::can_view` is handed a `Client` and no `&mut D`
-/// (`wayland-server-0.31.14/src/global.rs:119-121`), so a filter keyed by
-/// `ClientId` in compositor state would have nothing to look it up with.
+/// Per-client state used by protocol dispatch and output visibility checks.
+/// Smithay hands this data to its visibility filter along with the client, so
+/// the output assignment lives here rather than in compositor state keyed by
+/// client id.
 #[derive(Default)]
 pub struct ClientState {
     pub(crate) compositor: CompositorClientState,
-    /// Set from the disconnect callback, which smithay may call from a
-    /// different thread than the one dispatching, hence the lock.
+    /// Set from the disconnect callback, which Smithay may call from a
+    /// different thread than the one dispatching requests, hence the lock.
     disconnected: Arc<Mutex<bool>>,
-    /// The one output this client is shown, or `None` for a client that was
-    /// assigned none — which is shown the default output instead.
+    /// The one output this client is shown, or none for a client that was
+    /// assigned no output. Such a client sees the default output instead.
     ///
-    /// Locked for the reason `disconnected` is: `ClientData` is `Send + Sync`,
-    /// so nothing here may assume the dispatching thread.
+    /// Locked for the same reason as `disconnected`: `ClientData` is
+    /// `Send + Sync`, so nothing here may assume which thread calls it.
     output: Mutex<Option<OutputId>>,
 }
 
@@ -759,10 +712,10 @@ impl ClientState {
 
     /// Records which output this client is shown.
     ///
-    /// Called from [`CompositorState::attach_client`], before any request from
-    /// the client has been dispatched: `insert_client` does not dispatch, so the
-    /// client's `wl_registry` has not been read yet and the first advertisement
-    /// sees the assignment already in place.
+    /// [`CompositorState::attach_client`] calls this before dispatching any
+    /// request from the client: `insert_client` does not dispatch, so the
+    /// client has not yet read `wl_registry`, and the first global
+    /// advertisement already reflects the assignment.
     pub(crate) fn assign(&self, output: Option<OutputId>) {
         if let Ok(mut held) = self.output.lock() {
             *held = output;
@@ -771,10 +724,11 @@ impl ClientState {
 
     /// Whether this client may see and bind an output's global.
     ///
-    /// A client assigned an output sees exactly that one. A client assigned
-    /// none sees the default output, which is what every client adopted from
-    /// outside lunette is: nothing spawned it, so nothing named an output for
-    /// it, and a client with no `wl_output` at all cannot pick a scale.
+    /// A client assigned an output sees exactly that output. A client assigned
+    /// none sees the default output. Clients adopted from outside lunette are
+    /// always in the second group: nothing spawned them, so nothing named an
+    /// output for them, and a client with no `wl_output` at all cannot choose a
+    /// scale.
     #[must_use]
     pub(crate) fn sees_output(&self, output: OutputId) -> bool {
         self.output()
@@ -795,7 +749,7 @@ impl ClientData for ClientState {
     }
 }
 
-/// Maps a reported toplevel state back onto the protocol's.
+/// Converts a snapshot toplevel state to its protocol representation.
 pub(super) const fn protocol_state(state: ToplevelState) -> xdg_toplevel::State {
     match state {
         ToplevelState::Maximized => xdg_toplevel::State::Maximized,
@@ -810,10 +764,8 @@ pub(super) const fn protocol_state(state: ToplevelState) -> xdg_toplevel::State 
     }
 }
 
-/// Maps the protocol's toplevel states onto the ones the snapshot reports.
-///
-/// `xdg_toplevel::State` is non-exhaustive, so a state from a later protocol
-/// version has no counterpart and is reported as absent rather than guessed at.
+/// Converts a protocol toplevel state to its snapshot representation.
+/// Unknown non-exhaustive protocol states are omitted from snapshots.
 pub(super) fn toplevel_state(state: xdg_toplevel::State) -> Option<ToplevelState> {
     match state {
         xdg_toplevel::State::Maximized => Some(ToplevelState::Maximized),
@@ -829,14 +781,9 @@ pub(super) fn toplevel_state(state: xdg_toplevel::State) -> Option<ToplevelState
     }
 }
 
-/// Creates the `zwp_linux_dmabuf_v1` global, preferring version 4.
-///
-/// Version 4 lets a client learn which modifiers lunette can import and
-/// renegotiate when the answer changes, which is what a client needs to avoid
-/// falling back to shared memory. It needs feedback, feedback needs the render
-/// node, and the render node comes from the graphics device — so a caller
-/// without one gets the version 3 global, exactly as WayVR falls back at
-/// `mod.rs:242-249`.
+/// Creates the `zwp_linux_dmabuf_v1` global.
+/// Version 4 includes modifier feedback and requires a render node. Without one,
+/// lunette creates the version 3 global.
 fn create_dmabuf_global(
     display: &DisplayHandle,
     support: &DmabufSupport,
@@ -866,13 +813,9 @@ fn create_dmabuf_global(
     }
 }
 
-/// Reads one of a toplevel's role attributes.
-///
-/// Title and app id are not part of the pending configure state a client can be
-/// told about; they are role attributes the client sets and the compositor
-/// reads. `XdgToplevelSurfaceData` is a `Mutex`, and a poisoned one means a
-/// panic already happened elsewhere, in which case the attribute is reported as
-/// absent rather than propagating the panic through the dispatch loop.
+/// Reads a role attribute while holding Smithay's role-data lock.
+/// A poisoned lock yields no attribute so the dispatch loop does not propagate a
+/// panic from another thread.
 pub(super) fn toplevel_attribute<T>(
     surface: &ToplevelSurface,
     read: impl FnOnce(&XdgToplevelSurfaceRoleAttributes) -> T,
