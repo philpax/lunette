@@ -1,3 +1,8 @@
+---
+name: comment-cleanup
+description: Clean up comments in maintained source files while preserving boundary-critical contracts and rationale.
+---
+
 # Comment cleanup
 
 Use this skill when reducing comments in maintained source files.
