@@ -68,7 +68,7 @@ pub(crate) fn repack(pixels: &[u8], layout: ShmLayout) -> Result<PixelBuffer, Sh
 /// which is what WayVR's dmabuf path does for the X formats. Here the pixels
 /// are being copied anyway, so the honest value is written in.
 fn force_alpha_opaque(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
+    for pixel in pixels.as_chunks_mut::<BYTES_PER_PIXEL>().0 {
         pixel[ALPHA_BYTE] = u8::MAX;
     }
 }
