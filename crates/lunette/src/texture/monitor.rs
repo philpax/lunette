@@ -3,17 +3,17 @@
 //! The counterpart to [`TextureLedger`](crate::texture::TextureLedger), and
 //! deliberately a separate type rather than the same one keyed differently. A
 //! surface's ledger carries a death flag, a damage flag, a stabilised copy, and
-//! a morgue, because a Wayland client can exit mid-frame and a configuration can
-//! ask for a copy that outlives the frame. A monitor has none of that: it is the
-//! user's own screen, it does not exit, and its texture rotates only as PipeWire
-//! cycles the small buffer pool it negotiated.
+//! deferred destruction, because a Wayland client can exit mid-frame and a
+//! configuration can ask for a copy that outlives the frame. A monitor has none
+//! of that: it is the user's own screen, it does not exit, and its texture
+//! rotates only as PipeWire cycles the small buffer pool it negotiated.
 //!
 //! What it does need, and a surface does not, is the image behind the texture.
 //! [`DmabufImporter`] caches on the buffer it was handed and answers a recurring
 //! PipeWire buffer with the image it already made; without recording which image
 //! is installed, every frame from that buffer would allocate a fresh LOVR
-//! texture over the same memory. [`MonitorTextures::image`] is what makes the
-//! second and later sightings free.
+//! texture over the same memory. [`MonitorTextures::image`] makes the second
+//! and later sightings free.
 //!
 //! Generic over the texture for the reason the surface ledger is: the
 //! bookkeeping needs no graphics device, so the tests substitute an integer.

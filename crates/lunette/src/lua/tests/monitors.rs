@@ -104,8 +104,8 @@ impl MirrorRegistry for FakeMirrors {
 
 /// A host desktop that records what reached it instead of driving one.
 ///
-/// The `HidProvider` is the seam onto the machine lunette runs on, so the
-/// routing is exercised against a recorder rather than against `/dev/uinput`.
+/// The `HidProvider` is the seam onto the machine lunette runs on, so
+/// routing exercises go against a recorder rather than against `/dev/uinput`.
 #[derive(Debug, Default)]
 pub(super) struct RecordingHost {
     events: RefCell<Vec<HostEvent>>,

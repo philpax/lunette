@@ -4,28 +4,19 @@
 //! [The Lua API](../../../docs/lua-api.md#errors) says the callback boundary
 //! logs, tells every `lunette.onError` listener, draws a panel, and rate-limits
 //! identical errors. The first two are mechanism and are here. The limiter, the
-//! wording of a report, and the panel are policy, and policy is
-//! `mullion.error`'s — which subscribes like anything else rather than being
-//! looked up.
+//! wording of a report, and the panel are policy, handled by `mullion.error`,
+//! which subscribes like anything else rather than being looked up.
 //!
-//! # Why there is no limiter here
+//! No native limiter runs across listeners. Two limiters keyed differently
+//! produce gaps that neither explains: an error suppressed natively never
+//! reaches the Lua one, whose window then starts from the wrong occurrence.
+//! Every listener receives the error and owns what it does with it.
 //!
-//! Two limiters keyed differently produce gaps that neither of them explains: an
-//! error suppressed natively never reaches the Lua one, whose window then starts
-//! from the wrong occurrence. Every listener is told, and each owns what it does
-//! about it.
-//!
-//! # What a session without the standard library has
-//!
-//! A configuration that never requires `mullion` is supported, and so is one
-//! whose standard library is missing. There is then no limiter at all: the error
-//! is logged and each listener is told, and an error raised every frame is
-//! logged every frame. That is the honest behaviour rather than a silent one,
-//! and requiring `mullion.error` is what fixes it.
-//!
-//! A listener that raises does not stop the ones after it. A session whose
-//! standard library is the broken thing is the one that most needs whatever
-//! else is listening to hear.
+//! A configuration without the standard library has no limiter. A configuration
+//! that never requires `mullion` is supported, and so is one whose standard
+//! library is missing. An error raised every frame is logged every frame.
+//! Requiring `mullion.error` adds the limiter. A listener that raises does not
+//! stop the ones after it.
 
 #[cfg(test)]
 use mlua::Table;
@@ -36,12 +27,10 @@ use crate::lua::ErrorEvent;
 
 /// Reports an error a configuration's callback raised.
 ///
-/// `context` names the boundary it came through — the callback's own name — and
-/// leads the message, so a report says which callback failed without the reader
-/// having to recognise the traceback.
+/// `context` names the boundary and leads the message, so a report shows which
+/// callback failed without the reader having to recognise the traceback.
 ///
-/// Never raises: this is the floor beneath the callback boundary, and a floor
-/// that can fail is not one.
+/// This function does not raise. It sits beneath the callback boundary.
 pub fn report(lua: &Lua, listeners: &[Function], context: &str, error: &mlua::Error) {
     let traced = TracedError::of(context, error);
 
@@ -52,12 +41,11 @@ pub fn report(lua: &Lua, listeners: &[Function], context: &str, error: &mlua::Er
     }
 }
 
-/// An error's message and the traceback that goes with it, kept apart.
+/// An error's message and the traceback that go together.
 ///
-/// `mullion.error` keys its rate limit on both, because one message raised from
-/// two places is two defects and conflating them would hide the second behind
-/// the first. So the two have to arrive separately, and mlua hands them over
-/// joined.
+/// `mullion.error` keys its rate limit on both fields, because a message
+/// raised from two places is two defects and conflating them hides the second.
+/// mlua delivers them joined, so this type keeps them separate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TracedError {
     /// What was raised, led by the boundary it came through.
@@ -67,13 +55,13 @@ pub struct TracedError {
 }
 
 impl TracedError {
-    /// Splits what mlua reports into the two halves a report is made of.
+    /// Splits what mlua reports into the two halves a report contains.
     ///
     /// `Function::call` installs `luaL_traceback` as the message handler
     /// (`mlua-0.12.0/src/function.rs`), which appends the traceback to the
     /// error string with [`TRACEBACK_MARKER`] between them. An error raised by a
     /// Rust callback instead arrives as [`mlua::Error::CallbackError`], which
-    /// already carries the two apart.
+    /// already carries the two parts apart.
     #[must_use]
     pub fn of(context: &str, error: &mlua::Error) -> Self {
         let (message, traceback) = match error {

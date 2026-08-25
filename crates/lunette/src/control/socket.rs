@@ -6,33 +6,32 @@
 //! the whole of the boundary — there is no authentication behind them — which is
 //! why this module spends its effort on them.
 //!
-//! # Why a private directory rather than a mode on the socket
+//! ## Permission model
 //!
 //! `UnixListener::bind` creates the inode with `0777 & ~umask` and offers no
 //! pre-creation hook. The three obvious fixes are mostly wrong:
 //!
-//! - **`fchmod` on the listener fd does nothing on Linux.** The descriptor
-//!   refers to the socket object, not to the filesystem inode. The call succeeds
-//!   and changes nothing, which is worse than failing.
-//! - **Binding and then `set_permissions`** leaves a window in which the socket
-//!   is world-accessible, and a connection accepted in that window stays valid
-//!   after the mode is corrected.
-//! - **`umask`** is process-global and not thread-safe. Another thread creating
-//!   a file concurrently would get the wrong mode.
+//! - `fchmod` on the listener fd does nothing on Linux. The descriptor refers to
+//!   the socket object, not to the filesystem inode. The call succeeds and
+//!   changes nothing, which is worse than failing.
+//! - Binding and then `set_permissions` leaves a window in which the socket is
+//!   world-accessible, and a connection accepted in that window stays valid after
+//!   the mode is corrected.
+//! - `umask` is process-global and not thread-safe. Another thread creating a
+//!   file concurrently would get the wrong mode.
 //!
-//! So the socket is bound inside a directory this creates at 0700. The directory
-//! mode closes the race completely: no other uid can traverse into it whatever
-//! the socket's own mode says. The socket is then set 0600 as well, which is
-//! defence in depth rather than the mechanism.
+//! The socket binds inside a directory created at 0700. The directory mode closes
+//! the race completely: no other uid can traverse into it whatever the socket's
+//! own mode says. The socket is then set 0600 as well, which adds defence in
+//! depth beyond what the directory provides.
 //!
-//! That is why the documented path is `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`
-//! and not a socket sitting directly in the runtime directory.
+//! The documented path is `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, not a socket
+//! sitting directly in the runtime directory.
 //!
-//! # Never a network address
+//! ## Unix socket only
 //!
 //! [`ControlSocket`] holds a [`UnixListener`], and nothing here accepts a host or
-//! a port. There is no configuration that makes this listen on a network
-//! address.
+//! a port. No configuration makes this listen on a network address.
 
 use std::{
     error::Error,
@@ -53,8 +52,8 @@ pub const DIRECTORY_NAME: &str = "lunette";
 ///
 /// One per user session. A second lunette on the same runtime directory is
 /// refused rather than given a second number: two sessions competing for one
-/// headset is not a configuration worth supporting, and a `lunctl` that had to
-/// guess which one it reached would be worse than one that cannot start.
+/// headset does not warrant support, and a `lunctl` that had to guess which
+/// one it reached would be worse than one that cannot start.
 pub const SOCKET_NAME: &str = "lunette-0.sock";
 
 /// The mode the private directory is created with, and required to have.

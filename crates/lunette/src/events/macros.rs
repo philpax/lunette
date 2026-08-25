@@ -9,7 +9,7 @@
 //! field a handler reads and the expression that fills it are one line, and the
 //! type that line carries is what the checker is told.
 //!
-//! # What a payload field's type annotates
+//! # Declaration types vs expression types
 //!
 //! The annotation is the type the *declaration* renders, and the expression
 //! beside it produces the value. They are written together and read together,

@@ -2,41 +2,35 @@
 //!
 //! The native layer owns exactly one failure path ([the Lua
 //! API](../../../docs/lua-api.md#errors)), and this is its payload: a laser, one
-//! panel, a terminal, and a reload key. Enough to see something and recover from
+//! panel, a terminal, and a reload key. Enough to see output and recover from
 //! inside the headset rather than by taking it off to edit a file.
 //!
 //! It is embedded rather than installed. Safe mode handles a `main.lua` load
 //! failure, including failures caused by a broken standard library, a missing
-//! install, or a bad `LUNETTE_STDLIB_PATH` — so the
-//! fallback must not depend on anything on disk. [`SOURCE`] therefore requires
-//! `lunette` and nothing else, and in particular never `mullion`.
-//!
-//! # How it is reached
+//! install, or a bad `LUNETTE_STDLIB_PATH` — so the fallback must not depend
+//! on anything on disk. [`SOURCE`] requires `lunette` and nothing else, and in
+//! particular never `mullion`.
 //!
 //! [`install_trigger`] wraps `lovr.boot`, whose failure means the configuration
 //! did not load. `boot.lua` calls it under `xpcall`, and every load failure — a
-//! source that will not
-//! mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, an
-//! error at the top level of `main.lua` — raises inside it.
+//! source that will not mount, a missing `main.lua`, a `conf.lua` that raised,
+//! a syntax error, an error at the top level of `main.lua` — raises inside it.
 //!
-//! # `lovr.load` is inside the boundary, deliberately
-//!
-//! `lovr.boot` ends with `return lovr.run()` (`vendor/lovr/etc/boot.lua`),
-//! and `lovr.run` calls `lovr.load(arg)` before it returns the frame loop
-//! during the frame-loop setup. A `lovr.load` that raises is therefore caught here and replaced with
-//! safe mode, rather than reported through [`crate::callback_error`] like every
-//! other callback. That is the right answer rather than an accident: `lovr.load`
-//! is where a configuration builds the state its later callbacks assume, and a
-//! session whose `lovr.load` raised halfway is not one those callbacks can run
-//! in. `docs/lua-api.md` records it.
+//! `lovr.load` is part of this boundary. `lovr.boot` ends with
+//! `return lovr.run()` (`vendor/lovr/etc/boot.lua`), and `lovr.run` calls
+//! `lovr.load(arg)` before returning the frame loop during setup. A `lovr.load`
+//! that raises is caught here and replaced with safe mode, rather than reported
+//! through [`crate::callback_error`] like every other callback. `lovr.load` is
+//! where a configuration builds the state its later callbacks assume, and a
+//! session whose `lovr.load` raised halfway cannot run those callbacks.
+//! `docs/lua-api.md` records it.
 //!
 //! Everything after `lovr.load` — `lovr.update`, `lovr.draw`, and the `lun*`
 //! callbacks — happens once the frame loop has been returned, so the wrapper
-//! cannot see it. That is the distinction
-//! [the Lua API](../../../docs/lua-api.md#errors) draws: a runtime error in a
-//! callback of a configuration that started goes to [`crate::callback_error`],
-//! and a reload that fails leaves the previous session running
-//! ([`crate::reload`]).
+//! cannot see it. That is the distinction [the Lua API](../../../docs/lua-api.md#errors)
+//! draws: a runtime error in a callback of a configuration that started goes to
+//! [`crate::callback_error`], and a reload that fails leaves the previous
+//! session running ([`crate::reload`]).
 
 use mlua::{Function, Lua, Table, Value};
 use tracing::{error, info};
@@ -73,22 +67,22 @@ pub fn load(lua: &Lua) -> mlua::Result<Function> {
 /// which is what creates the `lovr` table — and before the coroutine is first
 /// resumed, which is when `boot.lua` reads `lovr.boot` back.
 ///
-/// # Why this and not `lovr.errhand`
+/// ## Choice of wrapper point
 ///
 /// `lovr.errhand` is reached by every error that escaped a callback boundary,
 /// not only by one that stopped the configuration loading, and it belongs to the
 /// configuration: `mullion.error` installs one, and taking it would take that.
 /// Wrapping `lovr.boot` catches a failure to start and nothing after it, so a
 /// runtime error one frame into a session that started cannot replace it with
-/// the fallback. The module documentation says where that boundary actually
+/// the fallback. The module documentation states where that boundary actually
 /// falls, which is one callback wider than "the configuration did not load":
 /// `lovr.load` runs inside it.
 ///
-/// # What `boot.lua` does with what this returns
+/// ## How boot.lua uses this return value
 ///
 /// `vendor/lovr/etc/boot.lua` is `local thread = select(2, xpcall(lovr.boot,
 /// onerror))`, and `lovr.boot` ends with `return lovr.run()` — a function that
-/// runs one frame per call. So the wrapper returns a frame loop either way, and
+/// runs one frame per call. The wrapper returns a frame loop either way, and
 /// the loop it returns after a failure is safe mode's.
 ///
 /// # Errors

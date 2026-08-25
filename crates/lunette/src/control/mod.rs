@@ -3,11 +3,10 @@
 //! `lunctl` hands the running session a Lua chunk and gets the values back
 //! ([the Lua API](../../../docs/lua-api.md#lunctl)). This module is the transport
 //! and the queue; [`eval`] is what the main thread does with a chunk once it has one,
-//! [`serialise`] is what turns
-//! the results into something a socket carries, and [`wire`] is what travels over
-//! it.
+//! [`serialise`] is what turns the results into something a socket carries, and
+//! [`wire`] is what travels over it.
 //!
-//! # The thread does not touch Lua
+//! ## Control thread boundaries
 //!
 //! `docs/architecture.md` records the rule the whole design rests on: Rust holds
 //! no long-lived reference into Lua. It follows that a chunk cannot be evaluated
@@ -16,26 +15,25 @@
 //! between two frames, evaluates it, and answers. Nothing in this module ever
 //! sees a `Lua`.
 //!
-//! # Why this cannot deadlock
+//! ## Deadlock avoidance
 //!
 //! `lunette-compositor`'s module documentation sets out the cycle two bounded
 //! channels can form when both sides block, and `crate::restart` records how the
 //! compositor handshake avoids it. The control thread is a third party, and the
-//! rule that keeps it out of the cycle is that **the main thread never waits on
-//! it**. [`ChunkQueue::drain`] takes what is already queued and returns; it does
-//! not block for a chunk, and it does not block to answer one, because the reply
+//! rule that keeps it out of the cycle is that the main thread never waits on it.
+//! [`ChunkQueue::drain`] takes what is already queued and returns; it does not
+//! block for a chunk, and it does not block to answer one, because the reply
 //! channel has room for exactly the answer it is about to put in it.
 //!
 //! The control thread does wait, in one direction only, and under a bound:
 //! [`REPLY_TIMEOUT`]. A session that has stopped drawing therefore costs a
 //! `lunctl` invocation a wait and an answer rather than a hang.
 //!
-//! # Backpressure
+//! ## Backpressure
 //!
-//! The queue is bounded at [`QUEUE_DEPTH`]. A client flooding chunks is answered
-//! [`Reply::Busy`] rather than growing a queue the session will never work
-//! through, which is the same reason the compositor's command channel is
-//! bounded.
+//! The queue is bounded at [`QUEUE_DEPTH`]. A client flooding chunks receives
+//! [`Reply::Busy`] rather than growing a queue the session will never work through,
+//! which is the same reason the compositor's command channel is bounded.
 
 pub mod eval;
 pub mod identifier;

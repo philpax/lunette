@@ -1,56 +1,39 @@
 //! Evaluating one `lunctl` chunk, on the Lua thread, under a time budget.
 //!
-//! # Between frames, on the thread that owns the state
-//!
 //! A chunk runs on the main thread between two frames, never concurrently with
 //! `lovr.update` or `lovr.draw` ([the Lua API](../../../docs/lua-api.md#lunctl)).
-//! That is what makes it safe for a chunk to touch the same state a callback
-//! touches: there is no other thread to race, because the control thread never
-//! sees a `Lua` at all. `crate::boot` is where the call sits, in the gap between
+//! `crate::boot` is where the call sits, in the gap between
 //! `FrameDriver::end_frame` and the next `begin_frame`.
 //!
-//! # Nothing outlives the call
-//!
+//! Rust never holds a Lua value past the call that produced it.
 //! [`evaluate`] hands the chunk's results to a closure and lets go of them
-//! before it returns. Rust never holds a Lua value past the call that produced
-//! it — the rule `docs/architecture.md` records, and the reason a soft reload can
-//! throw the state away without anything here dangling.
+//! before it returns. The rule appears in `docs/architecture.md`, and it enables
+//! a soft reload to discard the state without anything here dangling.
 //!
-//! # The budget is best-effort, and that is a decision rather than an oversight
+//! ## Interrupt mechanism
 //!
-//! Under Luau the bound is a native interrupt: [`ffi::lua_callbacks`]`(L)->interrupt`
-//! is installed on the running state for the length of the chunk, and Luau calls
-//! it at safepoints (loop back edges, call/return, GC). When the wall clock has
-//! passed the deadline the callback raises [`OVERRUN_MESSAGE`] via `lua_error`
-//! — a longjmp to the enclosing `lua_pcall` — at the chunk's own frame, and the
-//! chunk is abandoned. The floor is *safepoint frequency*, not "every N
-//! instructions": a chunk is abandoned at the first safepoint at or after the
-//! deadline. Under LuaJIT the bound was `debug.sethook` with a count hook plus
-//! `jit.off`, because compiled traces do not call debug hooks; Luau in LÖVR's
-//! build has no codegen at all (`Luau.CodeGen` is `EXCLUDE_FROM_ALL`), so the
-//! interrupt is the whole mechanism. `lua_error` cannot unwind the VM stack
-//! from inside a *called* function's frame, so the interrupt raises only at the
-//! outermost Lua frame (`lua_vm_is_topframe`); elsewhere it fires and declines.
-//! `docs/lua-api.md` records the change.
+//! Under Luau the bound is a native interrupt:
+//! [`ffi::lua_callbacks`](L)->interrupt is installed on the running state for
+//! the length of the chunk, and Luau calls it at safepoints (loop back edges,
+//! call/return, GC). When the wall clock has passed the deadline the callback
+//! raises [`OVERRUN_MESSAGE`] via `lua_error` — a longjmp to the enclosing
+//! `lua_pcall` — at the chunk's own frame, and the chunk is abandoned. The
+//! granularity is the safepoint, not an instruction count. Under LuaJIT the
+//! bound was `debug.sethook` with a count hook plus `jit.off`; Luau in LÖVR's
+//! build has no codegen (`Luau.CodeGen` is `EXCLUDE_FROM_ALL`), so the
+//! interrupt is the whole mechanism. `docs/lua-api.md` records the change.
 //!
-//! Even so the bound is advisory, in three ways. The interrupt raises only at
-//! the chunk's own outermost frame: inside a function the chunk *called* (or a
-//! `pcall`), the VM stack cannot be unwound by `lua_error`, so the interrupt
-//! fires at the safepoints but declines to raise destructively — a long loop in
-//! a callee runs on until the chunk's own frame regains control; the granularity
-//! is the safepoint, not an instruction count; and a single native call (an
-//! allocator loop, a C function that never returns to the VM) is
-//! uninterruptible by any hook. A hard bound would need a watchdog outside Lua,
-//! and since the chunk holds the Lua thread the only thing a watchdog could do
-//! is abort the process — turning a bad `lunctl` command into a crash that
-//! takes every connected client with it, which is worse than the hang it
-//! prevents. `docs/lua-api.md` records the reasoning.
+//! The bound is advisory. Inside a function the chunk called (or a `pcall`),
+//! the VM stack cannot be unwound by `lua_error`, so the interrupt fires at
+//! the safepoints but declines to raise destructively. A single native call
+//! (an allocator loop) is uninterruptible. A hard bound would need a watchdog
+//! outside Lua, which could only abort the process — turning a bad `lunctl`
+//! command into a crash that takes every connected client with it.
+//! `docs/lua-api.md` records the reasoning.
 //!
-//! # A load error and a runtime error are different outcomes
-//!
-//! A chunk that does not compile and a chunk that raises are distinguishable
-//! here and distinguishable on the wire, because a caller can act differently on
-//! each. awesome's remote control collapses both into one string; this does not.
+//! A chunk that does not compile and a chunk that raises produce distinguishable
+//! wire outcomes, because a caller can act differently on each. awesome's remote
+//! control reports both as a single string; this module distinguishes them.
 
 use std::{
     cell::{Cell, RefCell},
@@ -94,9 +77,9 @@ pub struct Budget(Duration);
 impl Budget {
     /// What a chunk gets when nothing says otherwise.
     ///
-    /// Long enough for a session inspection that walks every window, short
-    /// enough that a chunk which never finishes costs one visible hitch rather
-    /// than a frozen headset.
+    /// A session inspection that walks every window fits within this budget, and
+    /// a chunk which never finishes costs one visible hitch rather than a frozen
+    /// headset.
     pub const DEFAULT: Self = Self(Duration::from_millis(250));
 
     #[must_use]

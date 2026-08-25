@@ -2,7 +2,7 @@
 //!
 //! The handle comes back before the compositor has seen the request, so it
 //! describes a process that does not exist yet: `alive` is false until the
-//! snapshot lists it, and a spawn that fails outright is reported through
+//! snapshot lists it, and a spawn that fails outright reports through
 //! `lovr.lunprocessexited` rather than by the call raising.
 
 use std::ffi::OsStr;

@@ -1,8 +1,8 @@
-//! What the pool decides, exercised with no XR runtime and no device.
+//! The pool's decisions, exercised with no XR runtime and no device.
 //!
 //! Everything below runs against [`FakeLayers`], which counts creations and
 //! destructions and hands out an integer where LÖVR would hand out a `Layer`.
-//! The decisions are the thing under test; the calls they turn into are the
+//! The decisions are what is under test; the calls they turn into are the
 //! seam's business.
 
 #![expect(
@@ -50,17 +50,17 @@ struct FakeLayer(u64);
 #[derive(Debug)]
 struct FakeLayers {
     /// Shared with the harness for the same reason `refusing` is, and mutable
-    /// because a runtime is entitled to report a different one to the session
-    /// that replaces a lost one.
+    /// because a runtime reports a different one to the session that replaces a
+    /// lost one.
     limit: Rc<Cell<u32>>,
     /// Which session exists, which the harness takes away, gives back, and
     /// replaces.
     ///
     /// Separate from `limit` because LÖVR's two answers are separate: the limit
     /// is read off the system and survives the session, so a session going away
-    /// is not a limit going to zero. An identity rather than a flag because a
-    /// session replaced between two boundaries is a session the pool's layers
-    /// no longer belong to, and nothing about presence says so.
+    /// does not mean the limit goes to zero. An identity rather than a flag because a
+    /// session replaced between two boundaries means the pool's layers no longer
+    /// belong to it, and nothing about presence says so.
     session: Rc<Cell<SessionPresence>>,
     /// Whether creation is refused, standing in for a runtime that will not
     /// allocate another swapchain. Shared rather than owned, because the pool
@@ -156,7 +156,7 @@ impl Harness {
     }
 
     /// Runs boundaries until every held layer has been reported granted, which
-    /// is what a frame with a blit path in it does.
+    /// is what a frame with a blit path does.
     fn settle(&mut self) -> PoolOutcome {
         let mut outcome = self.resolve();
         for _ in 0..4 {

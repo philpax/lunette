@@ -2,11 +2,11 @@
 //! them.
 //!
 //! [`MirrorRegistry`] is to [`lunette_capture::mirror::MirrorSet`] what
-//! [`ClaimRegistry`] is to the layer pool, and it exists for the same reason: a
-//! [`Session`] holds it behind a trait object so that no second type parameter
-//! has to thread through every handle. The trait's methods take `&self` because
-//! that is what a Lua callback holds; the interior mutability is a [`RefCell`]
-//! and not a lock because the Lua API is available in the main state alone.
+//! [`ClaimRegistry`] is to the layer pool, and both serve the same purpose: a
+//! [`Session`] holds them behind a trait object so that no second type parameter
+//! threads through every handle. The trait's methods take `&self` because a Lua
+//! callback holds one; the interior mutability is a [`RefCell`] and not a lock
+//! because the Lua API is available in the main state alone.
 //!
 //! [`ClaimRegistry`]: crate::lua::ClaimRegistry
 //! [`Session`]: crate::lua::Session
@@ -72,10 +72,10 @@ pub trait MirrorRegistry: fmt::Debug {
 /// The mirror lifecycle, as the frame loop drives it.
 ///
 /// A second trait over the same object rather than more methods on
-/// [`MirrorRegistry`], because these are two audiences: [`MirrorRegistry`] is
-/// what a Lua handle reads and mutates, and this is the frame's own mechanics —
-/// what the host attached, what the capture produced, what has to be written to
-/// disk. Keeping them apart is what stops a Lua handle reaching a capture frame.
+/// [`MirrorRegistry`], because the two have different audiences: [`MirrorRegistry`]
+/// is what a Lua handle reads and mutates, while this trait handles the frame's
+/// mechanics — what the host attached, what the capture produced, what has to be
+/// written to disk. Keeping them apart stops a Lua handle reaching a capture frame.
 ///
 /// A trait at all, rather than the concrete type, because [`HostMirrors`] is
 /// generic over the portal and [`crate::frame::FrameDriver`] must not name the

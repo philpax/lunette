@@ -9,23 +9,22 @@
 //! own `main` is excluded from the shared build, so there is no collision to
 //! resolve; what has to be reproduced is the ordering, which LÖVR depends on.
 //!
-//! Three things depart from a literal replication, all deliberately.
+//! Three points differ from a literal replication of `main.c`.
 //!
 //! The `arg` table places the configuration directory at `arg[1]`, where
 //! `src/main.c` places only `argv[0]` at `arg[0]`. See [`arg_entries`].
 //!
 //! The step function returns the status to `main` instead of calling `exit()`.
-//! This keeps teardown ordered as the compositor and control threads are added.
+//! Teardown stays ordered as the compositor and control threads are added.
 //!
 //! The exit status is read from stack index 1, where `src/main.c` reads
 //! index -1. `vendor/lovr/etc/boot.lua` returns `result, cookie`, so a
 //! finished coroutine leaves two values behind and index -1 is the nil cookie.
 //! Upstream's `lua_tointeger` on that nil yields 0, which makes every exit
-//! report success. See [`step`]; do not "correct" this back to match `main.c`.
+//! report success. See [`step`]; do not change this back to match `main.c`.
 //!
-//! One thing has no counterpart in `main.c` at all: the standard library is
-//! mounted into LÖVR's virtual filesystem, so that `require '@mullion'` resolves.
-//! See [`install_standard_library_mount`].
+//! The standard library mounts into LÖVR's virtual filesystem, so that
+//! `require '@mullion'` resolves. See [`install_standard_library_mount`].
 
 use std::{
     env,
@@ -73,19 +72,18 @@ pub struct SessionPaths<'a> {
 /// `paths` names the configuration directory and the standard library, both
 /// already resolved.
 ///
-/// `session` outlives every Lua state this creates, and is what `main.lua`
-/// reaches the compositor through. A restart closes the state and builds
-/// another; the session, the clients, and their textures are untouched by that,
-/// which is the whole reason it is owned out here.
+/// `session` outlives every Lua state this creates. A restart closes the state
+/// and builds another; the session, the clients, and their textures survive that.
 ///
 /// `control` is where `lunctl` chunks arrive, or `None` when the session was
-/// started without a control socket. It outlives every Lua state for the reason
-/// the session does: the socket and its thread are not disturbed by a restart.
+/// started without a control socket. It outlives every Lua state for the same
+/// reason as the session: the socket and its thread are not disturbed by a
+/// restart.
 ///
 /// `startup` contains the resources resolved before the session starts. The
 /// compositor is built from them once LÖVR has a graphics device to lend.
 ///
-/// # A restart keeps the compositor and its clients
+/// ## Restart lifecycle
 ///
 /// `lovr.event.restart` closes the Lua state, and closing it destroys LÖVR's
 /// graphics module and the `VkDevice` the compositor borrowed. The compositor

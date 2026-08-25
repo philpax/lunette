@@ -1,6 +1,4 @@
-//! What one compositor event asks of the texture ledger, what the ledger does
-//! with it, which monitors the sweep for stopped mirrors releases, and the order
-//! the device teardown gives up what it holds.
+//! The event store's decisions, exercised without a graphics device.
 //!
 //! Every case here is a pure mapping, a ledger operation, or a recorded call
 //! sequence, so none of it needs a graphics device: the texture is a counter and

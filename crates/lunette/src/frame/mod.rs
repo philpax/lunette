@@ -8,7 +8,7 @@
 //! This module is what runs between them, once per frame, in the order the
 //! pieces require.
 //!
-//! # The order of a frame
+//! # Frame sequence
 //!
 //! At frame start, in this order and for the reasons given:
 //!
@@ -32,29 +32,28 @@
 //! At frame end: record the release barriers, then hand the frame's queued
 //! commands to the compositor.
 //!
-//! # Why the compositor cannot start with everything else
+//! ## Compositor start conditions
 //!
 //! The compositor imports client dmabufs against LÖVR's `VkDevice`, so it
 //! cannot exist before LÖVR has made one — which happens inside `boot.lua`,
-//! several steps after the process starts. So the start is deferred to the
-//! first frame at which `lovrGraphicsIsInitialized` answers true, and the
-//! listening socket is bound long before that, by the entry point, for the
-//! reason `crates/lunette/src/main.rs` records.
+//! several steps after the process starts. The start is deferred to the first
+//! frame at which `lovrGraphicsIsInitialized` answers true, and the listening
+//! socket is bound long before that, by the entry point, for the reason
+//! `crates/lunette/src/main.rs` records.
 //!
 //! A failure to start is reported once and not retried. The socket is dropped
 //! with the attempt, so a second attempt would be against a name that is no
 //! longer bound, and the failures that can occur here — a device without the
-//! import extensions, a thread that cannot be spawned — do not become true
-//! later.
+//! import extensions, a thread that cannot be spawned — do not appear later.
 //!
-//! # Why the same is true after a restart
+//! ## Compositor restarts
 //!
 //! `lunette.restart()` destroys the device and builds another, and the
-//! compositor thread outlives both. So the readiness test above runs for every
+//! compositor thread outlives both. The readiness test above runs for every
 //! device rather than only the first: [`FrameDriver::quiesce`] takes the device
 //! back before the Lua state closes, and the first frame of the next session at
 //! which LÖVR has one again lends it out. [`crate::restart`] states the ordering
-//! that makes the exchange safe, and it is the exacting part of this module.
+//! that makes the exchange safe, and this module carries the details of that protocol.
 
 mod mirroring;
 mod teardown;

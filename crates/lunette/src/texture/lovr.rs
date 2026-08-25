@@ -1,26 +1,25 @@
 //! Linux-only: a LÖVR `Texture` over an imported image or an uploaded buffer.
 //!
-//! # What LÖVR believes about a foreign image
+//! ## LÖVR assumptions for foreign images
 //!
-//! `gpu_texture_init`'s handle branch (`gpu_vk.c`) creates nothing and
-//! binds nothing. Every assumption it makes is the caller's to satisfy, and
-//! four of them are load-bearing here.
+//! `gpu_texture_init`'s handle branch (`gpu_vk.c`) creates nothing and binds
+//! nothing. Every assumption it makes is the caller's to satisfy, and four of
+//! them are load-bearing here.
 //!
-//! - **Usage.** LÖVR builds a `VkImageViewUsageCreateInfo` from the declared
-//!   usage without checking the image (`gpu_vk.c`), so the declaration
-//!   below and [`crate::import::device::IMPORT_USAGE`] have to agree.
-//! - **Layout.** `texture->layout = getNaturalLayout(info->usage)`
-//!   (`gpu_vk.c`) is set at creation and never questioned again. Declaring
-//!   `TEXTURE_SAMPLE | TEXTURE_TRANSFER` makes it `VK_IMAGE_LAYOUT_GENERAL`,
-//!   which is the layout an image written outside Vulkan is in and the one
-//!   `lovrTextureCopy` needs.
+//! - **Usage.** LÖVR builds a `VkImageViewUsageCreateInfo` from the declared usage
+//!   without checking the image (`gpu_vk.c`), so the declaration below and
+//!   [`crate::import::device::IMPORT_USAGE`] have to agree.
+//! - **Layout.** `texture->layout = getNaturalLayout(info->usage)` (`gpu_vk.c`)
+//!   is set at creation and never questioned again. Declaring `TEXTURE_SAMPLE |
+//!   TEXTURE_TRANSFER` makes it `VK_IMAGE_LAYOUT_GENERAL`, which is the layout an
+//!   image written outside Vulkan is in and the one `lovrTextureCopy` needs.
 //! - **Format.** LÖVR takes `convertFormat(info->format, info->srgb)` to be the
 //!   image's real format and has no way to detect otherwise.
 //! - **Memory.** LÖVR sets `texture->memory = NULL` and `imported = true`, and
-//!   `gpu_texture_destroy` (`gpu_vk.c`) returns after destroying the
-//!   view. So `vkDestroyImage` and `vkFreeMemory` are lunette's, and the
-//!   morgue the ledger keeps is what stops them running while the view is
-//!   still in LÖVR's own deferred queue.
+//!   `gpu_texture_destroy` (`gpu_vk.c`) returns after destroying the view. So
+//!   `vkDestroyImage` and `vkFreeMemory` are lunette's, and the ledger keeps
+//!   track of image lifetimes so they do not run while the view is still alive in
+//!   LÖVR's deferred queue.
 
 #[cfg(test)]
 mod tests;

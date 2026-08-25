@@ -1,13 +1,13 @@
 //! The module's conversion of a snapshot into Lua, exercised without a
 //! graphics device.
 //!
-//! A texture here is an integer, which is what the generic on [`Session`] is
-//! for. Everything else — the handles, the dead-handle rule, the mutation
-//! queue, the argument checking — is the production code path.
+//! A texture here is an integer, which is the type parameter on [`Session`] for.
+//! Everything else — the handles, the dead-handle rule, the mutation queue, the
+//! argument checking — follows the production code path.
 //!
-//! The handles and the mutation queue are here; [`events`] holds the delivery
-//! of `lovr.lun*` callbacks, which needs a poll loop the rest of the surface
-//! does not.
+//! Handles and the mutation queue live here; [`events`] holds the delivery of
+//! `lovr.lun*` callbacks, which needs a poll loop the rest of the surface
+//! does not exercise.
 
 #![expect(
     clippy::expect_used,
@@ -53,7 +53,7 @@ use crate::{
 };
 
 /// Stands in for a LÖVR texture. Lua receives the number, which is enough to
-/// tell one texture from another and from `false`.
+/// distinguish one texture from another and from `false`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FakeTexture(i64);
 
@@ -64,7 +64,7 @@ impl LuaTexture for FakeTexture {
 }
 
 impl CopyableTexture for FakeTexture {
-    /// Offset rather than equal, so that Lua can tell a stabilised copy from
+    /// Offset rather than equal, so that Lua can distinguish a stabilised copy from
     /// the imported texture it was made from.
     fn allocate_copy(&self) -> Option<Self> {
         Some(Self(self.0 + STABLE_OFFSET))
@@ -183,9 +183,9 @@ const GENEROUS_LAYER_LIMIT: u32 = 128;
 /// A Lua state with the module installed and `lunette` already required, which
 /// is the state a `main.lua` runs in.
 ///
-/// The `lovr` table and its `handlers` are what `boot.lua` leaves
-/// behind, reproduced here because the module's event dispatchers are installed
-/// into them.
+/// The `lovr` table and its `handlers` are what `boot.lua` leaves behind,
+/// reproduced here because the module's event dispatchers are installed into
+/// them.
 fn lua(session: &TestSession) -> Lua {
     let lua = crate::test_lua::session_lua();
     install(&lua, session).expect("the module installs");
@@ -202,7 +202,7 @@ fn lua(session: &TestSession) -> Lua {
 ///
 /// `vendor/lovr/etc/boot.lua` reads a name and up to four payload
 /// values out of `lovr.event.poll` and calls `lovr.handlers[name]` with them.
-/// A `lun*` event carries no payload values, so the call takes none.
+/// A `lun*` event carries no payload, so the call takes none.
 fn poll(lua: &Lua, sink: &RecordingEventSink) {
     let handlers: Table = lua
         .globals()
@@ -238,7 +238,7 @@ fn requiring_the_module_twice_is_the_same_module() {
 
     assert!(
         run::<bool>(&lua, "return require('@lunette') == lunette"),
-        "require caches in package.loaded, so a second require is the first module"
+        "require caches in package.loaded, so a second require resolves the same module"
     );
 }
 
@@ -254,7 +254,7 @@ fn a_pointer_event_queues_until_the_frame_ends() {
     assert_eq!(
         session.snapshot().windows.len(),
         1,
-        "the mutation must not have changed what the frame reads"
+        "the mutation must not change what the frame reads"
     );
 
     let commands = session.flush();
@@ -274,7 +274,7 @@ fn a_pointer_event_queues_until_the_frame_ends() {
 
     assert!(
         session.flush().is_empty(),
-        "a flushed command must not be sent twice"
+        "a flushed command must not be sent again"
     );
 }
 

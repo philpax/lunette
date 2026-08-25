@@ -4,31 +4,30 @@
 //! (`docs/architecture.md`), so anything the standard library must remember
 //! across one cannot be kept in Lua. State a rule can derive comes back when the
 //! rules re-run; a pose the user placed by hand, a size they dragged, a tag they
-//! assigned by hand does not. This is where those live.
+//! assigned by hand does not. This module holds those values.
 //!
-//! # Why `win.userdata` will not do
+//! ## State storage location
 //!
 //! `docs/architecture.md` gives windows a `userdata` field, which looks like the
 //! obvious place for per-window state. It holds a Lua value, and a Lua value
 //! does not survive its state being discarded — so `userdata` is for state that
-//! is worth keeping for the rest of the session and worth losing on a reload,
-//! and this store is for the rest. The two have different lifetimes and both are
-//! wanted; neither replaces the other.
+//! is worth keeping for the rest of the session and worth losing on a reload.
+//! This store covers what must persist across the Lua state boundary. The two
+//! have different lifetimes and both serve different purposes.
 //!
-//! # Plain values only
+//! ## Value types
 //!
-//! [`PropertyValue`] is a boolean, a finite number, or a string, and a table is
-//! refused by name. A table would hold Lua values, which is the same problem one
-//! level down: the entries would be dangling references the moment the state
-//! went. A caller wanting structure encodes it into a string itself and knows
-//! that it did.
+//! [`PropertyValue`] is a boolean, a finite number, or a string. Tables are
+//! refused: they would hold Lua values, and their entries would become dangling
+//! references the moment the Lua state went. A caller needing structure encodes
+//! it into a string itself.
 //!
-//! # Lineage
+//! ## Lifetime model
 //!
 //! awesome keeps per-client state in X properties on the window, because those
 //! outlive the window manager's own process, and skips or alters rule
 //! application at startup when it finds some. lunette has no X server, so this
-//! is the adaptation: a native store that outlives the Lua state for the same
+//! module provides native storage that outlives the Lua state for the same
 //! reason. `docs/lua-api.md` records the choice.
 //!
 //! Writing any of this to disk, so that it survives a full restart rather than a

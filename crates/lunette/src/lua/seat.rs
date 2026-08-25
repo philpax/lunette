@@ -1,30 +1,29 @@
 //! Linux-only: the seat handle Lua holds.
 //!
 //! A `wl_seat` carries exactly one pointer and one keyboard, so two cursors need
-//! two seats and the protocol offers nothing else. WayVR has one, which is why
-//! pointing the off hand at a window steals hover from the main hand;
-//! `lunette.newSeat` is the primitive that removes that limit, and the
-//! collapse-to-one-seat mode is Lua policy over it
-//! rather than a mode here.
+//! two seats and the protocol offers no other model. WayVR has one seat, which
+//! is why pointing the off hand at a window steals hover from the main hand;
+//! `lunette.newSeat` removes that limit, and the collapse-to-one-seat mode is
+//! Lua policy over it rather than a mode here.
 //!
-//! # What the keymap queries are for
+//! ## Keymap queries
 //!
-//! Wayland clients want
-//! an xkb keymap plus raw keycodes and do their own keysym translation, so
-//! anything drawing a keyboard has to be able to ask what a key means. The three
-//! queries here — the layout list, forward lookup, and reverse lookup — are
-//! what let mullion draw a virtual keyboard with correct legends and produce
-//! correct keycodes without reimplementing xkb in Lua.
+//! Wayland clients receive an xkb keymap plus raw keycodes and perform their own
+//! keysym translation, so anything drawing a virtual keyboard must be able to
+//! ask what a key means. The three queries here — the layout list, forward lookup,
+//! and reverse lookup — let mullion draw a virtual keyboard with correct legends
+//! and produce correct keycodes without reimplementing xkb in Lua.
 //!
 //! Every answer comes from the seat's own published layout, compiled on this
 //! thread. The compositor cannot hand over a compiled keymap: libxkbcommon is
-//! not thread-safe, so what crosses is text and each side compiles its own.
+//! not thread-safe, so what crosses the boundary is text and each side compiles
+//! its own copy.
 //!
-//! # Focus is applied here, never decided here
+//! ## Focus handling model
 //!
-//! `seat:setFocus(sink)` is a request the caller makes deliberately. Nothing
-//! infers focus from pointer motion, which is what WayVR does and what makes a
-//! second hand steal focus by hovering.
+//! `seat:setFocus(sink)` is a request the caller makes deliberately. Focus does
+//! not follow pointer motion, which differs from WayVR's behavior where a second
+//! hand can steal focus by hovering.
 
 use std::{cell::RefCell, rc::Rc};
 

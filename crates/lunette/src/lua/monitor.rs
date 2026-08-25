@@ -3,11 +3,11 @@
 //! A monitor is one of the user's own screens, not a window lunette hosts. The
 //! handle names it by the identity `lunette-capture` resolved — a make and model
 //! where the host reports one, a connector name where it does not — and reads
-//! through to the mirror lifecycle on every access, for the reason
-//! [`crate::lua::Window`] does: Rust holds no reference into Lua, so it cannot
-//! walk the handles Lua is keeping at frame start.
+//! through to the mirror lifecycle on every access. Rust holds no reference into
+//! Lua, so it cannot walk the handles Lua is keeping at frame start, which is
+//! why [`crate::lua::Window`] refreshes on read as well.
 //!
-//! # Mirroring is a request
+//! ## Asynchronous mirroring
 //!
 //! `monitor:mirror()` may put a portal dialog on the user's screen, and nothing
 //! waits for it. The call returns immediately and `monitor.mirrored` becomes

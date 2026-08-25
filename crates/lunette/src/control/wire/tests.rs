@@ -98,7 +98,7 @@ fn every_handle_kind_has_a_distinct_tag_and_name() {
 #[test]
 fn a_nan_and_the_infinities_arrive_as_themselves() {
     // The bits are what is written, so a value with no faithful text form
-    // is not silently rounded into one.
+    // does not round into one silently.
     let mut buffer = Vec::new();
     let reply = Reply::Returned(vec![
         Value::Float(f64::NAN),
@@ -185,7 +185,7 @@ fn a_frame_from_another_protocol_version_is_named_rather_than_parsed() {
 }
 
 /// The frame is refused before it is written, so nothing reaches the peer
-/// and the caller has something to say instead of a closed connection.
+/// and the caller has something to report instead of a closed connection.
 #[test]
 fn a_reply_larger_than_a_frame_is_refused_before_any_of_it_is_written() {
     let mut buffer = Vec::new();

@@ -139,7 +139,7 @@ fn turning_the_scene_back_on_restores_the_pass() {
 fn the_scene_switch_reads_its_argument_the_way_lua_reads_a_condition() {
     // Truthiness rather than a type check, because that is what a configuration
     // writing `lunette.setSceneEnabled(panel.anyInScene())` means by it. The
-    // one consequence worth pinning is that calling it with nothing at all
+    // consequence worth pinning is that calling it with nothing at all
     // turns the scene off rather than raising.
     let session = session(Vec::new());
     let lua = gated_lua(&session);

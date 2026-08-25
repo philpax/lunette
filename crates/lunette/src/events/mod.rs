@@ -6,46 +6,43 @@
 //! Compositor events are drained from its channel at frame start. Layer events
 //! are lunette's own and are pushed when the grant or revocation is resolved.
 //!
-//! # Why the compositor thread does not push these itself
+//! ## Frame-thread event delivery
 //!
-//! `lovrEventPush` takes the event module's own lock, so any thread may call
-//! it. Nothing but the frame thread does. Events are drained from the channel
-//! at frame start, immediately after [`Session::begin`] has installed the
-//! snapshot they belong with, so a handler reading `lunette.windows()` sees a
-//! snapshot that already accounts for the event it was handed. A push from the
-//! compositor thread would arrive whenever the compositor happened to reach it,
-//! and a handler could then be given a window the frame's snapshot has never
-//! heard of.
+//! `lovrEventPush` takes the event module's own lock, so any thread may call it.
+//! Nothing but the frame thread does. Events are drained from the channel at
+//! frame start, immediately after [`Session::begin`] has installed the snapshot
+//! they belong with, so a handler reading `lunette.windows()` sees a snapshot
+//! that already accounts for the event it was handed. A push from the compositor
+//! thread would arrive whenever the compositor happened to reach it, and a handler
+//! could then be given a window the frame's snapshot has never heard of.
 //!
-//! # Two limits `CustomEvent` imposes
+//! ## CustomEvent limits
 //!
-//! The name is a 32-byte C array, so it holds at most 31 bytes and a NUL.
-//! [`EventName`] rejects names that would not fit instead of allowing an
-//! overflow.
+//! The name is a 32-byte C array, so it holds at most 31 bytes plus a NUL.
+//! [`EventName`] rejects names that would not fit instead of allowing an overflow.
 //!
-//! The event dispatcher unpacks four payload arguments,
-//! so at most four values reach a handler. Every `lun*` event therefore carries
-//! exactly one table, even the events with a single field: the shape is then
-//! the same across every phase, and a field added later is not a change to the
-//! callback's signature.
+//! The event dispatcher unpacks four payload arguments, so at most four values
+//! reach a handler. Every `lun*` event therefore carries exactly one table, even
+//! the events with a single field: the shape is then the same across every phase,
+//! and a field added later does not change the callback's signature.
 //!
-//! # Why a dispatcher sits in front of the handler
+//! ## Dispatcher over direct dispatch
 //!
-//! `boot.lua` sets `lovr.handlers = setmetatable({}, { __index = lovr })`,
-//! so pushing `lunwindowopened` would call `lovr.lunwindowopened` with nothing
-//! installed here at all. Two things make that insufficient.
+//! `boot.lua` sets `lovr.handlers = setmetatable({}, { __index = lovr })`, so
+//! pushing `lunwindowopened` would call `lovr.lunwindowopened` with nothing
+//! installed here at all. Two factors make this insufficient.
 //!
 //! A `CustomEvent` carries `Variant`s, and a `Variant` holds numbers, strings,
 //! tables, and LÖVR objects — not a window handle, which is an mlua userdata.
-//! The payload table is therefore built at dispatch time, on this side, where
-//! the handles can be made.
+//! The payload table is built at dispatch time, on this side, where the handles
+//! can be made.
 //!
-//! And an error raised by a handler dispatched straight from `boot.lua`'s poll
-//! loop unwinds the loop, so the rest of the frame's events are never
-//! delivered. The dispatcher calls the handler through mlua, which is a
-//! protected call, and hands what comes back to [`crate::callback_error`]. The
-//! error panel, the rate limiting, and the wording of a report are
-//! `mullion.error`'s, and that module is where they are decided.
+//! An error raised by a handler dispatched straight from `boot.lua`'s poll loop
+//! unwinds the loop, so the rest of the frame's events are never delivered. The
+//! dispatcher calls the handler through mlua, which is a protected call, and
+//! hands what comes back to [`crate::callback_error`]. The error panel, the rate
+//! limiting, and the wording of a report are `mullion.error`'s, and that module
+//! decides them.
 
 mod macros;
 

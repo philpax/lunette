@@ -2,26 +2,25 @@
 //!
 //! lunette never creates a device. LÖVR does that, and this module wraps the
 //! handles it exposes so the import path can issue its own Vulkan calls against
-//! them. Borrowed means borrowed: [`GraphicsDevice`] has no destructor, and
-//! `vkDestroyDevice` and `vkDestroyInstance` are never called from here.
+//! them. The wrapper has no destructor; `vkDestroyDevice` and `vkDestroyInstance`
+//! are never called from here.
 //!
-//! # Why the extensions are verified rather than assumed
+//! ## Extension verification
 //!
 //! `ash::Instance::load` and `ash::Device::load` cannot fail. An unresolved
 //! function pointer becomes a stub that panics when called, so a missing
 //! extension would surface in the middle of a frame. The only defence is to ask
-//! what was enabled, which is
-//! what the five booleans on LÖVR's `GraphicsFeatures` are for, and to refuse
-//! construction with a message naming the extension that is absent.
+//! what was enabled, which is what the five booleans on LÖVR's `GraphicsFeatures`
+//! are for, and to refuse construction with a message naming the extension that
+//! is absent.
 //!
-//! # Vulkan 1.1 is the ceiling as well as the floor
+//! ## Vulkan version constraints
 //!
-//! LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` (`gpu_vk.c`).
-//! Everything this module calls is therefore either Vulkan 1.1 core —
-//! `vkGetPhysicalDeviceProperties2`, `vkGetPhysicalDeviceFormatProperties2`,
-//! `vkGetImageMemoryRequirements2`, `vkBindImageMemory2`, all without a `KHR`
-//! suffix — or an extension entry point loaded explicitly. A 1.2 or 1.3 call
-//! would compile, load, and panic.
+//! LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` (`gpu_vk.c`). Everything
+//! this module calls is therefore either Vulkan 1.1 core — `vkGetPhysicalDeviceProperties2`,
+//! `vkGetPhysicalDeviceFormatProperties2`, `vkGetImageMemoryRequirements2`,
+//! `vkBindImageMemory2`, all without a `KHR` suffix — or an extension entry point
+//! loaded explicitly. A 1.2 or 1.3 call would compile, load, and panic.
 
 use std::{fmt, mem::MaybeUninit, sync::Arc};
 

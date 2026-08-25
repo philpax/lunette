@@ -8,10 +8,10 @@
 //!
 //! LÖVR's modules, the XR session, the graphics device, the compositor thread,
 //! and every connected client keep running throughout. Nothing here touches any
-//! of them: the whole operation is confined to one Lua state, which is what
-//! makes it instant and what makes a client unable to notice it happened.
+//! of them: the whole operation is confined to one Lua state. A client cannot
+//! notice that it happened.
 //!
-//! # What is cleared, and what is not
+//! ## Module and callback clearing
 //!
 //! `package.loaded` keeps the roots [`PROTECTED_ROOTS`] names and drops
 //! everything else, so a module added to the standard library later — or a
@@ -22,32 +22,32 @@
 //! as a list.
 //!
 //! The Lua state itself is not closed. Globals survive, because nothing
-//! documents them as going and a configuration keeping its own state in one is
-//! entitled to. What goes is what `main.lua` owns: its modules and its
+//! documents them as going and a configuration keeping its own state in one may
+//! rely on it. What goes is what `main.lua` owns: its modules and its
 //! callbacks. `lunette.restart()` is the operation that discards everything.
 //!
-//! # Why the callbacks are cleared
+//! ## Callback clearance on reload
 //!
 //! `main.lua` defines `lovr.draw`, `lovr.update`, and the `lovr.lun*` handlers.
 //! Re-running it redefines the ones it still defines — but a callback the user
-//! *deleted* from their configuration would stay bound to the old function and
-//! keep being called, so a reload would silently keep executing code that is no
-//! longer in the file.
+//! deleted from their configuration would stay bound to the old function and
+//! keep being called, so a reload would silently execute code that is no longer
+//! in the file.
 //!
-//! [`USER_CALLBACKS`] is therefore a closed list, and it deliberately excludes
+//! [`USER_CALLBACKS`] is a closed list, and it deliberately excludes
 //! the callbacks `vendor/lovr/etc/boot.lua` defines defaults for. Clearing
-//! `lovr.log` would remove `boot.lua`'s default and nothing would put it
-//! back, because `boot.lua` runs once per Lua state and a soft reload does not
-//! make a new one.
+//! `lovr.log` would remove `boot.lua`'s default and nothing would put it back,
+//! because `boot.lua` runs once per Lua state and a soft reload does not create
+//! a new one.
 //!
-//! # Failure is not safe mode
+//! ## Reload failure vs startup failure
 //!
 //! A `main.lua` that fails to load at startup produces safe mode
-//! ([the Lua API](../../../docs/lua-api.md#errors)). A reload that fails does
-//! not: the user has a working session in front of them, and replacing it with
-//! the fallback over a typo they can fix and reload again would be worse than
-//! reporting the error. So [`reload`] returns the error, the session keeps
-//! running, and the clients stay where they are.
+//! ([the Lua API](../../../docs/lua-api.md#errors)). A reload that fails does not:
+//! the user has a working session in front of them, and replacing it with the
+//! fallback over a typo they can fix and reload again degrades the experience
+//! worse than reporting the error. [`reload`] returns the error, the session
+//! keeps running, and the clients stay where they are.
 
 use std::{cell::Cell, error::Error, fmt};
 

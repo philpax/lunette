@@ -3,8 +3,6 @@
 //! `lunette.restart()` discards the Lua state *and* the Vulkan device, and the
 //! clients survive both. This module is the protocol that makes that true.
 //!
-//! # What a restart actually destroys
-//!
 //! `lovr.event.restart` ends the boot coroutine, and `crate::boot` answers by
 //! calling `luax_close`. That runs LÖVR's finalizer chain, which contains
 //! `lovrGraphicsDestroy` — ending in `gpu_destroy`'s `vkDeviceWaitIdle`,
@@ -13,21 +11,18 @@
 //! and every allocation behind one was created against that device, and the
 //! compositor thread holds a reference to it.
 //!
-//! # Why the clients do not care
-//!
 //! The compositor never speaks Vulkan to a client. It receives descriptors and
 //! imports them. The Wayland socket, the connections, and the `wl_buffer`
 //! objects are all plain Rust and plain file descriptors, and none of them is
 //! invalidated by a device going away. Rust holds no long-lived reference into
-//! Lua, so nothing the compositor owns is reachable from the state being discarded.
-//!
-//! # The ordering
+//! Lua, so nothing the compositor owns is reachable from the state being
+//! discarded.
 //!
 //! The sequence prevents GPU use-after-free, and
 //! [`crate::frame::FrameDriver::quiesce`] performs it.
 //!
-//! 1. **Ask the compositor to release the device, and wait for it to say it
-//!    has.** Until that acknowledgement arrives the compositor may be inside
+//! 1. **Ask the compositor to release the device, and wait for it to say it has.**
+//!    Until that acknowledgement arrives the compositor may be inside
 //!    `vkCreateImage` for a client that committed a microsecond ago. This is the
 //!    one place where the frame thread waits on the compositor thread, and
 //!    [`quiesce`] records why it cannot deadlock.
@@ -35,12 +30,12 @@
 //!    `lovrLayerDestroy` calls `xrDestroySwapchain` inline, and a handle
 //!    `xrDestroySession` has already invalidated cannot be passed to it.
 //! 3. **Release every LÖVR texture.** That retires the image *views* into
-//!    LÖVR's own morgue, which `gpu_destroy` empties.
+//!    LÖVR's deferred queue, which `gpu_destroy` empties.
 //! 4. **Abandon the images without destroying them**, and drop the device.
 //!    [`ImageArena::abandon_all`] records the reasoning; the short version is
 //!    that a view still names each one, and destroying an image a view names is
-//!    a use-after-free the driver may act on, where leaving it is a
-//!    `vkDestroyDevice` valid-usage violation that validation layers report, but
+//!    a use-after-free the driver may act on, while leaving it is a
+//!    `vkDestroyDevice` valid-usage violation that validation layers report but
 //!    no live object can observe.
 //! 5. **Close the Lua state**, which is `crate::boot`'s to do, and is what
 //!    performs the destruction the four steps above prepared for.

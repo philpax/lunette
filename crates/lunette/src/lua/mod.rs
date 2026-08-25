@@ -5,7 +5,7 @@
 //! native mechanism: windows, pixels, and input routing. Policy belongs to
 //! `@mullion`.
 //!
-//! # Rust holds no reference into Lua
+//! ## No cross-language references
 //!
 //! Nothing here keeps a `Lua`, a `RegistryKey`, or any handle to a Lua value
 //! beyond the call that produced it. The closures registered below capture an
@@ -13,10 +13,10 @@
 //! through that `Rc`.
 //!
 //! Soft reload discards the Lua state while the compositor, clients, and
-//! textures keep running. Rust must not retain values owned by that state; a
+//! textures keep running. Rust does not retain values owned by that state; a
 //! cached `Table` would become invalid on reload.
 //!
-//! # The frame
+//! ## Frame interaction model
 //!
 //! [`Session::begin`] installs the frame's snapshot and advances its
 //! generation. Reads during the frame use that snapshot.
@@ -27,16 +27,16 @@
 //! within the frame it made it, which is the same rule the protocol underneath
 //! imposes anyway.
 //!
-//! # Errors
+//! ## Error handling
 //!
 //! A defect in the caller's code raises: a malformed argument, an unknown
 //! option, a coordinate that is not a number. A race with a client that has
 //! exited does not — a dead handle answers `false` and reads its last-known
 //! values, because taking the session down over a window closing half a frame
-//! early is worse than doing nothing. `docs/lua-api.md` records that choice.
+//! early degrades the experience worse than doing nothing. `docs/lua-api.md` records that choice.
 //!
-//! Raising is safe: `boot.lua` runs every callback under `xpcall`, and the
-//! handler reports. Nothing here swallows an error to keep a frame alive.
+//! Errors raise safely: `boot.lua` runs every callback under `xpcall`, and the
+//! handler reports them. Nothing here swallows an error to keep a frame alive.
 
 mod claim;
 pub mod declarations;

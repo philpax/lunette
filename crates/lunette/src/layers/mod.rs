@@ -6,18 +6,17 @@
 //! the whole of the sharpness difference. Layers are scarce, so the question
 //! this module answers is which panels hold one.
 //!
-//! # Why the pool exists at all
+//! ## Pool design rationale
 //!
 //! `lovrLayerCreate` allocates an OpenXR swapchain with images, memory, and
 //! runtime state, synchronously on the calling thread, ending in
 //! `xrWaitSwapchainImage` with `XR_INFINITE_DURATION` inside a retry loop that
 //! has no escape. A panel manager promoting and demoting panels as the user
-//! looks around would allocate one every few frames if Lua created them
-//! directly. So Rust owns them, recycles them through a free list keyed by
-//! [`LayerKey`], and creates at most [`LayerPool::CREATIONS_PER_FRAME`] a
-//! boundary.
+//! looks around would allocate one every few frames if Lua created them directly.
+//! Rust owns them, recycles them through a free list keyed by [`LayerKey`], and
+//! creates at most [`LayerPool::CREATIONS_PER_FRAME`] per frame boundary.
 //!
-//! # The division with Lua
+//! ## Pool and Lua division of labour
 //!
 //! Lua supplies a scalar [`Priority`] per claim, and Rust assigns the top N
 //! deterministically. Ranking is application knowledge, such as focus, gaze,

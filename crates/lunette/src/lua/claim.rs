@@ -6,31 +6,32 @@
 //! which is the whole of the sharpness difference. Layers are scarce, so a panel
 //! asks for one and is told whether it has it.
 //!
-//! # Lua supplies the number, Rust does the arithmetic
+//! ## Priority ranking
 //!
 //! `lunette.claimLayer` takes a scalar priority and `claim:setPriority` changes
 //! it. [`LayerPool`] sorts by that number, stably, and assigns the top N.
 //! Ranking is application knowledge — focus, gaze, distance, a rule putting
-//! video above a terminal, hysteresis to stop grants flapping — and lunette
-//! never invents it. `docs/rendering.md` records that split.
+//! video above a terminal, hysteresis to prevent grant oscillation — and lunette
+//! never invents a ranking value. `docs/rendering.md` records that split.
 //!
-//! # Nothing lands mid-frame
+//! ## Claim resolution timing
 //!
-//! A claim made inside a callback is registered at once and granted no earlier
-//! than the next frame boundary. A grant that landed mid-frame would change a
+//! A claim made inside a callback is registered immediately and granted no earlier
+//! than the next frame boundary. A grant applied mid-frame would change a
 //! panel's realisation between its `lovr.update` and its `lovr.draw`, which is
-//! the class of inconsistency the snapshot model exists to prevent, and it is
-//! why [`ClaimRegistry::resolve`] is the frame loop's to call and not Lua's.
+//! the class of inconsistency the snapshot model exists to prevent. This is why
+//! [`ClaimRegistry::resolve`] runs in the frame loop rather than from Lua.
 //!
-//! # What makes a claim dead
+//! ## Claim lifetime
 //!
-//! A claim is dead once the pool no longer knows it, which is what
-//! `claim:release()` does and nothing else does. Revocation does not kill it:
-//! `docs/rendering.md` has the standard library fall back to an in-scene quad on
-//! revoke and upgrade back when a layer frees, and a handle that went inert on
-//! the way down could never carry the way back up. What revocation takes away is
-//! the `Layer` — `claim.granted` goes false and `claim.layer` answers `false` —
-//! and the same is true after a session is lost and the pool rebuilt.
+//! A claim is dead once the pool no longer knows about it, which is what
+//! `claim:release()` does and nothing else does. Revocation does not destroy a
+//! claim handle: `docs/rendering.md` has the standard library fall back to an
+//! in-scene quad on revoke and upgrade back when a layer frees, and a handle
+//! that went inert on the way down could never carry the way back up. What
+//! revocation takes away is the `Layer` — `claim.granted` goes false and
+//! `claim.layer` answers `false` — and the same is true after a session is lost
+//! and the pool rebuilt.
 
 use std::{cell::RefCell, collections::HashMap, ffi::c_void, fmt, rc::Rc};
 

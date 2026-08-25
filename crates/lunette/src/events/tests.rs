@@ -31,7 +31,7 @@ const DECLARATIONS: &str = include_str!("../../../../lua/lunette/init.luau");
 /// Every event this build delivers can be subscribed to, and the subscription
 /// is declared.
 ///
-/// Both come from one declaration, so this cannot fail through the two parting;
+/// Both come from one declaration, so this cannot fail through either part;
 /// what it catches is an event whose declaration was written and whose file was
 /// not regenerated, which `make check-definitions` reports and this reports at
 /// the point a reader is looking at the events.
@@ -90,7 +90,7 @@ fn a_name_at_the_limit_survives_the_trip_through_the_c_array() {
     assert_eq!(
         bytes[LONGEST.len()],
         0,
-        "the array is what `lovr.handlers` is indexed by, so it has to terminate"
+        "the array is what `lovr.handlers` indexes by, so it must terminate"
     );
 }
 
@@ -99,7 +99,7 @@ fn a_name_too_long_for_the_array_is_refused() {
     let overlong = format!("{LONGEST}x");
     assert_eq!(overlong.len(), CUSTOM_EVENT_NAME_CAPACITY);
 
-    // `EventName::new` takes a `&'static str`, and the check is on the
+    // `EventName::new` takes a `&'static str`, and the check runs on the
     // length, so leaking one byte of test string is the cheapest way to
     // state the boundary from both sides.
     assert_eq!(EventName::new(String::leak(overlong)), None);
@@ -193,7 +193,7 @@ fn the_frame_loops_own_reports_are_not_callbacks() {
     assert_eq!(
         LuaEvent::from_compositor(&CompositorEvent::SurfaceGone { surface }),
         None,
-        "a surface is not a window; a window going away is reported on its own"
+        "a surface is not a window; a window going away reports on its own"
     );
 }
 

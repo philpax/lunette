@@ -3,10 +3,9 @@
 //!
 //! An overlay whose panels are all on composition layers has nothing left to
 //! put in a projection layer. `docs/rendering.md` calls that skipping the
-//! projection layer, and the name understates what is skipped.
+//! projection layer. The name understates what is skipped.
 //!
-//! # `setLayers{ main = false }` saves almost nothing by itself
-//!
+//! Calling `setLayers{ main = false }` does not save the render pass itself.
 //! `lovrHeadsetSetLayers`'s third argument becomes `state.showMainLayer`
 //! (`headset.c`), and all that does at submit is leave the
 //! `XrCompositionLayerProjection` out of `XrFrameEndInfo::layers`
@@ -20,22 +19,17 @@
 //! frame that calls one of them and then sets `main = false` pays for the
 //! acquire and the wait and throws the result away.
 //!
-//! # Why this gates the two calls rather than the flag
-//!
-//! `vendor/lovr/etc/boot.lua` calls `lovr.headset.getPass()`
-//! unconditionally, before it has looked at whether `lovr.draw` exists, and
-//! `lovr.mirror` calls `lovr.headset.getTexture()` for the desktop
-//! window. lunette runs that loop unmodified — `docs/lovr-integration.md`
-//! records keeping LÖVR's `lovr.run` — so the two calls are wrapped instead:
-//! while the scene is skipped each answers nothing, `boot.lua` then finds no
-//! headset pass, and `lovr.draw` is not called at all.
+//! LÖVR calls `lovr.headset.getPass()` unconditionally before checking whether
+//! `lovr.draw` exists, and `lovr.mirror` calls `lovr.headset.getTexture()` for
+//! the desktop window. lunette runs LÖVR's loop unmodified
+//! (`docs/lovr-integration.md`), so the two calls are wrapped instead: while
+//! the scene is skipped each answers nothing, `boot.lua` then finds no headset
+//! pass, and `lovr.draw` is not called at all.
 //!
 //! The XR frame is submitted either way. `lovr.headset.submit()` is outside the
-//! branch, and `docs/rendering.md` is explicit that an overlay submits every
-//! cycle; dropping out of the runtime's frame loop would take the composition
-//! layers with it.
-//!
-//! # The flush
+//! branch, and `docs/rendering.md` states that an overlay submits every cycle;
+//! dropping out of the runtime's frame loop would take the composition layers
+//! with it.
 //!
 //! `if headset or window then lovr.graphics.submit(headset, window) end`
 //! (`boot.lua`) is the only thing that submits `state.stream`, and the

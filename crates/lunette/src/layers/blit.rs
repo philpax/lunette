@@ -4,7 +4,7 @@
 //! Getting a window's pixels into that swapchain is one copy, and this module is
 //! the decision about whether to make it.
 //!
-//! # The predicate
+//! # Copy predicate
 //!
 //! A surface's texture is replaced when its client commits a new buffer, and
 //! nothing else changes what a copy would produce. So the question is whether
@@ -22,7 +22,7 @@
 //! of the swapchain image holding an older frame, because the swapchain rotates
 //! and the image acquired this frame is not the one written last frame.
 //!
-//! # What a stale claim costs
+//! # Stale claims
 //!
 //! Nothing. A claim whose source has not committed since its last copy — which
 //! `docs/rendering.md` calls a stale claim — reaches [`Decision::Skip`] before
@@ -32,9 +32,9 @@
 //! decision is taken from two counters rather than from anything the layer
 //! itself has to be asked for.
 //!
-//! # What is not skipped
+//! # Submit boundary
 //!
-//! The submit. Every grantable layer goes to the runtime every frame, copied
+//! Every grantable layer goes to the runtime every frame, copied
 //! into or not: `xrEndFrame` re-composites from the image the swapchain last
 //! released, which costs nothing, whereas leaving a layer out of the list makes
 //! its panel disappear rather than hold still.

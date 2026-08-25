@@ -9,7 +9,7 @@
 //! reads the environment or installs a `tracing` subscriber. Everything it
 //! learns from the environment is passed onward as a parameter.
 //!
-//! # Writing the environment
+//! ## Environment write timing
 //!
 //! Exporting `WAYLAND_DISPLAY` — so that everything lunette starts finds its
 //! socket without being told — happens here and nowhere else, and it has to
@@ -19,29 +19,29 @@
 //! process is multithreaded: a concurrent `getenv` anywhere, including inside a
 //! C library, reads a pointer the write may free. LÖVR and GLFW spawn threads
 //! as they boot, and the compositor thread cannot start before them because it
-//! needs the graphics device they create. So the only safe moment is at the top
+//! needs the graphics device they create. The only safe moment is at the top
 //! of `main`, before anything else runs.
 //!
-//! That ordering is available because binding the socket needs nothing from the
-//! graphics device — only the compositor *thread* does. [`listen`] runs here,
-//! at the top of `main`, and returns the name; the socket then travels down to
-//! the frame loop, which starts the thread once LÖVR has a device to lend it.
+//! Binding the socket needs nothing from the graphics device — only the
+//! compositor *thread* does. [`listen`] runs here, at the top of `main`, and
+//! returns the name; the socket then travels down to the frame loop, which
+//! starts the thread once LÖVR has a device to lend it.
 //!
-//! `lunette_compositor::client::listen` therefore does not export the name
+//! `lunette_compositor::client::listen` does not export the display name
 //! itself, and carries the other half of this note. Setting the variable next
-//! to the code that creates the socket is the obvious thing to do, and it is
-//! wrong for a reason that is invisible from there.
+//! to the code that creates the socket is the obvious thing to do, but unsafe
+//! constraints make it wrong from a single-thread perspective.
 //!
 //! The export also has to follow the read of the *host's* `WAYLAND_DISPLAY`,
 //! which is why the two are one function: see
 //! [`read_host_then_export_display`].
 //!
-//! # Why this does not point LÖVR at lunette's own socket
+//! ## Wayland display handling
 //!
 //! Setting `WAYLAND_DISPLAY` in a process that is about to open a window of its
-//! own is a way to deadlock: the window's toolkit would connect to a socket
+//! own can cause a deadlock: the window's toolkit would connect to a socket
 //! whose compositor thread has not started, and wait for a registry that cannot
-//! arrive until it has. LÖVR's GLFW is built with `GLFW_BUILD_WAYLAND OFF`
+//! arrive until the window opens. LÖVR's GLFW is built with `GLFW_BUILD_WAYLAND OFF`
 //! , so it is X11-only and never reads the
 //! variable. A LÖVR build with Wayland support would have to save the host's
 //! value and hand it back, or defer the export until after the window exists —
@@ -50,8 +50,8 @@
 //! `DISPLAY` is deliberately not exported. It would name lunette's own X server
 //! whether or not xwayland-satellite actually started, so every X11 client
 //! lunette launched would hang against a socket with nothing behind it. A
-//! spawned child is told both values explicitly, by the compositor's spawner,
-//! which knows whether the bridge is running.
+//! spawned child receives both values explicitly, via the compositor's spawner,
+//! which tracks whether the bridge is running.
 
 mod boot;
 mod check;

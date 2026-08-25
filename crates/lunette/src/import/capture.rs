@@ -8,7 +8,7 @@
 //! a second GPU queue; lunette has one, and makes no assumption about LÖVR's
 //! queue topology.
 //!
-//! # Why a `Dmabuf` is built and kept
+//! ## Dmabuf caching for captured frames
 //!
 //! [`DmabufImporter`] caches on the identity of the `Dmabuf` it was handed, so
 //! a client cycling three buffers imports three images and then imports nothing
@@ -17,10 +17,10 @@
 //! cache, creating and destroying an image every frame for a picture that never
 //! changed shape.
 //!
-//! So the built `Dmabuf` is kept, keyed on the buffer object behind plane zero
+//! The built `Dmabuf` is kept, keyed on the buffer object behind plane zero
 //! together with the format it was built for.
 //!
-//! # Why the retention is per stream
+//! ## Per-stream retention budget
 //!
 //! PipeWire negotiates its own pool per stream, so a budget shared across every
 //! mirrored monitor is a budget three eight-buffer pools overrun between them.
@@ -32,11 +32,11 @@
 //! [`RETAINED_BUFFERS_PER_STREAM`], and eviction within a stream is
 //! least-recently-used rather than insertion-order.
 //!
-//! # Why an installed image is never evicted
+//! ## Image survival through eviction
 //!
 //! Dropping a retained `Dmabuf` is what lets [`DmabufImporter`] retire the image
-//! behind it, and a retired image is destroyed two frames later. That is sound
-//! for a client's buffer because the compositor retires one only after the
+//! behind it, and a retired image is destroyed two frames later. That is safe for
+//! a client's buffer because the compositor retires one only after the
 //! client destroyed it, which it could only do after committing a replacement.
 //! Nothing of the sort holds here: retirement is driven by lunette's own budget,
 //! not by the producer, so an image a `MonitorTextures` entry still wraps could

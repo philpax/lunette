@@ -1,7 +1,7 @@
 //! The ledger's bookkeeping, exercised without a graphics device.
 //!
-//! A texture here is an integer or a counter, which is what the generic on
-//! [`TextureLedger`] is for. The rotation, the frame check, the dead-handle
+//! A texture here is an integer or a counter, which is the type parameter on
+//! [`TextureLedger`] for. The rotation, the frame check, the dead-handle
 //! rule, the retirement schedule, and the stabilising copy are all production
 //! code paths; only the texture itself is a stand-in.
 
@@ -23,8 +23,8 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 
-/// Stands in for a LÖVR texture. The ledger never dereferences what it
-/// holds, which is the property that makes this substitution honest.
+// The ledger never dereferences what it holds, which is the property that
+/// makes this substitution honest.
 type FakeTexture = u32;
 
 fn surface(raw: u64) -> SurfaceId {
@@ -84,7 +84,7 @@ fn a_handle_from_an_earlier_frame_is_refused() {
             obtained: frame(3),
             current: frame(4),
         }),
-        "the texture rotates as the client cycles buffers, so a cached handle is not merely \
+        "the texture rotates as the client cycles buffers, so a cached handle is \
          stale bookkeeping"
     );
 }
@@ -122,7 +122,7 @@ fn installing_a_texture_returns_the_one_it_replaces() {
     assert_eq!(
         ledger.install(surface(1), 2, description(64, 32)),
         released(Some(1)),
-        "the previous texture is handed back so its reference can be dropped"
+        "the previous texture is handed back so its reference can drop"
     );
     assert_eq!(
         ledger.lookup(TextureRef::new(surface(1), frame(0)), frame(0)),
@@ -189,7 +189,7 @@ fn marking_a_surface_dead_twice_yields_the_texture_once() {
     assert_eq!(
         ledger.mark_dead(surface(1)),
         released(None),
-        "a second call must not hand out a reference that has already been dropped"
+        "a second call must not hand out a reference that has already dropped"
     );
 }
 

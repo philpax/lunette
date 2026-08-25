@@ -4,9 +4,9 @@
 //! Every read refreshes that cache against the frame's snapshot. A dead handle
 //! continues to report the last state it knew.
 //!
-//! Refreshing on read avoids retaining Lua references. Rust does not know which
+//! Refreshing on read avoids retaining Lua references. Rust does not track which
 //! handles Lua keeps, so it cannot refresh them all at frame start; soft reload
-//! can instead discard the Lua state without Rust retaining its values.
+//! discards the Lua state without Rust retaining its values.
 
 use std::{cell::RefCell, rc::Rc};
 

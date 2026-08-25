@@ -4,25 +4,23 @@
 //! client lunette hosts, and the two must not be confused: one goes through the
 //! compositor's seat and the other through `lunette-capture`'s `HidProvider`.
 //! [`HostSinks`] is the seam between the Lua surface and the second of those,
-//! held by [`Session`] behind a trait object for the same reason the layer pool
-//! and the mirrors are — so that no second type parameter has to thread through
-//! every handle.
+//! held by [`Session`] behind a trait object alongside the layer pool and the
+//! mirrors, which avoids a second type parameter threading through every handle.
 //!
-//! # One cursor, however many hands
+//! ## Host input sharing
 //!
 //! Every host sink shares one cursor and one keyboard focus, because the host
-//! desktop has one of each. That is the whole reason the domain is exposed to
-//! Lua rather than hidden: a panel library that presented two mirrored monitors
-//! as independently focusable would be describing something the host cannot do.
+//! desktop has one of each. The domain is exposed to Lua so a panel library can
+//! avoid presenting two mirrored monitors as independently focusable.
 //!
-//! # The two coordinate spaces
+//! ## Coordinate spaces
 //!
-//! A provider knows the host desktop only as a bounding box: uinput's device
-//! spans it in a fixed normalised range, and `zwlr_virtual_pointer_v1` takes the
-//! extent on every call. Per-monitor targeting is upstream of that, in the
-//! [`MonitorMapping`] built from each monitor's logical geometry. This is the
-//! seam where the two meet, and [`HostPointer::attach`] is what keeps the box up
-//! to date as monitors are added, removed, or moved.
+//! The host desktop presents as a bounding box: uinput's device spans it in a
+//! fixed normalised range, and `zwlr_virtual_pointer_v1` takes the extent on
+//! every call. Per-monitor targeting lives upstream, in the
+//! [`MonitorMapping`] built from each monitor's logical geometry. This module
+//! sits where the two meet, and [`HostPointer::attach`] keeps the box up to date
+//! as monitors are added, removed, or moved.
 //!
 //! [`Session`]: crate::lua::Session
 
@@ -67,8 +65,7 @@ pub trait HostSinks: fmt::Debug {
     /// without saying so.
     ///
     /// What the key reaches is whatever the *host* compositor currently focuses,
-    /// and lunette does not
-    /// choose what that is.
+    /// and lunette does not control focus on the host desktop.
     fn key(&self, key: VirtualKey, pressed: bool) -> bool;
 
     /// Brings the host's held modifiers to a set.
@@ -226,9 +223,9 @@ impl HostSinks for HostPointer {
 /// Runs a provider call, reporting a failure rather than propagating it.
 ///
 /// A Lua caller gets a boolean: driving the host desktop is best-effort — the
-/// user may have revoked a permission, or the host session may have gone — and
-/// a script that raised on every refused keystroke would be unwritable. The log
-/// line is where the reason survives.
+/// user may have revoked a permission, or the host session may have gone. The
+/// log line carries the reason; a failure returns false without ending the
+/// operation.
 fn report(context: &str, call: impl FnOnce() -> Result<(), ProviderError>) -> bool {
     match call() {
         Ok(()) => true,

@@ -5,12 +5,12 @@
 //! a reader knows how much to expect before it starts and a partial write is
 //! detectable rather than being taken for a short chunk.
 //!
-//! # The value tree
+//! ## Value tree structure
 //!
 //! [`Value`] is a tagged tree, which is what lets `lunctl` print a nested table
-//! rather than the `tostring` fallback awesome's remote control resorts to
-//! ([the Lua API](../../../docs/lua-api.md#lunctl)). Every node says what it is,
-//! so nothing has to be inferred from its shape.
+//! rather than resorting to the `tostring` fallback that awesome's remote control
+//! uses ([the Lua API](../../../docs/lua-api.md#lunctl)). Every node declares its
+//! type, so nothing has to be inferred from its shape.
 //!
 //! A table carries its array part and its other entries separately, because
 //! `{1, 2, x = 3}` is one Lua value with no single equivalent in a format that
@@ -18,10 +18,10 @@
 //! which is what makes a table-valued key — something the serialiser refuses —
 //! unrepresentable here rather than merely rejected on the way in.
 //!
-//! A handle is a kind and an identifier, never a pointer.
+//! A handle stores its kind and identifier, never a pointer address.
 //! `crate::control::serialise` states why an address would be wrong.
 //!
-//! # Versioning
+//! ## Protocol versioning
 //!
 //! Every frame begins with [`PROTOCOL_VERSION`], at a fixed offset that will not
 //! move. `lunctl` and lunette ship together, so a mismatch means one of them was

@@ -1,48 +1,46 @@
 //! Linux-only: the input sink handle Lua holds.
 //!
 //! A sink takes pixel coordinates. Everything above it — the ray, the plane
-//! intersection, the conversion from a surface hit to a pixel — is Lua's, and
-//! is why `docs/input.md` puts the native boundary exactly here: Rust knows
-//! nothing about the scene, so an input method it has never heard of works
-//! without a change on this side.
+//! intersection, the conversion from a surface hit to a pixel — belongs to Lua,
+//! and is why `docs/input.md` puts the native boundary exactly here: the scene
+//! model lives in Lua, so an input method Rust has never heard of works without
+//! a change on this side.
 //!
-//! # Two domains, one handle
+//! ## Input domains
 //!
 //! A sink names either a window this compositor hosts or one of the user's own
 //! monitors, and the two route down entirely different pipelines: a window's
 //! events go through the compositor's seat, and a monitor's go through
 //! `lunette-capture`'s `HidProvider` to the host desktop. A caller holds the
-//! same kind of handle either way, and `sink.domain` is how it asks which.
+//! same kind of handle either way, and `sink.domain` indicates which domain it
+//! targets.
 //!
-//! The dispatch is an exhaustive match on [`SinkTarget`] rather than a flag, so
-//! a domain added later cannot be silently unhandled. Two sinks in different
+//! The dispatch uses an exhaustive match on [`SinkTarget`] rather than a flag,
+//! so a domain added later cannot be silently unhandled. Two sinks in different
 //! domains are independent: pointing at a window and at a mirror in the same
 //! frame reaches the client and the host, and neither reaches the other.
 //!
-//! # What the host cannot do
+//! ## Host input constraints
 //!
 //! Every host sink shares one cursor and one keyboard focus, because the host
 //! has one of each. `docs/host-desktop.md` records why that is exposed rather
-//! than papered over. A key sent to a host sink reaches whatever the host
-//! compositor currently focuses, and lunette does not choose what that is and
-//! must not try.
+//! than hidden. A key sent to a host sink reaches whatever the host
+//! compositor currently focuses; lunette does not control focus on the host.
 //!
 //! A key sent to a host sink reaches the host through `HidProvider::send_key`,
-//! under the layout of the seat it was
-//! addressed to — uploaded to the host first, because
-//! `zwp_virtual_keyboard_v1` treats a key sent before a keymap as a protocol
-//! error and disconnects the provider.
+//! under the layout of the seat it was addressed to — uploaded to the host
+//! first, because `zwp_virtual_keyboard_v1` treats a key sent before a keymap
+//! as a protocol error and disconnects the provider.
 //!
-//! Focus is the one thing a host sink refuses. Which window on the host desktop
-//! holds the keyboard is the host compositor's decision, and lunette does not
-//! get a say in it.
+//! Focus redirection is not supported for host sinks. Which window on the host
+//! desktop holds the keyboard is the host compositor's decision.
 //!
-//! # Which seat
+//! ## Seat parameter
 //!
 //! Every method takes an optional trailing seat. Absent means the default seat,
 //! which is the one a configuration that never called `lunette.newSeat` has.
-//! A host sink ignores it and says so in `docs/lua-api.md`: the host has one
-//! cursor and one keyboard focus however many hands point at it.
+//! A host sink ignores it and reports it in `docs/lua-api.md`: the host has one
+//! cursor and one keyboard focus regardless of how many handles point at it.
 
 use std::rc::Rc;
 

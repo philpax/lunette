@@ -9,16 +9,15 @@
 //! narrow the table to what the hardware will actually accept live in
 //! [`crate::import::device`], because they need a device and these do not.
 //!
-//! # The X variants
+//! ## Opaque X (no-alpha) format mapping
 //!
 //! `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` have no alpha channel: the fourth
 //! component is undefined padding. Vulkan has no matching format, so each maps
 //! to the alpha-carrying format with the same component order, and whatever the
 //! client left in the padding byte arrives as alpha. [`Alpha::Opaque`] records
 //! that, and a consumer must force alpha to one rather than sampling it. WayVR
-//! maps the same six fourccs without recording the
-//! distinction, which is why its X-format content renders with arbitrary
-//! transparency.
+//! maps the same six fourccs without recording the distinction, which is why its
+//! X-format content renders with arbitrary transparency.
 
 use ash::vk;
 use lunette_lovr::raw::{TextureFormat, TextureFormat_FORMAT_BGRA8, TextureFormat_FORMAT_RGBA8};
