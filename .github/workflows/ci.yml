@@ -39,9 +39,12 @@ jobs:
       - uses: actions/checkout@v4
 
       # rustfmt.toml opts into imports_granularity and group_imports, which
-      # stable rustfmt skips silently.
+      # stable rustfmt skips silently, so `make check-format` calls
+      # `cargo +nightly fmt` and this is the toolchain it names.
       - name: Install nightly rustfmt
-        run: rustup toolchain install nightly --profile minimal --component rustfmt
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
 
       - name: Install StyLua
         uses: JohnnyMorganz/stylua-action@v4
@@ -85,6 +88,19 @@ jobs:
       # wait on the network rather than on the runner's cores.
       - name: Check out the submodules
         run: git submodule update --init --recursive --depth 1 --jobs 8
+
+      # A runner image ships a stable toolchain of its own and does not update
+      # it, so a job left to the image builds with whatever release the image
+      # was baked with. This makes it the current stable instead: a clippy lint
+      # a contributor's rustup already carries then fails here as an unknown
+      # lint under `-D warnings`, which is what happened one image behind.
+      # Nothing else pins a Rust version — the tree tracks stable and states no
+      # minimum supported version.
+      - name: Install the current stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # The action installs the minimal profile, which carries neither.
+          components: clippy, rustfmt
 
       - name: Install the system dependencies
         # The devshell's buildInputs and nativeBuildInputs, as their Debian
