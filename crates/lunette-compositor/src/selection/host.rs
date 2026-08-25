@@ -82,7 +82,9 @@ pub enum HostEvent {
         offer: OfferId,
         mimes: Vec<MimeType>,
     },
-    Cleared { kind: SelectionKind },
+    Cleared {
+        kind: SelectionKind,
+    },
     /// The host requests bytes from a lunette-owned selection.
     ///
     /// The host supplies `pipe`; the compositor passes it to the owning lunette
@@ -93,12 +95,16 @@ pub enum HostEvent {
         pipe: OwnedFd,
     },
     /// The host cancelled a source that lunette owns.
-    Cancelled { kind: SelectionKind },
+    Cancelled {
+        kind: SelectionKind,
+    },
     /// The host connection ended. No further selection events or reads cross it.
     ///
     /// The connection does not reconnect because a replacement socket may belong
     /// to a different host session.
-    Lost { reason: String },
+    Lost {
+        reason: String,
+    },
 }
 
 /// The bounded event queue from the host worker to the compositor thread.

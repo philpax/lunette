@@ -49,7 +49,9 @@ pub enum Command {
         signal: ProcessSignal,
     },
     /// Asks a toplevel to close. The client may prompt, or refuse.
-    CloseWindow { window: WindowId },
+    CloseWindow {
+        window: WindowId,
+    },
     /// Configures a toplevel. The client resizes at its own pace, and the new
     /// size is visible when it commits.
     ConfigureWindow {
@@ -64,7 +66,9 @@ pub enum Command {
         position: PixelPoint,
     },
     /// Withdraws a seat's pointer from whatever it was over.
-    PointerLeave { seat: SeatId },
+    PointerLeave {
+        seat: SeatId,
+    },
     /// Presses or releases a pointer button over a sink.
     Button {
         seat: SeatId,
@@ -89,7 +93,10 @@ pub enum Command {
     ///
     /// A host sink cannot be focused because lunette does not choose the host
     /// desktop's keyboard focus.
-    Focus { seat: SeatId, sink: Option<SinkId> },
+    Focus {
+        seat: SeatId,
+        sink: Option<SinkId>,
+    },
     /// Replaces a seat's modifier state wholesale.
     Modifiers {
         seat: SeatId,
@@ -98,19 +105,34 @@ pub enum Command {
     /// Types text that the active layout may not be able to express.
     ///
     /// Do not interleave this request with [`Command::Key`] for the same seat.
-    TypeText { seat: SeatId, text: String },
+    TypeText {
+        seat: SeatId,
+        text: String,
+    },
     CreateSeat {
         seat: SeatId,
         name: String,
         keyboard: Box<KeyboardConfig>,
     },
-    DestroySeat { seat: SeatId },
+    DestroySeat {
+        seat: SeatId,
+    },
     /// Selects the seat that bridges the host clipboard and primary selection.
     /// At most one seat can hold the bridge.
-    SetClipboardBridge { seat: Option<SeatId> },
-    CreateOutput { output: OutputId, mode: OutputMode },
-    ReconfigureOutput { output: OutputId, mode: OutputMode },
-    DestroyOutput { output: OutputId },
+    SetClipboardBridge {
+        seat: Option<SeatId>,
+    },
+    CreateOutput {
+        output: OutputId,
+        mode: OutputMode,
+    },
+    ReconfigureOutput {
+        output: OutputId,
+        mode: OutputMode,
+    },
+    DestroyOutput {
+        output: OutputId,
+    },
     /// Sets the rate at which a surface receives frame callbacks.
     SetFramePacing {
         surface: SurfaceId,
@@ -142,13 +164,22 @@ pub enum Command {
 #[derive(Debug)]
 pub enum Event {
     /// A mapped toplevel appears in the next snapshot.
-    WindowOpened { window: WindowId },
+    WindowOpened {
+        window: WindowId,
+    },
     /// An unmapped or disconnected toplevel is absent from the next snapshot,
     /// and its handle is dead.
-    WindowClosed { window: WindowId },
-    TitleChanged { window: WindowId, title: String },
+    WindowClosed {
+        window: WindowId,
+    },
+    TitleChanged {
+        window: WindowId,
+        title: String,
+    },
     /// A surface committed new content.
-    SurfaceDamaged { surface: SurfaceId },
+    SurfaceDamaged {
+        surface: SurfaceId,
+    },
     /// A client buffer is available to the frame thread.
     BufferImported {
         surface: SurfaceId,
@@ -158,7 +189,9 @@ pub enum Event {
     ///
     /// This applies to every `wl_surface`, including popups, subsurfaces, and
     /// cursor surfaces, so the frame thread can release its texture safely.
-    SurfaceGone { surface: SurfaceId },
+    SurfaceGone {
+        surface: SurfaceId,
+    },
     ProcessExited {
         process: ProcessId,
         outcome: ProcessOutcome,

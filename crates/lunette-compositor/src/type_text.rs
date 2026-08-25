@@ -120,8 +120,12 @@ pub(crate) struct TypeTextError {
 enum TypeTextErrorKind {
     NoCapacity,
     /// The requested capacity exceeds `wl_keyboard`'s eight-bit keycode range.
-    TooMuchCapacity { capacity: usize },
-    Unbindable { symbol: Keysym },
+    TooMuchCapacity {
+        capacity: usize,
+    },
+    Unbindable {
+        symbol: Keysym,
+    },
     Uncompilable,
 }
 

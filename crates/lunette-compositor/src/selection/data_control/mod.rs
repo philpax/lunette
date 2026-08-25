@@ -346,12 +346,13 @@ fn pump(worker: &mut Worker, commands: Channel<HostCommand>) -> Result<(), Worke
         })?;
 
     handle
-        .insert_source(commands, |event, _metadata, control: &mut Loop| {
-            match event {
+        .insert_source(
+            commands,
+            |event, _metadata, control: &mut Loop| match event {
                 channel::Event::Msg(command) => control.pending.push(command),
                 channel::Event::Closed => control.stop = true,
-            }
-        })
+            },
+        )
         .map_err(|error| WorkerError::Source {
             source: "the clipboard command channel",
             cause: error.error,

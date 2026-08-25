@@ -309,15 +309,9 @@ pub(crate) struct SeatError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SeatErrorKind {
     DuplicateId,
-    DuplicateName {
-        name: String,
-    },
-    Keymap {
-        error: KeymapError,
-    },
-    Keyboard {
-        message: String,
-    },
+    DuplicateName { name: String },
+    Keymap { error: KeymapError },
+    Keyboard { message: String },
     Unknown,
 }
 
