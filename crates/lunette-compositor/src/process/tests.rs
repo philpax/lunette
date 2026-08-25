@@ -1,5 +1,3 @@
-//! Tests for [`crate::process`].
-
 #![expect(
     clippy::expect_used,
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
@@ -319,9 +317,8 @@ fn a_child_that_has_exited_is_never_signalled_again() {
     let reports = registry.poll(&FakeInspector::default());
     assert_eq!(reports.len(), 1, "the exit is reported: {reports:?}");
 
-    // The registry drops the child as it removes the entry. A signal sent then
-    // would go to the pid the kernel has just taken back, and therefore to
-    // whichever unrelated process group is next given that number.
+    // Reaping frees the child's process-group identifier for reuse. Signalling it afterward
+    // could target an unrelated process group.
     assert_eq!(
         spawner.log.signals(0),
         Vec::new(),

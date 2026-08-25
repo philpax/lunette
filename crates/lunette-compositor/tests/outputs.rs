@@ -1,8 +1,7 @@
-//! The virtual monitors clients are told about.
+//! Tests the `wl_output` state visible to a Wayland client.
 //!
-//! Driven over a real `wayland-client`, because what needs establishing is what
-//! a client sees on `wl_output` — the mode, the scale, the name — and none of
-//! that is observable from the compositor's own side.
+//! The tests use `wayland-client` over an in-process socket pair because output
+//! mode, scale, and name are client-visible protocol events.
 
 #![expect(
     clippy::expect_used,
@@ -29,9 +28,6 @@ use lunette_compositor::{
 use pretty_assertions::assert_eq;
 use wayland_client::Proxy;
 
-/// The identifier the main thread would mint for the first Lua-created output.
-///
-/// One past the default, which is what `Session::mint_output` allocates from.
 const SECOND_OUTPUT: OutputId = match OutputId::new(2) {
     Some(output) => output,
     None => unreachable!(),
@@ -80,10 +76,9 @@ fn a_created_output_reaches_the_client_with_the_mode_it_was_asked_for() {
 
     assert_eq!(created.name.as_deref(), Some("lunette-2"));
     assert_eq!(created.size, (1920, 1080));
-    // Hertz in Lua, millihertz on the wire, converted once at the boundary.
+    // `wl_output.mode` carries millihertz, and `wl_output.scale` carries the
+    // fractional mode scale rounded up to a whole number.
     assert_eq!(created.refresh, 90_000);
-    // The ceiling of 1.5, because `wl_output.scale` is a whole number and
-    // rounding down would tell the client its monitor is unscaled.
     assert_eq!(created.scale, 2);
 }
 
@@ -118,8 +113,8 @@ fn two_outputs_with_different_scales_coexist() {
     assert_eq!(unscaled.scale, 1);
     assert_eq!(doubled.scale, 2);
     assert_eq!(unscaled.size, doubled.size);
-    // The same resolution over half the physical size is what a doubled scale
-    // means, and it is what a client divides to guess a density.
+    // Geometry reports millimetres derived from logical pixels, so doubling the
+    // mode scale halves the physical size for the same pixel mode.
     assert_eq!(doubled.physical.0 * 2, unscaled.physical.0);
 }
 
@@ -155,9 +150,8 @@ fn reconfiguring_an_output_tells_the_clients_that_bound_it() {
         .expect("the reconfigured output reported its configuration");
     assert_eq!(state.refresh, 120_000);
     assert_eq!(state.scale, 2);
-    // `wayland.xml` on `wl_output.name`: "This event is only sent once per
-    // output object, and the name does not change over the lifetime of the
-    // wl_output global." Every other event in the set may repeat.
+    // Reconfiguration repeats geometry, mode, scale, and description, but the
+    // protocol sends `wl_output.name` only once for each object.
     assert_eq!(
         client.driver().output_names(output),
         vec!["lunette-1".to_owned()],
@@ -203,10 +197,8 @@ fn a_destroyed_output_stops_being_advertised() {
 
 #[test]
 fn destroying_an_output_with_two_clients_on_two_outputs_does_not_cross_them() {
-    // The surfaces of every client used to be recorded against every output, so
-    // withdrawing one paired its own client's `wl_output` with another client's
-    // surface. `wl_surface.leave` with objects from two clients is a backend
-    // abort, not a protocol error, so the compositor thread dies with it.
+    // Teardown sends `wl_surface.leave` only when the output and surface belong to
+    // the same client; pairing resources from different clients aborts the backend.
     let mut compositor = with_three_outputs();
     let (second_stream, _second_client) = compositor.connect_assigned(SECOND_OUTPUT);
     let (third_stream, _third_client) = compositor.connect_assigned(THIRD_OUTPUT);
@@ -238,12 +230,8 @@ fn destroying_an_output_with_two_clients_on_two_outputs_does_not_cross_them() {
 
 #[test]
 fn destroying_an_output_two_clients_share_does_not_cross_them() {
-    // An assignment is many-to-one, so recording a surface against the one
-    // output its client is shown still leaves two clients in the same entry.
-    // Withdrawing it walks instances against surfaces, and without the client
-    // filter in `OutputRegistry::destroy` the product pairs one client's
-    // `wl_output` with the other's surface — a backend abort rather than a
-    // protocol error.
+    // Shared outputs require the same client filter for `wl_output` instances and
+    // surfaces; cross-client resource pairs abort the backend during teardown.
     let mut compositor = with_three_outputs();
     let (first_stream, _first_client) = compositor.connect_assigned(THIRD_OUTPUT);
     let (second_stream, _second_client) = compositor.connect_assigned(THIRD_OUTPUT);
@@ -275,9 +263,8 @@ fn destroying_an_output_two_clients_share_does_not_cross_them() {
 
 #[test]
 fn a_client_whose_output_is_destroyed_falls_back_to_the_default() {
-    // The assignment named an output that no longer exists, and `sees_output`
-    // answers `assigned == output` — so without clearing it the client matches
-    // no surviving global and holds no `wl_output` for the rest of its life.
+    // Destroying the assigned output clears the assignment before the default
+    // output is re-advertised, so the replacement passes the client filter.
     let mut compositor = with_three_outputs();
     let (stream, _client) = compositor.connect_assigned(SECOND_OUTPUT);
     let mut client = TestClient::from_stream(stream, &mut compositor);
@@ -290,8 +277,8 @@ fn a_client_whose_output_is_destroyed_falls_back_to_the_default() {
     compositor.send(Command::DestroyOutput {
         output: SECOND_OUTPUT,
     });
-    // A different registry name, so this cannot pass on the advertisement that
-    // is about to be withdrawn.
+    // A global removal and replacement can arrive in separate dispatch rounds;
+    // wait for the new registry name rather than the withdrawn one.
     client.settle(&mut compositor, |driver| {
         driver
             .globals
@@ -306,7 +293,6 @@ fn a_client_whose_output_is_destroyed_falls_back_to_the_default() {
     );
 }
 
-/// The registry name of the one `wl_output` a client has been advertised.
 fn output_global(client: &TestClient) -> Option<u32> {
     client
         .driver()
@@ -316,6 +302,8 @@ fn output_global(client: &TestClient) -> Option<u32> {
         .map(|global| global.name)
 }
 
+// The default output remains available because unassigned clients, including
+// adopted clients, use it.
 #[test]
 fn the_default_output_refuses_to_be_destroyed() {
     let mut compositor = TestCompositor::new();
@@ -326,8 +314,6 @@ fn the_default_output_refuses_to_be_destroyed() {
     let mut client = TestClient::connect(&mut compositor);
     client.settle_quiet(&mut compositor);
 
-    // A client assigned no output has to see something, and every adopted
-    // client is one of those.
     assert_eq!(compositor.snapshot().outputs.len(), 1);
     assert_eq!(
         client
@@ -356,11 +342,8 @@ fn a_surface_is_told_which_output_it_is_on() {
     });
 }
 
-// Per-client filtering. Two clients are the point: with one, an advertisement
-// that shows everything and one that shows the right thing are the same
-// picture.
-
-/// How many `wl_output` globals a client has been advertised.
+// Each client receives only its assigned output, or the default output when it
+// has no assignment.
 fn advertised(client: &TestClient) -> usize {
     client
         .driver()
@@ -370,7 +353,6 @@ fn advertised(client: &TestClient) -> usize {
         .count()
 }
 
-/// A compositor with the default output and two more.
 fn with_three_outputs() -> TestCompositor {
     let mut compositor = TestCompositor::new();
     compositor.send(Command::CreateOutput {
@@ -385,7 +367,7 @@ fn with_three_outputs() -> TestCompositor {
     compositor
 }
 
-/// The names of every output a client bound, sorted.
+// Binding follows the same per-client advertisement filter as the registry.
 fn bound_names(client: &mut TestClient, compositor: &mut TestCompositor) -> Vec<String> {
     let outputs = client.bind_outputs(compositor);
     let mut names: Vec<String> = outputs
@@ -445,12 +427,8 @@ fn two_clients_with_different_assignments_each_see_only_their_own() {
 fn binding_an_output_the_client_was_never_advertised_is_refused() {
     let mut compositor = with_three_outputs();
 
-    // Registry names are per-display, so the name a client learns for its own
-    // output is the same integer every other client would see for it. That is
-    // what supplies a name the first client was never told and could not have
-    // guessed from its own registry — and binding a name it *was* told is the
-    // control, since an arbitrary integer would be refused for being the wrong
-    // interface rather than for being the wrong output.
+    // Registry names are shared by clients on one display, so another client's
+    // valid output name exercises bind-time filtering rather than name parsing.
     let (second_stream, _second) = compositor.connect_assigned(SECOND_OUTPUT);
     let (third_stream, _third) = compositor.connect_assigned(THIRD_OUTPUT);
     let mut client = TestClient::from_stream(second_stream, &mut compositor);
@@ -524,9 +502,8 @@ fn a_spawn_naming_an_output_shows_its_client_that_output() {
     }));
     compositor.step();
 
-    // The connecting pid over a socket pair is the test's own rather than the
-    // one the spawner reported, which is the shape a shell wrapper produces and
-    // the reason the token exists.
+    // The socket peer reports the test process's pid, while the fake child has a
+    // different pid; copy its token into the inspector entry used for this client.
     let plan = compositor.spawns().requested();
     let token = plan[0]
         .env
@@ -553,7 +530,6 @@ fn a_spawn_naming_an_output_shows_its_client_that_output() {
     );
 }
 
-/// The output the client's only window reports, once it has one.
 fn only_window_output(client: &mut TestClient, compositor: &mut TestCompositor) -> OutputId {
     client.open_toplevel(compositor);
     client.attach_buffer(compositor, PixelSize::new(320, 240));
@@ -569,7 +545,6 @@ fn a_spawn_naming_an_output_that_does_not_exist_falls_back_to_the_default() {
         argv: Argv::from_list(vec![OsString::from("sh")]).expect("non-empty"),
         env: Vec::new(),
         cwd: None,
-        // Never created. Assigning it would show the client no monitor at all.
         output: Some(SECOND_OUTPUT),
         xwayland: false,
     }));

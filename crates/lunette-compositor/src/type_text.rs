@@ -1,33 +1,20 @@
-//! Typing text the active layout may not be able to express.
+//! Plans typing text that the active layout may not express.
 //!
-//! Entirely new work. Nothing in WayVR generates a keymap for arbitrary text,
-//! and nothing there saves or restores one.
+//! A synthetic keymap binds otherwise untypable keysyms to spare keycodes. The
+//! plan carries serialized keymap text because libxkbcommon keymaps are not
+//! thread-safe; each XKB context compiles its own copy.
 //!
-//! # The technique
+//! The executor runs plans on the compositor thread and preserves ordering with
+//! other key events for the same seat. Callers must not interleave a plan with
+//! manual key events on that seat because the active keymap changes during it.
 //!
-//! `docs/input.md:58-62` frames it: a temporary keymap binds spare keycodes to
-//! the keysyms the text needs, the key events are driven against it, and the
-//! client's own keymap is put back. That is what makes clipboard-less paste,
-//! dictation, and `lunctl` telling a terminal to run a command possible at all.
+//! After loading a synthetic keymap, the executor attempts to restore the seat's
+//! original keymap even if a later chunk fails. A failed restore leaves the
+//! synthetic keymap tracked for repair before later native typing. Planning errors
+//! are returned before any upload.
 //!
-//! It is deliberately the exception. Text the layout can already type takes the
-//! ordinary path and uploads nothing, because a `wl_keyboard.keymap` event
-//! makes every toolkit recompile a layout, and doing that to type "ls" would be
-//! absurd.
-//!
-//! # Why this file is pure
-//!
-//! Everything here is a function from text and a keymap to a [`TypePlan`]. The
-//! upload, the key events, and the restore live in [`crate::state::input`],
-//! where the seat is. That split is what lets the chunking, the resolution, and
-//! the emitted sequence be tested without a client, a display, or a device.
-//!
-//! # Restoring is part of the contract
-//!
-//! `lunette-v1.AC4.3` requires the client's own keymap handling to work
-//! afterwards, so the caller restores even when a chunk fails. A client left
-//! holding lunette's synthetic layout has a keyboard on which every key types
-//! the wrong thing, which is worse than the failure that produced it.
+//! The planner is pure, so chunking, resolution, and emitted sequences can be
+//! tested without a client, display, or device.
 
 use std::{error::Error, fmt, fmt::Write as _};
 
@@ -38,12 +25,6 @@ use crate::{
     protocol::{Keycode, KeymapText, Keysym, ModifierState},
 };
 
-/// What typing one piece of text takes.
-///
-/// A plan is a list of chunks because a temporary keymap holds a bounded number
-/// of keysyms. Text needing more than one keymap's worth is split into runs
-/// that fit rather than refused: a caller pasting a paragraph of emoji gets the
-/// paragraph, and the client sees several keymap changes, which is legal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TypePlan {
     chunks: Vec<Chunk>,
@@ -59,11 +40,9 @@ impl TypePlan {
     }
 }
 
-/// One keymap's worth of typing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Chunk {
-    /// The layout to upload before these steps, and to restore after them.
-    /// Absent when the seat's own layout already types everything here.
+    /// Serialized synthetic keymap for these steps, if they use synthetic keycodes.
     keymap: Option<KeymapText>,
     steps: Vec<TypeStep>,
 }
@@ -78,30 +57,19 @@ impl Chunk {
     }
 }
 
-/// One thing the caller does to the seat.
-///
-/// Modifier changes are steps rather than being folded into each tap, so the
-/// emitted sequence is what a client actually sees and a run of characters at
-/// the same level costs one modifier update rather than one per character.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TypeStep {
-    /// Bring the seat's modifiers to exactly this set.
     Modifiers(ModifierState),
-    /// Press and release a key.
     Tap(Keycode),
 }
 
-/// Works out what typing `text` on `keymap` takes.
-///
-/// `capacity` is how many distinct keysyms one synthetic keymap holds. It is a
-/// parameter rather than a constant because it is the property the chunking
-/// turns on, and [`SPARE_KEYCODES`] is what production passes.
+/// Plans typing `text` on `keymap` with the given synthetic-keymap capacity.
 ///
 /// # Errors
 ///
-/// [`TypeTextError`] when the capacity is zero or beyond [`SPARE_KEYCODES`], or
-/// when a character resolves to a keysym libxkbcommon will not name — which is
-/// what a keymap cannot be written for.
+/// Returns [`TypeTextError`] when the capacity is zero or exceeds
+/// [`SPARE_KEYCODES`], or when a character cannot be represented in a generated
+/// keymap.
 pub(crate) fn plan(
     text: &str,
     keymap: &Keymap,
@@ -136,15 +104,13 @@ pub(crate) fn plan(
     Ok(TypePlan { chunks })
 }
 
-/// How many distinct keysyms one synthetic keymap holds.
+/// The maximum number of distinct keysyms in one synthetic keymap.
 ///
-/// The whole keycode space, because the temporary keymap replaces the seat's
-/// own: every keycode in it is lunette's for the duration. The range is the
-/// X11-compatible one, since `wl_keyboard` carries eight-bit keycodes and a
-/// client could not be told about anything above it.
+/// `xkb_code` starts at the XKB minimum of eight, and `wl_keyboard` carries the
+/// resulting evdev keycodes in an eight-bit field. The inclusive X11 range ends
+/// at 255, so the capacity is 255 - 8 + 1 = 248.
 pub(crate) const SPARE_KEYCODES: usize = (X11_MAX_KEYCODE - XKB_MINIMUM_KEYCODE + 1) as usize;
 
-/// Why text could not be typed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TypeTextError {
     kind: TypeTextErrorKind,
@@ -152,15 +118,10 @@ pub(crate) struct TypeTextError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TypeTextErrorKind {
-    /// A keymap with no spare keycodes, which nothing could be typed on.
     NoCapacity,
-    /// More keycodes than `wl_keyboard`'s eight-bit numbering reaches, so the
-    /// keys past the range are ones no client could be told about.
+    /// The requested capacity exceeds `wl_keyboard`'s eight-bit keycode range.
     TooMuchCapacity { capacity: usize },
-    /// The generated keymap does not type what it was generated for, which
-    /// means the generator is wrong.
     Unbindable { symbol: Keysym },
-    /// The generated text did not compile, which means the generator is wrong.
     Uncompilable,
 }
 
@@ -188,20 +149,11 @@ impl fmt::Display for TypeTextError {
 
 impl Error for TypeTextError {}
 
-/// One stretch of text that is typed the same way.
 enum Run {
-    /// Characters the seat's own layout types.
     Native(Vec<KeyStroke>),
-    /// Characters it does not, as the keysyms a temporary keymap must bind.
     Synthetic(Vec<Keysym>),
 }
 
-/// Splits text into stretches the layout can type and stretches it cannot.
-///
-/// Adjacent characters of the same kind stay together, so text the layout types
-/// entirely produces one run and uploads nothing, and a single foreign
-/// character in the middle of a sentence costs one upload rather than one per
-/// character.
 fn runs(text: &str, keymap: &Keymap) -> Vec<Run> {
     let mut runs: Vec<Run> = Vec::new();
 
@@ -224,11 +176,8 @@ fn runs(text: &str, keymap: &Keymap) -> Vec<Run> {
     runs
 }
 
-/// Splits a synthetic run into batches of at most `capacity` distinct keysyms.
-///
-/// Distinct, not total: a keymap binds each keysym once, so a hundred copies of
-/// one character fit in a single-keycode keymap. The split respects order, so
-/// the text arrives in the order it was written.
+/// Wayland permits a `wl_keyboard.keymap` event between chunks. This lets a
+/// synthetic run exceed one map's keycode range while preserving text order.
 fn batches(symbols: &[Keysym], capacity: usize) -> Vec<Vec<Keysym>> {
     let mut batches = Vec::new();
     let mut current: Vec<Keysym> = Vec::new();
@@ -251,11 +200,8 @@ fn batches(symbols: &[Keysym], capacity: usize) -> Vec<Vec<Keysym>> {
     batches
 }
 
-/// The steps a run of native strokes takes.
-///
-/// A modifier step is emitted only when the set changes, and a trailing step
-/// brings the seat back to holding nothing — otherwise a run ending on a
-/// capital would leave shift held for whatever the caller does next.
+/// A final empty modifier state prevents a run ending with a shifted stroke from
+/// leaving Shift or another modifier held for the next input operation.
 fn native_steps(strokes: &[KeyStroke]) -> Vec<TypeStep> {
     let mut steps = Vec::new();
     let mut held = ModifierState::new();
@@ -274,10 +220,8 @@ fn native_steps(strokes: &[KeyStroke]) -> Vec<TypeStep> {
     steps
 }
 
-/// A chunk that binds each of `symbols` to a spare keycode and taps them.
-///
-/// Every keysym lands on the first level of its own key, so no modifier is
-/// needed and the whole chunk types with the seat holding nothing.
+/// Synthetic symbols bind at the first level of their keys, so each chunk starts
+/// by clearing modifiers before tapping them.
 fn synthetic_chunk(symbols: &[Keysym]) -> Result<Chunk, TypeTextError> {
     let mut distinct: Vec<Keysym> = Vec::new();
     for symbol in symbols {
@@ -302,13 +246,10 @@ fn synthetic_chunk(symbols: &[Keysym]) -> Result<Chunk, TypeTextError> {
     })
 }
 
-/// The keymap binding `symbols` to consecutive spare keycodes.
-///
-/// Generated as text rather than built through libxkbcommon's API, because text
-/// is what has to cross to smithay anyway: it recompiles the string in its own
-/// context, since libxkbcommon is not thread-safe. Compiling it here first is
-/// how a generator mistake is caught where it was made rather than as a
-/// keyboard that stops working.
+/// Generated keymap text crosses to the executor because libxkbcommon keymaps are
+/// not thread-safe; the executor recompiles it in its own XKB context. Compiling
+/// the text here and verifying its bindings returns generator errors before an
+/// invalid map reaches a client.
 fn synthesise(symbols: &[Keysym]) -> Result<KeymapText, TypeTextError> {
     let maximum = XKB_MINIMUM_KEYCODE + u32::try_from(symbols.len().max(1)).unwrap_or(1) - 1;
 
@@ -326,9 +267,8 @@ fn synthesise(symbols: &[Keysym]) -> Result<KeymapText, TypeTextError> {
     }
     text.push_str("};\n");
 
-    // The stock types and compatibility maps. A keymap without them compiles,
-    // and then a client's own `xkb_state` has no shift level to resolve against,
-    // so `xkb_keymap` is not the only thing that has to be complete.
+    // Include the stock types and compatibility maps so the client's xkb state
+    // resolves modifier levels and compatibility actions in the generated map.
     let _ = writeln!(
         text,
         "xkb_types \"{KEYMAP_NAME}\" {{ include \"complete\" }};"
@@ -356,10 +296,8 @@ fn synthesise(symbols: &[Keysym]) -> Result<KeymapText, TypeTextError> {
         kind: TypeTextErrorKind::Uncompilable,
     })?;
 
-    // What the client will read, read the same way. A name libxkbcommon prints
-    // and then declines to parse back would otherwise compile into a key that
-    // types nothing, and the hole would appear in the middle of the user's text
-    // rather than here.
+    // Verify the bindings through the same representation that the client reads,
+    // so an unparseable keysym name cannot silently drop text.
     for (index, symbol) in symbols.iter().enumerate() {
         if compiled.symbol(spare_key(index), &ModifierState::new()) != Some(*symbol) {
             return Err(TypeTextError {
@@ -371,37 +309,28 @@ fn synthesise(symbols: &[Keysym]) -> Result<KeymapText, TypeTextError> {
     Ok(text)
 }
 
-/// The name a keymap binds a keysym under.
+/// Returns the libxkbcommon name that the generated keymap binds.
 ///
-/// libxkbcommon names anything: a recognised keysym by its own name, and
-/// anything else by its hexadecimal value, which its parser reads back. The
-/// caller verifies the result rather than trusting either form.
+/// Unrecognised keysyms use hexadecimal names that libxkbcommon parses back;
+/// `synthesise` verifies that the compiled map preserves the original symbol.
 fn symbol_name(symbol: Keysym) -> String {
     xkb::keysym_get_name(xkb::Keysym::new(symbol.raw()))
 }
 
-/// The evdev keycode the nth spare key is addressed by.
 const fn spare_key(index: usize) -> Keycode {
     Keycode::from_evdev(xkb_code(index) - XKB_KEYCODE_OFFSET)
 }
 
-/// The xkb keycode the nth spare key is declared as.
 const fn xkb_code(index: usize) -> u32 {
     XKB_MINIMUM_KEYCODE + index as u32
 }
 
-/// The lowest keycode an X11-compatible keymap uses, which is also xkb's
-/// offset from evdev.
 const XKB_MINIMUM_KEYCODE: u32 = XKB_KEYCODE_OFFSET;
 
-/// What xkb adds to an evdev code.
 const XKB_KEYCODE_OFFSET: u32 = 8;
 
-/// The highest keycode `wl_keyboard`'s eight-bit numbering reaches.
 const X11_MAX_KEYCODE: u32 = 255;
 
-/// What the synthetic keymap's sections are called. Visible to a client that
-/// inspects the layout it was handed, so it says where it came from.
 const KEYMAP_NAME: &str = "lunette-typetext";
 
 #[cfg(test)]
@@ -430,7 +359,6 @@ mod tests {
         plan(text, &us(), SPARE_KEYCODES).expect("the plan is buildable")
     }
 
-    /// How many chunks upload a keymap.
     fn uploads(plan: &TypePlan) -> usize {
         plan.chunks()
             .iter()
@@ -438,11 +366,10 @@ mod tests {
             .count()
     }
 
-    /// The characters a chunk's taps would type, read back through the keymap
-    /// the chunk uploads or through the seat's own.
+    /// Resolves taps through a freshly compiled keymap, the client's readback path.
     ///
-    /// Deliberately not a restatement of the planner: it resolves each tap
-    /// through a compiled keymap, which is the same path a client takes.
+    /// This stays independent of the planner so a wrong keycode or modifier step
+    /// cannot make its own test oracle pass.
     fn typed(plan: &TypePlan, active: &Keymap) -> String {
         let mut text = String::new();
 
@@ -553,7 +480,6 @@ mod tests {
 
     #[test]
     fn text_needing_more_keysyms_than_one_keymap_holds_is_chunked() {
-        // Four distinct foreign characters against a keymap that holds two.
         let text = "\u{2600}\u{2601}\u{2602}\u{2603}";
         let plan = plan(text, &us(), 2).expect("the plan is buildable");
 
@@ -564,8 +490,6 @@ mod tests {
 
     #[test]
     fn repeats_of_one_character_share_a_keycode_rather_than_forcing_a_chunk() {
-        // A keymap that holds one keysym still types this in one chunk, because
-        // a keymap binds each keysym once however often it is typed.
         let text = "\u{2603}\u{2603}\u{2603}";
         let plan = plan(text, &us(), 1).expect("the plan is buildable");
 
@@ -587,9 +511,6 @@ mod tests {
 
     #[test]
     fn a_capacity_past_the_keycode_range_is_refused_rather_than_emitting_unreachable_keys() {
-        // `xkb_code` is `8 + index` with nothing above it, so one more than the
-        // range would declare a key at 256 — past what `wl_keyboard` carries,
-        // and so a key no client could be told about.
         assert!(plan("\u{2603}", &us(), SPARE_KEYCODES).is_ok());
 
         let error = plan("\u{2603}", &us(), SPARE_KEYCODES + 1)
@@ -613,9 +534,8 @@ mod tests {
 
     #[test]
     fn a_keysym_with_no_name_of_its_own_binds_through_its_hexadecimal_form() {
-        // libxkbcommon names an unrecognised keysym `0x…` and reads that form
-        // back, so the fallback is a real binding rather than a hole. It is
-        // what makes the generator total over the Unicode keysym range.
+        // libxkbcommon prints an unrecognised keysym as hexadecimal and parses
+        // that form back, so the fallback covers keysyms without named bindings.
         let symbol = Keysym::from_raw(0x1100_0000);
         assert!(symbol_name(symbol).starts_with("0x"));
 
@@ -629,9 +549,8 @@ mod tests {
 
     #[test]
     fn a_keysym_the_keymap_would_not_type_is_refused_rather_than_bound() {
-        // `NoSymbol`, which libxkbcommon names and then compiles into a key that
-        // types nothing. Sending it would be a silent hole in the user's text,
-        // which is the failure the verification in `synthesise` exists to catch.
+        // `NoSymbol` compiles into a key that types nothing. Verification rejects
+        // it so the generated sequence cannot silently drop text.
         let error = synthesise(&[Keysym::from_raw(0)]).expect_err("nothing binds NoSymbol");
 
         assert!(error.to_string().starts_with("type text: "));

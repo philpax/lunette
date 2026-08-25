@@ -1,56 +1,44 @@
-//! The clipboard and the primary selection, and the bridge to the host's.
+//! Clipboard and primary-selection bridging across the host boundary.
 //!
-//! Four protocols carry a selection: `wl_data_device` for the clipboard,
-//! `zwp_primary_selection_v1` for the middle-click selection, and
-//! `zwlr_data_control_v1` and `ext_data_control_v1` for a clipboard manager
-//! that wants both without holding focus. lunette advertises all four to its own
-//! clients, and speaks the last two *as a client* to the host compositor, which
-//! is how a selection crosses the boundary in either direction.
+//! lunette advertises `wl_data_device`, `zwp_primary_selection_v1`,
+//! `zwlr_data_control_v1`, and `ext_data_control_v1` to its clients. It uses the
+//! data-control protocols as a client of the host compositor, so selections cross
+//! the boundary in both directions.
 //!
-//! Every selection is per-seat, because smithay stores it in `Seat::user_data`
-//! and every entry point takes the seat. The host has exactly one clipboard and
-//! one primary selection, so exactly one seat is bridged to it; [`SelectionBridge`]
-//! is where that mapping lives, and `docs/input.md` records the reasoning.
+//! Selections belong to individual seats in lunette. The host exposes one
+//! clipboard and one primary selection, so [`SelectionBridge`] maps one
+//! designated seat to both host selections; other seats keep their selections
+//! local. See `docs/input.md` for the selection contract.
 //!
-//! # Nothing here reads or writes a selection pipe
+//! # Descriptor passing
 //!
-//! This is the part that usually goes wrong, so it is stated plainly: **lunette
-//! never buffers selection content and never touches a selection pipe.** A
-//! transfer is a descriptor handed from the process that wants the bytes to the
-//! process that has them, and lunette is neither.
+//! lunette forwards selection descriptors without buffering or reading from or
+//! writing to a selection pipe.
 //!
-//! - A lunette client pasting supplies a pipe to `wl_data_offer.receive`.
-//!   smithay hands that descriptor to [`SelectionHandler::send_selection`], and
-//!   the descriptor is forwarded to the host connection, which passes it
-//!   straight to `ext_data_control_offer_v1.receive`. The host's *own* clipboard
-//!   owner then writes into the lunette client's pipe.
-//! - The host pasting supplies a pipe to lunette's data-control source. That
-//!   descriptor arrives on the host worker as a `send` event, crosses back to the
-//!   compositor thread, and is handed to `request_data_device_client_selection`,
-//!   which passes it to the lunette client that owns the selection.
+//! A lunette client requests a host offer through `wl_data_offer.receive` or
+//! `zwp_primary_selection_offer.receive`. Smithay invokes
+//! [`SelectionHandler::send_selection`], and lunette forwards the descriptor to
+//! the selected host data-control offer (`ext_data_control_offer_v1` or
+//! `zwlr_data_control_offer_v1`), where the host's selection owner writes.
+//! When the host requests a lunette-owned selection, its data-control source
+//! supplies the descriptor. The host worker emits [`HostEvent::Send`], and the
+//! compositor forwards the descriptor to the bridge seat's client through
+//! `request_data_device_client_selection` or `request_primary_client_selection`.
+//! The client that owns the selection writes it.
 //!
-//! So no thread of lunette's ever blocks on a pipe: a client that never reads
-//! stalls only the process that owns the data, exactly as it would with no
-//! lunette in the middle. WayVR instead spawns a detached thread per request and
-//! writes the bytes itself (`comp.rs:365-383`), with no join, no bound, and no
-//! cancellation; a client requesting the selection in a loop spawns threads
-//! without limit. `docs/input.md` records why the descriptor is passed
-//! rather than the bytes copied.
+//! The compositor and host worker do not wait on selection pipes. Their bounded
+//! command and event queues use nonblocking sends, so a slow reader stalls only
+//! the process that owns the bytes.
 //!
-//! Descriptor ownership is encoded rather than trusted. A [`HostRead`] owns its
-//! [`OwnedFd`], and a rejection returns the whole request, so a refused transfer
-//! either reaches the host or is closed by a named owner — never both, and never
-//! neither.
+//! [`HostRead`] owns a host-request descriptor until [`HostSelection::read`]
+//! accepts it. A rejected request returns the complete value in [`Rejected`], so
+//! the caller remains its owner and closes it by dropping the request.
 //!
-//! # Nothing here substitutes a MIME type
+//! # MIME types
 //!
-//! WayVR hardcodes `"text/plain;charset=utf-8"` and `"text/plain"`
-//! (`comp.rs:102-109`) whatever the source actually advertises. lunette re-offers
-//! the source's own list unchanged in both directions, so there is no format to
-//! negotiate and nothing to lose. A request for a type the offer does not carry
-//! is refused with [`Refusal::Unrepresentable`] rather than answered with the
-//! nearest thing, because content silently substituted is worse than a paste
-//! that visibly did nothing.
+//! lunette re-offers each source's MIME list unchanged in both directions. MIME
+//! requests match byte for byte; a request for an unadvertised type is refused
+//! with [`Refusal::Unrepresentable`] rather than substituted.
 
 mod data_control;
 mod host;
@@ -83,11 +71,7 @@ pub use crate::selection::{
 };
 
 closed_set! {
-    /// One of the two selections a seat carries.
-    ///
-    /// A closed set rather than a boolean, so a path that handles one and not the
-    /// other fails to compile rather than silently bridging half of
-    /// `lunette-v1.AC4.5`.
+    /// Identifies a seat's clipboard or primary selection.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum SelectionKind {
         /// What an explicit copy puts on the clipboard.
@@ -98,7 +82,6 @@ closed_set! {
 }
 
 impl SelectionKind {
-    /// The selection a smithay target names.
     pub(crate) const fn from_target(target: SelectionTarget) -> Self {
         match target {
             SelectionTarget::Clipboard => Self::Clipboard,
@@ -106,11 +89,6 @@ impl SelectionKind {
         }
     }
 
-    /// Where this selection sits in a per-kind array.
-    ///
-    /// One mapping for the whole crate. Two of them, over arrays in two files,
-    /// would let a divergence become a cross-file bug that neither file looks
-    /// wrong on its own.
     pub(crate) const fn index(self) -> usize {
         match self {
             Self::Clipboard => 0,
@@ -119,26 +97,16 @@ impl SelectionKind {
     }
 }
 
-/// A MIME type, as a selection source advertises it.
+/// A MIME type advertised by a selection source.
 ///
-/// Compared byte for byte rather than case-insensitively. The clipboard
-/// protocols carry the string a source chose and every implementation matches it
-/// exactly, so normalising here would make lunette answer a request no other
-/// compositor would.
+/// MIME types compare byte for byte, as required by the selection protocols.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MimeType(String);
 
 impl MimeType {
-    /// Wraps a MIME type, rejecting an empty one and one carrying surrounding
-    /// whitespace.
+    /// Rejects an empty MIME type or one with surrounding whitespace instead of trimming it.
     ///
-    /// An empty string is not a type any source can be asked for, and offering
-    /// one would advertise a transfer that can never be answered. Whitespace
-    /// around a type is refused rather than trimmed away, because the stored
-    /// string is compared byte for byte against what the other side asks for:
-    /// trimming would make lunette answer a request naming a type no source
-    /// advertised, and accepting the untrimmed form would store a type nothing
-    /// will ever match.
+    /// Later requests compare the stored value byte for byte with the advertised value.
     #[must_use]
     pub fn new(name: impl Into<String>) -> Option<Self> {
         let name = name.into();
@@ -150,7 +118,6 @@ impl MimeType {
         &self.0
     }
 
-    /// The type as the `String` every protocol call takes.
     #[must_use]
     pub fn into_string(self) -> String {
         self.0
@@ -163,13 +130,10 @@ impl fmt::Display for MimeType {
     }
 }
 
-/// Which of the host's successive offers a transfer belongs to.
+/// Identifies the host offer used for a transfer.
 ///
-/// The host replaces its selection whenever anything on the desktop copies, and
-/// a lunette client may still be holding a `wl_data_offer` from the previous
-/// one. Without an identifier the two are indistinguishable and the stale read
-/// would be answered with the *new* selection's bytes — a paste of something the
-/// user never copied. Minted by the host worker, strictly increasing.
+/// The bridge compares this identifier with the current offer before sending a
+/// descriptor, so a client-held offer cannot read a replacement selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OfferId(NonZeroU64);
 
@@ -186,7 +150,7 @@ impl fmt::Display for OfferId {
     }
 }
 
-/// Mints [`OfferId`]s, strictly increasing and never reused.
+/// Mints [`OfferId`] values from a monotonic counter.
 #[derive(Debug)]
 pub struct OfferCounter(AtomicU64);
 
@@ -196,19 +160,14 @@ impl OfferCounter {
         Self(AtomicU64::new(1))
     }
 
-    /// The next identifier.
+    /// Returns the next identifier, saturating at the maximum value.
     ///
-    /// Saturating rather than wrapping, for the reason `Generation` saturates:
-    /// a wrap would make two different offers compare equal, which is the one
-    /// property the identifier exists to provide. At one offer per copy,
-    /// saturation is unreachable.
+    /// Wrapping would allow an old offer to compare equal to a later offer.
     pub fn next(&self) -> OfferId {
         let raw = self.0.fetch_add(1, Ordering::Relaxed);
         match NonZeroU64::new(raw) {
             Some(raw) => OfferId(raw),
             None => {
-                // Reached only if the counter wrapped past `u64::MAX` back to
-                // zero, which needs more copies than a session can perform.
                 self.0.store(u64::MAX, Ordering::Relaxed);
                 OfferId(NonZeroU64::MAX)
             }
@@ -222,22 +181,19 @@ impl Default for OfferCounter {
     }
 }
 
-/// What the host is currently offering, as lunette re-advertises it.
+/// A host offer re-advertised to lunette clients.
 ///
-/// This is `SelectionHandler::SelectionUserData`: smithay hands it back with
-/// every request a client makes for the selection, which is how a request is
-/// matched against the offer it was made from.
+/// Smithay stores this value as selection user data. A later receive request
+/// supplies the same value, allowing the bridge to reject a replaced offer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostOffer {
     pub kind: SelectionKind,
     pub offer: OfferId,
-    /// Exactly what the host advertises, in the host's own order. Never
-    /// extended, never trimmed.
+    /// The host-advertised MIME list, preserving its order and spelling.
     pub mimes: Arc<[MimeType]>,
 }
 
 impl HostOffer {
-    /// The MIME types as the `Vec<String>` smithay's setters take.
     pub(crate) fn mime_strings(&self) -> Vec<String> {
         self.mimes
             .iter()
@@ -252,14 +208,11 @@ impl HostOffer {
     }
 }
 
-/// A descriptor to be filled with the host's selection, and which offer to fill
-/// it from.
+/// A host-selection read request with its destination descriptor.
 ///
-/// Owns the descriptor. A rejected request comes back whole rather than as a
-/// bare error, so the descriptor has a named owner at every point and cannot be
-/// closed twice or leaked by a layer that only meant to report a failure. Phase
-/// 2's dmabuf import holds an `OwnedFd` and reconstructs it on the error branch
-/// for the same reason.
+/// `pipe` remains owned by this request until [`HostSelection::read`] accepts it.
+/// A rejected request returns the complete value in [`Rejected`], so the caller
+/// closes the descriptor by dropping the request.
 #[derive(Debug)]
 pub struct HostRead {
     pub kind: SelectionKind,
@@ -268,17 +221,15 @@ pub struct HostRead {
     pub pipe: OwnedFd,
 }
 
-/// Why a read of the host's selection was refused.
+/// Why a host-selection read was refused.
 ///
-/// Every variant means the client's pipe is closed unread, which it sees as an
-/// empty paste. That is the correct outcome for all three: there is nothing to
-/// paste, the type asked for does not exist, or what was asked for is no longer
-/// what the user copied.
+/// The caller drops the client's destination descriptor without sending it to
+/// the host for every variant, so the client observes end-of-file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     /// The host has no selection of this kind.
     NoSelection,
-    /// The offer carries no such MIME type. Never substituted with a near one.
+    /// The offer does not carry the requested MIME type.
     Unrepresentable,
     /// The offer the request was made from has been replaced.
     Stale,
@@ -303,24 +254,19 @@ impl fmt::Display for Refusal {
 
 impl Error for Refusal {}
 
-/// The one seat whose selections are the host's, and what the host is offering.
+/// Maps one lunette seat to the host's clipboard and primary selection.
 ///
-/// Two hands mean two seats, and a seat owns a clipboard; the host owns exactly
-/// one. Rather than race the two — last writer wins, and which hand wins is
-/// timing — exactly one seat is bridged and the rest keep selections that stay
-/// inside lunette. Which seat that is comes from Lua, because it is policy.
+/// The bridge seat is chosen by Lua policy; other seats keep their selections in
+/// lunette.
 pub(crate) struct SelectionBridge {
     seat: Option<SeatId>,
     host: Option<Box<dyn HostSelection>>,
-    /// What the host last announced, indexed by [`SelectionKind::index`].
+    /// The latest host offer for each selection kind.
     offers: [Option<HostOffer>; 2],
-    /// Which selections lunette currently owns on the host, indexed the same
-    /// way.
+    /// Whether lunette owns each selection on the host.
     ///
-    /// Tracked because withdrawing one lunette does not own is not a no-op: the
-    /// data-control protocols carry `set_selection(null)` through with no
-    /// ownership check, so it empties the user's desktop clipboard rather than
-    /// taking lunette's offer off it.
+    /// The data-control protocols clear the current selection without checking
+    /// its owner, so the bridge withdraws only selections it published.
     published: [bool; 2],
 }
 
@@ -334,21 +280,19 @@ impl SelectionBridge {
         }
     }
 
-    /// The seat bridged to the host, absent when none is.
     pub(crate) const fn seat(&self) -> Option<SeatId> {
         self.seat
     }
 
-    /// Whether a seat is the bridged one.
     pub(crate) fn bridges(&self, seat: SeatId) -> bool {
         self.seat == Some(seat)
     }
 
-    /// Moves the bridge to another seat, or to none.
+    /// Changes the bridged seat and reports the old and new seats.
     ///
-    /// Reports what changed so the caller can take the old seat's offer off the
-    /// host and give the new seat what the host holds, rather than leaving both
-    /// half-attached. `None` when the seat was already the bridged one.
+    /// The caller processes the withdrawn seat before the adopted seat: it removes
+    /// compositor-owned offers from the old seat, then advertises or clears host
+    /// offers on the new seat. Returns `None` when no seat changes.
     pub(crate) fn rebind(&mut self, seat: Option<SeatId>) -> Option<Rebind> {
         if self.seat == seat {
             return None;
@@ -363,27 +307,24 @@ impl SelectionBridge {
         })
     }
 
-    /// Records what the host is now offering.
     pub(crate) fn remember(&mut self, offer: HostOffer) {
         let index = offer.kind.index();
         self.offers[index] = Some(offer);
     }
 
-    /// Forgets what the host was offering, because it cleared it.
     pub(crate) fn forget(&mut self, kind: SelectionKind) {
         self.offers[kind.index()] = None;
     }
 
-    /// What the host is currently offering, of one kind.
     pub(crate) fn offer(&self, kind: SelectionKind) -> Option<&HostOffer> {
         self.offers[kind.index()].as_ref()
     }
 
-    /// Turns a client's request for the host's selection into a read of it.
+    /// Validates a client request against the current host offer.
     ///
-    /// Pure: it decides, it does not transfer. `made_from` is the offer the
-    /// client's `wl_data_offer` was minted against, which is what makes a
-    /// request that outlived its selection distinguishable from a current one.
+    /// This pure operation rejects a cleared, replaced, or MIME-incompatible
+    /// offer before any descriptor is sent to the host. `made_from` identifies
+    /// the offer advertised to the client.
     pub(crate) fn resolve(
         &self,
         made_from: &HostOffer,
@@ -402,13 +343,11 @@ impl SelectionBridge {
         Ok((made_from.kind, current.offer, mime))
     }
 
-    /// The host connection, absent when there is no host desktop.
     pub(crate) fn host(&self) -> Option<&dyn HostSelection> {
         self.host.as_deref()
     }
 
-    /// Offers a lunette client's selection to the host, and records that
-    /// lunette owns it.
+    /// Publishes a lunette-owned selection and records its ownership.
     pub(crate) fn publish_to_host(&mut self, kind: SelectionKind, mimes: &[MimeType]) {
         let Some(host) = self.host.as_deref() else {
             return;
@@ -417,11 +356,10 @@ impl SelectionBridge {
         self.published[kind.index()] = true;
     }
 
-    /// Takes lunette's own offer off the host, and only that.
+    /// Withdraws only a selection that lunette previously published.
     ///
-    /// A selection lunette never published belongs to something else on the
-    /// desktop — the user's browser, their editor — and withdrawing it would
-    /// destroy what they copied.
+    /// Clearing an unowned host selection would destroy another application's
+    /// clipboard contents.
     pub(crate) fn withdraw_from_host(&mut self, kind: SelectionKind) {
         if !self.published[kind.index()] {
             return;
@@ -432,12 +370,11 @@ impl SelectionBridge {
         }
     }
 
-    /// Forgets that lunette owns a selection, because the host took it back.
     pub(crate) const fn host_took_back(&mut self, kind: SelectionKind) {
         self.published[kind.index()] = false;
     }
 
-    /// Drops the host connection, because it ended.
+    /// Clears host state after the host connection ends.
     pub(crate) fn lose_host(&mut self) {
         self.host = None;
         self.offers = [None, None];
@@ -445,16 +382,13 @@ impl SelectionBridge {
     }
 }
 
-/// What moving the bridge from one seat to another asks the caller to do.
+/// Describes a bridge transition in processing order.
 ///
-/// A description rather than an action, so the decision is testable without a
-/// host connection and without a seat registry.
+/// The caller withdraws compositor-owned offers from `withdrawn` before it
+/// advertises or clears host offers on `adopted`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Rebind {
-    /// The seat that is no longer bridged. Its offer to the host is withdrawn,
-    /// and the host's offers are taken off it.
     pub(crate) withdrawn: Option<SeatId>,
-    /// The seat that is bridged now, which the host's selections are offered to.
     pub(crate) adopted: Option<SeatId>,
 }
 

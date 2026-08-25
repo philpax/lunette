@@ -1,11 +1,6 @@
-//! The clipboard and primary-selection half of the test client.
+//! Linux-only: the test seam uses nonblocking Unix socket pairs for selection transfers.
 //!
-//! Split from [`super`] because that file is already past the size threshold and
-//! because the two halves are independent: nothing about copy and paste needs a
-//! buffer, a popup, or a pointer.
-//!
-//! Linux-only: a transfer is a `pipe2`, which is what the protocols themselves
-//! require of any client.
+//! Test-client protocol adapters for the clipboard and primary-selection protocols.
 
 use std::{
     fs::File,
@@ -41,17 +36,13 @@ use crate::{
     testing::{DEADLINE, TestCompositor},
 };
 
-/// The selection devices one seat carries, once the client has bound them.
-///
-/// Both, because `lunette-v1.AC4.5` is about both and a test that opened one
-/// would silently pass with the other unimplemented.
 #[derive(Clone, Debug)]
 pub struct SelectionDevices {
     pub clipboard: WlDataDevice,
     pub primary: ZwpPrimarySelectionDeviceV1,
 }
 
-/// A selection this client owns, which the compositor asks for bytes.
+/// Keeps the protocol source alive while the compositor may request the selection's bytes.
 #[derive(Clone, Debug)]
 pub enum ClientSource {
     Clipboard(WlDataSource),
@@ -59,7 +50,8 @@ pub enum ClientSource {
 }
 
 impl TestClient {
-    /// Binds both selection devices on the seat advertising `name`.
+    /// Binds the clipboard and primary-selection devices for the seat named `name`.
+    /// Host selections are announced only to the designated bridge seat.
     pub fn open_selection(
         &mut self,
         compositor: &mut TestCompositor,
@@ -91,11 +83,12 @@ impl TestClient {
         devices
     }
 
-    /// Offers a selection this client owns, advertising `mimes`.
+    /// Publishes a client-owned selection with the listed MIME types in their supplied order.
+    /// The returned source must remain alive while the compositor may request its bytes.
     ///
-    /// The serial is zero because smithay ignores it: `set_selection` is granted
-    /// on keyboard focus alone (`data_device/device.rs:117-129`), so a test must
-    /// have focused this client's toplevel first and the number is not read.
+    /// The client must own keyboard focus before setting the selection. This test client uses
+    /// serial zero, which the compositor accepts for a focused client. The compositor forwards
+    /// the selection to the host only when these devices belong to the designated bridge seat.
     pub fn copy(
         &mut self,
         compositor: &mut TestCompositor,
@@ -133,17 +126,14 @@ impl TestClient {
         source
     }
 
-    /// Asks for the current selection in `mime`, and hands back the read end.
+    /// Requests `mime` from the current selection and returns the nonblocking read end.
     ///
-    /// The read end rather than the bytes: whoever owns the selection writes
-    /// into the other end later in the test, and a read here would be a read of
-    /// a pipe nothing has written to yet.
+    /// The compositor forwards the write end without reading it. The selection owner writes to
+    /// it: the host for a bridged host offer, or a client source for an internal selection.
     ///
     /// # Panics
     ///
-    /// If the compositor has offered no selection of that kind, because a test
-    /// that pasted nothing and asserted nothing came back would pass for the
-    /// wrong reason.
+    /// Panics if the compositor has offered no selection of this kind.
     pub fn paste(
         &mut self,
         compositor: &mut TestCompositor,
@@ -172,23 +162,22 @@ impl TestClient {
             }
         }
 
-        // Closed before stepping, so the reader sees an end once whoever holds
-        // the other copy is finished with it. A copy left open here would make
-        // every read hang.
+        // The receive request transfers this descriptor when the queue is flushed; close the test
+        // client's copy before stepping so EOF depends only on the selection owner's descriptor.
         drop(writer);
         self.settle_quiet(compositor);
         reader
     }
 
-    /// Every request the compositor made of this client's own sources, taken.
+    /// Takes pending requests forwarded to this client for data it owns.
     ///
-    /// Taken rather than borrowed because each carries a descriptor the test
-    /// writes into and then closes.
+    /// Each returned MIME type identifies the requested format. The caller owns the descriptor,
+    /// writes the source's bytes, and closes it to complete the transfer.
     pub fn take_sends(&mut self) -> Vec<(String, OwnedFd)> {
         std::mem::take(&mut self.driver.sends)
     }
 
-    /// Binds a global by interface name, at the highest version both sides know.
+    /// Binds an advertised interface at the lower of the compositor and client-supported versions.
     fn bind_global<I>(&mut self, interface: &str) -> I
     where
         I: Proxy + 'static,
@@ -218,8 +207,9 @@ impl TestClient {
 }
 
 impl Driver {
-    /// The MIME types the offer on one device advertises, in the order the
-    /// compositor sent them.
+    /// Returns the current offer's MIME types in the order announced by the compositor.
+    /// An empty result means that this device has no current offer or that no MIME announcement
+    /// has arrived for it yet.
     #[must_use]
     pub fn offered(&self, devices: &SelectionDevices, kind: SelectionKind) -> Vec<String> {
         let offer = match kind {
@@ -236,7 +226,6 @@ impl Driver {
             .unwrap_or_default()
     }
 
-    /// Whether the compositor is currently offering a selection on one device.
     #[must_use]
     pub fn has_selection(&self, devices: &SelectionDevices, kind: SelectionKind) -> bool {
         match kind {
@@ -261,7 +250,7 @@ impl Driver {
             .and_then(|(_, offer)| offer.as_ref())
     }
 
-    /// Records the offer a device was given, replacing whatever it held.
+    /// Replaces the current offer for a device, including when the selection is cleared.
     fn selected<T>(slots: &mut Vec<(ObjectId, Option<T>)>, device: ObjectId, offer: Option<T>) {
         match slots.iter_mut().find(|(id, _)| *id == device) {
             Some((_, held)) => *held = offer,
@@ -269,13 +258,11 @@ impl Driver {
         }
     }
 
-    /// Whether the compositor has asked this client's sources for anything yet.
     #[must_use]
     pub fn sends_are_empty(&self) -> bool {
         self.sends.is_empty()
     }
 
-    /// Whether one of this client's sources was cancelled.
     #[must_use]
     pub fn cancelled(&self) -> bool {
         self.cancelled
@@ -289,15 +276,14 @@ impl Driver {
     }
 }
 
-/// Reads a descriptor to end of file.
+/// Reads a nonblocking transfer descriptor to EOF on the test thread.
 ///
-/// Polls rather than blocking, on the same deadline everything else in the
-/// harness uses: the writer is the test itself, and a blocking read would hang
-/// rather than fail if the test forgot to write.
+/// The harness deadline turns a missing write or missing close into a test failure instead of a
+/// blocked test thread.
 ///
 /// # Panics
 ///
-/// If nothing reaches end of file before the deadline.
+/// Panics if EOF is not reached before the deadline or if the descriptor reports another error.
 #[must_use]
 pub fn read_to_end(pipe: OwnedFd) -> Vec<u8> {
     let mut file = File::from(pipe);
@@ -318,11 +304,9 @@ pub fn read_to_end(pipe: OwnedFd) -> Vec<u8> {
     }
 }
 
-/// A pipe, as the read end and the write end.
-///
-/// A `UnixStream` pair rather than `pipe2`, because `std` has no pipe and a
-/// socket pair behaves the same way for a one-shot transfer: the reader sees
-/// end of file when every copy of the other end is closed.
+/// Creates the test transfer endpoints from a `UnixStream` pair because `std` has no pipe.
+/// The reader is nonblocking, the writer cannot receive data, and EOF occurs only after every
+/// writer descriptor is closed.
 fn pipe() -> (OwnedFd, OwnedFd) {
     let (reader, writer) = UnixStream::pair().expect("a socket pair can always be made");
     reader

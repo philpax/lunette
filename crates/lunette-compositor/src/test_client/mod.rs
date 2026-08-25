@@ -1,30 +1,15 @@
-//! A real Wayland client, driven a step at a time by the test that owns it.
+//! Linux-only: drives a real Wayland client over an in-process `UnixStream` pair.
 //!
-//! The compositor's tests are worth little if they call its handlers directly:
-//! what they need to establish is that a client speaking the protocol gets what
-//! it expects. So this is an actual `wayland-client` connection, over the far
-//! end of the socket pair [`crate::testing::TestCompositor`] hands out.
+//! The client and compositor run on the calling thread. [`TestClient::settle`]
+//! flushes the client, steps the compositor, and dispatches replies until a
+//! condition holds or [`DEADLINE`] expires. It polls without sleeping.
 //!
-//! Both ends live on the calling thread, which is why nothing here blocks.
-//! [`TestClient::settle`] alternates between the two — flush the client,
-//! step the compositor, read what came back — until a condition the caller
-//! names holds, or until a deadline declares it never will. There are no
-//! sleeps: a fixed one passes on a quiet machine and fails on a loaded one, and
-//! none of this is a test about timing.
+//! Tests use `Connection::from_socket` because `connect_to_env` mutates the
+//! process environment. [`Driver`] records events received from the compositor,
+//! and this module retains protocol objects whose lifetimes affect behavior.
 //!
-//! `Connection::connect_to_env` is never used, here or anywhere. It calls
-//! `env::remove_var("WAYLAND_SOCKET")` internally, and mutating the environment
-//! of a multithreaded test binary is unsound. `Connection::from_socket` is the
-//! only form.
-//!
-//! What the client learned from the compositor is [`Driver`], in `driver.rs`,
-//! together with every `Dispatch` implementation that records it. This file is
-//! the sending half: connecting, binding globals, opening surfaces, and driving
-//! the pair forward.
-//!
-//! Linux-only: the shared-memory buffer is a `memfd`. An anonymous file rather
-//! than a temporary one, so a test writes nothing to the filesystem and cannot
-//! collide with another test over a name.
+//! Shared-memory buffers use anonymous `memfd` files rather than filesystem
+//! paths.
 
 #![expect(
     clippy::expect_used,
@@ -44,8 +29,7 @@ use std::{
     time::Instant,
 };
 
-/// The protocol's own scroll-source enum, re-exported so a test can name the
-/// value it expects without depending on `wayland-client` itself.
+/// Re-exports the protocol's scroll-source enum without exposing the client crate.
 pub use wayland_client::protocol::wl_pointer::AxisSource;
 use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy,
@@ -95,8 +79,6 @@ use crate::{
     testing::{DEADLINE, TestCompositor},
 };
 
-/// lunette's content type as the protocol spells it, so a test names the domain
-/// type and the wire form stays here.
 fn protocol_content_type(content_type: ContentType) -> wp_content_type_v1::Type {
     match content_type {
         ContentType::None => wp_content_type_v1::Type::None,
@@ -106,10 +88,8 @@ fn protocol_content_type(content_type: ContentType) -> wp_content_type_v1::Type 
     }
 }
 
-/// `DRM_FORMAT_ARGB8888`, which is the format a test advertises and attaches.
 const ARGB8888: u32 = smithay::backend::allocator::Fourcc::Argb8888 as u32;
 
-/// A connected client and the queue its events arrive on.
 pub struct TestClient {
     connection: Connection,
     queue: EventQueue<Driver>,
@@ -117,36 +97,25 @@ pub struct TestClient {
     surface: Option<WlSurface>,
     xdg_surface: Option<XdgSurface>,
     toplevel: Option<XdgToplevel>,
-    /// Every seat this client has bound, by the registry name of its global, so
-    /// a second look at the registry does not bind the same seat twice.
+    /// Bound seats keyed by registry name; repeated binds reuse the stored proxy.
     seats: Vec<(u32, WlSeat)>,
-    /// Every output this client has bound, by the registry name of its global,
-    /// for the reason the seats are keyed that way.
+    /// Bound outputs keyed by registry name; repeated binds reuse the stored proxy.
     outputs: Vec<(u32, WlOutput)>,
-    /// Every popup the client has opened, held so none is destroyed early.
+    /// Popups and their `xdg_surface` objects remain alive for the popup's protocol lifetime.
     popups: Vec<(XdgPopup, XdgSurface)>,
-    /// Every subsurface the client has created, held for the same reason: a
-    /// destroyed `wl_subsurface` puts its surface back to having no role.
+    /// Subsurfaces remain alive while their surfaces have a subsurface role; destroying one removes that role.
     subsurfaces: Vec<WlSubsurface>,
-    /// The pointer of the first seat, which is the one a single-seat test uses.
     pointer: Option<WlPointer>,
-    /// Every buffer this client created, held so none is destroyed early. A
-    /// destroyed `wl_buffer` cannot be released, and release is what the
-    /// retention tests are about.
+    /// Buffers remain alive until the compositor releases them; a dropped proxy cannot receive the release.
     buffers: Vec<WlBuffer>,
-    /// Every `wp_fractional_scale_v1` the client asked for, held so none is
-    /// destroyed early. A destroyed object is removed from the surface's state
-    /// and stops being sent anything.
+    /// Fractional-scale objects remain alive while their surfaces use them; destroying one removes its state.
     fractional_scales: Vec<WpFractionalScaleV1>,
-    /// The `wp_content_type_v1` of each surface that has one, by surface. One
-    /// per surface is all the protocol allows — a second `get_surface_content
-    /// _type` is a protocol error — and held so none is destroyed early, since
-    /// destroying one resets its surface's content type to none.
+    /// One content-type object is retained per surface; a second request is a protocol error, and
+    /// destroying the object resets the surface's content type.
     content_types: Vec<(ObjectId, WpContentTypeV1)>,
 }
 
 impl TestClient {
-    /// Connects over a socket pair and binds the globals a toplevel needs.
     pub fn connect(compositor: &mut TestCompositor) -> Self {
         let (stream, _client) = compositor.connect();
         let mut client = Self::from_socket(stream);
@@ -154,11 +123,7 @@ impl TestClient {
         client
     }
 
-    /// Wraps a socket a test opened itself, and settles until the registry has
-    /// arrived.
-    ///
-    /// For the tests that need a client connected some other way than
-    /// [`TestClient::connect`] — one already assigned to an output, say.
+    /// Wraps a test-owned socket and waits until the registry has arrived.
     pub fn from_stream(stream: UnixStream, compositor: &mut TestCompositor) -> Self {
         let mut client = Self::from_socket(stream);
         client.settle(compositor, |driver| driver.registry.is_some());
@@ -190,7 +155,7 @@ impl TestClient {
         }
     }
 
-    /// Every global the compositor advertised, by interface name, sorted.
+    /// Returns advertised interface names in sorted order.
     pub fn globals(&self) -> Vec<String> {
         let mut names: Vec<String> = self
             .driver
@@ -202,19 +167,17 @@ impl TestClient {
         names
     }
 
-    /// What the client has learned so far.
     #[must_use]
     pub fn driver(&self) -> &Driver {
         &self.driver
     }
 
-    /// The toplevel's surface, for a test asserting that an event named it.
     #[must_use]
     pub fn surface_id(&self) -> Option<ObjectId> {
         self.surface.as_ref().map(Proxy::id)
     }
 
-    /// Runs both ends until `ready` holds, failing at the deadline.
+    /// Polls both ends until `ready` holds or `DEADLINE` expires.
     pub fn settle(&mut self, compositor: &mut TestCompositor, ready: impl Fn(&Driver) -> bool) {
         let expiry = Instant::now() + DEADLINE;
 
@@ -230,8 +193,8 @@ impl TestClient {
         }
     }
 
-    /// Runs both ends a fixed number of rounds, for a test asserting that
-    /// something did *not* happen.
+    /// Polls both ends for eight rounds without waiting for a condition.
+    /// Callers use it where no condition should be awaited.
     pub fn settle_quiet(&mut self, compositor: &mut TestCompositor) {
         for _ in 0..8 {
             self.pump(compositor);
@@ -239,9 +202,8 @@ impl TestClient {
     }
 
     fn pump(&mut self, compositor: &mut TestCompositor) {
-        // A connection the compositor tore down has nothing left to say, and
-        // every operation on it fails. Stepping the compositor alone is what a
-        // test asserting the teardown still needs.
+        // After a protocol error, client requests cannot proceed, but compositor
+        // steps still deliver the peer teardown.
         if self.connection.protocol_error().is_some() {
             compositor.step();
             return;
@@ -253,12 +215,10 @@ impl TestClient {
         if let Some(guard) = self.queue.prepare_read() {
             match guard.read() {
                 Ok(_) => {}
-                // Nothing arrived this round. The socket is non-blocking
-                // precisely so this is an answer rather than a wait.
+                // The nonblocking socket reports that no event arrived this round.
                 Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
-                // A refused bind is answered with a protocol error, which is
-                // the outcome the output-filter tests are about. It is reported
-                // through `is_disconnected` rather than raised here.
+                // Protocol errors are observed through `is_disconnected`; other read
+                // failures indicate a broken test connection.
                 Err(WaylandError::Protocol(_)) => {}
                 Err(error) => panic!("the client could not read from the compositor: {error}"),
             }
@@ -267,12 +227,8 @@ impl TestClient {
         drop(self.queue.dispatch_pending(&mut self.driver));
     }
 
-    /// Creates a toplevel and drives it as far as its first configure.
-    ///
-    /// The order matters and is the usual way these tests fail confusingly:
-    /// the first commit carries no buffer, the client waits for
-    /// `xdg_surface.configure`, and only then may it attach. Attaching before
-    /// the first configure is a protocol error.
+    /// Commits an unbuffered toplevel, waits for its first configure, and acknowledges it.
+    /// Attaching a buffer before that configure is a protocol error.
     pub fn open_toplevel(&mut self, compositor: &mut TestCompositor) {
         let handle = self.queue.handle();
         let wl_compositor = self.bind::<WlCompositor>(6);
@@ -295,15 +251,6 @@ impl TestClient {
         self.acknowledge_configure(&xdg);
     }
 
-    /// Attaches a linear `argb8888` dmabuf of `size` and commits.
-    ///
-    /// The descriptor is a `memfd` rather than anything a driver produced.
-    /// Nothing between here and the importer looks at what the descriptor
-    /// addresses — the compositor passes it on, and the importer under test is
-    /// the fake one — so a real device is not needed to exercise the path.
-    ///
-    /// Returns the buffer's object id, which is what a test asserting on
-    /// releases compares against.
     pub fn attach_dmabuf(&mut self, compositor: &mut TestCompositor, size: PixelSize) -> ObjectId {
         let buffer = self.create_dmabuf(compositor, size);
         let id = buffer.id();
@@ -311,13 +258,8 @@ impl TestClient {
         id
     }
 
-    /// Creates a linear `argb8888` dmabuf of `size` and lets the compositor
-    /// answer, without attaching it to anything.
-    ///
-    /// The two halves are separate operations to the compositor and it can be in
-    /// different states for each: `create_immed` reaches `dmabuf_imported`, and
-    /// the commit is what asks for the image. A restart quiesce that falls
-    /// between them is what this exists to drive.
+    /// Creates a linear `argb8888` dmabuf without attaching it.
+    /// Settling before returning makes later commits observe the completed creation.
     pub fn create_dmabuf(&mut self, compositor: &mut TestCompositor, size: PixelSize) -> WlBuffer {
         let handle = self.queue.handle();
         let dmabuf = self.bind::<ZwpLinuxDmabufV1>(3);
@@ -327,22 +269,16 @@ impl TestClient {
         let memory = anonymous_file(i64::from(stride) * i64::from(height));
 
         let params = dmabuf.create_params(&handle, ());
-        // `DRM_FORMAT_MOD_LINEAR` is zero in both halves.
         params.add(memory.as_fd(), 0, 0, stride, 0, 0);
         let buffer =
             params.create_immed(width, height, ARGB8888, DmabufFlags::empty(), &handle, ());
         params.destroy();
 
-        // The create is answered before the caller goes on, so that a case
-        // choosing when to commit is choosing it relative to a create the
-        // compositor has already seen.
         self.settle_quiet(compositor);
         self.buffers.push(buffer.clone());
         buffer
     }
 
-    /// Attaches a buffer this client already created to its toplevel's surface,
-    /// and commits.
     pub fn attach_created(
         &mut self,
         compositor: &mut TestCompositor,
@@ -354,8 +290,7 @@ impl TestClient {
         self.attach_to(compositor, &surface, buffer, width, height);
     }
 
-    /// Attaches a shared-memory buffer of `size` and commits, which is what
-    /// maps the window.
+    /// Attaches a shared-memory buffer of `size` and commits it.
     pub fn attach_buffer(&mut self, compositor: &mut TestCompositor, size: PixelSize) {
         let buffer = self.shm_buffer(size);
         let (width, height) = protocol_size(size);
@@ -365,12 +300,7 @@ impl TestClient {
         self.buffers.push(buffer);
     }
 
-    /// Creates a surface with no role, commits a buffer to it, and hands it
-    /// back.
-    ///
-    /// The shape of a cursor surface, a popup, and a subsurface: it mints a
-    /// `SurfaceId` and its buffer is imported, and it is never a window. A test
-    /// destroys the returned surface to drive what happens when one goes away.
+    /// Creates a roleless surface, commits a buffer to it, and returns it.
     pub fn open_plain_surface(
         &mut self,
         compositor: &mut TestCompositor,
@@ -386,17 +316,8 @@ impl TestClient {
         surface
     }
 
-    /// Opens an `xdg_popup` of the toplevel, at `origin` in the toplevel's own
-    /// coordinates, and commits a buffer to it.
-    ///
-    /// The positioner anchors the popup's top-left corner at `origin`: the
-    /// anchor rectangle is a single pixel there, the anchor edge is its
-    /// top-left, and the gravity is bottom-right, so the popup grows away from
-    /// that corner and its geometry starts exactly at it. A menu placed by any
-    /// other combination lands somewhere a test would have to re-derive.
-    ///
-    /// Returns the popup's surface, which is what a routing test compares an
-    /// enter against.
+    /// Opens an `xdg_popup` at `origin`, commits a buffer to it, and returns its
+    /// surface. Its top-left corner is anchored at `origin`.
     pub fn open_popup(
         &mut self,
         compositor: &mut TestCompositor,
@@ -436,16 +357,8 @@ impl TestClient {
         surface
     }
 
-    /// Opens a popup and never acknowledges its configure.
-    ///
-    /// The point of the exercise is a popup that would otherwise be hit: an
-    /// input region covering the popup's extent is committed, so the geometry
-    /// alone would accept a click. A popup with neither a buffer nor a region is
-    /// skipped by the input-region test whether or not the configure was
-    /// answered, and would say nothing about the configure check.
-    ///
-    /// No buffer, because attaching one before acknowledging the configure is a
-    /// protocol error.
+    /// Opens a popup with a committed input region but without acknowledging its configure.
+    /// It omits a buffer because attaching one before acknowledgment is a protocol error.
     pub fn open_unconfigured_popup(
         &mut self,
         compositor: &mut TestCompositor,
@@ -488,13 +401,8 @@ impl TestClient {
         surface
     }
 
-    /// Adds a subsurface of the toplevel at `origin`, with a buffer committed.
-    ///
-    /// Desynchronised, and the parent is committed afterwards: a subsurface's
-    /// position is part of its *parent's* double-buffered state, so without the
-    /// parent commit the child sits at the origin however it was positioned.
-    ///
-    /// Returns the subsurface's own surface.
+    /// Adds a desynchronised subsurface at `origin` and commits its buffer.
+    /// The parent commit publishes the position because subsurface state is double-buffered.
     pub fn open_subsurface(
         &mut self,
         compositor: &mut TestCompositor,
@@ -523,10 +431,8 @@ impl TestClient {
         surface
     }
 
-    /// Attaches a null buffer to the toplevel's surface, which unmaps it.
-    ///
-    /// The protocol lets the client map it again by committing another buffer,
-    /// which is why this is not the same as destroying the surface.
+    /// Unmaps the toplevel by attaching a null buffer.
+    /// The surface can be mapped again by committing another buffer.
     pub fn detach_buffer(&mut self, compositor: &mut TestCompositor) {
         let surface = self.surface.clone().expect("a toplevel was opened first");
         surface.attach(None, 0, 0);
@@ -534,13 +440,11 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// Destroys a surface this client made and lets the compositor notice.
     pub fn destroy_surface(&mut self, compositor: &mut TestCompositor, surface: &WlSurface) {
         surface.destroy();
         self.settle_quiet(compositor);
     }
 
-    /// A shared-memory buffer of `size`, in the format a test attaches.
     fn shm_buffer(&mut self, size: PixelSize) -> WlBuffer {
         let handle = self.queue.handle();
         let shm = self.bind::<WlShm>(1);
@@ -561,8 +465,6 @@ impl TestClient {
         )
     }
 
-    /// Attaches a buffer to one of the client's surfaces, damages all of it,
-    /// and commits.
     fn attach_to(
         &mut self,
         compositor: &mut TestCompositor,
@@ -578,11 +480,7 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// Binds the first seat's pointer, so a test can observe what input reaches
-    /// this client.
-    ///
-    /// Waits for the capability rather than assuming it: asking a seat for a
-    /// pointer it has not advertised is a protocol error.
+    /// Waits for the first seat's pointer capability before binding its pointer.
     pub fn open_pointer(&mut self, compositor: &mut TestCompositor) -> WlPointer {
         let seat = self
             .bind_seats(compositor)
@@ -594,10 +492,7 @@ impl TestClient {
         pointer
     }
 
-    /// Binds the pointer of the seat advertising `name` on `wl_seat.name`.
-    ///
-    /// The name is how a client tells two seats apart; there is nothing else on
-    /// the wire that distinguishes them.
+    /// Binds the pointer of the seat whose `wl_seat.name` equals `name`.
     pub fn open_pointer_for(&mut self, compositor: &mut TestCompositor, name: &str) -> WlPointer {
         let seats = self.bind_seats(compositor);
         let seat = seats
@@ -614,10 +509,7 @@ impl TestClient {
         self.open_pointer_on(compositor, &seat)
     }
 
-    /// Binds the keyboard of the seat advertising `name` on `wl_seat.name`.
-    ///
-    /// Waits for the capability first, for the reason a pointer does: asking a
-    /// seat for a keyboard it has not advertised is a protocol error.
+    /// Waits for the named seat's keyboard capability before binding its keyboard.
     pub fn open_keyboard_for(&mut self, compositor: &mut TestCompositor, name: &str) -> WlKeyboard {
         let seats = self.bind_seats(compositor);
         let seat = seats
@@ -638,7 +530,6 @@ impl TestClient {
         keyboard
     }
 
-    /// The pointer of the first seat, for a test that opened one.
     #[must_use]
     pub fn pointer(&self) -> &WlPointer {
         self.pointer
@@ -646,11 +537,7 @@ impl TestClient {
             .expect("a pointer was opened before it was used")
     }
 
-    /// Asks for a cursor image on `pointer`, as a client does when the pointer
-    /// enters one of its surfaces.
-    ///
-    /// The serial has to be the one that entered, or smithay refuses the request
-    /// (`wayland/seat/pointer.rs:379-381`) and the handler under test never runs.
+    /// Uses the most recent enter serial; the protocol rejects any other serial.
     pub fn set_cursor(
         &mut self,
         compositor: &mut TestCompositor,
@@ -665,13 +552,8 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// Binds every `wl_output` the compositor advertised, and waits for each to
-    /// report its configuration.
-    ///
-    /// Returns the outputs in the order the registry announced them. A client
-    /// that was shown none gets an empty list rather than a failure: seeing no
-    /// output is what the filter does, and a test asserting it needs to be able
-    /// to observe it.
+    /// Binds advertised `wl_output` globals and waits for each complete configuration.
+    /// Returns outputs in registry order, including an empty list when none are advertised.
     pub fn bind_outputs(&mut self, compositor: &mut TestCompositor) -> Vec<WlOutput> {
         let handle = self.queue.handle();
         let advertised: Vec<Global> = self
@@ -711,11 +593,7 @@ impl TestClient {
         bound
     }
 
-    /// Asks the compositor for the `wp_fractional_scale_v1` of one surface.
-    ///
-    /// Does not settle: whether the compositor answers, and with what, is the
-    /// thing a caller is asserting about, so waiting for an answer here would
-    /// hide the case where there is none.
+    /// Requests a surface's `wp_fractional_scale_v1` without settling so the caller observes its reply.
     pub fn request_fractional_scale(&mut self, surface: &WlSurface) -> WpFractionalScaleV1 {
         let handle = self.queue.handle();
         let manager = self.bind::<WpFractionalScaleManagerV1>(1);
@@ -724,12 +602,8 @@ impl TestClient {
         scale
     }
 
-    /// Tells the compositor what this surface is drawing, and commits.
-    ///
-    /// `wp_content_type_v1` is double-buffered like everything else a client
-    /// sets, so the value takes effect at the commit rather than at the
-    /// request; a caller establishing that passes `commit: false` and commits
-    /// itself.
+    /// Sets a surface's content type and optionally commits it.
+    /// The protocol applies the pending value at commit time.
     pub fn set_content_type(
         &mut self,
         compositor: &mut TestCompositor,
@@ -746,11 +620,7 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// The surface's `wp_content_type_v1`, creating it on first use.
-    ///
-    /// One per surface: a second `get_surface_content_type` for the same
-    /// surface is a protocol error, so a client changing its mind reuses the
-    /// object it already has.
+    /// Reuses the surface's retained content-type object; requesting a second one is a protocol error.
     fn content_type_of(&mut self, surface: &WlSurface) -> WpContentTypeV1 {
         let id = surface.id();
         if let Some((_, object)) = self.content_types.iter().find(|(held, _)| *held == id) {
@@ -764,19 +634,13 @@ impl TestClient {
         object
     }
 
-    /// Commits a surface without attaching anything new to it.
     pub fn commit(&mut self, compositor: &mut TestCompositor, surface: &WlSurface) {
         surface.commit();
         self.settle_quiet(compositor);
     }
 
-    /// Asks for a frame callback on a surface and commits, which is what a
-    /// client does at the end of every frame it draws.
-    ///
-    /// Flushes but does not settle. Whether the compositor answers, and after
-    /// how much of its clock, is what a pacing test is asserting about, so
-    /// running the compositor here would decide the answer before the test
-    /// could ask for it.
+    /// Requests a frame callback, commits, and flushes without stepping the compositor.
+    /// The caller controls stepping so callback timing remains observable.
     pub fn request_frame(&mut self, surface: &WlSurface) {
         let handle = self.queue.handle();
         surface.frame(&handle, surface.id());
@@ -784,26 +648,20 @@ impl TestClient {
         drop(self.queue.flush());
     }
 
-    /// The timestamp of every frame callback a surface has been answered, in
-    /// order.
+    /// Returns frame callback timestamps for `surface` in arrival order; an empty slice means none arrived.
     #[must_use]
     pub fn frames(&self, surface: &WlSurface) -> &[u32] {
         self.driver.frames(&surface.id())
     }
 
-    /// The client's own toplevel surface, for a caller that needs to name it.
     #[must_use]
     pub fn surface(&self) -> Option<&WlSurface> {
         self.surface.as_ref()
     }
 
-    /// Binds one `wl_output` by the registry name of its global, without
-    /// checking that the compositor advertised it.
-    ///
-    /// The only way to establish that the filter is enforced at bind and not
-    /// merely at advertisement: a client that guesses a name it was never told
-    /// must still be refused. The compositor answers a refused bind with a
-    /// protocol error, so a caller expects the connection to die.
+    /// Attempts to bind a `wl_output` by registry name without requiring an
+    /// advertisement. The compositor must enforce the output filter at bind time;
+    /// refusing an unadvertised name produces this client's protocol error.
     pub fn bind_output_by_name(&mut self, name: u32, version: u32) -> WlOutput {
         let handle = self.queue.handle();
         self.driver
@@ -813,14 +671,13 @@ impl TestClient {
             .bind::<WlOutput, (), Driver>(name, version, &handle, ())
     }
 
-    /// Whether the connection has been torn down by a protocol error.
+    /// Reports whether a protocol error tore down this connection.
     #[must_use]
     pub fn is_disconnected(&self) -> bool {
         self.connection.protocol_error().is_some()
     }
 
-    /// Binds every seat the compositor has advertised, and waits for each to
-    /// report its name and capabilities.
+    /// Binds advertised seats keyed by registry name and waits for each seat name.
     fn bind_seats(&mut self, compositor: &mut TestCompositor) -> Vec<WlSeat> {
         let handle = self.queue.handle();
         let advertised: Vec<Global> = self
@@ -864,7 +721,6 @@ impl TestClient {
         pointer
     }
 
-    /// Sets the toplevel's title.
     pub fn set_title(&mut self, compositor: &mut TestCompositor, title: &str) {
         self.toplevel
             .as_ref()
@@ -873,7 +729,6 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// Destroys the toplevel, as a client closing its window would.
     pub fn close_toplevel(&mut self, compositor: &mut TestCompositor) {
         if let Some(toplevel) = self.toplevel.take() {
             toplevel.destroy();
@@ -887,10 +742,7 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// Acknowledges the configure one `xdg_surface` was last sent.
-    ///
-    /// A client may not attach a buffer before it has, and doing so is where
-    /// these tests fail confusingly rather than with a protocol error.
+    /// Acknowledges the latest configure; the protocol requires this before attaching a buffer.
     fn acknowledge_configure(&mut self, xdg_surface: &XdgSurface) {
         let Some(serial) = self.driver.configure_serial(xdg_surface) else {
             panic!("the compositor did not configure the surface");
@@ -898,8 +750,7 @@ impl TestClient {
         xdg_surface.ack_configure(serial);
     }
 
-    /// Binds a global by interface, at the lower of the version the compositor
-    /// offers and the version asked for.
+    /// Binds a global at the lower of the offered and requested versions.
     fn bind<I: Proxy + 'static>(&self, version: u32) -> I
     where
         Driver: Dispatch<I, ()>,
@@ -919,7 +770,7 @@ impl TestClient {
             .bind::<I, (), Driver>(global.name, version.min(global.version), &handle, ())
     }
 
-    /// The connection, for a test that wants to close it abruptly.
+    /// Drops the connection and steps the compositor so it processes the peer teardown.
     pub fn disconnect(self, compositor: &mut TestCompositor) {
         drop(self.connection);
         drop(self.queue);
@@ -929,10 +780,7 @@ impl TestClient {
     }
 }
 
-/// A size as the protocol counts it, which is in signed pixels.
-///
-/// A size that does not fit is a test asking for something no client could ask
-/// for.
+/// Converts a pixel size to Wayland's signed integer representation; values that do not fit are invalid test inputs.
 fn protocol_size(size: PixelSize) -> (i32, i32) {
     (
         i32::try_from(size.width).expect("a width the protocol can carry"),
@@ -940,15 +788,11 @@ fn protocol_size(size: PixelSize) -> (i32, i32) {
     )
 }
 
-/// An anonymous file of `length` bytes, to back a `wl_shm` pool.
-///
-/// A `memfd` rather than a file under `/tmp`: a test that touches the
-/// filesystem is one that can collide with another test, leak on a failure, or
-/// fail on a read-only root. Nothing here needs a name.
+/// Creates an anonymous `length`-byte file for a `wl_shm` pool so tests do not share filesystem paths.
 fn anonymous_file(length: i64) -> OwnedFd {
     let name = c"lunette-test-shm";
     // SAFETY: `name` is a valid NUL-terminated string that outlives the call,
-    // and `memfd_create` returns an owned descriptor or -1.
+    // and a non-negative result is a new owned descriptor.
     let descriptor = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC) };
     assert!(
         descriptor >= 0,

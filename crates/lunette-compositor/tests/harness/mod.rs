@@ -1,20 +1,15 @@
-//! Shared setup for the logic-headless integration tests.
+//! Linux-only: shared setup for logic-headless Wayland integration tests.
 //!
-//! These tests exist to hold one property: the compositor's logic runs with no
-//! graphics device, no XR runtime, and no headset attached (`AC9.4`). They also
-//! run with no listening socket, no filesystem path, and no read of the process
-//! environment, because a test that needs `XDG_RUNTIME_DIR` is a test that can
-//! collide with a real session.
+//! The harness drives the real display and handlers through a real Wayland client.
+//! `TestCompositor` inserts one end of an in-process `UnixStream::pair()` and
+//! drives the compositor on the calling thread. `TestClient` owns the other end,
+//! which is nonblocking. No listener, socket path, runtime directory, or process
+//! environment is involved.
 //!
-//! What makes that possible is the seam. `TestCompositor` builds the real event
-//! loop, the real display, and the real handlers, but takes its clients over a
-//! `UnixStream::pair()` and its buffer importer as a trait object. The fake
-//! importer records what it was asked for and answers with a handle that is not
-//! a real image, so nothing below it is reachable from this crate. If a test
-//! here ever needs a GPU, the test is in the wrong crate.
-//!
-//! Every wait is a wait for a condition with a deadline, never for a duration.
-//! Nothing here is a test about timing.
+//! The compositor uses a fake `BufferImporter`, so these tests exercise protocol
+//! and state handling without a graphics device, XR runtime, or headset. Client
+//! and compositor conditions are polled with `DEADLINE` bounds rather than fixed
+//! sleeps.
 
 use lunette_compositor::{
     protocol::{PixelSize, WindowSnapshot},
@@ -22,23 +17,11 @@ use lunette_compositor::{
     testing::TestCompositor,
 };
 
-/// Every global lunette advertises, in the order `globals()` sorts them.
+/// Interface names advertised by the default compositor, in the sorted order
+/// returned by `TestClient::globals`.
 ///
-/// `wl_subcompositor` is here because `CompositorState::new` creates it
-/// unconditionally, and `wp_viewporter` because xwayland-satellite refuses to
-/// start without it — and because `wp_fractional_scale_manager_v1` is useless
-/// without it, a client landing a fractionally scaled buffer at the right
-/// logical size through `wp_viewport.set_destination`. Both decoration managers are here so GTK and Qt clients do
-/// not draw their own titlebars inside a panel.
-///
-/// `wp_content_type_manager_v1` is here because a client's own statement of
-/// what it is drawing is the strongest signal there is for whether throttling
-/// it would be noticed. It is a hint with no events and thin adoption, so it is
-/// reported to Lua rather than acted on.
-///
-/// The four selection globals are all advertised whether or not a host desktop
-/// is reachable: a session with no host still has a clipboard, it just does not
-/// leave lunette.
+/// The selection globals remain advertised without a host compositor. A host
+/// bridge changes selection forwarding, not the client-facing protocol surface.
 pub const EXPECTED_GLOBALS: [&str; 16] = [
     "ext_data_control_manager_v1",
     "org_kde_kwin_server_decoration_manager",
@@ -58,14 +41,15 @@ pub const EXPECTED_GLOBALS: [&str; 16] = [
     "zxdg_decoration_manager_v1",
 ];
 
-/// The size the shared window is committed at.
+/// Pixel size used by the shared mapped-window fixture.
 pub const WINDOW_SIZE: PixelSize = PixelSize::new(640, 480);
 
-/// A compositor with one mapped window, and the client that owns it.
+/// Returns a compositor and client with one mapped window.
 ///
-/// The client commits with no buffer, waits for `xdg_surface.configure`, and
-/// only then attaches — the order `TestClient::open_toplevel` enforces, and the
-/// usual way these tests fail confusingly when it is wrong.
+/// `TestClient::open_toplevel` commits the surface without a buffer, waits for
+/// `xdg_surface.configure`, and acknowledges it before `attach_buffer` commits
+/// content. The returned client remains alive so it owns the Wayland objects and
+/// socket for the caller's test.
 pub fn with_one_window() -> (TestCompositor, TestClient) {
     let mut compositor = TestCompositor::new();
     let mut client = TestClient::connect(&mut compositor);
@@ -74,7 +58,10 @@ pub fn with_one_window() -> (TestCompositor, TestClient) {
     (compositor, client)
 }
 
-/// The only window in the snapshot, or a failure naming what was there instead.
+/// Returns the snapshot's only window.
+///
+/// The assertion includes the full window list when the snapshot has any count
+/// other than one, which identifies the actual snapshot contents on failure.
 pub fn only_window(compositor: &TestCompositor) -> WindowSnapshot {
     let snapshot = compositor.snapshot();
     assert_eq!(

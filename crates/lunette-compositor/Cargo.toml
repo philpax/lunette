@@ -6,61 +6,51 @@ license.workspace = true
 
 [dependencies]
 arc-swap.workspace = true
-# The operating system's CSPRNG, for the token that attributes a client to the
-# process lunette started it as. Never a userspace generator: a token that can
-# be predicted is an attribution a hostile client can claim.
+# The token uses the operating system's CSPRNG. An unpredictable token prevents
+# a hostile client from claiming another process's attribution.
 getrandom.workspace = true
-# Only for `dev_t` and `makedev`: `DmabufFeedbackBuilder::new` takes a device
-# number, and naming the C type is better than assuming it is `u64` here.
+# Provides `dev_t` and `makedev` for DRM device numbers. The C type preserves the
+# platform-specific width accepted by `DmabufFeedbackBuilder::new`.
 libc.workspace = true
-# The `closed_set!` macro, for the enums whose members are named outside Rust.
-# Pure by default: naming a closed set does not link a Lua binding.
+# Provides `closed_set!` without linking a Lua binding.
 lunette-luau.workspace = true
 smallvec.workspace = true
-# `desktop` supplies `Window` and `PopupManager`. `backend_vulkan` stays off:
-# it exists to create and own a device, which is the one thing lunette must not
-# do, and enabling it would put a graphics dependency in the crate whose tests
-# have to run without a device. `xwayland` stays off because xwayland-satellite
-# replaces it. calloop, rustix, and wayland-server are reached through
-# `smithay::reexports` rather than named here, so there is one version of each
-# in the tree by construction.
+# `desktop` provides `Window` and `PopupManager`. Keep `backend_vulkan` disabled:
+# lunette does not create a graphics device, and enabling it adds an unnecessary
+# graphics dependency to a crate whose tests run without a device. Keep `xwayland`
+# disabled because xwayland-satellite provides that integration. Use
+# `smithay::reexports` for calloop, rustix, and wayland-server to keep one version
+# of each type in the tree.
 smithay = { workspace = true, features = ["desktop", "wayland_frontend"] }
 subtle.workspace = true
 tracing.workspace = true
-# The keymap module. Named here as well as reached through smithay, because
-# `crate::keymap` compiles keymaps in its own context rather than smithay's:
-# libxkbcommon is not thread-safe, so each thread that queries a keymap owns
-# one. The pin keeps both halves on one copy of the xkb types.
+# `crate::keymap` compiles keymaps outside Smithay's context. libxkbcommon is not
+# thread-safe, so each querying thread owns its context. Keep this dependency on
+# Smithay's xkb version so both contexts use one copy of the xkb types.
 xkbcommon.workspace = true
-# Two uses, one crate. `src/selection/data_control.rs` speaks
-# `ext_data_control_v1` to the *host* compositor as a client, which is how the
-# clipboard crosses the boundary; and `src/test_client.rs` drives lunette's own
-# protocol from a real client. Pinned to the versions smithay's `wayland-server`
-# shares a `wayland-backend` with; a split would make the two halves unable to
-# talk.
+# The host clipboard bridge and the in-process test client both use this crate.
+# Keep its version aligned with Smithay's `wayland-server` so both sides share
+# `wayland-backend` types.
 wayland-client.workspace = true
-# `client` for the two above. `staging` gates `ext::data_control`, and
-# `unstable` gates the `zv1` protocols the test client uses.
+# The `client` feature supports the host bridge and test client. `staging` enables
+# `ext::data_control`, and `unstable` enables the `zv1` protocols used by tests.
 wayland-protocols = { workspace = true, features = [
     "client",
     "staging",
     "unstable",
 ] }
-# `zwlr_data_control_v1`, the fallback for a host that has not gained
-# ext-data-control yet — which today is every wlroots compositor.
+# Provides `zwlr_data_control_v1` as a fallback when the host lacks
+# `ext_data_control_v1`.
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [features]
-# The in-process compositor, the test client, the fake importer that stands in
-# for a graphics device, and the fake host clipboard. Off by default so a release
-# build carries none of them; integration tests turn it on through the self
-# dev-dependency below, and the crate's own unit tests get it through
-# `cfg(test)`.
+# Enables the in-process compositor, test client, fake graphics importer, and
+# fake host clipboard. Disabled by default; integration tests enable it through
+# the self dev-dependency, while unit tests use `cfg(test)`.
 test-fakes = []
 
 [dev-dependencies]
-# The crate depending on itself is how an integration test gets a feature the
-# library does not enable by default. Without it, `tests/` would see a
-# `lunette-compositor` with no `testing` or `test_client` module at all.
+# This self-dependency enables `test-fakes` for integration tests. Without it,
+# Cargo compiles the library without its test-only modules.
 lunette-compositor = { path = ".", features = ["test-fakes"] }
 pretty_assertions.workspace = true

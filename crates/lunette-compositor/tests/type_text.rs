@@ -1,14 +1,8 @@
-//! `Sink:typeText`, over a real client on a socket pair.
+//! Integration tests for `Sink:typeText` with a real Wayland client over an in-process socket pair.
 //!
-//! What the pure tests in `src/type_text.rs` establish is the plan. What these
-//! establish is the half that only a client can see: the characters arrive, and
-//! the keymap the client is holding afterwards is the one it had before.
-//!
-//! That second clause is `lunette-v1.AC4.3` in full. A client left with
-//! lunette's synthetic layout has a keyboard on which every key types the wrong
-//! thing, so restoring is part of the criterion rather than a nicety.
-//!
-//! See `tests/harness/mod.rs` for why none of this needs a GPU.
+//! They verify `wl_keyboard` event ordering, restoration of the client's original keymap after
+//! synthetic input, and recovery from failures injected through `TestCompositor`'s deterministic
+//! test seam without requiring a GPU.
 
 #![expect(
     clippy::expect_used,
@@ -32,7 +26,6 @@ use lunette_compositor::{
 use pretty_assertions::assert_eq;
 use wayland_client::protocol::wl_keyboard::WlKeyboard;
 
-/// A client with one mapped window, focused, and holding its seat's keyboard.
 fn typing_client(compositor: &mut TestCompositor) -> (TestClient, WlKeyboard) {
     let mut client = TestClient::connect(compositor);
     client.open_toplevel(compositor);
@@ -57,12 +50,9 @@ fn only_sink(compositor: &TestCompositor) -> SinkId {
     snapshot.windows[0].sink
 }
 
-/// The text the client's key events spell, read through the keymap that was
-/// loaded when each key arrived.
+/// Replays `wl_keyboard` events in arrival order, using the most recent keymap event for each key.
 ///
-/// The events are replayed in order against whichever keymap the compositor had
-/// most recently uploaded, which is exactly what a real toolkit does. A press
-/// types; a release does not.
+/// A press contributes its resolved character; a release does not.
 fn typed(client: &TestClient, keyboard: &WlKeyboard) -> String {
     use lunette_compositor::test_client::KeyboardEvent;
 
@@ -81,8 +71,8 @@ fn typed(client: &TestClient, keyboard: &WlKeyboard) -> String {
                 held = if depressed == 0 {
                     ModifierState::new()
                 } else {
-                    // The only modifier any of these tests takes is shift, and
-                    // the mask is what the client was told to hold.
+                    // The test inputs use only Shift. Any nonzero depressed mask is interpreted as
+                    // Shift.
                     ModifierState::from_iter([lunette_compositor::protocol::KeyModifier::Shift])
                 };
             }
@@ -102,7 +92,6 @@ fn typed(client: &TestClient, keyboard: &WlKeyboard) -> String {
     text
 }
 
-/// Every keymap the client was handed, in order.
 fn keymaps(client: &TestClient, keyboard: &WlKeyboard) -> Vec<String> {
     client.driver().keymaps(keyboard)
 }
@@ -166,19 +155,13 @@ fn text_the_layout_cannot_express_arrives_and_the_keymap_is_restored() {
 
 #[test]
 fn a_failure_part_way_through_still_restores_the_clients_own_layout() {
-    // Two chunks, and the second chunk's upload fails. The loop breaks, and the
-    // restore has to happen anyway: leaving the client on lunette's synthetic
-    // layout is the state `lunette-v1.AC4.3` exists to rule out, and it is worse
-    // than the failure that produced it.
     let mut compositor = TestCompositor::new();
     let (mut client, keyboard) = typing_client(&mut compositor);
     let before = keymaps(&client, &keyboard);
 
-    // "\u{2603}a\u{4e00}" plans as synthetic, native, synthetic, so the uploads
-    // are: the first synthetic layout, the seat's own for the native run, the
-    // second synthetic layout, and the restore. Failing the second breaks the
-    // loop with a synthetic layout loaded, which is the only way to reach that
-    // path.
+    // This input requires a synthetic layout, the seat's own layout, a second synthetic layout, and
+    // the restore. The injected failure targets the second upload, leaving a synthetic layout loaded.
+    // The cleanup restore must still run.
     compositor.fail_keymap_uploads(1, 1);
     compositor.send(Command::TypeText {
         seat: DEFAULT_SEAT,
@@ -196,16 +179,13 @@ fn a_failure_part_way_through_still_restores_the_clients_own_layout() {
 
 #[test]
 fn a_restore_that_failed_is_made_good_by_the_next_call_rather_than_assumed_away() {
-    // The state nothing can observe from outside: smithay holds a synthetic
-    // layout and this crate thinks it holds the seat's own. A native-only plan
-    // uploads nothing, so without tracking what was actually uploaded the next
-    // `typeText` types whatever the stale layout happens to bind.
+    // The first request's synthetic upload succeeds, but its restore is the injected second upload.
+    // The next request on the same seat is native-only and would upload nothing unless the compositor
+    // tracks the synthetic layout still loaded.
     let mut compositor = TestCompositor::new();
     let (mut client, keyboard) = typing_client(&mut compositor);
     let before = keymaps(&client, &keyboard);
 
-    // The synthetic upload goes through and the restore after it fails, so the
-    // client is left holding a layout that is not its own.
     compositor.fail_keymap_uploads(1, 1);
     compositor.send(Command::TypeText {
         seat: DEFAULT_SEAT,
@@ -213,7 +193,6 @@ fn a_restore_that_failed_is_made_good_by_the_next_call_rather_than_assumed_away(
     });
     client.settle_quiet(&mut compositor);
 
-    // Text the seat's own layout expresses entirely.
     compositor.send(Command::TypeText {
         seat: DEFAULT_SEAT,
         text: "ab".to_owned(),
@@ -235,10 +214,7 @@ fn a_restore_that_failed_is_made_good_by_the_next_call_rather_than_assumed_away(
 
 #[test]
 fn a_restore_that_failed_is_made_good_even_by_a_call_that_types_nothing() {
-    // A call with nothing to type still repairs a seat left synthetic. The
-    // repair used to sit below the two early returns, so empty text and text
-    // that could not be planned both left the client holding a layout that is
-    // not its own until something else happened to type.
+    // A request with no typing plan still restores a synthetic layout left by a failed restore.
     let mut compositor = TestCompositor::new();
     let (mut client, keyboard) = typing_client(&mut compositor);
     let before = keymaps(&client, &keyboard);
@@ -277,8 +253,8 @@ fn a_client_can_still_type_normally_after_text_was_entered_for_it() {
         driver.keymaps(&keyboard).len() >= 3
     });
 
-    // `KEY_A` under the seat's own layout, which is what the restore has to
-    // have put back for this to be an `a` rather than a snowman.
+    // This `Key` command follows `TypeText` on the same seat. It must use the restored layout.
+    // It types `a`, not the synthetic layout's snowman.
     compositor.send(Command::Key {
         seat: DEFAULT_SEAT,
         key: lunette_compositor::protocol::Keycode::from_evdev(30),
@@ -373,12 +349,8 @@ fn typing_on_a_seat_that_does_not_exist_changes_nothing() {
 
 #[test]
 fn the_default_seat_types_under_the_layout_it_was_created_with() {
-    // Not a tautology: it establishes that the seat this test drives is on the
-    // layout the rest of the assertions assume, so a seat that inherited
-    // something else fails here rather than confusingly further down. Both
-    // sides resolve against `KeymapDefaults::default()`, which names its layout
-    // rather than leaving it to the environment, so the answer does not depend
-    // on the machine.
+    // Both sides use `KeymapDefaults::default()`, so the check does not depend on the machine's
+    // environment.
     let compositor = TestCompositor::new();
     let published = compositor
         .snapshot()

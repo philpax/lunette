@@ -1,20 +1,9 @@
-//! How often a client is answered its `wl_surface.frame` callbacks.
+//! Exercises frame pacing through a real `wayland-client`: withholding a
+//! `wl_surface.frame` callback is observable only when its `done` event does not
+//! arrive.
 //!
-//! Driven over a real `wayland-client`, because withholding is only observable
-//! on the wire: from the compositor's own side a withheld callback and an
-//! answered one look the same until the `done` does or does not arrive.
-//!
-//! `lunette-v1.AC7.3` has two halves and the second is the harder one. A panel
-//! outside the view is throttled toward the floor, *and* its client keeps
-//! processing input rather than appearing hung. A rate of zero would satisfy
-//! the first and fail the second: a client answered no frame callbacks stops
-//! pumping its event loop, and a window that is frozen but alive is worse than
-//! one costing a frame a second. So the floor is 1 Hz, and the tests below hold
-//! both halves.
-//!
-//! Time is virtual. `TestCompositor::advance_clock` moves the compositor's own
-//! clock, which is the only clock pacing is measured against, so nothing here
-//! sleeps and nothing here races the machine it runs on.
+//! Pacing uses `TestCompositor::advance_clock` to move the compositor's virtual
+//! clock explicitly, so the tests do not sleep to reach a pacing deadline.
 
 #![expect(
     clippy::expect_used,
@@ -48,8 +37,6 @@ fn pace(compositor: &TestCompositor, surface: SurfaceId, pacing: FramePacing) {
     compositor.send(Command::SetFramePacing { surface, pacing });
 }
 
-/// Asks for a frame and runs both ends until it is answered, failing if the
-/// compositor withholds it.
 fn expect_frame(compositor: &mut TestCompositor, client: &mut TestClient) {
     let surface = client
         .surface()
@@ -63,8 +50,6 @@ fn expect_frame(compositor: &mut TestCompositor, client: &mut TestClient) {
     });
 }
 
-/// Asks for a frame and runs both ends a fixed number of rounds, expecting it
-/// to be withheld.
 fn expect_no_frame(compositor: &mut TestCompositor, client: &mut TestClient) {
     let surface = client
         .surface()
@@ -119,8 +104,8 @@ fn a_ten_hertz_surface_is_answered_once_per_interval() {
     pace(&compositor, only_window(&compositor).surface, limited(10.0));
     client.settle_quiet(&mut compositor);
 
-    // The first is owed at once: a client's opening frame does not wait out an
-    // interval it was not present for.
+    // The first callback is due immediately; pacing starts when the first callback
+    // is sent.
     expect_frame(&mut compositor, &mut client);
 
     expect_no_frame(&mut compositor, &mut client);
@@ -145,9 +130,8 @@ fn every_withheld_callback_is_answered_when_the_surface_comes_due() {
     expect_frame(&mut compositor, &mut client);
     let answered = client.frames(&surface).len();
 
-    // Three commits inside one interval. smithay's `SurfaceAttributes::
-    // merge_into` extends the callback list rather than replacing it, so all
-    // three are still owed when the interval elapses.
+    // Each commit adds a callback to the pending list rather than replacing it, so
+    // the deadline answers all three.
     for _ in 0..3 {
         client.request_frame(&surface);
         client.settle_quiet(&mut compositor);
@@ -175,7 +159,6 @@ fn a_rate_below_the_floor_is_answered_once_a_second() {
     expect_frame(&mut compositor, &mut client);
 }
 
-/// The second half of `lunette-v1.AC7.3`: a throttled client is slow, not hung.
 #[test]
 fn a_throttled_client_still_receives_input_while_its_frame_is_withheld() {
     let (mut compositor, mut client) = with_one_window();
@@ -187,8 +170,6 @@ fn a_throttled_client_still_receives_input_while_its_frame_is_withheld() {
     let pointer = client.open_pointer(&mut compositor);
     expect_frame(&mut compositor, &mut client);
 
-    // Withheld: the client has asked for a frame and will not get one for
-    // nearly a second.
     client.request_frame(&surface);
     client.settle_quiet(&mut compositor);
     assert_eq!(client.frames(&surface).len(), 1);
@@ -225,9 +206,8 @@ fn returning_a_surface_to_view_answers_it_without_serving_out_the_slow_interval(
 
     expect_frame(&mut compositor, &mut client);
 
-    // Out of view, then back before a second has passed. The 60 Hz budget was
-    // met long ago, so the client is answered on the next tick rather than
-    // waiting out an interval it is no longer under.
+    // The rate change preserves the last-send time, so the 1 Hz deadline remains
+    // 500 ms away after the clock advances by 500 ms.
     pace(&compositor, surface, limited(1.0));
     client.settle_quiet(&mut compositor);
     compositor.advance_clock(Duration::from_millis(500));
@@ -236,8 +216,8 @@ fn returning_a_surface_to_view_answers_it_without_serving_out_the_slow_interval(
     pace(&compositor, surface, limited(60.0));
     client.settle_quiet(&mut compositor);
 
-    // One 60 Hz interval is enough, where the 1 Hz pacing it was under would
-    // have held the surface for the remaining half second.
+    // Raising the rate uses a new 60 Hz interval from the last send, rather than
+    // waiting for the old 1 Hz deadline.
     compositor.advance_clock(Duration::from_millis(17));
     expect_frame(&mut compositor, &mut client);
 }
@@ -250,10 +230,8 @@ fn pacing_set_for_a_surface_that_has_gone_is_dropped() {
     drop(client);
     compositor.step();
 
-    // The surface's identifier is never reused, so recording pacing for it
-    // would keep an entry nothing could ever match again. The command is
-    // accepted and dropped rather than reported: Lua reaching a window a frame
-    // after it closed is ordinary.
+    // Surface identifiers are not reused, so a stale command cannot affect a later
+    // surface and is dropped after destruction.
     pace(&compositor, surface, limited(1.0));
     compositor.step();
 }

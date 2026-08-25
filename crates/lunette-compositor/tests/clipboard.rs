@@ -1,16 +1,14 @@
-//! Copy and paste across the boundary, in both directions, for both selections.
+//! Tests selection transfers between a real Wayland client and a fake host.
 //!
-//! `lunette-v1.AC4.5` is four paths, and each is exercised here against a real
-//! Wayland client on one side and a fake host desktop on the other. There is no
-//! host compositor and no desktop session: the machine this runs on has neither,
-//! and a test that needed one would be a test nobody could run.
+//! The compositor advertises both selection protocols and both data-control
+//! managers so clients can choose a compatible interface.
 //!
-//! What is deliberately real is the descriptor. Every transfer here is an actual
-//! pipe, written by whichever side owns the bytes and read by the other, so the
-//! property the design rests on — that lunette passes descriptors and never
-//! copies content — is what the assertions are about.
+//! Transfers pass file descriptors between the owners of the bytes; the compositor
+//! does not copy selection contents. MIME lists are re-offered byte for byte in
+//! source order in both directions, and requests for unadvertised types are refused.
 //!
-//! See `tests/harness/mod.rs` for why none of this needs a GPU.
+//! The client and compositor use the in-process socket-pair harness, so the tests
+//! run without a host compositor, desktop session, or GPU.
 
 #![expect(
     clippy::expect_used,
@@ -35,19 +33,14 @@ use lunette_compositor::{
 };
 use pretty_assertions::assert_eq;
 
-/// The MIME type every toolkit asks for first.
 const UTF8: &str = "text/plain;charset=utf-8";
 
-/// The seat name the default seat advertises.
 const SEAT: &str = "lunette";
 
-/// A compositor with a fake host clipboard, one mapped window, and that window
-/// holding the default seat's keyboard focus.
+/// A focused client with a fake host selection provider.
 ///
-/// The focus is not incidental: `wl_data_device` delivers a selection only to
-/// the focused client, and both `set_selection` requests are refused from an
-/// unfocused one (`smithay-0.7.0/.../data_device/device.rs:117-129`). A test
-/// that skipped it would see nothing and blame the bridge.
+/// Selection offers reach only a focused client, and requests from an unfocused
+/// client are refused.
 fn with_host() -> (TestCompositor, TestClient, FakeHost, SelectionDevices) {
     let host = FakeHost::default();
     let mut compositor = TestCompositor::with_config(CompositorConfig {
@@ -71,15 +64,15 @@ fn with_host() -> (TestCompositor, TestClient, FakeHost, SelectionDevices) {
     });
     client.settle_quiet(&mut compositor);
 
-    // Bound before anything is announced: a client with no `wl_data_device` has
-    // nowhere for an offer to arrive, and the test would then time out waiting
-    // for one.
+    // Bind the selection devices before announcing a host offer so the client can
+    // receive it.
     let devices = client.open_selection(&mut compositor, SEAT);
 
     (compositor, client, host, devices)
 }
 
-/// Announces a host selection carrying `mimes`, and reports its identifier.
+/// Announces a host offer with a strictly increasing identifier, then waits until the client
+/// receives it.
 fn host_copies(
     compositor: &mut TestCompositor,
     client: &mut TestClient,
@@ -122,8 +115,6 @@ fn both_selection_protocols_and_both_data_controls_are_advertised() {
 
 #[test]
 fn a_host_selection_is_offered_to_a_client_with_the_hosts_own_mime_types() {
-    // Both selections, because the host has one of each and a bridge that moved
-    // only the clipboard would pass half of AC4.5.
     let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
 
@@ -148,10 +139,8 @@ fn a_host_selection_is_offered_to_a_client_with_the_hosts_own_mime_types() {
 
 #[test]
 fn pasting_in_a_client_reads_the_bytes_the_host_writes_into_its_own_pipe() {
-    // The whole client-pastes-from-host path. Nothing in lunette reads or writes
-    // the pipe: the descriptor the client supplied is the one the fake host is
-    // handed, and the bytes the test writes into it are the bytes the client
-    // reads back.
+    // The client gives the pipe's write end to the receive request and keeps its
+    // read end; the compositor forwards that descriptor without reading or writing it.
     let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
 
@@ -218,8 +207,8 @@ fn copying_in_a_client_publishes_the_clients_own_mime_types_to_the_host() {
 
 #[test]
 fn pasting_on_the_host_reads_the_bytes_the_client_writes_into_the_hosts_pipe() {
-    // The other half of AC4.5. The host's descriptor reaches the client that
-    // owns the selection, and the client writes into it directly.
+    // The host gives the pipe's write end to the compositor, which forwards it to
+    // the client source that owns the selection.
     let (mut compositor, mut client, host, devices) = with_host();
 
     for (kind, text) in SelectionKind::ALL
@@ -253,8 +242,6 @@ fn pasting_on_the_host_reads_the_bytes_the_client_writes_into_the_hosts_pipe() {
 
 #[test]
 fn a_mime_type_the_host_does_not_offer_is_refused_rather_than_substituted() {
-    // Nothing is handed to the host, and the client's pipe closes unread — an
-    // empty paste rather than the nearest text type in the wrong encoding.
     let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
     host_copies(
@@ -310,9 +297,6 @@ fn the_host_clearing_its_selection_withdraws_the_offer_from_the_client() {
 
 #[test]
 fn a_client_offering_no_mime_types_withdraws_rather_than_publishing_nothing() {
-    // A source that advertises nothing can answer no request, so a selection
-    // built from it would be one every paste comes back empty from. lunette's
-    // own offer comes off the host instead.
     let (mut compositor, mut client, host, devices) = with_host();
     drop(client.copy(&mut compositor, &devices, SelectionKind::Clipboard, &[UTF8]));
 
@@ -328,9 +312,6 @@ fn a_client_offering_no_mime_types_withdraws_rather_than_publishing_nothing() {
 
 #[test]
 fn an_empty_source_on_a_clipboard_lunette_never_owned_says_nothing_to_the_host() {
-    // The same request, with the desktop's own copy on the host clipboard. There
-    // is no offer of lunette's to take off, and taking anything off would empty
-    // what the user copied outside lunette.
     let (mut compositor, mut client, host, devices) = with_host();
 
     drop(client.copy(&mut compositor, &devices, SelectionKind::Clipboard, &[]));
@@ -344,9 +325,8 @@ fn an_empty_source_on_a_clipboard_lunette_never_owned_says_nothing_to_the_host()
 
 #[test]
 fn a_client_that_never_reads_its_pipe_stalls_nothing() {
-    // The case that would deadlock a compositor that copied the bytes itself.
-    // lunette hands the descriptor on and forgets it, so a second window maps
-    // while the first client's paste sits unread for ever.
+    // The compositor does not read the forwarded descriptor, so a client that
+    // leaves its pipe unread cannot block other clients.
     let (mut compositor, mut client, host, devices) = with_host();
     let counter = OfferCounter::new();
     host_copies(
@@ -375,8 +355,6 @@ fn a_client_that_never_reads_its_pipe_stalls_nothing() {
 
 #[test]
 fn a_session_with_no_host_desktop_keeps_its_selections_to_itself() {
-    // No host socket is the ordinary case on a machine with no Wayland session,
-    // and it must not stop a client copying and pasting within lunette.
     let mut compositor = TestCompositor::new();
     let mut client = TestClient::connect(&mut compositor);
     client.open_toplevel(&mut compositor);
@@ -405,7 +383,6 @@ fn a_session_with_no_host_desktop_keeps_its_selections_to_itself() {
     );
 }
 
-/// The second hand, which starts unbridged.
 const SECOND: (SeatId, &str) = (
     match SeatId::new(2) {
         Some(seat) => seat,
@@ -414,11 +391,6 @@ const SECOND: (SeatId, &str) = (
     "second",
 );
 
-/// A keyboard on an explicitly named layout.
-///
-/// Named rather than defaulted, so these seats do not depend on the
-/// compositor's inherited default, and a seat that fails to compile never
-/// appears.
 fn keyboard() -> Box<KeyboardConfig> {
     Box::new(KeyboardConfig {
         keymap: KeymapConfig {
@@ -429,13 +401,10 @@ fn keyboard() -> Box<KeyboardConfig> {
     })
 }
 
-/// The setup above, plus a second seat the same client is focused on, with its
-/// own pair of selection devices.
+/// A host bridge with two seats focused on one client.
 ///
-/// One client with two seats rather than two clients, because what is under test
-/// is the bridge rather than focus: both seats are focused on the same surface,
-/// so a selection reaching one device and not the other is the bridge deciding
-/// and nothing else.
+/// Only the designated bridge seat exchanges selections with the host. Both seats
+/// focus the same surface, so selection differences reflect bridge routing.
 fn with_two_seats() -> (
     TestCompositor,
     TestClient,
@@ -450,8 +419,6 @@ fn with_two_seats() -> (
         name: SECOND.1.to_owned(),
         keyboard: keyboard(),
     });
-    // The global rather than the name: the client binds a seat only when it is
-    // asked for one, so `seat_names` stays empty until `open_selection` runs.
     client.settle(&mut compositor, |driver| {
         driver
             .globals
@@ -479,8 +446,6 @@ fn with_two_seats() -> (
 
 #[test]
 fn only_the_bridged_seat_sees_the_hosts_selection() {
-    // The mapping AC4.5 rests on: the host has one clipboard, so exactly one
-    // seat speaks for it and the other keeps a selection of its own.
     let (mut compositor, mut client, host, first, second) = with_two_seats();
     let counter = OfferCounter::new();
 
@@ -571,11 +536,8 @@ fn moving_the_bridge_moves_both_directions_at_once() {
 
 #[test]
 fn taking_the_bridge_away_leaves_no_seat_speaking_for_the_host() {
-    // The host owns the clipboard here and lunette published nothing, so nothing
-    // is said to the host at all. `set_selection(null)` is not "stop offering
-    // mine" in either data-control protocol — it unsets the seat's selection
-    // whoever put it there — so withdrawing an offer lunette does not own would
-    // empty the user's own desktop clipboard.
+    // A null selection clears the seat's current selection regardless of its owner;
+    // the bridge must not withdraw a host selection it did not publish.
     let (mut compositor, mut client, host, first, _second) = with_two_seats();
     let counter = OfferCounter::new();
     host_copies(
@@ -643,9 +605,6 @@ fn moving_the_bridge_leaves_a_selection_the_host_owns_untouched() {
 
 #[test]
 fn taking_the_bridge_away_withdraws_only_the_selection_lunette_published() {
-    // The other side of the same rule: lunette owns the clipboard here, so that
-    // one comes off the host and the primary selection — which lunette never
-    // published — is left where it is.
     let (mut compositor, mut client, host, first, _second) = with_two_seats();
     let _source = client.copy(&mut compositor, &first, SelectionKind::Clipboard, &[UTF8]);
 
@@ -665,9 +624,6 @@ fn taking_the_bridge_away_withdraws_only_the_selection_lunette_published() {
 
 #[test]
 fn moving_the_bridge_leaves_a_selection_a_lunette_client_owns_alone() {
-    // A user copies in a terminal inside lunette, then Lua moves the bridge to
-    // the other hand for a reason that has nothing to do with that terminal. The
-    // terminal's own selection is not lunette's to destroy.
     let (mut compositor, mut client, _host, first, _second) = with_two_seats();
     let _source = client.copy(&mut compositor, &first, SelectionKind::Clipboard, &[UTF8]);
 

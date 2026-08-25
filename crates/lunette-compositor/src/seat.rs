@@ -1,47 +1,22 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/mod.rs (the seat construction fragment at :184-188 and :261-263) and backend/wayvr/window.rs (the hover state at :109-119), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the seat-construction fragments in WayVR's
+//! `backend/wayvr/mod.rs` and the hover state in `backend/wayvr/window.rs`
+//! (https://github.com/wayvr-org/wayvr), at commit
+//! `98f800c644719d3f23a20e50bd3237c29a8082cb`.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! The seats lunette serves, one per hand.
+//! A `wl_seat` exposes one pointer and one keyboard. Each simultaneous cursor
+//! therefore needs its own seat, and [`SeatRegistry`] keys per-seat state by
+//! [`SeatId`].
 //!
-//! A `wl_seat` carries exactly one pointer and one keyboard, so two cursors
-//! need two seats; the protocol offers nothing else. WayVR has one seat held by
-//! value (`mod.rs:184-188`, `client.rs:39-40`) and every input path hardcoded to
-//! it, which is why pointing the off hand at a window steals hover from the main
-//! hand. [`SeatRegistry`] replaces that with a collection keyed by [`SeatId`],
-//! which is the identifier every input command already carries.
+//! `SeatHandler` callbacks receive a [`Seat`] but no [`SeatId`]. State used by
+//! those callbacks lives in `Seat::user_data`; state addressed by [`SeatId`]
+//! lives in [`SeatEntry`].
 //!
-//! # Where per-seat state lives
+//! Pointer hover and keyboard focus are independent. Callers choose focus, while
+//! this module stores hover state for each seat.
 //!
-//! Two homes, and which one a piece of state gets is decided by what can reach
-//! it.
-//!
-//! State a caller reaches by [`SeatId`] — the hover in [`SeatEntry`] — lives in
-//! the entry, because every path that reads it arrives holding the identifier.
-//!
-//! State a smithay handler reaches lives in `Seat::user_data`, because
-//! `SeatHandler` is per-compositor with the seat passed in as an argument
-//! (`smithay-0.7.0/src/input/mod.rs:145-165`): inside `cursor_image` the seat is
-//! the only thing distinguishing one call from another, and there is no
-//! identifier to look up. That is the whole discipline for multi-seat
-//! correctness — a `SeatHandler` method that ignores its `seat` argument is a
-//! latent bug, and WayVR's `cursor_image` (`comp.rs:341-343`) is the example.
-//!
-//! # What is deliberately not here
-//!
-//! The serial counter. Serials are effectively global in smithay — a client
-//! compares them across seats and against its own requests — so one counter is
-//! correct and per-seat counters would collide. WayVR keeps it in the per-seat
-//! struct (`client.rs:41`); lunette mints every serial from smithay's own
-//! `utils::SERIAL_COUNTER`, which the library documents as the counter to use
-//! and which it draws from itself on paths lunette drives every frame —
-//! `update_xkb_state`, `set_modifier_state`, popup grabs, and xdg configures. A
-//! second counter beside it would hand out numbers that already meant something
-//! else, and `Serial`'s wrapping comparison would then order two unrelated
-//! sequences against each other.
-//!
-//! Focus policy. WayVR drives keyboard focus from pointer motion
-//! (`mod.rs:1128-1148`). With two seats that heuristic becomes per-seat policy,
-//! and policy is Lua's; this module applies focus, it does not choose it.
+//! Smithay serials are global across seats. Input paths use smithay's shared
+//! serial counter rather than maintaining a counter per seat.
 
 use std::{cell::RefCell, error::Error, fmt, sync::Arc};
 
@@ -63,33 +38,23 @@ use crate::{
     state::CompositorState,
 };
 
-/// Every seat lunette serves, in the order they were created.
-///
-/// A `Vec` rather than a map: there is one seat per pointing device, so the
-/// count is in the low single digits, and creation order is the order a client
-/// sees the `wl_seat` globals arrive in.
+/// Stores seats in creation order, which is the order clients observe their
+/// `wl_seat` globals.
 #[derive(Default)]
 pub(crate) struct SeatRegistry {
     seats: Vec<SeatEntry>,
 }
 
 impl SeatRegistry {
-    /// Creates a seat with its own `wl_seat` global, pointer, and keyboard.
-    ///
-    /// The keymap is compiled twice, once by this crate and once by smithay,
-    /// from the same RMLVO names. That is not waste: smithay's copy lives
-    /// behind its own context because libxkbcommon is not thread-safe, and this
-    /// crate's copy is what answers the queries `docs/input.md:50-52` asks for
-    /// and what `typeText` restores. The names are resolved against `defaults`
-    /// once, before either compile, so a default that had to be narrowed is
-    /// narrowed in both copies rather than only in the one that noticed.
+    /// Creates a seat with one pointer, one keyboard, and a distinct
+    /// `wl_seat.name`. It compiles the resolved keymap for this crate and for
+    /// smithay; the copies must agree, and the text copy is required to answer
+    /// keymap queries and restore `typeText` uploads.
     ///
     /// # Errors
     ///
-    /// Returns [`SeatError`] when the identifier is already in use, when another
-    /// seat already advertises the name — a client tells two seats apart by
-    /// `wl_seat.name`, so two seats sharing one is a configuration a client
-    /// cannot act on — or when the layout does not compile.
+    /// Returns [`SeatError`] for a duplicate identifier or name, an invalid
+    /// keymap, or a keyboard that smithay refuses to create.
     pub(crate) fn create(
         &mut self,
         state: &mut SeatState<CompositorState>,
@@ -150,12 +115,10 @@ impl SeatRegistry {
             .ok_or_else(|| unreachable!("the entry was just pushed"))
     }
 
-    /// Every seat, as the main thread reads them.
+    /// Returns the seats and marks the one designated to bridge host selections.
     ///
-    /// `bridge` is the seat whose selections are the host desktop's, which the
-    /// registry does not own — it is [`crate::selection::SelectionBridge`]'s —
-    /// and which rides in the snapshot because a caller reading a seat wants to
-    /// know whether it is that one.
+    /// The registry does not own the bridge; [`crate::selection::SelectionBridge`]
+    /// supplies its identifier.
     pub(crate) fn snapshot(&self, bridge: Option<SeatId>) -> Vec<SeatSnapshot> {
         self.seats
             .iter()
@@ -169,22 +132,15 @@ impl SeatRegistry {
             .collect()
     }
 
-    /// Withdraws a seat's global and its capabilities.
+    /// Withdraws a seat's pointer, keyboard, and global.
     ///
-    /// The caller moves the pointer off whatever it was over first, so clients
-    /// see a leave rather than a cursor that stops existing where it stood.
-    ///
-    /// smithay 0.7 has no way to remove a seat from its `SeatState`
-    /// (`src/input/mod.rs:168-170` is a private `Vec` with no removal), so the
-    /// handle stays in that vector for the life of the compositor. Withdrawing
-    /// the global stops a new client from binding it and removing the pointer
-    /// tells the clients that already have that the capability is gone, so what
-    /// remains is a few hundred bytes per seat ever created, not a seat a client
-    /// can still use.
+    /// The caller must send pointer and keyboard leave events before calling this
+    /// method. Smithay retains the seat handle in `SeatState`, but removing its
+    /// capabilities and global prevents clients from using the withdrawn seat.
     ///
     /// # Errors
     ///
-    /// Returns [`SeatError`] when no seat has that identifier.
+    /// Returns [`SeatError`] when no seat has the identifier.
     pub(crate) fn destroy(&mut self, display: &DisplayHandle, id: SeatId) -> Result<(), SeatError> {
         let index = self
             .seats
@@ -212,12 +168,10 @@ impl SeatRegistry {
         self.seats.iter_mut().find(|entry| entry.id == id)
     }
 
-    /// Which seat a smithay handle is, for the handlers that are given one and
-    /// no identifier.
+    /// Maps a handler-provided smithay seat back to its [`SeatId`].
     ///
-    /// `SeatHandler` and `SelectionHandler` are per-compositor with the seat
-    /// passed in (`smithay-0.7.0/src/input/mod.rs:145-165`), so this is the only
-    /// way back to the identifier the rest of the crate is keyed by.
+    /// Smithay passes the seat to per-compositor handlers without the identifier,
+    /// so handlers use this mapping before accessing registry state.
     pub(crate) fn id_of(&self, seat: &Seat<CompositorState>) -> Option<SeatId> {
         self.seats
             .iter()
@@ -232,34 +186,20 @@ impl fmt::Debug for SeatRegistry {
     }
 }
 
-/// One seat and everything lunette tracks about it.
 pub(crate) struct SeatEntry {
     id: SeatId,
     seat: Seat<CompositorState>,
     pointer: PointerHandle<CompositorState>,
     keyboard: KeyboardHandle<CompositorState>,
-    /// This crate's own copy of the layout the keyboard is running, which is
-    /// what answers a query and what a restore uploads. smithay's copy is
-    /// inside its own context and cannot be read back as text
-    /// (`smithay-0.7.0/src/input/keyboard/mod.rs` exposes only
-    /// `with_xkb_state`), so without this one there would be nothing to restore
-    /// to and `lunette-v1.AC4.3` would be unreachable.
+    /// The keymap compiled in this crate for queries and restoration. Smithay
+    /// compiles the same text in its own context because libxkbcommon keymaps
+    /// are not thread-safe.
     keymap: Keymap,
-    /// The layout smithay's own copy is holding, when it is not this seat's own.
-    ///
-    /// `None` means smithay holds [`SeatEntry::keymap`]'s text, which is the
-    /// ordinary state. `Some` means a synthetic layout from `typeText` is still
-    /// loaded, which happens when a restore failed.
-    ///
-    /// Tracked rather than assumed. `KeyboardHandle` cannot be asked what it
-    /// holds, so without this a failed restore leaves the two silently out of
-    /// step: the next `typeText` would resolve native strokes against this
-    /// seat's layout and upload nothing, and the text would come out as whatever
-    /// the synthetic layout happens to bind.
+    /// The synthetic keymap currently loaded in smithay, if any. Smithay does
+    /// not expose its current keymap text, so this tracks failed restoration and
+    /// prevents native strokes from being planned against the wrong layout.
     uploaded: Option<Arc<KeymapText>>,
-    /// Where this seat's pointer is, and over which window. Independent per
-    /// seat: WayVR keeps one for the whole compositor (`window.rs:109-119`),
-    /// which is what makes the off hand steal hover from the main hand.
+    /// The window and pixel position currently hovered by this seat's pointer.
     mouse: Option<MouseState>,
 }
 
@@ -268,13 +208,10 @@ impl SeatEntry {
         self.id
     }
 
-    /// The pointer handle, cloned because delivering an event takes `&mut` on
-    /// the compositor state this entry is borrowed from.
     pub(crate) fn pointer(&self) -> PointerHandle<CompositorState> {
         self.pointer.clone()
     }
 
-    /// The keyboard handle, cloned for the reason the pointer is.
     pub(crate) fn keyboard(&self) -> KeyboardHandle<CompositorState> {
         self.keyboard.clone()
     }
@@ -283,13 +220,10 @@ impl SeatEntry {
         &self.keymap
     }
 
-    /// The synthetic layout smithay is holding, if one is.
     pub(crate) const fn uploaded(&self) -> Option<&Arc<KeymapText>> {
         self.uploaded.as_ref()
     }
 
-    /// Records what smithay is holding after an upload succeeded or a restore
-    /// did not.
     pub(crate) fn set_uploaded(&mut self, uploaded: Option<Arc<KeymapText>>) {
         self.uploaded = uploaded;
     }
@@ -302,8 +236,6 @@ impl SeatEntry {
         self.mouse = mouse;
     }
 
-    /// The smithay seat, which every `KeyboardTarget` call takes as its first
-    /// argument.
     pub(crate) const fn seat(&self) -> &Seat<CompositorState> {
         &self.seat
     }
@@ -320,17 +252,17 @@ impl fmt::Debug for SeatEntry {
     }
 }
 
-/// Where a seat's pointer is.
+/// The window and pixel position currently under a seat's pointer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct MouseState {
     pub(crate) hovered: WindowId,
     pub(crate) position: PixelPoint,
 }
 
-/// Records the cursor a seat's focused client asked for.
+/// Stores the cursor image requested by a seat's focused client.
 ///
-/// Called from `SeatHandler::cursor_image`, which is handed the seat and
-/// nothing else.
+/// The handler receives the seat, so the state is stored in that seat's
+/// user-data map rather than in compositor-global state.
 pub(crate) fn set_cursor_image(seat: &Seat<CompositorState>, image: CursorImageStatus) {
     seat.user_data().insert_if_missing(CursorImage::default);
     if let Some(cursor) = seat.user_data().get::<CursorImage>() {
@@ -338,11 +270,10 @@ pub(crate) fn set_cursor_image(seat: &Seat<CompositorState>, image: CursorImageS
     }
 }
 
-/// What the seat's focused client last asked its cursor to look like.
+/// Returns the cursor image recorded for a seat.
 ///
-/// Nothing in the compositor draws a cursor — the panel does, in Lua — so the
-/// only reader today is the test that holds the per-seat storage honest. The
-/// gate comes off when Phase 6 renders it.
+/// This test-only seam checks the per-seat `SeatHandler::cursor_image` state;
+/// the compositor does not render the cursor itself.
 #[cfg(any(test, feature = "test-fakes"))]
 pub(crate) fn cursor_image(seat: &Seat<CompositorState>) -> CursorImageStatus {
     seat.user_data()
@@ -352,13 +283,11 @@ pub(crate) fn cursor_image(seat: &Seat<CompositorState>) -> CursorImageStatus {
         })
 }
 
-/// The cursor a seat's client last asked for.
+/// Cursor state stored in a seat's thread-affine user-data map.
 ///
-/// A `RefCell` because `UserDataMap::get` hands out a shared reference and this
-/// is written from a `&mut self` handler; the compositor thread is the only
-/// thread that touches it, so nothing stronger is wanted. The map is the
-/// thread-affine one for the same reason — [`CursorImageStatus`] holds a
-/// `WlSurface`, and the surface belongs to this thread anyway.
+/// The compositor thread is the sole accessor. `RefCell` permits the handler to
+/// update the value through the shared reference returned by `UserDataMap::get`;
+/// `CursorImageStatus` contains a thread-affine `WlSurface`.
 struct CursorImage {
     status: RefCell<CursorImageStatus>,
 }
@@ -371,7 +300,6 @@ impl Default for CursorImage {
     }
 }
 
-/// Why a seat could not be created or destroyed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SeatError {
     seat: SeatId,
@@ -387,8 +315,6 @@ enum SeatErrorKind {
     Keymap {
         error: KeymapError,
     },
-    /// smithay's `KeyboardError`, kept as its message: the type is not
-    /// `PartialEq`, and what a caller does with it is report it.
     Keyboard {
         message: String,
     },
@@ -426,11 +352,7 @@ impl Error for SeatError {
     }
 }
 
-/// The RMLVO names smithay compiles its own copy of the layout from.
-///
-/// The resolved names, so the two copies agree — including on a default that
-/// was narrowed to one layout. An absent field becomes the empty string, which
-/// is how libxkbcommon spells "the default".
+/// Empty RMLVO names preserve libxkbcommon's default-name behavior.
 fn xkb_config(keymap: &KeymapConfig) -> XkbConfig<'_> {
     fn name(value: &Option<String>) -> &str {
         value.as_deref().unwrap_or_default()
@@ -445,13 +367,10 @@ fn xkb_config(keymap: &KeymapConfig) -> XkbConfig<'_> {
     }
 }
 
-/// smithay's modifier state as the closed set the protocol carries.
+/// Converts smithay's held modifiers to the protocol's closed set.
 ///
-/// smithay names the modifiers by what they mean and lunette names them the
-/// same way, so this is a rename rather than a reinterpretation — with one
-/// exception worth noting: smithay calls `Mod3` `iso_level5_shift`
-/// (`input/keyboard/modifiers_state.rs`), which is what that modifier does on
-/// the layouts that use it.
+/// `Mod3` maps to smithay's `iso_level5_shift`, and `Mod5` maps to
+/// `iso_level3_shift`.
 pub(crate) fn held(state: ModifiersState) -> ModifierState {
     let present = [
         (KeyModifier::Shift, state.shift),
@@ -470,12 +389,10 @@ pub(crate) fn held(state: ModifiersState) -> ModifierState {
         .collect()
 }
 
-/// The closed set as smithay's modifier state.
+/// Converts the protocol's modifier set to smithay's modifier state.
 ///
-/// The serialised masks are left at their defaults: `set_modifier_state`
-/// recomputes them from the booleans against the keymap
-/// (`ModifiersState::serialize_back`), because only the keymap knows which bit
-/// each modifier occupies.
+/// The serialized masks remain unset because smithay computes them from the
+/// booleans and the active keymap.
 pub(crate) fn modifiers_state(modifiers: &ModifierState) -> ModifiersState {
     ModifiersState {
         shift: modifiers.contains(&KeyModifier::Shift),

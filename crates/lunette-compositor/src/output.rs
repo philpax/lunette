@@ -1,40 +1,13 @@
-//! The virtual monitors lunette advertises, one `wl_output` global apiece.
+//! The virtual monitors lunette advertises as `wl_output` globals.
 //!
-//! New work. WayVR advertises a single output for everything (`mod.rs:209`) and
-//! clamps every window to its bounds, which means one scale factor for every
-//! application and a client querying its display getting an answer unrelated to
-//! the panel it is on. `docs/compositor.md` rejects that arrangement: Lua
-//! creates the outputs, and a client is shown the ones it was assigned.
+//! Each client sees only outputs assigned to it. The custom global data carries
+//! the output identifier required by the per-client filter at advertisement and
+//! bind time.
 //!
-//! # Why smithay's `Output` is not used
+//! The registry and its Wayland resources are accessed on the compositor thread.
 //!
-//! `Output::create_global` (`smithay-0.7.0/src/wayland/output/mod.rs:201-211`)
-//! has no filter hook, and `delegate_output!` routes
-//! `GlobalDispatch<WlOutput, WlOutputData>` to `OutputManagerState`, whose
-//! implementation never overrides `can_view`. Overriding it by hand is the
-//! documented way to filter a global — but `can_view` is handed only a
-//! `&WlOutputData`, whose `output` field is private
-//! (`mod.rs:107-109`), so a hand-written implementation cannot tell which output
-//! it is being asked about. There is no accessor, and the type has no `impl`
-//! block at all.
-//!
-//! So the `wl_output` global is lunette's own, with a global data type that
-//! names the output. `can_view` then answers from that identifier and the
-//! client's assignment, and the filter is enforced at bind as well as at
-//! advertisement.
-//!
-//! What that gives up is smithay's `Output`, which lunette used for six things:
-//! `new`, `create_global`, `change_current_state`, `set_preferred`, `enter`, and
-//! `leave`. All six are reimplemented here against the protocol directly. It
-//! never advertised `zxdg_output_manager_v1` — nothing constructs an
-//! `OutputManagerState` — so no xdg-output surface is lost with it.
-//!
-//! # Units
-//!
-//! A refresh rate is hertz in Lua and millihertz on the wire.
-//! [`crate::protocol::RefreshRate`] is millihertz and the conversion happens
-//! where Lua is read, so nothing below that boundary has to ask which unit it is
-//! holding.
+//! Lua supplies refresh rates in hertz; [`crate::protocol::RefreshRate`] stores
+//! millihertz on the wire.
 
 use std::{error::Error, fmt};
 
@@ -53,30 +26,18 @@ use crate::{
     state::CompositorState,
 };
 
-/// Every output lunette advertises, in the order they were created.
-///
-/// A `Vec` rather than a map, for the reason [`crate::seat::SeatRegistry`] is
-/// one: the count is in the low single digits, it is walked far more often than
-/// it is searched, and creation order is the order a client sees the globals
-/// arrive in.
+/// Outputs in creation order, which is also their advertisement order.
 #[derive(Debug, Default)]
 pub(crate) struct OutputRegistry {
     outputs: Vec<OutputEntry>,
 }
 
 impl OutputRegistry {
-    /// Creates an output and advertises its `wl_output` global.
-    ///
-    /// The global is advertised to every client already connected as well as to
-    /// every client that connects afterwards, so an output created after a
-    /// client has settled still reaches it — filtered by
-    /// [`CompositorState::can_view`] in both cases.
+    /// Advertises the output to existing and future clients permitted to see it.
     ///
     /// # Errors
     ///
-    /// Returns [`OutputError`] when the identifier is already in use. Two
-    /// outputs sharing one identifier would make every later lookup answer for
-    /// whichever was found first.
+    /// Returns [`OutputError`] when the identifier is already in use.
     pub(crate) fn create(
         &mut self,
         display: &DisplayHandle,
@@ -105,7 +66,9 @@ impl OutputRegistry {
         Ok(())
     }
 
-    /// Changes an output's mode and tells the clients that bound it.
+    /// Changes the mode and resends the output configuration to bound clients.
+    /// The compositor then sends matching surface-scale and toplevel-configure
+    /// updates from the new mode.
     ///
     /// # Errors
     ///
@@ -127,16 +90,9 @@ impl OutputRegistry {
         Ok(())
     }
 
-    /// Withdraws an output's global and hands back the surfaces that were on it.
-    ///
-    /// The clients that had bound it keep their `wl_output` objects — a global
-    /// being removed does not destroy the objects made from it — so each is told
-    /// the output has left its own surfaces first. What the removal stops is a
-    /// client binding it again.
-    ///
-    /// The surfaces are returned rather than dropped because they are now on no
-    /// output at all, and something has to put them on one: `destroy_output`
-    /// moves them to the default.
+    /// Sends leave events to bound clients before withdrawing the global, then
+    /// returns live surfaces for reassignment. Removing a global does not destroy
+    /// its bound `wl_output` objects.
     ///
     /// # Errors
     ///
@@ -158,17 +114,10 @@ impl OutputRegistry {
         let entry = self.outputs.remove(index);
         for instance in &entry.instances {
             for surface in entry.live_surfaces() {
-                // The same client check the other three paths make, and here it
-                // is load-bearing. `enter` recording against the one output the
-                // client is shown rules out the unrelated-client pairing — a
-                // client that cannot see this output at all holds no surface on
-                // it. It does not rule out the shared-output pairing: an
-                // assignment is many-to-one, so two clients on this output each
-                // contribute surfaces and instances to this entry, and the
-                // unfiltered product crosses them. The cost of getting that
-                // wrong is not a protocol error a client can survive but a
-                // backend abort that takes the compositor thread with it
-                // (`wayland-backend/src/rs/server_impl/client.rs:194`).
+                // A shared output can hold resources from several clients. Pair
+                // each surface with an instance from the same client; the
+                // backend aborts the compositor thread for a cross-client leave
+                // instead of reporting a protocol error.
                 if surface.client().as_ref() == instance.client().as_ref() {
                     surface.leave(instance);
                 }
@@ -179,15 +128,10 @@ impl OutputRegistry {
         Ok(orphaned)
     }
 
-    /// Withdraws an output's global and advertises a fresh one for it.
-    ///
-    /// The only way to re-evaluate [`CompositorState::can_view`] for a client
-    /// that has already read the registry: it is consulted at advertisement and
-    /// at bind and nowhere else, so a client whose assignment changed learns
-    /// nothing until a global it has not seen appears. Clients that had bound
-    /// the old global keep their `wl_output` objects and see a monitor
-    /// unplugged and plugged back in, which `docs/compositor.md` records as the
-    /// cost of changing an assignment.
+    /// Removes and recreates the registry global so clients with changed
+    /// assignments are filtered again. Existing bindings remain on their old
+    /// resources; clients observe the registry change as a monitor removal
+    /// followed by a new advertisement.
     ///
     /// # Errors
     ///
@@ -212,20 +156,12 @@ impl OutputRegistry {
         self.outputs.iter().find(|entry| entry.id == id)
     }
 
-    /// The live surfaces on one output.
-    ///
-    /// No deduplication, because [`OutputRegistry::enter`] records a surface
-    /// against exactly the output its client is shown and refuses a repeat.
-    ///
-    /// Collected rather than borrowed, so the caller may hold `&mut self` while
-    /// it walks the result.
     pub(crate) fn surfaces_on(&self, id: OutputId) -> Vec<WlSurface> {
         self.get(id)
             .map(|entry| entry.live_surfaces().collect())
             .unwrap_or_default()
     }
 
-    /// Every output, as the main thread reads them.
     pub(crate) fn snapshot(&self) -> Vec<OutputSnapshot> {
         self.outputs
             .iter()
@@ -236,10 +172,7 @@ impl OutputRegistry {
             .collect()
     }
 
-    /// Sends a newly bound `wl_output` everything it is owed.
-    ///
-    /// Called from [`CompositorState`]'s `GlobalDispatch` implementation, which
-    /// is the only thing that can produce one.
+    /// Sends configuration and existing surfaces' enter events for this client.
     pub(crate) fn bind(&mut self, id: OutputId, instance: &WlOutput) {
         let Ok(entry) = self.entry_mut(id) else {
             warn!(%id, "a client bound an output that no longer exists");
@@ -247,9 +180,8 @@ impl OutputRegistry {
         };
 
         send_configuration(entry, instance, OutputName::Unsent);
-        // Replayed rather than assumed to be unnecessary: a client may create a
-        // surface before it binds the output, and a surface that is never told
-        // which output it is on cannot pick a scale.
+        // A client may create a surface before binding the output, so replay its
+        // enter event when the output is bound.
         for surface in entry.live_surfaces() {
             if surface.client().as_ref() == instance.client().as_ref() {
                 surface.enter(instance);
@@ -258,12 +190,6 @@ impl OutputRegistry {
         entry.instances.push(instance.clone());
     }
 
-    /// Forgets a `wl_output` a client destroyed.
-    ///
-    /// The output is named rather than searched for, because the resource
-    /// carries it: an entry destroyed in the same dispatch has already dropped
-    /// its instances, and scanning every entry would be looking for something
-    /// that can only ever be in one of them.
     pub(crate) fn unbind(&mut self, id: OutputId, instance: &WlOutput) {
         let Ok(entry) = self.entry_mut(id) else {
             return;
@@ -271,26 +197,9 @@ impl OutputRegistry {
         entry.instances.retain(|held| held != instance);
     }
 
-    /// Tells a surface which output it is on.
-    ///
-    /// One output — the one its client is shown — rather than every output. The
-    /// events would come out the same either way, because a client can only
-    /// have bound what it was allowed to see, but the record would not: an entry
-    /// holding surfaces belonging to clients that cannot see it is what makes a
-    /// cross-client `wl_surface.leave` reachable from
-    /// [`OutputRegistry::destroy`], which the backend answers by aborting rather
-    /// than by raising a protocol error. Recording against the one output
-    /// removes the unrelated-client case, where the surface's client cannot see
-    /// the entry at all. It does not remove the shared-output case: an
-    /// assignment is many-to-one, so two clients shown the same output both
-    /// land in the same entry. [`OutputRegistry::destroy`] filters by client for
-    /// that one, and it is the guard that keeps the pairing out.
-    ///
-    /// An output that does not exist records nothing. The only caller derives
-    /// the identifier from the client's assignment, which `assign_output`
-    /// refuses to set to an output that was never created and `destroy_output`
-    /// clears when one is withdrawn — so this is a defect rather than a case,
-    /// and it is logged.
+    /// Records the surface on its assigned output and sends an enter event to
+    /// instances belonging to the same client. An unknown output is logged and
+    /// ignored.
     pub(crate) fn enter(&mut self, surface: &WlSurface, id: OutputId) {
         let Ok(entry) = self.entry_mut(id) else {
             warn!(%id, "a surface was placed on an output that does not exist");
@@ -311,7 +220,6 @@ impl OutputRegistry {
         }
     }
 
-    /// Withdraws a surface from every output it was on.
     pub(crate) fn leave(&mut self, surface: &WlSurface) {
         let weak = surface.downgrade();
         for entry in &mut self.outputs {
@@ -341,53 +249,39 @@ impl OutputRegistry {
     }
 }
 
-/// One virtual monitor and the clients that have bound it.
 #[derive(Debug)]
 pub(crate) struct OutputEntry {
     id: OutputId,
-    /// What clients see on `wl_output.name`, and how a client tells two outputs
-    /// apart.
+    /// Stable name sent in `wl_output.name`.
     name: String,
     mode: OutputMode,
     global: GlobalId,
-    /// Every `wl_output` a client has bound for this output.
     instances: Vec<WlOutput>,
-    /// Every surface on this output, which is every surface belonging to a
-    /// client this output was assigned to and no others — see
-    /// [`OutputRegistry::enter`]. Weak, because a surface is destroyed by its
-    /// client and the registry must not be what keeps it alive.
+    /// Weak references so the registry does not keep client-owned surfaces alive.
     surfaces: Vec<Weak<WlSurface>>,
 }
 
 impl OutputEntry {
-    /// The resolution, scale, and refresh rate this output is advertising.
     pub(crate) const fn mode(&self) -> OutputMode {
         self.mode
     }
 
-    /// The mode in smithay's logical coordinate space, which is what a toplevel
-    /// is configured in.
+    /// Returns the logical bounds used for toplevel configuration.
     pub(crate) fn logical_size(&self) -> Size<i32, Logical> {
         logical_size(self.mode)
     }
 
-    /// The surfaces still alive, as resources.
     fn live_surfaces(&self) -> impl Iterator<Item = WlSurface> + '_ {
         self.surfaces.iter().filter_map(|held| held.upgrade().ok())
     }
 }
 
-/// Which output a `wl_output` global is for.
-///
-/// The whole reason this crate does not use `Output::create_global`: smithay's
-/// own global data does not let a `can_view` implementation read the output back
-/// out, and without that there is nothing to filter on.
+/// Carries the output identity used by `can_view` at advertisement and bind time.
 #[derive(Debug)]
 pub(crate) struct OutputGlobal {
     pub(crate) output: OutputId,
 }
 
-/// Which output a bound `wl_output` is for.
 #[derive(Debug)]
 pub(crate) struct OutputResource {
     output: OutputId,
@@ -403,7 +297,6 @@ impl OutputResource {
     }
 }
 
-/// Why an output could not be created, reconfigured, or destroyed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct OutputError {
     output: OutputId,
@@ -429,40 +322,24 @@ impl fmt::Display for OutputError {
 
 impl Error for OutputError {}
 
-/// The `wl_output` version lunette advertises.
-///
-/// Four, which is what smithay's own global offers and the version that carries
-/// `name` and `description`. A client tells two outputs apart by name, and
-/// without it a configuration with several outputs is unaddressable from the
-/// client's side.
+/// `wl_output` version 4, which includes the stable name and description events.
 const OUTPUT_VERSION: u32 = 4;
 
-/// What a client is told lunette's make is.
 const OUTPUT_MAKE: &str = "lunette";
 
-/// What a client is told the model is.
 const OUTPUT_MODEL: &str = "virtual display";
 
-/// Whether one bound `wl_output` has already been told its name.
-///
-/// `wayland.xml` on `wl_output.name`: "This event is only sent once per output
-/// object, and the name does not change over the lifetime of the wl_output
-/// global." Every other event in the set may repeat, and `description` is
-/// explicitly allowed to — so a mode change re-sends everything but this.
+/// Tracks whether the bound resource has received its name event. The protocol
+/// permits the name once per resource, while other configuration events repeat.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OutputName {
-    /// The instance was just bound and is owed its name.
     Unsent,
-    /// The instance already carries its name, and repeating it is a conformance
-    /// violation.
     Sent,
 }
 
-/// Sends an output's state to one bound `wl_output`.
-///
-/// The order is the protocol's: the properties, then `done`. A client that acts
-/// on a geometry it has not been told is done with will re-lay-out again a
-/// moment later.
+/// Sends geometry, mode, scale, name, and description in protocol order,
+/// followed by `done` when supported. A bound resource receives its name only
+/// once; later configurations resend the other properties.
 fn send_configuration(entry: &OutputEntry, instance: &WlOutput, name: OutputName) {
     let physical = physical_size(entry.mode.size, entry.mode.scale.get());
     instance.geometry(
@@ -511,17 +388,9 @@ fn send_configuration(entry: &OutputEntry, instance: &WlOutput, name: OutputName
     }
 }
 
-/// The integer scale `wl_output.scale` carries.
-///
-/// The ceiling of the advertised scale, never below one. A client rendering at a
-/// fractional scale asks for the buffer scale it wants through
-/// `wp_fractional_scale_v1` and `wp_viewporter`; this is the whole-number answer
-/// the protocol has had since version 2, and rounding it down would tell a
-/// client on a 1.5 scale that its monitor is unscaled.
-///
-/// The same number rides on `wl_surface.preferred_buffer_scale`, which is what
-/// a client too old for `wp_fractional_scale_v1` renders at, so
-/// [`crate::state`] reaches for this too.
+/// Returns the whole-number scale for `wl_output.scale` and
+/// `wl_surface.preferred_buffer_scale`. The ceiling, never below one, preserves
+/// density for clients that do not use fractional scaling.
 pub(crate) fn integer_scale(scale: OutputScale) -> i32 {
     #[expect(
         clippy::cast_possible_truncation,
@@ -532,11 +401,8 @@ pub(crate) fn integer_scale(scale: OutputScale) -> i32 {
     ceiling.max(1)
 }
 
-/// A mode in smithay's logical coordinate space.
-///
-/// Divided by the fractional scale rather than the integer one: an output at
-/// scale 1.5 is 1707 logical pixels wide at 2560 physical, and configuring its
-/// toplevels to 1280 would waste a quarter of the panel.
+/// Returns logical bounds by dividing the physical mode by its fractional
+/// scale, not by the whole-number protocol scale.
 fn logical_size(mode: OutputMode) -> Size<i32, Logical> {
     let logical = |pixels: u32| {
         #[expect(
@@ -551,16 +417,10 @@ fn logical_size(mode: OutputMode) -> Size<i32, Logical> {
     Size::new(logical(mode.size.width), logical(mode.size.height))
 }
 
-/// A plausible physical size in millimetres for a mode at a scale.
-///
-/// Derived rather than fixed. A client divides the resolution by the physical
-/// size to guess a DPI, and a constant physical size would make that guess wrong
-/// for every mode but one — a 3840-wide panel would report twice the density of
-/// a 1920-wide one on the same virtual monitor. Deriving it from the logical
-/// size at 96 dpi makes the guess agree with the scale lunette advertises.
+/// Returns the physical size in millimetres for `wl_output.geometry`, derived
+/// from logical dimensions at 96 dpi so a client's DPI estimate reflects the
+/// advertised scale across modes.
 fn physical_size(size: PixelSize, scale: f64) -> PhysicalSize {
-    /// Millimetres per logical pixel at the density the protocol treats as
-    /// unscaled.
     const MILLIMETRES_PER_PIXEL: f64 = 25.4 / 96.0;
 
     let millimetres = |pixels: u32| {
@@ -580,8 +440,6 @@ fn physical_size(size: PixelSize, scale: f64) -> PhysicalSize {
     }
 }
 
-/// A physical size in millimetres, which is the unit `wl_output.geometry`
-/// carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PhysicalSize {
     width: i32,
@@ -607,9 +465,6 @@ mod tests {
 
     #[test]
     fn physical_size_holds_density_across_modes() {
-        // The property that matters: two modes at the same scale report the same
-        // pixels per millimetre, so a client's DPI guess does not change with the
-        // resolution lunette picked.
         let small = physical_size(PixelSize::new(1920, 1080), 1.0);
         let large = physical_size(PixelSize::new(3840, 2160), 1.0);
 
@@ -619,8 +474,6 @@ mod tests {
 
     #[test]
     fn physical_size_shrinks_with_scale() {
-        // A scaled output is the same panel showing more pixels, so its physical
-        // size is smaller for the same resolution.
         let unscaled = physical_size(PixelSize::new(1920, 1080), 1.0);
         let scaled = physical_size(PixelSize::new(1920, 1080), 2.0);
 
@@ -657,8 +510,6 @@ mod tests {
     fn logical_size_divides_by_the_fractional_scale() {
         assert_eq!(logical_size(mode(2560, 1440, 1.0)), Size::new(2560, 1440));
         assert_eq!(logical_size(mode(2560, 1440, 2.0)), Size::new(1280, 720));
-        // The case the integer scale would get wrong: at 1.5 the ceiling is two,
-        // and dividing by it would throw away a quarter of the panel.
         assert_eq!(logical_size(mode(2560, 1440, 1.5)), Size::new(1707, 960));
     }
 

@@ -1,32 +1,25 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/window.rs and backend/wayvr/mod.rs (the size-constraint fragment at :368-386), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from selected fragments of WayVR's `backend/wayvr/window.rs` and
+//! `backend/wayvr/mod.rs` (size constraints), at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! The toplevels lunette knows about, and the sizes it configures them to.
+//! Tracks Wayland toplevels, their assigned outputs, and their configure sizes.
 //!
-//! A [`Window`] is a toplevel that has committed content. A toplevel that has
-//! not is tracked but not reported: a window with nothing in it has no pixels
-//! to draw and no size to place, and reporting one would make every consumer
-//! handle a case that resolves itself a frame later.
+//! `WindowManager` owns each `ToplevelSurface` from creation until destruction.
+//! It runs on the compositor thread because Smithay stores surface state in
+//! thread-affine data. A window remains tracked while unmapped, and its
+//! `WindowId` and `SinkId` remain stable if it maps again.
 //!
-//! The sizing rules are WayVR's (`window.rs:50-92`), with the clamping
-//! extracted into [`clamp_configure_size`] so it can be tested as the pure
-//! function it is. The rule that matters: a configure is only sent when the
-//! clamped size differs from the one already pending, because a client that is
-//! configured on every tick spends its time reallocating instead of drawing.
+//! Snapshots include only windows with current imported content. Buffer retention
+//! and image handling are outside this bookkeeping type. Output scale state is
+//! sent by the output path; this module uses the resulting logical bounds for
+//! toplevel configures. The client controls when a configure takes effect:
+//! snapshots and hit testing use committed geometry until a content commit
+//! updates it. This bookkeeping type has no graphics-device dependency; buffer
+//! retention and image import use the compositor's separate surface boundary.
 //!
-//! Two things upstream has that are not here. The `wayvr_ipc` packet
-//! conversions (`window.rs:164-174`) belong to WayVR's control protocol;
-//! lunette's control surface is `lunctl`, and it does not speak that protocol.
-//! `Rc<ToplevelSurface>` (`:19`) is a plain `ToplevelSurface`: it is itself
-//! `Clone` and cheap, so the wrapper bought nothing and cost thread affinity.
-//!
-//! The hover and focus pair upstream keeps here (`window.rs:109-119`) is in
-//! [`crate::seat`] instead. One per compositor is what makes the off hand steal
-//! hover from the main hand, and it is a property of a seat rather than of the
-//! window set.
-//!
-//! `time.rs` is folded in too, but not here — its one function has one caller,
-//! `CompositorState::millis` in [`crate::state`], and that is where it lives.
+//! Size clamping is kept pure so its protocol and degenerate-input rules can be
+//! tested without Wayland state.
 
 use smithay::{
     utils::{Logical, Size},
@@ -42,18 +35,12 @@ use crate::protocol::{
     WindowSnapshot,
 };
 
-/// The smallest size lunette will configure a window to.
-///
-/// Zero is a legal thing for a client to ask for and a useless thing to grant:
-/// a surface of no width has no pixels, and some toolkits divide by their own
-/// dimensions.
+/// The minimum dimension sent in a configure. The protocol permits zero, but
+/// this compositor configures at least one pixel.
 const SMALLEST: i32 = 1;
 
-/// Every toplevel lunette is tracking, in the order they were created.
-///
-/// A `Vec` rather than a map: it is walked far more often than it is searched,
-/// and the count is in the tens. WayVR uses a slotmap for the generational
-/// handle, which lunette gets from [`WindowId`] never being reused instead.
+/// Stores windows in creation order. Identifiers are minted monotonically and
+/// are never reused, including after a window is unmapped.
 #[derive(Debug, Default)]
 pub(crate) struct WindowManager {
     windows: Vec<Window>,
@@ -61,7 +48,6 @@ pub(crate) struct WindowManager {
 }
 
 impl WindowManager {
-    /// Starts tracking a toplevel, before it has any content.
     pub(crate) fn insert(
         &mut self,
         toplevel: ToplevelSurface,
@@ -100,7 +86,6 @@ impl WindowManager {
         id
     }
 
-    /// Stops tracking a toplevel, returning what was removed.
     pub(crate) fn remove(&mut self, toplevel: &ToplevelSurface) -> Option<Window> {
         let index = self.index_of(toplevel)?;
         Some(self.windows.remove(index))
@@ -133,29 +118,20 @@ impl WindowManager {
         self.windows.get_mut(index)
     }
 
-    /// The windows that have content, which are the ones worth reporting.
     pub(crate) fn mapped(&self) -> impl Iterator<Item = &Window> {
         self.windows.iter().filter(|window| window.mapped)
     }
 
-    /// Every window shown on one output, including the ones not yet mapped.
-    ///
-    /// Unmapped windows are included because the thing this exists for is
-    /// reconfiguring an output's windows after its mode changed, and a toplevel
-    /// still waiting to attach its first buffer is the one that most wants the
-    /// new size before it does.
+    /// Includes unmapped windows so an output change configures them before their
+    /// first buffer commit.
     pub(crate) fn on_output(&mut self, output: OutputId) -> impl Iterator<Item = &mut Window> {
         self.windows
             .iter_mut()
             .filter(move |window| window.output == output)
     }
 
-    /// Moves every window on one output to another.
-    ///
-    /// For an output being withdrawn. A window's output is what its bounds are
-    /// clamped against and what the snapshot reports, so one left naming an
-    /// output that no longer exists reports a monitor Lua cannot look up and is
-    /// reconfigured by nothing when the surviving output's mode changes.
+    /// Reassigns windows before a withdrawn output is rescaled. Their output is
+    /// used for snapshot identity and configure bounds.
     pub(crate) fn move_to_output(&mut self, from: OutputId, to: OutputId) {
         for window in &mut self.windows {
             if window.output == from {
@@ -171,33 +147,29 @@ impl WindowManager {
     }
 }
 
-/// One toplevel and everything lunette knows about it.
 #[derive(Debug)]
 pub(crate) struct Window {
     id: WindowId,
     sink: SinkId,
     surface: SurfaceId,
     process: Option<ProcessId>,
-    /// The output this window is shown on, which is the output its client was
-    /// assigned or the default one when it was assigned none.
+    /// The assigned output used for this window's bounds and snapshot.
     output: OutputId,
     toplevel: ToplevelSurface,
     title: Option<String>,
     app_id: Option<String>,
-    /// The size the client last committed. Never the size it was last asked
-    /// for: a client resizes at its own pace, and reporting the request would
-    /// make the snapshot describe a state that does not exist yet.
+    /// The last size the client committed. Configure requests do not change it
+    /// until the client commits content.
     size: PixelSize,
     bounds: Size<i32, Logical>,
     min_size: Size<i32, Logical>,
     max_size: Size<i32, Logical>,
-    /// The size of the configure the client has not yet answered.
+    /// The last clamped configure size sent without a matching client commit.
     pending_configure_size: Option<Size<i32, Logical>>,
     states: ToplevelStates,
-    /// What the client last said it is drawing. A hint, double-buffered by the
-    /// protocol, so it is read at commit alongside the buffer.
+    /// The content-type hint promoted by the client's buffer commit.
     content_type: ContentType,
-    /// Whether content has ever been committed.
+    /// Whether current imported content makes the window reportable.
     mapped: bool,
 }
 
@@ -210,7 +182,6 @@ impl Window {
         &self.toplevel
     }
 
-    /// The output this window is configured against.
     pub(crate) const fn output(&self) -> OutputId {
         self.output
     }
@@ -219,8 +190,6 @@ impl Window {
         self.mapped
     }
 
-    /// The size the client last committed, which is the window's client area
-    /// for the purposes of hit testing.
     pub(crate) const fn size(&self) -> PixelSize {
         self.size
     }
@@ -229,7 +198,6 @@ impl Window {
         self.title.as_deref()
     }
 
-    /// Records a new title, reporting whether it changed.
     pub(crate) fn set_title(&mut self, title: Option<String>) -> bool {
         if self.title == title {
             return false;
@@ -238,7 +206,6 @@ impl Window {
         true
     }
 
-    /// Records a new app id, reporting whether it changed.
     pub(crate) fn set_app_id(&mut self, app_id: Option<String>) -> bool {
         if self.app_id == app_id {
             return false;
@@ -255,7 +222,8 @@ impl Window {
         }
     }
 
-    /// Re-reads the client's own size limits, which it may change at any time.
+    /// Refreshes the client's size limits before sizing. The client may change
+    /// these limits between commits.
     pub(crate) fn refresh_constraints(&mut self, bounds: Size<i32, Logical>) {
         self.bounds = bounds;
         let (min_size, max_size) = size_constraints(&self.toplevel, bounds);
@@ -263,11 +231,10 @@ impl Window {
         self.max_size = max_size;
     }
 
-    /// Configures the window to a size within its own limits.
-    ///
-    /// Nothing is sent when the clamped size is the one already pending. A
-    /// client configured on every tick spends its time reallocating buffers
-    /// rather than drawing into them.
+    /// Sends a configure with the requested size clamped to client limits and
+    /// output bounds. It updates the pending xdg state before sending the
+    /// configure, and does not resend an unchanged clamped size while it is
+    /// pending.
     pub(crate) fn request_size(&mut self, size: Size<i32, Logical>, bounds: Size<i32, Logical>) {
         let clamped = clamp_configure_size(size, self.min_size, self.max_size, bounds);
 
@@ -285,10 +252,8 @@ impl Window {
         self.pending_configure_size = Some(clamped);
     }
 
-    /// Records the size the client actually committed.
-    ///
-    /// Returns what changed, which is what decides whether a snapshot is worth
-    /// republishing and whether the window has just appeared.
+    /// Records the size the client committed, clears the pending configure, and
+    /// returns whether the window mapped or resized.
     pub(crate) fn remember_committed_size(&mut self, size: PixelSize) -> SizeChange {
         let size = PixelSize::new(size.width.max(1), size.height.max(1));
         let change = SizeChange {
@@ -302,7 +267,8 @@ impl Window {
         change
     }
 
-    /// Marks the window unmapped, as a commit that removes the buffer does.
+    /// Marks the window unmapped after a null-buffer commit. A later buffer
+    /// commit can map the same window and retain its identifiers.
     pub(crate) fn unmap(&mut self) -> bool {
         let was_mapped = self.mapped;
         self.mapped = false;
@@ -322,16 +288,12 @@ impl Window {
             size: self.size,
             min_size: Some(pixel_size(self.min_size)),
             max_size: Some(pixel_size(self.max_size)),
-            // Transient-for is tracked from `parent_changed`, which arrives in
-            // the phase that has something to do with it.
             parent: None,
             states: self.states.clone(),
             content_type: self.content_type,
         }
     }
 
-    /// Records what the client says it is drawing, reporting whether it
-    /// changed.
     pub(crate) fn remember_content_type(&mut self, content_type: ContentType) -> bool {
         let changed = self.content_type != content_type;
         self.content_type = content_type;
@@ -339,30 +301,25 @@ impl Window {
     }
 }
 
-/// What `remember_committed_size` observed.
+/// The visibility changes caused by a committed buffer. The compositor publishes
+/// a new snapshot when either field is true.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SizeChange {
-    /// The window had no content before this commit.
+    /// The commit provides the window's first current content.
     pub(crate) mapped: bool,
-    /// The committed size differs from the previous one.
+    /// The committed logical size differs from the previous one.
     pub(crate) resized: bool,
 }
 
 impl SizeChange {
-    /// Whether the snapshot needs republishing because of this commit.
     pub(crate) const fn is_visible(self) -> bool {
         self.mapped || self.resized
     }
 }
 
-/// Brings a requested size inside the client's limits and the output's.
-///
-/// Ported from `window.rs:50-66`. The order is deliberate and is the part worth
-/// stating: the minimum is clamped into the bounds first, the maximum is then
-/// clamped to be at least the minimum, and only then is the request clamped
-/// between them. A client whose minimum exceeds the output — which happens, and
-/// is not a protocol error — gets the output's size rather than an inverted
-/// range.
+/// Clamps a requested logical size to a non-zero output bound and the client's
+/// limits. The minimum is clamped to the output before the maximum is raised to
+/// it; an inverted client range is resolved at the minimum rather than rejected.
 #[must_use]
 pub(crate) fn clamp_configure_size(
     size: Size<i32, Logical>,
@@ -384,11 +341,8 @@ pub(crate) fn clamp_configure_size(
     Size::new(size.w.max(SMALLEST), size.h.max(SMALLEST)).clamp(min_size, max_size)
 }
 
-/// Reads the size limits a client set on its own surface.
-///
-/// Ported from `mod.rs:368-386`. An unset limit is empty rather than absent in
-/// the protocol, so "no minimum" means one pixel and "no maximum" means the
-/// whole output.
+/// Reads the current size limits from the surface's cached xdg state. An empty
+/// minimum means one pixel, and an empty maximum means the supplied output bound.
 fn size_constraints(
     toplevel: &ToplevelSurface,
     bounds: Size<i32, Logical>,
@@ -440,7 +394,6 @@ mod tests {
         Size::new(width, height)
     }
 
-    /// The default output's size, which is what a window's bounds normally are.
     fn bounds() -> Size<i32, Logical> {
         size(2560, 1440)
     }
@@ -469,9 +422,8 @@ mod tests {
         );
     }
 
-    /// Negative sizes are not tested because they are unrepresentable:
-    /// `Size::new` panics on one, so the only degenerate value that reaches
-    /// this function is zero.
+    /// Negative dimensions cannot reach this helper through `Size::new`; zero is
+    /// the degenerate input covered by this test.
     #[test]
     fn nothing_is_ever_configured_to_zero() {
         for requested in [size(0, 0), size(0, 600), size(800, 0)] {

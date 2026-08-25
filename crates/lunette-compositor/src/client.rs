@@ -1,42 +1,18 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/client.rs and backend/wayvr/mod.rs (`WaylandEnv` at :95-108), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Linux-only: owns the Wayland listening socket and the optional
+//! xwayland-satellite child.
+//!
+//! The listener setup, display-name formatting, client insertion,
+//! xwayland-satellite startup, and bundled executable lookup adapt WayVR's
+//! `backend/wayvr/client.rs` and `backend/wayvr/mod.rs` at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb. Lunette adds typed process
+//! attribution and injectable process creation around those parts.
+//!
+//! The application entry point calls [`listen`] before starting the compositor
+//! thread, then exports the returned name after saving the host's
+//! `WAYLAND_DISPLAY` while the process is single-threaded. This module returns
+//! the name but does not access the process environment.
+//!
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
-//!
-//! The listening socket clients connect to, and the X11 bridge beside it.
-//!
-//! # The socket is bound before the compositor thread starts
-//!
-//! [`listen`] is called from the entry point, on the main thread, and the
-//! source it returns is moved into the compositor thread's closure. That
-//! ordering is not incidental: the display name has to exist before the thread
-//! does, because the entry point is the only place that may export it.
-//!
-//! # Why `WAYLAND_DISPLAY` is not exported here
-//!
-//! [`listen`] returns the name. It does not put it in the environment, and the
-//! obvious-looking line that would do so next to the `bind` call is wrong for
-//! two reasons.
-//!
-//! The first is the house rule: environment access belongs to the application
-//! entry point, and a library that writes the environment cannot be tested
-//! without manipulating it.
-//!
-//! The second is the one that is invisible from here. In Rust 2024
-//! `std::env::set_var` is `unsafe`, and it is unsound once any other thread
-//! exists — a concurrent `getenv` anywhere in the process, including inside a
-//! C library, reads a pointer the write may free. By the time lunette has a
-//! compositor at all, LÖVR and GLFW have booted and spawned threads, because
-//! the compositor needs the graphics device they created. So "before any other
-//! thread could be reading" is not a condition that can be satisfied at this
-//! point in the program, and there is no safe ordering available here.
-//!
-//! The entry point exports it before any of that happens, and hands the name
-//! down. `crates/lunette/src/main.rs` carries the other half of this note.
-//!
-//! WayVR does not export it either — it writes the display number to
-//! `$XDG_RUNTIME_DIR/wayvr.disp` for external tooling (`client.rs:415-421`).
-//! Lunette does not write that file: the design gives `lunctl` the job of
-//! telling external tooling where lunette is, and a file in a well-known place
-//! is a second answer to the same question.
 
 use std::{
     error::Error,
@@ -57,29 +33,19 @@ use crate::{
     thread::LoopData,
 };
 
-/// The first display number lunette tries.
-///
-/// Twenty, as WayVR uses (`client.rs:413`), so lunette's socket does not
-/// collide with the session compositor's `wayland-0` or `wayland-1`.
+/// The first display number, matching WayVR's listener setup.
 const FIRST_DISPLAY: u32 = 20;
 
-/// How many display numbers are tried before giving up.
-///
-/// A machine with twenty-one Wayland compositors already running is not a
-/// machine with a free socket a few more attempts would find; it is a machine
-/// with something wrong with it, and an error says so.
 const DISPLAY_ATTEMPTS: u32 = 21;
 
-/// Binds a listening socket on the first free display number.
+/// Binds the first available display socket and returns its event source and name.
 ///
-/// Returns the source to hand to the compositor thread and the name the entry
-/// point exports. Called from the main thread, before the compositor thread
-/// exists.
+/// The application calls this before starting the compositor thread. It exports
+/// the returned name after preserving the host display name.
 ///
 /// # Errors
 ///
-/// Returns [`ListenError`] when every candidate name is taken, or when the
-/// runtime directory cannot be written to at all.
+/// Returns [`ListenError`] when every candidate socket cannot be bound.
 pub fn listen() -> Result<(WaylandSocket, DisplayName), ListenError> {
     let mut last = None;
 
@@ -107,11 +73,10 @@ pub fn listen() -> Result<(WaylandSocket, DisplayName), ListenError> {
     })
 }
 
-/// A bound listening socket, waiting to be watched.
+/// A bound listening socket source owned by the compositor thread.
 ///
-/// Owning the source rather than the raw socket means the compositor thread
-/// inserts it and nothing else has to know how. It is moved into the thread
-/// because `calloop`'s event loop is not `Send` and cannot come the other way.
+/// The source is moved into that thread because calloop's event loop is not
+/// `Send`.
 pub struct WaylandSocket {
     pub(crate) source: ListeningSocketSource,
 }
@@ -124,30 +89,28 @@ impl fmt::Debug for WaylandSocket {
     }
 }
 
-/// Which display lunette is, in the two forms a client needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DisplayName {
     number: u32,
 }
 
 impl DisplayName {
-    /// The value of `WAYLAND_DISPLAY`, such as `wayland-20`.
+    /// Returns the Wayland socket name, such as `wayland-20`.
     #[must_use]
     pub fn wayland(self) -> OsString {
         OsString::from(format!("wayland-{}", self.number))
     }
 
-    /// The value of `DISPLAY`, such as `:20`.
+    /// Returns the X11 display name, such as `:20`.
     ///
-    /// The same number as the Wayland socket, as WayVR does (`mod.rs:104-107`).
-    /// The two namespaces are unrelated, so reusing the number is a convenience
-    /// rather than a requirement; it makes the pair legible in a log line.
+    /// The number matches the Wayland name, but the two names belong to separate
+    /// namespaces.
     #[must_use]
     pub fn x11(self) -> OsString {
         OsString::from(format!(":{}", self.number))
     }
 
-    /// Both forms, as a spawned client is told them.
+    /// Returns the display names that lunette passes to a spawned client.
     #[must_use]
     pub fn environment(self) -> DisplayEnvironment {
         DisplayEnvironment {
@@ -159,7 +122,7 @@ impl DisplayName {
 
 #[cfg(any(test, feature = "test-fakes"))]
 impl DisplayName {
-    /// A display name for a test, which has bound no socket to get one from.
+    /// Constructs a deterministic display name without binding a socket.
     #[must_use]
     pub fn for_test(number: u32) -> Self {
         Self { number }
@@ -172,12 +135,11 @@ impl fmt::Display for DisplayName {
     }
 }
 
-/// Why no listening socket could be bound.
 #[derive(Debug)]
 pub struct ListenError {
     first: u32,
     attempts: u32,
-    /// The last bind failure, absent only if no attempt was made.
+    /// The final bind failure, which preserves the underlying cause for error chaining.
     cause: Option<BindError>,
 }
 
@@ -201,12 +163,11 @@ impl Error for ListenError {
     }
 }
 
-/// Accepts one connection and attributes it.
+/// Inserts an accepted client and attributes it to a managed or external process.
 ///
-/// Every client goes through this, whether lunette started it or not, and the
-/// attribution is what decides which. A client whose stream cannot be inserted
-/// is dropped: there is nothing to tell, because there is no protocol object to
-/// tell it with.
+/// Attribution runs before the client's initial `wl_registry` dispatch. If
+/// insertion fails, the stream is dropped because no protocol object exists for
+/// an error response.
 pub(crate) fn accept(data: &mut LoopData, stream: UnixStream) {
     let client = data
         .display
@@ -219,19 +180,13 @@ pub(crate) fn accept(data: &mut LoopData, stream: UnixStream) {
     }
 }
 
-/// Where to find xwayland-satellite.
-///
-/// The path arrives as a value because resolving it reads `APPDIR`, and reading
-/// the environment belongs to the entry point. [`bundled_executable`] is the
-/// resolution itself, so the entry point does not have to reimplement WayVR's
-/// rule.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct XwaylandSatellite {
     pub executable: PathBuf,
 }
 
 impl XwaylandSatellite {
-    /// The usual name, on `PATH` or under an AppImage's `APPDIR`.
+    /// Resolves the usual executable name from the optional AppImage root.
     #[must_use]
     pub fn resolve(appdir: Option<&OsStr>) -> Self {
         Self {
@@ -240,14 +195,11 @@ impl XwaylandSatellite {
     }
 }
 
-/// Resolves a bundled executable, preferring an AppImage's own copy.
+/// Resolves an executable from an AppImage root or falls back to `PATH`.
 ///
-/// Ported from `bundled_executable` (`client.rs:472-478`). `APPDIR` is set by
-/// the AppImage runtime, and a bundle that ships its own satellite must use
-/// that one rather than whatever the host happens to have on `PATH`.
-///
-/// The value is a parameter rather than a `std::env::var` call, so this is a
-/// pure function and the rule it implements is testable.
+/// This helper adapts WayVR's `bundled_executable`. The entry point supplies
+/// `APPDIR` so this module does not read the process environment and the lookup
+/// remains directly testable.
 #[must_use]
 pub fn bundled_executable(name: &str, appdir: Option<&OsStr>) -> PathBuf {
     match appdir.filter(|appdir| !appdir.is_empty()) {
@@ -256,17 +208,14 @@ pub fn bundled_executable(name: &str, appdir: Option<&OsStr>) -> PathBuf {
     }
 }
 
-/// The X11 bridge, started once and stopped when lunette stops.
+/// Owns the optional xwayland-satellite process.
 ///
-/// Best-effort, as WayVR's is (`client.rs:101-108`): a failure to start it is a
-/// warning and construction continues, because a session with no X11 support is
-/// worth having and a session that refuses to start is not.
+/// Startup is best-effort, as in WayVR's satellite setup. A spawn failure logs a
+/// warning and leaves Wayland clients available without X11 support.
 #[derive(Default)]
 pub(crate) struct Satellite {
-    /// Dropping the child asks its process group to stop, which is how the
-    /// bridge is reaped. WayVR sends `SIGKILL` and waits (`client.rs:55-65`);
-    /// lunette's child handle terminates the group, which also takes the
-    /// `Xwayland` process satellite itself started.
+    /// The child handle terminates and reaps the process group on drop, including
+    /// any `Xwayland` process the bridge started.
     child: Option<Box<dyn ChildProcess>>,
 }
 
@@ -279,11 +228,11 @@ impl fmt::Debug for Satellite {
 }
 
 impl Satellite {
-    /// Starts the bridge, if the caller asked for one.
+    /// Starts the bridge when configured.
     ///
-    /// Satellite needs `wp_viewporter` from the compositor and refuses to start
-    /// without it, along with `wl_compositor`, `wl_output`, and `xdg_shell`. All
-    /// four are advertised before this runs.
+    /// The compositor advertises `wl_compositor`, `wl_output`, `xdg_shell`, and
+    /// `wp_viewporter` before this call. The bridge receives the X11 display as
+    /// its positional argument and lunette's Wayland name in its environment.
     pub(crate) fn start(
         spawner: &mut dyn ProcessSpawner,
         satellite: Option<&XwaylandSatellite>,
@@ -295,7 +244,6 @@ impl Satellite {
         };
 
         let plan = SpawnPlan {
-            // The X display number is positional, as satellite takes it.
             argv: Argv::new(satellite.executable.clone(), vec![name.x11()]),
             env: vec![(OsString::from("WAYLAND_DISPLAY"), name.wayland())],
             cwd: None,
@@ -316,18 +264,15 @@ impl Satellite {
         }
     }
 
-    /// Whether the bridge is still running.
     pub(crate) fn is_running(&self) -> bool {
         self.child.is_some()
     }
 
-    /// Reaps the bridge if it has exited.
+    /// Polls the unregistered bridge and drops its handle after it exits.
     ///
-    /// The bridge is not in the process registry — no `lunette.spawn` asked for
-    /// it and no handle refers to it — so nothing else waits on it, and without
-    /// this it would sit as a zombie for the rest of the session. Its exit is
-    /// not reported to Lua for the same reason: there is no process handle for
-    /// it to be an exit of.
+    /// The process registry does not wait for this child or report its outcome to
+    /// Lua. Polling here reaps it and removes the handle so its exit is logged
+    /// once.
     pub(crate) fn poll(&mut self) {
         let Some(child) = self.child.as_mut() else {
             return;

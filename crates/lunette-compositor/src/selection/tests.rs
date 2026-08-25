@@ -1,9 +1,9 @@
-//! The decisions the selection bridge makes, without a host or a client.
+//! These tests exercise host-selection validation without a host connection or
+//! a Wayland client.
 //!
-//! Everything here is a pure function of the bridge's recorded state, which is
-//! what makes the degenerate cases testable at all: an empty selection, a MIME
-//! type nothing offers, and a read that outlived the selection it was made
-//! against need no desktop session to reproduce.
+//! [`SelectionBridge::resolve`] checks the client-visible offer identity and MIME
+//! request before the caller transfers a destination descriptor to the host.
+//! The pure check makes empty, incompatible, and stale selections deterministic.
 
 #![expect(
     clippy::expect_used,
@@ -15,10 +15,6 @@ use pretty_assertions::assert_eq;
 use super::*;
 use crate::state::DEFAULT_SEAT;
 
-/// A bridge attached to the default seat with no host connection.
-///
-/// The host is absent because nothing here calls it: [`SelectionBridge::resolve`]
-/// decides whether a read is worth making, and only then is a host asked.
 fn bridge() -> SelectionBridge {
     SelectionBridge::new(Some(DEFAULT_SEAT), None)
 }
@@ -47,8 +43,8 @@ fn a_mime_type_rejects_what_no_source_could_be_asked_for() {
 
 #[test]
 fn a_mime_type_is_matched_byte_for_byte() {
-    // Case folding here would make lunette answer a request no other compositor
-    // would, and the reply would then be a type the client did not ask for.
+    // MIME types are compared byte for byte; case folding would accept a request
+    // that does not match the advertised type.
     let held = offer(SelectionKind::Clipboard, first_offer(), &["UTF8_STRING"]);
 
     assert!(held.carries("UTF8_STRING"));
@@ -72,8 +68,8 @@ fn offer_identifiers_never_repeat() {
 
 #[test]
 fn an_empty_selection_is_refused_rather_than_read() {
-    // The host has copied nothing. A client that pastes gets an empty paste,
-    // and no descriptor is handed to a connection that has nothing to write.
+    // An absent host selection is rejected before the caller transfers the
+    // client's destination descriptor to the host.
     let bridge = bridge();
     let asked = offer(SelectionKind::Clipboard, first_offer(), &["text/plain"]);
 
@@ -85,9 +81,8 @@ fn an_empty_selection_is_refused_rather_than_read() {
 
 #[test]
 fn a_mime_type_the_offer_does_not_carry_is_refused_rather_than_substituted() {
-    // The case the phase names: a selection offering nothing lunette's client
-    // asked for. Answering with the nearest text type would paste bytes in an
-    // encoding the client did not ask for, which is silent corruption.
+    // The bridge refuses an unadvertised MIME type instead of substituting a
+    // different encoding for the client request.
     let mut bridge = bridge();
     let id = first_offer();
     let held = offer(SelectionKind::Clipboard, id, &["image/png"]);
@@ -118,9 +113,8 @@ fn an_offer_carrying_no_mime_types_at_all_refuses_everything() {
 
 #[test]
 fn a_read_of_a_selection_that_was_replaced_is_refused_rather_than_answered() {
-    // A client holding a `wl_data_offer` from before the user copied something
-    // else. Answering would paste the new selection under the old offer, which
-    // is a paste of something the user never asked for.
+    // A client-visible offer retains its identity after publication; a later host
+    // offer must not answer a read made through the replaced offer.
     let counter = OfferCounter::new();
     let mut bridge = bridge();
     let stale = offer(SelectionKind::Clipboard, counter.next(), &["text/plain"]);
@@ -193,8 +187,6 @@ fn losing_the_host_forgets_everything_it_was_offering() {
     );
 }
 
-/// One identifier, for a test that only needs the offers to be distinguishable
-/// from each other rather than from a sequence.
 fn first_offer() -> OfferId {
     OfferCounter::new().next()
 }

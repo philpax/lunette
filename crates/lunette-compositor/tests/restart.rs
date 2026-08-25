@@ -1,17 +1,13 @@
-//! Giving up the graphics device and taking a new one, with a client connected
-//! throughout.
+//! Tests replacing the graphics importer while Wayland clients remain connected.
 //!
-//! `lunette-v1.AC5.5` asks for a restart that rebuilds the Lua state and the XR
-//! session while clients stay connected. The half of that this file establishes
-//! is the compositor's: the device the importer was built against is destroyed
-//! and replaced, and the connection, the window, and the client's buffer are
-//! unaffected. What lunette does with the images on its own side is
-//! `crates/lunette/src/restart.rs`'s, and is tested there.
+//! These logic-headless tests use a recording importer. The compositor thread
+//! drops that importer during release; the frame thread waits for the release
+//! acknowledgement before destroying the graphics device and supplies a new
+//! importer during adoption.
 //!
-//! Everything here runs with no graphics device at all. The importer is a
-//! recording fake, which is exactly the seam the restart protocol operates on:
-//! releasing the device *is* dropping the importer, so a fake importer is the
-//! real subject rather than a stand-in for it.
+//! The compositor retains the display, client connections, and dmabuf
+//! `wl_buffer`s across this exchange. Clients are owned by Rust outside the Lua
+//! state, so replacing the graphics device does not disconnect them.
 
 #![expect(
     clippy::expect_used,
@@ -27,9 +23,8 @@ use lunette_compositor::{
 use pretty_assertions::assert_eq;
 use smithay::backend::allocator::{Format, Fourcc, Modifier};
 
-/// A compositor that advertises a format a client can allocate, so the dmabuf
-/// path is reachable. The shared-memory path has nothing to retain across a
-/// restart, so every case here is a dmabuf one.
+/// Advertises one dmabuf format so the retained-buffer path is reachable. Shared-memory
+/// buffers are released after their pixels are copied and are not part of restart adoption.
 fn accepting_dmabuf() -> TestCompositor {
     TestCompositor::with_config(CompositorConfig {
         dmabuf: DmabufSupport {
@@ -43,8 +38,7 @@ fn accepting_dmabuf() -> TestCompositor {
     })
 }
 
-/// A compositor with one client whose toplevel is mapped and whose dmabuf has
-/// been imported.
+/// Maps a client after importing its initial dmabuf, which gives the tests a retained buffer.
 fn mapped_client(compositor: &mut TestCompositor) -> TestClient {
     let mut client = TestClient::connect(compositor);
     client.open_toplevel(compositor);
@@ -67,7 +61,6 @@ fn release(compositor: &mut TestCompositor) {
     });
 }
 
-/// The two counts a `GraphicsAdopted` carries, once one has arrived.
 fn adopt(compositor: &mut TestCompositor, log: &ImportLog) -> (usize, usize) {
     compositor.send(Command::AdoptGraphics {
         importer: recording_importer(log.clone()),
@@ -87,8 +80,7 @@ fn adopt(compositor: &mut TestCompositor, log: &ImportLog) -> (usize, usize) {
         .expect("the acknowledgement was waited for")
 }
 
-/// The acknowledgement is what the frame thread destroys the device on, so it
-/// has to arrive, and nothing about the client may change when it does.
+/// The release acknowledgement is the frame thread's permission to destroy the old device.
 #[test]
 fn releasing_the_device_leaves_the_client_connected_and_mapped() {
     let mut compositor = accepting_dmabuf();
@@ -96,7 +88,7 @@ fn releasing_the_device_leaves_the_client_connected_and_mapped() {
 
     release(&mut compositor);
 
-    // A disconnected client's next round trip is what would fail here.
+    // A round trip would fail if releasing the device disconnected the client.
     client.set_title(&mut compositor, "still here");
     client.settle(&mut compositor, |_| true);
 
@@ -109,8 +101,8 @@ fn releasing_the_device_leaves_the_client_connected_and_mapped() {
     assert_eq!(snapshot.windows[0].title.as_deref(), Some("still here"));
 }
 
-/// The buffer is what the re-import restores the surface from, so releasing it
-/// during the quiesce would mean the client had to redraw after every restart.
+/// The compositor keeps the client's dmabuf while the graphics importer is absent, so adoption
+/// can restore the surface without a new client commit.
 #[test]
 fn the_clients_buffer_is_retained_across_the_quiesce() {
     let mut compositor = accepting_dmabuf();
@@ -127,8 +119,8 @@ fn the_clients_buffer_is_retained_across_the_quiesce() {
     );
 }
 
-/// Nothing may reach the importer between the release and the adopt, because
-/// the device it would import against no longer exists.
+/// A commit while the old importer is gone cannot produce an imported buffer; the client receives
+/// the unimported buffer back and may commit another one after adoption.
 #[test]
 fn a_commit_while_the_device_is_gone_is_refused_and_the_buffer_handed_back() {
     let mut compositor = accepting_dmabuf();
@@ -157,8 +149,8 @@ fn a_commit_while_the_device_is_gone_is_refused_and_the_buffer_handed_back() {
     );
 }
 
-/// The property AC5.5 rests on: the client drew nothing, and its surface has
-/// its content back.
+/// Adoption re-imports the retained dmabuf without a client commit and reports the restored
+/// surface before its acknowledgement.
 #[test]
 fn adopting_a_device_re_imports_the_retained_buffer_without_the_client_drawing() {
     let mut compositor = accepting_dmabuf();
@@ -185,8 +177,8 @@ fn adopting_a_device_re_imports_the_retained_buffer_without_the_client_drawing()
     );
 }
 
-/// A restart is not something a session should end over, so one surface losing
-/// its content is reported and survived.
+/// A failed re-import is counted, releases the retained buffer to the client, and leaves the
+/// client connection active.
 #[test]
 fn a_re_import_the_new_device_refuses_is_reported_and_the_buffer_released() {
     let mut compositor = accepting_dmabuf();
@@ -209,10 +201,8 @@ fn a_re_import_the_new_device_refuses_is_reported_and_the_buffer_released() {
         "a buffer that cannot be re-imported is handed back, so the client can draw a fresh one"
     );
 
-    // The session continues: the client is connected, and its next commit is
-    // imported normally once a device that does not refuse arrives. The adopt
-    // is waited for before the commit, so the two cannot be dispatched in the
-    // other order.
+    // Wait for adoption before committing so the fresh buffer is not sent to the no-device
+    // importer.
     let recovered = ImportLog::default();
     release(&mut compositor);
     assert_eq!(
@@ -234,26 +224,18 @@ fn a_re_import_the_new_device_refuses_is_reported_and_the_buffer_released() {
     assert_eq!(compositor.snapshot().windows.len(), 1);
 }
 
-/// The premise `dmabuf_imported` accepts an unimported buffer on: the
-/// `wl_buffer` is valid, and the commit that asks it to become an image is where
-/// a device that does not exist yet is answered survivably.
-///
-/// Refusing the create instead would answer `create_immed` with
-/// `INVALID_WL_BUFFER`, which disconnects the client — and `lunette-v1.AC5.5` is
-/// precisely that a restart disconnects nobody. So the create has to survive the
-/// quiesce and the buffer has to import once a device arrives.
+/// The `wl_buffer` must be accepted while no device exists. Rejecting
+/// `create_immed` with `INVALID_WL_BUFFER` would disconnect the client; the
+/// commit defers image import until a device is available.
 #[test]
 fn a_dmabuf_created_during_the_quiesce_imports_once_a_device_arrives() {
     let mut compositor = accepting_dmabuf();
     let mut client = mapped_client(&mut compositor);
     release(&mut compositor);
 
-    // Created while there is no device, so `dmabuf_imported` takes the accept
-    // path. Nothing is committed yet, so nothing has asked for an image.
     let created = client.create_dmabuf(&mut compositor, PixelSize::new(640, 480));
 
-    // A disconnected client's next round trip is what would fail here, which is
-    // what refusing the create rather than accepting it would have caused.
+    // A round trip would fail if `create_immed` had disconnected the client.
     client.set_title(&mut compositor, "still here");
     client.settle(&mut compositor, |_| true);
     assert_eq!(
@@ -287,9 +269,8 @@ fn a_dmabuf_created_during_the_quiesce_imports_once_a_device_arrives() {
     assert_eq!(compositor.snapshot().windows.len(), 1);
 }
 
-/// A compositor no client has ever committed to still has to answer, because
-/// the frame thread waits for the acknowledgement before destroying the device
-/// whether or not anything was imported.
+/// Release acknowledges an empty compositor so the frame thread can destroy the device only
+/// after the importer has been dropped, even when no buffer was retained.
 #[test]
 fn a_release_with_nothing_imported_is_acknowledged() {
     let mut compositor = accepting_dmabuf();

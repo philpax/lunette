@@ -1,55 +1,13 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/hit_test.rs, at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Ported from WayVR (https://github.com/wayvr-org/wayvr), specifically
+//! `backend/wayvr/hit_test.rs` at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! Where a pixel in a sink's space lands: which surface, and where inside it.
+//! Hit testing maps a sink-space pixel to a surface and its local coordinates.
 //!
-//! A window is not one surface. It is a toplevel with a tree of subsurfaces
-//! under it and, while a menu is open, a set of popups that may extend well
-//! outside its own bounds. Delivering a click to the toplevel regardless is what
-//! Phase 2 did, and it is why a menu could be opened but not chosen from.
-//!
-//! # The shape
-//!
-//! [`HitContext`] is pure geometry over pixel coordinates: rectangles, input
-//! regions, and an ordering. It is generic over what identifies a surface, so
-//! the algorithm can be exercised with no client, no display, and no GPU —
-//! which is what `AC9.4` asks of this crate's tests. [`context`] is the
-//! imperative half: it walks the live surface tree once and produces one of
-//! those.
-//!
-//! # Three details that are load-bearing
-//!
-//! - **Popups are tested before the toplevel's own bounds.** A popup may extend
-//!   beyond its parent, and testing the bounds first would discard exactly the
-//!   menus that motivate hit testing at all (`hit_test.rs:143`).
-//! - **The toplevel's surfaces are searched in reverse.** The tree is collected
-//!   bottom-most first, so the last match is the top-most one
-//!   (`hit_test.rs:158`).
-//! - **Within one popup's tree, a later hit wins**, for the same reason and
-//!   because `with_surface_tree_upward` visits bottom-to-top
-//!   (`hit_test.rs:310`).
-//!
-//! # What upstream has that is not here
-//!
-//! The GPU handle. `RenderedSurface` carries an `Arc<ImageView>`
-//! (`hit_test.rs:36`) that the hit test reads only to obtain a size
-//! (`:210-219`, `:274-278`). Carrying it here would put a graphics dependency in
-//! the crate whose tests must run without a device, so the size arrives as a
-//! value and the image stays with whoever draws.
-//!
-//! The XR layer. `PointerHit`, the UV transform, `uv_range`, and
-//! `WvrHitTarget::Panel` (`:19`, `:43`, `:79-109`) exist because WayVR performs
-//! the ray intersection in Rust. Under `docs/input.md:5-7` Lua does that and
-//! hands down pixel coordinates, so all of it disappears and only
-//! `hit_target_at` (`:105`) remains, without the inverse transform it opened
-//! with.
-//!
-//! The chrome. `BORDER_SIZE` and `BAR_SIZE` (`:23-24`) are WayVR's titlebar.
-//! lunette's chrome is mullion's, in Lua, and the client area here is the
-//! window's own.
-//!
-//! `Rc<[…]>` at all three of its sites (`:60`, `:61`, `:229`) is `Arc<[…]>`:
-//! this crate runs the compositor on its own thread, and `Rc` is not `Send`.
+//! [`HitContext`] stores window geometry and input regions as a testable snapshot.
+//! Its surface identifier is generic, so the geometry can be tested without a
+//! Wayland client or graphics device. [`context`] builds the snapshot from the
+//! live surface tree.
 
 use std::sync::Arc;
 
@@ -71,9 +29,9 @@ use crate::protocol::{PixelPoint, PixelSize};
 
 /// Everything a window presents to input, as one testable snapshot.
 ///
-/// `T` is whatever identifies a surface to the caller. Production passes
-/// `WlSurface`; a test passes a name, which is what keeps the algorithm
-/// separable from the protocol.
+/// `T` identifies a surface. Production uses
+/// `WlSurface`; tests use names, which keeps the algorithm
+/// independent of the protocol.
 #[derive(Clone, Debug)]
 pub(crate) struct HitContext<T> {
     /// The toplevel's subsurface tree, bottom-most first, excluding the
@@ -90,13 +48,11 @@ pub(crate) struct HitContext<T> {
 impl<T: Clone> HitContext<T> {
     /// What a point in the sink's pixel space lands on.
     ///
-    /// Nothing, when the point is outside the window and outside every popup.
-    /// A caller withdraws the pointer in that case rather than clamping it in,
-    /// because a pointer clamped to an edge is a pointer the client believes is
-    /// hovering something.
+    /// Returns `None` when the point is outside the window and every popup. The
+    /// input path withdraws the pointer instead of clamping it to an edge, which
+    /// would make the client believe that it still hovers something.
     pub(crate) fn target_at(&self, point: PixelPoint) -> Option<HitTarget<T>> {
-        // Popups first, before the bounds check: a popup may extend outside the
-        // window, and a menu that opens past the edge is the ordinary case.
+        // A popup may extend beyond the toplevel, so check it before the bounds.
         if let Some(surface) = self.popup_at(point) {
             return Some(surface);
         }
@@ -118,9 +74,6 @@ impl<T: Clone> HitContext<T> {
             });
         }
 
-        // Inside the window, claimed by no subsurface. Upstream clamps here
-        // (`hit_test.rs:170-173`); the bounds check above has already
-        // established the point is inside, so there is nothing left to clamp.
         Some(HitTarget::Toplevel { position: point })
     }
 
@@ -153,12 +106,10 @@ impl<T: Clone> HitContext<T> {
     }
 }
 
-/// What a point landed on.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum HitTarget<T> {
     /// The window itself, at a point no surface under it claimed.
     Toplevel { position: PixelPoint },
-    /// A subsurface of the window.
     Surface {
         surface: T,
         /// Where the surface sits, which is what a pointer focus is anchored
@@ -196,12 +147,10 @@ pub(crate) struct HitSurface<T> {
 }
 
 impl<T> HitSurface<T> {
-    /// Whether a surface with content accepts input at a point.
+    /// Whether a surface with a buffer accepts input at a point.
     ///
-    /// Ported from `surface_accepts_input` (`hit_test.rs:233-253`): the buffer's
-    /// extent is checked first, and the input region only refines what is
-    /// already inside it. A surface with no buffer accepts nothing, because
-    /// upstream never puts one in this list at all (`:210`).
+    /// The input region narrows the buffer extent. A surface without a buffer
+    /// accepts no input in the toplevel's surface tree.
     fn accepts_rendered_input(&self, point: PixelPoint) -> bool {
         let local = local_of(point, self.origin);
         let Some(size) = self.size else {
@@ -217,14 +166,10 @@ impl<T> HitSurface<T> {
         }
     }
 
-    /// Whether a surface accepts input at a point, letting an explicit input
-    /// region stand in for a buffer.
+    /// Whether a surface accepts input at a point.
     ///
-    /// Ported from `surface_accepts_input_states` (`hit_test.rs:255-282`). The
-    /// difference from [`HitSurface::accepts_rendered_input`] is deliberate and
-    /// is why both exist: a client may set an input region on a surface it has
-    /// not drawn into, and that region still receives clicks (`:269-271`).
-    /// Without a region, the buffer's extent decides as before (`:274-279`).
+    /// An explicit input region can claim input without a buffer. Without a
+    /// region, the buffer extent determines the accepted points.
     fn accepts_input(&self, point: PixelPoint) -> bool {
         let local = local_of(point, self.origin);
         if local.x < 0.0 || local.y < 0.0 {
@@ -245,11 +190,10 @@ struct PopupTree<T> {
     surfaces: Arc<[HitSurface<T>]>,
 }
 
-/// Collects everything a window presents to input, once.
+/// Collects the geometry and input regions used for one hit-test snapshot.
 ///
-/// `size_of` reports a surface's logical size, which is what the caller's own
-/// commit bookkeeping knows and this module deliberately does not: reading it
-/// from a graphics handle is what coupled upstream's hit test to vulkano.
+/// `size_of` supplies logical buffer sizes without coupling this module to a
+/// graphics handle. The compositor owns the size lookup and its graphics resources.
 pub(crate) fn context(
     toplevel: &WlSurface,
     client_area: PixelSize,
@@ -260,15 +204,13 @@ pub(crate) fn context(
     let popups = PopupManager::popups_for_surface(toplevel)
         .filter_map(|(popup, point)| {
             if !is_configured(&popup) {
-                // A popup the client has not answered the configure for has no
-                // agreed geometry, so a hit against it would be a hit against a
-                // position it is about to be moved from (`hit_test.rs:370-382`).
+                // An unconfigured popup has no agreed geometry, so exclude it from
+                // hit testing until the client answers the configure.
                 debug!("skipping an unconfigured popup in the hit test");
                 return None;
             }
 
-            // The popup's origin is where its surface starts, which is its
-            // position less the window geometry it declared (`:384`).
+            // The surface starts at the popup position minus its declared geometry.
             let origin = point - popup.geometry().loc;
             Some(PopupTree {
                 surfaces: collect_tree(popup.wl_surface(), origin, true, size_of),
@@ -283,12 +225,10 @@ pub(crate) fn context(
     }
 }
 
-/// Walks a surface tree bottom-to-top, accumulating subsurface offsets.
+/// Walks a surface tree bottom-to-top and accumulates subsurface offsets.
 ///
-/// Ported from `collect_rendered_surface_tree_at` (`hit_test.rs:186-227`). A
-/// surface with no buffer is kept rather than pruned, for the reason upstream
-/// records at `:199`: its children may have buffers, and so may its own input
-/// region.
+/// It keeps bufferless surfaces because their children may have buffers, and
+/// their input regions may still claim points.
 fn collect_tree(
     root: &WlSurface,
     origin: Point<i32, Logical>,
@@ -320,10 +260,9 @@ fn collect_tree(
     collected.into()
 }
 
-/// Where a surface sits relative to its parent.
+/// Returns the offset of a surface from its parent.
 ///
-/// Only a subsurface has an offset; every other role sits at its parent's
-/// origin (`hit_test.rs:177-184`).
+/// Only a subsurface has an offset; every other role uses its parent's origin.
 fn surface_offset(states: &SurfaceData) -> Point<i32, Logical> {
     if states.role == Some(SUBSURFACE_ROLE) {
         states
@@ -345,13 +284,10 @@ fn input_region(states: &SurfaceData) -> Option<RegionAttributes> {
         .clone()
 }
 
-/// Whether a popup's client has answered its configure.
+/// Returns whether a popup has configured geometry.
 ///
-/// Upstream unwraps both the lookup and the lock (`hit_test.rs:370-377`). A
-/// popup with no role data is not one this compositor tracks, and a poisoned
-/// lock means a panic has already happened elsewhere; either way the popup is
-/// reported as unconfigured, which excludes it from hit testing rather than
-/// propagating a panic through the dispatch loop.
+/// Missing role data and a poisoned state lock both exclude the popup from hit
+/// testing instead of propagating a panic through the dispatch loop.
 fn is_configured(popup: &PopupKind) -> bool {
     with_states(popup.wl_surface(), |states| {
         states
@@ -362,12 +298,10 @@ fn is_configured(popup: &PopupKind) -> bool {
     })
 }
 
-/// A point in a surface's own coordinates (`hit_test.rs:234`, `:307`).
 fn local_of(point: PixelPoint, origin: PixelPoint) -> PixelPoint {
     PixelPoint::new(point.x - origin.x, point.y - origin.y)
 }
 
-/// Whether a surface-local point is inside a buffer of that size.
 fn within(local: PixelPoint, size: PixelSize) -> bool {
     local.x >= 0.0
         && local.y >= 0.0
@@ -375,12 +309,10 @@ fn within(local: PixelPoint, size: PixelSize) -> bool {
         && local.y < f64::from(size.height)
 }
 
-/// A surface-local point as an input region is indexed.
+/// Converts a surface-local point to the integer coordinates used by an input region.
 ///
-/// Floored, because a region is a set of integer rectangles and the pixel a
-/// fractional coordinate falls in is the one below it. The cast saturates,
-/// which is what keeps a coordinate no client could produce from wrapping into
-/// the region.
+/// Flooring selects the pixel below a fractional coordinate. The saturating cast
+/// prevents an unrepresentable coordinate from wrapping into the region.
 fn logical_of(local: PixelPoint) -> Point<i32, Logical> {
     #[expect(
         clippy::cast_possible_truncation,

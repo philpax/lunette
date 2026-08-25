@@ -1,15 +1,12 @@
-//! The two protocols behind one set of objects.
+//! This module adapts `ext_data_control_v1` and `zwlr_data_control_v1` to the
+//! same manager, device, offer, and source interface. The manager requests
+//! version 1 from `ext_data_control_v1` first, then up to version 2 from
+//! `zwlr_data_control_v1`. The wlroots primary-selection request and event are
+//! available only on a version-2 device.
 //!
-//! `ext_data_control_v1` and `zwlr_data_control_v1` describe the same four
-//! objects — a manager, a device, an offer, and a source — with different names
-//! and, in one place, different semantics: a wlroots device sends the primary
-//! selection only from version 2. Everything above this file works in terms of
-//! [`Manager`], [`Device`], [`Offer`], and [`Source`], each an enum over the
-//! variant the host turned out to speak, so the choice is made once at bind and
-//! never again.
-//!
-//! Every `Dispatch` implementation is here too, for the same reason: each comes
-//! in a pair that differs only in the type it is written against.
+//! Each protocol sends MIME events on an offer before the device names that
+//! offer in a selection event. The dispatchers pass MIME strings to `Host`
+//! unchanged; `Host` validates them and preserves valid values byte-for-byte.
 
 use std::os::fd::BorrowedFd;
 
@@ -39,14 +36,14 @@ use crate::selection::{
     host::HostStartError,
 };
 
-/// The data-control manager, whichever protocol the host implements.
 pub(super) enum Manager {
     Ext(ExtDataControlManagerV1),
     Wlr(ZwlrDataControlManagerV1),
 }
 
 impl Manager {
-    /// Binds the manager, preferring the standardised protocol.
+    /// Requests version 1 from `ext_data_control_v1` before requesting up to
+    /// version 2 from `zwlr_data_control_v1`.
     pub(super) fn bind(
         globals: &GlobalList,
         handle: &QueueHandle<Host>,
@@ -82,14 +79,12 @@ impl Manager {
     }
 }
 
-/// The device selections arrive on, whichever protocol the host implements.
 pub(super) enum Device {
     Ext(ExtDataControlDeviceV1),
     Wlr(ZwlrDataControlDeviceV1),
 }
 
 impl Device {
-    /// Sets or clears one of the two selections.
     pub(super) fn set(&self, kind: SelectionKind, source: Option<&Source>) {
         match (self, kind) {
             (Self::Ext(device), SelectionKind::Clipboard) => {
@@ -108,15 +103,14 @@ impl Device {
     }
 }
 
-/// A selection the host is offering.
 pub(super) enum Offer {
     Ext(ExtDataControlOfferV1),
     Wlr(ZwlrDataControlOfferV1),
 }
 
 impl Offer {
-    /// Identifies the offer object, for keying the MIME types accumulated
-    /// against it.
+    /// Identifies the protocol offer whose MIME events precede the selection event
+    /// that names it.
     pub(super) fn key(&self) -> ObjectId {
         match self {
             Self::Ext(offer) => offer.id(),
@@ -139,7 +133,8 @@ impl Offer {
     }
 }
 
-/// A selection lunette is offering to the host.
+/// A source proxy remains owned by the host worker until the host cancels it or
+/// the worker withdraws it.
 pub(super) enum Source {
     Ext(ExtDataControlSourceV1),
     Wlr(ZwlrDataControlSourceV1),
@@ -169,8 +164,8 @@ impl Source {
 
     /// # Panics
     ///
-    /// If asked for the other protocol's object. Unreachable: a source is
-    /// created by the manager the device came from, so the two always match.
+    /// Panics if the source is a `zwlr_data_control_v1` object. The manager creates
+    /// the source and device from the same protocol variant.
     pub(super) fn ext(&self) -> &ExtDataControlSourceV1 {
         match self {
             Self::Ext(source) => source,
@@ -180,8 +175,8 @@ impl Source {
 
     /// # Panics
     ///
-    /// If asked for the other protocol's object, for the reason [`Self::ext`]
-    /// records.
+    /// Panics if the source is an `ext_data_control_v1` object. The manager creates
+    /// the source and device from the same protocol variant.
     pub(super) fn wlr(&self) -> &ZwlrDataControlSourceV1 {
         match self {
             Self::Wlr(source) => source,
@@ -213,7 +208,6 @@ impl Dispatch<ExtDataControlDeviceV1, ()> for Host {
     ) {
         use ext_data_control_device_v1::Event;
         match event {
-            // Announced only; the MIME types arrive on the offer itself.
             Event::DataOffer { .. } => {}
             Event::Selection { id } => {
                 state.selected(SelectionKind::Clipboard, id.map(Offer::Ext));

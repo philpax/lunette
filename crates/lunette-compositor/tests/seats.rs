@@ -1,14 +1,8 @@
-//! Two hands, two seats, and no interference between them.
+//! These tests verify that each `wl_seat` keeps independent pointer and keyboard state.
 //!
-//! A `wl_seat` carries one pointer, so two cursors need two seats. What these
-//! hold is that the two are independent all the way to the wire: separate
-//! pointer positions, separate hover, separate cursor images, and a seat that
-//! goes away without taking the other with it.
-//!
-//! The keyboard half is here too: a key reaches only the seat that was focused,
-//! and a modifier held on one seat is not held on the other.
-//!
-//! See `tests/harness/mod.rs` for why none of this needs a GPU.
+//! Seat names let clients distinguish protocol objects. Pointer position and hover, cursor images,
+//! keyboard focus, and modifiers remain scoped to their seat. Input targets the surface under that
+//! seat, and destruction sends leave events before withdrawing the seat global.
 
 #![expect(
     clippy::expect_used,
@@ -35,14 +29,11 @@ use lunette_compositor::{
 use pretty_assertions::assert_eq;
 use wayland_client::protocol::wl_pointer::WlPointer;
 
-/// `KEY_A`, which every layout binds and which no test cares about beyond its
-/// being a key that exists.
+/// Uses evdev code 30, which the explicit US layout maps to a key for press/release tests.
 const KEY_A: Keycode = Keycode::from_evdev(30);
 
-/// A keyboard on an explicitly named layout.
-///
-/// Named rather than defaulted, so the assertions below hold whatever the
-/// compositor's inherited default is.
+/// Uses an explicit single-layout keymap so keyboard assertions do not depend on compositor
+/// defaults.
 fn keyboard() -> Box<KeyboardConfig> {
     Box::new(KeyboardConfig {
         keymap: KeymapConfig {
@@ -53,15 +44,12 @@ fn keyboard() -> Box<KeyboardConfig> {
     })
 }
 
-/// The two hands, as a caller would name them.
 const LEFT: (SeatId, &str) = (seat_id(2), "left");
 const RIGHT: (SeatId, &str) = (seat_id(3), "right");
 
-/// How many seats exist once both hands have been created: the default seat and
-/// one per hand.
+/// The expected global count after creating `LEFT` and `RIGHT`, including the default seat.
 const SEAT_COUNT: usize = 3;
 
-/// A seat identifier, for a constant that cannot use `expect`.
 const fn seat_id(raw: u64) -> SeatId {
     match SeatId::new(raw) {
         Some(seat) => seat,
@@ -77,9 +65,7 @@ fn two_seats_hover_two_different_windows_at_once() {
 
     let (left, right) = add_both_seats(&mut compositor, &mut first);
     let left_pointer = first.open_pointer_for(&mut compositor, left);
-    // The second client binds the same seats over its own connection, which is
-    // what a second application in the session does. It creates nothing: the
-    // seats already exist, and it learns about them from the registry.
+    // Seat names identify existing globals when a second connection binds its own registry.
     await_seats(&mut compositor, &mut second, SEAT_COUNT);
     let right_pointer = second.open_pointer_for(&mut compositor, right);
 
@@ -172,9 +158,8 @@ fn a_button_is_refused_on_a_seat_whose_pointer_is_elsewhere() {
     let right_pointer = client.open_pointer_for(&mut compositor, right);
 
     let sink = windows(&compositor, 1)[0].sink;
-    // Only the left seat is moved onto the sink. The right seat's pointer is
-    // over nothing, so its button has nowhere to go, even though another seat
-    // is hovering the sink it names.
+    // Button routing checks the named seat's hovered window; another seat's hover does not
+    // qualify.
     compositor.send(Command::Pointer {
         seat: LEFT.0,
         sink,
@@ -227,6 +212,7 @@ fn destroying_a_seat_leaves_the_other_one_working() {
             && driver.keyboard_focus(&right_keyboard).is_some()
     });
 
+    // The compositor sends pointer and keyboard leaves before withdrawing the seat global.
     compositor.send(Command::DestroySeat { seat: RIGHT.0 });
     client.settle(&mut compositor, |driver| {
         driver
@@ -235,9 +221,6 @@ fn destroying_a_seat_leaves_the_other_one_working() {
             .any(|event| matches!(event, PointerEvent::Leave { .. }))
     });
 
-    // The keyboard as well as the pointer. `Seat::remove_keyboard` clears the
-    // capability and sends no leave, so a client left focused keeps its focus
-    // ring and its caret alive for a seat that has stopped existing.
     assert_eq!(
         client.driver().keyboard_focus(&right_keyboard),
         None,
@@ -542,11 +525,8 @@ fn a_seat_whose_layout_does_not_compile_is_not_created() {
 
 #[test]
 fn the_default_seat_exists_when_the_desktop_default_names_two_layouts() {
-    // The regression: `us,de` is what a NixOS session exports from
-    // `services.xserver.xkb.layout`, and refusing it took the default seat away
-    // — no keyboard, no pointer, no clipboard — from a user who had written no
-    // layout line at all. The inherited list is narrowed to its first entry
-    // instead, and the seat is created.
+    // An inherited multi-layout default is narrowed to its first entry because one seat exposes one
+    // layout group.
     let mut compositor = TestCompositor::with_config(CompositorConfig {
         keymap_defaults: KeymapDefaults::new(KeymapConfig {
             layout: Some("us,de".to_owned()),
@@ -577,7 +557,6 @@ fn the_default_seat_exists_when_the_desktop_default_names_two_layouts() {
     );
 }
 
-/// The modifiers the snapshot says a seat is holding.
 fn seat_modifiers(compositor: &TestCompositor, seat: SeatId) -> ModifierState {
     compositor
         .snapshot()
@@ -588,7 +567,6 @@ fn seat_modifiers(compositor: &TestCompositor, seat: SeatId) -> ModifierState {
         .unwrap_or_else(|| panic!("{seat} is not in the snapshot"))
 }
 
-/// A client with one mapped window of its own.
 fn open_window(compositor: &mut TestCompositor) -> TestClient {
     let mut client = TestClient::connect(compositor);
     client.open_toplevel(compositor);
@@ -596,10 +574,6 @@ fn open_window(compositor: &mut TestCompositor) -> TestClient {
     client
 }
 
-/// Creates both hands, and waits until `client` has seen all three seat globals.
-///
-/// Three, because the default seat is already there. The names are handed back
-/// so a caller opens a pointer by the name a client would use.
 fn add_both_seats(
     compositor: &mut TestCompositor,
     client: &mut TestClient,
@@ -618,12 +592,7 @@ fn add_both_seats(
     (LEFT.1, RIGHT.1)
 }
 
-/// Waits until `client` has seen `expected` `wl_seat` globals.
-///
-/// A wait for a condition rather than for a fixed number of rounds: a global
-/// created on the compositor's side reaches a client when that client next
-/// reads, and a second client learns about a seat the first one asked for the
-/// same way.
+/// Waits for registry events to reach the client instead of assuming fixed event-loop timing.
 fn await_seats(compositor: &mut TestCompositor, client: &mut TestClient, expected: usize) {
     client.settle(compositor, |driver| {
         driver
@@ -635,7 +604,6 @@ fn await_seats(compositor: &mut TestCompositor, client: &mut TestClient, expecte
     });
 }
 
-/// How many `wl_seat` globals the client currently sees.
 fn seat_globals(client: &TestClient) -> usize {
     client
         .globals()
@@ -644,7 +612,7 @@ fn seat_globals(client: &TestClient) -> usize {
         .count()
 }
 
-/// The snapshot's windows, in creation order, when there are exactly `expected`.
+/// Snapshots preserve window creation order, which callers use to select sinks after this count check.
 fn windows(compositor: &TestCompositor, expected: usize) -> Vec<WindowSnapshot> {
     let snapshot = compositor.snapshot();
     assert_eq!(
@@ -656,7 +624,6 @@ fn windows(compositor: &TestCompositor, expected: usize) -> Vec<WindowSnapshot> 
     snapshot.windows.clone()
 }
 
-/// Where a pointer was told it entered.
 fn enter_position(driver: &Driver, pointer: &WlPointer) -> (f64, f64) {
     let (_, x, y) = driver
         .first_enter(pointer)
