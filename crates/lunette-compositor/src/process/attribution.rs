@@ -1,3 +1,7 @@
+//! This file contains process-attribution sections derived from WayVR's
+//! `backend/wayvr/process.rs` and `backend/wayvr/mod.rs`.
+//! The source revision is `98f800c644719d3f23a20e50bd3237c29a8082cb`.
+//! See https://github.com/wayvr-org/wayvr.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! Linux-only: reads `/proc/<pid>/environ`.
@@ -10,10 +14,10 @@ use crate::{process::registry::find_environment_value, protocol::Pid};
 
 /// Inspects a process that the compositor did not start.
 ///
-/// The implementation reads `/proc`. The trait keeps attribution and liveness
-/// checks testable without a real process.
+/// The production implementation reads `/proc`. The trait lets tests inspect
+/// attribution and liveness without a real process.
 pub trait ProcessInspector: Send {
-    /// The value of one variable in a process's environment, as bytes.
+    /// Reads one environment variable as raw bytes.
     ///
     /// # Errors
     ///
@@ -21,11 +25,11 @@ pub trait ProcessInspector: Send {
     /// read at all, which usually means it has already exited.
     fn read_environment(&self, pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>>;
 
-    /// Whether the process still exists.
+    /// Reports whether the process still exists.
     fn is_running(&self, pid: Pid) -> bool;
 }
 
-/// The real `/proc`.
+/// Inspects the Linux `/proc` filesystem.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProcFilesystem;
 

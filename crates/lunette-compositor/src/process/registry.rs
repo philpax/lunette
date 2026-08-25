@@ -1,4 +1,4 @@
-//! Parts of this file are derived from WayVR's process registry and attribution code.
+//! This file contains sections derived from WayVR's process registry and attribution code.
 //! The source files are `backend/wayvr/process.rs` and `backend/wayvr/mod.rs`.
 //! The source revision is `98f800c644719d3f23a20e50bd3237c29a8082cb`.
 //! See https://github.com/wayvr-org/wayvr.
@@ -38,10 +38,9 @@ pub(crate) const TOKEN_BYTES: usize = 32;
 #[derive(Debug)]
 pub(crate) struct ProcessRegistry {
     entries: Vec<Entry>,
-    /// The next identifier for an adopted process.
-    ///
-    /// Adopted processes count down from the top of the 64-bit identifier space.
-    /// Managed processes count up from one, so the two allocators cannot collide.
+    /// Allocates identifiers for adopted processes from the top of the 64-bit
+    /// identifier space. Managed processes count up from one, so the allocators
+    /// cannot collide.
     next_adopted: u64,
 }
 
@@ -57,8 +56,8 @@ impl Default for ProcessRegistry {
 impl ProcessRegistry {
     /// Starts and registers a managed process.
     ///
-    /// The request supplies the identifier.
-    /// `lunette.spawn` returns its handle before the compositor receives the request.
+    /// The request supplies the identifier because `lunette.spawn` returns its
+    /// handle before the compositor receives the request.
     pub(crate) fn spawn(
         &mut self,
         spawner: &mut dyn ProcessSpawner,
@@ -95,8 +94,8 @@ impl ProcessRegistry {
 
     /// Matches a connecting client to its process.
     ///
-    /// The registry checks the process ID first.
-    /// Wrappers and sandboxes can change the connecting process ID, so the token is the fallback.
+    /// The registry checks the process ID first. A wrapper or sandbox can change
+    /// the connecting process ID, so the authentication token provides a fallback.
     pub(crate) fn identify(&self, pid: Pid, inspector: &dyn ProcessInspector) -> Option<ProcessId> {
         if let Some(entry) = self.entries.iter().find(|entry| entry.pid() == Some(pid)) {
             return Some(entry.id);
@@ -141,10 +140,10 @@ impl ProcessRegistry {
         }
     }
 
-    /// Collects process output and reports processes that have ended.
+    /// Collects diagnostic process output and reports processes that have ended.
     ///
-    /// Polling avoids one blocked reader thread per child. Process output is diagnostic rather than
-    /// interactive.
+    /// Polling avoids one blocked reader thread per child, and diagnostic output
+    /// does not require interactive delivery.
     pub(crate) fn poll(&mut self, inspector: &dyn ProcessInspector) -> Vec<Report> {
         let mut reports = Vec::new();
 
@@ -162,10 +161,9 @@ impl ProcessRegistry {
                 Kind::External { pid, alive } => {
                     if *alive && !inspector.is_running(*pid) {
                         *alive = false;
-                        // An adopted process is not lunette's child, so it
-                        // cannot be waited on and its exit status is not
-                        // knowable. Reporting a zero would be a lie; reporting
-                        // it as ended is the honest amount.
+                        // An adopted process is not lunette's child, so the registry cannot
+                        // wait for it or learn its exit status. Zero means that the status is
+                        // unknown, not that the process returned zero.
                         reports.push(Report::Exited {
                             id,
                             outcome: ProcessOutcome::Exited { code: 0 },
@@ -228,7 +226,7 @@ pub(crate) struct SpawnRequest<'a> {
 #[derive(Debug)]
 struct Entry {
     id: ProcessId,
-    /// Absent for an adopted process, which does not receive an authentication token.
+    /// `None` for an adopted process, which does not receive an authentication token.
     token: Option<AuthToken>,
     kind: Kind,
 }
@@ -250,10 +248,10 @@ impl Entry {
 }
 
 enum Kind {
-    /// Started by lunette, so the registry can wait for and signal it.
+    /// A process started by lunette. The registry can wait for and signal it.
     Managed(Box<dyn ChildProcess>),
-    /// Connected from outside lunette. The registry cannot wait for it.
-    /// It observes the process's liveness through `/proc`.
+    /// A process connected from outside lunette. The registry cannot wait for it
+    /// and observes its liveness through `/proc`.
     External { pid: Pid, alive: bool },
 }
 
@@ -307,8 +305,8 @@ impl AuthToken {
 
     /// Returns whether a presented token matches this token.
     pub(crate) fn matches(&self, presented: &[u8]) -> bool {
-        // The constant-time comparison requires equal-length inputs.
-        // Length is not secret because a token with the wrong length cannot match.
+        // The comparison requires equal-length inputs. The length is public because
+        // a token with the wrong length cannot match.
         presented.len() == self.bytes.len() && bool::from(self.bytes[..].ct_eq(presented))
     }
 
@@ -332,9 +330,9 @@ impl fmt::Debug for AuthToken {
 
 /// Builds the command line and environment for a child process.
 ///
-/// Flatpak receives environment variables as `--env=` arguments after `run`.
-/// The sandbox does not inherit the launcher's environment.
-/// `--env` belongs to `flatpak run` rather than to `flatpak`.
+/// Flatpak receives environment variables as `--env=` arguments after `run`, and
+/// reads display variables from the launcher's environment. The sandbox does not
+/// inherit that environment. `--env` belongs to `flatpak run`, not to `flatpak`.
 fn build_plan(request: &SpawnRequest<'_>, token: &AuthToken) -> SpawnPlan {
     let hints = toolkit_hints(&token.encoded());
     let flatpak = is_flatpak(request.argv);
@@ -343,7 +341,7 @@ fn build_plan(request: &SpawnRequest<'_>, token: &AuthToken) -> SpawnPlan {
         let mut arguments = Vec::with_capacity(request.argv.arguments().len() + hints.len());
         let mut rest = request.argv.arguments().iter();
 
-        // Preserve the required `run` subcommand before adding Flatpak options.
+        // Flatpak requires its `run` subcommand before these options.
         if let Some(run) = rest.next() {
             arguments.push(run.clone());
         }
@@ -356,8 +354,7 @@ fn build_plan(request: &SpawnRequest<'_>, token: &AuthToken) -> SpawnPlan {
         }
         arguments.extend(rest.cloned());
 
-        // Flatpak reads these variables from the launcher's environment.
-        // It uses them to decide which displays to bind into the sandbox.
+        // Flatpak uses the launcher's display variables to bind displays into the sandbox.
         (
             Argv::new(request.argv.program().to_owned(), arguments),
             display_variables(request.display),
@@ -381,8 +378,8 @@ fn build_plan(request: &SpawnRequest<'_>, token: &AuthToken) -> SpawnPlan {
 
 /// Builds the display variables for a child process.
 ///
-/// Empty values are omitted. Exporting `WAYLAND_DISPLAY=` would use an empty socket name.
-/// Omitting the variable lets the client fall back to the existing session display.
+/// Empty values are omitted because `WAYLAND_DISPLAY=` selects an empty socket name.
+/// Omitting the variable lets the client use the existing session display.
 fn display_variables(display: &DisplayEnvironment) -> Vec<(OsString, OsString)> {
     [
         ("WAYLAND_DISPLAY", &display.wayland_display),
@@ -396,8 +393,8 @@ fn display_variables(display: &DisplayEnvironment) -> Vec<(OsString, OsString)> 
 
 /// Builds toolkit hints that prefer Wayland and identify the managed process.
 ///
-/// [`display_variables`] handles `WAYLAND_DISPLAY`.
-/// A missing display is omitted instead of exported as an empty value.
+/// [`display_variables`] supplies `WAYLAND_DISPLAY` and omits it when no display
+/// is configured.
 fn toolkit_hints(token: &str) -> Vec<(OsString, OsString)> {
     [
         (AUTH_VARIABLE, token),
@@ -413,10 +410,10 @@ fn toolkit_hints(token: &str) -> Vec<(OsString, OsString)> {
     .collect()
 }
 
-/// Returns whether the command line starts with `flatpak run`.
+/// Reports whether the command line starts with `flatpak run`.
 ///
-/// The check uses the program's file name.
-/// It recognizes both `/usr/bin/flatpak` and a `flatpak` found on `PATH`.
+/// The check uses the program's file name, so it recognizes both `/usr/bin/flatpak`
+/// and a `flatpak` found on `PATH`.
 pub(crate) fn is_flatpak(argv: &Argv) -> bool {
     let program = Path::new(argv.program());
     let is_launcher = program
@@ -428,7 +425,7 @@ pub(crate) fn is_flatpak(argv: &Argv) -> bool {
 
 /// Finds a variable in the NUL-separated block from `/proc/<pid>/environ`.
 ///
-/// The function preserves raw bytes because environment values do not have to be UTF-8.
+/// The function preserves raw bytes because Linux permits non-UTF-8 environment values.
 pub(crate) fn find_environment_value(block: &[u8], key: &[u8]) -> Option<Vec<u8>> {
     block
         .split(|byte| *byte == 0)
@@ -441,7 +438,7 @@ pub(crate) fn find_environment_value(block: &[u8], key: &[u8]) -> Option<Vec<u8>
 
 /// Decodes a hexadecimal token, returning `None` for invalid input.
 ///
-/// Client input can have an odd length, contain non-hexadecimal bytes, or be empty.
+/// Invalid input includes odd-length, non-hexadecimal, and empty byte strings.
 pub(crate) fn decode_hex(encoded: &[u8]) -> Option<Vec<u8>> {
     if !encoded.len().is_multiple_of(2) {
         return None;
