@@ -6,7 +6,7 @@
 -- keeps exactly one failure path of its own, which is safe mode when `main.lua`
 -- will not load at all.
 --
--- Two boundaries, and they are not the same one.
+-- Two boundaries, and they are not the same.
 --
 -- A callback boundary. crates/lunette/src/events/mod.rs calls each listener
 -- through a protected call and hands what comes back to
@@ -22,16 +22,16 @@
 -- should not be made to load a module that wants one.
 --
 -- The frame loop. `lovr.errhand` is reached only by an error that escaped every
--- callback boundary, at which point `vendor/lovr/etc/boot.lua:369` has already
--- unwound the loop and wants a replacement one back. There is no frame to
+-- callback boundary, at which point `vendor/lovr/etc/boot.lua` has already
+-- unwound the loop and asks for a replacement one back. There is no frame to
 -- continue, so this reports and hands the loop decision on rather than
 -- pretending otherwise.
 --
 -- Errors are rate-limited, because an error raised inside a per-frame callback
--- is raised every frame and reporting each buries the first under thousands of
--- copies of itself. Identical errors within a window are counted instead, and
--- the count is reported with the next one that gets through. The limiter is a
--- state machine over a key and a time, told the time rather than reading a
+-- is raised every frame, and reporting each occurrence would flood the log and
+-- hide the first report. Identical errors within a window are counted instead,
+-- and the count is reported with the next one that gets through. The limiter is
+-- a state machine over a key and a time, told the time rather than reading a
 -- clock, so the specs drive it without waiting for one.
 
 local lunette = require '@lunette'
@@ -74,8 +74,8 @@ errors.WINDOW = 5
 
 -- How many distinct errors the limiter tracks at once.
 --
--- A bound is needed rather than merely tidy: an error whose message carries a
--- frame number or a pose is a distinct key every frame, and an unbounded table
+-- The bound exists for a reason beyond tidiness: an error whose message carries
+-- a frame number or a pose is a distinct key every frame, and an unbounded table
 -- of them is a leak that shows up only in the session that has been running
 -- longest. The least recently recorded key is evicted, which at worst lets an
 -- old error through again.
@@ -175,7 +175,7 @@ end
 --
 -- `now` is the time the error arrived at, so the caller owns the clock; it
 -- defaults to the session's own. Returns whether the error was reported, which
--- is what a caller deciding whether to also draw it wants and what the specs
+-- is what a caller deciding whether to also draw it needs and what the specs
 -- assert on.
 function errors.handle(message: string, traceback: string?, now: number?): boolean
   message = tostring(message)
@@ -205,10 +205,10 @@ end
 -- LÖVR calls `lovr.errhand(message)` with no traceback and uses what it returns
 -- as the replacement main loop, so this computes a traceback, reports through
 -- `handle`, and hands the loop decision to the previous handler. With no
--- previous handler it returns nothing, which `boot.lua:363` turns into a loop
+-- previous handler it returns nothing, which boot.lua turns into a loop
 -- that quits: an error that escaped every callback boundary has already taken
--- the frame loop with it, and a session spinning on an empty loop would be
--- worse than one that stopped and said why.
+-- the frame loop with it, and a session spinning on an empty loop serves the
+-- user worse than one that stops and states why.
 --
 -- `clock` is the time source, for a caller that wants one of its own. Returns
 -- whether it installed, so that installing twice is not an error.

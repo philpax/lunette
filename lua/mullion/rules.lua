@@ -12,11 +12,6 @@ local rules = {}
 
 local byPrecedence, layer, evaluate, applyTags, poseFrom
 
--- Every source, as `{ { name, precedence, resolve, sequence } }` in registration
--- order.
---
--- Rebuilt when this file runs, so a soft reload that re-runs the configuration
--- starts from no sources rather than from the old state's.
 -- A property's value, or a function answering one when the rule is applied.
 --
 -- The function form is called as `value(window, key)` and is what lets a rule
@@ -34,11 +29,11 @@ export type Valued<T> = T | ((window: lunette.Window, key: string) -> T)
 -- What that does not buy is a check on writing one. An open indexer answers a
 -- write to a named key as well, so `properties.width = 'wide'` is accepted
 -- where the same table built as a literal is not. The types are enforced where
--- a configuration writes them — a rules table, a source's return — and not
+-- a configuration writes them (a rules table, a source's return) and not
 -- against this module's own assignments, which go through the indexer anyway.
 --
--- The indexer is what keeps it an open bag. A rule setting a key this module has
--- never heard of is a configuration talking to itself, and it arrives back in
+-- The indexer keeps the table open. A rule setting a key this module has never
+-- heard of is a configuration keeping its own records, and it arrives back in
 -- `place`'s second return untouched; the named keys are the ones that go
 -- somewhere, so those are the ones typed.
 export type Properties = {
@@ -55,8 +50,8 @@ export type Properties = {
 }
 
 -- The same after `resolve` has called every function-valued property: what a
--- rule meant, rather than how it said it. `place`'s second return is one, and so
--- is its `options`, which are merged after the evaluation and are therefore
+-- rule states, rather than how it states it. `place`'s second return is one, and
+-- so is its `options`, which are merged after the evaluation and are therefore
 -- taken as written.
 export type Resolved = {
   read pose: (string | Mat4)?,
@@ -92,6 +87,12 @@ type Source = {
   resolve: (window: lunette.Window) -> Properties?,
   sequence: number,
 }
+
+-- Every source, as an array of `{ name, precedence, resolve, sequence }`
+-- records in registration order.
+--
+-- Rebuilt when this file runs, so a soft reload that re-runs the configuration
+-- starts from no sources rather than from the old state's.
 local sources: { Source } = {}
 
 -- How many sources have ever been registered, which is the tiebreak between two
@@ -110,8 +111,8 @@ rules.DEFAULT_SOURCE = 'mullion.rules'
 -- The panel options `place` takes out of a resolved property table.
 --
 -- Everything else in the table is handed back to the caller untouched: a
--- properties table is an open bag, and a rule setting a key this module has
--- never heard of is a configuration talking to itself rather than a defect.
+-- properties table is an open bag, and a key this module has never heard of is
+-- the configuration keeping its own records rather than a defect.
 rules.PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chrome' }
 
 -- Where a rule that could not be honoured is reported.
@@ -249,8 +250,8 @@ end
 -- naming `appId` is asked about every window, including one whose client never
 -- set one, and that is an ordinary window rather than a defect.
 --
--- An absent or empty match matches every window, which is what a source setting
--- defaults for everything wants to say.
+-- An absent or empty match matches every window, which is how a source setting
+-- defaults for everything states itself.
 --
 -- A window is userdata as well as a table: `lunette.windows()` and
 -- `event.window` answer a native handle, and a table is what a source
@@ -329,10 +330,10 @@ end
 -- panel; `tags` names the tags the panel joins, by name or by tag; and
 -- everything else is left in the returned table for the caller.
 --
--- A tag named by a rule and not yet declared is created rather than refused, and
--- reported. A rule saying "this application lives on 'web'" describes a workspace;
--- a misspelt name reaches the same path, so the creation is said out loud rather
--- than assumed deliberate.
+-- A tag named by a rule and not yet declared is created rather than refused,
+-- and reported. A rule saying "this application lives on 'web'" describes a
+-- workspace; a misspelt name reaches the same path, so the creation is reported
+-- rather than passed over in silence.
 function rules.place(window: lunette.Window, options: Resolved?): (panel.Panel, Resolved)
   if window == nil then
     error('mullion.rules: a window is placed, and nil is not one', 2)
@@ -455,8 +456,8 @@ function poseFrom(value: string | Mat4?, window: lunette.Window): Mat4?
   return decoded
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name, so that a module body running a second time (which is
+-- what a soft reload does) leaves one hook rather than two.
 teardown.register('mullion.rules', rules.teardown)
 
 return rules

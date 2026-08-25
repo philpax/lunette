@@ -3,20 +3,19 @@
 --
 -- The native layer pushes flat events through LÖVR's queue, and
 -- docs/lua-api.md#events states that turning those into per-object
--- notification is Lua's job. This is that layer, and it is the whole of it: a
--- handler is a function, a signal is a string, and an object is anything that
--- can key a table.
+-- notification is Lua's job. This module is that layer in full: a handler is a
+-- function, a signal is a string, and an object is anything that can key a
+-- table.
 --
 -- A native handle is not a usable key: every read produces a fresh Lua value.
 -- Use the stable `win.id` as the key, or emit on an object with stable identity.
 --
--- The registry holds objects weakly, so a connection is not the reason an
--- object is still reachable. That is not the whole story, because Lua 5.1 has
--- no ephemeron tables: a handler connected with `connect` is held strongly, so
--- a handler closing over the object it is connected to keeps that object alive
--- through the registry's own value. `weakConnect` is what a caller reaches for
--- when that matters, and a panel connecting to something that outlives it is
--- exactly the case.
+-- The registry holds objects weakly, so a connection does not by itself keep an
+-- object reachable. That is only part of the behaviour, because Lua 5.1 has no
+-- ephemeron tables: the registry holds a handler connected with `connect`
+-- strongly, so a handler closing over the object it is connected to keeps that
+-- object alive. `weakConnect` exists for that case, and a panel connecting to
+-- something that outlives it is the common instance of it.
 
 local teardown = require '@mullion/teardown'
 
@@ -46,8 +45,9 @@ local connections: { [unknown]: ByName } = setmetatable({}, { __mode = 'k' })
 
 -- The name a property's change is announced under.
 --
--- awesome spells it `property::<key>` and configurations written against it
--- read the same way here, which is worth more than a spelling of lunette's own.
+-- awesome spells it `property::<key>`, and configurations written against
+-- awesome stay compatible here, which matters more than a spelling of lunette's
+-- own.
 function signal.propertyName(key: string): string
   if type(key) ~= 'string' then
     error('mullion.signal: a property is named by a string, not a ' .. type(key), 2)
@@ -80,10 +80,10 @@ end
 -- panel uses this, so that dropping the panel drops the connection rather than
 -- leaving the panel reachable from a registry nobody is looking at.
 --
--- The handler has to be referenced from somewhere, then. A closure written
+-- The handler has to be referenced from somewhere else, then. A closure written
 -- directly into this call is unreachable the moment the call returns and may be
--- collected before it is ever invoked, so a caller stores it — usually on the
--- object it belongs to — and passes that.
+-- collected before it is ever invoked, so a caller stores it (usually on the
+-- object it belongs to) and passes that.
 function signal.weakConnect<T>(object: T, name: string, handler: Handler<T>)
   -- `create` is true, so the list is guaranteed to exist.
   local records: Records = assert(recordsFor(object, name, true))
@@ -178,7 +178,7 @@ end
 -- Sets `object[key]` and emits `property::<key>` when the value changed.
 --
 -- This is the property-change mechanism: a setter calls this instead of
--- assigning, and every interested party hears about it without polling each
+-- assigning, and every connected handler runs without any caller polling each
 -- frame. The signal carries the new value and the old one, in that order.
 --
 -- A value equal to the one already there emits nothing and returns false, so a

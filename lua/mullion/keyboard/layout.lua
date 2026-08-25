@@ -30,7 +30,7 @@ export type RenderedKey = {
 }
 
 -- The measurements the layout reads. `mullion.keyboard`'s own `Style` carries
--- the colours as well, and answers this by being a superset of it.
+-- the colours as well, and includes everything here.
 export type Measurements = {
   read keyUnit: number,
   read gap: number,
@@ -97,12 +97,12 @@ function layout.keyAt(keys: { RenderedKey }, x: number, y: number): RenderedKey?
   return nil
 end
 
--- What is drawn on a key.
+-- The legend drawn on a key.
 --
 -- The label wins, because a key that types a control character has nothing to
 -- show. Otherwise the seat's own keymap answers, under the modifiers held. A
 -- keysym with no text falls back to its number rather than to a blank: a key
--- with nothing on it looks broken, and the number at least says which.
+-- with nothing on it looks broken, and the number at least identifies it.
 function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { string }): string
   if entry.label then
     return entry.label

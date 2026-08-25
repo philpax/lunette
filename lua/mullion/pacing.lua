@@ -1,25 +1,25 @@
--- How often each window's client is let draw.
+-- How often each window's client is allowed to draw.
 --
 -- A Wayland client draws only after the compositor answers its frame callback,
--- so this is what a panel nobody is looking at costs. `window:setFrameRate(hz)`
--- is the mechanism; which window deserves which rate is policy, and this is
--- where it is decided.
+-- so this module sets the cost of a panel that nobody is looking at.
+-- `window:setFrameRate(hz)` is the mechanism, and choosing which window gets
+-- which rate is the policy this module implements.
 --
 -- docs/rendering.md states the two defaults that are easy to get wrong. The
--- floor is approximately 1 Hz and not zero — the native layer enforces that, so
--- a rate below it is paced at it rather than honoured. And video is exempt: a
--- throttled video player stutters conspicuously, which is worse than the frames
--- it would have saved.
+-- floor is approximately 1 Hz and not zero (the native layer enforces that, so
+-- it paces a rate below the floor rather than honouring it). Video is exempt:
+-- a throttled video player stutters conspicuously, which is worse than the
+-- frames throttling would have saved.
 --
--- Deciding what counts as video is the interesting half. `win.contentType`
--- carries `wp_content_type_v1`, which is a hint with no events and thin, uneven
+-- Deciding what counts as video needs care. `win.contentType` carries
+-- `wp_content_type_v1`, which is a hint with no events and thin, uneven
 -- adoption: a client playing video may report 'none' and a client reporting
--- 'video' may be showing a paused frame. So the hint is one input and the
--- observed commit rate is the other, and a window is exempt when either says so.
--- Trusting the hint alone would throttle every video player that does not set
--- it, which is most of them.
+-- 'video' may be showing a paused frame. The hint is therefore one input and
+-- the observed commit rate is the other, and a window is exempt when either
+-- says so. Trusting the hint alone would throttle every video player that does
+-- not set it, which is most of them.
 --
--- Pure. Nothing here reads a clock, a headset, or a window; a pacer is handed
+-- Pure. Nothing here reads a clock, a headset, or a window; a pacer receives
 -- what its caller observed and answers with a rate, so the specs drive a panel
 -- through a whole session without one existing.
 --
@@ -27,8 +27,8 @@ local pacing = {}
 
 -- Everything the choice is tuned by, in one table.
 --
--- A tuning pass is a diff to this table rather than a hunt through functions for
--- a number, as `mullion.scale.TUNING` and `mullion.interaction.TUNING` are.
+-- Tuning is a diff to this table rather than a search through functions for a
+-- number, as `mullion.scale.TUNING` and `mullion.interaction.TUNING` are.
 pacing.TUNING = {
   -- The rate a window in view is paced at. `false` means unthrottled, which is
   -- what a panel the user is looking at should be: the compositor already skips
@@ -86,7 +86,7 @@ local record, isBusy, isExempt
 -- `options.tuning` replaces `pacing.TUNING` for this pacer.
 --
 -- The pacer starts having observed nothing, so its first choice is made on the
--- hint alone. That is the right way round: a window that has just opened has no
+-- hint alone. That order is correct: a window that has just opened has no
 -- commit history to judge it by, and treating no history as "not busy" would
 -- throttle a video player for its first second.
 function pacing.newPacer(options: { tuning: Tuning? }?): Pacer
@@ -118,10 +118,10 @@ end
 --
 -- `state.visible` is whether the window is in view, and `state.contentType` is
 -- `win.contentType`. `state.drew` is whether the client committed a new buffer
--- since the last call — a caller that cannot tell passes nothing, and the pacer
+-- since the last call; a caller that cannot tell passes nothing, and the pacer
 -- then decides on the hint alone.
 --
--- Returns the rate in hertz, or nil for unthrottled, and whether it changed —
+-- Returns the rate in hertz, or nil for unthrottled, and whether it changed,
 -- so a caller can skip the `window:setFrameRate` when it did not, and pass the
 -- rate straight on when it did. The tuning spells unthrottled as `false`
 -- because a table cannot hold nil; what comes back out here is nil.
@@ -163,7 +163,7 @@ end
 -- Forgets the history and the settled rate.
 --
 -- For a window that was moved rather than looked away from: a panel dragged
--- across the room has a history describing where it used to be.
+-- across the room carries a history describing where it used to be.
 function methods.reset(self: Pacer)
   self.samples = {} :: { boolean }
   self.next = 1

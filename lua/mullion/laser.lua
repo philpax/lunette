@@ -21,7 +21,7 @@
 -- The device is read through `options.readInput`, defaulting to
 -- `laser.headsetInput`. That seam is what lets a spec drive a laser through a
 -- grab, and it is also how a configuration points at panels with something that
--- is not a hand — a gaze ray, a simulated mouse, a scripted demo.
+-- is not a hand (a gaze ray, a simulated mouse, a scripted demo).
 
 local lunette = require '@lunette'
 local interaction = require '@mullion/interaction'
@@ -98,12 +98,12 @@ laser.CONTROLLERS = { left = 'hand/left', right = 'hand/right' } :: { [string]: 
 -- Everything the look and the feel of a laser is tuned by, in one table.
 --
 -- The same reason `mullion.interaction` keeps one: this tier is tuning-heavy,
--- and a tuning pass should be a diff to one table rather than a hunt through
+-- and tuning should be a diff to one table rather than a search through
 -- functions for a number.
 laser.STYLE = {
   -- How far the beam is drawn when it meets nothing, in metres. Shorter than
-  -- the pointer's reach on purpose: a beam that ends in mid-air reads as
-  -- "pointing at nothing" where one that runs to the horizon reads as a bug.
+  -- the pointer's reach on purpose: a beam ending in mid-air shows that nothing
+  -- is under the pointer, where one at full reach would read as a defect.
   length = 1.5,
   color = { 0.55, 0.7, 1, 0.5 },
   -- What the beam takes while it is over something.
@@ -111,8 +111,8 @@ laser.STYLE = {
   -- The dot drawn where the beam meets a panel, in metres.
   cursorRadius = 0.006,
   -- The nudge felt when the beam arrives at a panel or leaves one. Short, and
-  -- weak: it is an acknowledgement, and a strong one makes sweeping across a
-  -- row of panels feel like dragging a stick along a fence.
+  -- weak: it is an acknowledgement, and a strong one makes sweeping across a row
+  -- of panels unpleasant.
   hapticStrength = 0.2,
   hapticDuration = 0.01,
 }
@@ -220,7 +220,7 @@ end
 -- tracked.
 --
 -- The default `readInput`, and the one part of this module a spec cannot reach:
--- it is `lovr.headset` and nothing else, so it is a human gate.
+-- it calls `lovr.headset` and nothing else, so exercising it needs a headset.
 function laser.headsetInput(hand: Hand): Input?
   local headset = lovr.headset
   if not headset then
@@ -344,7 +344,7 @@ function methods.vibrate(self: Laser): boolean
     return false
   end
   -- The fourth argument is the haptic frequency in hertz; 0 selects the
-  -- device default, which is what a style that does not name one wants.
+  -- device default, which is what a style that does not name one needs.
   return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration, 0) and true
 end
 
@@ -378,8 +378,8 @@ function remove(destroyed)
   end
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name, so that a module body running a second time (which is
+-- what a soft reload does) leaves one hook rather than two.
 --
 -- Registered after `mullion.interaction`'s, so it runs before it: a laser has
 -- to destroy its pointer while there is still a pointer registry to take it out

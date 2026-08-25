@@ -63,7 +63,7 @@ export type Keyboard = {
 export type Key = layout.Key
 export type KeyRow = layout.KeyRow
 export type RenderedKey = layout.RenderedKey
--- Everything the look of a keyboard is tuned by.
+-- The measurements and colours drawing reads.
 type Style = {
   keyUnit: number,
   gap: number,
@@ -205,7 +205,6 @@ function methods.setPose(self: Keyboard, pose: Mat4)
   signal.emit(self, signal.propertyName 'pose', self.pose)
 end
 
--- Shows or hides the keyboard. A hidden one is neither drawn nor hit.
 -- Marks the key a pointer is over, or nothing when it is over none.
 --
 -- Set each frame by whoever casts the ray. This module does not read a device,
@@ -228,6 +227,7 @@ function methods.isHovered(self: Keyboard, code: number): boolean
   return false
 end
 
+-- Shows or hides the keyboard. A hidden one is neither drawn nor hit.
 function methods.setVisible(self: Keyboard, visible: boolean)
   signal.setProperty(self, 'visible', visible and true or false)
 end
@@ -268,13 +268,7 @@ function methods.keys(self: Keyboard): { RenderedKey }
   end)
 end
 
--- What is drawn on a key.
---
--- The label wins, because a key that types a control character has nothing to
--- show. Otherwise the seat's own keymap answers, under the modifiers held. A
--- keysym with no text falls back to its number rather than to a blank: a key
--- with nothing on it looks broken, and the number at least says which.
--- The seat the legends are read from.
+-- What is drawn on a key, as `mullion.keyboard.layout.legendFor` answers it.
 --
 -- A legend is what a key would type, which only a seat's layout can say. The
 -- target is whatever was last clicked, and nothing has been clicked when a
@@ -434,7 +428,8 @@ end
 -- nothing about the client's keymap. A run of characters it does not bind goes
 -- to `sink:typeText` in one call, which docs/lua-api.md describes as generating
 -- a temporary keymap, uploading it, typing against it, and putting the client's
--- own back — so a call per character would swap the keymap once per character.
+-- own back. A call per character would therefore swap the keymap once per
+-- character.
 --
 -- The two are not interleaved within one character. Each call is queued in
 -- order and each `typeText` restores the keymap before the next command is

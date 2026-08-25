@@ -4,14 +4,16 @@
 -- name, an index, a selected flag, and a layout attached, and a panel belongs to
 -- a set of tags rather than to one workspace.
 --
--- The set is load-bearing: membership supports panels on several tags, and
--- selection supports viewing several tags. This is awesome's shape and none of
--- its code; CREDITS.md records that awesome is GPL-2 and lunette GPL-3-only.
+-- The set shape carries weight here: membership supports panels on several
+-- tags, and selection supports viewing several tags. The shape is awesome's and
+-- none of its code is; CREDITS.md records that awesome is GPL-2 and lunette
+-- GPL-3-only.
 --
 -- Membership is held strongly and dead panels are dropped when they are next
--- looked for. A panel is destroyed explicitly rather than collected, so there is
--- nothing here to connect to a signal for; `panels` compacts, and a tag holding
--- a destroyed panel between one call and the next costs a table entry.
+-- looked for. A panel is destroyed explicitly rather than collected, so no
+-- signal connection exists for that purpose; `panels` compacts, and a tag
+-- holding a destroyed panel between one call and the next costs only a table
+-- entry.
 --
 -- `mullion.tag.current` is one of the two module paths docs/lua-api.md attests,
 -- so that name is fixed. It answers the selected tags rather than one tag,
@@ -80,7 +82,7 @@ local tags: { Tag } = {}
 --
 -- A name another tag already holds raises. The name is what a configuration and
 -- a saved arrangement both refer to a tag by, and two tags answering to one name
--- would make `find` a coin toss.
+-- would make `find` return an arbitrary one of them.
 function tag.new(name: string, options: TagOptions?): Tag
   if type(name) ~= 'string' then
     error('mullion.tag: a tag is named by a string, not a ' .. type(name), 2)
@@ -150,7 +152,7 @@ end
 -- Selects `chosen` and deselects every other tag.
 --
 -- The single-select case, which is what a configuration switching workspaces
--- with a key wants. Multi-select is `tagObject:setSelected(true)` on each.
+-- with a key needs. Multi-select is `tagObject:setSelected(true)` on each.
 function tag.only(chosen: Tag)
   for _, existing in ipairs(tag.all()) do
     existing:setSelected(existing == chosen)
@@ -160,7 +162,7 @@ end
 -- Whether `value` is a tag.
 --
 -- Public because `panelsOf` dispatches on it and a configuration writing its own
--- layout wants the same dispatch.
+-- layout needs the same dispatch.
 function tag.isTag(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == metatable
 end
@@ -356,8 +358,8 @@ function byIndex(left: Tag, right: Tag)
   return left.name < right.name
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name, so that a module body running a second time (which is
+-- what a soft reload does) leaves one hook rather than two.
 teardown.register('mullion.tag', tag.teardown)
 
 return tag

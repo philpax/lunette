@@ -17,10 +17,10 @@ adopt.SOURCE = 'mullion.adopt'
 
 -- Where `install` registers the store source.
 --
--- Above `mullion.persist.PRECEDENCE`, and so above `mullion.rules`' own table
--- as well. The store holds what the user did in this session; the file holds
--- what they did in the last one. Where the two disagree the live one is the one
--- they will remember doing.
+-- Above `mullion.persist.PRECEDENCE`, and so above the `mullion.rules` table
+-- as well. The store records what the user changed in this session, and the
+-- file records what they changed in the last one. When the two disagree, the
+-- live store holds the more recent change.
 adopt.PRECEDENCE = 300
 
 -- The properties the native store holds for `window`, or nothing.

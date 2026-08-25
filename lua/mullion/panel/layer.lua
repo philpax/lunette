@@ -41,10 +41,10 @@ export type Claimant = {
 
 -- Keeps the layer claim in step with the source's pixel size.
 --
--- A window whose client resized past the layer it was granted needs a claim on
--- a larger rung, and the pool has no way to grow one underneath it: a claim
--- names a key, and the key carries the size. So the claim is released and
--- remade, which costs a frame or two on the quad path.
+-- A window whose client resized past the layer it was granted needs a claim
+-- on a larger size class, and the pool cannot enlarge an existing claim in
+-- place: a claim names a key, and the key carries the size. The claim is
+-- therefore released and remade, which costs a frame or two on the quad path.
 function layer.sync(self: Claimant, pixelWidth: number, pixelHeight: number)
   -- `lunette.claimLayer` takes a window and nothing else, so a monitor panel
   -- has no claim to keep in step. Noted at the module head as a gap in the
@@ -57,7 +57,7 @@ function layer.sync(self: Claimant, pixelWidth: number, pixelHeight: number)
     local layerWidth: number? = self.claim.width
     local layerHeight: number? = self.claim.height
     -- A layer smaller than the source would crop it, and the ladder only
-    -- quantises upwards, so this is the resized-past-its-rung case.
+    -- quantises upwards, so this is the case of a source resized past its layer.
     if layerWidth and layerHeight and (pixelWidth <= layerWidth and pixelHeight <= layerHeight) then
       return
     end

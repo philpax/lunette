@@ -3,16 +3,15 @@
 --
 -- Types and nothing else. It holds no state, registers no teardown hook, and
 -- requires only `lunette`, so a module that needs to name one of these types
--- does not take a dependency on the tier that implements them —
--- `mullion.panel` is tier 1 and names `Surface` from here, while
--- `mullion.interaction` is tier 2 and is what drives one.
+-- does not take a dependency on the tier that implements them (`mullion.panel`
+-- is tier 1 and names `Surface` from here, while `mullion.interaction` is tier
+-- 2 and drives one).
 --
--- That indirection exists for a specific reason. A method's receiver is a
--- parameter, and parameters are contravariant, so an implementer's method can
--- only answer the contract's if the two name the same receiver type. The
--- alternative is `any` on both sides, which typechecks and checks nothing. A
--- module that can name `Surface` can write `raycast: (Surface, ...) -> ...` and
--- keep the receiver checked.
+-- A method's receiver is a parameter, and parameters are contravariant, so an
+-- implementer's method can answer the contract only when the two name the same
+-- receiver type. The alternative is `any` on both sides, which typechecks and
+-- checks nothing. A module that can name `Surface` can write
+-- `raycast: (Surface, ...) -> ...` and keep the receiver checked.
 --
 -- `mullion.interaction` re-exports every type here, so `interaction.Surface`
 -- and `interaction.Pointer` remain the names the rest of the tree and
@@ -50,11 +49,11 @@ export type Input = {
 
 -- Everything a pointer needs of the things it points at.
 --
--- Every field is `read`, which is what makes a panel, a keyboard, and a
--- configuration's own object all satisfy one contract: Luau compares a
--- read-write property invariantly, so `pose: Mat4` would not answer `pose:
--- Mat4?`, and a field a surface does not carry at all would not answer an
--- optional one. A read-only property is compared covariantly, and both do.
+-- Every field is `read`, which lets a panel, a keyboard, and a configuration's
+-- own object all satisfy one contract: Luau compares a read-write property
+-- invariantly, so `pose: Mat4` would not satisfy `pose: Mat4?`, and a field a
+-- surface does not carry at all would not satisfy an optional one. A read-only
+-- property is compared covariantly, so either form satisfies it.
 --
 -- A method names `Surface` as its receiver, and an implementer names it too. A
 -- receiver is a parameter and parameters are contravariant, so an implementer
@@ -85,9 +84,9 @@ type SurfaceFields = {
 
 -- What a surface is over, when it is over anything. A panel carries a kind and
 -- the handle that kind names; a keyboard or a button of a configuration's own
--- carries neither, which is what `kind: nil` says. Testing `kind` is what makes
--- `storePose` below able to reach a window's property store without asking the
--- caller to promise anything.
+-- carries neither, which `kind: nil` records. Testing `kind` lets `storePose`
+-- below reach a window's property store without asking the caller to promise
+-- anything.
 type WindowBacked = { read kind: 'window', read source: lunette.Window }
 type MonitorBacked = { read kind: 'monitor', read source: lunette.Monitor }
 type Unbacked = { read kind: nil }

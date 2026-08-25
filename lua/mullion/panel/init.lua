@@ -73,9 +73,9 @@ local opaqueShader: Shader?
 
 -- Everything a panel's appearance is tuned by, in one table.
 --
--- Feel accounts for most of the work at this tier (docs/stdlib.md:27), so a
--- tuning pass should be a diff to one table rather than a hunt through
--- functions for a number.
+-- Feel accounts for most of the work at this tier (docs/stdlib.md), so tuning
+-- should be a diff to one table rather than a search through functions for a
+-- number.
 panel.STYLE = {
   -- The border's width, in metres, and how far behind the panel it sits so
   -- that the two do not fight for the same depth.
@@ -375,9 +375,9 @@ function methods.drawChrome(self: Panel, pass: Pass)
   local color = self.highlighted and style.borderHighlightColor or style.borderColor
 
   pass:setColor(color[1], color[2], color[3], color[4])
-  -- Behind the panel by a hair, so the two do not fight for the same depth, and
-  -- larger by the border's thickness on each side. The extent rides in the
-  -- transform's scale, for the reason `draw` records.
+  -- Behind the panel by a small depth offset, so the two do not fight for the
+  -- same depth, and larger by the border's thickness on each side. The extent
+  -- rides in the transform's scale, for the reason `draw` records.
   local borderTransform = lovr.math
     .newMat4()
     :set(self.pose)

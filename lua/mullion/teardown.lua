@@ -29,8 +29,8 @@ end
 -- Replacing rather than appending keeps repeated `require` calls from leaving
 -- duplicate teardown hooks against discarded state.
 --
--- The name is the module's own path — `mullion.signal` — so that two modules
--- cannot collide and a report names the module rather than an index.
+-- The name is the module's own path (`mullion.signal`, for example), so that
+-- two modules cannot collide and a report names the module rather than an index.
 function teardown.register(name: string, run: Hook)
   if type(name) ~= 'string' then
     error('mullion.teardown: a hook is named by a string, not a ' .. type(name), 2)

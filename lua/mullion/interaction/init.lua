@@ -15,8 +15,8 @@
 --
 -- Every sink call carries the pointer's own seat as its trailing argument. A
 -- pointer that left it off would address the seat the session started with, so
--- two hands would share one cursor and one focus — which is the thing two seats
--- exist to avoid.
+-- two hands would share one cursor and one focus, which is what two seats exist
+-- to avoid.
 
 local lunette = require '@lunette'
 local types = require '@mullion/interaction/types'
@@ -66,23 +66,23 @@ interaction.TUNING = {
   -- Surface pixels per second at full thumbstick deflection.
   scrollScale = 900,
   -- Deflection below which the stick is treated as centred. A stick at rest
-  -- reports a small non-zero value, and scrolling a page because a thumb is
-  -- resting on it is worse than a stick that needs a deliberate push.
+  -- reports a small non-zero value, and a stick that needs a deliberate push is
+  -- better than a page scrolling under a resting thumb.
   scrollDeadZone = 0.2,
   -- Metres per second the stick pushes a grabbed panel along the hand's
-  -- forward axis. The stick scrolls when nothing is held and moves what is
-  -- held when something is: a panel being carried is not one being read, so
-  -- the two never want the stick at the same time.
+  -- forward axis. The stick scrolls when nothing is held and moves what is held
+  -- when something is; a panel being carried is not one being read, so both
+  -- uses never compete for the stick at once.
   reachScale = 1.2,
   -- How near the hand a pushed panel may come, in metres. Closer than this it
   -- is inside the hand holding it.
   reachMinimum = 0.2,
   -- How far a pushed panel may go. Past `reach` it could not be picked up
-  -- again, which is a way to lose a window rather than a way to place one.
+  -- again, which would lose the window rather than place it.
   reachMaximum = 6,
   -- The narrowest and widest a two-handed resize may take a panel, in metres.
-  -- A panel scaled to nothing cannot be grabbed again to undo it, which is a
-  -- way to lose a window rather than a way to size one.
+  -- A panel scaled to nothing cannot be grabbed again to undo it, which would
+  -- lose the window rather than size it.
   resizeMinimum = 0.15,
   resizeMaximum = 4,
   -- Which pointer button the trigger is.
@@ -264,8 +264,8 @@ end
 -- and `dt`, the frame's duration in seconds.
 --
 -- `panels` is what the ray may hit. It is passed in rather than taken from
--- `mullion.panel`, so that a configuration can point at a subset — one tag's
--- worth — or at something of its own.
+-- `mullion.panel`, so that a configuration can point at a subset (one tag's
+-- worth) or at something of its own.
 function methods:update(input: Input, panels: { Surface })
   if self.dead then
     return
@@ -392,8 +392,8 @@ end
 -- Presses or releases the button, on a change and not on every frame.
 --
 -- A release goes to whatever took the press, even when the ray has left it. A
--- release that went to the panel currently under the ray — or nowhere, because
--- the ray is over nothing — would leave the first client holding a button down
+-- release that went to the panel currently under the ray (or nowhere, because
+-- the ray is over nothing) would leave the first client holding a button down
 -- for the rest of the session.
 function methods.setButton(self: Pointer, pressed: boolean, sink: lunette.Sink?, surface: Surface?): ()
   pressed = pressed and true or false

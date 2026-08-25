@@ -26,17 +26,15 @@ type Entry = format.Entry
 
 -- What an arrangement is captured from and restored onto.
 --
--- A `mullion.panel` panel is one, and so is an object of a configuration's own
--- carrying the same fields, which is why this is a shape rather than that type.
--- `source` is what the entry's key is read from: a window's `appId` or a
--- monitor's `id`, per `sourceKey`.
--- A surface an arrangement is captured from and restored onto: one that is over
--- something, and whose size in metres is known.
+-- A surface over something whose size in metres is known: `mullion.interaction`'s
+-- contract plus what this module adds, rather than a shape of its own. It is a
+-- shape rather than the panel type so that an object of a configuration's own
+-- carrying the same fields also works; `source` is what the entry's key is read
+-- from, a window's `appId` or a monitor's `id`, per `sourceKey`.
 --
--- `mullion.interaction`'s contract and the little this adds, rather than a shape
--- of its own. Intersecting it narrows `kind` to the two backed forms, so a
--- surface over nothing — a keyboard, a button a configuration drew — is not one
--- an arrangement can name, which is true: there is nothing to key it on. It also
+-- Intersecting the contract narrows `kind` to the two backed forms, so a surface
+-- over nothing (a keyboard, a button a configuration drew) is not one an
+-- arrangement can name, which is correct: there is nothing to key it on. It also
 -- narrows `pose`, `width`, and `height` from the contract's optionals, because a
 -- panel always has all three.
 export type Placed = pointing.Surface & {
@@ -401,8 +399,8 @@ end
 
 -- Writes an arrangement to the save directory.
 --
--- Takes an arrangement rather than a table, so a load from a later version —
--- which yields none — has nothing to pass here. That is half of the
+-- Takes an arrangement rather than a table, so a load from a later version
+-- (which yields none) has nothing to pass here. That is half of the
 -- old-writer-with-new-data guard, and it is a type rather than a check.
 --
 -- The other half is this refusal, which the type cannot make: `capture` builds
@@ -481,8 +479,8 @@ function slotKey(kind: string, key: string, slot: number)
   return kind .. '\0' .. key .. '\0' .. slot
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name, so that a module body running a second time (which is
+-- what a soft reload does) leaves one hook rather than two.
 teardown.register('mullion.persist', persist.teardown)
 
 return persist

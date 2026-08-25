@@ -5,8 +5,8 @@
 -- Bump the version when a field is added. A default alone does not protect a new
 -- field when an old writer rewrites the file.
 --
--- Files contain Lua tables loaded in an empty environment. `%q` supplies string
--- escaping.
+-- Files contain Lua tables loaded in an empty environment. Strings are escaped
+-- with `%q`.
 
 local format = {}
 
@@ -244,8 +244,9 @@ loadedMetatable = {
 -- accepts, which is what makes `newFile` the only way to hold one.
 fileMetatable = {}
 
--- A value as Lua source. Strings go through `%q`, which is the escaping that has
--- a tail worth not writing again.
+-- A value as Lua source. Strings go through `%q`, because correct string
+-- escaping has a long tail of edge cases that this module should not write
+-- again.
 function quote(value)
   if type(value) == 'string' then
     return string.format('%q', value)
