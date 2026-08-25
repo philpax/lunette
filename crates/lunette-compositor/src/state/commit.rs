@@ -1,15 +1,7 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/comp.rs (the `CompositorHandler::commit` path at :229-322), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the `CompositorHandler::commit` path in WayVR's
+//! `backend/wayvr/comp.rs` (https://github.com/wayvr-org/wayvr), at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
-//!
-//! What happens when a client commits.
-//!
-//! One commit carries a buffer, a transform, a scale, and a list of frame
-//! callbacks. Turning that into an image on the graphics device, an owned
-//! buffer, and a window with a size is the whole of this file.
-//!
-//! The state is gathered under the surface's lock and acted on outside it. An
-//! import can be slow and a send into a bounded channel can wait, and neither
-//! should happen while a lock a later handler needs is held.
 
 use smithay::{
     backend::renderer::{BufferType, buffer_type},
@@ -35,17 +27,11 @@ use crate::{
 };
 
 impl CompositorState {
-    /// Applies one client commit.
-    ///
-    /// The state is gathered under the surface's lock and acted on outside it,
-    /// so nothing that can block — an import, a send into a bounded channel —
-    /// happens while the lock is held.
+    /// Applies one client commit. It releases the surface-state lock before imports
+    /// and event sends, which may block.
     pub(super) fn apply_commit(&mut self, surface: &WlSurface) {
         let committed = with_states(surface, |states| {
-            // Read inside the same `with_states` as the attributes, and from
-            // `current()` rather than `pending()`: `wp_content_type_v1` is
-            // double-buffered like everything else a client sets, so the value
-            // that takes effect is the one this commit promoted.
+            // Content-type is double-buffered; read the current value promoted by this commit.
             let content_type = content_type(
                 *states
                     .cached_state
@@ -86,12 +72,7 @@ impl CompositorState {
         self.remember_committed_size(id);
     }
 
-    /// Records what the client says a surface is drawing.
-    ///
-    /// Reported through the snapshot rather than acted on. The hint is thinly
-    /// adopted, so a client playing video may set nothing at all; Lua combines
-    /// it with a commit-rate heuristic and decides what to exempt from
-    /// throttling.
+    /// Records the client's content-type hint for Lua's throttling policy.
     fn remember_content_type(&mut self, id: SurfaceId, content_type: ContentType) {
         if let Some(window) = self.windows.by_surface_mut(id)
             && window.remember_content_type(content_type)
@@ -100,7 +81,6 @@ impl CompositorState {
         }
     }
 
-    /// Imports a newly attached buffer and takes ownership of it.
     fn attach_buffer(
         &mut self,
         id: SurfaceId,
@@ -143,12 +123,8 @@ impl CompositorState {
         }
     }
 
-    /// Imports a dmabuf and retains its `wl_buffer` until the next one arrives.
-    ///
-    /// Returns whether the caller still owns the buffer. A dmabuf is held for
-    /// as long as lunette samples it, which is the rule
-    /// `SurfaceBufWithImageContainer` implements upstream; shared memory is
-    /// copied out and released immediately.
+    /// Imports a dmabuf and retains its `wl_buffer` while lunette samples the image.
+    /// The caller releases the buffer only when this returns `false`.
     pub(super) fn import_dmabuf(
         &mut self,
         id: SurfaceId,
@@ -186,7 +162,8 @@ impl CompositorState {
         true
     }
 
-    /// Imports a shared-memory buffer, which is copied and released at once.
+    /// Copies a shared-memory buffer into compositor-owned pixels and returns `false`
+    /// so the caller releases the client's `wl_buffer`.
     fn import_shm(
         &mut self,
         id: SurfaceId,
@@ -219,9 +196,7 @@ impl CompositorState {
                 return Err("a wl_shm buffer is smaller than its own stride implies".to_owned());
             };
 
-            // Only what the layout describes. A pool holds every buffer a
-            // client cycles through, so copying to the end of it would copy the
-            // whole pool on every commit rather than the one buffer committed.
+            // Copy only the committed buffer, not the rest of the client's pool.
             let described = needed - offset;
 
             // SAFETY: `with_buffer_contents` guarantees the pointer addresses
@@ -259,12 +234,8 @@ impl CompositorState {
             }
         };
 
-        // Whatever this surface last committed is no longer being sampled: the
-        // copy above replaces it. A surface that falls back from dmabuf to
-        // shared memory — which modifier renegotiation makes a client do
-        // mid-session — would otherwise leave its last dmabuf pinned until it
-        // unmapped, holding the client's graphics memory for a buffer lunette
-        // has stopped reading.
+        // The copied pixels no longer depend on the previous dmabuf, so release its
+        // retained `wl_buffer` before recording the replacement.
         self.buffers.forget(id);
 
         self.record_content(
@@ -280,7 +251,6 @@ impl CompositorState {
             buffer: ImportedBuffer::Pixels(packed),
         });
         self.report(Event::SurfaceDamaged { surface: id });
-        // The copy is taken, so the client may reuse the buffer at once.
         false
     }
 
@@ -290,7 +260,6 @@ impl CompositorState {
         }
     }
 
-    /// Notices a toplevel's first mapped buffer and its size changes.
     fn remember_committed_size(&mut self, id: SurfaceId) {
         let Some(content) = self.contents.get(&id).copied() else {
             return;
@@ -304,8 +273,7 @@ impl CompositorState {
             return;
         };
 
-        // A client may change its own size limits at any commit, so they are
-        // re-read rather than captured once when the toplevel was created.
+        // Size limits can change at any commit, so refresh them before sizing.
         window.refresh_constraints(bounds);
         let change = window.remember_committed_size(content.logical_size());
         let opened = change.mapped.then(|| window.id());
@@ -318,16 +286,10 @@ impl CompositorState {
         }
     }
 
-    /// Handles a commit that removed a surface's buffer.
-    ///
-    /// Attaching a null buffer to an xdg-toplevel unmaps it, and the protocol
-    /// says the client may then re-map it by committing again. So the window is
-    /// reported closed but keeps its identifier, and re-mapping reports it
-    /// opened rather than creating a second one.
-    ///
-    /// [`Event::SurfaceGone`] is reported after the window's own closure, so the
-    /// frame thread sees the window die before the surface's texture is dropped
-    /// — the order the two events describe the same moment in.
+    /// Unmaps a surface after a null-buffer commit. A later commit may remap the
+    /// same window, so its identifier remains stable. Reports `WindowClosed`
+    /// before `SurfaceGone` so consumers observe the window before its texture
+    /// is dropped.
     pub(super) fn unmap_surface(&mut self, id: SurfaceId) {
         self.buffers.forget(id);
         self.contents.remove(&id);
@@ -343,19 +305,15 @@ impl CompositorState {
         self.report(Event::SurfaceGone { surface: id });
     }
 
-    /// Forgets everything keyed on a surface that is going away.
-    ///
-    /// Dropping the retained `wl_buffer` is what makes the client's dmabuf
-    /// collectable. Noticing that is the sweep the thread runs after every
-    /// dispatch, and this happens inside one.
+    /// Releases the state retained for a destroyed surface. Dropping its retained
+    /// `wl_buffer` allows the client's dmabuf to be collected.
     pub(super) fn forget_surface(&mut self, surface: &WlSurface) {
         let Some(id) = self.surfaces.forget(surface) else {
             return;
         };
 
-        // Dropped rather than answered. The surface is gone, so the client's
-        // `wl_callback` objects went with it and answering one would be a
-        // protocol error against a destroyed resource.
+        // The surface's callbacks are destroyed with it; answering them would
+        // be a protocol error.
         self.frame_callbacks.remove(&id);
         self.forget_pacing(id);
         self.buffers.forget(id);
@@ -364,7 +322,6 @@ impl CompositorState {
     }
 }
 
-/// What one commit carried, gathered under the surface's lock.
 struct Committed {
     buffer: Option<BufferAssignment>,
     transform: smithay::reexports::wayland_server::protocol::wl_output::Transform,
@@ -373,12 +330,8 @@ struct Committed {
     content_type: ContentType,
 }
 
-/// The protocol's content-type hint as lunette's own closed set.
-///
-/// `wp_content_type_v1::Type` is `#[non_exhaustive]`, so a variant added to the
-/// protocol later arrives here as a value this match does not name. It is
-/// reported as [`ContentType::None`], which is the protocol's own default and
-/// the honest answer: lunette does not know what the client meant.
+/// Converts the protocol's non-exhaustive content-type hint to lunette's closed
+/// set. Unknown future variants become [`ContentType::None`].
 fn content_type(reported: wp_content_type_v1::Type) -> ContentType {
     match reported {
         wp_content_type_v1::Type::Photo => ContentType::Photo,

@@ -1,12 +1,9 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/comp.rs and backend/wayvr/mod.rs (the globals and output fragments), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the globals and output fragments in WayVR's
+//! `backend/wayvr/comp.rs` and `backend/wayvr/mod.rs`
+//! (https://github.com/wayvr-org/wayvr), at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! The protocol handlers, and the `delegate_*!` macros that route into them.
-//!
-//! Split from [`crate::state::compositor`] rather than left beside it: the two
-//! answer different questions, and together they are more than one file's worth.
-//! Nothing here decides anything — each handler translates a protocol request
-//! into a call on [`CompositorState`] and reports what happened.
 
 use std::os::fd::OwnedFd;
 
@@ -99,30 +96,18 @@ impl compositor::CompositorHandler for CompositorState {
         self.send_initial_surface_state(surface);
     }
 
-    /// Pairs with `new_surface`, which enters every surface — subsurfaces,
-    /// popups, and cursor surfaces included — onto an output.
-    /// `toplevel_destroyed` leaves only the ones that were toplevels, and the
-    /// rest are dropped here rather than left as dead weak references for
-    /// `enter` and `leave` to prune later.
     fn destroyed(&mut self, surface: &WlSurface) {
         self.outputs.leave(surface);
         self.forget_surface(surface);
     }
 
-    /// `on_commit_buffer_handler` is deliberately not called here, though
-    /// smithay documents it as the first thing a commit handler does.
+    /// This handler reads the committed buffer directly so
+    /// [`CompositorState::apply_commit`] can import it. Calling smithay's default
+    /// buffer handler would consume the buffer and transfer its ownership to
+    /// smithay, which conflicts with lunette's release and import path.
     ///
-    /// Its first act is `attrs.buffer.take()`, and that buffer is what
-    /// [`CompositorState::apply_commit`] reads to perform the import — so
-    /// calling it would leave the import path with nothing to import and no
-    /// client would ever display anything. Reading the buffer back out of
-    /// `RendererSurfaceState` instead would hand buffer ownership to smithay,
-    /// which releases a `wl_buffer` when it drops its own `Arc`, and lunette
-    /// already releases the same buffer itself.
-    ///
-    /// What that state is otherwise wanted for is damage tracking, and the
-    /// layer blit path counts lunette's own texture installs instead.
-    /// `docs/rendering.md` records why that predicate is the better one anyway.
+    /// The compositor tracks damage through its own texture-install events; it
+    /// does not use smithay's renderer surface state for damage tracking.
     fn commit(&mut self, surface: &WlSurface) {
         self.popups_commit(surface);
         self.apply_commit(surface);
@@ -134,27 +119,16 @@ impl BufferHandler for CompositorState {
 }
 
 impl FractionalScaleHandler for CompositorState {
-    /// Re-sends the scale a surface was already told, which is a no-op for
-    /// almost every surface that reaches here.
-    ///
-    /// `send_initial_surface_state` pre-sets the preferred scale at surface
-    /// creation, and smithay replays a pre-set value when the client creates its
-    /// `wp_fractional_scale_v1` (`fractional_scale/mod.rs:160-166`) — so by the
-    /// time this runs the client already has the right number and
-    /// `set_preferred_scale` sends nothing. What it covers is a surface whose
-    /// client was reassigned, or one that reached the compositor by some path
-    /// that did not go through surface creation: answering with the scale the
-    /// output currently advertises is right in every case, and cheap.
+    /// Sends the scale currently advertised by the surface's output. The value
+    /// is pre-set for newly created surfaces and replayed when the client creates
+    /// the fractional-scale object; this call also covers reassigned surfaces.
     fn new_fractional_scale(&mut self, surface: WlSurface) {
         self.send_surface_scale(&surface);
     }
 }
 
-/// Every method here is handed the seat the call is about, because `SeatHandler`
-/// is per-compositor rather than per-seat
-/// (`smithay-0.7.0/src/input/mod.rs:145-165`). Ignoring that argument is what
-/// makes a compositor single-seat by accident: WayVR's `cursor_image` does
-/// (`comp.rs:341-343`), and the result is one cursor image shared by every hand.
+/// `SeatHandler` is implemented once per compositor. Methods that access per-seat
+/// state receive the relevant seat and must use it.
 impl SeatHandler for CompositorState {
     type KeyboardFocus = WlSurface;
     type PointerFocus = WlSurface;
@@ -170,9 +144,8 @@ impl SeatHandler for CompositorState {
             focused = focused.is_some(),
             "a seat's keyboard focus changed"
         );
-        // Both selections follow the keyboard, per seat, because that is what
-        // the protocol says: a `wl_data_device` is offered a selection only
-        // while its client is the focused one.
+        // Both selections follow the keyboard: each selection protocol sends an
+        // offer only while its client is focused.
         self.focus_selection(seat, focused);
     }
 
@@ -198,12 +171,9 @@ impl DmabufHandler for CompositorState {
         dmabuf: Dmabuf,
         notifier: ImportNotifier,
     ) {
-        // Accepted without being imported while a restart holds the device.
-        // `create_immed` answers a failed import with `INVALID_WL_BUFFER`,
-        // which disconnects the client — and `lunette-v1.AC5.5` is precisely
-        // that a restart disconnects nobody. The buffer object is valid either
-        // way; what it cannot yet do is become an image, and the commit that
-        // asks it to is where that is answered survivably.
+        // Accept the buffer while a restart has no graphics device. Rejecting
+        // the import here would disconnect the client; a commit made while the
+        // device is unavailable releases that buffer so the client can redraw.
         if !self.importer.accepts_imports() {
             debug!(
                 "accepting a client dmabuf unimported: lunette has no device until the restart finishes"
@@ -239,11 +209,8 @@ impl XdgShellHandler for CompositorState {
         let wl_surface = surface.wl_surface().clone();
         self.send_initial_surface_state(&wl_surface);
 
-        // The initial configure. A client may not attach a buffer until it has
-        // one, so a toplevel that is never configured never maps. WayVR sends
-        // it indirectly, from the window manager's first size configure
-        // (`window.rs:68-84`); sending it here means a toplevel is configured
-        // even when no policy has an opinion about its size yet.
+        // A client cannot attach a buffer until it receives an initial configure.
+        // Send one here so the toplevel can map before size policy runs.
         let bounds = self.surface_bounds(&wl_surface);
         surface.with_pending_state(|pending| {
             pending.bounds = Some(bounds);
@@ -387,8 +354,6 @@ impl XdgShellHandler for CompositorState {
 }
 
 impl CompositorState {
-    /// Grants a client's request to fill the virtual output.
-    ///
     /// A panel has one window in it, so a request to fill the screen is a
     /// request to fill the panel, and refusing it leaves clients that expect a
     /// fullscreen surface — video players, games — drawing at the wrong size.
@@ -462,8 +427,6 @@ impl KdeDecorationHandler for CompositorState {
     }
 }
 
-/// The clipboard and the primary selection, in both directions.
-///
 /// [`Self::SelectionUserData`] is a [`HostOffer`], because the only selection
 /// lunette itself owns is one it took from the host: a selection a client owns
 /// is served by that client, and smithay routes those without asking here.
@@ -489,8 +452,6 @@ impl SelectionHandler for CompositorState {
         _seat: Seat<Self>,
         user_data: &Self::SelectionUserData,
     ) {
-        // The user data carries the kind, so the target argument adds nothing:
-        // a request can only arrive against the offer it was minted from.
         self.serve_selection(&mime_type, fd, &user_data.clone());
     }
 }
@@ -501,11 +462,8 @@ impl DataDeviceHandler for CompositorState {
     }
 }
 
-/// Drag and drop is out of scope for v1, recorded as such in
-/// `docs/host-desktop.md`. Both grab handlers exist because
-/// [`DataDeviceHandler`] requires them, and every method has a default that does
-/// nothing — which is the correct behaviour for a compositor that never starts a
-/// drag and offers no drop target.
+/// The compositor does not start drags or provide drop targets. These empty
+/// implementations satisfy [`DataDeviceHandler`]'s required handler traits.
 impl ClientDndGrabHandler for CompositorState {}
 
 impl ServerDndGrabHandler for CompositorState {}
@@ -541,15 +499,9 @@ impl GlobalDispatch<WlOutput, OutputGlobal> for CompositorState {
         state.outputs.bind(global.output, &instance);
     }
 
-    /// Which clients may see and bind an output.
-    ///
-    /// Consulted at registry advertisement
-    /// (`wayland-backend-0.3.15/src/rs/server_impl/registry.rs:199` and `:224`)
-    /// and again at bind (`:120`), where a `false` makes the bind fail. The
-    /// second is what makes the filter enforceable rather than advisory: a
-    /// client that guesses a global name it was never advertised still cannot
-    /// bind it. It is not redundant with the advertisement check and must not be
-    /// optimised away as though it were.
+    /// The backend calls this predicate both when advertising globals and when
+    /// binding them. The bind-time check prevents a client from binding a global
+    /// it was not shown, so both checks are required.
     ///
     /// There is no `&mut D` here, which is why the assignment lives in
     /// [`ClientState`] rather than in compositor state keyed by `ClientId`.
@@ -587,12 +539,10 @@ delegate_dmabuf!(CompositorState);
 delegate_ext_data_control!(CompositorState);
 delegate_fractional_scale!(CompositorState);
 delegate_kde_decoration!(CompositorState);
-// No `delegate_output!`. It routes `GlobalDispatch<WlOutput, WlOutputData>` to
-// smithay's `OutputManagerState`, whose `can_view` cannot be overridden and
-// whose global data cannot be read back — so the `wl_output` global is
-// hand-written in [`crate::output`], along with the filter that makes each
-// client see only its own monitors. The macro's other four lines are
-// xdg-output, which lunette does not advertise.
+// Do not use `delegate_output!`: smithay's `OutputManagerState` does not expose
+// the output identity needed by the per-client visibility filter, so
+// [`crate::output`] provides the `wl_output` dispatch. The macro also advertises
+// xdg-output globals, which lunette does not expose.
 delegate_content_type!(CompositorState);
 delegate_primary_selection!(CompositorState);
 delegate_seat!(CompositorState);
@@ -601,12 +551,9 @@ delegate_viewporter!(CompositorState);
 delegate_xdg_decoration!(CompositorState);
 delegate_xdg_shell!(CompositorState);
 
-/// Forces server-side decorations, as WayVR does in all three
-/// `XdgDecorationHandler` methods (`comp.rs:638-663`).
-///
-/// A client that draws its own titlebar draws it inside lunette's panel, where
-/// it is decoration for a window that has no frame to decorate. GTK and Qt both
-/// do so unless told otherwise.
+/// A client-side titlebar consumes space inside lunette's panel, while the
+/// panel's frame is outside the client surface. GTK and Qt otherwise choose
+/// client-side decoration.
 fn force_server_side(toplevel: &ToplevelSurface) {
     toplevel.with_pending_state(|state| {
         state.decoration_mode = Some(zxdg_toplevel_decoration_v1::Mode::ServerSide);

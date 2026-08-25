@@ -1,18 +1,11 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/client.rs (`accept_connection` and `cleanup_clients`) and backend/wayvr/mod.rs (the spawn fragment), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from WayVR's `backend/wayvr/client.rs` (`accept_connection` and
+//! `cleanup_clients`) and the spawn fragment in `backend/wayvr/mod.rs`
+//! (https://github.com/wayvr-org/wayvr), at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! The processes lunette starts, and which client belongs to which.
-//!
-//! Two halves of one question. Spawning is a `ProcessSpawner` call and a timer
-//! that reaps; attribution is the credentials of a connecting client matched
-//! against the processes that are still unclaimed. They live together because
-//! neither is useful without the other: a spawn nobody can attribute a client
-//! to is a process lunette has lost track of, and an attribution with nothing
-//! to attribute to is an adopted client.
-//!
-//! Split out of `compositor.rs` as a self-contained concern, and the header
-//! travels with it: `attach_client` and `prune_clients` are the halves of
-//! WayVR's `accept_connection` and `cleanup_clients` that did not go to
+//! `attach_client` and `prune_clients` adapt the client-attribution portions of
+//! WayVR's `accept_connection` and `cleanup_clients` that remain outside
 //! [`crate::client`].
 
 use std::time::Duration;
@@ -33,19 +26,13 @@ use crate::{
     thread::LoopData,
 };
 
-/// How often spawned processes are checked for output and for having exited.
-///
-/// A tenth of a second. Output from a spawned application is diagnostic, so the
-/// latency does not matter; the interval is short enough that a process that
-/// exits is reported within a frame or two of it happening.
+/// The shared poll checks process output, exits, and the satellite every 100
+/// milliseconds. Child output is diagnostic, so polling stays off the frame path.
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 impl CompositorState {
-    /// Starts a process and attributes the clients it connects with.
-    ///
-    /// A spawn that fails is reported as an exit that never happened, because
-    /// that is the one report a caller of `lunette.spawn` gets for a mistyped
-    /// program name and there is nothing else to hang it on.
+    /// A failed spawn is reported as `ProcessExited` with a spawn-failure
+    /// outcome, so the request has a terminal result.
     pub(super) fn spawn_process(&mut self, request: &SpawnCommand) {
         let plan = SpawnRequest {
             process: request.process,
@@ -80,12 +67,8 @@ impl CompositorState {
         }
     }
 
-    /// Records which output a spawned process's clients will be shown.
-    ///
-    /// An output that does not exist is refused rather than recorded: a client
-    /// assigned one would see no monitor at all, which is a harder failure to
-    /// diagnose than a warning naming the output. Falling back to the default
-    /// is what an absent assignment already means.
+    /// An absent or unknown output leaves the process unassigned, so its clients
+    /// see the default output.
     pub(super) fn assign_output(&mut self, process: ProcessId, output: Option<OutputId>) {
         let Some(output) = output else {
             return;
@@ -105,12 +88,8 @@ impl CompositorState {
         self.processes.signal(process, signal);
     }
 
-    /// Attributes a newly connected client to a process.
-    ///
-    /// The connecting pid first, then the token in the client's own
-    /// environment, and failing both the client is adopted as external — which
-    /// is the case a process started outside lunette with `WAYLAND_DISPLAY`
-    /// pointing at its socket falls into.
+    /// Matches the connecting PID first, then the authentication token in the
+    /// client's environment. A valid but unmatched client is adopted as external.
     pub(crate) fn attach_client(&mut self, client: &Client) {
         let process = match client.get_credentials(&self.display) {
             Ok(credentials) => match Pid::new(credentials.pid) {
@@ -126,9 +105,8 @@ impl CompositorState {
             }
         };
 
-        // Before any request from this client has been dispatched, because
-        // `insert_client` does not dispatch: the client's `wl_registry` has not
-        // been read yet, so the first advertisement sees the assignment.
+        // Assign before dispatch: `insert_client` has not dispatched the client's
+        // `wl_registry` request, so the first advertisement sees this value.
         if let Some(state) = client.get_data::<ClientState>() {
             state.assign(self.assignments.get(&process).copied());
         }
@@ -139,14 +117,9 @@ impl CompositorState {
         self.watch_processes();
     }
 
-    /// Forgets clients that have gone away.
-    ///
-    /// There is no per-client destruction hook to hang this on:
-    /// `ClientData::disconnected` is called on an `Arc` that knows nothing
-    /// about the compositor, and `CompositorHandler` only reports surfaces. So
-    /// the map is swept when a new client arrives, which bounds it at the
-    /// number of clients that have connected since the last connection rather
-    /// than at the number that have ever connected.
+    /// The disconnect callback records only a flag, so the next connection sweeps
+    /// disconnected clients. Between connections, the map contains connected
+    /// clients plus entries for clients disconnected since the previous sweep.
     pub(super) fn prune_clients(&mut self) {
         let backend = self.display.backend_handle();
         self.clients.retain(|client, _| {
@@ -173,18 +146,14 @@ impl CompositorState {
         process
     }
 
-    /// The process a client was attributed to.
     pub(super) fn process_of(&self, surface: &WlSurface) -> Option<ProcessId> {
         let client = surface.client()?;
         self.clients.get(&client.id()).copied()
     }
 
-    /// Starts the poll timer if it is not already running.
-    ///
-    /// One timer for every process rather than a source per pipe and a reaper
-    /// besides: a child's output is diagnostic, so a fraction of a second of
-    /// latency costs nothing, and a source registered per child would have to
-    /// be unregistered from inside its own callback.
+    /// One timer polls all process entries and the satellite. Keeping the
+    /// registration token in `process_poll` keeps the source alive and prevents
+    /// duplicate timers.
     pub(super) fn watch_processes(&mut self) {
         if self.process_poll.is_some() {
             return;
@@ -204,7 +173,6 @@ impl CompositorState {
         }
     }
 
-    /// Collects output and exits, and decides whether to keep watching.
     pub(super) fn poll_processes(&mut self) -> TimeoutAction {
         self.satellite.poll();
 
@@ -227,8 +195,7 @@ impl CompositorState {
         }
 
         if self.processes.is_empty() && !self.satellite.is_running() {
-            // Nothing left to reap. The timer is dropped rather than left to
-            // wake an otherwise idle compositor ten times a second.
+            // Drop the token to remove the idle source; later work can install a new timer.
             self.process_poll = None;
             return TimeoutAction::Drop;
         }

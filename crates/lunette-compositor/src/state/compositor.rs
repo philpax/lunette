@@ -4,9 +4,6 @@
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! Owns the Wayland globals and the state used to dispatch their requests.
-//!
-//! Output, process, and frame-pacing methods are implemented in sibling modules
-//! on [`CompositorState`].
 
 use std::{
     collections::HashMap,
@@ -72,7 +69,7 @@ use crate::{
     window::{Window, WindowManager},
 };
 
-/// The seat assigned to clients that do not request a specific seat.
+/// The seat used when a command does not name a specific seat.
 ///
 /// Further seats use identifiers supplied through [`Command::CreateSeat`].
 pub const DEFAULT_SEAT: SeatId = match SeatId::new(1) {
@@ -80,7 +77,7 @@ pub const DEFAULT_SEAT: SeatId = match SeatId::new(1) {
     None => unreachable!(),
 };
 
-/// The output shown to clients that have no output assignment.
+/// The output used when a client has no output assignment.
 ///
 /// Further outputs use identifiers supplied through [`Command::CreateOutput`].
 pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
@@ -91,7 +88,8 @@ pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
 /// The default seat's name, which clients see on `wl_seat.name`.
 const SEAT_NAME: &str = "lunette";
 
-/// Configures the virtual monitor and the buffer support.
+/// Configuration for the virtual monitor, buffer support, host selection, X11
+/// bridge, and default keymap.
 ///
 /// The output size is configurable, so this value provides defaults rather than
 /// a fixed constant.
@@ -115,7 +113,6 @@ impl Default for CompositorConfig {
     fn default() -> Self {
         Self {
             output: OutputMode {
-                // This size suits a panel read at arm's length.
                 size: PixelSize::new(2560, 1440),
                 scale: OutputScale::new(1.0).unwrap_or_else(|| unreachable!("one is positive")),
                 refresh: RefreshRate::from_millihertz(60_000),
@@ -163,14 +160,13 @@ impl RenderNode {
     }
 }
 
-/// State owned by the compositor thread apart from the display.
+/// State owned by the compositor thread for dispatching Wayland requests.
 ///
-/// Smithay dispatches protocol traffic to this type through the delegate
-/// implementations in this module.
+/// Smithay invokes the delegate implementations for those requests.
 pub(crate) struct CompositorState {
     pub(super) display: DisplayHandle,
     pub(super) config: CompositorConfig,
-    /// How spawned clients reach lunette.
+    /// Environment values passed to every spawned client.
     pub(super) environment: DisplayEnvironment,
 
     pub(super) compositor: compositor::CompositorState,
@@ -292,8 +288,7 @@ impl CompositorState {
         // Fractional scale support requires the viewporter so clients can use
         // an integer buffer scale with a corrected logical destination.
         let fractional_scale = FractionalScaleManagerState::new::<Self>(display);
-        // Report content type to Lua without applying policy here. Lua decides
-        // which content is video, including whether it is exempt from throttling.
+        // Report content type without applying throttling policy in the compositor.
         let content_type = ContentTypeState::new::<Self>(display);
         let xdg_decoration = XdgDecorationState::new::<Self>(display);
         let kde_decoration = KdeDecorationState::new::<Self>(
@@ -426,10 +421,7 @@ impl CompositorState {
 
     /// Applies one command from the main thread.
     ///
-    /// The match is exhaustive on purpose. A variant that gains a handler in a
-    /// later phase has to be moved out of the unhandled arm deliberately, and a
-    /// variant added to the protocol fails to compile here until someone
-    /// decides what it does.
+    /// Keep this match exhaustive so adding a command requires a handler here.
     pub(crate) fn handle(&mut self, command: Command) {
         match command {
             Command::Shutdown => {
@@ -484,10 +476,10 @@ impl CompositorState {
         }
     }
 
-    /// Asks a toplevel to close.
+    /// Sends a close request without killing the client or removing the window.
     ///
-    /// A request, not a kill: the client may prompt the user, or refuse. The
-    /// window disappears when the client destroys the toplevel, not here.
+    /// The client may refuse the request; the window disappears only after the
+    /// client destroys the toplevel.
     fn close_window(&mut self, window: WindowId) {
         let Some(tracked) = self.windows.get(window) else {
             debug!(%window, "a close was asked for a window that is already gone");
@@ -496,10 +488,10 @@ impl CompositorState {
         tracked.toplevel().send_close();
     }
 
-    /// Configures a toplevel's size and states.
+    /// Queues a toplevel size and state change.
     ///
-    /// The client resizes at its own pace and the change is visible when it
-    /// commits, so the snapshot keeps reporting the committed size until then.
+    /// The snapshot keeps reporting the committed size until the client commits
+    /// the requested change.
     fn configure_window(
         &mut self,
         window: WindowId,
@@ -516,8 +508,8 @@ impl CompositorState {
             return;
         };
 
-        // The states are applied first, because a client reads them alongside
-        // the size in the same configure.
+        // Set the pending states before requesting the size so both are sent in
+        // the same configure.
         tracked.toplevel().with_pending_state(|pending| {
             for state in states {
                 pending.states.set(protocol_state(*state));
@@ -526,7 +518,6 @@ impl CompositorState {
         tracked.request_size(size.map_or(bounds, logical_size), bounds);
     }
 
-    /// Republishes the snapshot if anything changed since the last one.
     pub(crate) fn publish_if_dirty(&mut self) {
         if !self.dirty {
             return;
@@ -543,19 +534,15 @@ impl CompositorState {
         });
     }
 
-    /// Marks the snapshot stale so the next tick republishes it.
     pub(super) fn touch(&mut self) {
         self.dirty = true;
     }
 
-    /// Lets the importer release what the clients no longer hold.
+    /// Sweeps imported images after dispatch may have dropped a client's `wl_buffer`
+    /// reference.
     ///
-    /// Called once per dispatch, because a dispatch is the only thing that can
-    /// have made an import collectable: the strong reference to a client's
-    /// dmabuf is the `wl_buffer` this side retains, and it is dropped either
-    /// when the client destroys the buffer or when the compositor forgets the
-    /// surface. Driving retirement from imports alone holds every image of a
-    /// client that has disconnected or fallen quiet, since neither performs one.
+    /// Sweeping only when a new import arrives retains images from clients that
+    /// have disconnected or stopped sending requests.
     pub(crate) fn sweep_imports(&mut self) {
         self.importer.sweep();
     }
@@ -583,7 +570,7 @@ impl CompositorState {
         }
     }
 
-    /// Keeps a popup inside its root toplevel, as the positioner asks.
+    /// Applies the positioner's unconstrained geometry relative to the root toplevel.
     pub(super) fn constrain_popup(&self, popup: &PopupSurface) {
         let kind = PopupKind::Xdg(popup.clone());
 
@@ -612,23 +599,19 @@ impl CompositorState {
 
 #[cfg(any(test, feature = "test-fakes"))]
 impl CompositorState {
-    /// What a seat's focused client last asked its cursor to look like.
+    /// Returns the per-seat cursor state recorded by `SeatHandler::cursor_image`.
     ///
-    /// Verifies per-seat cursor state because `SeatHandler::cursor_image` ignores
-    /// its seat argument. The compositor does not render cursors.
+    /// The compositor does not render cursors, so tests read this state directly.
     pub(crate) fn cursor_image(&self, seat: SeatId) -> Option<CursorImageStatus> {
         self.seats
             .get(seat)
             .map(|entry| crate::seat::cursor_image(entry.seat()))
     }
 
-    /// Lets the next `skip` keymap uploads through and fails the `count` after
-    /// them.
+    /// Injects failures after `skip` successful keymap uploads for restoration tests.
     ///
-    /// Injects failures into keymap uploads for restore-path tests. A real
-    /// upload fails only for an invalid layout, which the generator rejects.
-    /// `skip` selects the upload that fails; failing the first upload would not
-    /// exercise restoration of an existing keymap.
+    /// The normal upload path rejects only invalid layouts, so tests cannot provoke
+    /// a failure at the point needed to exercise restoration of an existing keymap.
     pub(crate) fn fail_keymap_uploads(&self, skip: usize, count: usize) {
         self.failing_uploads.set((skip, count));
     }
@@ -647,11 +630,9 @@ impl CompositorState {
     }
 }
 
-/// Inputs required to construct [`CompositorState`].
 pub(crate) struct StateParts<'a> {
     pub(crate) display: &'a DisplayHandle,
     pub(crate) config: CompositorConfig,
-    /// Events reported by the host clipboard connection.
     pub(crate) host_selection: HostEvents,
     pub(crate) importer: Box<dyn BufferImporter>,
     pub(crate) spawner: Box<dyn ProcessSpawner>,
@@ -679,7 +660,6 @@ pub struct ClientState {
 }
 
 impl ClientState {
-    /// Whether the client has gone away.
     #[must_use]
     pub fn disconnected(&self) -> bool {
         self.disconnected
@@ -687,16 +667,13 @@ impl ClientState {
             .map_or(true, |disconnected| *disconnected)
     }
 
-    /// The output assigned to this client, if any.
     #[must_use]
     pub(crate) fn output(&self) -> Option<OutputId> {
         self.output.lock().ok().and_then(|output| *output)
     }
 
-    /// Records which output this client is shown.
-    ///
-    /// The assignment is recorded before the client's first registry
-    /// advertisement. Client insertion does not dispatch requests.
+    /// Records the assignment before the client's first registry advertisement;
+    /// registry dispatch can then filter the initial globals by that assignment.
     pub(crate) fn assign(&self, output: Option<OutputId>) {
         if let Ok(mut held) = self.output.lock() {
             *held = output;
@@ -727,7 +704,6 @@ impl ClientData for ClientState {
     }
 }
 
-/// Maps a snapshot to the corresponding protocol toplevel state.
 pub(super) const fn protocol_state(state: ToplevelState) -> xdg_toplevel::State {
     match state {
         ToplevelState::Maximized => xdg_toplevel::State::Maximized,
@@ -761,11 +737,8 @@ pub(super) fn toplevel_state(state: xdg_toplevel::State) -> Option<ToplevelState
     }
 }
 
-/// Creates the `zwp_linux_dmabuf_v1` global, preferring version 4.
-///
-/// Version 4 reports importable modifiers and supports renegotiation. It
-/// requires feedback and a render node, so the compositor falls back to version
-/// 3 when no render node is available.
+/// Creates the `zwp_linux_dmabuf_v1` global with version 4 feedback when the
+/// render node and format support can build it; otherwise uses version 3.
 fn create_dmabuf_global(
     display: &DisplayHandle,
     support: &DmabufSupport,
@@ -795,13 +768,10 @@ fn create_dmabuf_global(
     }
 }
 
-/// Reads one of a toplevel's role attributes.
+/// Reads a role attribute that the client sets, such as its title or app id.
 ///
-/// Title and app id are not part of the pending configure state a client can be
-/// told about; they are role attributes the client sets and the compositor
-/// reads. `XdgToplevelSurfaceData` is a `Mutex`, and a poisoned one means a
-/// panic already happened elsewhere, in which case the attribute is reported as
-/// absent rather than propagating the panic through the dispatch loop.
+/// A poisoned role-attribute mutex yields `None` instead of propagating an
+/// earlier panic through the dispatch loop.
 pub(super) fn toplevel_attribute<T>(
     surface: &ToplevelSurface,
     read: impl FnOnce(&XdgToplevelSurfaceRoleAttributes) -> T,
