@@ -432,6 +432,7 @@ pub(crate) fn decode_hex(encoded: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
+    #[allow(clippy::chunks_exact_to_as_chunks)]
     encoded
         .chunks_exact(2)
         .map(|pair| {
