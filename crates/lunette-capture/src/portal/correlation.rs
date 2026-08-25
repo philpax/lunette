@@ -1,13 +1,12 @@
 //! Correlates granted portal streams with the attached monitors.
 //!
-//! Portal backends do not consistently provide a usable connector name, so the
-//! portable fallback is positional geometry in the compositor's logical space,
-//! which is compatible with `wl_output` geometry. A size mismatch can still be
-//! valid when a backend reports physical pixels for a scaled output.
+//! Portal backends do not consistently provide connector names, so positional
+//! geometry in the compositor's logical space is the portable fallback. A size
+//! mismatch remains valid when a backend reports physical pixels for a scaled
+//! output.
 //!
-//! Matching is independent of portal response order. Connector matches take
-//! precedence over positional matches, and ambiguous positional matches remain
-//! unmatched.
+//! Matching does not depend on response order. Connector matches take precedence
+//! over positional matches, and ambiguous positional matches remain unmatched.
 
 use std::{collections::BTreeMap, fmt};
 
@@ -20,15 +19,15 @@ use crate::{
     portal::{NodeId, PortalStream},
 };
 
-/// Ties each granted stream to the monitor it shows.
+/// Matches each granted stream to the monitor it shows.
 ///
-/// Both successful and unsuccessful matches are reported. Monitors with no
-/// corresponding stream are listed separately.
+/// The result reports successful matches, unsuccessful matches, and monitors
+/// with no corresponding stream.
 #[must_use]
 pub fn correlate(streams: &[PortalStream], roster: &Roster) -> Correlation {
     let mut claims = Claims::new(roster);
 
-    // Node order makes connector contention independent of portal response order.
+    // A stable node order makes connector contention independent of response order.
     let mut ordered: Vec<&PortalStream> = streams.iter().collect();
     ordered.sort_by_key(|stream| stream.node);
 
@@ -43,15 +42,13 @@ pub fn correlate(streams: &[PortalStream], roster: &Roster) -> Correlation {
 /// The outcome of tying a portal response's streams to the attached monitors.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Correlation {
-    /// One entry per stream that found its monitor, ordered by node identifier
-    /// so the result does not depend on the order the portal listed them in.
+    /// One entry per matched stream, ordered by node identifier.
     pub matched: Vec<StreamMatch>,
-    /// The streams that found none, with the reason for each.
+    /// Streams that found no monitor, with the reason for each.
     pub unmatched: Vec<Unmatched>,
-    /// The monitors no stream showed, in the roster's own sorted order.
-    ///
-    /// Ordinary when the user selected only some of their screens; a symptom
-    /// when they selected all of them and one is missing anyway.
+    /// Monitors that no stream showed, in roster order. This is expected when
+    /// the user selected only some of their monitors, and diagnostic when they
+    /// selected all of them.
     pub unmirrored: Vec<MonitorKey>,
 }
 
@@ -63,56 +60,48 @@ pub struct StreamMatch {
     pub strength: MatchStrength,
 }
 
-/// How the tie was made, strongest first.
+/// The evidence used to match a stream to a monitor, strongest first.
 ///
-/// Worth recording rather than discarding: a session where every match is
-/// [`Self::Position`] is one where a monitor moving will silently re-point the
-/// mirror, and that is a thing to be able to say in a log.
+/// Recording positional matches identifies sessions whose mirrors may change if
+/// a monitor moves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MatchStrength {
-    /// The stream's `mapping_id` was a connector name, and it named this
-    /// monitor.
+    /// The stream's `mapping_id` was a connector name for this monitor.
     Connector,
-    /// The stream's position and size both agree with the monitor's.
+    /// The stream's position and size agree with the monitor's.
     PositionAndSize,
-    /// The stream's position agrees and its size does not, or it reported none.
+    /// The stream's position agrees, but its size differs or is absent.
     ///
-    /// Not a failure. A backend that reports a stream's size in pixels rather
-    /// than in logical coordinates disagrees with the monitor's logical size by
-    /// exactly the scale factor, and the position is still correct — so a size
-    /// disagreement lowers the confidence rather than rejecting the match.
+    /// A backend may report pixels instead of logical coordinates. The size
+    /// difference then reflects display scaling, so it lowers confidence rather
+    /// than rejecting the match.
     Position,
 }
 
-/// A stream that found no monitor, and why.
+/// A stream that found no monitor, with the reason.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unmatched {
     pub node: NodeId,
     pub reason: NoMatch,
 }
 
-/// Why a stream could not be tied to a monitor.
+/// Why a stream could not be matched to a monitor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NoMatch {
-    /// The stream reported neither a usable `mapping_id` nor a position, so
-    /// there is nothing to match it on.
+    /// The stream reported neither a usable `mapping_id` nor a position.
     Featureless,
-    /// No attached monitor sits where the stream says it does. A monitor
-    /// unplugged between the portal's dialog and this correlation looks like
-    /// this.
+    /// No attached monitor occupies the stream's reported position.
     NoMonitorThere { position: LogicalPosition },
-    /// More than one candidate sits there, or more than one stream claims the
-    /// same place. Mirrored outputs occupying one logical rectangle produce
-    /// this, and picking one arbitrarily would put the mirror on whichever the
-    /// enumeration happened to list first.
+    /// Multiple streams or monitors share the position. Choosing one arbitrarily
+    /// would make the result depend on enumeration order.
     Ambiguous {
         position: LogicalPosition,
         monitors: usize,
         streams: usize,
     },
-    /// The stream named a connector no attached monitor carries.
+    /// No attached monitor has the connector named by the stream.
     NoSuchConnector,
-    /// The monitor this stream names was already taken by another stream.
+    /// Another stream already claimed the named monitor.
     AlreadyMirrored { monitor: MonitorKey },
 }
 
@@ -167,7 +156,7 @@ impl<'a> Claims<'a> {
         }
     }
 
-    /// Claims the monitor named by the stream's connector, when present.
+    /// Claims the monitor named by the stream's connector, when available.
     fn claim_by_connector(&mut self, stream: &PortalStream) {
         let Some(connector) = stream.connector else {
             return;
@@ -196,7 +185,7 @@ impl<'a> Claims<'a> {
         }
     }
 
-    /// Claims uniquely identified positional matches and rejects ambiguity.
+    /// Claims unique positional matches and rejects ambiguous positions.
     fn claim_by_position(&mut self, streams: &[PortalStream]) {
         let mut by_position: BTreeMap<(i32, i32), Vec<NodeId>> = BTreeMap::new();
 
@@ -345,12 +334,12 @@ mod tests {
         LogicalGeometry::new(LogicalPosition::new(x, 0), LogicalSize::new(width, 1080))
     }
 
-    /// Correlation does not use display mode resolution.
+    /// Returns a display mode resolution that correlation does not use.
     fn resolution() -> PixelExtent {
         PixelExtent::new(1920, 1080)
     }
 
-    /// Correlation uses the monitor's unrotated logical geometry.
+    /// Builds a report with the monitor's unrotated logical geometry.
     fn report(name: MonitorName, geometry: LogicalGeometry) -> MonitorReport {
         MonitorReport {
             name,

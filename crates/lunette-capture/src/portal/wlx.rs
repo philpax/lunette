@@ -1,23 +1,20 @@
 //! Linux-only: `wlx-capture`'s D-Bus ScreenCast client behind lunette's seam.
 //!
-//! The only place in this crate that names a `wlx-capture` portal type.
-//! Everything above it is written in [`crate::portal`]'s own vocabulary, so the
-//! logic that decides anything is testable without a session bus.
+//! This is the only module in the crate that names a `wlx-capture` portal type.
+//! The rest of the crate uses [`crate::portal`] data, so its decision logic is
+//! testable without a session bus.
 //!
-//! # Not `Send`, deliberately
+//! # Thread affinity
 //!
 //! `ScreenCastManager` polls D-Bus futures with a no-op waker on the calling
-//! thread, and its futures are not `Send`. `ScreenCastParams.token` is also an
-//! `Rc<str>`. This type is constructed on the thread that drives it and never
-//! leaves that thread.
+//! thread, and its futures are not `Send`. `ScreenCastParams.token` is an
+//! `Rc<str>`, so this adapter must remain on the thread that drives it.
 //!
-//! # What this adapter cannot observe
+//! # Unobserved response fields
 //!
-//! Two fields the portal sends are discarded before they reach here.
-//! The underlying adapter drops the response's `persist_mode`, so
-//! [`GrantedPersistMode::Unstated`] is what every grant reports. It also drops
-//! `mapping_id`, so [`PortalStream::connector`] is always `None`. Geometry is
-//! sufficient for correlating streams with monitors.
+//! The underlying adapter drops `persist_mode` and `mapping_id`. Grants therefore
+//! report [`GrantedPersistMode::Unstated`], and streams have no connector name.
+//! Geometry remains sufficient to correlate streams with monitors.
 
 use std::{collections::HashMap, rc::Rc};
 
@@ -48,9 +45,8 @@ impl WlxPortal {
     ///
     /// # Errors
     ///
-    /// When the session bus cannot be reached, which is what a process with no
-    /// session — a system service, a container without the bus socket bound —
-    /// sees.
+    /// Returns an error when the session bus is unavailable, including for a
+    /// service or container without a session bus socket.
     pub fn connect() -> Result<Self, PortalError> {
         Ok(Self {
             manager: ScreenCastManager::new().map_err(translate_error)?,
@@ -100,15 +96,13 @@ impl ScreenCastPortal for WlxPortal {
     }
 }
 
-/// Translates a request into the parameters `wlx-capture` takes.
+/// Translates a request into `wlx-capture` parameters.
 ///
-/// `screens_only` and `allow_multiple` are constants rather than fields: a
-/// window belongs to lunette's own compositor, and one dialog listing every
-/// screen is what removes the prescribed selection order.
+/// The adapter requests monitor sources only and allows multiple streams, so one
+/// dialog can list every screen.
 fn params_for(request: &SessionRequest) -> Result<ScreenCastParams, PortalError> {
-    // `persist` is a bool mapping to 0 or 2, so the middle mode has no
-    // representation. Sending 2 for it would ask for a longer-lived grant than
-    // the caller wanted.
+    // The client represents only the shortest and longest persistence modes.
+    // Mapping the middle mode to the longest one would overstate the request.
     let persist = match request.persist_mode {
         PersistMode::DoNot => false,
         PersistMode::UntilRevoked => true,
@@ -179,8 +173,7 @@ fn translate_error(error: ScreenCastError) -> PortalError {
         error @ (ScreenCastError::Dbus(_)
         | ScreenCastError::DbusDisconnected
         | ScreenCastError::InvalidObjectPath(_)) => PortalError::Dbus(error.to_string()),
-        // The adapter's bookkeeping normally removes a request before this
-        // response can occur.
+        // The adapter normally removes a request before this response occurs.
         ScreenCastError::UnknownRequest => {
             PortalError::Dbus("the portal client lost track of the request".to_owned())
         }
@@ -207,8 +200,8 @@ mod tests {
 
     #[test]
     fn a_session_is_always_asked_for_every_screen_in_one_dialog() {
-        // `allow_multiple` is what removes the prescribed selection order, and
-        // `screens_only` keeps lunette's own windows out of the list.
+        // These options request one dialog for all monitors and exclude lunette's
+        // own windows from the selection.
         let params = params_for(&SessionRequest::new(None, CursorPolicy::Hidden))
             .expect("the default request is expressible");
 
@@ -278,8 +271,7 @@ mod tests {
 
     #[test]
     fn this_client_never_observes_what_persistence_the_backend_granted() {
-        // Stated rather than assumed: the day `parse_start_response` reads
-        // `persist_mode`, this test is what says the adapter has to change too.
+        // This assertion must change if the client starts exposing `persist_mode`.
         let translated = translate_response(ScreenCastResponse {
             streams: vec![stream(7, Some((1920, 1080)))],
             restore_token: Some("fresh".to_owned()),
