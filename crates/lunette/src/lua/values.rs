@@ -1,12 +1,12 @@
 //! The values that cross into Lua and are not handles.
 //!
-//! Each wrapper exists because Rust states something less precisely than Luau does:
+//! Each one exists because Rust states something less precisely than Luau does:
 //! a texture that may be `false`, a string that is one of four words, a
-//! property that is a number or a string but not a table. Wrapping them lets every
-//! signature be derived rather than restated.
+//! property that is a number or a string but not a table. Wrapping them is what
+//! lets every signature be derived rather than restated.
 //!
-//! Each type appears next to the conversion it crosses by and the Luau type it
-//! is seen as, so what a wrapper carries and what it is declared to be read
+//! Each type is followed by the conversion it crosses by and the Luau type it
+//! is seen as, so what a wrapper carries and what it is declared to be are read
 //! together rather than a file apart.
 
 use lunette_compositor::protocol::{

@@ -1,5 +1,10 @@
--- Covers raycast arithmetic without compositor fixtures. A panel's ray is in
--- source pixels, unlike a keyboard's metre-space ray.
+-- Covers lua/mullion/panel/raycast.lua.
+--
+-- Separated from the realisation cases because the two have nothing in common:
+-- this half is arithmetic over a matrix and needs no fakes at all, and the
+-- other half is about claims, layers, and draw calls. The module under test is
+-- required directly rather than through the fixture, since it reaches for
+-- nothing a fake would have to stand in for.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -12,7 +17,10 @@ local spec = suite.new 'mullion.panel.raycast'
 local poseAt = fixture.poseAt
 local TOLERANCE = fixture.TOLERANCE
 
--- The default quad uses independent pixel dimensions for its two axes.
+-- A quad two metres in front of the viewer, one metre square, over an 800x600
+-- source. The default for a case that does not care about the numbers, and the
+-- 4:3 pixel size against a square quad means an implementation that used one
+-- axis for both could not pass.
 local function squareQuad()
   return {
     pose = poseAt(0, 0, -2),
@@ -32,7 +40,8 @@ spec('a ray through the centre hits the centre pixel', function()
 end)
 
 spec('a ray through the top-left corner hits pixel zero', function()
-  -- Surface pixels start at the quad's top-left corner.
+  -- The quad's own top-left is at (-0.5, +0.5) in its plane, and a surface's
+  -- pixels start at its top-left, so this is (0, 0) and not (0, 600).
   local x, y = raycast.hit(squareQuad(), vector.pack(-0.5, 0.5, 0), vector.pack(0, 0, -1))
 
   expect.near(x, 0, TOLERANCE, 'x')
@@ -55,7 +64,7 @@ spec('a non-square panel maps its two axes independently', function()
     pixelHeight = 1080,
   }
 
-  -- Check the two axes independently.
+  -- A quarter of the way across and a quarter of the way down.
   local x, y = raycast.hit(quad, vector.pack(-0.5, 0.125, 0), vector.pack(0, 0, -1))
 
   expect.near(x, 480, TOLERANCE, 'x')
@@ -87,7 +96,8 @@ spec('a ray from behind hits nothing unless the back face is asked for', functio
 end)
 
 spec('a rotated and translated panel maps correctly', function()
-  -- The rotated panel faces +x from the ray's origin.
+  -- Turned a quarter turn about y and moved to the right, so it faces -x and a
+  -- ray travelling +x from the origin meets its centre.
   local pose = lovr.math.newMat4():translate(3, 1, 0):rotate(-math.pi / 2, 0, 1, 0)
   local quad = { pose = pose, width = 1, height = 1, pixelWidth = 800, pixelHeight = 600 }
 
@@ -97,7 +107,10 @@ spec('a rotated and translated panel maps correctly', function()
   expect.near(y, 300, TOLERANCE, 'y')
   expect.near(distance, 3, TOLERANCE, 'distance')
 
-  -- Check offsets along both rotated axes.
+  -- Offset within the rotated plane: the turn takes the quad's own +x to the
+  -- world's +z, so a ray a quarter-width towards +z lands right of centre, and
+  -- one a quarter-height above centre lands in the upper half. Both axes at
+  -- once, so an implementation that mixed them up could not pass.
   local offsetX, offsetY = raycast.hit(quad, vector.pack(0, 1.25, 0.25), vector.pack(1, 0, 0))
   expect.near(offsetX, 600, TOLERANCE, 'x, offset')
   expect.near(offsetY, 150, TOLERANCE, 'y, offset')
@@ -109,7 +122,8 @@ spec('raycasting twice does not consume the pose', function()
   raycast.hit(quad, vector.pack(0, 0, 0), vector.pack(0, 0, -1))
   local x, y = raycast.hit(quad, vector.pack(0, 0, 0), vector.pack(0, 0, -1))
 
-  -- Inverting the pose must not mutate the quad's matrix.
+  -- The intersection inverts the pose, which writes in place, so a matrix that
+  -- was not copied first would be destroyed by the first call.
   expect.near(x, 400, TOLERANCE, 'x on the second call')
   expect.near(y, 300, TOLERANCE, 'y on the second call')
 end)
@@ -133,8 +147,9 @@ spec('takes its ray as a pair of vectors', function()
   expect.near(y, 300, TOLERANCE, 'y')
 end)
 
--- Preserve the documented public re-export so a later module split cannot silently
--- break configurations using `panel.rayQuadHit`.
+-- The name docs/stdlib.md gives it. A configuration written against
+-- `panel.rayQuadHit` would break silently if the re-export were dropped in a
+-- later split, and nothing else here would notice.
 spec('mullion.panel re-exports it as rayQuadHit', function()
   expect.equal(fixture.panel.rayQuadHit, raycast.hit, 'the re-export')
 end)

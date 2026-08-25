@@ -1,7 +1,7 @@
 //! Window handles: what one reports, what it does, and what it does once its
 //! window has gone.
 //!
-//! The dead-handle rule covers most of this file. A handle whose window the
+//! The dead-handle rule is most of what is here. A handle whose window the
 //! snapshot no longer lists answers from what it last knew and returns `false`
 //! from its methods rather than raising, because a window closing half a frame
 //! early is ordinary and taking the session down over it is not.
@@ -273,7 +273,7 @@ fn closing_asks_the_client_and_does_not_remove_the_window_itself() {
     assert_eq!(
         run::<usize>(&lua, "return #lunette.windows()"),
         1,
-        "the client decides: it may prompt or refuse, and the window goes when it unmaps"
+        "the client decides: it may prompt, or refuse, and the window goes when it unmaps"
     );
 
     match session.flush().as_slice() {
@@ -423,7 +423,7 @@ fn a_frame_rate_that_is_not_a_positive_number_is_reported() {
 
     assert!(
         session.flush().is_empty(),
-        "a refused mutation must not reach the compositor"
+        "a refused rate must not reach the compositor"
     );
 }
 

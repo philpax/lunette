@@ -4,7 +4,7 @@
 //! Getting a window's pixels into that swapchain is one copy, and this module is
 //! the decision about whether to make it.
 //!
-//! # Copy predicate
+//! # The predicate
 //!
 //! A surface's texture is replaced when its client commits a new buffer, and
 //! nothing else changes what a copy would produce. So the question is whether
@@ -22,7 +22,7 @@
 //! of the swapchain image holding an older frame, because the swapchain rotates
 //! and the image acquired this frame is not the one written last frame.
 //!
-//! # Stale claims
+//! # What a stale claim costs
 //!
 //! Nothing. A claim whose source has not committed since its last copy — which
 //! `docs/rendering.md` calls a stale claim — reaches [`Decision::Skip`] before
@@ -32,9 +32,9 @@
 //! decision is taken from two counters rather than from anything the layer
 //! itself has to be asked for.
 //!
-//! # Submit boundary
+//! # What is not skipped
 //!
-//! Every grantable layer goes to the runtime every frame, copied
+//! The submit. Every grantable layer goes to the runtime every frame, copied
 //! into or not: `xrEndFrame` re-composites from the image the swapchain last
 //! released, which costs nothing, whereas leaving a layer out of the list makes
 //! its panel disappear rather than hold still.
@@ -665,6 +665,7 @@ mod tests {
 
     #[test]
     fn a_source_that_has_not_changed_is_not_copied_again() {
+        // lunette-v1.AC7.2.
         let mut harness = Harness::new();
         let claim = harness.claim(surface(1));
         harness.commit(surface(1));
@@ -976,8 +977,9 @@ mod tests {
 
     #[test]
     fn a_counter_that_jumped_far_ahead_is_copied_like_any_other_change() {
-        // Counting installs has no history to age out, and every copy is
-        // whole-surface, so a jump of any size is one copy.
+        // smithay's damage bag keeps four commits of history and reports full
+        // damage past that. Counting installs has no history to age out, and
+        // every copy is whole-surface, so a jump of any size is one copy.
         let mut far = SurfaceCommit::INITIAL;
         for _ in 0..64 {
             far = far.next();

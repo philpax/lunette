@@ -21,8 +21,11 @@
 #include "modules/data/image.h"
 #include "modules/headset/headset.h"
 
-// Vulkan handles exported by LOVR without a public header. Repeat the stable
-// declarations here instead of adding a header to the vendored fork.
+// The Vulkan handles LOVR created. These are defined in core/gpu_vk.c and
+// declared by no header: headset.c forward-declares them at :45-48 and is
+// currently their only consumer. Repeating the declarations here rather than
+// adding a header to the fork keeps the patch set to what it has to carry, and
+// the four signatures are stable across the upstream branch.
 #include <stdint.h>
 uintptr_t gpu_vk_get_instance(void);
 uintptr_t gpu_vk_get_physical_device(void);

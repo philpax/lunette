@@ -3,7 +3,7 @@
 //! [`crate::control::wire::Value`] is the shape; this is the conversion into it,
 //! and the refusals that keep the conversion honest.
 //!
-//! ## Refusal of unrepresentable values
+//! # Nothing is dropped silently
 //!
 //! Functions, coroutines, and userdata that is not a lunette handle have no wire
 //! form, and neither does a table used as a key. Each is an error naming the
@@ -14,34 +14,36 @@
 //! control for. A caller that wants to ignore an unrepresentable value can strip
 //! it in the chunk, where it knows what it is looking at.
 //!
-//! ## Wire format decisions
+//! # The awkward cases, each with an answer
 //!
-//! Cycles produce an error rather than a back-reference. A back-reference would
-//! be more faithful, and it would make the value tree a graph that every consumer
-//! — including `lunctl`'s own renderer — has to process entirely. A chunk that
-//! wants to inspect a cyclic structure can break the cycle itself.
-//! Shared subtables are duplicated, and identity is not preserved. That follows
-//! from the lack of back-references: with nothing to share there is nothing to
-//! share. [`MAX_NODES`] keeps a wide directed acyclic graph from expanding without
-//! bound, and it produces a clean error rather than an allocation failure. It is
-//! consulted as each key is read as well as as each value is converted, so a
-//! single table too wide to carry is refused while it is being collected rather
-//! than after it has been. Mixed array and hash parts both survive. `{1, 2, x = 3}`
-//! is one Lua value, and `TableValue` carries both halves. `nil` holes end the
-//! array part and everything past one is carried under its integer key. The length
-//! operator is never consulted, because a table with a hole gives it no single
-//! answer. NaN, the infinities, and negative zero travel as their bits. A number
-//! that is whole and fits an i64 becomes an integer; everything else becomes a
-//! float, so nothing is rounded into a form it did not have. Metamethods are not
-//! honoured. Traversal is raw, so what is serialised is what the table actually
-//! holds. `__index` can fabricate fields that do not exist and `__pairs` can hide
-//! ones that do, and a wire format whose contents depend on which of those a
-//! caller installed is not an inspection tool.
+//! - **Cycles are an error**, not a back-reference. A back-reference would be
+//!   more faithful, and it would make the value tree a graph that every consumer
+//!   — including `lunctl`'s own renderer — has to be total over. A chunk that
+//!   wants to inspect a cyclic structure can break the cycle itself.
+//! - **Shared subtables are duplicated**, and identity is not preserved. That
+//!   follows from the line above: with no back-references there is nothing to
+//!   share with. [`MAX_NODES`] is what keeps a wide directed acyclic graph from
+//!   expanding without bound, and it produces a clean error rather than an
+//!   allocation failure. It is consulted as each key is read as well as as each
+//!   value is converted, so a single table too wide to carry is refused while it
+//!   is being collected rather than after it has been.
+//! - **Mixed array and hash parts both survive.** `{1, 2, x = 3}` is one Lua
+//!   value, and `TableValue` carries both halves.
+//! - **`nil` holes end the array part** and everything past one is carried under
+//!   its integer key. The length operator is never consulted, because a table
+//!   with a hole gives it no single answer.
+//! - **NaN, the infinities, and negative zero travel as their bits.** A number
+//!   that is whole and fits an `i64` becomes an integer; everything else becomes
+//!   a float, so nothing is rounded into a form it did not have.
+//! - **Metamethods are not honoured.** Traversal is raw, so what is serialised is
+//!   what the table actually holds. `__index` can fabricate fields that do not
+//!   exist and `__pairs` can hide ones that do, and a wire format whose contents
+//!   depend on which of those a caller installed is not an inspection tool.
 //!
 //! `docs/lua-api.md` records all of this as a decision rather than as an
 //! implementation detail.
 //!
-//! ## Handle identifiers
+//! # Handles are identifiers, never addresses
 //!
 //! A handle serialises as its kind and the identity the session keys it on
 //! (`docs/architecture.md`). Not `tostring(handle)`: addresses are reused after
@@ -53,7 +55,7 @@
 //! A handle is recognised by [`HANDLE_METAFIELD`] on its metatable, which is
 //! invisible to ordinary Lua indexing and is declared by each handle type
 //! alongside its fields. A userdata without it — a LÖVR `Texture`, say — is
-//! unrepresentable and reports it.
+//! unrepresentable and says so.
 
 use std::{collections::HashSet, error::Error, ffi::c_void, fmt};
 

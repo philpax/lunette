@@ -55,7 +55,10 @@ impl<T> Output<T> {
 
     /// Brings the cache up to date, reporting whether the output exists now.
     ///
-    /// Returns false when the output is not present in the snapshot.
+    /// False both before the compositor has created the output and after it has
+    /// been destroyed. The two are indistinguishable from here and a caller
+    /// treats them the same way: nothing can be shown on an output that is not
+    /// there.
     fn refresh(&self) -> bool {
         let snapshot = self.session.snapshot();
         let Some(current) = snapshot
@@ -71,7 +74,7 @@ impl<T> Output<T> {
 }
 
 handle! {
-    /// A virtual monitor for clients assigned to it.
+    /// One virtual monitor, which the clients assigned to it lay out against.
     Output<T: LuaTexture> = HandleKind::Output;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
@@ -93,24 +96,29 @@ handle! {
         Ok(this.mode.borrow().scale.get())
     }
 
-    /// The refresh rate in hertz.
+    /// Hertz, not the millihertz the protocol carries.
     field refresh(_lua, this) -> f64 {
         this.refresh();
         Ok(hertz(this.mode.borrow().refresh))
     }
 
-    /// Changes the mode, preserving fields omitted from the options.
+    /// Changes the mode, keeping the fields the table does not name. Clients reallocate and re-lay-out in response, so a caller that changes this continuously will see them struggle.
     method setMode(_lua, this, mode: Options<SetMode>) -> bool { set_mode(this, &mode) }
 
-    /// Destroys this output, except for the default output.
+    /// Withdraws the output's `wl_output` global. The output every session starts with is refused, because a client assigned no output is shown it.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 }
 
-/// Creates an output from a size, scale, and refresh rate.
+/// `lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }`.
+///
+/// The handle comes back before the compositor has made the output, so
+/// `output.dead` is true in the frame that created it — the same rule
+/// `lunette.newSeat` and `lunette.spawn` follow.
 ///
 /// # Errors
 ///
-/// If a dimension is invalid, a rate is not finite and positive, or an option is unknown.
+/// If a dimension is not a whole pixel count, the scale or refresh rate is not
+/// finite and positive, or an option is not one this call takes.
 pub(crate) fn new_output<T: LuaTexture>(
     session: &Rc<Session<T>>,
     options: &Options<NewOutput>,
@@ -129,11 +137,11 @@ pub(crate) fn new_output<T: LuaTexture>(
     })
 }
 
-/// Returns every output in the current frame's snapshot.
+/// `lunette.outputs()`: every output, as of this frame's snapshot.
 ///
 /// # Errors
 ///
-/// If the output list cannot be built.
+/// If the table could not be built.
 pub(crate) fn outputs<T: LuaTexture>(
     _lua: &Lua,
     session: &Rc<Session<T>>,
@@ -146,7 +154,11 @@ pub(crate) fn outputs<T: LuaTexture>(
         .collect())
 }
 
-/// Changes the mode, preserving fields omitted from the options.
+/// `output:setMode{ … }`: changes the mode, keeping the fields not named.
+///
+/// Clients reallocate and re-lay-out in response, so a caller that changes this
+/// continuously will see them struggle. `mullion` moves between discrete steps
+/// with hysteresis for that reason.
 fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> mlua::Result<bool> {
     let current = *output.mode.borrow();
     let mode = read_mode(options.table(), Some(current))?;
@@ -162,7 +174,13 @@ fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> ml
     Ok(true)
 }
 
-/// Destroys the output, except for the default output.
+/// `output:destroy()`: withdraws the output's `wl_output` global.
+///
+/// The output every session starts with is refused, as the default seat is. A
+/// client that was assigned no output is shown it, and every client adopted from
+/// outside lunette is one of those, so a session without it has clients that can
+/// see no monitor at all. The compositor refuses it too; the check is here as
+/// well so a configuration is told rather than left reading the log.
 fn destroy<T: LuaTexture>(output: &Output<T>) -> bool {
     if output.id == DEFAULT_OUTPUT {
         return false;
@@ -177,7 +195,12 @@ fn destroy<T: LuaTexture>(output: &Output<T>) -> bool {
     true
 }
 
-/// Reads an output mode, using the current mode for omitted fields and defaults for creation.
+/// The mode an option table describes.
+///
+/// `current` supplies the fields the table does not name, so `setMode{ scale =
+/// 2 }` changes the scale and nothing else. Absent for a creation, where width
+/// and height are required and the other two take a default: a monitor with no
+/// size means nothing, and a monitor with no stated refresh rate is a 60Hz one.
 fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<OutputMode> {
     let held = current.map(|current| current.size);
     let width = options
@@ -220,7 +243,7 @@ fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<Outpu
 }
 
 record! {
-    /// The optional fields changed by `output:setMode`.
+    /// What `output:setMode` changes. Every field is optional: what is left out keeps the value the output already has.
     options SetMode as OutputMode {
         width: Option<f64>,
         height: Option<f64>,
@@ -230,7 +253,7 @@ record! {
 }
 
 record! {
-    /// The options for `lunette.newOutput`; width and height are required.
+    /// What `lunette.newOutput` takes. The size is required, because there is no previous mode to take it from and a client cannot lay out against an output with no size.
     options NewOutput as OutputOptions {
         width: f64,
         height: f64,

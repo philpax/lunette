@@ -1,28 +1,29 @@
-//! Handing over the graphics device across a restart.
+//! Giving up the graphics device and taking a new one, across a restart.
 //!
 //! `lunette.restart()` discards the Lua state, and discarding it destroys
-//! LÖVR's graphics module together with the `VkDevice` every imported image
-//! was created against. The compositor holds a window onto that device, so it
-//! must be told to release it while the device is still alive, and told again
-//! once a new one exists.
+//! LÖVR's graphics module and with it the `VkDevice` every imported image was
+//! created against. The compositor holds a window onto that device, so it has
+//! to be told to let go while the device is still alive, and told again once a
+//! new one exists.
 //!
-//! The handover is two commands and two acknowledgements, and nothing else
-//! about the compositor changes. The display, the socket, every client
-//! connection, and every retained `wl_buffer` survive the whole exchange.
+//! Two commands and two acknowledgements, and nothing else about the compositor
+//! changes. The display, the socket, every client connection, and every retained
+//! `wl_buffer` survive the whole exchange. That is what makes the restart
+//! invisible to clients: the compositor never speaks Vulkan to one, it imports
+//! the descriptors a client hands it, and a descriptor outlives the device it
+//! was imported into.
 //!
-//! The restart is invisible to clients because the compositor never speaks
-//! Vulkan to them. It imports the descriptors a client hands it, and a
-//! descriptor outlives the device it was imported into.
+//! # Why the buffers are retained rather than dropped
 //!
-//! Retained buffers survive because their pixels are still valid: the client
-//! has heard nothing about them since it committed. Re-importing each against
+//! A retained `wl_buffer` is a buffer the client has been told nothing about
+//! since it committed, so its pixels are still there. Re-importing it against
 //! the new device gives the surface its content back without the client having
-//! drawn anything.
+//! drawn anything, which is the difference between a restart the user sees as a
+//! hitch and one they see as every window going blank.
 //!
 //! Shared memory has no equivalent. Its pixels are copied out and the buffer
 //! released within the import that read them, so there is nothing retained to
-//! re-import. A shared-memory surface gets its content back on its next
-//! commit.
+//! re-import; a shared-memory surface gets its content back on its next commit.
 
 use tracing::{info, warn};
 
@@ -35,14 +36,15 @@ use crate::{
 impl CompositorState {
     /// Gives up every graphics object, so the device may be destroyed.
     ///
-    /// Dropping the importer releases the import cache, the images that cache
-    /// names, and the reference to the device. The retained buffers survive
-    /// deliberately, and [`CompositorState::adopt_graphics`] re-imports them.
+    /// Dropping the importer is the whole of it: it owns the import cache, the
+    /// images that cache names, and the reference to the device. What survives
+    /// is deliberate — the retained buffers, which
+    /// [`CompositorState::adopt_graphics`] re-imports.
     ///
     /// The acknowledgement is reported after the importer has been dropped, not
     /// before. The main thread destroys the device the moment it sees the
-    /// acknowledgement, so reporting first would race the drop against the
-    /// destruction.
+    /// acknowledgement, so reporting first would put the drop and the
+    /// destruction in a race.
     pub(super) fn release_graphics(&mut self) {
         let previous = std::mem::replace(
             &mut self.importer,
@@ -65,8 +67,8 @@ impl CompositorState {
     ///
     /// A buffer that cannot be imported against the new device is released to
     /// its client and counted. The surface then shows nothing until the client
-    /// draws again, which is preferable to presenting content lunette can no
-    /// longer read.
+    /// draws again, which is the correct outcome: the alternative is presenting
+    /// content lunette can no longer read.
     pub(super) fn adopt_graphics(&mut self, importer: Box<dyn BufferImporter>) {
         self.importer = importer;
 

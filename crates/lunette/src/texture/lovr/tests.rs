@@ -1,9 +1,9 @@
-//! The LÖVR texture path's decisions before it calls LÖVR.
+//! What the LÖVR texture path decides before it calls LÖVR.
 //!
 //! The declaration a texture is created with, the format a `wl_shm` buffer
 //! becomes, and the two predicates over a texture's shape are all arithmetic
-//! over values LÖVR is later told about, so they exercise here without a
-//! graphics device. Everything that records a barrier or a copy does not.
+//! over values LÖVR is later told about, so they are exercised here without a
+//! graphics device. Everything that records a barrier or a copy is not.
 
 use lunette_lovr::raw::TextureFormat_FORMAT_RGBA8;
 use pretty_assertions::assert_eq;
@@ -39,7 +39,7 @@ fn a_texture_lovr_allocates_is_not_declared_foreign() {
     assert!(
         !info.foreign,
         "the flag suppresses the initial transition, which a texture LÖVR is about to fill \
-         genuinely needs"
+         genuinely wants"
     );
     assert_eq!(info.handle, 0);
 }
@@ -93,6 +93,6 @@ fn a_source_at_least_as_large_as_its_destination_writes_all_of_it() {
     assert!(covers(shape(1024, 1024, 1), shape(1024, 1024, 1)));
     assert!(
         covers(shape(2048, 2048, 2), shape(1024, 1024, 1)),
-        "the extent is the region the two share, so a larger source clips to the destination"
+        "the extent is the region the two share, so a larger source is clipped to the destination"
     );
 }

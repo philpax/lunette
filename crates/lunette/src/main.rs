@@ -9,7 +9,7 @@
 //! reads the environment or installs a `tracing` subscriber. Everything it
 //! learns from the environment is passed onward as a parameter.
 //!
-//! ## Environment write timing
+//! # Writing the environment
 //!
 //! Exporting `WAYLAND_DISPLAY` — so that everything lunette starts finds its
 //! socket without being told — happens here and nowhere else, and it has to
@@ -19,30 +19,30 @@
 //! process is multithreaded: a concurrent `getenv` anywhere, including inside a
 //! C library, reads a pointer the write may free. LÖVR and GLFW spawn threads
 //! as they boot, and the compositor thread cannot start before them because it
-//! needs the graphics device they create. The only safe moment is at the top
+//! needs the graphics device they create. So the only safe moment is at the top
 //! of `main`, before anything else runs.
 //!
-//! Binding the socket needs nothing from the graphics device — only the
-//! compositor *thread* does. [`listen`] runs here, at the top of `main`, and
-//! returns the name; the socket then travels down to the frame loop, which
-//! starts the thread once LÖVR has a device to lend it.
+//! That ordering is available because binding the socket needs nothing from the
+//! graphics device — only the compositor *thread* does. [`listen`] runs here,
+//! at the top of `main`, and returns the name; the socket then travels down to
+//! the frame loop, which starts the thread once LÖVR has a device to lend it.
 //!
-//! `lunette_compositor::client::listen` does not export the display name
+//! `lunette_compositor::client::listen` therefore does not export the name
 //! itself, and carries the other half of this note. Setting the variable next
-//! to the code that creates the socket is the obvious thing to do, but unsafe
-//! constraints make it wrong from a single-thread perspective.
+//! to the code that creates the socket is the obvious thing to do, and it is
+//! wrong for a reason that is invisible from there.
 //!
 //! The export also has to follow the read of the *host's* `WAYLAND_DISPLAY`,
 //! which is why the two are one function: see
 //! [`read_host_then_export_display`].
 //!
-//! ## Wayland display handling
+//! # Why this does not point LÖVR at lunette's own socket
 //!
 //! Setting `WAYLAND_DISPLAY` in a process that is about to open a window of its
-//! own can cause a deadlock: the window's toolkit would connect to a socket
+//! own is a way to deadlock: the window's toolkit would connect to a socket
 //! whose compositor thread has not started, and wait for a registry that cannot
-//! arrive until the window opens. LÖVR's GLFW is built with `GLFW_BUILD_WAYLAND OFF`
-//! , so it is X11-only and never reads the
+//! arrive until it has. LÖVR's GLFW is built with `GLFW_BUILD_WAYLAND OFF`
+//! (`vendor/lovr/CMakeLists.txt:113`), so it is X11-only and never reads the
 //! variable. A LÖVR build with Wayland support would have to save the host's
 //! value and hand it back, or defer the export until after the window exists —
 //! which the soundness rule above forbids.
@@ -50,8 +50,8 @@
 //! `DISPLAY` is deliberately not exported. It would name lunette's own X server
 //! whether or not xwayland-satellite actually started, so every X11 client
 //! lunette launched would hang against a socket with nothing behind it. A
-//! spawned child receives both values explicitly, via the compositor's spawner,
-//! which tracks whether the bridge is running.
+//! spawned child is told both values explicitly, by the compositor's spawner,
+//! which knows whether the bridge is running.
 
 mod boot;
 mod check;
@@ -370,10 +370,10 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
 
     let (stored, tokens) = read_tokens(state_directory);
 
-    // `wl_virtual` is deliberately not configured: it requires a keymap before
-    // its first keystroke. Naming the socket without one would produce a provider
-    // the first key disconnects, so the chain reports "not configured" and falls
-    // to uinput.
+    // `wl_virtual` is deliberately not configured: it requires a keymap to
+    // upload before its first keystroke, and building one belongs to Phase 5.
+    // Naming the socket without one would produce a provider the first key
+    // disconnects, so the chain reports "not configured" and falls to uinput.
     let input = hid::open(&HidConfig::default());
     if let Some(error) = input.unreachable() {
         warn!("{error}");
@@ -462,8 +462,8 @@ impl HostWaylandSocket {
 ///
 /// One function because the order between the two is load-bearing and invisible
 /// from either side. Everything that reaches the *host* compositor — the output
-/// enumeration and the `wl_virtual` input provider when configured — needs the
-/// socket the user's own session is on, and after the export
+/// enumeration, and the `wl_virtual` input provider when Phase 5 gives it a
+/// keymap — needs the socket the user's own session is on, and after the export
 /// the variable names lunette's. A read that moved below the export would
 /// enumerate lunette's own compositor and report zero monitors, which in the log
 /// is indistinguishable from a machine with no readable screens.
@@ -602,10 +602,13 @@ const XKB_DEFAULT_OPTIONS: &str = "XKB_DEFAULT_OPTIONS";
 /// The file the screencast portal's restore tokens are kept in.
 const TOKEN_FILE: &str = "screencast-tokens.toml";
 
-/// The queue family and layout used when importing an image.
+/// The two diagnostic settings milestone 0 exists to answer.
 ///
-/// `crates/lunette/src/texture/mod.rs` documents the accepted values; an
-/// unrecognised value falls back with a warning rather than stopping a session.
+/// Neither the queue family an imported image is acquired from nor the layout it
+/// is taken to be in is settled, and the point of measuring is to try the other
+/// value without a rebuild. `crates/lunette/src/texture/mod.rs` documents what
+/// each accepts; an unrecognised value falls back with a warning rather than
+/// stopping a session.
 const IMPORT_QUEUE_FAMILY: &str = "LUNETTE_IMPORT_QUEUE_FAMILY";
 const IMPORT_LAYOUT: &str = "LUNETTE_IMPORT_LAYOUT";
 

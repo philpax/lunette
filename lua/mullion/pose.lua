@@ -1,12 +1,11 @@
--- A pose encoded as a string, and decoded back.
+-- A pose as a string, and back.
 --
 -- The per-window property store takes a number, a string, or a boolean and
 -- refuses a table (docs/lua-api.md#per-window-properties). A table would hold
--- Lua values, which is the problem the store exists to solve one level down.
--- A caller that wants structure therefore encodes it and records having done
--- so. This module holds that encoding in one place, because the property store
--- is not its only user: a saved arrangement on disk stores the same sixteen
--- numbers.
+-- Lua values, which is the same problem the store exists to solve one level
+-- down, so a caller wanting structure encodes it and knows that it did. This is
+-- that encoding, in one place, because the store is not the only thing that
+-- wants it: a saved arrangement on disk is the same sixteen numbers.
 --
 -- Sixteen elements rather than a position and an orientation, because a pose
 -- may carry a scale and a decomposition would quietly drop it. Nine significant
@@ -31,7 +30,7 @@ function pose.encode(matrix: Mat4): string
   return table.concat(encoded, ' ')
 end
 
--- The string `encode` wrote, as a fresh `Mat4`, or nothing.
+-- What `encode` wrote, as a fresh `Mat4`, or nothing.
 --
 -- Anything that is not sixteen finite numbers answers nothing rather than a
 -- partly-filled matrix. What is being read outlives the Lua state that wrote
@@ -51,9 +50,9 @@ function pose.decode(text: boolean | number | string | nil): Mat4?
       return nil
     end
     local number = tonumber(word)
-    -- An infinity or a nan would place a panel at an unusable pose and would
-    -- come back after every reload. nan is caught by comparing the value with
-    -- itself, which is the one comparison it fails.
+    -- An infinity or a nan places a panel nowhere, and it would come back after
+    -- every reload. nan is caught by comparing it with itself, which is the one
+    -- comparison it fails.
     if not number or number ~= number or number == math.huge or number == -math.huge then
       return nil
     end

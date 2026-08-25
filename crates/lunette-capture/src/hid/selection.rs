@@ -1,7 +1,13 @@
 //! Which input provider lunette ends up using, and why the others were not.
 //!
-//! The order is a fallback chain. [`select`] walks it, and retains every
-//! failure so the user can see what was tried and what each attempt reported.
+//! The order is a real fallback chain rather than a switch. WayVR's
+//! `HidWrapper::new` (`subsystem/input.rs:22-41`) matches a configuration enum,
+//! calls exactly one initialiser, and installs a dummy provider on failure; it
+//! never tries the next mechanism. `docs/host-desktop.md:37` — "uinput is tried
+//! first because it works regardless of the host compositor" — describes a chain
+//! that does not exist there. It exists here: [`select`] walks the order, and
+//! every failure it passes over is kept so the user is told what was tried and
+//! what each attempt said.
 //!
 //! Pure. [`select`] takes a function that opens a provider, so the chain's
 //! behaviour is exercised against fabricated outcomes and nothing here opens a
@@ -225,8 +231,8 @@ pub enum ProviderError {
         path: Option<PathBuf>,
         source: io::Error,
     },
-    /// The provider needs required configuration — a Wayland socket for
-    /// `wl_virtual`, or a keymap for a keyboard. Not a fault in the
+    /// The provider needs something the caller did not supply — a Wayland
+    /// socket for `wl_virtual`, a keymap for a keyboard. Not a fault in the
     /// session: a headless host has no socket, and saying so is more useful
     /// than an error from a connect that was never going to work.
     NotConfigured { what: &'static str },
@@ -238,8 +244,9 @@ pub enum ProviderError {
     },
     /// The connection to the host compositor failed or ended.
     ///
-    /// A host session ending is ordinary rather than exceptional, so the
-    /// provider reports an actionable error instead of panicking.
+    /// A host session ending is ordinary rather than exceptional, which is why
+    /// it is an error the caller can act on rather than the panic WayVR takes
+    /// at `wl_virtual.rs:146`, `:176`, `:199`, and `:204`.
     Disconnected { detail: String },
 }
 

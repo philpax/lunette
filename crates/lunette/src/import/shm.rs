@@ -1,13 +1,22 @@
 //! Repacking a client's `wl_shm` buffer into pixels the frame thread can
 //! upload.
 //!
-//! This module validates shared-memory layouts, strips row padding, and forces
-//! opaque alpha for the supported formats. The frame thread uploads the resulting
-//! tightly packed pixels through LÖVR's batched path.
+//! Ported in shape from WayVR's `image_importer.rs:50-100`, with two
+//! departures.
 //!
-//! The importer accepts `Argb8888` and `Xrgb8888`, the formats required by
-//! `wl_shm`. Other shared-memory formats are rejected; clients that need wider
-//! format support use the dmabuf path.
+//! WayVR uploads from the compositor's own thread and then blocks on the
+//! submission (`image_importer.rs:96-97`, carrying its own `//TODO: async`).
+//! lunette cannot: the only thread allowed to submit is the frame thread, and
+//! blocking it on a client's commit is what `AC7.1` exists to prevent. So this
+//! module does the part that is pure — validate the layout, strip the stride
+//! padding, force alpha where the format has none — and the frame thread does
+//! the upload through LÖVR's own batched path.
+//!
+//! WayVR also accepts more formats here than `wl_shm` mandates. lunette does
+//! not, and the restriction is deliberate: `Argb8888` and `Xrgb8888` are the
+//! two every client must support, anything beyond them is a client opting into
+//! a format the importer would have to be taught, and the dmabuf path is where
+//! a client that wants ten-bit colour should be.
 
 use std::fmt;
 
@@ -55,8 +64,9 @@ pub(crate) fn repack(pixels: &[u8], layout: ShmLayout) -> Result<PixelBuffer, Sh
 ///
 /// `Xrgb8888` is little-endian `[B, G, R, X]`, so the fourth byte of each pixel
 /// is the undefined one. A client is free to leave anything there, and a
-/// consumer that samples it renders the surface with arbitrary transparency.
-/// The pixels are being copied anyway, so the honest value is written in.
+/// consumer that samples it renders the surface with arbitrary transparency —
+/// which is what WayVR's dmabuf path does for the X formats. Here the pixels
+/// are being copied anyway, so the honest value is written in.
 fn force_alpha_opaque(pixels: &mut [u8]) {
     for pixel in pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
         pixel[ALPHA_BYTE] = u8::MAX;

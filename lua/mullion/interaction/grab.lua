@@ -3,8 +3,8 @@
 --
 -- Split from `mullion.interaction` because the two halves answer different
 -- questions. That one decides what a pointer is over and where its input goes;
--- this one is the arithmetic of a hand holding something, and it defines how a
--- grab behaves.
+-- this one is the arithmetic of a hand holding something, and it is where the
+-- feel of a grab lives.
 --
 -- Each function takes the pointer as its first argument, and
 -- `mullion.interaction` installs them as methods on one. They are written
@@ -52,7 +52,7 @@ end
 
 -- Takes hold of a panel, remembering where the hand was relative to it.
 --
--- The offset preserves the hand-relative placement of the panel: it keeps its
+-- The offset is what makes a grab feel like a grab: the panel keeps its
 -- position and orientation relative to the hand rather than snapping to it, so
 -- a panel grabbed from two metres away stays two metres away.
 function grab.beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolean
@@ -90,7 +90,7 @@ function grab.beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolea
     offset = lovr.math.newMat4(base),
     -- The same, kept unchanged. A push is applied to this rather than to the
     -- offset it last produced, so the distance is a value rather than an
-    -- accumulation, and the clamp cannot drift the panel across frames.
+    -- accumulation, and the clamp cannot walk the panel somewhere on its own.
     base = base,
     -- How far the stick has moved the panel from where it was picked up, and
     -- how far away that was.
@@ -138,8 +138,7 @@ function grab.scaleWith(self: Pointer, handPose: Mat4?): ()
   local partner = scaling.partner
   if not partner or partner.grabbed ~= target or partner.dead then
     -- The other hand let go. This one inherits an ordinary grab rather than
-    -- dropping the panel, which is the behaviour a hand still holding something
-    -- implies.
+    -- dropping the panel, which is what a hand still holding something means.
     self.scaling = nil
     local x: number, y: number, z: number = handPose:getPosition()
     local targetPose = target.pose
@@ -176,10 +175,10 @@ end
 
 -- Moves a grabbed panel along the hand's forward axis.
 --
--- The stick is the same one that scrolls, and it pushes instead for as long as
--- something is held. The offset moves rather than the panel itself: a grab is
--- the hand's pose applied to an offset, so changing the offset is what keeps
--- the new distance in place through the next frame's drag.
+-- The stick is the same one that scrolls, and it means this instead for as long
+-- as something is held. The offset is what moves rather than the panel: a grab
+-- is the hand's pose applied to an offset, so changing the offset is what makes
+-- the new distance survive the next frame's drag.
 function grab.push(self: Pointer, deflection: number, dt: number): ()
   local grab = self.grab
   if not grab or not grab.base or dt <= 0 then

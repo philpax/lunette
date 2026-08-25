@@ -1,25 +1,30 @@
 //! Linux-only: the `lunette` module, which is the native mechanism Lua is
 //! written against.
 //!
-//! `require('@lunette')` resolves to the table [`install`] registers. It exposes
-//! native mechanism: windows, pixels, and input routing. Policy belongs to
-//! `@mullion`.
+//! `require('@lunette')` resolves to the table [`install`] registers. Everything
+//! reachable from it is mechanism: what a window is, where its pixels are, and
+//! where a pointer event goes. Policy — panels, layouts, placement rules — is
+//! `@mullion`, is written in Lua against this same surface, and is not here.
 //!
-//! ## No cross-language references
+//! # Rust holds no reference into Lua
 //!
 //! Nothing here keeps a `Lua`, a `RegistryKey`, or any handle to a Lua value
 //! beyond the call that produced it. The closures registered below capture an
 //! [`Rc<Session>`] and nothing else, and every handle answers by reading
 //! through that `Rc`.
 //!
-//! Soft reload discards the Lua state while the compositor, clients, and
-//! textures keep running. Rust does not retain values owned by that state; a
-//! cached `Table` would become invalid on reload.
+//! That is a prohibition rather than a preference. The soft reload discards the
+//! Lua state and re-runs `main.lua` while the compositor, the clients, and the
+//! textures keep running, and it can only do that if the Rust side is holding
+//! nothing the discarded state owned. A cached `Table` here would be a dangling
+//! registry reference the moment a reload happened.
 //!
-//! ## Frame interaction model
+//! # The frame
 //!
-//! [`Session::begin`] installs the frame's snapshot and advances its
-//! generation. Reads during the frame use that snapshot.
+//! [`Session::begin`] installs the frame's snapshot and advances the frame
+//! generation. Every read a callback performs during that frame answers from
+//! that one snapshot, so two reads cannot straddle a publication and describe
+//! two different instants.
 //!
 //! Mutations do not reach the compositor as they are made. They queue on the
 //! session, and [`Session::flush`] hands the frame's queue over once, at frame
@@ -27,16 +32,16 @@
 //! within the frame it made it, which is the same rule the protocol underneath
 //! imposes anyway.
 //!
-//! ## Error handling
+//! # Errors
 //!
 //! A defect in the caller's code raises: a malformed argument, an unknown
 //! option, a coordinate that is not a number. A race with a client that has
 //! exited does not — a dead handle answers `false` and reads its last-known
 //! values, because taking the session down over a window closing half a frame
-//! early degrades the experience worse than doing nothing. `docs/lua-api.md` records that choice.
+//! early is worse than doing nothing. `docs/lua-api.md` records that choice.
 //!
-//! Errors raise safely: `boot.lua` runs every callback under `xpcall`, and the
-//! handler reports them. Nothing here swallows an error to keep a frame alive.
+//! Raising is safe: `boot.lua` runs every callback under `xpcall`, and the
+//! handler reports. Nothing here swallows an error to keep a frame alive.
 
 mod claim;
 pub mod declarations;
@@ -106,13 +111,16 @@ use crate::{
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
 
-/// The module name used by `require` for the native surface.
+/// The name `require` resolves through, and the root of the native surface.
 pub const MODULE_NAME: &str = "@lunette";
 
 /// Registers the module so that `require('@lunette')` resolves.
 ///
-/// Registers a loader on LÖVR's state. Each load builds a fresh table against
-/// the same session, so soft reload does not leave Rust holding a Lua value.
+/// Called on LÖVR's own state before `boot.lua` runs. The module is built by
+/// the loader rather than being built once and captured, so that a soft reload
+/// — which clears `package.loaded` and re-runs `main.lua` — gets a fresh table
+/// built against the same session, and so that no Lua value is held in Rust
+/// between calls.
 ///
 /// # Errors
 ///
@@ -516,18 +524,23 @@ impl<T> Session<T> {
         ProcessId::new(frame.processes)
     }
 
-    /// Allocates the identifier for a newly created seat. It must exist before
-    /// the compositor sees the request because `lunette.newSeat` returns its
-    /// handle immediately.
+    /// Allocates the identifier a seat is created under.
+    ///
+    /// Minted here for the reason a process identifier is: `lunette.newSeat`
+    /// returns a handle in the same call, so the identifier exists before the
+    /// compositor has seen the request. Counting from the default seat rather
+    /// than from one, because the default seat already holds the first.
     fn mint_seat(&self) -> Option<SeatId> {
         let mut frame = self.frame.borrow_mut();
         frame.seats = frame.seats.checked_add(1)?;
         SeatId::new(DEFAULT_SEAT.get().checked_add(frame.seats)?)
     }
 
-    /// Allocates the identifier for a newly created output. It must exist before
-    /// the compositor sees the request because `lunette.newOutput` returns its
-    /// handle immediately.
+    /// Allocates the identifier an output is created under.
+    ///
+    /// Minted here for the reason a seat identifier is, and counted from the
+    /// default output for the reason a seat is counted from the default seat:
+    /// that one already holds the first.
     fn mint_output(&self) -> Option<OutputId> {
         let mut frame = self.frame.borrow_mut();
         frame.outputs = frame.outputs.checked_add(1)?;
@@ -589,7 +602,7 @@ impl LuaTexture for LovrTexture {
         // pointer under a stack guard, and it runs the closure inside a
         // protected call, so the allocation `_luax_pushtype` performs cannot
         // longjmp past mlua. `_luax_pushtype` retains the object itself
-        // (`api/api.c`), so the reference this type holds is untouched.
+        // (`api/api.c:262`), so the reference this type holds is untouched.
         unsafe {
             lua.exec_raw((), |state| {
                 _luax_pushtype(state.cast(), ObjectType_T_Texture as i32, pointer);
@@ -609,7 +622,7 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
         module.set(function.spec.name, (function.build)(lua, session)?)?;
     }
 
-    // Here rather than in `install`, because `boot.lua` creates
+    // Here rather than in `install`, because `boot.lua:345` creates
     // `lovr.handlers` after `package.preload` has been populated and before
     // `main.lua` runs — so the first `require` is the earliest moment the table
     // exists, and the only one at which the module is known to be wanted.
@@ -629,45 +642,46 @@ pub(crate) struct ModuleFunction<T> {
 }
 
 module! {
-    /// Returns every mapped toplevel in the current frame's snapshot.
+    /// Every mapped toplevel, as of this frame's snapshot.
     fn windows(lua, session) -> Vec<Window<T>> { window_handles(lua, session) }
 
+    /// Runs a program as a client of this compositor. The handle comes back before the compositor has seen the request, so it describes a process that does not exist yet: `alive` is false until the snapshot lists it.
     fn spawn(_lua, session, options: Options<Spawn>) -> Process<T> { spawn(session, &options) }
 
-    /// Returns the user's screens, whether or not they are mirrored.
+    /// The user's own screens, whether or not they are being mirrored.
     fn monitors(lua, session) -> Vec<Monitor<T>> { monitors(lua, session) }
 
-    /// Creates a composition-layer claim for a window; allocation occurs at a frame boundary.
+    /// Asks for a composition layer for a window's pixels. Claims are ranked at the frame boundary, so a fresh claim is granted no earlier than the next frame.
     fn claimLayer(_lua, session, options: Options<ClaimLayer>) -> Claim<T> {
         claim_layer(session, &options)
     }
 
-    /// Creates a seat with its own pointer, keyboard, and keymap.
+    /// A seat with its own pointer, keyboard, and keymap. Dead until the compositor has created it, which is the rule `spawn` follows too.
     fn newSeat(_lua, session, name: String, options: Option<Options<NewSeat>>) -> Seat<T> {
         new_seat(session, &name, options.as_ref())
     }
 
-    /// Returns every seat, including the default seat.
+    /// Every seat, including the one each session starts with.
     fn seats(lua, session) -> Vec<Seat<T>> { seats(lua, session) }
 
-    /// Creates an output for clients to lay out against.
+    /// An output for clients to lay out against.
     fn newOutput(_lua, session, options: Options<NewOutput>) -> Output<T> {
         new_output(session, &options)
     }
 
-    /// Returns every output, including the default output.
+    /// Every output, including the default one.
     fn outputs(lua, session) -> Vec<Output<T>> { outputs(lua, session) }
 
-    /// Enables or disables lunette's own scene at the next frame boundary.
+    /// Whether lunette draws a scene of its own. Latched at the next frame boundary, and kept across a soft reload.
     fn setSceneEnabled(_lua, session, enabled: bool) -> () {
         session.set_scene(SceneRendering::from_enabled(enabled));
         Ok(())
     }
 
-    /// Returns the scene-enabled value queued for the next frame boundary.
+    /// What `setSceneEnabled` was last told, which the next frame will latch.
     fn sceneEnabled(_lua, session) -> bool { Ok(session.requested_scene().drawn()) }
 
-    /// Subscribes a handler to callback errors and returns a function that removes it.
+    /// Calls `handler` whenever a callback raises, and answers the function that stops it. The standard library's error module subscribes to draw a panel; a configuration without it subscribing gets the log and nothing else.
     fn onError(lua, session, handler: ErrorListener) -> Cancel {
         let id = session.subscribe(ERROR, handler.0);
         let cancelling = Rc::clone(session);
@@ -678,17 +692,18 @@ module! {
         .map(Cancel)
     }
 
-    /// Returns every accepted modifier name in keymap order.
+    /// Every modifier name a seat accepts, in the order a keymap numbers them. What `seat:setModifiers` takes and `seat.modifiers` answers with are drawn from this set.
     fn modifierNames(_lua, _session) -> Vec<String> { Ok(modifier_names()) }
 
-    /// Returns the ascending layer-size quantisation steps.
+    /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises asks the pool for a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }
 
-    /// Reloads the configuration while keeping the compositor, clients, and textures.
+    /// Discards the Lua state and re-runs the configuration, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
     fn reload(lua, session) -> (bool, Option<String>) {
         reload_from_lua(lua, &|| session.clear_subscribers())
     }
 
+    /// Tears the session down and starts it again, graphics device included.
     fn restart(lua, _session) -> () { restart_from_lua(lua) }
 }
 
@@ -806,9 +821,9 @@ fn spawn_output<T: LuaTexture>(options: &Table) -> mlua::Result<Option<OutputId>
 record! {
     /// What a listener for an error raised inside a callback is given.
     struct ErrorEvent {
-        /// The callback error message.
+        /// The error, with the boundary it came through leading it.
         message: String,
-        /// The callback error traceback.
+        /// Where it was raised, as Lua reports it.
         traceback: String,
     }
 }
@@ -816,12 +831,12 @@ record! {
 record! {
     /// What `lunette.spawn` takes.
     options Spawn as SpawnOptions {
-        /// The program and its arguments; the list must not be empty.
+        /// The program and its arguments. The list may not be empty.
         argv: Vec<String>,
         cwd: Option<String>,
-        /// Environment variables added to the session environment.
+        /// Added to the environment the session was started with.
         env: Option<HashMap<String, String>>,
-        /// The only output shown to the client; absent selects the default output.
+        /// The only output the client is shown. Absent means the default one, which is what a client lunette did not spawn is shown too.
         output: Option<Output<NullTexture>>,
         xwayland: Option<bool>,
     }
@@ -866,8 +881,8 @@ fn strings(options: &Table, name: &str) -> mlua::Result<Vec<OsString>> {
 ///
 /// Lua strings are byte strings and a program's arguments and environment are
 /// byte strings, so this passes bytes through rather than requiring UTF-8. A
-/// path or a variable that is not valid UTF-8 is unusual and legal, unlike in
-/// WayVR's equivalent read.
+/// path or a variable that is not valid UTF-8 is unusual and legal, and WayVR's
+/// equivalent read fails on exactly that case.
 fn os_string(value: &mlua::LuaString) -> OsString {
     OsString::from_vec(value.as_bytes().to_vec())
 }

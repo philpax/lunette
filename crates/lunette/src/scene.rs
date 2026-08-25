@@ -3,38 +3,44 @@
 //!
 //! An overlay whose panels are all on composition layers has nothing left to
 //! put in a projection layer. `docs/rendering.md` calls that skipping the
-//! projection layer. The name understates what is skipped.
+//! projection layer, and the name understates what is skipped.
 //!
-//! Calling `setLayers{ main = false }` does not save the render pass itself.
+//! # `setLayers{ main = false }` saves almost nothing by itself
+//!
 //! `lovrHeadsetSetLayers`'s third argument becomes `state.showMainLayer`
-//! (`headset.c`), and all that does at submit is leave the
+//! (`headset.c:2786`), and all that does at submit is leave the
 //! `XrCompositionLayerProjection` out of `XrFrameEndInfo::layers`
-//! (`headset.c`). The render pass, the multisample resolve, and the
+//! (`headset.c:3055`). The render pass, the multisample resolve, and the
 //! swapchain wait have all already been paid for by then.
 //!
 //! The saving is in not asking for the pass. The colour swapchain is acquired
 //! lazily, inside `lovrHeadsetGetTexture` and `lovrHeadsetGetPass`
-//! (`headset.c`), so a frame that calls neither skips the
+//! (`headset.c:2844`, `:2869`), so a frame that calls neither skips the
 //! acquire, the `xrWaitSwapchainImage`, the pass, and the resolve outright. A
 //! frame that calls one of them and then sets `main = false` pays for the
 //! acquire and the wait and throws the result away.
 //!
-//! LÖVR calls `lovr.headset.getPass()` unconditionally before checking whether
-//! `lovr.draw` exists, and `lovr.mirror` calls `lovr.headset.getTexture()` for
-//! the desktop window. lunette runs LÖVR's loop unmodified
-//! (`docs/lovr-integration.md`), so the two calls are wrapped instead: while
-//! the scene is skipped each answers nothing, `boot.lua` then finds no headset
-//! pass, and `lovr.draw` is not called at all.
+//! # Which is why this gates the two calls rather than the flag
+//!
+//! `vendor/lovr/etc/boot.lua:215` calls `lovr.headset.getPass()`
+//! unconditionally, before it has looked at whether `lovr.draw` exists, and
+//! `lovr.mirror` (`:231`) calls `lovr.headset.getTexture()` for the desktop
+//! window. lunette runs that loop unmodified — `docs/lovr-integration.md`
+//! records keeping LÖVR's `lovr.run` — so the two calls are wrapped instead:
+//! while the scene is skipped each answers nothing, `boot.lua` then finds no
+//! headset pass, and `lovr.draw` is not called at all.
 //!
 //! The XR frame is submitted either way. `lovr.headset.submit()` is outside the
-//! branch, and `docs/rendering.md` states that an overlay submits every cycle;
-//! dropping out of the runtime's frame loop would take the composition layers
-//! with it.
+//! branch, and `docs/rendering.md` is explicit that an overlay submits every
+//! cycle; dropping out of the runtime's frame loop would take the composition
+//! layers with it.
+//!
+//! # The flush
 //!
 //! `if headset or window then lovr.graphics.submit(headset, window) end`
-//! (`boot.lua`) is the only thing that submits `state.stream`, and the
+//! (`boot.lua:218`) is the only thing that submits `state.stream`, and the
 //! frame's layer copies are recorded into it (`lovrGraphicsSubmit`,
-//! `graphics.c`; `lovrGraphicsPresent` does not touch it). With no window
+//! `graphics.c:1791`; `lovrGraphicsPresent` does not touch it). With no window
 //! open and no headset pass, that line does not run — and
 //! `lovr.headset.submit()` still releases every layer's swapchain image, so the
 //! runtime would composite from an image whose copy is still sitting
@@ -155,7 +161,7 @@ const HEADSET_MODULE: &str = "lovr.headset";
 /// discarded, rather than as registry references on the Rust side.
 ///
 /// `getPass` and `getTexture` are the two entry points that acquire the colour
-/// swapchain (`headset.c`); every other function on the module is
+/// swapchain (`headset.c:2844`, `:2869`); every other function on the module is
 /// untouched, `lovr.headset.submit` above all, because the XR frame is
 /// submitted whether or not lunette drew into it.
 const GATE_CHUNK: &str = r"

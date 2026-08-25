@@ -1,35 +1,52 @@
--- Drives ten soft reloads through the real host. The assertions cover teardown,
--- module identity, callback removal, and the fact that the Lua state survives.
--- Each failure has its own status so the run identifies the assertion that failed.
+-- Ten soft reloads, from inside a real session.
+--
+-- `lunette.reload()` runs the standard library's teardown hooks, clears
+-- `package.loaded` for the user's and the standard library's namespaces, clears
+-- the callbacks this file owns, and runs this file again. Everything asserted
+-- here is about that, and none of it is observable from a unit test on a Lua
+-- state a test built: the module has to be the one the host registered, the
+-- standard library has to be the one the host mounted, and `main.lua` has to be
+-- the file boot.lua resolved.
+--
+-- Globals survive a soft reload — the Lua state is not closed, only the
+-- configuration's modules and callbacks go — which is what lets one file drive
+-- several reloads and compare what it saw across them.
+--
+-- Each failure quits with its own status, so the run says which assertion did
+-- not hold rather than only that one did not.
 
 local lunette = require '@lunette'
 
 local teardown = require '@mullion/teardown'
--- Required so the reload can exercise their teardown hooks and module identity.
+-- Required for their teardown hooks and their module identity, which are the
+-- two things a reload has to leave in a stated state.
 local panel = require '@mullion/panel'
 require '@mullion/rules'
 require '@mullion/signal'
 require '@mullion/tag'
 
--- Ten reloads make accumulation failures observable.
+-- How many reloads this fixture performs. Ten, because AC5.4 is about
+-- accumulation and one reload cannot show that nothing accumulates.
 local RELOADS = 10
 
--- Counts runs after the initial boot.
+-- How many times this file has been run by a reload rather than by boot.lua.
 reloads = reloads or 0
 
--- Values from the first run, used as reload invariants.
+-- What the first run saw, to compare every later run against.
 firstFilesystem = firstFilesystem or package.loaded['lovr.filesystem']
 firstHooks = firstHooks or table.concat(teardown.pending(), ',')
--- Module tables resolved by successive runs.
+-- The `@mullion/panel` module table each run resolved, newest last.
 panelTables = panelTables or {}
 panelTables[#panelTables + 1] = panel
 
 if reloads == 0 then
-  -- A callback present only in the first configuration must be removed.
+  -- Defined by the first run alone, which stands in for a callback the user
+  -- deleted from their configuration between two reloads. A reload that left it
+  -- bound would keep calling code that is no longer in the file.
   function lovr.lunwindowopened() end
 end
 
--- Returns the first failed invariant, if any.
+-- The status the run should quit with, or nothing when everything held.
 local function firstFailure()
   if package.loaded['lovr.filesystem'] ~= firstFilesystem then
     return 11

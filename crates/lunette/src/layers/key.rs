@@ -98,8 +98,8 @@ impl LayerProperties {
 /// signatures, and a bare `(u32, u32, bool, bool, bool, bool)` is unreadable at
 /// every one of them.
 ///
-/// `format` is deliberately absent because there is exactly one format. The
-/// `lovrSwapchainInit` function hard-codes
+/// `format` is deliberately absent, though the acceptance criterion this serves
+/// names it. There is exactly one: `lovrSwapchainInit` hard-codes
 /// `VK_FORMAT_R8G8B8A8_SRGB`, and session start aborts outright if the runtime
 /// refuses it. A field for it would imply a choice that does not exist.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

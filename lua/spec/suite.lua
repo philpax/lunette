@@ -1,7 +1,9 @@
 -- A spec file's collection of named cases.
 --
--- A spec file builds one, adds cases by calling it, and returns it. Cases retain
--- insertion order, so reports follow the file and setup-dependent cases stay put.
+-- A spec file builds one of these, adds its cases by calling it, and returns
+-- it. Cases keep the order they were added in, so a failure report reads in the
+-- order the file does, and so a case that depends on the collector having been
+-- exercised earlier is not reordered away from it.
 --
 -- This is not a test framework. It holds a name, an ordered list, and nothing
 -- else; the running and the reporting are `spec.runner`'s, and the assertions

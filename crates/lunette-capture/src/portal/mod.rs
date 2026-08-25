@@ -1,21 +1,29 @@
 //! Linux-only: the vocabulary of `org.freedesktop.portal.ScreenCast`.
 //!
-//! The portal is an unmanaged D-Bus dependency. This module defines the
-//! [`ScreenCastPortal`] seam that [`wlx::WlxPortal`] implements, and tests use
-//! [`fake::FakePortal`] instead of a session bus.
+//! The portal is an unmanaged dependency — another project's D-Bus interface,
+//! reached through another project's client — so it sits behind the
+//! [`ScreenCastPortal`] seam and the tests substitute [`fake::FakePortal`]
+//! rather than mocking D-Bus. [`wlx::WlxPortal`] is the production
+//! implementation, and it is the only thing in this crate that touches
+//! `wlx-capture`'s portal client.
 //!
-//! Requests and responses carry plain data. A request states what lunette
-//! requires, a response states what the user granted, and [`correlation`]
-//! matches returned streams to monitors. Correlation is a pure function, so
-//! testing it requires neither PipeWire nor a display.
+//! What the seam is written in is plain data: a request says what lunette wants
+//! and a response says what the user granted. [`correlation`] then decides
+//! which monitor each returned stream belongs to, and that decision is pure, so
+//! it is tested without a portal, without PipeWire, and without a display.
 //!
-//! # Restore behaviour
+//! # A prompt is normal
 //!
-//! Restore is best-effort. The portal rejects a stored token when a monitor was
-//! unplugged or renamed, and it presents the selection dialog again without
-//! reporting an error. Persist mode does not reliably preserve which monitors
-//! were selected. [`RequestProgress::AwaitingUser`] reports this dialog, and
-//! every call on the seam returns immediately rather than blocking on it.
+//! Restore is best-effort and the portal says so. A rejected token produces no
+//! error — the user simply sees a dialog. xdg-desktop-portal-wlr's v1 restore
+//! payload carries only `output_name` (`src/screencast/screencast.c:706-711`),
+//! so an unplugged or renamed monitor falls back to a prompt silently, and
+//! there is a standing upstream issue that persist mode does not reliably
+//! preserve which monitors were selected.
+//!
+//! [`RequestProgress::AwaitingUser`] is therefore an ordinary state rather than
+//! an error, and every call on the seam returns immediately. Nothing here
+//! blocks, so nothing here can be on a frame's critical path.
 
 pub mod correlation;
 #[cfg(any(test, feature = "test-fakes"))]
@@ -35,46 +43,64 @@ pub use crate::portal::{
     wlx::WlxPortal,
 };
 
-/// The non-blocking portal interface used by lunette.
+/// The portal, as lunette needs it.
 ///
-/// [`Self::begin`] starts a request and [`Self::poll`] reports progress. An
-/// implementation owns no thread or executor. Implementations are thread-affine
-/// because the portal client and its futures are not `Send`.
+/// Two calls, both non-blocking. [`Self::begin`] states what is wanted and
+/// [`Self::poll`] reports how far the portal has got, so the caller drives the
+/// exchange from wherever it already runs rather than the portal owning a
+/// thread or an executor.
+///
+/// Not `Send`. `wlx-capture`'s `ScreenCastManager` polls D-Bus futures with a
+/// no-op waker on the calling thread (`pipewire/mod.rs:840`), its `DbusFuture`
+/// is not `Send` (`mod.rs:632`), and `ScreenCastParams.token` is an `Rc<str>`
+/// (`mod.rs:46`). The trait does not require `Send` so that the implementation
+/// does not have to lie about it: a portal lives on one thread, and it is the
+/// capture thread's.
 pub trait ScreenCastPortal {
-    /// Starts a session request and returns after the portal records it.
+    /// Asks for a session. Returns as soon as the request is recorded.
     ///
-    /// This error means the request could not be started. User refusal is
-    /// reported later by [`Self::poll`] as [`RequestProgress::Failed`].
+    /// An error here means the request could not be made at all. A request the
+    /// user declines is not an error from this call; it arrives at
+    /// [`Self::poll`] as [`RequestProgress::Failed`].
     fn begin(&mut self, request: SessionRequest) -> Result<RequestId, PortalError>;
 
-    /// Advances the exchange without blocking and reports its state.
+    /// Advances the exchange without blocking and reports where it has got to.
     ///
-    /// Terminal results are delivered once. Polling an identifier after that, or
-    /// polling an identifier this portal did not issue, returns
-    /// [`PortalError::UnknownRequest`].
+    /// Polling an identifier that has already reported a terminal progress, or
+    /// one this portal never issued, yields
+    /// [`PortalError::UnknownRequest`]: a terminal result is delivered once,
+    /// and the caller owns it afterwards.
     fn poll(&mut self, request: RequestId) -> RequestProgress;
 }
 
 /// What lunette asks the portal for.
 ///
-/// The implementation requests monitor sources only and allows multiple streams.
-/// Lunette's windows belong to its own compositor, and one multi-screen dialog
-/// avoids prompting separately for each screen.
+/// Two of the portal's options are not fields, because they are the phase's
+/// decisions rather than the caller's. `types` is always monitors alone: a
+/// window belongs to lunette's own compositor, not to a mirror. `multiple` is
+/// always true, which is what removes the prescribed selection order — WayVR's
+/// Wayland path requests one stream per output with `allow_multiple: false`
+/// (`overlays/screen/pw.rs:93-99`) and prompts once per screen, and that ritual
+/// is the thing `lunette-v1.AC3.4` exists to eliminate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionRequest {
-    /// A token from a previous session, when one was stored. The backend may
-    /// reject it and prompt again without reporting an error.
+    /// A token from a previous session, if one was stored for these monitors.
+    ///
+    /// Supplying one is a request, not an instruction. The backend may ignore
+    /// it and prompt anyway, and it reports nothing when it does.
     pub restore_token: Option<RestoreToken>,
     pub cursor: CursorPolicy,
-    /// The requested session lifetime. The backend may grant less;
-    /// [`SessionResponse::granted_persist_mode`] records the observed grant.
+    /// How long the granted session should survive. The backend may grant less;
+    /// [`SessionResponse::granted_persist_mode`] is what it actually granted.
     pub persist_mode: PersistMode,
 }
 
 impl SessionRequest {
-    /// Creates a request for a session that survives until the user revokes it.
+    /// A request for a session that survives until the user revokes it.
     ///
-    /// A shorter lifetime would require another prompt on the next launch.
+    /// [`PersistMode::UntilRevoked`] is what lunette wants every time: anything
+    /// weaker re-prompts on the next launch, which is the outcome the restore
+    /// token exists to avoid.
     #[must_use]
     pub const fn new(restore_token: Option<RestoreToken>, cursor: CursorPolicy) -> Self {
         Self {
@@ -85,24 +111,30 @@ impl SessionRequest {
     }
 }
 
-/// Whether the host cursor appears in captured frames.
+/// Whether the host's cursor should appear in the captured frames.
 ///
-/// The underlying client exposes this choice as a boolean and does not report
-/// which portal cursor mode it selected. This type therefore exposes only the
-/// two behaviours the client can represent.
+/// Two variants rather than the portal's three. The portal distinguishes
+/// `EMBEDDED`, which draws the cursor into the pixels, from `METADATA`, which
+/// reports its position alongside them; `wlx-capture` collapses the choice to a
+/// bool and picks the first available of `EMBEDDED`, `METADATA`, and `HIDDEN`
+/// (`pipewire/mod.rs:796-805`), and reports nothing about which it got.
+/// Offering a `Metadata` variant this seam cannot honour would be a promise
+/// broken silently, so the type says only what it can deliver.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum CursorPolicy {
-    /// Excludes the host cursor so lunette can draw its own pointer.
+    /// No cursor. The mirror shows the desktop as though nothing were pointing
+    /// at it, and lunette draws its own pointer.
     #[default]
     Hidden,
-    /// Includes the host cursor using the backend's available mode.
+    /// The host cursor, however the backend can supply it.
     Visible,
 }
 
 /// How long a granted session survives.
 ///
-/// This closed set represents the portal's `persist_mode` values. The backend may
-/// grant less than requested, so [`SessionResponse`] carries the observed value
+/// The portal's `persist_mode`, as a closed set rather than the wire integer.
+/// The backend may grant less than was asked for and returns what it granted in
+/// the `Start` response, which is why [`SessionResponse`] carries this
 /// separately from [`SessionRequest`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -116,7 +148,7 @@ pub enum PersistMode {
 }
 
 impl PersistMode {
-    /// Returns the wire value for the portal's `persist_mode` option.
+    /// The integer the portal's `persist_mode` option carries.
     #[must_use]
     pub const fn as_portal_value(self) -> u32 {
         match self {
@@ -126,8 +158,8 @@ impl PersistMode {
         }
     }
 
-    /// Converts a portal `persist_mode` value, or returns `None` for an unknown
-    /// value.
+    /// Reads a `persist_mode` from a portal response, or `None` if the backend
+    /// named a mode this version of the specification does not define.
     #[must_use]
     pub const fn from_portal_value(value: u32) -> Option<Self> {
         match value {
@@ -151,17 +183,23 @@ impl fmt::Display for PersistMode {
 
 /// An opaque token that lets a later session skip the prompt.
 ///
-/// The portal invalidates a token after use and returns a replacement in each
-/// `Start` response. The token is a newtype so callers cannot confuse it with a
-/// monitor key.
+/// Single-use: the portal invalidates the token it was given and returns a new
+/// one in every `Start` response. A client that stores only the first token
+/// loses restore on the second run, which is why
+/// [`crate::tokens::TokenStore::record`] takes the new one every time rather
+/// than only when none was stored.
+///
+/// A newtype rather than a `String` so it cannot be transposed with the
+/// monitor's key, which is the other string in every call that handles one.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct RestoreToken(String);
 
 impl RestoreToken {
-    /// Wraps a non-empty token from a portal response.
+    /// Wraps a token from a portal response, rejecting an empty one.
     ///
-    /// An empty token cannot restore a session and would cause repeated prompts.
+    /// An empty token is not a token the portal would accept back, and storing
+    /// one would produce a stored session that silently re-prompts forever.
     #[must_use]
     pub fn new(token: impl Into<String>) -> Option<Self> {
         let token = token.into();
@@ -174,9 +212,10 @@ impl RestoreToken {
     }
 }
 
-/// A non-zero PipeWire node identifier reported for a stream.
+/// A PipeWire node identifier, as the portal reports it for a stream.
 ///
-/// PipeWire reserves node 0 for the core, so a zero value is malformed.
+/// Non-zero because node 0 is the PipeWire core rather than a stream, so a zero
+/// here is a malformed response rather than a node lunette could connect to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(NonZeroU32);
 
@@ -201,45 +240,61 @@ impl fmt::Display for NodeId {
     }
 }
 
-/// One stream granted by the portal.
+/// One stream the portal granted.
 ///
-/// The backend may report either, both, or neither of `position` and `size`.
-/// [`correlation`] uses the available properties and records match confidence.
+/// `position` and `size` are separately optional because the portal's stream
+/// properties are: a backend may report one, both, or neither.
+/// [`correlation`] uses whichever arrived and says so in the strength of the
+/// match it produces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PortalStream {
     pub node: NodeId,
-    /// The stream's top-left corner in logical compositor space.
+    /// The stream's top-left corner in the compositor's logical space.
     pub position: Option<LogicalPosition>,
-    /// The stream's extent in logical compositor space.
+    /// The stream's extent in the same space.
     pub size: Option<LogicalSize>,
-    /// A connector name when the backend supplies one in `mapping_id`.
+    /// A connector name, when the backend put a real one in `mapping_id`.
     ///
-    /// Connector names are optional and backend-dependent. [`correlation`] uses
-    /// geometry when this field is absent or unusable. `wlx-capture` does not read
-    /// `mapping_id`, so [`wlx::WlxPortal`] always leaves this field as `None`.
+    /// Opportunistic, never the mechanism. xdg-desktop-portal-wlr sets
+    /// `mapping_id` to the `wl_output` name, which on wlroots is the connector
+    /// name; mutter sets a random UUID and only under a RemoteDesktop session;
+    /// xdg-desktop-portal-kde omits it. [`ConnectorName::parse`] is what
+    /// separates the first case from the second.
+    ///
+    /// `wlx-capture` does not read `mapping_id` at all — `parse_streams`
+    /// (`pipewire/mod.rs:693-733`) takes `node_id`, `position`, and `size` —
+    /// so [`wlx::WlxPortal`] always leaves this `None`. Lifting that is an
+    /// upstream change, and geometry is the mechanism either way.
     pub connector: Option<ConnectorName>,
 }
 
 /// What the portal granted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionResponse {
-    /// One entry per selected screen. The order is unspecified; [`correlate`]
-    /// matches streams to monitors by their properties.
+    /// One entry per screen the user selected. Order means nothing: it
+    /// corresponds neither to the selection order nor to output enumeration
+    /// order, which is why [`correlate`] matches on geometry.
     pub streams: Vec<PortalStream>,
-    /// The replacement token to store for the next launch.
+    /// The token to store for the next launch, replacing whatever was stored.
     pub restore_token: Option<RestoreToken>,
     pub granted_persist_mode: GrantedPersistMode,
 }
 
-/// The persistence mode the backend granted, when it is observable.
+/// What the backend granted for persistence, as far as it can be observed.
 ///
-/// The backend may downgrade the requested mode. Persisting the requested value
-/// instead of the observed value would misrepresent the next launch.
+/// The backend may downgrade the requested mode and returns what it granted in
+/// the `Start` response, so storing the requested value would produce a record
+/// that lies about what the next launch will do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GrantedPersistMode {
     Granted(PersistMode),
-    /// The response did not expose `persist_mode`. An unobserved grant is kept
-    /// separate from a confirmed grant rather than defaulted to the request.
+    /// The response's `persist_mode` was not observed.
+    ///
+    /// `wlx-capture`'s `parse_start_response` (`pipewire/mod.rs:686-691`) reads
+    /// `streams` and `restore_token` and discards the rest, so
+    /// [`wlx::WlxPortal`] cannot see it. Recorded as its own case rather than
+    /// defaulted to the requested mode: an unobserved grant and a confirmed one
+    /// are different facts, and only the second is worth writing down as one.
     Unstated,
 }
 
@@ -252,9 +307,10 @@ impl fmt::Display for GrantedPersistMode {
     }
 }
 
-/// An in-flight request issued by one [`ScreenCastPortal`].
+/// A request in flight, as issued by one [`ScreenCastPortal`].
 ///
-/// The identifier is opaque and valid only for the portal that issued it.
+/// Opaque and not transferable between portals: an identifier one implementation
+/// minted means nothing to another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RequestId(u64);
 
@@ -271,17 +327,18 @@ impl fmt::Display for RequestId {
     }
 }
 
-/// The current state of a portal request.
+/// How far a request has got.
 ///
-/// Non-terminal states require another poll. Terminal states are delivered once.
+/// Three of the five are non-terminal and mean "call again later". The two
+/// terminal ones are delivered once, after which the identifier is spent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RequestProgress {
-    /// Accepted and waiting behind another request. The portal serialises
-    /// dialogs.
+    /// Accepted, and waiting behind another request. The portal serialises
+    /// them: two dialogs at once is not a thing to show a user in a headset.
     Queued,
-    /// Negotiating with the portal.
+    /// Talking to the portal.
     Negotiating,
-    /// Waiting for the user to respond to the dialog.
+    /// A dialog is on the user's screen. Ordinary, not exceptional.
     AwaitingUser,
     Ready(SessionResponse),
     Failed(PortalError),
@@ -295,7 +352,8 @@ pub enum PortalError {
     /// The identifier was never issued by this portal, or its result has
     /// already been taken.
     UnknownRequest(RequestId),
-    /// The portal refused the request. Code 1 means that the user cancelled it.
+    /// The portal answered the request with a non-zero response code. 1 is the
+    /// user cancelling, which is a refusal rather than a fault.
     Refused { code: u32 },
     /// The backend offers no monitor sources, so there is nothing to mirror.
     NoMonitorSources { available: u32 },
@@ -303,12 +361,16 @@ pub enum PortalError {
     NoCursorMode { available: u32 },
     /// The response was not shaped as the specification says.
     Malformed(&'static str),
-    /// The response named a node that cannot be connected to. The error is
-    /// reported instead of silently dropping the stream.
+    /// The response named a stream whose node identifier cannot be connected
+    /// to. Reported rather than skipped, so a backend that starts producing
+    /// them is visible rather than quietly halving the mirrors.
     UnusableNode { raw: u32 },
-    /// The underlying client cannot express the requested persistence mode.
-    /// The client maps persistence to a boolean, so requesting a different value
-    /// would risk granting a longer-lived session than requested.
+    /// A persistence mode the underlying client cannot express was requested.
+    ///
+    /// `wlx-capture`'s `ScreenCastParams.persist` is a bool mapping to 0 or 2
+    /// (`pipewire/mod.rs:513`), so [`PersistMode::WhileRunning`] has no
+    /// representation. Sending 2 instead would ask for a longer-lived grant
+    /// than the caller wanted, which is the wrong direction to guess in.
     UnsupportedPersistMode(PersistMode),
 }
 

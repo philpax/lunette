@@ -4,13 +4,15 @@
 //! tries. uinput injects below the display server, so it works under any Wayland
 //! compositor and under X11, and nothing about the host needs to cooperate.
 //!
-//! Access requires permission to write `/dev/uinput`, typically through a udev
-//! rule tagged `uaccess` or membership in the `input` group. The latter also
-//! grants read access to every input device on the machine, which is a keylogging
-//! surface. [`Advice`] reports these alternatives.
+//! What it costs is a permission. `/dev/uinput` is not writable by an ordinary
+//! user on most distributions, and granting it means either a udev rule tagged
+//! `uaccess` or membership of the `input` group. [`Advice`] renders the
+//! instructions, including the part a user should know before following them:
+//! the `input` group grants read access to every input device on the machine,
+//! which is a keylogging surface.
 //!
-//! Two devices are created, a keyboard and a mouse, following WayVR. One device
-//! declaring both would
+//! Two devices are created, a keyboard and a mouse, following WayVR
+//! (`subsystem/hid/provider/uinput.rs:28-109`). One device declaring both would
 //! be reported to the host as a single peripheral, and a compositor that
 //! classifies devices by capability handles that inconsistently.
 
@@ -43,8 +45,10 @@ use crate::hid::{
 /// Where the uinput device node is, and how the created devices identify
 /// themselves.
 ///
-/// The device path is a parameter so the library does not read configuration
-/// from the environment. [`Self::default`] supplies the standard path.
+/// The device path is a field rather than a constant read from the environment,
+/// because this is a library: configuration arrives as a parameter, and only the
+/// application entry point decides where it came from. [`Self::default`] is what
+/// the entry point uses when the user said nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UinputConfig {
     pub device: PathBuf,
@@ -237,7 +241,7 @@ impl HidProvider for UinputProvider {
     /// uinput injects raw keycodes below the display server, and the host
     /// applies whatever layout it is configured with. There is nothing to
     /// upload and nothing that would honour it if there were. WayVR's is also
-    /// empty with no comment, which reads as unfinished; only
+    /// empty (`uinput.rs:219`) with no comment, which reads as unfinished; only
     /// [`crate::hid::wl_virtual`] can carry a layout.
     fn set_keymap(&mut self, _keymap: &XkbKeymap) -> Result<(), ProviderError> {
         Ok(())
@@ -278,10 +282,13 @@ impl HidProvider for UinputProvider {
 
 /// What to tell a user whose `/dev/uinput` could not be opened.
 ///
-/// Structured so presentation remains separate from the diagnostic data, and
-/// the login name arrives as a parameter rather than being read here.
+/// Structured rather than a formatted string so the caller decides how to
+/// present it — a log line now, a panel in the headset later — and so the one
+/// piece of environment it needs, the user's login name, arrives as a parameter
+/// rather than being read here.
 ///
-/// Includes the security implications of granting input-device access.
+/// Modelled on WayVR's diagnostic (`uinput.rs:237-266`), with the security note
+/// it does not carry.
 #[derive(Clone, Copy, Debug)]
 pub struct Advice<'a> {
     /// The login name to put in the `usermod` command, if the caller knows it.
@@ -323,7 +330,7 @@ const MOUSE_EXTENT: f64 = 32768.0;
 /// The `resolution` reported for the absolute axes, in units per millimetre.
 ///
 /// Nonzero because a host that reads zero may classify the device as a touchpad
-/// rather than a pointer. WayVR reports the same value.
+/// rather than a pointer. WayVR reports the same 10 (`uinput.rs:59`).
 const ABS_RESOLUTION: i32 = 10;
 
 /// `BUS_USB`, which is what a virtual device conventionally claims.
@@ -510,7 +517,7 @@ impl OpenNode {
 ///
 /// The kernel discards the timestamp a uinput write supplies and stamps the
 /// event itself, so filling it in would be work with no observable effect.
-/// WayVR calls `gettimeofday` for every group, but the kernel discards it.
+/// WayVR calls `gettimeofday` for every group (`hid/mod.rs:48-55`).
 const fn event(kind: u16, code: u16, value: i32) -> libc::input_event {
     libc::input_event {
         time: libc::timeval {

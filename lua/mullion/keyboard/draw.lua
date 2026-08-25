@@ -1,9 +1,9 @@
 -- Drawing a keyboard: a plate, a plane per key, and a legend on each.
 --
--- Drawing uses `Pass:plane` and `Pass:text` and nothing else, which is why this
--- half stays apart from the object that decides what to draw. It receives the
--- keys and the state to colour them by rather than the keyboard itself, so it
--- does not depend on where either came from.
+-- `Pass:plane` and `Pass:text` and nothing else, which is what makes it worth
+-- keeping apart from the object that decides what to draw. It takes the keys
+-- and the state to colour them by rather than the keyboard itself, so it holds
+-- no opinion about where either came from.
 --
 -- Everything is placed relative to a pose. The key geometry runs from the
 -- board's top-left with y downwards and a plane's own y runs upwards from its
@@ -13,8 +13,8 @@ local layout = require '@mullion/keyboard/layout'
 
 local draw = {}
 
--- The colours and depths a keyboard is drawn with. `mullion.keyboard`'s
--- `Style` carries the measurements as well, and includes everything here.
+-- The colours and depths a keyboard is drawn with. `mullion.keyboard`'s `Style`
+-- carries the measurements as well, and answers this by being a superset.
 export type Appearance = {
   read gap: number,
   read plateDepth: number,
@@ -69,8 +69,8 @@ function draw.keyboard(
     if state.held(key) then
       keyColor = style.heldColor
     end
-    -- After the held colour, so a key under the pointer stays distinguishable
-    -- as hovered even when its modifier is already down.
+    -- After the held colour, so the key being aimed at reads as the one under
+    -- consideration even when it is a modifier that is already down.
     if state.hovered(key) then
       keyColor = style.hoverColor
     end

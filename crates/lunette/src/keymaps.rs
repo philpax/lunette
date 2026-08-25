@@ -2,19 +2,20 @@
 //!
 //! The compositor thread publishes each seat's layout as text, because
 //! libxkbcommon is not thread-safe and a compiled keymap cannot cross a thread.
-//! The main thread compiles its own copy, and this module holds those copies.
+//! So the main thread compiles its own copy, and this is where those copies
+//! live.
 //!
-//! A full layout is tens of kilobytes of text, and building the reverse lookup
-//! walks every key under every level-selecting modifier combination. A virtual
-//! keyboard drawing its legends asks a hundred questions a frame. This cache
-//! avoids recompiling on each query.
+//! Compiling is not free — a full layout is tens of kilobytes of text, and
+//! building the reverse lookup walks every key under every level-selecting
+//! modifier combination — while a virtual keyboard drawing its legends asks a
+//! hundred questions a frame. The cache is what makes that affordable.
 //!
-//! ## Entry invalidation
+//! # What invalidates an entry
 //!
-//! Invalidation uses the identity of the published text, not its content. The
-//! snapshot carries an `Arc<KeymapText>` that the compositor replaces only when
-//! the layout actually changes, so a pointer comparison is both cheaper than
-//! comparing thirty kilobytes and exactly as correct.
+//! The identity of the published text, not its content. The snapshot carries an
+//! `Arc<KeymapText>` that the compositor replaces only when the layout actually
+//! changes, so a pointer comparison is both cheaper than comparing thirty
+//! kilobytes and exactly as correct.
 
 use std::{collections::HashMap, rc::Rc, sync::Arc};
 
@@ -35,8 +36,8 @@ impl KeymapCache {
     ///
     /// `None` when the text does not compile, which should not happen — it is
     /// the compositor's own serialisation of a keymap it compiled — and which
-    /// is reported rather than retried, because retrying reports it once per
-    /// query.
+    /// is reported rather than retried, because retrying would report it once
+    /// per query.
     pub fn compiled(&mut self, seat: SeatId, text: &Arc<KeymapText>) -> Option<Rc<Keymap>> {
         if let Some(entry) = self.entries.get(&seat)
             && Arc::ptr_eq(&entry.text, text)

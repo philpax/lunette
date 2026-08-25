@@ -1,7 +1,35 @@
--- Panels bind a window or monitor to a pose and size.
+-- Panels: a pixel source bound to a pose and a size in metres.
 --
--- A panel draws through a composition layer while it holds a claim, and through
--- an in-scene quad otherwise. Claims can be revoked at frame boundaries.
+-- docs/stdlib.md's tier 1. A panel binds a window or a monitor to a place in
+-- the world, decides between a composition layer and an in-scene quad, turns a
+-- ray hit into a pixel coordinate, and draws a little chrome around it.
+--
+-- It is not a privileged object. docs/stdlib.md:21 is explicit that a panel is
+-- an abstraction over the primitives and that windows and sinks are usable
+-- without one, so nothing here reaches for anything a configuration could not
+-- call: `lunette.claimLayer`, the source's own fields, and LÖVR.
+--
+-- Both realisations are live from the start. docs/rendering.md treats the
+-- in-scene quad as the fallback rather than as a degraded mode, and a claim is
+-- revoked whenever a higher-priority one arrives at capacity, so a panel that
+-- only drew when it held a layer would disappear.
+--
+-- Grants and revocations land on frame boundaries and never mid-frame
+-- (docs/lua-api.md#layer-claims), so `update` reads `claim.granted` rather than
+-- handling `lunette.onLayerGranted`. That is one code path instead of two, and it
+-- leaves `lunette.onLayerGranted` free for a configuration that wants it: the
+-- callback namespace belongs to the configuration, and a library that claimed
+-- it would be taking it.
+--
+-- A monitor panel never claims a layer. `lunette.claimLayer` takes `window`
+-- and nothing else (docs/lua-api.md#layer-claims), so a mirrored screen has no
+-- way to ask for one and draws as a quad. That is a gap in the native API
+-- rather than a decision made here.
+--
+-- The ray-quad intersection lives in `mullion.panel.raycast` and is re-exported
+-- here as `panel.rayQuadHit`, which is the name docs/stdlib.md gives it. It is
+-- pure arithmetic over a matrix and this file is claims, sources, and draw
+-- calls, so the two were split when this one outgrew the size threshold.
 
 local lunette = require '@lunette'
 local pointing = require '@mullion/interaction/types'
@@ -12,6 +40,9 @@ local teardown = require '@mullion/teardown'
 
 local panel = {}
 
+-- Declared here and defined below the public API, so the file reads
+-- surface-first. The metatable is a table rather than a forward-declared local
+-- because `create` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
 local create, sourceSize, remove, opaqueShaderFor
@@ -20,11 +51,16 @@ local create, sourceSize, remove, opaqueShaderFor
 -- property store and only a window may claim a layer.
 export type Kind = 'window' | 'monitor'
 
--- A pixel source: one of the two sources the runtime provides. `kind` identifies
--- which source a panel holds.
+-- A pixel source: one of the two the runtime has, and not a shape either might
+-- fit. The set is closed, so it is a union, and `kind` below is what tells a
+-- panel's own apart. `lunette.Textured` is the same union under the name the
+-- native API gives it.
 export type Source = lunette.Textured
--- A panel: a pixel source bound to a pose and a size in metres, plus methods
--- that move it, size it, update it, draw it, and destroy it.
+-- A panel: a pixel source bound to a pose and a size in metres, plus the
+-- methods that move it, size it, update it, draw it, and destroy it. The
+-- method signatures are listed so that the checker resolves `created:setSize`
+-- and narrows `self` fields; the created tables reach them through the
+-- metatable, so the type and the implementations must agree by hand.
 -- The half of a panel that does not depend on what it is over.
 type PanelFields = {
   pose: Mat4,
@@ -39,6 +75,8 @@ type PanelFields = {
   claim: layer.Claim?,
   appliedWidth: number?,
   appliedHeight: number?,
+  -- The four `mullion.interaction` declares take its receiver, which is what
+  -- makes a panel answer the surface contract with the receiver still checked.
   setPose: (pointing.Surface, Mat4) -> (),
   setSize: (pointing.Surface, number?, number?) -> (),
   raycast: (pointing.Surface, vector, vector, boolean?) -> (number?, number?, number?),
@@ -51,7 +89,9 @@ type PanelFields = {
   destroy: (Panel) -> boolean,
 }
 
--- A panel, discriminated on `kind`, with the source handle for that kind.
+-- A panel, discriminated on `kind`: testing it is what narrows `source` to the
+-- handle that kind has, which is how `mullion.panel.layer` comes to know that
+-- the thing it claims a layer for is a window.
 export type WindowPanel = PanelFields & { kind: 'window', source: lunette.Window }
 export type MonitorPanel = PanelFields & { kind: 'monitor', source: lunette.Monitor }
 export type Panel = WindowPanel | MonitorPanel
@@ -64,25 +104,32 @@ type PanelOptions = {
   title: string?,
   chrome: boolean?,
 }
+-- A LÖVR `Pass`, passed to draw callbacks and used for all drawing.
+
 -- Every panel, in creation order. Rebuilt when this file runs, so a soft reload
 -- starts with none.
 local panels: { Panel } = {}
 
--- Build the shader lazily because graphics may be unavailable during loading.
+-- The shader `opaqueShader` builds on first use, and nothing before it: the
+-- graphics module does not exist while a configuration is being loaded, and a
+-- module body that reached for it would make requiring this file depend on when
+-- it was required. Dropped when this file runs again, so a soft reload builds
+-- one against the state that will draw with it.
 local opaqueShader: Shader?
 
 -- Everything a panel's appearance is tuned by, in one table.
 --
--- Feel accounts for most of the work at this tier (docs/stdlib.md), so tuning
--- should be a diff to one table rather than a search through functions for a
--- number.
+-- Feel accounts for most of the work at this tier (docs/stdlib.md:27), so a
+-- tuning pass should be a diff to one table rather than a hunt through
+-- functions for a number.
 panel.STYLE = {
   -- The border's width, in metres, and how far behind the panel it sits so
   -- that the two do not fight for the same depth.
   borderThickness = 0.008,
   borderDepth = 0.001,
   borderColor = { 0.14, 0.14, 0.17, 0.95 },
-  -- The highlight colour for a hovered panel's border.
+  -- The highlight a hovered panel's border takes. Interaction is Task 6's, and
+  -- this is the colour it will reach for.
   borderHighlightColor = { 0.35, 0.55, 0.95, 0.95 },
   -- The title's height in metres, and how far above the panel it sits.
   titleHeight = 0.04,
@@ -102,9 +149,12 @@ panel.DEFAULT_HEIGHT = 0.8
 
 -- The fragment stage a source whose buffer has no alpha channel is drawn with.
 --
--- An X-variant fourcc has no alpha. Import treats its padding byte as alpha,
--- so `source.opaque` makes the shader force alpha to one.
-
+-- An X-variant fourcc such as XR24 has no Vulkan format of its own, so it is
+-- imported as the alpha-carrying format with the same component order and the
+-- client's padding byte arrives as alpha. Most renderers leave that byte at
+-- zero, so sampling it draws the window fully invisible. `source.opaque` is what
+-- says the byte means nothing, and docs/rendering.md#alpha says a consumer
+-- forces alpha to one rather than sampling it. This is that consumer.
 panel.OPAQUE_FRAGMENT = [[
   vec4 lovrmain() {
     return vec4((Color * getPixel(ColorTexture, UV)).rgb, Color.a);
@@ -116,6 +166,9 @@ panel.OPAQUE_FRAGMENT = [[
 panel.DEFAULT_ASPECT = 16 / 9
 
 -- Where a ray meets a quad, in the quad's own pixels.
+--
+-- `mullion.panel.raycast` holds it, and this is the name it is documented
+-- under. A caller wanting it without the rest of this module requires that one.
 panel.rayQuadHit = raycast.hit
 
 -- A panel over a window lunette hosts.
@@ -200,7 +253,9 @@ end
 -- The shader an opaque source is drawn with, or nothing when there is no
 -- graphics module to build one from.
 --
--- Public so other drawing code can use the same correction.
+-- Public because a configuration drawing a source itself needs the same
+-- correction, and because a spec asserting the quad path has to know which
+-- shader it is looking at.
 function panel.opaqueShader(): Shader?
   if opaqueShader then
     return opaqueShader
@@ -227,7 +282,8 @@ function panel.teardown()
   panels = {}
 end
 
--- Moves the panel. `pose` is a `Mat4`, and is copied rather than retained.
+-- Moves the panel. `pose` is a `Mat4`, and is copied rather than kept: a caller
+-- reusing a temporary would otherwise move every panel it placed.
 function methods.setPose(self: Panel, pose)
   self.pose:set(pose)
   signal.emit(self, signal.propertyName 'pose', self.pose)
@@ -287,7 +343,9 @@ end
 
 -- The sink this panel's input goes to, or nothing when the source has gone.
 --
--- A panel does not own its sink and returns nothing when its source is gone.
+-- A panel is not the only way to reach a sink and does not own it; this is here
+-- so that a caller holding a panel does not have to remember which of `window`
+-- and `monitor` it wrapped.
 function methods.sink(self: Panel): lunette.Sink?
   if self.dead or self.source.dead then
     return nil
@@ -302,7 +360,9 @@ function methods.update(self: Panel)
   if self.dead then
     return
   end
-  -- A source may disappear between frames, leaving the panel with nothing to show.
+  -- CONTRIBUTING.md: never assume a handle survives a frame. A client can exit
+  -- between one frame and the next, and a panel over a window that has gone has
+  -- nothing left to show.
   if self.source.dead then
     self:destroy()
     return
@@ -326,6 +386,8 @@ end
 -- sharp one. The chrome is still drawn, because the layer carries the source
 -- and nothing else.
 function methods.draw(self: Panel, pass: Pass)
+  -- Through a local: refining `self.source` here would fix it to the union it
+  -- already is, and the `kind` test below would have nothing left to narrow.
   local source = self.source
   if self.dead or source.dead then
     return
@@ -359,7 +421,10 @@ function methods.draw(self: Panel, pass: Pass)
   end
 
   pass:setMaterial(texture)
-  -- The size rides in the transform so the plane uses the panel's dimensions.
+  -- The size rides in the transform. `luax_readmat4` consumes a whole `Mat4`
+  -- and reads the argument after it as the draw style, so a plane placed by
+  -- matrix takes its extent from that matrix's scale and not from two more
+  -- arguments.
   local transform = lovr.math.newMat4():set(self.pose):scale(self.width, self.height, 1)
   pass:plane(transform, 'fill', 1, 1)
   pass:setMaterial(nil)
@@ -369,15 +434,17 @@ function methods.draw(self: Panel, pass: Pass)
   pass:setBlendMode('alpha', 'alphamultiply')
 end
 
--- Draws the panel border and title using the pass primitives.
+-- A border and a title. Not a widget layer: docs/stdlib.md defers 2D widgets,
+-- and docs/stdlib.md records the toolkit as possibly a separate library
+-- entirely, so this stays within `Pass:plane` and `Pass:text`.
 function methods.drawChrome(self: Panel, pass: Pass)
   local style = panel.STYLE
   local color = self.highlighted and style.borderHighlightColor or style.borderColor
 
   pass:setColor(color[1], color[2], color[3], color[4])
-  -- Behind the panel by a small depth offset, so the two do not fight for the
-  -- same depth, and larger by the border's thickness on each side. The extent
-  -- rides in the transform's scale, for the reason `draw` records.
+  -- Behind the panel by a hair, so the two do not fight for the same depth, and
+  -- larger by the border's thickness on each side. The extent rides in the
+  -- transform's scale, for the reason `draw` records.
   local borderTransform = lovr.math
     .newMat4()
     :set(self.pose)
@@ -400,6 +467,12 @@ function methods.drawChrome(self: Panel, pass: Pass)
   pass:setColor(1, 1, 1, 1)
 end
 
+-- Withdraws the panel: releases its claim, drops its connections, and takes it
+-- out of the list.
+--
+-- Releasing is explicit, because nothing releases a claim when its handle is
+-- collected (docs/lua-api.md#layer-claims). A configuration that drops a panel
+-- without destroying it holds a layer out of the pool for the session's life.
 function methods.destroy(self: Panel): boolean
   if self.dead then
     return false
@@ -419,7 +492,9 @@ end
 -- The shader a window whose buffer carries no alpha is drawn with, or nothing.
 --
 -- A monitor's capture has no padding byte to mistake for alpha, so only a window
--- needs this correction.
+-- answers one. Takes the panel rather than reading it inline, because the
+-- `kind` test is what narrows `source` to the handle that kind has, and a
+-- `self` the guards above have already refined has no discriminant left.
 function opaqueShaderFor(target: Panel): Shader?
   if target.kind ~= 'window' then
     return nil

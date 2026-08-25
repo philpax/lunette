@@ -22,9 +22,12 @@
 //! where the seat is. That split is what lets the chunking, the resolution, and
 //! the emitted sequence be tested without a client, a display, or a device.
 //!
-//! # Keymap restoration
+//! # Restoring is part of the contract
 //!
-//! The caller restores the client's keymap even when a chunk fails. Otherwise the client keeps a synthetic layout and subsequent key events produce incorrect text.
+//! `lunette-v1.AC4.3` requires the client's own keymap handling to work
+//! afterwards, so the caller restores even when a chunk fails. A client left
+//! holding lunette's synthetic layout has a keyboard on which every key types
+//! the wrong thing, which is worse than the failure that produced it.
 
 use std::{error::Error, fmt, fmt::Write as _};
 

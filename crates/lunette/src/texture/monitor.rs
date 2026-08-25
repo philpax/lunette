@@ -3,17 +3,17 @@
 //! The counterpart to [`TextureLedger`](crate::texture::TextureLedger), and
 //! deliberately a separate type rather than the same one keyed differently. A
 //! surface's ledger carries a death flag, a damage flag, a stabilised copy, and
-//! deferred destruction, because a Wayland client can exit mid-frame and a
-//! configuration can ask for a copy that outlives the frame. A monitor has none
-//! of that: it is the user's own screen, it does not exit, and its texture
-//! rotates only as PipeWire cycles the small buffer pool it negotiated.
+//! a morgue, because a Wayland client can exit mid-frame and a configuration can
+//! ask for a copy that outlives the frame. A monitor has none of that: it is the
+//! user's own screen, it does not exit, and its texture rotates only as PipeWire
+//! cycles the small buffer pool it negotiated.
 //!
 //! What it does need, and a surface does not, is the image behind the texture.
 //! [`DmabufImporter`] caches on the buffer it was handed and answers a recurring
 //! PipeWire buffer with the image it already made; without recording which image
 //! is installed, every frame from that buffer would allocate a fresh LOVR
-//! texture over the same memory. [`MonitorTextures::image`] makes the second
-//! and later sightings free.
+//! texture over the same memory. [`MonitorTextures::image`] is what makes the
+//! second and later sightings free.
 //!
 //! Generic over the texture for the reason the surface ledger is: the
 //! bookkeeping needs no graphics device, so the tests substitute an integer.
@@ -49,9 +49,12 @@ impl<T> MonitorTextures<T> {
 
     /// Which image this monitor's texture wraps, if it holds one.
     ///
-    /// Returns the image behind the monitor's texture. The image identity lets
-    /// the capture importer reuse an existing texture and retain the image it
-    /// still needs.
+    /// Two callers, and both of them are about a buffer PipeWire is recycling.
+    /// The frame loop compares it against what the import answered, because
+    /// wrapping the same image again would allocate a texture over memory a
+    /// texture already covers. And the capture importer is told it, because an
+    /// image named here must not be retired: it is what
+    /// [`CaptureImporter::import`] refuses to evict.
     ///
     /// [`CaptureImporter::import`]: crate::import::CaptureImporter::import
     #[must_use]
@@ -61,8 +64,9 @@ impl<T> MonitorTextures<T> {
 
     /// Records a monitor's new texture, returning the one it displaces.
     ///
-    /// Returns the displaced texture for the owner to release. Destroying a
-    /// LÖVR texture is an FFI operation this type cannot perform.
+    /// The caller releases what comes back, for the reason
+    /// [`TextureLedger::install`] returns it: destroying a LOVR texture is an
+    /// FFI call this type cannot make.
     ///
     /// [`TextureLedger::install`]: crate::texture::TextureLedger::install
     pub fn install(
@@ -86,9 +90,11 @@ impl<T> MonitorTextures<T> {
 
     /// The texture a monitor's mirror last produced.
     ///
-    /// Returns the current texture without checking a frame generation. The
-    /// texture is valid for the current frame; callers must not cache it across
-    /// frames.
+    /// No frame generation is checked, unlike the surface ledger's `lookup`.
+    /// The one caller builds and consumes the answer inside a single Lua call,
+    /// and the value it hands on is LOVR's own `Texture` object rather than a
+    /// reference this type could invalidate. `docs/lua-api.md` states the rule
+    /// that follows from that: never cache the result across a frame.
     #[must_use]
     pub fn texture(&self, monitor: &MonitorKey) -> Option<&T> {
         self.entries.get(monitor).map(|entry| &entry.texture)
@@ -113,8 +119,10 @@ impl<T> MonitorTextures<T> {
 
     /// Which monitors hold a texture.
     ///
-    /// Returns cloned keys so the monitor lifecycle can be inspected while the
-    /// ledger remains borrowed.
+    /// Cloned rather than borrowed, because the one caller — the frame loop's
+    /// sweep for mirrors that have stopped — asks the mirror lifecycle about
+    /// each in turn, and the lifecycle is reachable from the same session this
+    /// borrow would come from.
     #[must_use]
     pub fn monitors(&self) -> Vec<MonitorKey> {
         self.entries.keys().cloned().collect()
@@ -288,7 +296,8 @@ mod tests {
 
     #[test]
     fn the_description_records_the_size_a_frame_arrived_at() {
-        // A captured frame must retain the output resolution it arrived at.
+        // `lunette-v1.AC3.1` is about exactly this number matching the captured
+        // output's resolution.
         let mut textures = MonitorTextures::new();
         textures.install(monitor(1), image(1), 10_u32, description());
 

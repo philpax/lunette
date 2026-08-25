@@ -1,9 +1,14 @@
 -- Covers lua/mullion/rules.lua.
 --
--- A rule matching on `appId` must place a newly spawned window without further
--- scripting. The main case reaches a panel at the pose named by the rule. The
--- remaining cases cover matching and composition over synthetic window tables.
+-- The acceptance criterion this module carries is that a rule matching on
+-- `appId` places a newly spawned window without further scripting, so the case
+-- that matters most is the one that goes all the way to a panel at the pose the
+-- rule named. The rest is matching and composition, both pure over synthetic
+-- window tables.
 --
+-- The panel fixture is required before `mullion.rules` is, so that the
+-- `mullion.panel` the module captures is the one holding the fake `lunette`. A
+-- real `lunette.claimLayer` would want a layer pool with no headset behind it.
 
 local expect = require '@spec/expect'
 local fixture = require '@spec/mullion/panel/fixture'
@@ -24,10 +29,11 @@ local function newWindow(appId, title)
   return window
 end
 
--- The default report function.
+-- The module's own `report`, captured before any case replaces it.
 local defaultReport = rules.report
 
--- Messages reported during a case.
+-- What `rules.report` was told, so that a case can assert a rule was reported
+-- rather than let it print into the run's output.
 local reported = {}
 local function captureReports()
   reported = {}
@@ -207,7 +213,10 @@ end)
 
 spec('sources at one precedence apply in registration order', function()
   reset()
-  -- Several sources make the registration-order tiebreak observable.
+  -- More than a couple, because `table.sort` is not stable: a comparator that
+  -- called two sources at one precedence equal would be free to permute them,
+  -- and with two entries it would happen not to. The order is stated by the
+  -- registration tiebreak rather than left to whatever the sort produced.
   local registered = { 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a' }
   for _, name in ipairs(registered) do
     rules.addSource(name, 10, function()
@@ -311,6 +320,10 @@ spec('placing a window makes a panel at the pose the rule named', function()
   expect.equal(#fixture.panel.all(), 1, 'the panels')
 end)
 
+-- The regression: a window handle is userdata, not a table, so a guard that
+-- insisted on a table raised for every real window. The shipped configuration
+-- installs a rules table with a non-nil `match`, which is what reaches this, so
+-- every window opening and every window adopted by a reload raised.
 spec('placing a window handle that is not a table matches it', function()
   reset()
   local placed = lovr.math.newMat4():translate(1, 1.5, -2)
@@ -327,7 +340,8 @@ spec('placing a window handle that is not a table matches it', function()
   expect.equal(#fixture.panel.all(), 1, 'the panels')
 end)
 
--- A missing field makes the match fail rather than raise.
+-- The other half of the same guard: a match that names a field the handle does
+-- not carry answers false rather than raising, whichever shape the handle is.
 spec('a window handle that is not a table can fail to match', function()
   reset()
   rules.setRules {
@@ -339,7 +353,8 @@ spec('a window handle that is not a table can fail to match', function()
   expect.equal(properties.width, nil, 'the width of a window no rule matched')
 end)
 
--- Values that cannot be indexed are refused.
+-- A window is indexed, so a value that cannot be indexed is still refused. The
+-- fix widens the guard rather than removing it.
 spec('a window that is neither a table nor userdata is refused', function()
   reset()
   local ok, message = pcall(rules.matches, { appId = 'terminal' }, 'terminal')
@@ -489,7 +504,8 @@ spec('requiring twice leaves one teardown hook', function()
   end
   expect.equal(registered, 1, 'the hooks named mullion.rules')
   reloaded.teardown()
-  -- Restore the first module's hook for the rest of the suite.
+  -- The second body's `register` replaced the hook with its own sources', so the
+  -- first one's is put back: the rest of the suite holds the first module table.
   teardown.register('mullion.rules', rules.teardown)
 end)
 

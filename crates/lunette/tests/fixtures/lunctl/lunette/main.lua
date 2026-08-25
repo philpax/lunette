@@ -1,6 +1,10 @@
--- A session that runs until lunctl tells it to stop. Values read by a chunk must
--- be globals because lunctl evaluates chunks in the main Lua state.
+-- A session that runs until lunctl tells it to stop.
+--
+-- Everything a chunk reads is a global, because that is what a chunk can reach:
+-- `lunctl` evaluates in the main state, and a local in this file is not in it.
 
+-- A global, not a local: a chunk is evaluated in the main state and cannot
+-- see this file's locals, so anything a chunk should reach is reached this way.
 lunette = require '@lunette'
 
 answer = 42

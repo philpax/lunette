@@ -1,9 +1,10 @@
 -- Covers lua/mullion/adopt.lua.
 --
--- A soft reload must apply an edited layout without disconnecting a client or
--- scrambling a hand-arranged workspace. The main cases cover both halves: a
--- hand-placed panel returns to its saved pose, and an unplaced window follows a
--- rule.
+-- The acceptance criterion is that a soft reload applies an edited layout
+-- without disconnecting a client and without scrambling a hand-arranged
+-- workspace, so the cases that matter most are the two halves of that: a panel
+-- the user placed by hand comes back where they left it, and a window nobody
+-- placed is placed by rule.
 --
 -- The reload itself is native and is exercised by `crates/lunette/tests/reload.rs`
 -- against a real session. What is reproduced here is the shape a reload leaves

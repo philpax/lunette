@@ -1,8 +1,8 @@
 -- The arc layout: panels on a curve around the user, facing inwards.
 --
--- docs/stdlib.md asks tier 3 for one layout function that arranges the current
--- tag's panels in an arc at a comfortable radius, and `apply` is that function
--- and the whole of tier 3's geometry.
+-- docs/stdlib.md's tier 3 minimum-viable line asks for one layout function that
+-- arranges the current tag's panels in an arc at a comfortable radius. This is
+-- that function, and it is the whole of tier 3's geometry.
 --
 -- Written from scratch. awesome's layouts are two-dimensional and GPL-2, so
 -- there is nothing there to reimplement even if the licence allowed it: an arc
@@ -13,9 +13,12 @@
 -- the point of a standard library that can be replaced piece by piece.
 --
 -- `mullion.layout.arc` is one of the two module paths docs/lua-api.md attests,
--- and it is attested as a call (`mullion.layout.arc(mullion.tag.current())`),
+-- and it is attested as a call — `mullion.layout.arc(mullion.tag.current())` —
 -- so the module is callable and `apply` is the same function under a name.
 --
+-- This module holds no state and starts nothing, so it registers no teardown
+-- hook: there is nothing a reload could leave behind.
+
 local tag = require '@mullion/tag'
 
 type Tuning = {
@@ -37,8 +40,10 @@ type Target = { Panel } | tag.Tag
 
 -- Everything the shape of the arc is tuned by, in one table.
 --
--- Tuning is a diff to this table rather than a search through functions for a
--- number.
+-- Feel accounts for most of the work at this tier, so a tuning pass is a diff to
+-- one table rather than a hunt through functions for a number. A caller wanting
+-- a different arc for one call passes its own numbers as `options` rather than
+-- editing this.
 local tuning: Tuning = {
   radius = 1.6,
   step = 0.55,
@@ -47,6 +52,8 @@ local tuning: Tuning = {
 }
 local arc = { TUNING = tuning }
 
+-- Declared here and defined below the public API, so the file reads
+-- surface-first.
 local angles
 
 -- The angle of each of `count` panels, in radians, centred on zero.
@@ -55,15 +62,17 @@ local angles
 -- at the arc's midpoint and two straddle it, and the step shrinks rather than
 -- the arc growing past `span`.
 --
--- `poses` turns these angles into matrices and `apply` writes them onto panels.
+-- Pure, and the whole of the layout's decision-making: `poses` turns these into
+-- matrices and `apply` writes those onto panels.
 function arc.angles(count: number, options: Options?): { number }
   return angles(count, options)
 end
 
 -- Where `count` panels go, as an array of fresh `Mat4`s.
 --
--- Each panel faces the centre. A quad drawn by `Pass:plane` faces +z, and a
--- panel at angle θ has its +z pointing back along the radius.
+-- Each faces the centre. A quad drawn by `Pass:plane` faces +z, and a panel at
+-- angle θ has its +z pointing back along the radius, so a panel is readable from
+-- the middle of the arc without the caller rotating it itself.
 --
 -- Fresh matrices rather than temporaries: LÖVR's temporary pool is drained at
 -- each frame boundary, and a caller holding a pose for longer than the frame it
@@ -77,10 +86,10 @@ function arc.poses(count: number, options: Options?): { Mat4 }
   local placed: { Mat4 } = {}
   for index, angle in ipairs(angles(count, options)) do
     -- The forward vector, yawed. Straight ahead is -z, as it is everywhere else
-    -- in LÖVR, and a yaw of `angle` about +y takes (0, 0, -1) to (-sin, 0,
-    -- -cos). The position and the orientation are therefore the same rotation
-    -- applied to two different things, and the panel's own +z points back down
-    -- the radius at the centre.
+    -- in LÖVR, and a yaw of `angle` about +y takes (0, 0, -1) to
+    -- (-sin, 0, -cos) — so the position and the orientation are the same
+    -- rotation applied to two different things, and the panel's own +z comes out
+    -- pointing back down the radius at the centre.
     placed[index] = lovr.math
       .newMat4()
       :translate(center[1] - math.sin(angle) * radius, center[2], center[3] - math.cos(angle) * radius)
@@ -92,7 +101,7 @@ end
 -- Arranges `target` in an arc and returns the panels it placed.
 --
 -- `target` is a tag, an array of tags, or an array of panels, which is what
--- `mullion.tag.panelsOf` accepts, so `arc(tag.current())` arranges every
+-- `mullion.tag.panelsOf` accepts — so `arc(tag.current())` arranges every
 -- selected tag's panels once each, and a tag that is not selected does not
 -- participate because `current` did not return it.
 --

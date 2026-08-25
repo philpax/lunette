@@ -4,18 +4,24 @@
 //! and it never submits: the queue belongs to the frame thread, and the frame
 //! thread is also what destroys what is created here.
 //!
+//! # Ownership across the two threads
+//!
 //! An image outlives the import that created it. LÖVR wraps it in a `Texture`
-//! whose view is retired through LÖVR's deferred queue, so `vkDestroyImage`
+//! whose view is retired through LÖVR's own deferred morgue, so `vkDestroyImage`
 //! must not run in the same tick. [`ImageArena`] is where the two threads meet:
 //! the compositor thread inserts and retires, the frame thread collects what was
 //! retired and destroys it once enough ticks have passed. Nothing else may hold
 //! a `vk::Image` from here.
 //!
-//! Disjoint dmabufs are rejected rather than imported. Handling one needs
-//! `VK_IMAGE_CREATE_DISJOINT_BIT`, an allocation per plane, and
-//! `vkBindImageMemory2` with `VkBindImagePlaneMemoryInfo`. Importing a disjoint
-//! buffer as though it were contiguous reads one plane's memory at another
-//! plane's offset, which produces a wrong picture rather than an error.
+//! # What is deliberately not handled
+//!
+//! A disjoint dmabuf — planes backed by different buffer objects — is rejected
+//! rather than imported. Handling one needs `VK_IMAGE_CREATE_DISJOINT_BIT`, an
+//! allocation per plane, and `vkBindImageMemory2` with
+//! `VkBindImagePlaneMemoryInfo`. Importing it as though it were contiguous
+//! would read one plane's memory at another plane's offset, which produces a
+//! picture rather than an error, and that is the worst of the outcomes
+//! available.
 
 use std::{
     collections::HashMap,

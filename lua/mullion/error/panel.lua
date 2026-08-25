@@ -1,20 +1,20 @@
 -- The floating error panel.
 --
 -- `docs/lua-api.md#errors` asks for three things at the callback boundary: a
--- log line, `lunette.onError`, and a panel. The first two belong to
--- `mullion.error`. This module is the third, separate for two reasons: drawing
--- needs a `Pass`, and `mullion.error` is loaded by sessions that have no
--- graphics module at all; and a configuration that wants its own error surface
--- can leave this one out rather than having to displace it.
+-- log line, `lunette.onError`, and a panel. The first two are `mullion.error`'s.
+-- This is the third, and it is separate for two reasons. Drawing needs a `Pass`,
+-- and `mullion.error` is loaded by sessions that have no graphics module at all;
+-- and a configuration that wants its own error surface should be able to leave
+-- this one out rather than having to displace it.
 --
 -- It is a drawn quad and not a `mullion.panel`: a `mullion.panel` binds a pixel
--- source (a window or a monitor) to a pose, and an error report is neither.
+-- source — a window or a monitor — to a pose, and an error report is neither.
 --
 -- What it shows is the most recent report and how many reports there have been.
--- Not a scrollback: a user reading an error in a headset wants the report that
--- is current, and the log is where the history lives. `mullion.error` has
--- already rate-limited by the time a report reaches here, so a defect raised
--- every frame updates this once per window rather than once per frame.
+-- Not a scrollback: a user reading an error in a headset wants the one that is
+-- happening, and the log is where the history is. `mullion.error` has already
+-- rate-limited by the time a report reaches here, so a defect raised every frame
+-- updates this once per window rather than once per frame.
 
 local errors = require '@mullion/error'
 local teardown = require '@mullion/teardown'
@@ -25,8 +25,8 @@ local panel = {}
 local wrap
 
 -- Where the panel sits, in metres. In front of the user at eye height and
--- nearer than a working panel usually is, because an error report should be
--- the easiest thing on screen to read.
+-- nearer than a working panel usually is, because an error is what the session
+-- most wants read.
 panel.X, panel.Y, panel.Z = 0, 1.4, -1.1
 
 -- How wide the panel is in metres, how tall a line of text is, and how many
@@ -108,7 +108,7 @@ end
 -- Shows `message`, replacing whatever was showing.
 --
 -- Public because a configuration may want to put something of its own on the
--- panel (a failed spawn, a save that did not write) without routing it through
+-- panel — a failed spawn, a save that did not write — without routing it through
 -- the error handler.
 function panel.show(message)
   latest = tostring(message)
@@ -132,8 +132,8 @@ end
 
 -- The lines the panel draws, which is the heading and the wrapped report.
 --
--- Pure, and separate from `draw` so that tests can assert what the panel says
--- without constructing a `Pass`.
+-- Pure, and separate from `draw` because what a panel decides to say is worth
+-- asserting without a `Pass` in the way.
 function panel.lines(): { string }
   if not latest then
     return {}

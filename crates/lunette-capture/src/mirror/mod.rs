@@ -1,20 +1,32 @@
 //! Linux-only: when a monitor's capture starts, and when it really stops.
 //!
-//! Capture starts when a monitor is mirrored and stops when it is dismissed.
+//! WayVR requests the portal from `ScreenCastBackend::init`
+//! (`overlays/screen/pw.rs:156-176`) at screen creation — eagerly, for every
+//! monitor, at startup — and its only notion of stopping is visibility:
+//! `after_input` pauses and resumes as alpha crosses 0.05
+//! (`backend/openxr/overlay.rs:208-223`). lunette asks for nothing until a
+//! monitor is first mirrored, and dismissing one tears its stream down.
 //!
 //! # Pause is not stop
 //!
-//! A temporarily hidden monitor is paused and keeps its stream. A dismissed
-//! monitor is stopped, which drops the stream and closes its resources.
+//! The distinction is the whole of `lunette-v1.AC3.5`. A panel that is
+//! temporarily out of view is paused: the stream stays, PipeWire deactivates it
+//! (`pipewire/capture.rs:144`), and resuming costs nothing. A dismissed monitor
+//! is stopped: the stream is dropped, which stops PipeWire's thread and closes
+//! its descriptors, so the mirror has no ongoing cost at all — which is what
+//! `docs/host-desktop.md:27` promises and what WayVR cannot do, since `pause()`
+//! is an empty no-op in three of its four backends.
 //!
 //! The portal session survives a dismissal. Re-adding the monitor opens a
 //! stream on the node the session already granted, so it does not prompt.
 //!
 //! # Nothing here blocks
 //!
-//! [`MirrorSet::mirror`] records what is wanted and returns.
-//! [`MirrorSet::poll`] advances the portal exchange without blocking, including
-//! while a user dialog is open.
+//! [`MirrorSet::mirror`] records what is wanted and returns. The portal
+//! exchange is advanced by [`MirrorSet::poll`], once a frame, and a dialog on
+//! the user's screen is an ordinary non-terminal progress rather than something
+//! to wait on. That is what keeps a first mirror — which may prompt — off a
+//! frame's critical path.
 //!
 //! # The roster arrives from outside
 //!
@@ -28,12 +40,13 @@
 //!
 //! A PipeWire stream negotiates against the DRM formats the importer accepts,
 //! and those are not known until LOVR has created a graphics device — several
-//! steps into the boot sequence. So a
-//! [`MirrorSet`] starts with [`NoStreams`] and installs the real source through
-//! [`MirrorSet::set_streams`] once the device exists.
+//! steps into the boot sequence, and long after this type exists. So a
+//! [`MirrorSet`] starts with [`NoStreams`] and the entry point installs the real
+//! source through [`MirrorSet::set_streams`] once the device exists. This is the
+//! same deferral the compositor thread uses, for the same reason.
 //!
 //! A monitor mirrored before then stays wanted, and [`MirrorSet::poll`] opens it
-//! when the source arrives.
+//! on the first frame after the source arrives.
 
 pub mod source;
 
@@ -107,9 +120,9 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Installs the source that opens capture streams.
     ///
-    /// Installs the source once the graphics device exists and the DRM formats
-    /// accepted by the importer are known. Replacing the source does not disturb
-    /// streams already open:
+    /// Called once, by the entry point, on the first frame at which the graphics
+    /// device exists and the DRM formats the importer accepts are therefore
+    /// known. Replacing the source does not disturb the streams already open:
     /// there are none, because a source that could open one is exactly what was
     /// missing.
     pub fn set_streams(&mut self, streams: Box<dyn MonitorStreams>) {
@@ -155,7 +168,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         &self.roster
     }
 
-    /// The portal used by this set.
+    /// The portal, for a caller that has to report on what it was asked.
     #[must_use]
     pub const fn portal(&self) -> &P {
         &self.portal
@@ -252,8 +265,9 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Advances the portal exchange, without blocking.
     ///
-    /// Advances the exchange without blocking. Every non-terminal progress,
-    /// including an unanswered dialog, is [`Progress::Waiting`].
+    /// Called once a frame. Every non-terminal progress — including a dialog the
+    /// user has not answered — is [`Progress::Waiting`], because there is
+    /// nothing for a caller to do about any of them.
     pub fn poll(&mut self) -> Progress {
         let SessionState::Requested(request) = self.session else {
             // A held session still has work on most frames only in one case:
@@ -362,7 +376,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     /// The tokens to persist, once something has changed them.
     ///
     /// Reported rather than written from here: this is a library, and where the
-    /// file location belongs to the application layer.
+    /// file lives is the entry point's knowledge.
     pub fn take_changed_tokens(&mut self) -> Option<&TokenStore> {
         mem::take(&mut self.tokens_changed).then_some(&self.tokens)
     }
@@ -461,8 +475,8 @@ enum SessionState {
     Held(Held),
     /// The last request failed.
     ///
-    /// Kept rather than falling back to [`Self::Idle`] so a monitor on a host
-    /// without a portal does not retry automatically.
+    /// Kept rather than falling back to [`Self::Idle`] so that a monitor
+    /// mirrored on a machine with no portal asks once, not once a frame.
     Failed(PortalError),
 }
 

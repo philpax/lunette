@@ -4,7 +4,7 @@
 //! The zero-setup provider, and the second the chain tries. It needs no
 //! permission and no kernel module, and its coordinate handling is better than
 //! uinput's: `motion_absolute` takes the extent on every call
-//! (as in WayVR), so nothing has to be recreated when the
+//! (`wl_virtual.rs:50-56` in WayVR), so nothing has to be recreated when the
 //! monitor layout changes.
 //!
 //! What it costs is portability. Both protocols are wlroots extensions,
@@ -17,13 +17,14 @@
 //! The provider owns a `wayland_client::EventQueue`, and its `commit` is a
 //! roundtrip on it. Nothing here may move between threads: a roundtrip from a
 //! second thread would interleave with the first thread's dispatch and read
-//! events belonging to it. WayVR declares `HidProvider: Sync + Send` and is
-//! thread-affine anyway; lunette's trait carries no
+//! events belonging to it. WayVR declares `HidProvider: Sync + Send`
+//! (`provider/mod.rs:8`) and is thread-affine anyway; lunette's trait carries no
 //! such bound, so the type does not have to lie about it.
 //!
 //! # Disconnection is ordinary
 //!
-//! WayVR panics when the host compositor goes away. A host
+//! WayVR panics when the host compositor goes away — `.unwrap()` on flush at
+//! `wl_virtual.rs:146` and `:176`, and on roundtrip at `:199` and `:204`. A host
 //! session ending is a normal event, and it must not abort the process. Every
 //! one of those returns [`ProviderError::Disconnected`] here, which
 //! [`crate::hid::HostInput`] turns into a degradation to the dummy provider with
@@ -106,7 +107,7 @@ pub struct WlVirtualProvider {
     /// The timestamp of the last request, in the protocol's milliseconds.
     ///
     /// Monotonic and lunette's own rather than the wall clock: WayVR stamps
-    /// every request with `SystemTime::now()`, so a
+    /// every request with `SystemTime::now()` (`wl_virtual.rs:253-258`), so a
     /// clock step backwards produces timestamps a compositor may reorder or
     /// discard.
     clock: u32,
@@ -347,7 +348,7 @@ impl HidProvider for WlVirtualProvider {
 ///
 /// Written out rather than taken from `wayland-server`'s enum, which is the only
 /// place the wayland crates define it and which this crate has no other reason
-/// to depend on. WayVR reaches through smithay for it.
+/// to depend on. WayVR reaches through smithay for it (`wl_virtual.rs:10`).
 const KEYMAP_FORMAT_XKB_V1: u32 = 1;
 
 /// How many `wl_pointer.axis` units one wheel detent is.

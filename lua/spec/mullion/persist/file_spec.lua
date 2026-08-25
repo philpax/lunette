@@ -1,14 +1,17 @@
 -- Covers the file half of lua/mullion/persist/init.lua: the path, the load, the
 -- save, and the refusal that keeps a file this version cannot read.
 --
--- A saved arrangement must be restored after a restart. One case writes a real
--- file into `lovr.filesystem`'s save directory, reads its bytes back off disk,
--- and restores from what it read. A table copied in memory would test less.
--- The other cases use the in-memory filesystem seam, so absent and unwritable
--- files do not depend on a real directory.
+-- The acceptance criterion the module carries is that a saved arrangement is
+-- restored after a restart, so one case writes a real file into
+-- `lovr.filesystem`'s save directory, reads its bytes back off disk, and
+-- restores from what it read. A table copied in memory would satisfy a weaker
+-- test and none of the criterion. Everything else runs against the in-memory
+-- filesystem the seam takes, so the cases about an absent or unwritable file do
+-- not depend on the state of a real directory.
 --
--- `spec/mullion/persist/arrangement_spec.lua` covers capture, restore, and the
--- rules source. `spec.mullion.persist.fixture` provides both sets of fakes.
+-- The other half — capture, restore, and the rules source — is
+-- `spec/mullion/persist/arrangement_spec.lua`, and the fakes both build are
+-- `spec.mullion.persist.fixture`.
 
 local expect = require '@spec/expect'
 local fixture = require '@spec/mullion/persist/fixture'
@@ -92,8 +95,10 @@ spec('a save after a load from a later version leaves the bytes on disk', functi
   local filesystem = newFilesystem(newer)
   persist.load(filesystem)
 
-  -- `capture` builds from live panels rather than from what was read, so the
-  -- refusal must also protect a later save in the same session.
+  -- `capture` is a second constructor of an arrangement, and it builds from live
+  -- panels rather than from what was read — so the type that stops the load
+  -- being rewritten does not reach here. Without the refusal the shipped
+  -- configuration's `lovr.quit` writes version 1 over the newer file.
   local saved, message = persist.save(persist.capture { fixture.newWindowPanel 'terminal' }, filesystem)
 
   expect.equal(saved, false, 'the outcome')
@@ -135,8 +140,9 @@ spec('a forced save clears the refusal it overrode', function()
 
   expect.equal(persist.save(persist.newFile {}, filesystem, { force = true }), true, 'the forced save')
 
-  -- A successful write proves that the newer file no longer exists, so later
-  -- saves must not retain the old refusal.
+  -- The write is this module's own proof of what is on disk, so a refusal about
+  -- a newer file that no longer exists would refuse every later save in the
+  -- session and report a condition that has gone.
   expect.falsy(persist.declined(), 'the refusal after the forced save')
   expect.equal(persist.save(persist.newFile { newEntry() }, filesystem), true, 'the save after it')
   expect.equal(filesystem.writes, 2, 'the writes')
@@ -149,7 +155,8 @@ spec('a load that could be used allows saving again', function()
   persist.load(filesystem)
   expect.truthy(persist.declined(), 'the refusal after the newer file')
 
-  -- Removing the newer file clears the refusal without overwriting it.
+  -- The user moved the newer file away, which is the way out of the refusal that
+  -- does not involve overwriting anything.
   filesystem.text = nil
   persist.load(filesystem)
 
@@ -163,8 +170,9 @@ spec('a load of a readable file in place of a newer one allows saving again', fu
   persist.load(filesystem)
   expect.truthy(persist.declined(), 'the refusal after the newer file')
 
-  -- Replacing the newer file with one this version reads also clears the refusal;
-  -- this exercises the readable-file path rather than the absent-file path.
+  -- The other way out: the newer file is replaced by one this version reads,
+  -- rather than removed. The load that reads it is what clears the refusal, and
+  -- the absent-file path above never runs.
   filesystem.text = persist.render(persist.newFile {})
   local loaded = persist.load(filesystem)
 
@@ -178,17 +186,20 @@ spec('the save path is under the save directory rather than the source', functio
   local path = persist.path()
 
   expect.equal(path, lovr.filesystem.getSaveDirectory() .. '/' .. persist.FILE, 'the path')
-  -- The save directory derives from the identity, while the source is the
-  -- configuration; asking for the save directory avoids writing into the config.
+  -- Not the configuration directory: the save directory derives from the
+  -- identity and the source is the config, so a path that was assumed rather
+  -- than asked for would write into the user's configuration.
   expect.falsy(path:find(lovr.filesystem.getSource() or 'nothing', 1, true), 'the source in the save path')
-  -- The data file must not be mistaken for a module by the require path.
+  -- No `.lua`, so a session cannot write something the require path resolves.
   expect.falsy(persist.FILE:find '%.lua$', 'a module extension')
 end)
 
 spec('an arrangement written to the save directory is restored by a later load', function()
   reset()
-  -- A saved arrangement must survive a restart, so this crosses the real
-  -- filesystem boundary: save writes bytes, and load restores what it reads.
+  -- The criterion is that a saved arrangement survives a restart, so this goes
+  -- through a real file: `persist.save` writes into `lovr.filesystem`'s save
+  -- directory, the bytes are read back off disk, and the restore is from what
+  -- was read rather than from the table that was written.
   local placed = lovr.math.newMat4():translate(-0.5, 1.75, -2.25)
   local screen = fixture.newMonitorPanel('Acme X24 on DP-1', { pose = placed, width = 1.6 })
   local main = tag.new 'main'
@@ -197,7 +208,8 @@ spec('an arrangement written to the save directory is restored by a later load',
   expect.equal(persist.save(persist.capture { screen }), true, 'the save')
   expect.truthy(lovr.filesystem.isFile(persist.FILE), 'the file in the save directory')
 
-  -- The session state is gone, so the recovered arrangement must come from disk.
+  -- Everything the session held, gone: the panels, the tags, and the arrangement
+  -- object. What comes back has to come back off disk.
   reset()
 
   local recovered = persist.load():forSession()

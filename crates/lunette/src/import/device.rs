@@ -2,25 +2,27 @@
 //!
 //! lunette never creates a device. LÖVR does that, and this module wraps the
 //! handles it exposes so the import path can issue its own Vulkan calls against
-//! them. The wrapper has no destructor; `vkDestroyDevice` and `vkDestroyInstance`
-//! are never called from here.
+//! them. Borrowed means borrowed: [`GraphicsDevice`] has no destructor, and
+//! `vkDestroyDevice` and `vkDestroyInstance` are never called from here.
 //!
-//! ## Extension verification
+//! # Why the extensions are verified rather than assumed
 //!
-//! `ash::Instance::load` and `ash::Device::load` cannot fail. An unresolved
-//! function pointer becomes a stub that panics when called, so a missing
-//! extension would surface in the middle of a frame. The only defence is to ask
-//! what was enabled, which is what the five booleans on LÖVR's `GraphicsFeatures`
-//! are for, and to refuse construction with a message naming the extension that
-//! is absent.
+//! `ash::Instance::load` and `ash::Device::load` cannot fail. A function
+//! pointer the loader could not resolve becomes a stub that panics when it is
+//! called (`ash-0.38.0/src/extensions_generated.rs:12032`), so a missing
+//! extension does not surface at construction — it surfaces as a panic in the
+//! middle of a frame. The only defence is to ask what was enabled, which is
+//! what the five booleans on LÖVR's `GraphicsFeatures` are for, and to refuse
+//! construction with a message naming the extension that is absent.
 //!
-//! ## Vulkan version constraints
+//! # Vulkan 1.1 is the ceiling as well as the floor
 //!
-//! LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` (`gpu_vk.c`). Everything
-//! this module calls is therefore either Vulkan 1.1 core — `vkGetPhysicalDeviceProperties2`,
-//! `vkGetPhysicalDeviceFormatProperties2`, `vkGetImageMemoryRequirements2`,
-//! `vkBindImageMemory2`, all without a `KHR` suffix — or an extension entry point
-//! loaded explicitly. A 1.2 or 1.3 call would compile, load, and panic.
+//! LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` (`gpu_vk.c:3089`).
+//! Everything this module calls is therefore either Vulkan 1.1 core —
+//! `vkGetPhysicalDeviceProperties2`, `vkGetPhysicalDeviceFormatProperties2`,
+//! `vkGetImageMemoryRequirements2`, `vkBindImageMemory2`, all without a `KHR`
+//! suffix — or an extension entry point loaded explicitly. A 1.2 or 1.3 call
+//! would compile, load, and panic.
 
 use std::{fmt, mem::MaybeUninit, sync::Arc};
 
@@ -57,8 +59,9 @@ impl GraphicsDevice {
     ///
     /// # Errors
     ///
-    /// Reports why import is impossible: an uninitialised graphics module, an
-    /// unavailable Vulkan loader, an old device, or a missing extension.
+    /// Reports the first thing that makes import impossible: the graphics
+    /// module not being initialised, a Vulkan loader that could not be opened,
+    /// a device below Vulkan 1.1, or any of the five extensions being absent.
     ///
     /// # Safety
     ///
@@ -191,7 +194,7 @@ impl ImportExtensions {
     /// What LÖVR reports it enabled.
     fn from_lovr() -> Self {
         // Zeroed rather than uninitialised: `lovrGraphicsGetFeatures`
-        // (`graphics.c`) assigns every field today, but the struct
+        // (`graphics.c:985-1002`) assigns every field today, but the struct
         // grows upstream, and a zero byte is a valid `false` while an
         // uninitialised one is not a valid `bool` at all.
         let mut features = MaybeUninit::<GraphicsFeatures>::zeroed();
@@ -323,9 +326,9 @@ fn query_render_node(
     }
 }
 
-/// The formats and modifiers the device accepts for import.
+/// The formats and modifiers the device will actually accept an import in.
 ///
-/// Two filters are needed. The modifier list on
+/// Two filters, and both are needed. The modifier list on
 /// `vkGetPhysicalDeviceFormatProperties2` says a modifier exists for the
 /// format; it says nothing about whether an image can be created with it at the
 /// tiling and usage lunette declares, which is what the per-candidate
@@ -450,9 +453,11 @@ fn importable(
 
 /// The usage every imported image is created with.
 ///
-/// It must match what [`crate::texture`] declares to `lovrTextureCreate`.
-/// LÖVR does not validate an imported image's usage, so a mismatch surfaces as
-/// a failed image-view creation inside LÖVR.
+/// It must match what [`crate::texture`] later declares to `lovrTextureCreate`.
+/// LÖVR never validates an imported image's usage — it builds a
+/// `VkImageViewUsageCreateInfo` from the declaration alone (`gpu_vk.c:838-846`)
+/// — so a mismatch surfaces as a failed `vkCreateImageView` inside LÖVR rather
+/// than as anything this crate can report.
 pub(crate) const IMPORT_USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::from_raw(
     vk::ImageUsageFlags::SAMPLED.as_raw()
         | vk::ImageUsageFlags::TRANSFER_SRC.as_raw()

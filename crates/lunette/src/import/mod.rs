@@ -4,8 +4,8 @@
 //! This is the implementation of `lunette-compositor`'s [`BufferImporter`]
 //! seam, and it lives here rather than there for one reason: the compositor
 //! crate must not gain a graphics dependency, because its tests have to run
-//! with no device, no XR runtime, and no headset attached. All Vulkan code stays
-//! on this side of that boundary.
+//! with no device, no XR runtime, and no headset attached (`AC9.4`). Everything
+//! Vulkan is on this side of that line.
 //!
 //! Three concerns, one per submodule. [`device`] borrows the device LÖVR
 //! created and verifies it can do what is about to be asked of it. [`formats`]

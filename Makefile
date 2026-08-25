@@ -1,8 +1,26 @@
-# Build and install lunette's binaries, LÖVR libraries, Lua standard library,
-# and default configuration; Cargo does not install these runtime files.
-# PREFIX and SYSCONFDIR are compiled into the binary as defaults, so the build
-# and install must use the same values. DESTDIR prefixes staged outputs only and
-# is never compiled into the program.
+# Building and installing lunette.
+#
+# Cargo builds the binary; this exists for the part Cargo does not do, which is
+# putting the runtime files where a session that did not build in place can find
+# them. docs/build-and-development.md states the paths, and this is what
+# realises them.
+#
+# Three sets ship:
+#
+#   $(PREFIX)/bin/lunette              the binary
+#   $(PREFIX)/bin/lunctl               the control client
+#   $(PREFIX)/lib/lunette/             LOVR and the shared libraries it needs
+#   $(PREFIX)/share/lunette/lua/       the mullion standard library
+#   $(SYSCONFDIR)/xdg/lunette/         the default configuration
+#
+# PREFIX and SYSCONFDIR reach the binary as LUNETTE_PREFIX and
+# LUNETTE_SYSCONFDIR, which crates/lunette/src/main.rs reads through
+# `option_env!` and compiles in as the defaults it resolves against. That is why
+# a build and the install that follows it have to be told the prefix once, here,
+# rather than twice.
+#
+# DESTDIR is honoured for staged installs, per the GNU conventions: it prefixes
+# every destination and is never compiled into anything.
 
 PREFIX ?= /usr/local
 SYSCONFDIR ?= /etc
@@ -36,13 +54,18 @@ all: build
 build:
 	$(CARGO) build --profile $(PROFILE) --workspace
 
-# Expose each standing check as a repeatable target.
+# The standing checks CONTRIBUTING.md lists, in the order .github/workflows/ci.yml
+# runs them. Each is its own target so that a failure can be repeated on its own.
 check: check-format check-rust check-definitions check-luau
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
 	stylua --check lua etc/xdg/lunette
 
+# Split in two because clippy and the tests share no artifacts — clippy builds
+# through RUSTC_WORKSPACE_WRAPPER and keeps its own — so CI runs the halves as
+# separate jobs at the same time. `check-rust` runs both, which is what a
+# contributor wants.
 check-rust: check-clippy check-test
 
 check-clippy:
@@ -53,20 +76,31 @@ check-test:
 	$(CARGO) test --workspace
 	$(CARGO) test --workspace --no-default-features
 
-# Generated definitions and module declarations are checked in and must be
-# current. The checker includes only the ordinary spec modules, not the specs
-# or their dynamic-require runner.
+# Both generated files are checked in — the LOVR definitions from lovr-docs, and
+# the `lunette` module from the Rust registration surface — so a stale artifact is
+# a failure rather than something to notice later.
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 
+# `lua/spec/suite.lua` and `lua/spec/expect.lua` are in: they are ordinary
+# modules. The specs themselves and `lua/spec/runner.lua` are not; see
+# CONTRIBUTING.md.
 check-luau:
 	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
 
 install: install-binary install-lua install-config
 
-# Locate the newest staged liblovr.so because Cargo puts each build-script
-# output under a metadata directory. Install its libraries flat: the binary
-# and liblovr.so use relative rpaths that resolve this layout.
+# The LOVR libraries are found rather than named, because cmake stages them under
+# a directory whose name carries a Cargo metadata hash. `liblovr.so` is the one
+# fixed point in that tree, so its directory is what the search returns.
+#
+# They are installed flat. `liblovr.so` is linked with an rpath of
+# `$$ORIGIN/bin:$$ORIGIN`, and the binary with one that reaches this directory,
+# so a flat directory resolves for both without a nested `bin` inside a `lib`.
+#
+# The newest is taken, not the first: a tree that has been built under two sets
+# of build-script inputs holds one staged directory per fingerprint, and the one
+# the build above produced is the one just written.
 lovr_build := $(shell find $(build_dir)/build -maxdepth 4 -name liblovr.so -printf '%T@ %h\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
 
 install-binary: build
@@ -78,9 +112,14 @@ install-binary: build
 	$(INSTALL_PROGRAM) $(lovr_build)/liblovr.so $(libdir)/liblovr.so
 	$(INSTALL_PROGRAM) $(lovr_build)/bin/* $(libdir)/
 
-# Do not install specs. Walk the tree rather than listing modules so new
-# subdirectories are included; otherwise an omitted module works in-place
-# but fails in an installed session.
+# `lua/spec/` is deliberately not installed: the tests cover the standard library
+# and are not part of it.
+#
+# The tree is walked rather than listed, so a module added under a new
+# subdirectory is installed without this rule being remembered. A file the rule
+# missed resolves in the working tree — where LUNETTE_STDLIB_PATH points during
+# development — and is absent from an installed session, which is the worst shape
+# a defect can take.
 install-lua:
 	@set -e; \
 	cd lua && find mullion -type f -name '*.lua' | while read -r file; do \

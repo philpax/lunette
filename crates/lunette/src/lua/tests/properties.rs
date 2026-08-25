@@ -3,8 +3,8 @@
 //! The store itself is tested in `crates/lunette/src/properties.rs`, which needs
 //! no Lua state at all. What is here is the boundary: what a configuration is
 //! allowed to store, what it is told when it stores something else, and — the
-//! reason the store exists — what survives after the Lua state has been
-//! thrown away and rebuilt.
+//! whole reason the store exists — what is still there after the Lua state has
+//! been thrown away and rebuilt.
 
 use lunette_compositor::protocol::PixelSize;
 use pretty_assertions::assert_eq;
@@ -13,7 +13,9 @@ use crate::lua::tests::{error, lua, run, session, snapshot, window};
 
 #[test]
 fn a_stored_value_survives_the_lua_state_being_discarded() {
-    // Simulate a soft reload by rebuilding the Lua state against the same session.
+    // The soft reload, simulated: the Lua state goes and another is built
+    // against the same session, which is what `boot.rs` does for a restart and
+    // what Phase 7's reload does without even rebuilding the session.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
 
     {
@@ -39,14 +41,14 @@ fn a_stored_value_survives_the_lua_state_being_discarded() {
     assert!(by_hand);
     assert_eq!(
         id, 1,
-        "re-associating with a window after a reload relies on the identifier being the same one"
+        "re-associating with a window after a reload rests on the identifier being the same one"
     );
 }
 
 #[test]
 fn a_window_identifier_is_the_same_after_a_reload() {
-    // Stated on its own because the whole reload story relies on it and nothing
-    // else in the suite says so. The compositor thread does not restart by a
+    // Stated on its own because the whole reload story rests on it and nothing
+    // else in the suite says so. The compositor thread is not restarted by a
     // soft reload, so the identifiers it minted are the identifiers it keeps.
     let session = session(vec![
         window(4, "editor", "foot", PixelSize::new(64, 32)),
@@ -159,7 +161,7 @@ fn every_key_a_window_holds_can_be_enumerated() {
 fn a_windows_properties_go_when_the_window_does() {
     // Entries live as long as the window, not as long as the Lua state. The
     // frame the window closes in still answers, because that is the frame
-    // `lunwindowclosed` dispatches in and a handler tidying up after a panel
+    // `lunwindowclosed` is dispatched in and a handler tidying up after a panel
     // reads them there.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
@@ -176,7 +178,7 @@ fn a_windows_properties_go_when_the_window_does() {
     assert_eq!(
         during,
         Some("0 1 0".to_owned()),
-        "the closed-window handler runs in this frame and is what reads them"
+        "the closed-window handler runs in this frame and is what wants to read them"
     );
 
     session.begin(snapshot(Vec::new(), Vec::new()));

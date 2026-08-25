@@ -1,13 +1,22 @@
 //! Linux-only: how an imported image is handed between Vulkan queues.
 //!
-//! The acquire layout and source queue family are runtime settings so they can
-//! be varied without rebuilding. Argument selection is separate from barrier
-//! recording, which keeps it pure and testable without a device.
+//! Neither the layout to acquire from nor the queue family to acquire from is
+//! settled, and both are what milestone 0 exists to measure. They are therefore
+//! runtime settings on [`BarrierPolicy`] rather than constants, so a run can
+//! answer the question without a rebuild.
+//!
+//! The choice of arguments is separate from recording the barrier, so that it
+//! is a pure function of the policy and testable without a device.
 
 use ash::vk;
 use tracing::warn;
 
-/// Runtime choices for barriers around an imported texture.
+/// How the barrier around an imported texture is recorded.
+///
+/// Both fields are open questions rather than settled ones, which is why they
+/// are runtime settings. `docs/2026-08-06-milestone-0-findings.md` is where the
+/// answers go, and a run has to be able to try the other value without a
+/// rebuild to produce them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BarrierPolicy {
     pub source_family: QueueFamilyMode,
@@ -15,8 +24,12 @@ pub struct BarrierPolicy {
 }
 
 impl BarrierPolicy {
-    /// Reads optional settings, warning and falling back to the default for
-    /// each unrecognised value.
+    /// Reads a policy from two optional settings, falling back to the default
+    /// for anything unrecognised.
+    ///
+    /// Unrecognised rather than rejected: this is a diagnostic switch, and a
+    /// typo in it should not stop a session starting. The fallback is reported
+    /// so a run that thought it was measuring the other value finds out.
     #[must_use]
     pub fn from_settings(family: Option<&str>, layout: Option<&str>) -> Self {
         let source_family = family.map_or_else(QueueFamilyMode::default, |value| {
@@ -38,28 +51,37 @@ impl BarrierPolicy {
         }
     }
 
-    /// The layout named as the acquire barrier's `oldLayout`.
+    /// The layout the acquire takes the image to be in.
+    ///
+    /// The measurable half of the policy: an acquire may legally name
+    /// `UNDEFINED` here, and doing so is what asks the driver whether it
+    /// discards the client's content.
     #[must_use]
     fn acquire_layout(self) -> vk::ImageLayout {
         self.old_layout.layout()
     }
 
-    /// The layout named as the release barrier's `newLayout`.
+    /// The layout the release hands the image back in.
     ///
-    /// `UNDEFINED` is forbidden for `newLayout`, so release always uses
-    /// `GENERAL`, regardless of the acquire layout.
+    /// `GENERAL` whatever the policy says, because this is a barrier's
+    /// `newLayout` and VUID-VkImageMemoryBarrier2-newLayout-01198 forbids
+    /// `UNDEFINED` there. It is also the layout the image is genuinely in: a
+    /// producer outside Vulkan has no other, which is why it is what
+    /// [`ForeignLayout::General`] names on the way in.
     const RELEASE_LAYOUT: vk::ImageLayout = vk::ImageLayout::GENERAL;
 }
 
 /// Which queue family an imported image is acquired from.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum QueueFamilyMode {
-    /// `VK_QUEUE_FAMILY_FOREIGN_EXT`: ownership transfer from a producer outside
-    /// Vulkan. This is the specification-described default.
+    /// `VK_QUEUE_FAMILY_FOREIGN_EXT`: a real ownership transfer from a producer
+    /// outside Vulkan, which is what a client's dmabuf is. The default because
+    /// it is what the specification describes.
     #[default]
     Foreign,
-    /// `VK_QUEUE_FAMILY_IGNORED`: no ownership transfer. This matches WayVR's
-    /// runtime policy.
+    /// `VK_QUEUE_FAMILY_IGNORED`: no ownership transfer at all. What WayVR does,
+    /// and it works on Mesa; whether that is the driver being lenient is the
+    /// question.
     Ignored,
 }
 
@@ -85,12 +107,15 @@ impl QueueFamilyMode {
 /// The layout an imported image is taken to be in before the acquire.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ForeignLayout {
-    /// `VK_IMAGE_LAYOUT_GENERAL`, the default layout for an image written by a
-    /// producer outside Vulkan.
+    /// `VK_IMAGE_LAYOUT_GENERAL`. The default: a DRM-modifier image written by
+    /// a producer outside Vulkan has no other meaningful layout, and an
+    /// ownership acquire from a non-`UNDEFINED` layout preserves its contents.
     #[default]
     General,
-    /// `VK_IMAGE_LAYOUT_UNDEFINED`. Legal for acquire `oldLayout` and permits
-    /// the driver to discard the client's rendered content.
+    /// `VK_IMAGE_LAYOUT_UNDEFINED`. Legal, and permits the driver to discard
+    /// the client's rendered content — which is the whole reason
+    /// `TextureInfo.foreign` exists. Available only so a run can confirm the
+    /// discard happens rather than assuming it.
     Undefined,
 }
 
@@ -113,16 +138,22 @@ impl ForeignLayout {
     }
 }
 
-/// The layout and queue-family arguments recorded for an import barrier.
+/// The two integers an import barrier is recorded with.
 ///
-/// Named fields prevent transposing the two `u32` values at the FFI boundary.
+/// Named fields rather than a pair, because both are `u32` and the FFI call
+/// takes them positionally: a transposition would compile and record a barrier
+/// naming a queue family index as a layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct BarrierArguments {
     pub(super) layout: u32,
     pub(super) queue_family: u32,
 }
 
-/// The arguments recorded for the acquire barrier.
+/// The arguments the acquire barrier is recorded with.
+///
+/// Separate from [`LovrTexture::acquire`] so the choice is a pure function of
+/// the policy: recording the barrier needs a device and this does not, which is
+/// what makes the choice testable.
 pub(super) fn acquire_arguments(policy: BarrierPolicy) -> BarrierArguments {
     BarrierArguments {
         layout: policy.acquire_layout().as_raw().unsigned_abs(),
@@ -130,10 +161,12 @@ pub(super) fn acquire_arguments(policy: BarrierPolicy) -> BarrierArguments {
     }
 }
 
-/// The arguments recorded for the release barrier.
+/// The arguments the release barrier is recorded with.
 ///
-/// The release layout is always [`BarrierPolicy::RELEASE_LAYOUT`]; the policy's
-/// acquire layout must not reach the release barrier.
+/// The layout is [`BarrierPolicy::RELEASE_LAYOUT`] whatever the policy says.
+/// This is a barrier's `newLayout`, where `UNDEFINED` is forbidden, so the
+/// policy's own layout must not reach here. As [`acquire_arguments`], separate
+/// so that is testable without a device.
 pub(super) fn release_arguments(policy: BarrierPolicy) -> BarrierArguments {
     BarrierArguments {
         layout: BarrierPolicy::RELEASE_LAYOUT.as_raw().unsigned_abs(),
@@ -168,8 +201,12 @@ mod tests {
 
     #[test]
     fn a_release_hands_the_image_back_in_a_layout_a_barrier_may_name() {
-        // Release always uses `GENERAL`; the configured layout applies only to
-        // acquire because `UNDEFINED` is forbidden as a barrier destination.
+        // The regression: the release passed the policy's own layout as the
+        // barrier's `newLayout`, so `LUNETTE_IMPORT_LAYOUT=undefined` recorded
+        // `VK_IMAGE_LAYOUT_UNDEFINED` as a destination, which
+        // VUID-VkImageMemoryBarrier2-newLayout-01198 forbids. Asserting on the
+        // arguments the call is made with, rather than on the constant, is what
+        // makes reintroducing the switch on the release side fail here.
         for old_layout in [ForeignLayout::General, ForeignLayout::Undefined] {
             let policy = BarrierPolicy {
                 source_family: QueueFamilyMode::Foreign,

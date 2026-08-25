@@ -1,25 +1,26 @@
 //! Linux-only: a LÖVR `Texture` over an imported image or an uploaded buffer.
 //!
-//! ## LÖVR assumptions for foreign images
+//! # What LÖVR believes about a foreign image
 //!
-//! `gpu_texture_init`'s handle branch (`gpu_vk.c`) creates nothing and binds
-//! nothing. Every assumption it makes is the caller's to satisfy, and four of
-//! them are load-bearing here.
+//! `gpu_texture_init`'s handle branch (`gpu_vk.c:687-695`) creates nothing and
+//! binds nothing. Every assumption it makes is the caller's to satisfy, and
+//! four of them are load-bearing here.
 //!
-//! - **Usage.** LÖVR builds a `VkImageViewUsageCreateInfo` from the declared usage
-//!   without checking the image (`gpu_vk.c`), so the declaration below and
-//!   [`crate::import::device::IMPORT_USAGE`] have to agree.
-//! - **Layout.** `texture->layout = getNaturalLayout(info->usage)` (`gpu_vk.c`)
-//!   is set at creation and never questioned again. Declaring `TEXTURE_SAMPLE |
-//!   TEXTURE_TRANSFER` makes it `VK_IMAGE_LAYOUT_GENERAL`, which is the layout an
-//!   image written outside Vulkan is in and the one `lovrTextureCopy` needs.
+//! - **Usage.** LÖVR builds a `VkImageViewUsageCreateInfo` from the declared
+//!   usage without checking the image (`gpu_vk.c:838-846`), so the declaration
+//!   below and [`crate::import::device::IMPORT_USAGE`] have to agree.
+//! - **Layout.** `texture->layout = getNaturalLayout(info->usage)`
+//!   (`gpu_vk.c:673`) is set at creation and never questioned again. Declaring
+//!   `TEXTURE_SAMPLE | TEXTURE_TRANSFER` makes it `VK_IMAGE_LAYOUT_GENERAL`,
+//!   which is the layout an image written outside Vulkan is in and the one
+//!   `lovrTextureCopy` needs.
 //! - **Format.** LÖVR takes `convertFormat(info->format, info->srgb)` to be the
 //!   image's real format and has no way to detect otherwise.
 //! - **Memory.** LÖVR sets `texture->memory = NULL` and `imported = true`, and
-//!   `gpu_texture_destroy` (`gpu_vk.c`) returns after destroying the view. So
-//!   `vkDestroyImage` and `vkFreeMemory` are lunette's, and the ledger keeps
-//!   track of image lifetimes so they do not run while the view is still alive in
-//!   LÖVR's deferred queue.
+//!   `gpu_texture_destroy` (`gpu_vk.c:879-885`) returns after destroying the
+//!   view. So `vkDestroyImage` and `vkFreeMemory` are lunette's, and the
+//!   morgue the ledger keeps is what stops them running while the view is
+//!   still in LÖVR's own deferred queue.
 
 #[cfg(test)]
 mod tests;
@@ -87,7 +88,8 @@ impl LovrTexture {
     ///
     /// The shared-memory path. LÖVR's own upload machinery is what does the
     /// work, so the copy is batched into the frame's stream rather than
-    /// submitted on its own — unlike WayVR's blocking submit.
+    /// submitted on its own — which is the departure from WayVR's blocking
+    /// submit at `image_importer.rs:96-97`.
     ///
     /// # Safety
     ///
@@ -270,7 +272,7 @@ impl LovrTexture {
     ///
     /// The encoding is deliberately not part of the question. `lovrTextureCopy`
     /// branches on `src->info.format != dst->info.format` alone
-    /// (`graphics.c`), so two textures of one format and differing sRGB
+    /// (`graphics.c:2973`), so two textures of one format and differing sRGB
     /// flags take `gpu_copy_textures`, which needs no `GPU_FEATURE_BLIT`.
     /// Asking for it anyway would demote a panel on a device that would have
     /// served it.
@@ -293,7 +295,7 @@ impl LovrTexture {
     /// thing is a second thing to get wrong.
     fn shape(&self) -> Option<TextureShape> {
         // SAFETY: the pointer is a live texture, and `lovrTextureGetInfo`
-        // returns a borrow of the info inside it (`graphics.c`) which
+        // returns a borrow of the info inside it (`graphics.c:2920-2922`) which
         // is read before anything can free it.
         let info = unsafe { lovrTextureGetInfo(self.raw.as_ptr()).as_ref() }?;
         Some(TextureShape {
@@ -310,7 +312,7 @@ impl LovrTexture {
     /// The size ladder rounds up — an 800x600 window is served by a 1024x1024
     /// layer — and [`CopyableTexture::copy_to`] writes only the region the two
     /// textures share. `lovrLayerCreate` sets `subImage.imageRect` to the whole
-    /// image (`headset.c`), so without a viewport the runtime composites
+    /// image (`headset.c:3148`), so without a viewport the runtime composites
     /// the margin as well, and a swapchain image nothing has written holds
     /// uninitialised Vulkan memory. Clearing once at creation would not answer
     /// it either: a swapchain holds up to `MAX_IMAGES` images and each frame
@@ -388,7 +390,7 @@ impl CopyableTexture for LovrTexture {
     ///
     /// The extent is the region the two textures share, computed here rather
     /// than left as the `~0` that asks LÖVR for it. `lovrTextureCopy` resolves
-    /// `~0` against both textures (`graphics.c`), but when the
+    /// `~0` against both textures (`graphics.c:2977-2979`), but when the
     /// formats differ it hands the same array to `lovrTextureBlit` as both the
     /// source and the destination extent — so the source's size is resolved
     /// first and the destination is then told to take that many pixels
@@ -452,7 +454,7 @@ struct TextureShape {
 ///
 /// The format alone, because that is what the function branches on:
 /// `if (src->info.format != dst->info.format) return lovrTextureBlit(...)`
-/// (`graphics.c`). Two textures of one format and differing sRGB flags
+/// (`graphics.c:2973`). Two textures of one format and differing sRGB flags
 /// take `gpu_copy_textures`, which needs no `GPU_FEATURE_BLIT`. Predicting the
 /// branch rather than restating it is what keeps this from refusing a copy the
 /// device would have made.
@@ -475,7 +477,7 @@ fn covers(source: TextureShape, destination: TextureShape) -> bool {
 /// Whether the device can blit a texture of this shape.
 ///
 /// `lovrGraphicsGetFormatSupport` answers with one bit per encoding —
-/// `graphics.c` walks `state.features.formats[format][srgb]` and
+/// `graphics.c:1049-1062` walks `state.features.formats[format][srgb]` and
 /// shifts the result into bit `srgb` — so the sRGB flag selects the bit.
 fn blit_supported(shape: TextureShape) -> bool {
     // SAFETY: LÖVR's graphics module is initialised, because a texture with
@@ -488,9 +490,9 @@ fn blit_supported(shape: TextureShape) -> bool {
 ///
 /// `TEXTURE_SAMPLE | TEXTURE_TRANSFER` rather than `TEXTURE_SAMPLE` alone, for
 /// two reasons that both matter. It makes `getNaturalLayout` return
-/// `VK_IMAGE_LAYOUT_GENERAL` (`gpu_vk.c`), which is the layout a
+/// `VK_IMAGE_LAYOUT_GENERAL` (`gpu_vk.c:4286-4295`), which is the layout a
 /// foreign image is actually in. And it takes the texture out of the
-/// sample-only exemption at `graphics.c`, giving it a real `Sync`
+/// sample-only exemption at `graphics.c:2647-2657`, giving it a real `Sync`
 /// object so it participates in `syncStream` — which is what a `lovrTextureCopy`
 /// source needs, and `window:stabilize()` is exactly that copy.
 fn texture_info(size: PixelSize, format: TextureFormat, handle: u64, foreign: bool) -> TextureInfo {

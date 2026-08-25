@@ -1,6 +1,14 @@
 -- Runs the lua/spec/ suite inside the real binary.
 --
--- The suite runs through the standard-library mount used by the session.
+-- The suite lives in the repository's `lua/` tree, which reaches this session
+-- through LUNETTE_STDLIB_PATH, so `@spec/runner` and `@mullion/signal` both
+-- resolve through the same mount a session resolves the standard library
+-- through. That is deliberate: the specs run against the tree as it is
+-- installed rather than against a copy assembled for them.
+--
+-- The devshell ships no standalone LuaJIT, and the mount is LÖVR's virtual
+-- filesystem rather than the process's, so there is nowhere else this could
+-- run. crates/lunette/tests/mullion_spec.rs is the caller.
 
 -- Where the specs are, as a path in the virtual filesystem and as the module
 -- prefix that path is reached by. The explicit mount point is the filesystem
@@ -27,7 +35,10 @@ local filesystem = {
     end,
 }
 
--- Drain temporary vectors between cases because this run has no frame boundary.
+-- LÖVR hands out temporary vectors from a fixed pool and drains it at each
+-- frame boundary. This run never reaches one, so it drains between cases; a
+-- panel spec raycasting a few dozen times would otherwise exhaust the pool part
+-- way through the suite and fail as arithmetic rather than as a full pool.
 local function drainTemporaries()
     if lovr.math and lovr.math.drain then
         lovr.math.drain()

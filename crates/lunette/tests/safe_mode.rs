@@ -1,7 +1,7 @@
 //! Safe mode, established by actually breaking a configuration.
 //!
-//! This covers what a user gets when their `main.lua` does not load, and the
-//! only way to establish it is to hand the real binary a
+//! `lunette-v1.AC8.4` is about what a user gets when their `main.lua` does not
+//! load, and the only way to establish it is to hand the real binary a
 //! `main.lua` that does not load. The unit cases in
 //! `crates/lunette/src/safe_mode.rs` drive the chunk and the trigger against
 //! fakes; these drive a whole session, so the load failure is one `boot.lua`
@@ -51,8 +51,9 @@ const POLL: Duration = Duration::from_millis(20);
 /// be confused with LÖVR's own 1 or with a signal.
 const STOPPED: i32 = 7;
 
-/// A `main.lua` that does not compile produces safe mode, which is a running
-/// session with a panel and a reload key rather than a black headset.
+/// `lunette-v1.AC8.4`: a `main.lua` that does not compile produces safe mode,
+/// which is a running session with a panel and a reload key rather than a black
+/// headset.
 #[test]
 fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
     let mut session = Session::start("safe-mode");
@@ -198,7 +199,7 @@ impl Session {
     ///
     /// The socket appearing is not that condition. It is bound before the Lua
     /// state boots, so that a failure to bind is reported among the other
-    /// startup failures (`crates/lunette/src/main.rs`) — which is before
+    /// startup failures (`crates/lunette/src/main.rs:188`) — which is before
     /// `main.lua` is loaded, before it fails, and before safe mode replaces it.
     /// A test that started asking then would be racing the boot it is meant to
     /// be asserting the outcome of.

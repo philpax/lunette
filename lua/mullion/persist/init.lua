@@ -1,13 +1,41 @@
--- Arrangements that survive a hard restart. The native property store covers a
--- soft reload, while this file survives with the compositor gone. Entries use a
--- window's `appId` and slot, or a monitor's saved identity, rather than
--- compositor-local window IDs.
--- A mirrored monitor has no native per-source property-store API, so its pose
--- persists here until that native API can represent it.
--- Restore is a `mullion.rules` source, so configuration controls its precedence.
--- `mullion.persist.format` owns the text format; this module owns filesystem I/O,
--- reporting, and conversion to panels. The file lives in the identity's save
--- directory, not beside the configuration.
+-- Arrangements that outlive the process.
+--
+-- docs/stdlib.md's tier 3, the part that survives a restart. The native property
+-- store keeps live per-window state across a soft reload, which discards the Lua
+-- state and keeps the compositor; this keeps what is worth keeping across a hard
+-- restart, which discards the compositor too. The two are different lifetimes
+-- and different mechanisms, and neither replaces the other: a `WindowId` names
+-- nothing after a restart, so what is written here is keyed on something the
+-- compositor did not mint — a window's `appId` plus a slot, and a monitor's
+-- saved identity.
+--
+-- A mirrored screen has no per-source native store at all: `lunette.claimLayer`
+-- and the property store both take a window and nothing else, so a monitor
+-- panel's hand-placed pose has nowhere to live but this file. That is a gap in
+-- the native API rather than a decision made here, and until it closes this is
+-- the only thing keeping a mirrored screen where the user put it.
+--
+-- Restore is a source for `mullion.rules` rather than a special case inside it.
+-- After a restart a window that was hand-placed should come back where it was,
+-- and a window opening fresh should be placed by rule; the two answers arrive
+-- from two sources and the configuration declares which wins, rather than one
+-- being buried in the other's ordering.
+--
+-- `mullion.persist.format` is the file's text and its versions, and it is pure.
+-- This half is the shell: it reads and writes, reports what it could not use,
+-- and turns entries into panels. The format's surface is re-exported here, so a
+-- configuration requires one module.
+--
+-- The file is written to `lovr.filesystem`'s save directory, which derives from
+-- the identity rather than from the source: the configuration directory is the
+-- source, so the save path is not the config path and is asked for rather than
+-- assumed.
+--
+-- This module holds no arrangement of its own — a file is a value a caller keeps
+-- — but it does remember whether the last load could be used, which is what
+-- stops a save built from live panels overwriting a file this version cannot
+-- read. That memory is what its teardown hook discards. The rules source it
+-- installs is `mullion.rules`'s to discard, and that module's hook does.
 
 local lunette = require '@lunette'
 
@@ -26,15 +54,17 @@ type Entry = format.Entry
 
 -- What an arrangement is captured from and restored onto.
 --
--- A surface over something whose size in metres is known: `mullion.interaction`'s
--- contract plus what this module adds, rather than a shape of its own. It is a
--- shape rather than the panel type so that an object of a configuration's own
--- carrying the same fields also works; `source` is what the entry's key is read
--- from, a window's `appId` or a monitor's `id`, per `sourceKey`.
+-- A `mullion.panel` panel is one, and so is an object of a configuration's own
+-- carrying the same fields, which is why this is a shape rather than that type.
+-- `source` is what the entry's key is read from: a window's `appId` or a
+-- monitor's `id`, per `sourceKey`.
+-- A surface an arrangement is captured from and restored onto: one that is over
+-- something, and whose size in metres is known.
 --
--- Intersecting the contract narrows `kind` to the two backed forms, so a surface
--- over nothing (a keyboard, a button a configuration drew) is not one an
--- arrangement can name, which is correct: there is nothing to key it on. It also
+-- `mullion.interaction`'s contract and the little this adds, rather than a shape
+-- of its own. Intersecting it narrows `kind` to the two backed forms, so a
+-- surface over nothing — a keyboard, a button a configuration drew — is not one
+-- an arrangement can name, which is true: there is nothing to key it on. It also
 -- narrows `pose`, `width`, and `height` from the contract's optionals, because a
 -- panel always has all three.
 export type Placed = pointing.Surface & {
@@ -53,6 +83,8 @@ type Filesystem = {
   getSaveDirectory: () -> string,
 }
 
+-- Declared here and defined below the public API, so the file reads
+-- surface-first.
 local sourceKey, slotsFor, slotKey
 
 local function defaultFilesystem(): Filesystem
@@ -71,10 +103,18 @@ local function defaultFilesystem(): Filesystem
   }
 end
 
--- Why the last load could not be used, or nothing. A newer format or unreadable
--- file arms this refusal so a later save built from live panels cannot overwrite
--- data this version cannot represent, preventing old-writer-with-new-data corruption.
--- A usable load clears it.
+-- Why the last load could not be used, or nothing.
+--
+-- The from-the-future guard is a type as far as a load is concerned: a load from
+-- a later version carries no arrangement, so there is nothing to hand `save`.
+-- But `capture` is a second constructor of one, and it builds from live panels
+-- rather than from what was read — so a session that declined a newer file and
+-- then quit would write this version's arrangement over it, which is the
+-- old-writer-with-new-data corruption arriving through the back door. This is
+-- the memory that refusal needs.
+--
+-- Cleared by a load that could be used, so a user who moves the newer file away
+-- has saving back on the next start rather than for the rest of time.
 local declined: string? = nil
 
 -- The format's surface, so that a configuration requires one module. The
@@ -107,8 +147,11 @@ persist.SOURCE = 'mullion.persist'
 
 -- Where a stale or unreadable entry is reported.
 --
--- Replaceable for host diagnostics and specs. Reports are warnings because a
--- stale entry is lost state, not a reason to stop the session.
+-- Replaceable, so that Phase 7's error handling can route it wherever it routes
+-- everything else, and so that a spec can capture it rather than printing it.
+-- The default logs the message, which the host routes to its own diagnostics.
+-- Every report here is a warning: a saved entry that could not be honoured is
+-- lost state rather than a failure the session cannot continue past.
 function persist.report(message)
   local log = lovr.log
   if log then
@@ -118,8 +161,15 @@ end
 
 -- The arrangement in `value`, which is an arrangement, a load, or nothing.
 --
--- Unwraps a load once, so callers can use `persist.install(persist.load())`.
--- A broken or future file yields an empty arrangement rather than being restored.
+-- `load` answers a load and the functions that place panels want the
+-- arrangement inside it, so the unwrapping happens here rather than at every
+-- call site. `persist.install(persist.load())` is the shape a configuration
+-- reaches for, and one made to spell out `:forSession() or persist.newFile {}`
+-- is one that drops the `or` and raises on the first file it cannot read.
+--
+-- A load carrying no arrangement — broken, or from a later version — answers an
+-- empty one. There is nothing to restore from a file this version cannot read,
+-- and a session that starts with nothing saved is the ordinary first run.
 function persist.arrangementOf(value: format.File | format.Loaded | nil): format.File
   if value == nil then
     return format.newFile {}
@@ -399,8 +449,8 @@ end
 
 -- Writes an arrangement to the save directory.
 --
--- Takes an arrangement rather than a table, so a load from a later version
--- (which yields none) has nothing to pass here. That is half of the
+-- Takes an arrangement rather than a table, so a load from a later version —
+-- which yields none — has nothing to pass here. That is half of the
 -- old-writer-with-new-data guard, and it is a type rather than a check.
 --
 -- The other half is this refusal, which the type cannot make: `capture` builds
@@ -412,8 +462,8 @@ end
 function persist.save(file: format.File, filesystem: Filesystem?, options: { force: boolean? }?): (boolean, string?)
   filesystem = filesystem or defaultFilesystem()
 
-  -- Validate the value before checking the refusal, so the error names the actual
-  -- invalid input.
+  -- Checked before the refusal, so a caller holding the wrong kind of value
+  -- hears about that rather than about a file it never looked at.
   if not format.isFile(file) then
     error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
   end
@@ -425,23 +475,34 @@ function persist.save(file: format.File, filesystem: Filesystem?, options: { for
   if not filesystem.write(persist.FILE, text) then
     return false, persist.path(filesystem) .. ' could not be written'
   end
-  -- A successful write clears the refusal. Otherwise a forced save would leave
-  -- later saves refused after this version already replaced the newer file.
+  -- A write is this module's own proof of what is on disk, which is the same
+  -- evidence a load that could be used supplies. Without this a forced save
+  -- leaves the refusal armed, so every later save in the session is refused over
+  -- a newer file this one has already overwritten.
   declined = nil
   return true, nil
 end
 
--- Clears the declined load state at teardown.
+-- Forgets which load was declined.
+--
+-- Registered as this module's teardown hook. A soft reload discards the Lua
+-- state and re-runs the configuration, which loads the file again; the refusal
+-- is re-armed by that load rather than inherited from the old state's.
 function persist.teardown()
   declined = nil
 end
 
 -- What a panel's source is known by across a restart, or nothing.
 function sourceKey(target: Placed): string?
-  -- Keep the branches explicit: a window without an `appId` must not fall back to
-  -- its compositor-local `id`, which is not stable across restarts. Check `source`
-  -- for both presence and liveness because `Placed` may be a configuration-owned
-  -- object rather than a live handle.
+  -- Spelt out rather than as an `and`/`or`, which would fall through to the
+  -- monitor identity for a window whose client set no `appId` — and a window
+  -- also carries an `id`, so the fall-through would silently key it on the
+  -- compositor's identifier, which names nothing after a restart. Reading each
+  -- through its own branch is also what narrows the source to the handle that
+  -- kind names.
+  -- `source` is tested for presence as well as for life: `Placed` is satisfied
+  -- by an object of a configuration's own, and the type says what kind it is
+  -- rather than that it brought a handle.
   local key: (string | number)?
   if target.kind == 'window' then
     local source = target.source
@@ -479,8 +540,8 @@ function slotKey(kind: string, key: string, slot: number)
   return kind .. '\0' .. key .. '\0' .. slot
 end
 
--- Registered by name, so that a module body running a second time (which is
--- what a soft reload does) leaves one hook rather than two.
+-- Registered by name, so that a module body running a second time — which is
+-- what a soft reload does — leaves one hook rather than two.
 teardown.register('mullion.persist', persist.teardown)
 
 return persist

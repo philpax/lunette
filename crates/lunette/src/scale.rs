@@ -1,24 +1,25 @@
 //! The discrete steps lunette quantises a continuous scale or size to.
 //!
-//! Two callers need the same ladder of values. The layer pool quantises a requested panel
+//! Two things want the same ladder. The layer pool quantises a requested panel
 //! size before it becomes a pool key, so that a panel resized continuously by a
 //! drag settles on a rung the free list already holds instead of allocating a
 //! `Layer` per frame — and every allocation can block, which is what
 //! [`crate::layers`] records. `wp_fractional_scale_v1` carries a scale in
-//! 120ths and requires a small set of values rather than a continuum, both for
-//! that reason and because a client re-lays-out on every change it receives.
+//! 120ths and wants a small set of values rather than a continuum, both for
+//! that reason and because a client re-lays-out on every change it is told
+//! about.
 //!
-//! One ladder and one place to tune it keep the two consistent without manual
-//! coordination.
+//! So there is one ladder and one place to tune it, and the two stay consistent
+//! by construction rather than by anyone remembering.
 //!
-//! ## Scale-step laddering
+//! # How a size is quantised against a ladder of scales
 //!
 //! The rungs are the steps applied to a base cell and to every doubling of it:
 //! 128 pixels, then 128 times each step, then 256 times each step, and so on.
 //! Only the steps below 2x take part, because the doubling already covers the
 //! rest and including them would produce a denser ladder — more distinct keys,
-//! and a lower free-list hit rate, which reduces the benefit the ladder exists
-//! to provide.
+//! and a lower free-list hit rate, which is the thing the ladder exists to
+//! raise.
 
 /// A scale factor on the ladder, in 120ths of one.
 ///

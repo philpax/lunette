@@ -1,7 +1,16 @@
--- Composition layers for window panels.
+-- The composition layer a window panel draws on: claiming one, keeping the
+-- claim in step with the source, and driving what it was granted.
 --
--- Claims are granted and revoked between frames. The panel reads `claim.granted`
--- during each update.
+-- Split from `mullion.panel` because the two halves have nothing in common.
+-- That one is a pose, a size, and a source; this is a claim against a pool of
+-- a fixed size, which is granted and revoked on frame boundaries by something
+-- else. Grants land between frames and never mid-frame
+-- (docs/lua-api.md#layer-claims), so this reads `claim.granted` each update
+-- rather than handling `lunette.onLayerGranted`.
+--
+-- A monitor panel never reaches here. `lunette.claimLayer` takes a window and
+-- nothing else, so a mirrored screen has no way to ask for a layer and draws as
+-- a quad. That is a gap in the native API rather than a decision made here.
 
 local lunette = require '@lunette'
 
@@ -41,10 +50,10 @@ export type Claimant = {
 
 -- Keeps the layer claim in step with the source's pixel size.
 --
--- A window whose client resized past the layer it was granted needs a claim
--- on a larger size class, and the pool cannot enlarge an existing claim in
--- place: a claim names a key, and the key carries the size. The claim is
--- therefore released and remade, which costs a frame or two on the quad path.
+-- A window whose client resized past the layer it was granted needs a claim on
+-- a larger rung, and the pool has no way to grow one underneath it: a claim
+-- names a key, and the key carries the size. So the claim is released and
+-- remade, which costs a frame or two on the quad path.
 function layer.sync(self: Claimant, pixelWidth: number, pixelHeight: number)
   -- `lunette.claimLayer` takes a window and nothing else, so a monitor panel
   -- has no claim to keep in step. Noted at the module head as a gap in the
@@ -57,7 +66,7 @@ function layer.sync(self: Claimant, pixelWidth: number, pixelHeight: number)
     local layerWidth: number? = self.claim.width
     local layerHeight: number? = self.claim.height
     -- A layer smaller than the source would crop it, and the ladder only
-    -- quantises upwards, so this is the case of a source resized past its layer.
+    -- quantises upwards, so this is the resized-past-its-rung case.
     if layerWidth and layerHeight and (pixelWidth <= layerWidth and pixelHeight <= layerHeight) then
       return
     end
@@ -99,15 +108,21 @@ function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number): b
     return false
   end
 
-  -- The quantised layer can exceed the source size. Match the viewport to the
-  -- source so the runtime does not squeeze it into the larger layer.
+  -- On every grant and on every resize, which is what this phase owes Phase 3.
+  -- The size ladder quantises upwards, so the layer is usually larger than the
+  -- source and the blit lands at the layer's origin; the viewport is what
+  -- excludes the margin. The blit clears that margin, but blank is not the same
+  -- as absent — an 800x600 window in a 1024x1024 layer would otherwise be drawn
+  -- squeezed into the top-left corner of a square.
   if resized or not self.granted then
     held:setViewport(0, 0, pixelWidth, pixelHeight)
     self.appliedWidth, self.appliedHeight = pixelWidth, pixelHeight
   end
 
   held:setPosition(self.pose:getPosition())
-  -- Apply the pose using the orientation representation expected by the layer.
+  -- As an angle and an axis, which is what `Mat4:getOrientation` hands back and
+  -- what `luax_readquat` takes from four numbers. `lovr.math.quat` does not
+  -- construct from a `Mat4`.
   held:setOrientation(self.pose:getOrientation())
   held:setDimensions(self.width, self.height)
 

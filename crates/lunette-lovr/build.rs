@@ -6,7 +6,7 @@
 //!
 //! LÖVR exports no CMake interface — every compile definition and include
 //! directory on the `lovr` target is `PRIVATE` except `LOVR_OMIT_MAIN` — so the
-//! bindgen pass mirrors both by hand from LÖVR's CMake configuration.
+//! bindgen pass mirrors both by hand from `vendor/lovr/CMakeLists.txt:307-336`.
 
 use std::{
     env,
@@ -27,9 +27,9 @@ const JOLT_SOURCE_VAR: &str = "LUNETTE_JOLTPHYSICS_SRC";
 
 /// The LÖVR compile definitions that apply in the default configuration.
 ///
-/// Mirrored from LÖVR's CMake configuration: `LOVR_USE_GLSLANG`, `LOVR_VK`,
-/// `LOVR_USE_GLFW`, and `LOVR_USE_PHONON`. No `LOVR_DISABLE_*` is defined,
-/// because none is set by default.
+/// Mirrored from `vendor/lovr/CMakeLists.txt`: `LOVR_USE_GLSLANG` (`:473`),
+/// `LOVR_VK` (`:477`), `LOVR_USE_GLFW` (`:574`), and `LOVR_USE_PHONON`
+/// (`:391`). No `LOVR_DISABLE_*` is defined, because none is set by default.
 const LOVR_DEFINES: [&str; 4] = [
     "-DLOVR_VK",
     "-DLOVR_USE_GLSLANG",
@@ -37,8 +37,8 @@ const LOVR_DEFINES: [&str; 4] = [
     "-DLOVR_USE_PHONON",
 ];
 
-/// The private include directories of the `lovr` target, relative to
-/// `vendor/lovr`.
+/// The private include directories of the `lovr` target, from
+/// `vendor/lovr/CMakeLists.txt:330-336`, relative to `vendor/lovr`.
 ///
 /// `lua.h` comes from `deps/luau/VM/include`, alongside the Compiler and Ast
 /// headers LÖVR's own source pulls in through the Luau target's interface
@@ -97,18 +97,18 @@ fn build() -> Result<(), BuildError> {
 ///
 /// Cargo watches only the package directory, and `vendor/lovr` sits two
 /// directories above it, so without these lines a patch to LÖVR leaves this
-/// script stays fresh and the stale `liblovr.so` is linked.
+/// script Fresh and the stale `liblovr.so` is linked.
 ///
 /// The files are named one by one rather than by handing Cargo the `src`
 /// directory, because cmake writes generated headers back into the source tree
 /// — `src/api/l_math.lua.h` and the shader headers under `etc/shaders`, both
-/// covered by LÖVR's own `.gitignore` pattern `*.*.h`. Watching the directory
-/// therefore sees a newer mtime after every build and rebuilds forever.
+/// covered by LÖVR's own `.gitignore:2` pattern `*.*.h`. Watching the directory
+/// therefore sees a newer mtime after every build and rebuilds for ever.
 /// Excluding that pattern is what breaks the cycle, and Cargo has no way to
 /// express an exclusion against a directory entry.
 ///
 /// A source file added to LÖVR is not itself watched until the next rerun, but
-/// `LOVR_SRC` in `CMakeLists.txt` lists every source explicitly, so
+/// `LOVR_SRC` in `CMakeLists.txt:255-304` lists every source explicitly, so
 /// adding one edits a watched file.
 ///
 /// `deps/` is deliberately absent. It is a tree of submodules whose recursive
@@ -160,10 +160,10 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
             .define("LOVR_BUILD_SHARED", "ON")
             .define("LOVR_BUILD_WITH_SYMBOLS", "ON")
             .define("FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS", jolt_source)
-            // LÖVR's CMake configuration gives `liblovr.so` an rpath
+            // `vendor/lovr/CMakeLists.txt:908-909` gives `liblovr.so` an rpath
             // of `$ORIGIN`, which is right for the packaged layout where every
             // library sits in one directory. In the build tree the `move_files`
-            // target stages the siblings one level down in `bin/`,
+            // target (`:912-938`) stages the siblings one level down in `bin/`,
             // so `$ORIGIN/bin` has to be on the rpath as well. It cannot be
             // supplied from the executable's own link line: a `DT_RUNPATH` is
             // not consulted when resolving a dependency's dependencies.
@@ -179,8 +179,8 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
     let cmake_out = configure().build_target("all").build();
 
     // `move_files` is what populates the staged `bin/` tree, and it is an `ALL`
-    // custom target with no declared dependency on the copied libraries, so a
-    // parallel build is free to run it
+    // custom target with no declared dependency on the libraries it copies
+    // (`vendor/lovr/CMakeLists.txt:682`), so a parallel build is free to run it
     // before they exist. Building it once more, after everything else, makes the
     // staged tree deterministic: a custom target is always out of date, so its
     // copies run again.
@@ -251,7 +251,7 @@ fn build_analyze_shim(lovr_dir: &Path) {
 /// Copies `etc/boot.lua` into `OUT_DIR` for the crate to embed.
 ///
 /// CMake hex-dumps the same file into a generated `etc/boot.lua.h`
-/// but it writes that header into the
+/// (`vendor/lovr/CMakeLists.txt:647-663`), but it writes that header into the
 /// source tree rather than the build directory, so generating it dirties the
 /// submodule. The bytes are identical either way.
 fn stage_boot_lua(lovr_dir: &Path, out_dir: &Path) -> Result<(), BuildError> {
@@ -285,7 +285,7 @@ fn generate_bindings(
     let bindings = bindgen::Builder::default()
         .header(wrapper.to_string_lossy())
         // The `lovr` target sets `C_STANDARD 11`
-        //); bindgen parses the same dialect
+        // (`vendor/lovr/CMakeLists.txt:328`); bindgen parses the same dialect
         // rather than whatever clang defaults to for a bare `.h`.
         .clang_args(["-x", "c", "-std=c11"])
         // The devshell hands bindgen a complete clang search path through
@@ -294,7 +294,7 @@ fn generate_bindings(
         // different path, and `#include_next <stdatomic.h>` inside clang's own
         // `<stdatomic.h>` then re-enters that header, whose include guard is
         // already set — so it expands to nothing and `atomic_uint` in
-        // the atomic type becomes unknown.
+        // `vendor/lovr/src/util.h:42` becomes an unknown type.
         .detect_include_paths(false)
         .clang_args(includes)
         .clang_args(LOVR_DEFINES)
@@ -302,12 +302,12 @@ fn generate_bindings(
         // How a LOVR object becomes a Lua userdata with LOVR's own metatable.
         // The leading underscore is why it needs naming separately: the macro
         // callers write is `luax_pushtype`, which resolves the `ObjectType` and
-        // calls this. It retains the object itself, so a
+        // calls this. It retains the object itself (`api/api.c:262`), so a
         // caller pushing a texture it holds a reference to hands over nothing.
         .allowlist_function("_luax_pushtype")
         .allowlist_function("os_init")
         .allowlist_function("os_destroy")
-        // The step loop calls this once per frame.
+        // The step loop calls this once per frame; see `main.c:66`.
         .allowlist_function("os_sleep")
         .allowlist_function("lovrSetLogCallback")
         // Reference counting. Every LOVR object is owned through these, and
@@ -397,7 +397,8 @@ fn generate_bindings(
 struct LovrBuild {
     /// The directory holding `liblovr.so` itself.
     library_dir: PathBuf,
-    /// The `bin/` tree LÖVR copies its shared dependencies into, including Luau.
+    /// The `bin/` tree LÖVR copies its shared dependencies into, LuaJIT among
+    /// them.
     staged_dir: PathBuf,
 }
 
@@ -405,9 +406,9 @@ struct LovrBuild {
 ///
 /// The install-prefix layout the `cmake` crate assumes does not describe where
 /// these land: LÖVR copies its shared dependencies into `${CMAKE_BINARY_DIR}/bin`
-/// with the `move_files` target, while
+/// with the `move_files` target (`vendor/lovr/CMakeLists.txt:912-938`), while
 /// `liblovr.so` stays at the binary directory's root, because
-/// `RUNTIME_OUTPUT_DIRECTORY` does not govern a Linux shared library.
+/// `RUNTIME_OUTPUT_DIRECTORY` (`:907`) does not govern a Linux shared library.
 /// Searching for the library is the honest way to find it; guessing a path
 /// produces a link error far from its cause.
 fn find_lovr_build(cmake_out: &Path) -> Result<LovrBuild, BuildError> {

@@ -13,6 +13,8 @@ getrandom.workspace = true
 # Only for `dev_t` and `makedev`: `DmabufFeedbackBuilder::new` takes a device
 # number, and naming the C type is better than assuming it is `u64` here.
 libc.workspace = true
+# The `closed_set!` macro, for the enums whose members are named outside Rust.
+# Pure by default: naming a closed set does not link a Lua binding.
 lunette-luau.workspace = true
 smallvec.workspace = true
 # `desktop` supplies `Window` and `PopupManager`. `backend_vulkan` stays off:
@@ -31,7 +33,7 @@ tracing.workspace = true
 # one. The pin keeps both halves on one copy of the xkb types.
 xkbcommon.workspace = true
 # Two uses, one crate. `src/selection/data_control.rs` speaks
-# `ext_data_control_v1` to the compositor as a client, which is how the
+# `ext_data_control_v1` to the *host* compositor as a client, which is how the
 # clipboard crosses the boundary; and `src/test_client.rs` drives lunette's own
 # protocol from a real client. Pinned to the versions smithay's `wayland-server`
 # shares a `wayland-backend` with; a split would make the two halves unable to
@@ -44,7 +46,8 @@ wayland-protocols = { workspace = true, features = [
     "staging",
     "unstable",
 ] }
-# `zwlr_data_control_v1`, the fallback for a host without ext-data-control.
+# `zwlr_data_control_v1`, the fallback for a host that has not gained
+# ext-data-control yet — which today is every wlroots compositor.
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [features]

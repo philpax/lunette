@@ -1,9 +1,13 @@
 -- The fakes the panel, interaction, and laser specs share, and the panel module
 -- under test.
 --
--- The panel's native call is `lunette.claimLayer`, so the module uses a fake
--- instead of testing the layer pool. Install it before `mullion.panel` loads and
--- restore `package.loaded['@lunette']` afterwards.
+-- The panel's one native call is `lunette.claimLayer`, so `lunette` is faked:
+-- the real one would hand back a claim against a layer pool with no headset
+-- behind it, and a spec asserting what the pool did would be asserting Phase
+-- 3's work rather than this module's. The fake is installed into
+-- `package.loaded` before `mullion.panel` is required, which is what the module
+-- captures, and `package.loaded['@lunette']` is put back afterwards so nothing else
+-- in the run sees it.
 --
 -- This is required by both panel specs rather than each installing its own
 -- fake, because two installs would leave two `mullion.panel` module tables with

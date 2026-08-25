@@ -12,15 +12,16 @@
 /// Declares an enum and the names its members are known by.
 ///
 /// Generates `ALL`, `NAMES`, `as_str`, `from_name`, and [`Display`]. The enum
-/// must derive [`Copy`].
-///
-/// The generated names are the public string representation; the enum itself remains the Rust representation.
+/// must derive [`Copy`], because `as_str` takes its receiver by value.
 ///
 /// ```
 /// lunette_luau::closed_set! {
+///     /// Which pipeline a sink's events travel.
 ///     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 ///     pub enum InputDomain {
+///         /// A surface this compositor hosts.
 ///         Window = "window",
+///         /// The host desktop.
 ///         Host = "host",
 ///     }
 /// }

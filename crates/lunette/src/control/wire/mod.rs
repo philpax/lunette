@@ -5,12 +5,12 @@
 //! a reader knows how much to expect before it starts and a partial write is
 //! detectable rather than being taken for a short chunk.
 //!
-//! ## Value tree structure
+//! # The value tree
 //!
 //! [`Value`] is a tagged tree, which is what lets `lunctl` print a nested table
-//! rather than resorting to the `tostring` fallback that awesome's remote control
-//! uses ([the Lua API](../../../docs/lua-api.md#lunctl)). Every node declares its
-//! type, so nothing has to be inferred from its shape.
+//! rather than the `tostring` fallback awesome's remote control resorts to
+//! ([the Lua API](../../../docs/lua-api.md#lunctl)). Every node says what it is,
+//! so nothing has to be inferred from its shape.
 //!
 //! A table carries its array part and its other entries separately, because
 //! `{1, 2, x = 3}` is one Lua value with no single equivalent in a format that
@@ -18,10 +18,10 @@
 //! which is what makes a table-valued key — something the serialiser refuses —
 //! unrepresentable here rather than merely rejected on the way in.
 //!
-//! A handle stores its kind and identifier, never a pointer address.
+//! A handle is a kind and an identifier, never a pointer.
 //! `crate::control::serialise` states why an address would be wrong.
 //!
-//! ## Protocol versioning
+//! # Versioning
 //!
 //! Every frame begins with [`PROTOCOL_VERSION`], at a fixed offset that will not
 //! move. `lunctl` and lunette ship together, so a mismatch means one of them was
@@ -57,7 +57,7 @@ pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// How deep a value tree may nest, on the wire and in the serialiser.
 ///
-/// `vendor/lovr/src/api/api.c`'s `luax_checkvariant` uses the same figure
+/// `vendor/lovr/src/api/api.c:561`'s `luax_checkvariant` uses the same figure
 /// for the same reason, and it is the precedent this follows. The decoder
 /// enforces it as well as the encoder's producer, because a decoder that trusted
 /// its input would overflow the stack on a hostile frame.

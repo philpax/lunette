@@ -1,7 +1,12 @@
 name: check
 
-# Check pushes to main and all pull requests. Pull-request runs validate the
-# merge result without duplicating the push run for branches with open PRs.
+# The standing checks CONTRIBUTING.md lists. Each job runs a `make` target
+# rather than restating the commands, so a contributor running `make check`
+# runs what CI runs.
+
+# Only main on push. A branch with a pull request open raises both events for
+# one commit, and the pull request's run is the one that checks the merge
+# result. A branch with no pull request open is not checked until one is.
 on:
   push:
     branches: [main]
@@ -13,14 +18,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
+# Nothing here writes to the repository. The StyLua action needs a token to
+# fetch a release.
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  # Keep line-level panic locations while reducing cache size and linker work.
-  # Both profiles match the commands used by CI.
-
+  # A CI log is read for the file and line a panic came from, and the rest of
+  # the debug information is cache size and linker work. Both profiles are set:
+  # `cargo test` builds under `test` and `cargo run` under `dev`, and artifacts
+  # are shared only when the settings match.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
   CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
@@ -44,8 +52,10 @@ jobs:
 
       - run: make check-format
 
-  # Clippy and tests use separate artifact caches, so CI runs them in parallel.
-  # Generated checks run with the test half because it has the required binaries.
+  # The halves are separate jobs because clippy builds through
+  # RUSTC_WORKSPACE_WRAPPER and shares no artifacts with a normal build. The
+  # generated-artifact checks ride with the test half, which is the half that
+  # has binaries to run.
   build:
     strategy:
       fail-fast: false
@@ -66,7 +76,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history is required to restore committed file mtimes.
+          # The dating step below reads the history to find the commit that last
+          # wrote each file.
           fetch-depth: 0
 
       # Not `submodules: recursive` on the checkout: fetch-depth is not
@@ -76,9 +87,13 @@ jobs:
         run: git submodule update --init --recursive --depth 1 --jobs 8
 
       - name: Install the system dependencies
-        # Install the devshell dependencies under their Debian names. The X11, xcb,
-        # and xkbcommon packages are split on Debian, and libclang is required
-        # for bindgen.
+        # The devshell's buildInputs and nativeBuildInputs, as their Debian
+        # names. libclang is what bindgen parses LÖVR's headers with.
+        #
+        # nixpkgs ships every xcb extension in libxcb, and the Xlib and
+        # xkbcommon bridges to xcb in libx11 and libxkbcommon; Debian splits all
+        # four out. LÖVR's Linux backend links X11-xcb, xcb-xinput, xcb-xkb, and
+        # xkbcommon-x11 (vendor/lovr/CMakeLists.txt:949).
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
@@ -92,10 +107,15 @@ jobs:
             libwayland-dev wayland-protocols \
             libopenxr-dev
 
-      # Restore committed mtimes so Cargo can reuse cached artifacts instead of
-      # rebuilding every crate and rerunning LÖVR's CMake build. The Debian helper
-      # is unsuitable because newer Git rejects its `git whatchanged` invocation
-      # without an explicit compatibility flag.
+      # A checkout stamps every file with the time it runs, which is newer than
+      # the artifacts the cache restores. Cargo compares mtimes, so without this
+      # nothing in the cache is fresh: every crate is rebuilt, and
+      # lunette-lovr's build script re-runs cmake over LÖVR's C++ once for each
+      # of the clippy, test, and dev units.
+      #
+      # Debian's git-restore-mtime is not used. It drives `git whatchanged`,
+      # which git 2.50 and later refuse to run without `--i-still-use-this`, and
+      # it exits 0 having stamped nothing.
       - name: Date the tree from its commits
         run: |
           git -c core.quotePath=false log --no-merges --pretty=format:@%ct --name-only |
@@ -112,8 +132,9 @@ jobs:
       - name: Make the runtime directories
         run: mkdir -p .runtime .state && chmod 700 .runtime
 
-      # Fetch the Jolt revision required by joltc. Providing it locally keeps CMake's
-      # FetchContent step offline and follows the submodule's declared tag.
+      # deps/joltc reaches JoltPhysics through FetchContent, which wants the
+      # network at configure time. The tag is what deps/joltc/CMakeLists.txt
+      # declares as its GIT_TAG, and moves when that submodule is bumped.
       - name: Fetch JoltPhysics
         uses: actions/checkout@v4
         with:

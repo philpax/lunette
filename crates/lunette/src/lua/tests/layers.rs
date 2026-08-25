@@ -31,8 +31,8 @@ impl LuaLayer for FakeLayer {
     }
 }
 
-/// Hands out layers numbered from one, so that a second allocation appears in
-/// Lua as a different number.
+/// Hands out layers numbered from one, so that a second allocation is visible
+/// from Lua as a different number.
 #[derive(Debug)]
 pub(crate) struct FakeLayers {
     /// What the runtime reports, which is not what the pool will spend:
@@ -54,8 +54,8 @@ impl LayerBackend for FakeLayers {
         self.limit
     }
 
-    /// The same session throughout. Nothing here tests a session going away or
-    /// being replaced; the pool's own tests cover both.
+    /// The same session throughout. Nothing here is about a session going away
+    /// or being replaced; the pool's own tests cover both.
     fn session(&self) -> SessionPresence {
         SessionPresence::Present(SessionId::new(1).expect("one is not zero"))
     }
@@ -65,7 +65,7 @@ impl LayerBackend for FakeLayers {
         Some(FakeLayer(self.created))
     }
 
-    /// Nothing here reads the submitted list; what these tests check is
+    /// Nothing here reads the submitted list; what these tests are about is
     /// what Lua is told, and the pool's own tests cover the list itself.
     fn submit(&mut self, _layers: &[&Self::Layer], _scene: SceneRendering) -> bool {
         true
@@ -85,12 +85,12 @@ pub(crate) const ONE_SLOT: u32 = LayerBudget::SHARE;
 /// The runtime limit that leaves the pool two slots.
 pub(crate) const TWO_SLOTS: u32 = 2 * LayerBudget::SHARE;
 
-/// Runs frame boundaries until nothing more is grantable.
+/// Runs frame boundaries until nothing more can be granted.
 ///
 /// A newly created layer is not grantable until its first blit has been issued,
-/// because `xrEndFrame` returns `XR_ERROR_LAYER_INVALID` for a layer whose
+/// because `xrEndFrame` answers `XR_ERROR_LAYER_INVALID` for a layer whose
 /// swapchain has never released an image. This stands in for the blit path,
-/// which calls `note_blit_issued` in a running session.
+/// which is what calls `note_blit_issued` in a running session.
 pub(crate) fn settle(session: &TestSession, registry: &Rc<PoolRegistry<FakeLayers>>) {
     for _ in 0..4 {
         session.resolve_layers();
@@ -139,7 +139,7 @@ fn a_fresh_claim_holds_nothing_until_a_boundary_has_passed() {
     let (granted, layer): (bool, Value) = run(&lua, "return claims[1].granted, claims[1].layer");
     assert!(
         !granted,
-        "a grant applied inside the call would change a panel's realisation mid-frame"
+        "a grant landing inside the call would change a panel's realisation mid-frame"
     );
     assert_eq!(layer, Value::Boolean(false));
 
@@ -147,7 +147,7 @@ fn a_fresh_claim_holds_nothing_until_a_boundary_has_passed() {
 
     assert!(
         run::<bool>(&lua, "return claims[1].granted"),
-        "the claim fits the budget, so the next boundary serves it"
+        "the claim fits the budget, so the next boundary has to serve it"
     );
 }
 
@@ -206,7 +206,7 @@ fn a_revoked_claim_stays_alive_and_can_be_granted_again() {
     settle(&session, &registry);
     assert!(
         !run::<bool>(&lua, "return claims[1].dead"),
-        "revocation takes the layer, not the claim; a dead handle could never upgrade back"
+        "revocation takes the layer, not the claim; a handle that died could never upgrade back"
     );
 
     run::<()>(&lua, "claims[2]:setPriority(0)");
@@ -285,7 +285,7 @@ fn a_claim_reports_the_layers_size_rather_than_the_size_asked_for() {
     let (width, height): (u32, u32) = run(&lua, "return claim.width, claim.height");
     assert!(
         width >= 1001 && height >= 1000,
-        "a requested size rounds up to the ladder, and a caller setting a viewport needs the \
+        "a requested size is rounded up to the ladder, and a caller setting a viewport needs the \
          rung rather than the request"
     );
 }
@@ -318,7 +318,7 @@ fn a_claim_with_no_window_is_refused() {
     );
     assert!(
         message.contains("needs a window"),
-        "unhelpful: {message}"
+        "unhelpful message: {message}"
     );
 }
 
@@ -338,7 +338,7 @@ fn a_claim_at_an_impossible_size_is_refused() {
     );
     assert!(
         message.contains("layer size"),
-        "unhelpful: {message}"
+        "unhelpful message: {message}"
     );
 }
 
@@ -352,14 +352,14 @@ fn a_priority_that_cannot_be_ordered_is_refused() {
 
     // A NaN would make the ranking intransitive, so the same set of claims
     // could be assigned differently depending on the order it happened to be
-    // in — which is what a deterministic assignment must not allow.
+    // in — which is the one thing a deterministic assignment must not do.
     let message = error(
         &lua,
         "lunette.claimLayer{
              window = lunette.windows()[1], width = 640, height = 480, priority = 0/0,
          }",
     );
-    assert!(message.contains("ordered"), "unhelpful: {message}");
+    assert!(message.contains("ordered"), "unhelpful message: {message}");
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn an_option_the_call_does_not_take_is_refused() {
              stereo = true,
          }",
     );
-    assert!(message.contains("stereo"), "unhelpful: {message}");
+    assert!(message.contains("stereo"), "unhelpful message: {message}");
 }
 
 #[test]
@@ -403,7 +403,7 @@ fn a_regranted_claim_reuses_the_layer_rather_than_allocating() {
 }
 
 /// The claim is on a `FakeTexture` session, so this asserts the pool's own
-/// arithmetic rather than the Lua surface.
+/// arithmetic rather than the Lua surface's.
 #[test]
 fn the_pool_never_holds_more_layers_than_the_budget() {
     let (session, registry, _) = claimed(ONE_SLOT, &[(1, 3.0), (2, 2.0), (3, 1.0)]);

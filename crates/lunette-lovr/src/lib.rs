@@ -6,7 +6,7 @@
 //!
 //! This crate owns the boundary between Rust and LÖVR. Its build script drives
 //! LÖVR's cmake build, generates bindings with bindgen, and emits the link
-//! directives for `liblovr.so` and the Luau runtime it ships. Everything the rest of
+//! directives for `liblovr.so` and the LuaJIT it ships. Everything the rest of
 //! the workspace needs from LÖVR — the `luax_*` entry points, the platform
 //! hooks, and the embedded `boot.lua` — is reached through here.
 //!
@@ -43,7 +43,7 @@ pub mod raw {
 /// file there.
 pub const BOOT_LUA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/boot.lua"));
 
-/// The signature LÖVR hands log lines to.
+/// The signature LÖVR hands log lines to; `vendor/lovr/src/util.h:67`.
 ///
 /// `luax_vlog` has exactly this shape, which is what the boot sequence installs.
 ///
@@ -63,7 +63,7 @@ pub type LogCallback = unsafe extern "C" fn(
 ///
 /// The token exists so that teardown cannot run before startup or twice.
 /// [`Platform::destroy`] consumes it, and there is deliberately no `Drop`
-/// implementation: LÖVR tears the platform down only
+/// implementation: `vendor/lovr/src/main.c:25` tears the platform down only
 /// after the Lua state has closed, and a destructor would take that ordering
 /// away from the caller.
 #[must_use = "the platform stays initialised until `destroy` consumes this"]

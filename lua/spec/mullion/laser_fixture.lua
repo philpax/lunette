@@ -1,8 +1,12 @@
 -- The fake `lunette` the laser specs run against, and the module under test.
 --
--- The laser's native call asks the compositor for a seat. The fake avoids testing
--- the compositor here and prevents the spec run from leaking real seats. It is
--- installed before `mullion.laser` loads and restored when the fixture is done.
+-- The laser's one native call is `lunette.newSeat`, and the real one asks the
+-- compositor for a seat with a keyboard and a pointer. A spec asserting what
+-- came back would be asserting Phase 5's work rather than this module's, and a
+-- spec run that created seats would leave them behind. So the fake is installed
+-- into `package.loaded` before `mullion.laser` is required — which is what the
+-- module captures — and `package.loaded['@lunette']` is put back afterwards, so
+-- nothing else in the run sees it.
 --
 -- Not a spec file: the runner collects `*_spec.lua` and this is not one, so it
 -- runs no cases of its own.

@@ -1,8 +1,10 @@
 //! A scripted [`ScreenCastPortal`] for tests.
 //!
-//! Tests use this implementation of lunette's seam instead of mocking the
-//! unmanaged D-Bus service. It opens no bus, spawns no thread, and waits for no
-//! external event. A test supplies the portal responses and polls them directly.
+//! The portal is an unmanaged dependency, so the tests substitute an
+//! implementation of lunette's own seam rather than mocking D-Bus. Nothing here
+//! opens a bus, spawns a thread, or waits: a test states what the portal will
+//! answer and then polls, so a session that would take a user several seconds
+//! to approve takes a test one call.
 //!
 //! [`ScreenCastPortal`]: crate::portal::ScreenCastPortal
 
@@ -12,17 +14,20 @@ use crate::portal::{
     PortalError, RequestId, RequestProgress, ScreenCastPortal, SessionRequest, SessionResponse,
 };
 
-/// A portal whose responses come from a queue of scripts.
+/// A portal that answers from a script.
 ///
-/// Each call to [`ScreenCastPortal::begin`] consumes one script. Each script
-/// supplies one response per [`ScreenCastPortal::poll`]. Its last response
-/// repeats until it is terminal, and a terminal response is delivered once.
-/// An unscripted request remains in [`RequestProgress::AwaitingUser`].
+/// Each call to [`ScreenCastPortal::begin`] takes the next script in the queue.
+/// A script is a list of progressions, one per [`ScreenCastPortal::poll`]; the
+/// last one repeats until it is terminal, and a terminal one is delivered once.
+///
+/// A request made when no script is left answers
+/// [`RequestProgress::AwaitingUser`] forever, which is the honest stand-in for a
+/// dialog nobody is going to click.
 #[derive(Debug, Default)]
 pub struct FakePortal {
     scripts: VecDeque<Vec<RequestProgress>>,
     in_flight: HashMap<RequestId, VecDeque<RequestProgress>>,
-    /// Requests in the order in which the portal received them.
+    /// Every request made, in order, so a test can assert on what was asked for.
     pub requests: Vec<SessionRequest>,
     begin_failure: Option<PortalError>,
     next: u64,
@@ -34,7 +39,7 @@ impl FakePortal {
         Self::default()
     }
 
-    /// Queues a session that becomes ready after one user-waiting response.
+    /// Queues a session that succeeds after one poll spent awaiting the user.
     pub fn will_grant(&mut self, response: SessionResponse) -> &mut Self {
         self.scripts.push_back(vec![
             RequestProgress::AwaitingUser,
@@ -43,23 +48,23 @@ impl FakePortal {
         self
     }
 
-    /// Queues a session that returns the supplied failure.
+    /// Queues a session that fails.
     pub fn will_fail(&mut self, error: PortalError) -> &mut Self {
         self.scripts.push_back(vec![RequestProgress::Failed(error)]);
         self
     }
 
-    /// Makes subsequent [`ScreenCastPortal::begin`] calls return the supplied
-    /// error, as they would when the session bus is unreachable.
+    /// Makes every subsequent [`ScreenCastPortal::begin`] fail outright, as a
+    /// portal that cannot be reached on the session bus does.
     pub fn will_refuse_to_begin(&mut self, error: PortalError) -> &mut Self {
         self.begin_failure = Some(error);
         self
     }
 
-    /// Polls until the request reports a terminal state.
+    /// Polls until the request reports a terminal progress.
     ///
-    /// The limit turns a non-terminating test script into a test failure instead
-    /// of hanging the test suite.
+    /// Bounded, because a script that never terminates is a defect in the test
+    /// rather than something to hang the suite on.
     #[must_use]
     pub fn drive(&mut self, request: RequestId) -> RequestProgress {
         for _ in 0..16 {
@@ -74,7 +79,7 @@ impl FakePortal {
         panic!("the scripted portal never reached a terminal progress");
     }
 
-    /// Polls until the request is granted and returns the response.
+    /// Polls until the request is granted, and returns what it granted.
     #[must_use]
     pub fn grant(&mut self, request: RequestId) -> SessionResponse {
         match self.drive(request) {
@@ -108,8 +113,8 @@ impl ScreenCastPortal for FakePortal {
             return RequestProgress::Failed(PortalError::UnknownRequest(request));
         };
 
-        // Repeating the last response lets a script represent a persistent
-        // non-terminal state without choosing an arbitrary number of polls.
+        // The last entry repeats rather than being consumed, so a script says
+        // "and then it stays like that" without having to say how many times.
         let progress = if script.len() > 1 {
             script.pop_front()
         } else {

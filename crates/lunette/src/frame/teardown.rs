@@ -36,8 +36,8 @@ impl FrameDriver {
     /// The restart counterpart of [`FrameDriver::shutdown`]. What separates them
     /// is that there are further frames after this one: the next session borrows
     /// a new device and [`FrameDriver::start_if_ready`] hands it to the
-    /// compositor, which re-imports the buffers its clients still hold. This keeps
-    /// clients connected across the device replacement.
+    /// compositor, which re-imports the buffers its clients still hold. That is
+    /// what `lunette-v1.AC5.5` means by clients staying connected.
     ///
     /// Both spend the same [`tear_down_device`], whose order is
     /// [`crate::restart`]'s and is the whole of this method's correctness.

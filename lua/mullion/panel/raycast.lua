@@ -1,9 +1,10 @@
 -- Where a ray meets a quad, in the quad's own pixels.
 --
 -- Split out of `mullion.panel` because the two halves have nothing in common:
--- this half is arithmetic over a matrix and uses only `lovr.math`, while the
--- other half is claims, layers, sources, and draw calls. A configuration can
--- also use this half on its own, for an object that is not a panel.
+-- this is arithmetic over a matrix and reaches for nothing but `lovr.math`,
+-- while the other half is claims, layers, sources, and draw calls. It is also
+-- the half a configuration is most likely to want on its own, for an object of
+-- its own that is not a panel.
 --
 -- `mullion.panel` re-exports `hit` as `panel.rayQuadHit`, which is the name
 -- docs/stdlib.md gives it.
@@ -25,10 +26,10 @@ type Quad = {
 -- pixel origin is the quad's top-left corner, because that is where a surface's
 -- pixels start and what `sink:pointer` takes.
 --
--- LÖVR exposes no ray-plane intersection here: `Mat4` has no intersection
--- method, and its only raycasts belong to physics worlds and need a collider,
--- which a panel does not have. The arithmetic therefore lives here, as
--- docs/input.md specifies.
+-- LÖVR has no ray-plane intersection to call: `Mat4` has no intersection
+-- method, and the only raycasts in it are physics-world ones needing a
+-- collider, which a panel has not got. So the maths is here, which
+-- docs/input.md:22 says is where it belongs.
 --
 -- `quad` carries `pose`, a `Mat4`; `width` and `height` in metres;
 -- `pixelWidth` and `pixelHeight`; and `backFace`, which allows a hit from
@@ -61,9 +62,9 @@ function raycast.hit(quad: Quad, origin: vector, direction: vector): (number?, n
   end
 
   local distance = -localOriginZ / localDirectionZ
-  -- The distance must place the intersection in front of the ray's origin,
-  -- and zero is excluded too: a ray starting exactly on the plane runs along
-  -- it as far as a panel is concerned.
+  -- Behind the ray's origin rather than in front of it. Zero is excluded too: a
+  -- ray starting exactly on the plane is pointing along it as far as a panel is
+  -- concerned.
   if not (distance > 0) then
     return nil, nil, nil
   end

@@ -2,7 +2,7 @@
 //!
 //! Monitor mirroring and host input injection.
 //!
-//! This crate wraps `wlx-capture` for reading existing monitors, and
+//! This crate wraps `wlx-capture` for reading the user's existing monitors, and
 //! `HidProvider` for driving the host's pointer and keyboard. Both are seams
 //! onto the machine lunette is running on, as distinct from the Wayland clients
 //! lunette hosts itself, which belong to `lunette-compositor`.

@@ -1,5 +1,27 @@
--- A virtual keyboard driven by the seat's physical keymap. The seat supplies
--- legends and key meanings, while modifiers travel through `sink:modifiers`.
+-- A virtual keyboard, driven by the seat's own keymap.
+--
+-- docs/stdlib.md's tier 2, the last item on its minimum viable line: a keyboard
+-- that can type into the focused sink. What is drawn on a key comes from
+-- `seat:characterFor`, and what a key sends comes from the same keycode the
+-- legend was read for. Nothing here holds a layout.
+--
+-- The rows come from `mullion.keycodes` and are physical, not linguistic: they
+-- say where the keys are, and the seat says what they are. A table of legends
+-- here would be a second and worse copy of something lunette already knows.
+--
+-- Modifiers are sticky. A user pointing at a keyboard with one laser cannot
+-- hold shift and press a letter at the same time, so pressing shift latches it
+-- and the next key clears it. `capsLock` locks instead, because that is what a
+-- lock is.
+--
+-- Modifier state is set rather than synthesised: `sink:modifiers` replaces the
+-- set held, as docs/input.md#keyboard describes, instead of sending a press of
+-- a representative key. A client that queries the state is then not misled and
+-- no key event is produced that nothing asked for.
+--
+-- The drawing is `Pass:plane` and `Pass:text` and nothing else. This sits on
+-- the boundary of the widget toolkit docs/stdlib.md defers and docs/stdlib.md
+-- records as possibly a separate library, and it does not cross it.
 
 local lunette = require '@lunette'
 
@@ -14,11 +36,15 @@ local teardown = require '@mullion/teardown'
 
 local keyboard = {}
 
+-- Declared here and defined below the public API, so the file reads
+-- surface-first. The metatable is a table rather than a forward-declared local
+-- because `new` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
 local remove
 
--- The pointer or name identifying the hover source.
+-- Whoever is hovering, held only as an identity and never read: a pointer
+-- hovers as itself, and a caller driving the keyboard by hand passes a name.
 export type HoverSource = string | interaction.Pointer
 
 export type Keyboard = {
@@ -63,7 +89,8 @@ export type Keyboard = {
 export type Key = layout.Key
 export type KeyRow = layout.KeyRow
 export type RenderedKey = layout.RenderedKey
--- The measurements and colours drawing reads.
+-- Everything the look of a keyboard is tuned by. `typeof(keyboard.STYLE)`
+-- would chase the values, so the shape is written out once.
 type Style = {
   keyUnit: number,
   gap: number,
@@ -87,7 +114,8 @@ type KeyboardOptions = {
   target: Target?,
 }
 
--- Every live keyboard, in creation order.
+-- Every live keyboard, in creation order. Rebuilt when this file runs, so a
+-- soft reload starts with none.
 local keyboards: { Keyboard } = {}
 
 -- One UTF-8 character: a lead byte and its continuation bytes. LuaJIT is Lua
@@ -95,7 +123,8 @@ local keyboards: { Keyboard } = {}
 -- a character to `strokeFor`.
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
--- Everything the look of a keyboard is tuned by.
+-- Everything the look of a keyboard is tuned by, in one table, for the same
+-- reason the other tier-2 modules keep one.
 keyboard.STYLE = {
   -- One key unit, in metres. Every width in the rows is a multiple of it, and
   -- the keyboard's size follows from it.
@@ -185,7 +214,9 @@ function keyboard.draw(pass: Pass): ()
   end
 end
 
--- Destroys every keyboard and releases its teardown resources.
+-- Destroys every keyboard. Registered as this module's teardown hook: a reload
+-- that left one behind would leave a keyboard floating in front of the user
+-- with nothing left to type into.
 function keyboard.teardown(): ()
   for _, existing in ipairs(keyboard.all()) do
     existing:destroy()
@@ -205,6 +236,7 @@ function methods.setPose(self: Keyboard, pose: Mat4)
   signal.emit(self, signal.propertyName 'pose', self.pose)
 end
 
+-- Shows or hides the keyboard. A hidden one is neither drawn nor hit.
 -- Marks the key a pointer is over, or nothing when it is over none.
 --
 -- Set each frame by whoever casts the ray. This module does not read a device,
@@ -227,7 +259,6 @@ function methods.isHovered(self: Keyboard, code: number): boolean
   return false
 end
 
--- Shows or hides the keyboard. A hidden one is neither drawn nor hit.
 function methods.setVisible(self: Keyboard, visible: boolean)
   signal.setProperty(self, 'visible', visible and true or false)
 end
@@ -258,7 +289,9 @@ end
 
 -- Every key, with its legend and its place on the keyboard.
 --
--- Fresh each call because legends depend on the current modifiers.
+-- Fresh each call, and the legends are read from the seat each time, because
+-- the legends depend on the modifiers held and those change under the user's
+-- hands. A cached set would show the unshifted legends while shift was latched.
 function methods.keys(self: Keyboard): { RenderedKey }
   local modifiers: { string } = self:modifiers()
   local seat: lunette.Seat? = self:legendSeat()
@@ -268,7 +301,13 @@ function methods.keys(self: Keyboard): { RenderedKey }
   end)
 end
 
--- What is drawn on a key, as `mullion.keyboard.layout.legendFor` answers it.
+-- What is drawn on a key.
+--
+-- The label wins, because a key that types a control character has nothing to
+-- show. Otherwise the seat's own keymap answers, under the modifiers held. A
+-- keysym with no text falls back to its number rather than to a blank: a key
+-- with nothing on it looks broken, and the number at least says which.
+-- The seat the legends are read from.
 --
 -- A legend is what a key would type, which only a seat's layout can say. The
 -- target is whatever was last clicked, and nothing has been clicked when a
@@ -428,8 +467,7 @@ end
 -- nothing about the client's keymap. A run of characters it does not bind goes
 -- to `sink:typeText` in one call, which docs/lua-api.md describes as generating
 -- a temporary keymap, uploading it, typing against it, and putting the client's
--- own back. A call per character would therefore swap the keymap once per
--- character.
+-- own back — so a call per character would swap the keymap once per character.
 --
 -- The two are not interleaved within one character. Each call is queued in
 -- order and each `typeText` restores the keymap before the next command is
@@ -543,7 +581,8 @@ function remove(destroyed: Keyboard)
   end
 end
 
--- Registered by name so repeated module loading leaves one hook.
+-- Registered by name, so that a module body running a second time — which is
+-- what a soft reload does — leaves one hook rather than two.
 teardown.register('mullion.keyboard', keyboard.teardown)
 
 return keyboard

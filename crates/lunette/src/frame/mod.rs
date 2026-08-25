@@ -8,7 +8,7 @@
 //! This module is what runs between them, once per frame, in the order the
 //! pieces require.
 //!
-//! # Frame sequence
+//! # The order of a frame
 //!
 //! At frame start, in this order and for the reasons given:
 //!
@@ -32,28 +32,29 @@
 //! At frame end: record the release barriers, then hand the frame's queued
 //! commands to the compositor.
 //!
-//! ## Compositor start conditions
+//! # Why the compositor cannot start with everything else
 //!
 //! The compositor imports client dmabufs against LÖVR's `VkDevice`, so it
 //! cannot exist before LÖVR has made one — which happens inside `boot.lua`,
-//! several steps after the process starts. The start is deferred to the first
-//! frame at which `lovrGraphicsIsInitialized` answers true, and the listening
-//! socket is bound long before that, by the entry point, for the reason
-//! `crates/lunette/src/main.rs` records.
+//! several steps after the process starts. So the start is deferred to the
+//! first frame at which `lovrGraphicsIsInitialized` answers true, and the
+//! listening socket is bound long before that, by the entry point, for the
+//! reason `crates/lunette/src/main.rs` records.
 //!
 //! A failure to start is reported once and not retried. The socket is dropped
 //! with the attempt, so a second attempt would be against a name that is no
 //! longer bound, and the failures that can occur here — a device without the
-//! import extensions, a thread that cannot be spawned — do not appear later.
+//! import extensions, a thread that cannot be spawned — do not become true
+//! later.
 //!
-//! ## Compositor restarts
+//! # Why the same is true after a restart
 //!
 //! `lunette.restart()` destroys the device and builds another, and the
-//! compositor thread outlives both. The readiness test above runs for every
+//! compositor thread outlives both. So the readiness test above runs for every
 //! device rather than only the first: [`FrameDriver::quiesce`] takes the device
 //! back before the Lua state closes, and the first frame of the next session at
 //! which LÖVR has one again lends it out. [`crate::restart`] states the ordering
-//! that makes the exchange safe, and this module carries the details of that protocol.
+//! that makes the exchange safe, and it is the exacting part of this module.
 
 mod mirroring;
 mod teardown;
@@ -101,7 +102,8 @@ pub struct Startup {
     /// Where to find xwayland-satellite. Absent means X11 clients are not
     /// served.
     pub satellite: Option<XwaylandSatellite>,
-    /// How the import barrier is configured for this run.
+    /// How the two open questions about the import barrier are answered for
+    /// this run. Both are milestone 0's to measure.
     pub barriers: BarrierPolicy,
     /// The host's own screens, or `None` when lunette cannot reach them.
     pub host: Option<HostDesktop>,

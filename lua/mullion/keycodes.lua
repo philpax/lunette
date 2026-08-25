@@ -2,9 +2,9 @@
 --
 -- An evdev keycode names a position on a keyboard and not a letter. Keycode 30
 -- is the first key of the home row on every layout, and what it types is the
--- layout's business, so this file says where the keys are and a seat's keymap
--- says what they are. That division keeps the description correct for a user
--- who is not on QWERTY, and lunette already carries the layout information.
+-- layout's business — so this file says where the keys are and a seat's keymap
+-- says what they are. That division is the only one that does not lie to a user
+-- who is not on QWERTY, and lunette already knows the truth.
 --
 -- Separate from `mullion.keyboard` because it is a different thing: that module
 -- is a widget, and this is a description of a keyboard. A configuration binding
@@ -27,7 +27,7 @@ export type Key = {
 export type Row = { Key }
 
 -- The keycodes with names of their own, for a caller that wants to press one
--- without naming an evdev code directly.
+-- without knowing evdev by heart.
 keycodes.SHIFT = 42
 keycodes.CAPS_LOCK = 58
 keycodes.BACKSPACE = 14
@@ -57,17 +57,16 @@ keycodes.LOCKS = locks
 -- The order modifiers are reported in, so that what a client is told does not
 -- depend on the order a table happened to be walked in.
 --
--- Asked for rather than listed. The set belongs to the runtime, and a copy of
--- it here would stop matching as soon as a modifier was added:
--- `seat:setModifiers` would refuse a name this file never learned, or report
--- one it never listed.
+-- Asked for rather than listed. The set is the runtime's, and a copy of it here
+-- would go stale the moment a modifier was added: `seat:setModifiers` would
+-- refuse a name this file never learned, or hold one it never reported.
 keycodes.MODIFIER_ORDER = lunette.modifierNames()
 
 -- Where the keys are, in evdev keycodes, one array per row.
 --
 -- `width` is in key units and defaults to one. `label` is what is drawn when a
--- key types nothing a legend could show (a keymap answers `\r` for enter,
--- which is not something to draw on a key).
+-- key types nothing a legend could show — a keymap answers `\r` for enter,
+-- which is not something to draw on a key.
 --
 -- This is a compact ANSI arrangement. It is a starting point rather than a
 -- claim: a configuration wanting a different one passes its own rows to

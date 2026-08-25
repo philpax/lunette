@@ -8,6 +8,12 @@
   outputs =
     { nixpkgs, ... }:
     let
+      # x86_64-linux only. crates/lunette-lovr/src/lib.rs types the log
+      # callback's varargs as raw::__va_list_tag, which is the name bindgen
+      # gives the System V x86_64 va_list; on aarch64 clang spells it
+      # struct __va_list and bindgen names it differently, so the crate would
+      # not compile. Nothing here has ever been built on aarch64, so the
+      # platform is not declared.
       systems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in
@@ -17,10 +23,14 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
 
-          # Prefetch JoltPhysics because joltc's FetchContent step otherwise needs
-          # network access during configuration. Keep the revision aligned with joltc's
-          # declared GIT_TAG.
-
+          # deps/joltc reaches JoltPhysics through FetchContent, which wants the
+          # network at configure time. Prefetching it and pointing
+          # FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS at the result is how the nixpkgs
+          # lovr derivation builds offline, and lunette does the same.
+          #
+          # The revision is the commit tag v5.5.0 names, which is what
+          # vendor/lovr/deps/joltc/CMakeLists.txt:173 declares as its GIT_TAG.
+          # It moves when the joltc submodule is bumped.
           joltPhysicsSrc = pkgs.fetchFromGitHub {
             owner = "jrouwe";
             repo = "JoltPhysics";
@@ -43,6 +53,8 @@
           ];
         in
         {
+          # gcc14Stdenv matches the nixpkgs lovr derivation, which selects it for
+          # better C++ support in LOVR's vendored dependencies.
           default = (pkgs.mkShell.override { stdenv = pkgs.gcc14Stdenv; }) {
             name = "lunette";
 
@@ -51,17 +63,22 @@
               pkg-config
               python3Minimal
 
-              # Bindgen needs the clang environment.
+              # Sets LIBCLANG_PATH and the include flags bindgen needs to parse
+              # LOVR's headers.
               rustPlatform.bindgenHook
 
-              # Use rustup because the project requires nightly rustfmt alongside
-              # the stable compiler.
+              # The toolchain comes from rustup rather than nixpkgs' rustc,
+              # because CONTRIBUTING.md requires nightly rustfmt alongside the
+              # stable compiler and `cargo +nightly` only works through rustup's
+              # proxies.
               rustup
 
+              # Formats the Luau tree, as `make check` requires.
               stylua
             ];
 
             buildInputs = with pkgs; [
+              # LOVR.
               libx11
               libxrandr
               libxinerama
@@ -82,16 +99,26 @@
               openxr-loader
               pipewire
 
+              # The compositor crate, from Phase 2 onward.
               wayland
               wayland-protocols
             ];
 
             LUNETTE_JOLTPHYSICS_SRC = joltPhysicsSrc;
 
-            # Use the repository's Lua standard library and configuration while developing.
-            # Anchor both paths at the repository root so the shell works from any
-            # directory; an explicit `--config-path` still takes precedence.
-
+            # The standard library a session run from here reads. Without it,
+            # `cargo run -p lunette` resolves the installed
+            # $PREFIX/share/lunette/lua rather than the working copy, and a
+            # configuration that requires `@mullion` fails to load.
+            #
+            # Anchored at the repository root rather than at the working
+            # directory: the path is taken as it stands, so `nix develop` from a
+            # crate directory would otherwise point it at a `lua` beside that
+            # crate. `docs/build-and-development.md` records why there is no
+            # `./lua` fallback that would make the variable unnecessary.
+            # The configuration a session run from here loads, for the same
+            # reason: a working copy is not on the search path. `--config-path`
+            # outranks it, so a session started with the flag is unaffected.
             shellHook = ''
               lunetteRoot="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
               export LUNETTE_STDLIB_PATH="$lunetteRoot/lua"

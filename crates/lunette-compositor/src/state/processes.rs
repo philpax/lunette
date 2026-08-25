@@ -1,17 +1,19 @@
-//! Adapted from the connection acceptance and cleanup in WayVR
-//! (https://github.com/wayvr-org/wayvr), backend/wayvr/client.rs, and the
-//! process spawn fragment in backend/wayvr/mod.rs, at commit
-//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/client.rs (`accept_connection` and `cleanup_clients`) and backend/wayvr/mod.rs (the spawn fragment), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! The processes lunette starts, and which client belongs to which.
 //!
-//! Spawning is a `ProcessSpawner` call plus a timer that reaps. Attribution is
-//! the credentials of a connecting client matched against the processes that
-//! are still unclaimed. The two live together because neither is useful
-//! alone: a spawn no client can be attributed to is a process lunette has lost
-//! track of, and an attribution with nothing to attribute to is an adopted
-//! client.
+//! Two halves of one question. Spawning is a `ProcessSpawner` call and a timer
+//! that reaps; attribution is the credentials of a connecting client matched
+//! against the processes that are still unclaimed. They live together because
+//! neither is useful without the other: a spawn nobody can attribute a client
+//! to is a process lunette has lost track of, and an attribution with nothing
+//! to attribute to is an adopted client.
+//!
+//! Split out of `compositor.rs` as a self-contained concern, and the header
+//! travels with it: `attach_client` and `prune_clients` are the halves of
+//! WayVR's `accept_connection` and `cleanup_clients` that did not go to
+//! [`crate::client`].
 
 use std::time::Duration;
 
@@ -106,9 +108,9 @@ impl CompositorState {
     /// Attributes a newly connected client to a process.
     ///
     /// The connecting pid first, then the token in the client's own
-    /// environment, and failing both the client is adopted as external. That
-    /// last case is a process started outside lunette with `WAYLAND_DISPLAY`
-    /// pointing at its socket.
+    /// environment, and failing both the client is adopted as external — which
+    /// is the case a process started outside lunette with `WAYLAND_DISPLAY`
+    /// pointing at its socket falls into.
     pub(crate) fn attach_client(&mut self, client: &Client) {
         let process = match client.get_credentials(&self.display) {
             Ok(credentials) => match Pid::new(credentials.pid) {

@@ -9,15 +9,16 @@
 //! narrow the table to what the hardware will actually accept live in
 //! [`crate::import::device`], because they need a device and these do not.
 //!
-//! ## Opaque X (no-alpha) format mapping
+//! # The X variants
 //!
 //! `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` have no alpha channel: the fourth
 //! component is undefined padding. Vulkan has no matching format, so each maps
 //! to the alpha-carrying format with the same component order, and whatever the
 //! client left in the padding byte arrives as alpha. [`Alpha::Opaque`] records
 //! that, and a consumer must force alpha to one rather than sampling it. WayVR
-//! maps the same six fourccs without recording the distinction, which is why its
-//! X-format content renders with arbitrary transparency.
+//! maps the same six fourccs (`dmabuf.rs:406-413`) without recording the
+//! distinction, which is why its X-format content renders with arbitrary
+//! transparency.
 
 use ash::vk;
 use lunette_lovr::raw::{TextureFormat, TextureFormat_FORMAT_BGRA8, TextureFormat_FORMAT_RGBA8};
@@ -38,7 +39,7 @@ pub enum Alpha {
 pub struct FormatMapping {
     pub fourcc: Fourcc,
     pub vulkan: vk::Format,
-    /// LÖVR's `TextureFormat`, which `convertFormat` (`gpu_vk.c`)
+    /// LÖVR's `TextureFormat`, which `convertFormat` (`gpu_vk.c:4374-4387`)
     /// turns back into [`FormatMapping::vulkan`]. The two have to agree: LÖVR
     /// takes an imported image's format on trust and has no way to detect a
     /// mismatch.
@@ -48,7 +49,7 @@ pub struct FormatMapping {
 
 /// The formats lunette imports, in the order they are advertised.
 ///
-/// The same six WayVR covers. Multi-plane YUV is a
+/// The same six WayVR covers (`dmabuf.rs:406-413`). Multi-plane YUV is a
 /// recorded gap rather than an oversight: importing it needs a per-plane
 /// binding path this design does not have.
 pub const SUPPORTED: [FormatMapping; 6] = [
@@ -102,7 +103,7 @@ pub fn mapping_for(fourcc: Fourcc) -> Option<FormatMapping> {
 /// plane and `VkBindImagePlaneMemoryInfo` to bind them, which is the disjoint
 /// path this design rejects. Filtering here means such a modifier is never
 /// advertised, so a client does not choose one and then have its buffer
-/// refused. WayVR applies the same filter.
+/// refused. WayVR applies the same filter at `dmabuf.rs:384`.
 #[must_use]
 pub fn single_plane_modifiers(properties: &[vk::DrmFormatModifierPropertiesEXT]) -> Vec<Modifier> {
     properties
@@ -118,7 +119,7 @@ pub fn single_plane_modifiers(properties: &[vk::DrmFormatModifierPropertiesEXT])
 /// [`Modifier::Invalid`] is always present. It is how a client asks for an
 /// implicit modifier — the driver picks the layout and neither side names it —
 /// and dropping it turns away every client that does not negotiate explicitly.
-/// WayVR adds it unconditionally for the same reason.
+/// WayVR adds it unconditionally for the same reason (`dmabuf.rs:393-397`).
 /// Duplicates are removed rather than advertised twice, because a driver may
 /// report the same modifier under more than one plane count.
 #[must_use]
@@ -140,7 +141,7 @@ pub fn advertise(fourcc: Fourcc, usable: &[Modifier]) -> Vec<Format> {
 }
 
 /// LÖVR's `FORMAT_RGB10A2`, which `convertFormat` spells
-/// `VK_FORMAT_A2B10G10R10_UNORM_PACK32` (`gpu_vk.c`).
+/// `VK_FORMAT_A2B10G10R10_UNORM_PACK32` (`gpu_vk.c:4387`).
 ///
 /// Named here rather than imported because bindgen emits it as a bare constant
 /// whose name repeats the enum, and the three uses read better against one

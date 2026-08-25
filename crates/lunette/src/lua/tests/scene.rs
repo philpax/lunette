@@ -33,7 +33,7 @@ fn gated_lua(session: &TestSession) -> Lua {
     .expect("the fake headset module loads");
 
     install(&lua, session).expect("the module installs");
-    // What `boot.lua` leaves behind, which the module's event
+    // What `boot.lua:340-345` leaves behind, which the module's event
     // dispatchers are installed into.
     lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
         .exec()
@@ -139,7 +139,7 @@ fn turning_the_scene_back_on_restores_the_pass() {
 fn the_scene_switch_reads_its_argument_the_way_lua_reads_a_condition() {
     // Truthiness rather than a type check, because that is what a configuration
     // writing `lunette.setSceneEnabled(panel.anyInScene())` means by it. The
-    // consequence worth pinning is that calling it with nothing at all
+    // one consequence worth pinning is that calling it with nothing at all
     // turns the scene off rather than raising.
     let session = session(Vec::new());
     let lua = gated_lua(&session);

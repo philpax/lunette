@@ -1,12 +1,38 @@
--- The pure arrangement format. `mullion.persist` owns filesystem access.
+-- The arrangement file: its text, its versions, and the one type that may be
+-- written.
 --
--- A newer reader accepts fields absent from older files. An older reader returns
--- `fromTheFuture` without an arrangement, so saving cannot discard unknown fields.
--- Bump the version when a field is added. A default alone does not protect a new
--- field when an old writer rewrites the file.
+-- Pure. Nothing here reads or writes a file; `mullion.persist` is the shell that
+-- does, and it is the module a configuration requires. This half is separate
+-- because the version matrix is the part worth reasoning about on its own, and
+-- because a format that takes text in and hands data back needs no filesystem to
+-- be exercised.
 --
--- Files contain Lua tables loaded in an empty environment. Strings are escaped
--- with `%q`.
+-- # The versions
+--
+-- The matrix is answered by construction, which is the shape
+-- `crates/lunette-capture/src/tokens.rs` uses for the same problem:
+--
+-- - A new mullion reading an old file finds the fields it knows and nothing for
+--   the ones that did not exist yet, which read as absent.
+-- - An old mullion reading a new file gets a `fromTheFuture` load, and
+--   `loaded:forSession()` answers nothing at all. That is the case worth
+--   designing for: rewriting a file holding fields this version cannot
+--   represent would drop them, corrupting the file rather than failing on it.
+--   There is no arrangement to render and no file object to hand `save`, so the
+--   rule cannot be lost to a later refactor that stops checking the kind.
+-- - The version is bumped when a field is added, not when one is first depended
+--   on. A default lets a new reader parse an old file; only the version stops an
+--   old writer rewriting a new one.
+--
+-- # The text
+--
+-- A Lua chunk returning a table, loaded under an empty environment so that it
+-- can build tables and reach nothing. `string.format`'s `%q` is the escaping,
+-- which is the one part of writing a serialiser that has a tail worth not
+-- writing again.
+--
+-- This module holds no state and starts nothing, so it registers no teardown
+-- hook: there is nothing a reload could leave behind.
 
 local format = {}
 
@@ -51,6 +77,8 @@ type BrokenLoad = {
 }
 export type Loaded = ArrangementLoad | FutureLoad | BrokenLoad
 
+-- Declared here and defined below the public API, so the file reads
+-- surface-first.
 local fileMetatable, loadedMetatable, quote
 local renderEntry: (Entry) -> string
 local readEntry: (any) -> (Entry?, string?)
@@ -65,8 +93,10 @@ format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' } :: { 
 
 -- An arrangement, from a list of entries.
 --
--- The only constructor of values accepted by `render` and
--- `mullion.persist.save`, preserving the from-the-future distinction.
+-- The only constructor of something `render` accepts, and so the only thing
+-- `mullion.persist.save` accepts. A caller cannot assemble one out of a plain
+-- table, which is what makes the from-the-future rule structural rather than a
+-- check somebody has to remember.
 --
 -- The list is copied, so a caller sorting or trimming its own array afterwards
 -- does not quietly rewrite the arrangement that is about to be saved.
@@ -89,8 +119,9 @@ end
 
 -- Whether `value` is a load `read`, `empty`, or `broken` produced.
 --
--- Loads and arrangements are distinguished by their metatables rather than by
--- whichever fields happen to be present.
+-- A load and an arrangement are two different things and a caller holding the
+-- wrong one is the mistake worth naming, so the two are told apart by their
+-- metatables rather than by which fields happen to be present.
 function format.isLoaded(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == loadedMetatable
 end
@@ -244,9 +275,8 @@ loadedMetatable = {
 -- accepts, which is what makes `newFile` the only way to hold one.
 fileMetatable = {}
 
--- A value as Lua source. Strings go through `%q`, because correct string
--- escaping has a long tail of edge cases that this module should not write
--- again.
+-- A value as Lua source. Strings go through `%q`, which is the escaping that has
+-- a tail worth not writing again.
 function quote(value)
   if type(value) == 'string' then
     return string.format('%q', value)

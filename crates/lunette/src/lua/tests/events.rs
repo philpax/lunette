@@ -1,4 +1,4 @@
-//! What a subscriber receives, and when.
+//! What a subscriber is given, and when.
 //!
 //! [`poll`] reproduces `boot.lua`'s poll loop over the recording sink, so what
 //! is under test is the dispatch a running session performs rather than a
@@ -41,7 +41,7 @@ fn a_window_opening_hands_the_handler_a_handle_and_a_snapshot_that_holds_it() {
     assert_eq!((id, title.as_str(), dead), (1, "htop", false));
     assert_eq!(
         visible, 1,
-        "the event and the snapshot the handler reads describe the same frame"
+        "the event and the snapshot the handler reads have to describe the same frame"
     );
 }
 
@@ -85,8 +85,8 @@ fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_
          end)",
     );
 
-    // The frame the window is absent from is the frame the event drains in,
-    // which is what makes the handle dead before the handler sees it.
+    // The frame the window is absent from is the frame the event is drained in,
+    // which is what makes the handle dead before the handler ever sees it.
     session.begin(snapshot(Vec::new(), Vec::new()));
     session.push_event(LuaEvent::WindowClosed {
         window: window_id(1),
@@ -103,7 +103,7 @@ fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_
     assert_eq!(
         (title.as_str(), width),
         ("htop", 1280),
-        "the handle reads the last value the window had, not nothing"
+        "the handle reads the last thing the window was known to be, not nothing"
     );
     assert!(!texture, "every method of a dead handle answers false");
     assert_eq!(remaining, 0);
@@ -145,7 +145,7 @@ fn a_spawn_that_never_started_is_reported_as_an_exit_and_opens_no_window() {
     assert_eq!(outcome, "spawnFailed");
     assert!(
         message.contains("no such file or directory"),
-        "unhelpful: {message}"
+        "unhelpful message: {message}"
     );
     assert_eq!(
         opened, 0,
@@ -417,8 +417,8 @@ fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
     );
 }
 
-/// At the boundary where it applies, an error a configuration's handler raised
-/// reaches the standard library's handler, with
+/// `lunette-v1.AC8.3`'s first half at the boundary it applies to: an error a
+/// configuration's handler raised reaches the standard library's handler, with
 /// its traceback, and the configuration's `lovr.lunerror` after it.
 #[test]
 fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
@@ -454,8 +454,8 @@ fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
     );
 }
 
-/// Raising the same error every frame for two hundred frames verifies the
-/// limiter through its observable behaviour rather than asserting that one exists.
+/// `lunette-v1.AC8.3`'s second half, by raising the same error every frame for
+/// two hundred frames rather than by asserting that a limiter exists.
 #[test]
 fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues() {
     let (session, sink) =

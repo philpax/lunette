@@ -73,21 +73,21 @@ impl From<&ProcessSnapshot> for Known {
 }
 
 handle! {
-    /// A process lunette started or adopted; the handle may exist before the process.
+    /// A process lunette started, or adopted from outside. The handle exists before the process does: `lunette.spawn` queues a request and returns in the same call.
     Process<T: LuaTexture> = HandleKind::Process;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-    /// Whether the process is running; false also means it has not started or has exited.
+    /// False in three situations this deliberately does not distinguish: the request has not reached the compositor, the process has ended, and the process never started. `lovr.lunprocessexited` tells the last two apart.
     field alive(_lua, this) -> bool { Ok(this.refresh()) }
 
-    /// The operating-system process ID, when known.
+    /// Absent until the child has been forked, and for an adopted process whose pid could not be read.
     field pid(_lua, this) -> Option<i32> {
         this.refresh();
         Ok(this.known.borrow().pid.map(Pid::get))
     }
 
-    /// Whether the process was adopted rather than spawned.
+    /// Whether the process connected from outside rather than being spawned.
     field external(_lua, this) -> bool {
         this.refresh();
         Ok(this.known.borrow().external)

@@ -106,7 +106,7 @@ impl LayerBackend for LovrLayers {
     ///
     /// The pointers are gathered into a contiguous array because
     /// `lovrHeadsetSetLayers` takes one; it copies what it keeps out of it
-    /// (`headset.c`) and retains each layer, so the array itself does
+    /// (`headset.c:2769-2781`) and retains each layer, so the array itself does
     /// not outlive the call.
     fn submit(&mut self, layers: &[&Self::Layer], scene: SceneRendering) -> bool {
         let mut pointers: Vec<*mut Layer> = layers.iter().map(|layer| layer.as_ptr()).collect();

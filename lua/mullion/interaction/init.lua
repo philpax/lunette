@@ -6,6 +6,10 @@
 -- change, and where a grabbed panel ends up. `mullion.laser` is the shell that
 -- reads `lovr.headset`, owns the seat, and draws the beam.
 --
+-- The split is so that this half can be tested. Nothing here reads a device, a
+-- clock, or a global; every input arrives as an argument, and the specs drive a
+-- pointer through a grab without a headset in the room.
+--
 -- Hover and focus are separate, as docs/input.md#seats keeps them separate in
 -- the compositor. A hover sends `sink:pointer` and takes `sink:leave` off
 -- whatever it left; only a click calls `seat:setFocus`. Deriving focus from
@@ -15,8 +19,8 @@
 --
 -- Every sink call carries the pointer's own seat as its trailing argument. A
 -- pointer that left it off would address the seat the session started with, so
--- two hands would share one cursor and one focus, which is what two seats exist
--- to avoid.
+-- two hands would share one cursor and one focus — which is the thing two seats
+-- exist to avoid.
 
 local lunette = require '@lunette'
 local types = require '@mullion/interaction/types'
@@ -27,6 +31,9 @@ local teardown = require '@mullion/teardown'
 
 local interaction = {}
 
+-- Declared here and defined below the public API, so the file reads
+-- surface-first. The metatable is a table rather than a forward-declared local
+-- because `newPointer` reads it before the methods below are filled in.
 local methods = {}
 local metatable = { __index = methods }
 
@@ -55,6 +62,11 @@ local pointers: { Pointer } = {}
 local focusedSeat: lunette.Seat?, focusedSink: lunette.Sink?
 
 -- Everything the feel of a pointer is tuned by, in one table.
+--
+-- docs/stdlib.md says this tier is tuning-heavy and that feel accounts for most
+-- of the work, so a tuning pass is a diff to this table rather than a hunt
+-- through functions for a number. A caller wanting different numbers for one
+-- pointer passes its own table as `options.tuning` rather than editing this one.
 interaction.TUNING = {
   -- How far a ray reaches, in metres. A panel further away than this is not
   -- hovered, so a laser does not click through a wall at something behind it.
@@ -66,23 +78,23 @@ interaction.TUNING = {
   -- Surface pixels per second at full thumbstick deflection.
   scrollScale = 900,
   -- Deflection below which the stick is treated as centred. A stick at rest
-  -- reports a small non-zero value, and a stick that needs a deliberate push is
-  -- better than a page scrolling under a resting thumb.
+  -- reports a small non-zero value, and scrolling a page because a thumb is
+  -- resting on it is worse than a stick that needs a deliberate push.
   scrollDeadZone = 0.2,
   -- Metres per second the stick pushes a grabbed panel along the hand's
-  -- forward axis. The stick scrolls when nothing is held and moves what is held
-  -- when something is; a panel being carried is not one being read, so both
-  -- uses never compete for the stick at once.
+  -- forward axis. The stick scrolls when nothing is held and moves what is
+  -- held when something is: a panel being carried is not one being read, so
+  -- the two never want the stick at the same time.
   reachScale = 1.2,
   -- How near the hand a pushed panel may come, in metres. Closer than this it
   -- is inside the hand holding it.
   reachMinimum = 0.2,
   -- How far a pushed panel may go. Past `reach` it could not be picked up
-  -- again, which would lose the window rather than place it.
+  -- again, which is a way to lose a window rather than a way to place one.
   reachMaximum = 6,
   -- The narrowest and widest a two-handed resize may take a panel, in metres.
-  -- A panel scaled to nothing cannot be grabbed again to undo it, which would
-  -- lose the window rather than size it.
+  -- A panel scaled to nothing cannot be grabbed again to undo it, which is a
+  -- way to lose a window rather than a way to size one.
   resizeMinimum = 0.15,
   resizeMaximum = 4,
   -- Which pointer button the trigger is.
@@ -117,7 +129,9 @@ function interaction.pick(
 ): (Surface?, number?, number?, number?)
   tuning = tuning or interaction.TUNING
 
-  -- Scale rather than normalize in place, since the input belongs to the caller.
+  -- Scaled rather than `normalize`d, which writes in place: the caller handed
+  -- this in to be read, and a vector is a value under Luau, so multiplying it
+  -- answers a fresh one rather than allocating.
   local length = direction:length()
   if not (length > 0) then
     return nil, nil, nil, nil
@@ -159,7 +173,9 @@ end
 -- Writes a panel's pose to its window's property store, reporting whether it
 -- went.
 --
--- A hand-placed pose is not derivable from a rule and must survive reload.
+-- This is the whole reason the store exists: a pose the user placed by hand is
+-- derivable from no rule, and a soft reload that lost it would scramble a
+-- hand-arranged workspace.
 --
 -- A panel over a monitor answers false. `lunette` has a per-window store and no
 -- per-monitor one, so a mirrored screen's pose has nowhere native to live; that
@@ -247,7 +263,9 @@ end
 
 -- Destroys every pointer and forgets the focus.
 --
--- Registered as this module's teardown hook.
+-- Registered as this module's teardown hook. A reload that left a pointer
+-- behind would leave a client holding a button that nothing will release and a
+-- panel highlighted that nothing is pointing at.
 function interaction.teardown()
   for _, existing in ipairs(interaction.pointers()) do
     existing:destroy()
@@ -264,8 +282,8 @@ end
 -- and `dt`, the frame's duration in seconds.
 --
 -- `panels` is what the ray may hit. It is passed in rather than taken from
--- `mullion.panel`, so that a configuration can point at a subset (one tag's
--- worth) or at something of its own.
+-- `mullion.panel`, so that a configuration can point at a subset — one tag's
+-- worth — or at something of its own.
 function methods:update(input: Input, panels: { Surface })
   if self.dead then
     return
@@ -392,8 +410,8 @@ end
 -- Presses or releases the button, on a change and not on every frame.
 --
 -- A release goes to whatever took the press, even when the ray has left it. A
--- release that went to the panel currently under the ray (or nowhere, because
--- the ray is over nothing) would leave the first client holding a button down
+-- release that went to the panel currently under the ray — or nowhere, because
+-- the ray is over nothing — would leave the first client holding a button down
 -- for the rest of the session.
 function methods.setButton(self: Pointer, pressed: boolean, sink: lunette.Sink?, surface: Surface?): ()
   pressed = pressed and true or false
@@ -479,7 +497,8 @@ methods.push = carrying.push
 methods.dragTo = carrying.dragTo
 methods.endGrab = carrying.endGrab
 
--- Registered by name so repeated module loading leaves one hook.
+-- Registered by name, so that a module body running a second time — which is
+-- what a soft reload does — leaves one hook rather than two.
 teardown.register('mullion.interaction', interaction.teardown)
 
 return interaction

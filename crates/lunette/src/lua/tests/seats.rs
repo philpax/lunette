@@ -1,12 +1,13 @@
-//! Windows, keymaps, and the two pipelines a key can travel.
+//! Seats, keymap queries, and the two pipelines a key can travel.
 //!
 //! Everything here runs with a Lua state and no graphics device: a keymap is a
 //! string the compositor would have published, and the answers come out of the
 //! same compiled copy production uses.
 //!
-//! What this establishes is that a keystroke addressed to a host sink reaches
-//! the provider, under the seat's layout, having uploaded that layout first —
-//! the last step being the reason `wl_virtual` was left unconfigured before this.
+//! The host half is `lunette-v1.AC3.3`. What is established here is that a
+//! keystroke addressed to a host sink reaches the provider, under the seat's
+//! layout, having uploaded that layout first — the last of those being the
+//! reason `wl_virtual` was left unconfigured before this.
 
 use std::sync::Arc;
 
@@ -24,8 +25,8 @@ const KEY_A: u32 = 30;
 
 /// A seat carrying an explicitly named layout.
 ///
-/// Named rather than defaulted, so the assertions below hold regardless of
-/// the compositor's inherited default.
+/// Named rather than defaulted, so the assertions below hold whatever the
+/// compositor's inherited default is.
 fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
     let keymap = Keymap::compile(
         &KeymapConfig {
@@ -121,7 +122,7 @@ fn reverse_lookup_returns_a_keycode_and_modifiers_lua_can_feed_back() {
     let lua = lua(&session);
 
     // The round trip is what makes this worth asserting: whatever `strokeFor`
-    // returns has to produce the character it was asked about when fed
+    // hands back has to produce the character it was asked about when fed
     // through the forward path, which does not share code with the inversion.
     let (keycode, modifiers, again): (u32, Table, String) = run(
         &lua,

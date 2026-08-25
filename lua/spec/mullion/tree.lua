@@ -1,7 +1,10 @@
 -- The standard library's own file tree, read from the mount.
 --
--- `coverage_spec` needs every module, and `reload_spec` requires every one, so
--- both read the tree rather than a hand-written list that could miss a new module.
+-- Two specs ask the same question of it — `coverage_spec` wants every module
+-- that exists, and `reload_spec` wants to require every one of them — and both
+-- have to read the tree rather than a list written by hand. A list written by
+-- hand is a list that a module added under a new subdirectory is missing from,
+-- which is exactly the defect these two specs exist to catch.
 --
 -- `lovr.filesystem` is the mount the session resolves `require` through, so a
 -- module this cannot see is a module a session cannot load either.

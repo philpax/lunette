@@ -144,7 +144,7 @@ impl TokenStore {
     /// next launch.
     ///
     /// The granted mode is stored, never the requested one. Backends may
-    /// downgrade, so
+    /// downgrade, and xdg-desktop-portal-wlr does (`screencast.c:171-181`), so
     /// storing what was asked for produces a record that lies about what the
     /// next run will do. [`GrantedPersistMode::Unstated`] stores nothing rather
     /// than guessing.
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn a_downgraded_persistence_mode_is_stored_as_granted_rather_than_as_requested() {
-        // Backends may downgrade. Storing
+        // xdg-desktop-portal-wlr downgrades (`screencast.c:171-181`). Storing
         // the requested value produces a record that lies about the next run.
         let mut store = TokenStore::new();
         store.record(

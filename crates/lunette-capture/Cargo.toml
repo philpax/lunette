@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# The `closed_set!` macro, for the connector kinds the kernel names.
 lunette-luau.workspace = true
 # The uinput device: the `input_event` and `uinput_setup` structures, plus
 # `ioctl`, `write`, and `memfd_create`. The ioctl request numbers and the
@@ -37,6 +38,7 @@ wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 # because it started as a GNOME-adjacent proposal, but only wlroots implements
 # it, so it travels with `zwlr_virtual_pointer_v1` in practice.
 wayland-protocols-misc = { workspace = true, features = ["client"] }
+# `zwlr_virtual_pointer_v1`.
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 

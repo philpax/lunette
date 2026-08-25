@@ -1,23 +1,22 @@
-//! This file contains process-attribution sections derived from WayVR's
-//! `backend/wayvr/process.rs` and `backend/wayvr/mod.rs`.
-//! The source revision is `98f800c644719d3f23a20e50bd3237c29a8082cb`.
-//! See https://github.com/wayvr-org/wayvr.
+//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/process.rs and backend/wayvr/mod.rs (the spawn and attribution fragments at :1232-1349), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! Linux-only: reads `/proc/<pid>/environ`.
 //!
-//! Inspects processes that the compositor did not start.
+//! How lunette looks at a process it did not start.
 
 use std::{fs, io};
 
 use crate::{process::registry::find_environment_value, protocol::Pid};
 
-/// Inspects a process that the compositor did not start.
+/// Looks at a process lunette did not start.
 ///
-/// The production implementation reads `/proc`. The trait lets tests inspect
-/// attribution and liveness without a real process.
+/// A seam over `/proc`, so both the matching logic and the liveness check can
+/// be tested without a real process existing. One trait rather than two,
+/// because both answers come from the same directory and every caller wants
+/// both.
 pub trait ProcessInspector: Send {
-    /// Reads one environment variable as raw bytes.
+    /// The value of one variable in a process's environment, as bytes.
     ///
     /// # Errors
     ///
@@ -25,11 +24,11 @@ pub trait ProcessInspector: Send {
     /// read at all, which usually means it has already exited.
     fn read_environment(&self, pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>>;
 
-    /// Reports whether the process still exists.
+    /// Whether the process still exists.
     fn is_running(&self, pid: Pid) -> bool;
 }
 
-/// Inspects the Linux `/proc` filesystem.
+/// The real `/proc`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProcFilesystem;
 

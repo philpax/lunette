@@ -1,23 +1,31 @@
 -- Which scale an output is set to, chosen from discrete steps with hysteresis.
 --
--- docs/compositor.md states the policy in one line: "The standard library uses
+-- docs/compositor.md says the policy in one line: "The standard library uses
 -- discrete scale steps with hysteresis rather than continuous adjustment. This
 -- is Lua policy, and it is tunable." Rust advertises `wp_fractional_scale_v1`
--- and lets Lua choose the value, and this module chooses it.
+-- and lets Lua choose the number; this is where the number is chosen.
 --
--- Continuous adjustment is what this policy avoids. A client re-lays-out and
--- reallocates its buffers on every scale change it is told about, and some
--- clients (GTK in particular) recompute the whole widget tree, so a panel whose
--- scale tracked the user's head would reallocate continuously. A slightly wrong
--- sharpness costs less than that.
+-- Continuous adjustment is the thing to avoid. A client re-lays-out and
+-- reallocates its buffers on every scale change it is told about, and some — GTK
+-- in particular — recompute the whole widget tree, so a panel whose scale
+-- tracked the user's head would spend its life reallocating. Slightly the wrong
+-- sharpness is cheaper than that, every time.
 --
--- The steps come from `lunette.scaleSteps()`, the same list the layer pool
--- quantises a requested size against. Sharing one list means raising a panel's
--- scale asks the pool for a step whose layer the free list already holds rather
--- than forcing an allocation, and every allocation blocks on
--- `XR_INFINITE_DURATION`. A second list written here would stay consistent with
--- that one only until someone edited one of them.
+-- The ladder is `lunette.scaleSteps()`, which is the same one the layer pool
+-- quantises a requested size against. One ladder, so that raising a panel's
+-- scale asks the pool for a rung the free list already holds rather than forcing
+-- an allocation — and every allocation blocks on `XR_INFINITE_DURATION`. A
+-- second ladder written here would be consistent with that one only for as long
+-- as nobody edited either.
 --
+-- Pure. Nothing here reads a headset, a clock, or a panel; a chooser is handed a
+-- distance and answers with a scale, so the specs drive a user walking toward a
+-- panel and away from it without a room to do it in.
+--
+-- This module starts nothing and holds no handle, so it registers no teardown
+-- hook: a chooser is owned by whatever made it, and the ladder is rebuilt when
+-- this file runs. There is nothing a reload could leave behind.
+
 local lunette = require '@lunette'
 
 local scale = {}
@@ -41,22 +49,25 @@ local idealScale, settle, largestAtMost
 
 -- Everything the choice is tuned by, in one table.
 --
--- Tuning is a diff to this table rather than a search through functions for a
--- number, as `mullion.interaction.TUNING` is for the feel of a pointer.
+-- A tuning pass is a diff to this table rather than a hunt through functions for
+-- a number, as `mullion.interaction.TUNING` is for the feel of a pointer. A
+-- caller wanting different numbers for one output passes its own table as
+-- `options.tuning` rather than editing this one.
 scale.TUNING = {
   -- The distance in metres at which a panel is rendered at scale 1. Closer than
   -- this the ideal scale rises in proportion, further away it falls, because a
-  -- panel at twice the distance covers half as much of the user's view and needs
-  -- half the pixels per metre.
+  -- panel at twice the distance covers half as much of the user's view and so
+  -- wants half the pixels per metre.
   reference = 1.0,
-  -- How far past the next step the ideal has to rise before the scale steps up,
-  -- as a fraction of the step. Together with `lower` this is the hysteresis:
-  -- the ideal can wander inside a band around each step without any change.
+  -- How far past a rung the ideal has to climb before the step is taken, as a
+  -- fraction of the rung. Together with `lower` this is the hysteresis: a rung
+  -- is surrounded by a band the ideal can wander inside without anything
+  -- happening.
   raise = 0.06,
-  -- How far below the current step the ideal has to fall before the scale steps
-  -- down, as a fraction of the step. Larger than `raise`, because stepping down
-  -- makes a panel blurrier and is the change a user notices, while being slow to
-  -- give back sharpness costs only memory.
+  -- How far below the current rung the ideal has to fall before the step is
+  -- given back, as a fraction of it. Larger than `raise`, because dropping a
+  -- step makes a panel blurrier and is the change a user notices; being slow to
+  -- give sharpness back costs only memory.
   lower = 0.12,
   -- The closest a panel is treated as being, in metres. A distance of zero has
   -- no ideal scale, and a user who walks their head through a panel should get
@@ -65,13 +76,16 @@ scale.TUNING = {
 }
 
 -- The ladder every chooser quantises to, ascending.
+--
+-- Read once when this file runs rather than per call. It is a constant of the
+-- build, and a soft reload re-runs this file and reads it again.
 scale.STEPS = lunette.scaleSteps()
 
 -- A chooser for one output, holding the step it last settled on.
 --
 -- `options.tuning` replaces `scale.TUNING` for this chooser, and `options.steps`
--- replaces the step list. The second exists so that a spec can drive a step list
--- it wrote itself, not because a configuration has a reason to use it.
+-- replaces the ladder — the second so that a spec can drive a ladder whose rungs
+-- it wrote, not because a configuration has a reason to.
 --
 -- The chooser starts on no step at all, so the first distance it is given picks
 -- one outright rather than being held back by hysteresis from a step nothing has
@@ -99,8 +113,8 @@ end
 --
 -- Returns the scale and whether it changed, so a caller can skip the
 -- `output:setMode` when it did not. Calling `setMode` with the scale an output
--- already has is harmless (the compositor sends nothing when the value is
--- unchanged), but a caller usually has other work to skip alongside it.
+-- already has is harmless — the compositor sends nothing when the value is
+-- unchanged — but a caller usually has other work to skip alongside it.
 function methods.choose(self: Chooser, distance: number): (number, boolean)
   local ideal = idealScale(distance, self.tuning)
   local previous = self.index
@@ -117,13 +131,15 @@ end
 
 -- Forgets the settled step, so the next choice is made without hysteresis.
 --
--- Resetting avoids stepping through every rung after a panel moves.
+-- For a panel that was moved rather than approached: teleporting one across the
+-- room and then stepping it one rung a frame until it caught up would make the
+-- client re-render at every rung on the way.
 function methods.reset(self: Chooser): ()
   self.index = nil
 end
 
--- The scale a panel `distance` metres away would ideally be rendered at,
--- before quantisation to the step list and the hysteresis margins.
+-- The scale a panel `distance` metres away would ideally be rendered at, before
+-- the ladder and the hysteresis have their say.
 --
 -- Inverse in the distance: a panel twice as far away subtends half the angle, so
 -- the same legibility needs half the pixels per metre.
@@ -137,14 +153,15 @@ end
 
 -- The index the chooser settles on, given the one it was on.
 --
--- A step is taken only when the ideal has passed the next step by the tuning's
--- margin, and given back only when it has fallen below the current step by the
--- other margin. Because the raise threshold sits above every step and the lower
--- threshold below it, there is a band around each step inside which neither
--- fires. That band stops a panel sitting at a boundary from changing scale on
--- every small movement of the user's head.
+-- A step is taken only when the ideal has passed the rung by the tuning's
+-- margin, and given back only when it has fallen below the current rung by the
+-- other one. Because the raise threshold sits above every rung and the lower
+-- threshold below it, there is a band around each rung inside which neither
+-- fires — which is what stops a panel at a boundary flapping between two scales
+-- while the user breathes.
 --
--- A panel that jumps several steps reaches its destination in one call.
+-- Loops rather than steps once, so that a panel that jumped several rungs
+-- arrives where it belongs in one call rather than one rung per frame.
 function settle(steps: { number }, index: number?, ideal: number, tuning: Tuning): number
   if not index then
     return largestAtMost(steps, ideal)
@@ -161,11 +178,11 @@ function settle(steps: { number }, index: number?, ideal: number, tuning: Tuning
   return index
 end
 
--- The index of the largest step no greater than `ideal`, or 1 when every step
--- is above it.
+-- The index of the largest rung no greater than `ideal`, or 1 when every rung is
+-- above it.
 --
 -- Down rather than to the nearest, so that a chooser never asks for more pixels
--- than the distance calls for. The step list ascends, so the search scans it.
+-- than the distance called for. The ladder ascends, so this walks it.
 function largestAtMost(steps: { number }, ideal: number): number
   local found = 1
   for index = 1, #steps do

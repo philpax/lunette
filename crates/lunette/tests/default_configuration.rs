@@ -172,7 +172,7 @@ fn the_default_configuration_loads_against_the_standard_library() {
         "lovr.load should register the saved arrangement as a rules source"
     );
 
-    // The store source is the other half: without
+    // The store source is the other half, and the one AC5.4 rests on: without
     // it a reload places every surviving window by rule and a hand-arranged
     // workspace comes back scrambled.
     let sources: Vec<String> = match lua

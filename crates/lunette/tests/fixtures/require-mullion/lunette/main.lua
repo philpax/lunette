@@ -1,5 +1,15 @@
--- Checks the standard-library mount through the real host. The mode and marker
--- arrive as the first two user arguments after boot.lua shifts them into `arg`.
+-- Asserts that the mullion standard library is mounted where it was asked for.
+--
+-- The host wraps LÖVR's `lovr.filesystem` loader so that the standard library is
+-- mounted between the module being created and `main.lua` running; see
+-- crates/lunette/src/boot.rs. Nothing else in the suite exercises that, and it
+-- is not observable from a Lua state a test builds, because the mount goes into
+-- LÖVR's virtual filesystem rather than into the process's.
+--
+-- The mode arrives as the first user argument, which boot.lua shifts to arg[1],
+-- and a marker field the mounted root module is expected to carry arrives as
+-- arg[2]. Each failure quits with its own status, so the run says which
+-- assertion did not hold rather than only that one did not.
 
 -- Requires the standard library, and checks it is the copy the run meant.
 --

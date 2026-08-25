@@ -6,32 +6,32 @@
 //! which is the whole of the sharpness difference. Layers are scarce, so a panel
 //! asks for one and is told whether it has it.
 //!
-//! ## Priority ranking
+//! # Lua supplies the number, Rust does the arithmetic
 //!
 //! `lunette.claimLayer` takes a scalar priority and `claim:setPriority` changes
 //! it. [`LayerPool`] sorts by that number, stably, and assigns the top N.
 //! Ranking is application knowledge — focus, gaze, distance, a rule putting
-//! video above a terminal, hysteresis to prevent grant oscillation — and lunette
-//! never invents a ranking value. `docs/rendering.md` records that split.
+//! video above a terminal, hysteresis to stop grants flapping — and lunette
+//! never invents it. `docs/rendering.md` records that split, which was revisited
+//! once during design.
 //!
-//! ## Claim resolution timing
+//! # Nothing lands mid-frame
 //!
-//! A claim made inside a callback is registered immediately and granted no earlier
-//! than the next frame boundary. A grant applied mid-frame would change a
+//! A claim made inside a callback is registered at once and granted no earlier
+//! than the next frame boundary. A grant that landed mid-frame would change a
 //! panel's realisation between its `lovr.update` and its `lovr.draw`, which is
-//! the class of inconsistency the snapshot model exists to prevent. This is why
-//! [`ClaimRegistry::resolve`] runs in the frame loop rather than from Lua.
+//! the class of inconsistency the snapshot model exists to prevent, and it is
+//! why [`ClaimRegistry::resolve`] is the frame loop's to call and not Lua's.
 //!
-//! ## Claim lifetime
+//! # What makes a claim dead
 //!
-//! A claim is dead once the pool no longer knows about it, which is what
-//! `claim:release()` does and nothing else does. Revocation does not destroy a
-//! claim handle: `docs/rendering.md` has the standard library fall back to an
-//! in-scene quad on revoke and upgrade back when a layer frees, and a handle
-//! that went inert on the way down could never carry the way back up. What
-//! revocation takes away is the `Layer` — `claim.granted` goes false and
-//! `claim.layer` answers `false` — and the same is true after a session is lost
-//! and the pool rebuilt.
+//! A claim is dead once the pool no longer knows it, which is what
+//! `claim:release()` does and nothing else does. Revocation does not kill it:
+//! `docs/rendering.md` has the standard library fall back to an in-scene quad on
+//! revoke and upgrade back when a layer frees, and a handle that went inert on
+//! the way down could never carry the way back up. What revocation takes away is
+//! the `Layer` — `claim.granted` goes false and `claim.layer` answers `false` —
+//! and the same is true after a session is lost and the pool rebuilt.
 
 use std::{cell::RefCell, collections::HashMap, ffi::c_void, fmt, rc::Rc};
 
@@ -130,7 +130,7 @@ impl LuaLayer for LovrLayer {
         // pointer under a stack guard, and it runs the closure inside a
         // protected call, so the allocation `_luax_pushtype` performs cannot
         // longjmp past mlua. `_luax_pushtype` retains the object itself
-        // (`api/api.c`), so the reference the pool holds is untouched.
+        // (`api/api.c:262`), so the reference the pool holds is untouched.
         unsafe {
             lua.exec_raw((), |state| {
                 _luax_pushtype(state.cast(), ObjectType_T_Layer as i32, pointer);
@@ -299,21 +299,21 @@ impl From<ClaimState> for Known {
 }
 
 handle! {
-    /// A claim for a composition layer carrying a window's pixels.
+    /// A claim on a composition layer for a window's pixels. Layers are scarce, so a panel asks for one and is told whether it has it; an in-scene quad is the fallback, not a degraded mode.
     Claim<T: LuaTexture> = HandleKind::Claim;
 
-    /// The claim's stable identifier.
+    /// Stable for the claim's whole life, so it is what a table of per-claim state is keyed by.
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
     field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-    /// Whether this claim has a layer this frame.
+    /// Whether the panel draws itself on the layer this frame, or as an in-scene quad. Read every frame: a claim is revoked when a higher-priority one arrives at capacity, and re-granted when a layer frees.
     field granted(_lua, this) -> bool {
         this.refresh();
         Ok(this.known.borrow().granted)
     }
 
-    /// The LÖVR layer, or false while this claim holds none.
+    /// The LÖVR layer, with the full `Layer` metatable, or false while the claim holds none. Never cached across frames: what it names goes away on revoke.
     field layer(lua, this) -> MaybeLayer {
         this.refresh();
         this.session.claims().push_layer(lua, this.id).map(MaybeLayer)
@@ -324,30 +324,39 @@ handle! {
         Ok(this.known.borrow().priority)
     }
 
-    /// The allocated layer width, which may exceed the requested width.
+    /// The layer's size, not the size that was asked for: a request is quantised up a ladder, so the layer is at least as large as the request and usually larger, and a caller setting the layer's viewport needs the number it actually has.
     field width(_lua, this) -> Option<u32> { Ok(size(this).map(|size| size.width)) }
 
     field height(_lua, this) -> Option<u32> { Ok(size(this).map(|size| size.height)) }
 
-    /// The source window, or nil after the claim is forgotten.
+    /// The source, as a fresh handle each read. Absent only for a claim the pool has already forgotten.
     field window(_lua, this) -> Option<Window<T>> {
         Ok(this
             .source
             .map(|source| Window::for_id(Rc::clone(&this.session), source)))
     }
 
-    /// Changes this claim's priority at the next frame boundary.
+    /// Changes where this claim ranks against the others, taking effect at the next frame boundary. Raising a claim above a granted one is what displaces it.
     method setPriority(_lua, this, priority: f64) -> bool { set_priority(this, priority) }
 
-    /// Releases this claim and returns its layer to the pool.
+    /// Withdraws the claim, returning any layer to the pool. The handle is dead afterwards, and no revocation event fires.
     method release(_lua, this) -> bool { Ok(release(this)) }
 }
 
-/// Creates a layer claim for a window; allocation is resolved at the next frame boundary.
+/// `lunette.claimLayer{ window = …, width = …, height = …, priority = … }`.
+///
+/// The handle comes back before anything has been ranked, so it describes a
+/// claim that holds nothing: `granted` is false and `layer` is `false` until a
+/// frame boundary has assigned the pool's layers, and it may stay that way
+/// indefinitely if higher-priority claims keep the pool full. Both paths have to
+/// be live in the caller — an in-scene quad is the fallback, not a degraded
+/// mode.
 ///
 /// # Errors
 ///
-/// If an option is unknown, the window is invalid, the size is not positive, or the priority is not numeric.
+/// If the table carries an option this call does not take, if `window` is not a
+/// window handle, if the size is not a pair of positive pixel counts, or if the
+/// priority is not a number.
 pub(crate) fn claim_layer<T: LuaTexture>(
     session: &Rc<Session<T>>,
     options: &Options<ClaimLayer>,
@@ -397,12 +406,20 @@ record! {
         window: Window<NullTexture>,
         width: f64,
         height: f64,
-        /// The claim's priority.
+        /// Where this claim ranks against the others. Ranking is the caller's: lunette sorts by the number and never invents it.
         priority: f64,
     }
 }
 
-/// Sets a claim's priority for the next frame boundary and returns false if it is dead.
+/// `claim:setPriority(n)`: changes where this claim ranks against the others.
+///
+/// Takes effect at the next frame boundary, with every other grant and
+/// revocation. Raising a claim above a granted one is what displaces it, and the
+/// displaced claim hears about it as `lovr.lunlayerrevoked`.
+///
+/// `false` on a dead handle, without raising. A priority that is not a number
+/// raises: that is a defect in the caller's maths, and a claim silently keeping
+/// its old ranking would be diagnosed as the pool misbehaving.
 ///
 /// # Errors
 ///
@@ -419,7 +436,18 @@ fn set_priority<T>(claim: &Claim<T>, priority: f64) -> mlua::Result<bool> {
     Ok(claim.session.claims().set_priority(claim.id, priority))
 }
 
-/// Releases a claim and returns false if it is already gone.
+/// `claim:release()`: withdraws the claim, returning any layer to the pool.
+///
+/// The handle is dead afterwards, and no `lovr.lunlayerrevoked` fires: the
+/// caller asked for this, and telling it that what it just dropped has been
+/// taken away would be noise.
+///
+/// Releasing is explicit rather than something a collected handle does. The
+/// event payloads carry a second handle to the same claim, and a handle that
+/// released on drop would withdraw a live claim as soon as the garbage collector
+/// reached the copy a handler had finished with.
+///
+/// `false` when the claim is already gone, without raising.
 fn release<T>(claim: &Claim<T>) -> bool {
     claim.session.claims().release(claim.id)
 }

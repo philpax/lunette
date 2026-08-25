@@ -1,29 +1,30 @@
 //! Linux-only: the seat handle Lua holds.
 //!
 //! A `wl_seat` carries exactly one pointer and one keyboard, so two cursors need
-//! two seats and the protocol offers no other model. WayVR has one seat, which
-//! is why pointing the off hand at a window steals hover from the main hand;
-//! `lunette.newSeat` removes that limit, and the collapse-to-one-seat mode is
-//! Lua policy over it rather than a mode here.
+//! two seats and the protocol offers nothing else. WayVR has one, which is why
+//! pointing the off hand at a window steals hover from the main hand;
+//! `lunette.newSeat` is the primitive that removes that limit, and the
+//! collapse-to-one-seat mode `docs/input.md:39` describes is Lua policy over it
+//! rather than a mode here.
 //!
-//! ## Keymap queries
+//! # What the keymap queries are for
 //!
-//! Wayland clients receive an xkb keymap plus raw keycodes and perform their own
-//! keysym translation, so anything drawing a virtual keyboard must be able to
-//! ask what a key means. The three queries here — the layout list, forward lookup,
-//! and reverse lookup — let mullion draw a virtual keyboard with correct legends
-//! and produce correct keycodes without reimplementing xkb in Lua.
+//! `docs/input.md:47-54` records the shape of the problem: Wayland clients want
+//! an xkb keymap plus raw keycodes and do their own keysym translation, so
+//! anything drawing a keyboard has to be able to ask what a key means. The three
+//! queries here — the layout list, forward lookup, and reverse lookup — are
+//! what let mullion draw a virtual keyboard with correct legends and produce
+//! correct keycodes without reimplementing xkb in Lua.
 //!
 //! Every answer comes from the seat's own published layout, compiled on this
 //! thread. The compositor cannot hand over a compiled keymap: libxkbcommon is
-//! not thread-safe, so what crosses the boundary is text and each side compiles
-//! its own copy.
+//! not thread-safe, so what crosses is text and each side compiles its own.
 //!
-//! ## Focus handling model
+//! # Focus is applied here, never decided here
 //!
-//! `seat:setFocus(sink)` is a request the caller makes deliberately. Focus does
-//! not follow pointer motion, which differs from WayVR's behavior where a second
-//! hand can steal focus by hovering.
+//! `seat:setFocus(sink)` is a request the caller makes deliberately. Nothing
+//! infers focus from pointer motion, which is what WayVR does and what makes a
+//! second hand steal focus by hovering.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -71,7 +72,10 @@ impl<T> Seat<T> {
 
     /// Brings the cache up to date, reporting whether the seat exists now.
     ///
-    /// Returns false when the seat is not present in the snapshot.
+    /// False both before the compositor has created the seat and after it has
+    /// been destroyed. The two are indistinguishable from here and a caller
+    /// treats them the same way: nothing can be delivered to a seat that is not
+    /// there.
     fn refresh(&self) -> bool {
         let snapshot = self.session.snapshot();
         let Some(current) = snapshot.seats.iter().find(|seat| seat.seat == self.id) else {
@@ -109,21 +113,21 @@ impl<T> Seat<T> {
 }
 
 handle! {
-    /// A seat with its own pointer and keyboard.
+    /// A seat with its own pointer and keyboard, which is what a client sees as `wl_seat`.
     Seat<T: LuaTexture> = HandleKind::Seat;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-    /// The name exposed to Wayland clients.
+    /// What clients see on `wl_seat.name`, and the only thing on the wire that tells two seats apart.
     field name(_lua, this) -> String {
         this.refresh();
         Ok(this.name.borrow().clone())
     }
 
-    /// Whether the seat has not been created or has been destroyed.
+    /// True before the compositor has created the seat as well as after it has been destroyed. The two are indistinguishable from here, and nothing can be delivered to either.
     field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-    /// Whether this seat bridges the host clipboard and primary selection.
+    /// Whether this seat's clipboard and primary selection are the host desktop's. At most one seat's are, because the host has one of each.
     field clipboardBridge(_lua, this) -> bool {
         this.refresh();
         Ok(this
@@ -133,13 +137,13 @@ handle! {
             .is_some_and(|known| known.clipboard_bridge))
     }
 
-    /// The modifiers this seat is holding.
+    /// The modifiers this seat is holding, as clients were last told.
     field modifiers(_lua, this) -> Vec<String> {
         this.refresh();
         Ok(modifier_names(&this.modifiers()))
     }
 
-    /// The user-facing layouts in this seat's keymap.
+    /// Every layout the seat's keymap carries, as a user would read them: 'English (US)', not 'us'.
     field layouts(_lua, this) -> Vec<String> {
         let Some(keymap) = this.keymap() else {
             return Ok(Vec::new());
@@ -151,10 +155,10 @@ handle! {
             .collect())
     }
 
-    /// Destroys this seat, except for the default seat.
+    /// Withdraws the seat's `wl_seat` global. The default seat is refused: every command that names no seat resolves to it.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 
-    /// Sets the modifiers reported to clients.
+    /// Sets which modifiers this seat holds. Clients are told, so a modifier left held stays held.
     method setModifiers(_lua, this, names: Option<Vec<String>>) -> bool {
         let modifiers = read_modifiers(names.as_deref())?;
         if !this.refresh() {
@@ -167,17 +171,17 @@ handle! {
         Ok(true)
     }
 
-    /// Gives this seat's keyboard to a sink, or removes its focus.
+    /// Gives this seat's keyboard to a sink, or takes it away. A host sink is refused: which window holds the host's focus is the host compositor's decision.
     method setFocus(_lua, this, sink: Option<UserDataRef<Sink<T>>>) -> bool {
         set_focus(this, sink.as_deref())
     }
 
-    /// Enables or disables this seat's host clipboard bridge.
+    /// Makes this seat's selections the host desktop's, or stops them being. One seat at a time, because the host has one clipboard.
     method setClipboardBridge(_lua, this, bridged: bool) -> bool {
         Ok(set_clipboard_bridge(this, bridged))
     }
 
-    /// Returns the keysym produced by a keycode and modifier set.
+    /// Which keysym a keycode produces with those modifiers held, under this seat's keymap.
     method symbolFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<u32> {
         let modifiers = read_modifiers(names.as_deref())?;
         Ok(this
@@ -186,7 +190,7 @@ handle! {
             .map(Keysym::raw))
     }
 
-    /// Returns the character produced by a keycode and modifier set.
+    /// Which character a keycode produces with those modifiers held.
     method characterFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<String> {
         let modifiers = read_modifiers(names.as_deref())?;
         Ok(this
@@ -194,7 +198,7 @@ handle! {
             .and_then(|keymap| keymap.character(Keycode::from_evdev(key), &modifiers)))
     }
 
-    /// Returns the key and modifiers that produce a character or keysym.
+    /// Which key and modifiers produce a character or a keysym. A string is read as the character to type, and a number as a keysym.
     method strokeFor(_lua, this, wanted: StrokeQuery) -> Option<Stroke> {
         stroke_for(this, &wanted.0)
     }
@@ -202,9 +206,10 @@ handle! {
 
 /// `lunette.newSeat(name, options)`: a seat with its own pointer and keyboard.
 ///
-/// The handle is initially dead until the snapshot lists the new seat. A layout
-/// that does not compile is reported in the log, and the seat never appears.
-
+/// The handle comes back before the compositor has seen the request, so it
+/// describes a seat that does not exist yet: `seat.dead` is true until the
+/// snapshot lists it, which is the same rule `lunette.spawn` follows. A layout
+/// that does not compile is reported in the log and the seat never appears.
 ///
 /// # Errors
 ///
@@ -254,11 +259,11 @@ pub(crate) fn new_seat<T: LuaTexture>(
     })
 }
 
-/// Returns every seat in the current frame's snapshot.
+/// `lunette.seats()`: every seat, as of this frame's snapshot.
 ///
 /// # Errors
 ///
-/// If the seat list cannot be built.
+/// If the table could not be built.
 pub(crate) fn seats<T: LuaTexture>(
     _lua: &Lua,
     session: &Rc<Session<T>>,
@@ -350,7 +355,6 @@ fn set_clipboard_bridge<T>(seat: &Seat<T>, bridged: bool) -> bool {
 /// keysym.
 ///
 /// A string is read as the character to type, and a number as a keysym. Both
-
 /// are wanted: a virtual keyboard resolves characters, and a caller replaying a
 /// keysym it read from `seat:symbolFor` resolves numbers.
 ///

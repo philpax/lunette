@@ -1,9 +1,11 @@
 -- Every module is safe to require twice.
 --
 -- A soft reload discards the Lua state and runs every module body again
--- (docs/lua-api.md#reload). A timer, signal connection, or teardown hook that
--- leaks across it is a defect, so this walks the tree, requires every module
--- twice, and counts what accumulated.
+-- (docs/lua-api.md#reload), and CONTRIBUTING.md makes a module that leaks a
+-- timer, a signal connection, or a teardown hook across one a defect. This is
+-- what makes that checkable rather than a thing review is trusted to notice: the
+-- tree is walked, every module is required twice, and what accumulated is
+-- counted.
 --
 -- The second pass keeps one `mullion.teardown` and replaces everything else, so
 -- the registry the two passes register into is the same one. That is the shape a
