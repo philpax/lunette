@@ -1,32 +1,21 @@
-//! Which input provider lunette ends up using, and why the others were not.
+//! Pure selection of a host input provider.
 //!
-//! The order is a real fallback chain rather than a switch. WayVR's
-//! `HidWrapper::new` (`subsystem/input.rs:22-41`) matches a configuration enum,
-//! calls exactly one initialiser, and installs a dummy provider on failure; it
-//! never tries the next mechanism. `docs/host-desktop.md:37` — "uinput is tried
-//! first because it works regardless of the host compositor" — describes a chain
-//! that does not exist there. It exists here: [`select`] walks the order, and
-//! every failure it passes over is kept so the user is told what was tried and
-//! what each attempt said.
-//!
-//! Pure. [`select`] takes a function that opens a provider, so the chain's
-//! behaviour is exercised against fabricated outcomes and nothing here opens a
-//! device or connects to a compositor.
+//! [`select`] tries providers in the configured order, records failures, and
+//! returns a dummy provider when none succeeds. Its opener is a function
+//! parameter, so selection tests do not access devices or compositors.
 
 use std::{error::Error, fmt, io, path::PathBuf};
 
 /// One mechanism for reaching the host's keyboard and pointer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProviderKind {
-    /// `/dev/uinput`. Works under any compositor and under X11, because it
-    /// injects below all of them, and needs write access to the device node.
+    /// Injects below the compositor through `/dev/uinput` and requires write
+    /// access to the device node.
     Uinput,
-    /// `zwlr_virtual_pointer_v1` and `zwp_virtual_keyboard_v1`. Needs no
-    /// permissions, and is implemented by the wlroots family only — KWin and
-    /// mutter do not implement it and have said they do not plan to.
+    /// Uses `zwlr_virtual_pointer_v1` and `zwp_virtual_keyboard_v1` without
+    /// special permissions. Only the wlroots family implements these protocols.
     WlVirtual,
-    /// Nothing. Accepts every call and reaches nothing, so that a session
-    /// without host input still runs.
+    /// Accepts every call without reaching the host desktop.
     Dummy,
 }
 
@@ -47,26 +36,21 @@ impl fmt::Display for ProviderKind {
     }
 }
 
-/// The order the mechanisms are tried in.
+/// The configured order of real providers.
 ///
-/// [`Self::default`] is uinput and then `wl_virtual`. uinput first because it
-/// works under any compositor and under X11; `wl_virtual` second because it is
-/// wlroots-only. The dummy is not a member — [`select`] appends it, so it is
-/// always last and can never be left out.
-///
-/// Duplicates are dropped on the way in, so an override that names a mechanism
-/// already in the order moves it rather than adding a second attempt at it.
+/// The default tries uinput and then `wl_virtual`. uinput works under any
+/// compositor and under X11; `wl_virtual` is implemented by the wlroots family.
+/// [`select`] uses the dummy when no configured provider succeeds. Duplicate
+/// providers are removed while preserving their first position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderOrder(Vec<ProviderKind>);
 
 impl ProviderOrder {
-    /// The order as configured, with duplicates and the dummy removed.
+    /// Removes the dummy and duplicate providers while preserving order.
     ///
-    /// The dummy is removed rather than honoured in place, because a dummy
-    /// ahead of a real provider would make the chain stop at it and report
-    /// success, which is the one outcome a fallback chain must not produce
-    /// silently. Asking for no host input is
-    /// [`crate::hid::HidConfig::disabled`], which says so.
+    /// A dummy before a real provider would stop the chain and report success.
+    /// [`crate::hid::HidConfig::disabled`] represents an intentional choice to
+    /// use no host input.
     #[must_use]
     pub fn new(order: impl IntoIterator<Item = ProviderKind>) -> Self {
         let mut kinds = Vec::new();
@@ -78,10 +62,7 @@ impl ProviderOrder {
         Self(kinds)
     }
 
-    /// The default order with `preferred` moved to the front.
-    ///
-    /// This is the configuration override: a user who wants a specific provider
-    /// names it, and the rest of the chain still stands behind it.
+    /// Moves `preferred` to the front when it names a real provider.
     #[must_use]
     pub fn preferring(preferred: ProviderKind) -> Self {
         let mut kinds = vec![preferred];
@@ -89,7 +70,8 @@ impl ProviderOrder {
         Self::new(kinds)
     }
 
-    /// The empty order, which selects the dummy without attempting anything.
+    /// Returns an empty order. The caller selects the dummy without attempting
+    /// a real provider.
     #[must_use]
     pub const fn none() -> Self {
         Self(Vec::new())
@@ -122,24 +104,18 @@ impl fmt::Display for ProviderOrder {
     }
 }
 
-/// What the chain settled on.
 #[derive(Debug)]
 pub struct Selected<P> {
-    /// The provider that opened, or the dummy when none did.
+    /// The selected provider, or the dummy when no configured provider succeeds.
     pub provider: P,
     pub kind: ProviderKind,
-    /// Every attempt that failed before this one, in the order they were tried.
+    /// Every configured provider that failed, in the order it was tried.
     pub failures: Vec<ProviderFailure>,
 }
 
 impl<P> Selected<P> {
-    /// The error to report when nothing reached the host, or `None` when
-    /// something did.
-    ///
-    /// A failure list that is not empty is worth reporting even when a later
-    /// provider succeeded — the user asked for uinput and got `wl_virtual`, and
-    /// that is a fact about their session. It is not an error, though, which is
-    /// why only the dummy case produces one.
+    /// Returns the failures when the dummy provider was selected after at least
+    /// one configured provider failed. An empty order returns `None`.
     #[must_use]
     pub fn unreachable(&self) -> Option<NoHostInput> {
         (self.kind == ProviderKind::Dummy && !self.failures.is_empty())
@@ -147,15 +123,11 @@ impl<P> Selected<P> {
     }
 }
 
-/// Walks the order, taking the first provider that opens.
+/// Tries each provider in order and returns the first successful result.
 ///
-/// `open` is the seam. In production it opens a real device or connects to the
-/// host compositor; in a test it returns whatever outcome the case is about, so
-/// the chain's behaviour is checked without either.
-///
-/// `dummy` is the provider installed when the order is exhausted. It is a
-/// separate argument rather than a variant `open` could return, so the chain
-/// cannot terminate on anything but a real success or the dummy.
+/// `open` is the production device or compositor boundary and the test seam.
+/// `dummy` supplies the result when every configured provider fails, so an
+/// opener cannot accidentally report the dummy as a successful provider.
 pub fn select<P>(
     order: &ProviderOrder,
     mut open: impl FnMut(ProviderKind) -> Result<P, ProviderError>,
@@ -181,7 +153,7 @@ pub fn select<P>(
     }
 }
 
-/// One provider that could not be opened, and why.
+/// A failed provider attempt and its cause.
 #[derive(Debug)]
 pub struct ProviderFailure {
     kind: ProviderKind,
@@ -224,47 +196,37 @@ impl Error for ProviderFailure {
 /// Why one provider could not be opened, or could not carry on.
 #[derive(Debug)]
 pub enum ProviderError {
-    /// A system call failed. `operation` names what was being done, and `path`
-    /// is the file it was being done to where there is one.
+    /// A system call failed. `operation` describes the operation, and `path`
+    /// identifies its file when one exists.
     Io {
         operation: &'static str,
         path: Option<PathBuf>,
         source: io::Error,
     },
-    /// The provider needs something the caller did not supply — a Wayland
-    /// socket for `wl_virtual`, a keymap for a keyboard. Not a fault in the
-    /// session: a headless host has no socket, and saying so is more useful
-    /// than an error from a connect that was never going to work.
+    /// The provider needs a value that the caller did not supply, such as the
+    /// host Wayland socket. This also describes a headless host without a
+    /// Wayland socket, before any connection attempt is made.
     NotConfigured { what: &'static str },
-    /// The host compositor does not offer an interface the provider needs, or
-    /// offers a version it cannot use.
+    /// The host compositor does not offer a required interface or usable version.
     MissingInterface {
         interface: &'static str,
         detail: String,
     },
-    /// The connection to the host compositor failed or ended.
-    ///
-    /// A host session ending is ordinary rather than exceptional, which is why
-    /// it is an error the caller can act on rather than the panic WayVR takes
-    /// at `wl_virtual.rs:146`, `:176`, `:199`, and `:204`.
+    /// The connection to the host compositor failed or ended. The provider
+    /// cannot continue using that connection.
     Disconnected { detail: String },
 }
 
 impl ProviderError {
-    /// Whether the provider is finished rather than merely having failed once.
-    ///
-    /// A disconnected compositor never comes back on the same connection, so
-    /// the provider is replaced. A single failed write is not grounds for that.
+    /// Returns whether the provider cannot be used again on its current
+    /// connection. A single failed write is not fatal.
     #[must_use]
     pub const fn is_fatal(&self) -> bool {
         matches!(self, Self::Disconnected { .. })
     }
 
-    /// A copy of this error.
-    ///
-    /// Written by hand rather than derived, because [`io::Error`] is not
-    /// [`Clone`]: the raw OS error survives, and everything else is rendered
-    /// into the message. The copy is for reporting, not for retrying.
+    /// Clones this error for reporting. Raw OS error codes are preserved, and
+    /// other error state is rendered into a message; the copy is not for retrying.
     #[must_use]
     fn cloned(&self) -> Self {
         match self {
@@ -330,17 +292,14 @@ impl Error for ProviderError {
     }
 }
 
-/// Nothing in the chain reached the host.
+/// Reports that no provider reached the host.
 ///
-/// Names every mechanism that was tried and what each said, because the whole
-/// point of the chain is that the answer is rarely one thing. [`Error::source`]
-/// walks to the first failure — the one the user asked for first, and so the one
-/// they most likely want to fix — and from there to the system error under it.
+/// Stores every provider failure for display. [`Error::source`] returns the
+/// first failure, which may wrap an underlying system error.
 #[derive(Clone, Debug)]
 pub struct NoHostInput(Vec<ProviderFailure>);
 
 impl NoHostInput {
-    /// Reports that none of `failures` reached the host.
     #[must_use]
     pub fn from_failures(failures: Vec<ProviderFailure>) -> Self {
         Self(failures)
@@ -380,7 +339,7 @@ mod tests {
 
     use super::*;
 
-    /// A stand-in provider, so the chain is exercised without opening anything.
+    /// A test provider that avoids opening devices or compositors.
     #[derive(Debug, PartialEq, Eq)]
     struct Opened(ProviderKind);
 
@@ -399,7 +358,6 @@ mod tests {
         }
     }
 
-    /// Runs the chain against a set of mechanisms declared available.
     fn chain(order: &ProviderOrder, available: &[ProviderKind]) -> Selected<Opened> {
         select(
             order,
@@ -442,8 +400,6 @@ mod tests {
 
     #[test]
     fn a_provider_ahead_in_the_order_is_still_tried_first() {
-        // The chain must actually attempt each mechanism, not pick the one it
-        // guesses will work.
         let mut attempted = Vec::new();
         let selected = select(
             &ProviderOrder::default(),
@@ -483,9 +439,6 @@ mod tests {
 
     #[test]
     fn the_cause_chain_walks_from_the_first_failure_to_its_system_error() {
-        // A fallback chain is exactly where a walkable chain earns its keep:
-        // the top line says nothing reached the host, and the source says the
-        // preferred mechanism was denied by the operating system.
         let selected = chain(&ProviderOrder::default(), &[]);
         let error = selected.unreachable().expect("nothing reached the host");
 
@@ -527,8 +480,6 @@ mod tests {
 
     #[test]
     fn the_dummy_cannot_be_placed_ahead_of_a_real_provider() {
-        // Otherwise the chain stops at the dummy and reports success, which is
-        // the one failure mode a fallback chain must not have.
         let order = ProviderOrder::new([ProviderKind::Dummy, ProviderKind::Uinput]);
 
         assert_eq!(order.kinds(), [ProviderKind::Uinput]);
@@ -543,7 +494,6 @@ mod tests {
 
     #[test]
     fn an_empty_order_selects_the_dummy_without_reporting_a_failure() {
-        // Host input turned off is a choice, not a fault.
         let selected = chain(&ProviderOrder::none(), &[ProviderKind::Uinput]);
 
         assert_eq!(selected.kind, ProviderKind::Dummy);

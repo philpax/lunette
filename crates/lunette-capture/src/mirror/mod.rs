@@ -1,52 +1,32 @@
-//! Linux-only: when a monitor's capture starts, and when it really stops.
+//! Linux-only: coordinates portal sessions and PipeWire streams for monitor mirrors.
 //!
-//! WayVR requests the portal from `ScreenCastBackend::init`
-//! (`overlays/screen/pw.rs:156-176`) at screen creation — eagerly, for every
-//! monitor, at startup — and its only notion of stopping is visibility:
-//! `after_input` pauses and resumes as alpha crosses 0.05
-//! (`backend/openxr/overlay.rs:208-223`). lunette asks for nothing until a
-//! monitor is first mirrored, and dismissing one tears its stream down.
+//! Capture starts when a monitor is first mirrored and stops when it is dismissed.
+//! Pausing deactivates the existing PipeWire stream while retaining its resources.
+//! Dismissing drops the stream and keeps the granted portal session, so re-adding
+//! the monitor does not prompt again.
 //!
-//! # Pause is not stop
+//! # Non-blocking lifecycle
 //!
-//! The distinction is the whole of `lunette-v1.AC3.5`. A panel that is
-//! temporarily out of view is paused: the stream stays, PipeWire deactivates it
-//! (`pipewire/capture.rs:144`), and resuming costs nothing. A dismissed monitor
-//! is stopped: the stream is dropped, which stops PipeWire's thread and closes
-//! its descriptors, so the mirror has no ongoing cost at all — which is what
-//! `docs/host-desktop.md:27` promises and what WayVR cannot do, since `pause()`
-//! is an empty no-op in three of its four backends.
+//! [`MirrorSet::mirror`] records the requested monitor and returns.
+//! [`MirrorSet::poll`] advances the portal exchange once per frame. Portal
+//! progress, including a dialog awaiting the user's response, does not block the
+//! frame loop.
 //!
-//! The portal session survives a dismissal. Re-adding the monitor opens a
-//! stream on the node the session already granted, so it does not prompt.
+//! # External monitor roster
 //!
-//! # Nothing here blocks
+//! [`MirrorSet`] receives attached monitors through [`MirrorSet::attach`]. The
+//! [`crate::monitor::outputs`] watcher enumerates them from the host compositor.
+//! Keeping enumeration outside this lifecycle lets callers supply a roster
+//! independently in tests.
 //!
-//! [`MirrorSet::mirror`] records what is wanted and returns. The portal
-//! exchange is advanced by [`MirrorSet::poll`], once a frame, and a dialog on
-//! the user's screen is an ordinary non-terminal progress rather than something
-//! to wait on. That is what keeps a first mirror — which may prompt — off a
-//! frame's critical path.
+//! # Deferred stream source
 //!
-//! # The roster arrives from outside
-//!
-//! [`MirrorSet`] does not enumerate the host's monitors;
-//! [`crate::monitor::outputs`] does, against the host compositor's Wayland
-//! socket, and [`MirrorSet::attach`] is how the result reaches the lifecycle.
-//! The separation is what lets every transition below be tested with a roster
-//! built by hand.
-//!
-//! # The stream source arrives later still
-//!
-//! A PipeWire stream negotiates against the DRM formats the importer accepts,
-//! and those are not known until LOVR has created a graphics device — several
-//! steps into the boot sequence, and long after this type exists. So a
-//! [`MirrorSet`] starts with [`NoStreams`] and the entry point installs the real
-//! source through [`MirrorSet::set_streams`] once the device exists. This is the
-//! same deferral the compositor thread uses, for the same reason.
-//!
-//! A monitor mirrored before then stays wanted, and [`MirrorSet::poll`] opens it
-//! on the first frame after the source arrives.
+//! A PipeWire stream negotiates against the DRM formats accepted by the importer.
+//! Those formats are unavailable until LOVR creates a graphics device, so a
+//! [`MirrorSet`] starts with [`NoStreams`]. The entry point installs the source
+//! through [`MirrorSet::set_streams`] after the device exists. A monitor requested
+//! before then remains wanted and opens on the first subsequent
+//! [`MirrorSet::poll`].
 
 pub mod source;
 
@@ -70,23 +50,16 @@ use crate::{
     tokens::TokenStore,
 };
 
-/// Every monitor lunette knows about, and the capture of the mirrored ones.
-///
-/// Generic over the portal alone. The stream source is boxed because a test
-/// asserts on the portal it handed in — the requests it recorded, the scripts it
-/// has left — and cannot do that through a `Box<dyn ScreenCastPortal>`, whereas
-/// nothing needs the source back.
+/// Tracks attached monitors, requested mirrors, and their capture streams.
 pub struct MirrorSet<P> {
     portal: P,
     streams: Box<dyn MonitorStreams>,
     cursor: CursorPolicy,
     roster: Roster,
     session: SessionState,
-    /// The monitors Lua has asked to mirror, whether or not one is running.
+    /// Monitors requested for mirroring, whether or not a stream is running.
     ///
-    /// Kept apart from [`Self::active`] because the two diverge whenever a
-    /// session has not arrived yet: a monitor is wanted from the moment
-    /// [`Self::mirror`] is called, and mirrored only once a stream exists.
+    /// This differs from [`Self::active`] while a session or stream is pending.
     wanted: Vec<MonitorKey>,
     active: Vec<Mirror>,
     tokens: TokenStore,
@@ -94,15 +67,10 @@ pub struct MirrorSet<P> {
 }
 
 impl<P: ScreenCastPortal> MirrorSet<P> {
-    /// Builds a set that knows no monitors, holds no session, and cannot open a
-    /// stream yet.
+    /// Creates an empty lifecycle with no capture source installed.
     ///
-    /// `tokens` is what a previous run stored, so that the first request can
-    /// offer one and skip the dialog. An empty store is the ordinary first-run
-    /// case rather than an error.
-    ///
-    /// [`Self::set_streams`] is what makes the set able to capture. Until then
-    /// every mirror is remembered and none is running; see the module note.
+    /// `tokens` contains restore tokens from a previous run. Without one, the
+    /// next request does not include a restore token.
     #[must_use]
     pub fn new(portal: P, cursor: CursorPolicy, tokens: TokenStore) -> Self {
         Self {
@@ -120,11 +88,9 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Installs the source that opens capture streams.
     ///
-    /// Called once, by the entry point, on the first frame at which the graphics
-    /// device exists and the DRM formats the importer accepts are therefore
-    /// known. Replacing the source does not disturb the streams already open:
-    /// there are none, because a source that could open one is exactly what was
-    /// missing.
+    /// The entry point calls this after the graphics device exposes the DRM
+    /// formats accepted by the importer. Monitors requested before installation
+    /// remain wanted until [`Self::poll`] can open their streams.
     pub fn set_streams(&mut self, streams: Box<dyn MonitorStreams>) {
         debug!(
             wanted = self.wanted.len(),
@@ -133,12 +99,10 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         self.streams = streams;
     }
 
-    /// Replaces what lunette believes is attached, and says what changed.
+    /// Replaces the attached monitors and reports additions and removals.
     ///
-    /// A monitor that has gone loses its mirror and stops being wanted: a stream
-    /// on a detached screen produces nothing, and leaving the request standing
-    /// would silently re-mirror it if an unrelated monitor later landed on the
-    /// same key.
+    /// A removed monitor loses its stream and its pending request. Keeping the
+    /// request would mirror a different monitor if it later reused the same key.
     pub fn attach(&mut self, roster: Roster) -> RosterChange {
         let added = roster
             .monitors()
@@ -168,17 +132,14 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         &self.roster
     }
 
-    /// The portal, for a caller that has to report on what it was asked.
     #[must_use]
     pub const fn portal(&self) -> &P {
         &self.portal
     }
 
-    /// Why the last request failed, if the last one did.
+    /// Returns the last portal error, if the last request failed.
     ///
-    /// Held rather than logged and discarded, so that a configuration asking why
-    /// nothing is mirroring can be told, rather than being left to read the
-    /// process's log.
+    /// The error remains available to callers instead of existing only in the log.
     #[must_use]
     pub const fn last_failure(&self) -> Option<&PortalError> {
         match &self.session {
@@ -187,11 +148,10 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
-    /// Asks for a monitor to be mirrored.
+    /// Requests mirroring for an attached monitor.
     ///
-    /// Idempotent: mirroring a monitor already mirrored changes nothing and says
-    /// so. The first call for a monitor no held session covers is what asks the
-    /// portal, which may prompt.
+    /// Repeating the request for an active monitor changes nothing. A monitor not
+    /// covered by the held session starts a portal request, which may prompt.
     pub fn mirror(&mut self, key: &MonitorKey) -> MirrorOutcome {
         if self.roster.find(key).is_none() {
             return MirrorOutcome::NoSuchMonitor;
@@ -205,15 +165,14 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
         match &self.session {
             SessionState::Held(held) => match held.node_for(key) {
-                // A source that cannot open one yet leaves the monitor wanted
-                // and reports the same thing a pending dialog does: the request
-                // was made, and it has not landed.
+                // A source that cannot open yet leaves the monitor wanted until
+                // the source becomes available.
                 Some(node) => match self.open(key.clone(), node) {
                     true => MirrorOutcome::Mirroring,
                     false => MirrorOutcome::Requested,
                 },
-                // The session was granted without this screen in it, so the only
-                // way to reach it is another dialog.
+                // The held session does not cover this monitor, so request a new
+                // session that can include it.
                 None => self.request(),
             },
             SessionState::Requested(_) => MirrorOutcome::Requested,
@@ -221,31 +180,28 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
-    /// Stops mirroring a monitor, keeping the session that granted it.
+    /// Stops mirroring a monitor while keeping the granted session.
     ///
-    /// Reports whether a stream was actually running. Dismissing twice is not an
-    /// error: the second call finds nothing to stop and says so.
+    /// Returns whether a stream was running. Repeated dismissal returns `false`.
     pub fn dismiss(&mut self, key: &MonitorKey) -> bool {
         self.wanted.retain(|wanted| wanted != key);
         self.stop(key)
     }
 
-    /// Whether a stream is running for a monitor.
     #[must_use]
     pub fn is_mirroring(&self, key: &MonitorKey) -> bool {
         self.active.iter().any(|mirror| &mirror.key == key)
     }
 
-    /// Whether a monitor has been asked for, whether or not it is running yet.
+    /// Returns whether a monitor has been requested, whether or not it is running.
     #[must_use]
     pub fn is_wanted(&self, key: &MonitorKey) -> bool {
         self.wanted.iter().any(|wanted| wanted == key)
     }
 
-    /// Stops or restarts a mirror's stream without giving up its node.
+    /// Pauses or resumes a mirror without giving up its node.
     ///
-    /// For a panel that has left the user's view. Reports whether a mirror was
-    /// there to pause.
+    /// Returns whether a stream was running for the monitor.
     pub fn set_paused(&mut self, key: &MonitorKey, paused: bool) -> bool {
         let Some(mirror) = self.active.iter_mut().find(|mirror| &mirror.key == key) else {
             return false;
@@ -263,18 +219,13 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         true
     }
 
-    /// Advances the portal exchange, without blocking.
+    /// Advances the portal exchange without blocking.
     ///
-    /// Called once a frame. Every non-terminal progress — including a dialog the
-    /// user has not answered — is [`Progress::Waiting`], because there is
-    /// nothing for a caller to do about any of them.
+    /// Call once per frame. Queued, negotiating, and user-facing dialog states
+    /// return [`Progress::Waiting`].
     pub fn poll(&mut self) -> Progress {
         let SessionState::Requested(request) = self.session else {
-            // A held session still has work on most frames only in one case:
-            // a wanted monitor whose stream could not be opened when the grant
-            // arrived, because the source was not ready. Retried here rather
-            // than at the moment the source is installed, so there is one place
-            // that opens streams.
+            // Retry wanted monitors whose source was unavailable when the session arrived.
             let started = self.open_wanted();
             return if started.is_empty() {
                 Progress::Idle
@@ -306,9 +257,8 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
                         .collect(),
                 };
 
-                // Every matched monitor, not only the ones wanted: the token
-                // restores the whole session, so whichever monitor is mirrored
-                // first on the next run has to be able to offer it.
+                // Store the token for every matched monitor because one token
+                // restores the complete granted session.
                 for (key, _) in &held.nodes {
                     self.tokens.record(
                         key.clone(),
@@ -334,11 +284,10 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
-    /// Gives up the held session, stopping every mirror.
+    /// Drops the held session and stops every mirror.
     ///
-    /// For a session the portal has closed — the user revoked it in their
-    /// settings, or the backend restarted. The monitors stay wanted, so the next
-    /// [`Self::poll`] asks for a fresh session, which may prompt.
+    /// If monitors remain wanted, this starts a new session request immediately.
+    /// The request may prompt if the portal does not restore it.
     pub fn revoke_session(&mut self) {
         if matches!(self.session, SessionState::Idle) {
             return;
@@ -356,10 +305,10 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
-    /// The newest frame each running mirror has produced.
+    /// Returns the newest frame produced by each running mirror.
     ///
-    /// Frames not taken are dropped by the stream's own bounded queue, which is
-    /// the behaviour an overlay wants: the newest picture, never a backlog.
+    /// Each stream discards older frames so callers receive the current picture
+    /// rather than a backlog.
     #[must_use]
     pub fn take_frames(&mut self) -> Vec<(MonitorKey, CapturedFrame)> {
         self.active
@@ -373,19 +322,18 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
             .collect()
     }
 
-    /// The tokens to persist, once something has changed them.
+    /// Returns the restore tokens after a portal grant changes them.
     ///
-    /// Reported rather than written from here: this is a library, and where the
-    /// file lives is the entry point's knowledge.
+    /// The caller persists the returned store because this library does not own
+    /// the token file.
     pub fn take_changed_tokens(&mut self) -> Option<&TokenStore> {
         mem::take(&mut self.tokens_changed).then_some(&self.tokens)
     }
 
-    /// Asks the portal for a session covering the wanted monitors.
+    /// Requests a portal session covering the wanted monitors.
     fn request(&mut self) -> MirrorOutcome {
-        // Any wanted monitor's token will do, and they are all the same token:
-        // one dialog covers every screen, so one token restores the session and
-        // `poll` records it under every monitor the session matched.
+        // One token restores the complete session, so any wanted monitor's token
+        // can seed the request.
         let restore = self
             .wanted
             .iter()
@@ -405,7 +353,6 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
-    /// Opens a stream for every wanted monitor the session covers.
     fn open_wanted(&mut self) -> Vec<MonitorKey> {
         let SessionState::Held(held) = &self.session else {
             return Vec::new();
@@ -427,7 +374,6 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         started
     }
 
-    /// Opens a stream for one monitor. Reports whether the source could.
     fn open(&mut self, key: MonitorKey, node: NodeId) -> bool {
         let Some(stream) = self.streams.open(&key.to_string(), node) else {
             return false;
@@ -442,7 +388,6 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         true
     }
 
-    /// Drops a monitor's stream. Reports whether one was running.
     fn stop(&mut self, key: &MonitorKey) -> bool {
         let Some(index) = self.active.iter().position(|mirror| &mirror.key == key) else {
             return false;
@@ -458,7 +403,6 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     }
 }
 
-/// One running mirror.
 struct Mirror {
     key: MonitorKey,
     node: NodeId,
@@ -466,21 +410,17 @@ struct Mirror {
     paused: bool,
 }
 
-/// What a session is, at any moment.
 enum SessionState {
-    /// Nothing has asked for one.
+    /// No request has started.
     Idle,
-    /// A request is in flight. [`MirrorSet::poll`] advances it.
+    /// A request is in flight; [`MirrorSet::poll`] advances it.
     Requested(RequestId),
     Held(Held),
-    /// The last request failed.
-    ///
-    /// Kept rather than falling back to [`Self::Idle`] so that a monitor
-    /// mirrored on a machine with no portal asks once, not once a frame.
+    /// A failed request is not retried by [`MirrorSet::poll`]; a later
+    /// [`MirrorSet::mirror`] call starts another request.
     Failed(PortalError),
 }
 
-/// A granted session, and the node each monitor's stream connects to.
 struct Held {
     nodes: Vec<(MonitorKey, NodeId)>,
 }
@@ -493,43 +433,42 @@ impl Held {
     }
 }
 
-/// What asking for a mirror did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MirrorOutcome {
-    /// A stream is running, because the session already covered this monitor.
+    /// A stream is running because the held session covers this monitor.
     Mirroring,
     /// The monitor was already mirrored, and nothing changed.
     AlreadyMirroring,
-    /// The portal was asked. A dialog may be on the user's screen;
-    /// [`MirrorSet::poll`] is what carries it forward.
+    /// A portal request is in flight; [`MirrorSet::poll`] advances it.
     Requested,
     /// The portal could not be asked at all.
     Refused(PortalError),
-    /// No attached monitor carries that identity. Ordinary for a key stored by a
-    /// previous run whose monitor is unplugged.
+    /// No attached monitor carries that identity. This includes a key restored
+    /// from a previous run after its monitor was unplugged.
     NoSuchMonitor,
 }
 
-/// How far the portal exchange has got.
+/// The result of advancing the portal exchange.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Progress {
     /// Nothing is in flight.
     Idle,
-    /// A request is in flight, possibly showing a dialog. Ordinary.
+    /// A request is in flight, possibly showing a dialog.
     Waiting,
-    /// A session arrived, and these monitors began mirroring.
+    /// These monitors began mirroring during this poll.
     ///
-    /// Empty when the session covered none of the wanted monitors, which is what
-    /// the user selecting the wrong screens looks like.
+    /// The list is empty when no wanted monitor could start a stream, including
+    /// when the session covers none of them or the source is not ready.
     Started(Vec<MonitorKey>),
     Failed(PortalError),
 }
 
-/// What changed when the attached monitors were replaced.
+/// Changes reported when the attached monitors are replaced.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RosterChange {
-    /// Monitors not present before. Each is announced as `lunmonitoradded`.
+    /// Monitors that were not present before. The frame layer announces each as
+    /// `lunmonitoradded`.
     pub added: Vec<MonitorKey>,
-    /// Monitors that have gone. Their mirrors are already stopped.
+    /// Monitors that are no longer attached. Their mirrors are already stopped.
     pub removed: Vec<MonitorKey>,
 }

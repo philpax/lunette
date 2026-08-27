@@ -1,20 +1,13 @@
 //! Which physical monitor a mirror belongs to.
 //!
-//! Modelled on niri's `OutputName` (`niri-config/src/output.rs:307`), minus the
-//! field a Wayland client cannot obtain. niri reads the connector's EDID blob
-//! directly, because it is the compositor; lunette is a client of the host
-//! compositor, and the `wl_output.geometry` event carries make and model only.
-//! There is no serial, so lunette's identity is strictly weaker than a
-//! compositor's and two identical monitors of the same model are
-//! indistinguishable by descriptor alone. [`crate::monitor::Roster`] handles
-//! that case rather than pretending it does not arise.
+//! A Wayland client receives a monitor's make and model from `wl_output.geometry`
+//! but cannot read its serial. The resulting identity is weaker than a
+//! compositor's, so identical monitors of the same model share a descriptor.
+//! [`crate::monitor::Roster`] resolves that ambiguity.
 //!
-//! The type deliberately has no [`PartialEq`]. Identity is decided by
-//! [`MonitorName::matches`], as niri decides it, and for the same reason:
-//! structurally comparing two partially-populated identities is almost always a
-//! bug. The ordering helper is a plain method, [`MonitorName::compare`], rather
-//! than an [`Ord`] implementation, so nothing acquires a structural comparison
-//! by accident.
+//! [`MonitorName`] deliberately has no [`PartialEq`]. Identity is decided by
+//! [`MonitorName::matches`], while [`MonitorName::compare`] orders names for
+//! presentation without making structural comparison an identity operation.
 
 use std::{cmp::Ordering, fmt};
 
@@ -26,10 +19,8 @@ use crate::monitor::geometry::LogicalPosition;
 closed_set! {
     /// A DRM connector's type, as the kernel names it.
     ///
-    /// A closed set rather than a string: the kernel's `drm_connector_enum_list` is
-    /// the whole list, and parsing against it is what separates a real connector
-    /// name from the opaque identifiers other portal backends put in the same
-    /// field. See [`ConnectorName::parse`].
+    /// A closed set rather than a string: parsing against the kernel's connector
+    /// kinds separates a real connector name from an opaque output identifier.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum ConnectorKind {
         Unknown = "Unknown",
@@ -57,10 +48,6 @@ closed_set! {
 }
 
 impl ConnectorKind {
-    /// The kind a name refers to, however the source cased it.
-    ///
-    /// Case-insensitive because the name arrives from a compositor rather
-    /// than from the kernel, and `as_str` is what it is compared against.
     fn from_type_name(name: &str) -> Option<Self> {
         Self::ALL
             .iter()
@@ -71,8 +58,8 @@ impl ConnectorKind {
 
 /// A DRM connector name, such as `DP-1` or `HDMI-A-2`.
 ///
-/// Parsed rather than stored as text, so `dp-01` and `DP-1` are one identity
-/// and a string that is not a connector name cannot become one.
+/// Parsed rather than stored as text, so `dp-01` and `DP-1` are one identity,
+/// while a string that is not a connector name cannot become one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConnectorName {
     kind: ConnectorKind,
@@ -87,20 +74,10 @@ impl ConnectorName {
 
     /// Reads a connector name, or `None` if the text is not one.
     ///
-    /// The caller for this is the ScreenCast portal's `mapping_id`, whose
-    /// content is backend-defined and inconsistent.
-    /// xdg-desktop-portal-wlr sets it to the `wl_output` name, which on wlroots
-    /// is the connector name (`src/screencast/screencast.c:666-668`). mutter
-    /// sets it to `g_uuid_string_random()` from a per-EIS table
-    /// (`src/backends/meta-eis.c:526-538`), which names nothing and changes
-    /// every session. xdg-desktop-portal-kde omits it.
-    ///
-    /// So the shape check is not defensiveness against malformed input; it is
-    /// the only way to tell mutter's random UUID from wlroots' real connector
-    /// name, since both arrive in the same field. Matching against the kernel's
-    /// closed list of connector types is what makes the check decisive:
-    /// splitting on the last hyphen and requiring a numeric tail alone would
-    /// accept a UUID whose final group happens to be all digits.
+    /// The source may provide a connector name or no value. The shape check
+    /// rejects opaque identifiers whose final group happens to contain only digits
+    /// by matching the connector type against the closed list of kernel connector
+    /// kinds.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         let (type_name, index) = text.rsplit_once('-')?;
@@ -132,10 +109,8 @@ impl fmt::Display for ConnectorName {
 
 /// Persisted as the name the kernel prints, such as `DP-1`.
 ///
-/// Written by hand rather than derived from the fields, so the stored form is
-/// the one a user reads in `wlr-randr` rather than a pair of numbers whose
-/// meaning depends on the order of [`ConnectorKind`]'s variants. Adding a
-/// variant then cannot silently renumber every key already on disk.
+/// Writes the connector's printed name rather than variant and index numbers, so
+/// adding a [`ConnectorKind`] variant cannot silently renumber keys on disk.
 impl Serialize for ConnectorName {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str(self)
@@ -152,18 +127,14 @@ impl<'de> Deserialize<'de> for ConnectorName {
 
 /// A monitor's make and model, rendered as one string.
 ///
-/// Follows niri's `"{make} {model} {serial}"` form with the serial dropped and
-/// `Unknown` substituted for an absent field, so a monitor that reports only
-/// one of the two still has a descriptor. Constructing one goes through
-/// [`MonitorName::descriptor`], so the substitution happens in exactly one
-/// place and a descriptor never disagrees with itself.
+/// Uses the `"{make} {model}"` form with `Unknown` substituted for an absent
+/// field. A monitor that reports only one of the two fields still has a
+/// descriptor.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Descriptor(String);
 
 impl Descriptor {
-    /// What a saved key holds, and what [`MonitorName::matches`] compares
-    /// against.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -182,9 +153,8 @@ impl fmt::Display for Descriptor {
 
 /// Everything lunette knows about which monitor a mirror belongs to.
 ///
-/// `connector` is optional where niri's is not, because niri always has one and
-/// lunette only sometimes does: it arrives through the portal's `mapping_id`,
-/// which two of the three portal backends do not supply usefully.
+/// The connector is optional because the host compositor may report no usable
+/// connector name.
 #[derive(Clone, Debug)]
 pub struct MonitorName {
     connector: Option<ConnectorName>,
@@ -193,8 +163,8 @@ pub struct MonitorName {
 }
 
 impl MonitorName {
-    /// `make` and `model` come from the `wl_output.geometry` event, and
-    /// `connector` from a `mapping_id` that passed [`ConnectorName::parse`].
+    /// `make` and `model` come from `wl_output.geometry`. `connector` comes from
+    /// `wl_output.name` after passing [`ConnectorName::parse`].
     #[must_use]
     pub fn new(
         connector: Option<ConnectorName>,
@@ -237,14 +207,10 @@ impl MonitorName {
 
     /// Whether `target` names this monitor.
     ///
-    /// The connector is tried first and wins outright, as in niri
-    /// (`output.rs:195-256`), because it is the more specific of the two. Both
-    /// comparisons ignore ASCII case.
-    ///
-    /// A descriptor two monitors share matches both of them. That is not a
-    /// defect in this method — it is the reason [`crate::monitor::Roster`]
-    /// demotes the later of the two, so that at most one monitor carries any
-    /// given descriptor.
+    /// The connector is more specific than the descriptor and wins when both
+    /// match. Both comparisons ignore ASCII case. A shared descriptor matches
+    /// both monitors; [`crate::monitor::Roster`] demotes the later one so that at
+    /// most one monitor carries a given descriptor.
     #[must_use]
     pub fn matches(&self, target: &str) -> bool {
         if self.connector.is_some() && ConnectorName::parse(target) == self.connector {
@@ -256,11 +222,9 @@ impl MonitorName {
 
     /// The strongest key this name can produce on its own.
     ///
-    /// niri's `format_make_model_serial_or_connector` (`output.rs:177-184`),
-    /// minus the serial: the descriptor is preferred because it survives the
-    /// monitor moving to a different port, and the connector is the graceful
-    /// degradation when no descriptor exists. `None` when neither does, which
-    /// is where [`MonitorKey::for_monitor`] falls back to the position.
+    /// The descriptor is preferred because it survives the monitor moving to a
+    /// different port. The connector is the fallback when no descriptor exists;
+    /// [`MonitorKey::for_monitor`] uses the position when neither exists.
     #[must_use]
     pub fn descriptor_or_connector(&self) -> Option<MonitorKey> {
         if let Some(descriptor) = self.descriptor() {
@@ -269,10 +233,8 @@ impl MonitorName {
         self.connector.map(MonitorKey::Connector)
     }
 
-    /// The same monitor, identified by connector alone.
-    ///
-    /// niri strips the descriptor from the newer of two connectors reporting
-    /// the same one (`src/backend/tty.rs:1050-1080`); this is that operation.
+    /// Removes the descriptor so a duplicate can be identified by its connector
+    /// or position.
     #[must_use]
     pub fn demoted(&self) -> Self {
         Self {
@@ -285,14 +247,12 @@ impl MonitorName {
     /// A total order over names, for arranging monitors independently of the
     /// order they were enumerated in.
     ///
-    /// A method rather than an [`Ord`] implementation, following niri's
-    /// `compare`: use [`Self::matches`] to decide identity. Ordering here is
-    /// only about presentation, and treating it as equality is the bug this
-    /// type exists to prevent.
+    /// This method is for presentation only; use [`Self::matches`] to decide
+    /// identity. Keeping ordering separate from equality prevents structural
+    /// comparison from being used as identity.
     ///
-    /// A monitor that reports nothing sorts after one that does, rather than
-    /// before it as [`Option`]'s own ordering would have it, so the monitors
-    /// lunette can name appear first.
+    /// Names without a descriptor sort after names with one, so named monitors
+    /// appear first.
     #[must_use]
     pub fn compare(&self, other: &Self) -> Ordering {
         absent_last(self.descriptor(), other.descriptor())
@@ -313,16 +273,13 @@ impl fmt::Display for MonitorName {
 
 /// How a monitor is recorded across restarts.
 ///
-/// An enum rather than a string, because the three cases are not
-/// interchangeable and the weakest of them carries a warning the caller has to
-/// be able to see. [`Self::strength`] orders them, and [`Self::upgraded`] is
-/// what promotes a key stored in a degraded form once better information
-/// exists.
+/// The three key forms are distinct and ordered by the information they retain.
+/// [`Self::strength`] compares them, and [`Self::upgraded`] promotes a stored key
+/// when stronger information becomes available.
 ///
-/// [`fmt::Display`] renders a key for logs and is not a parseable form. A
-/// consumer that persists a key stores the variant, which is what the serde
-/// implementation writes: an externally-tagged enum, so the variant name is in
-/// the file and a key recorded as one kind can never be read back as another.
+/// [`fmt::Display`] is for logs and is not parseable. Persistence uses the
+/// externally tagged enum representation, so the variant remains part of the
+/// stored key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub enum MonitorKey {
@@ -345,13 +302,11 @@ pub enum KeyStrength {
 }
 
 impl MonitorKey {
-    /// The key to record for a monitor, falling back to its position when the
-    /// name carries nothing.
+    /// The key to record for a monitor, preferring its descriptor, then its
+    /// connector, and finally its position.
     ///
-    /// A positional key is the honest outcome for two identical monitors under
-    /// a portal backend that supplies no connector, and it does not survive the
-    /// user rearranging them. The caller warns; see
-    /// [`crate::monitor::Roster::add`].
+    /// A positional key is used only when no descriptor or connector is available,
+    /// and does not survive the user rearranging monitors.
     #[must_use]
     pub fn for_monitor(name: &MonitorName, position: LogicalPosition) -> Self {
         name.descriptor_or_connector()
@@ -379,12 +334,9 @@ impl MonitorKey {
 
     /// A stronger key for the same monitor, if one is now available.
     ///
-    /// niri re-normalises a stored output name when a workspace lands on a
-    /// matching output (`workspace.rs:517`), so a key written when the monitor
-    /// reported no make and model upgrades to a descriptor once it does. The
-    /// key has to still identify the monitor for the upgrade to be sound —
-    /// otherwise a positional key would be rewritten to name whichever monitor
-    /// happened to be at that position.
+    /// The key must still identify the monitor before it is upgraded. Otherwise a
+    /// positional key could be rewritten to name whichever monitor later occupies
+    /// that position.
     #[must_use]
     pub fn upgraded(&self, name: &MonitorName, position: LogicalPosition) -> Option<Self> {
         if !self.identifies(name, position) {
@@ -405,14 +357,8 @@ impl fmt::Display for MonitorKey {
     }
 }
 
-/// What a descriptor prints in place of a field the monitor did not report.
-///
-/// Also what several compositors put in the field itself when the EDID carries
-/// nothing, which is why [`meaningful`] discards it on the way in: storing it
-/// as though it were a make would give every such monitor the same descriptor.
 const UNKNOWN_FIELD: &str = "Unknown";
 
-/// Orders two optional fields, putting an absent one last.
 fn absent_last<T: Ord>(left: Option<T>, right: Option<T>) -> Ordering {
     match (left, right) {
         (Some(left), Some(right)) => left.cmp(&right),
@@ -422,7 +368,6 @@ fn absent_last<T: Ord>(left: Option<T>, right: Option<T>) -> Ordering {
     }
 }
 
-/// Discards a make or model that carries no information.
 fn meaningful(field: Option<String>) -> Option<String> {
     let field = field?;
     let trimmed = field.trim();
@@ -497,8 +442,8 @@ mod tests {
 
     #[test]
     fn a_uuid_whose_last_group_is_all_digits_is_not_a_connector_name() {
-        // The case that rules out checking only for a numeric tail: mutter's
-        // identifier is random, so one in a few hundred ends in twelve digits.
+        // A UUID can end in an all-digit group, so a numeric suffix alone is
+        // insufficient.
         assert_eq!(
             ConnectorName::parse("1b4e28ba-2fa1-11d2-883f-001633000000"),
             None,
@@ -532,8 +477,8 @@ mod tests {
 
     #[test]
     fn a_make_of_unknown_is_treated_as_absent() {
-        // Otherwise every monitor whose EDID carries nothing shares one
-        // descriptor, and the duplicate rule demotes all but the first.
+        // Treating `unknown` as a value would give monitors with absent EDID
+        // fields a shared descriptor.
         let name = named(Some("DP-1"), Some("unknown"), Some("  "));
 
         assert_eq!(name.make(), None);
@@ -552,8 +497,6 @@ mod tests {
 
     #[test]
     fn a_shared_descriptor_reaches_both_monitors_until_one_is_demoted() {
-        // Why the roster demotes: matching alone cannot separate them, so the
-        // ambiguity has to be resolved when the set is assembled.
         let first = named(Some("DP-1"), Some("Acme"), Some("X24"));
         let second = named(Some("DP-2"), Some("Acme"), Some("X24"));
 
@@ -656,8 +599,8 @@ mod tests {
 
     #[test]
     fn a_descriptor_key_survives_the_connector_changing_between_boots() {
-        // The reason the descriptor is preferred: udev connector order is
-        // arbitrary, and a replug into a different port renames the connector.
+        // A replug can change connector order, so the same monitor can receive a
+        // different connector name.
         let stored = MonitorKey::for_monitor(
             &named(Some("DP-1"), Some("Acme"), Some("X24")),
             LogicalPosition::new(0, 0),

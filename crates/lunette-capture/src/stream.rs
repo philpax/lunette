@@ -1,36 +1,22 @@
-//! Linux-only: PipeWire's frames, carried raw to the main thread.
+//! Linux-only: carries PipeWire frames from its callback thread to the main thread.
 //!
-//! PipeWire delivers on a thread of its own, through a bare `fn` pointer rather
-//! than a closure (`wlx-capture/src/lib.rs:24`). What that callback does here is
-//! convert the frame into a plain owned message and put it in a queue. Every
-//! Vulkan import happens on the main thread, through the same path a Wayland
-//! client's buffer takes.
+//! The callback converts each frame into owned metadata and queues it. The main
+//! thread performs every Vulkan import through the same path as a Wayland
+//! client's buffer, so this crate does not depend on a graphics API or GPU queue.
 //!
-//! This differs from WayVR deliberately. WayVR imports inside the receive
-//! callback (`overlays/screen/capture.rs`), which needs a second GPU queue, and
-//! falls back to wrapping the capture in `MainThreadWlxCapture` where none
-//! exists. lunette has one import path and makes no assumption about LÖVR's
-//! queue topology, since nothing currently exposes it. The cost is a channel hop
-//! per frame.
+//! # Queue policy
 //!
-//! # Who is allowed to block
+//! The bounded [`FrameQueue`] keeps the callback and frame loop independent. A
+//! full queue discards its oldest frame, and [`FrameQueue::take_latest`] discards
+//! older queued frames when the consumer reads. The queue counts both kinds of
+//! discard, and the stream counts conversion refusals, so diagnostics can
+//! distinguish a busy consumer from frames the importer cannot represent.
 //!
-//! Nobody. [`FrameQueue`] is bounded and drops the oldest frame when it is full,
-//! so the PipeWire thread is never held up by a main thread that is busy
-//! drawing, and the main thread is never held up by a stream that has stopped
-//! producing. An overlay wants the newest frame rather than a backlog:
-//! `WlxCapture::receive` is a `try_iter().last()` for the same reason, and
-//! [`FrameQueue::take_latest`] keeps that behaviour.
+//! # Descriptor lifetime
 //!
-//! Dropping is counted rather than silent. A stream that drops most of what it
-//! produces is working as designed; a stream that drops all of it is a symptom,
-//! and the two are only distinguishable from a number.
-//!
-//! # The descriptors
-//!
-//! A `FramePlane`'s descriptor belongs to the PipeWire buffer it came from and
-//! is valid for the duration of the callback. It is duplicated on the way into
-//! the message, because the message outlives the callback by design.
+//! A `FramePlane` descriptor belongs to the PipeWire buffer and is valid only
+//! during the callback. The callback duplicates it before placing the frame in
+//! the queue, because the queued frame outlives that callback.
 
 use std::{
     collections::VecDeque,
@@ -44,10 +30,8 @@ use std::{
 use parking_lot::Mutex;
 use smallvec::SmallVec;
 use tracing::{debug, info, warn};
-// Re-exported so a consumer can say which DRM formats its importer accepts
-// without taking a direct dependency on `wlx-capture`. `CaptureFormat` already
-// exposes both types by value, so this states an existing coupling rather than
-// creating one.
+// Re-exported so callers can provide importer formats without naming the
+// underlying `wlx-capture` dependency.
 pub use wlx_capture::{DrmFormat, DrmFourcc, DrmModifier};
 use wlx_capture::{
     WlxCapture,
@@ -57,7 +41,7 @@ use wlx_capture::{
 
 use crate::portal::NodeId;
 
-/// The most planes a frame may carry, as `wlx-capture`'s own array allows.
+/// The maximum number of planes accepted from `wlx-capture`.
 pub const MAX_PLANES: usize = 4;
 
 /// One captured monitor, from the portal's node to the main thread's queue.
@@ -72,9 +56,9 @@ pub struct CaptureStream {
 impl CaptureStream {
     /// Connects to a PipeWire node and starts delivering frames.
     ///
-    /// `formats` is what the importer can accept, passed in rather than decided
-    /// here: this crate must not depend on a graphics API, so which DRM formats
-    /// and modifiers are importable is the caller's knowledge.
+    /// `formats` contains the DRM formats and modifiers the caller's importer
+    /// accepts. This crate does not depend on a graphics API, so the caller
+    /// supplies that information.
     #[must_use]
     pub fn start(name: impl Into<Arc<str>>, node: NodeId, formats: &[DrmFormat]) -> Self {
         let name = name.into();
@@ -91,16 +75,14 @@ impl CaptureStream {
         }
     }
 
-    /// The newest frame produced since the last call, discarding any older ones.
-    ///
-    /// `None` means nothing new arrived, which is ordinary: a monitor showing a
-    /// still desktop produces no frames at all.
+    /// Returns the newest frame produced since the last call and discards older
+    /// queued frames. Returns `None` when no converted frame is queued.
     #[must_use]
     pub fn latest(&self) -> Option<CapturedFrame> {
         self.frames.take_latest()
     }
 
-    /// How many frames this stream has dropped and refused.
+    /// Returns counts for converted, dropped, and refused frames.
     #[must_use]
     pub fn counts(&self) -> FrameCounts {
         self.frames.counts()
@@ -115,6 +97,7 @@ impl CaptureStream {
         debug!(stream = %self.name, "paused a capture stream");
     }
 
+    /// Resumes production after [`Self::pause`] without requesting a new portal session.
     pub fn resume(&mut self) {
         control(&mut self.capture).resume();
         debug!(stream = %self.name, "resumed a capture stream");
@@ -130,11 +113,11 @@ impl fmt::Debug for CaptureStream {
     }
 }
 
-/// A frame on its way to the importer.
+/// A captured frame ready for import.
 ///
-/// Plain owned data with no graphics type in it: descriptors, offsets, strides,
-/// a DRM format, and a modifier. That is what lets this crate stay free of a
-/// graphics dependency while still carrying everything the import needs.
+/// Owns its descriptors and carries only buffer layout, DRM format, modifier,
+/// and transform data. The type therefore crosses the thread boundary without a
+/// graphics dependency.
 #[derive(Debug)]
 pub struct CapturedFrame {
     format: CaptureFormat,
@@ -142,19 +125,15 @@ pub struct CapturedFrame {
 }
 
 impl CapturedFrame {
-    /// Converts a `wlx-capture` frame, duplicating its descriptors.
+    /// Converts a `wlx-capture` frame and duplicates its descriptors.
     ///
     /// # Errors
     ///
-    /// For a frame lunette cannot import, and for a dmabuf whose layout cannot
-    /// be described. Every case is named rather than collapsed, because "the
-    /// mirror is black" is not a diagnosis.
+    /// Returns a specific error when the frame type or dmabuf layout is not
+    /// representable by the importer.
     pub fn from_wlx(frame: &WlxFrame) -> Result<Self, FrameError> {
         match frame {
             WlxFrame::Dmabuf(dmabuf) => Self::from_dmabuf(dmabuf),
-            // The frame was blitted into a buffer lunette supplied. Nothing here
-            // supplies one, so a frame arriving this way means the capture was
-            // configured against a path v1 does not use.
             WlxFrame::Implicit(_) => Err(FrameError::Implicit),
             WlxFrame::MemFd(_) => Err(FrameError::SharedMemory { kind: "a memfd" }),
             WlxFrame::MemPtr(_) => Err(FrameError::SharedMemory {
@@ -173,12 +152,9 @@ impl CapturedFrame {
         &self.planes
     }
 
-    /// Builds a frame from parts, for tests that have no PipeWire to get one
-    /// from.
+    /// Builds a frame from parts for tests that do not run PipeWire.
     ///
-    /// Test scaffolding rather than an API: the production path is
-    /// [`Self::from_wlx`], and this exists so the consumer in `lunette` can be
-    /// exercised without a portal, a session, or a graphics device.
+    /// The production path is [`Self::from_wlx`].
     #[cfg(any(test, feature = "test-fakes"))]
     #[must_use]
     pub fn from_parts(
@@ -220,7 +196,7 @@ impl CapturedFrame {
     }
 }
 
-/// One plane's descriptor and layout.
+/// An owned descriptor and layout for one dmabuf plane.
 #[derive(Debug)]
 pub struct CapturedPlane {
     descriptor: OwnedFd,
@@ -229,7 +205,6 @@ pub struct CapturedPlane {
 }
 
 impl CapturedPlane {
-    /// The plane's memory. Borrowed: the frame owns it until it is imported.
     #[must_use]
     pub fn descriptor(&self) -> BorrowedFd<'_> {
         self.descriptor.as_fd()
@@ -250,17 +225,16 @@ impl CapturedPlane {
             .fd
             .ok_or(FrameError::MissingDescriptor { plane: index })?;
 
-        // A negative stride means the rows run bottom-up. Vulkan's
-        // `VkSubresourceLayout::rowPitch` is unsigned and has no way to say so,
-        // and widening it would describe a buffer nothing wrote.
+        // Vulkan's row pitch is unsigned, so a negative stride cannot describe
+        // the bottom-up layout without misrepresenting the buffer.
         let stride = u32::try_from(plane.stride).map_err(|_| FrameError::NegativeStride {
             plane: index,
             stride: plane.stride,
         })?;
 
-        // SAFETY: the descriptor belongs to the PipeWire buffer and is valid for
-        // the callback this runs inside; the borrow does not outlive the call,
-        // and the duplicate is what outlives it.
+        // SAFETY: PipeWire keeps the descriptor valid for this callback. The
+        // borrowed descriptor does not outlive the call, and the duplicate owns
+        // the descriptor used by the queued frame.
         let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
         let descriptor =
             borrowed
@@ -278,7 +252,7 @@ impl CapturedPlane {
     }
 }
 
-/// What a captured frame is, in the terms the importer needs.
+/// The format and transform required to import a captured frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CaptureFormat {
     pub size: FrameSize,
@@ -301,11 +275,10 @@ impl CaptureFormat {
     }
 }
 
-/// A frame's dimensions, which are at least one pixel each.
+/// A frame's non-empty dimensions.
 ///
-/// Zero is representable in the wire format and describes no image, so it is
-/// rejected at the boundary rather than reaching an image creation that would
-/// fail with less to say about why.
+/// The wire format permits zero, but an empty frame cannot produce an image and
+/// is rejected at the capture boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrameSize {
     width: NonZeroU32,
@@ -338,13 +311,9 @@ impl fmt::Display for FrameSize {
     }
 }
 
-/// How the compositor says the frame is oriented.
+/// The frame orientation carried across the capture boundary.
 ///
-/// lunette's own enum rather than `wlx-capture`'s, so the message crossing the
-/// thread boundary is written entirely in this crate's vocabulary. `Undefined`
-/// is not a variant: a stream that reported no transform is treated as
-/// [`Self::Normal`], which is what it means, rather than carrying an absence
-/// every consumer would have to answer.
+/// An undefined transform from `wlx-capture` maps to [`Self::Normal`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FrameTransform {
     #[default]
@@ -373,12 +342,10 @@ impl FrameTransform {
     }
 }
 
-/// A bounded queue that drops the oldest entry rather than blocking a producer.
+/// A bounded queue that discards old entries instead of blocking the producer.
 ///
-/// The producer is PipeWire's own thread inside a `process` callback, which must
-/// return promptly, and the consumer is the frame loop. Neither may wait on the
-/// other, so the capacity is spent on the newest frames and the rest are
-/// counted.
+/// PipeWire's process callback and the frame loop must not wait for each other.
+/// The queue keeps newer frames and counts discarded entries.
 #[derive(Debug)]
 pub struct FrameQueue<T> {
     capacity: NonZeroUsize,
@@ -398,7 +365,7 @@ impl<T> FrameQueue<T> {
         }
     }
 
-    /// Queues an entry, discarding the oldest if the queue is full.
+    /// Queues an entry and discards the oldest entry when full.
     pub fn push(&self, entry: T) -> Pushed {
         let mut inner = self.inner.lock();
 
@@ -415,11 +382,10 @@ impl<T> FrameQueue<T> {
         pushed
     }
 
-    /// Takes the newest entry, discarding whatever was queued behind it.
+    /// Returns the newest entry and discards older queued entries.
     ///
-    /// The discarded ones are counted as dropped: a frame that was produced and
-    /// never drawn is a dropped frame whether the queue overflowed or the frame
-    /// loop was slow.
+    /// Discarded entries count as dropped whether queue capacity or a slow frame
+    /// loop caused them.
     #[must_use]
     pub fn take_latest(&self) -> Option<T> {
         let mut inner = self.inner.lock();
@@ -432,8 +398,7 @@ impl<T> FrameQueue<T> {
         Some(newest)
     }
 
-    /// Records a frame that could not be converted. Reports whether it is the
-    /// first, so the caller can say so once rather than every frame.
+    /// Records a conversion refusal and reports whether it is the first for this stream.
     pub fn record_refusal(&self) -> Refusal {
         let mut inner = self.inner.lock();
         inner.counts.refused = inner.counts.refused.saturating_add(1);
@@ -462,38 +427,37 @@ impl<T> FrameQueue<T> {
     }
 }
 
-/// What a push did to the queue.
+/// The result of pushing an entry into the queue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pushed {
     Accepted,
-    /// The queue was full, so the oldest frame was discarded to make room. The
-    /// newest frame is the one worth keeping.
+    /// The queue was full, so the oldest frame was discarded to retain the newest.
     DroppedOldest,
 }
 
-/// Whether a refusal is the first this stream has seen.
+/// Whether a frame conversion refusal is the first for this stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     First,
     Again,
 }
 
-/// What a stream has done with the frames it produced.
+/// Counts for frames produced by a stream.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameCounts {
     /// Frames converted and queued.
     pub delivered: u64,
-    /// Frames queued and then discarded without being drawn.
+    /// Frames queued and discarded before being drawn.
     pub dropped: u64,
-    /// Frames that could not be converted at all.
+    /// Frames rejected during conversion.
     pub refused: u64,
 }
 
-/// Why a captured frame could not be carried to the importer.
+/// Why a captured frame could not reach the importer.
 #[derive(Debug)]
 pub enum FrameError {
-    /// The frame was blitted into a buffer lunette supplied. lunette supplies
-    /// none, so this path is not one v1 uses.
+    /// The frame was blitted into a destination buffer, but this crate supplies
+    /// no destination buffer.
     Implicit,
     /// The stream negotiated shared memory rather than a dmabuf.
     SharedMemory {
@@ -569,42 +533,36 @@ impl Error for FrameError {
     }
 }
 
-/// How many frames a stream holds before the oldest is discarded.
+/// The number of frames held before the oldest is discarded.
 ///
-/// Two, matching `wlx-capture`'s own channel: one being drawn and one arriving.
-/// A deeper queue buys latency rather than throughput, which is the wrong
-/// direction for an overlay.
+/// Two entries cover one frame being drawn and one arriving. A deeper queue adds
+/// latency instead of throughput.
 const QUEUE_DEPTH: NonZeroUsize = NonZeroUsize::MIN.saturating_add(1);
 
-/// What PipeWire's callback is handed.
+/// Data passed to the PipeWire callback.
 ///
-/// A named type rather than the `Arc` itself, because the callback is a bare
-/// `fn` and its user-data parameter is the only channel through which anything
-/// reaches it.
+/// The callback has a bare `fn` type, so this wrapper carries the queue through
+/// its user-data parameter.
 struct Delivery(Arc<FrameQueue<CapturedFrame>>);
 
-/// The type the receive callback never returns.
+/// The callback's channel payload type.
 ///
-/// `WlxCapture` routes the callback's return value through a channel of its own
-/// that drops the *newest* frame when full. lunette wants the newest, so it
-/// keeps nothing there: the callback queues into [`FrameQueue`] and returns
-/// `None`, and an uninhabited type is how that is said once rather than
-/// asserted at each return.
+/// `deliver` queues each frame in [`FrameQueue`] and returns `None`, so
+/// `WlxCapture`'s channel never receives a value. Keeping frames out of that
+/// channel avoids its full-queue policy, which discards newest frames.
 type Never = std::convert::Infallible;
 
-/// Names which `WlxCapture` implementation a call is reaching.
+/// Selects the `WlxCapture` implementation used by a call.
 ///
-/// `PipewireCapture<R>` implements `WlxCapture<U, R>` for every `U`, so a bare
-/// method call on it is ambiguous. This pins `U` once rather than at each call
-/// site.
+/// `PipewireCapture<R>` implements `WlxCapture<U, R>` for every `U`, so the
+/// wrapper fixes `U` and avoids ambiguous method calls.
 fn control(capture: &mut PipewireCapture<Never>) -> &mut impl WlxCapture<Delivery, Never> {
     capture
 }
 
-/// Runs on PipeWire's thread, once per frame.
+/// Converts one frame on PipeWire's callback thread.
 ///
-/// A bare `fn` because that is what `WlxCapture::init` takes
-/// (`wlx-capture/src/lib.rs:24`); everything it needs arrives through
+/// `WlxCapture::init` accepts a bare `fn`, so the queue arrives through
 /// [`Delivery`].
 fn deliver(delivery: &Delivery, frame: WlxFrame) -> Option<Never> {
     let queue = &delivery.0;
@@ -616,9 +574,8 @@ fn deliver(delivery: &Delivery, frame: WlxFrame) -> Option<Never> {
             }
         }
         Err(error) => match queue.record_refusal() {
-            // Once at warn, then quietly: a stream that refuses one frame
-            // refuses every frame, and a per-frame warning drowns the log it
-            // was meant to appear in.
+            // Warn once per stream because a persistent refusal would otherwise
+            // emit one warning for every frame.
             Refusal::First => {
                 warn!(%error, "a captured frame could not be carried to the importer")
             }
@@ -653,9 +610,7 @@ mod tests {
         FrameQueue::new(NonZeroUsize::new(capacity).expect("a positive capacity"))
     }
 
-    /// A descriptor to hand around, and the write end that keeps its pipe alive.
-    ///
-    /// A pipe rather than a file, so no filesystem is touched.
+    /// Creates descriptors for tests without touching the filesystem.
     fn pipe() -> (OwnedFd, OwnedFd) {
         let (read, write) = std::io::pipe().expect("a pipe can be created");
         (OwnedFd::from(read), OwnedFd::from(write))
@@ -673,10 +628,7 @@ mod tests {
         }
     }
 
-    /// A dmabuf frame over `planes` descriptors, and the pipe ends behind them.
-    ///
-    /// The frame borrows raw descriptors, exactly as PipeWire's callback hands
-    /// them over, so the owners have to outlive the conversion.
+    /// Creates a dmabuf frame whose raw descriptors remain valid during conversion.
     fn dmabuf_frame(planes: usize) -> (DmabufFrame, Vec<OwnedFd>) {
         let mut owned = Vec::new();
         let mut frame = DmabufFrame {
@@ -726,8 +678,6 @@ mod tests {
 
     #[test]
     fn a_converted_frame_holds_its_own_descriptors() {
-        // The frame outlives the callback the descriptors belong to, so it has
-        // to duplicate them rather than borrow them.
         let (frame, owners) = dmabuf_frame(1);
         let borrowed = frame.planes[0].fd.expect("the plane has a descriptor");
 
@@ -775,9 +725,6 @@ mod tests {
 
     #[test]
     fn an_implicit_frame_is_rejected_rather_than_ignored() {
-        // lunette supplies no buffer for the capture to blit into, so a frame
-        // arriving this way means the stream was configured against a path v1
-        // does not use.
         let error = CapturedFrame::from_wlx(&WlxFrame::Implicit(Transform::Normal))
             .expect_err("lunette supplies no buffer to blit into");
 
@@ -827,8 +774,6 @@ mod tests {
 
     #[test]
     fn a_bottom_up_plane_is_rejected_rather_than_widened() {
-        // Widening a negative stride describes a buffer nothing wrote, which
-        // produces a picture rather than an error.
         let (mut frame, _owners) = dmabuf_frame(1);
         frame.planes[0].stride = -7680;
 
@@ -857,8 +802,6 @@ mod tests {
 
     #[test]
     fn a_rejected_frame_leaks_no_descriptor() {
-        // The second plane fails, so the first plane's duplicate has to be
-        // released on the way out rather than left open per refused frame.
         let (read, write) = pipe();
         let raw = read.into_raw_fd();
         let mut frame = DmabufFrame {
@@ -880,8 +823,8 @@ mod tests {
 
         assert!(CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).is_err());
 
-        // SAFETY: the conversion borrowed the descriptor and duplicated it; the
-        // original is still this test's to close.
+        // SAFETY: conversion borrowed and duplicated the descriptor; this test
+        // still owns the original descriptor and closes it here.
         drop(unsafe { OwnedFd::from_raw_fd(raw) });
         drop(write);
     }
@@ -907,7 +850,6 @@ mod tests {
 
     #[test]
     fn the_newest_frame_is_the_one_that_survives_a_full_queue() {
-        // An overlay wants the newest frame, not the front of a backlog.
         let queue = queue(2);
         for entry in 1..=5 {
             let _ = queue.push(entry);
@@ -949,8 +891,6 @@ mod tests {
 
     #[test]
     fn only_the_first_refusal_is_worth_saying_out_loud() {
-        // A stream that refuses one frame refuses every frame, and a per-frame
-        // warning drowns the log it was meant to appear in.
         let queue = queue(2);
 
         assert_eq!(queue.record_refusal(), Refusal::First);

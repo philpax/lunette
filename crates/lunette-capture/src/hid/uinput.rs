@@ -1,20 +1,19 @@
 //! Linux-only: creates virtual devices through `/dev/uinput`.
 //!
-//! The more portable of the two real providers, and so the first one the chain
-//! tries. uinput injects below the display server, so it works under any Wayland
-//! compositor and under X11, and nothing about the host needs to cooperate.
+//! The default provider order tries uinput first because it injects below the
+//! display server. It works under any Wayland compositor and under X11 without
+//! host compositor support.
 //!
-//! What it costs is a permission. `/dev/uinput` is not writable by an ordinary
-//! user on most distributions, and granting it means either a udev rule tagged
-//! `uaccess` or membership of the `input` group. [`Advice`] renders the
-//! instructions, including the part a user should know before following them:
-//! the `input` group grants read access to every input device on the machine,
-//! which is a keylogging surface.
+//! Opening `/dev/uinput` requires write permission, which most distributions do
+//! not grant to ordinary users. [`Advice`] describes a udev rule tagged
+//! `uaccess` and membership of the `input` group. The `input` group also grants
+//! read access to every input device on the machine, which creates a keylogging
+//! surface.
 //!
-//! Two devices are created, a keyboard and a mouse, following WayVR
-//! (`subsystem/hid/provider/uinput.rs:28-109`). One device declaring both would
-//! be reported to the host as a single peripheral, and a compositor that
-//! classifies devices by capability handles that inconsistently.
+//! The provider creates separate keyboard and mouse devices, following WayVR's
+//! design. A device declaring both would appear to the host as one peripheral,
+//! and a compositor that classifies devices by capability could handle it
+//! inconsistently.
 
 use std::{
     ffi::c_int,
@@ -42,23 +41,21 @@ use crate::hid::{
     selection::{ProviderError, ProviderKind},
 };
 
-/// Where the uinput device node is, and how the created devices identify
-/// themselves.
+/// Configures the uinput device node and the names reported for the created
+/// devices.
 ///
-/// The device path is a field rather than a constant read from the environment,
-/// because this is a library: configuration arrives as a parameter, and only the
-/// application entry point decides where it came from. [`Self::default`] is what
-/// the entry point uses when the user said nothing.
+/// The device path is a parameter because this library does not read the
+/// environment. [`Self::default`] supplies the path used by the application when
+/// no override is configured.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UinputConfig {
     pub device: PathBuf,
-    /// What the created devices call themselves, as the host sees them in
-    /// `libinput list-devices`. Suffixed with "Keyboard" and "Mouse".
+    /// Prefix for the names the host reports in `libinput list-devices`. The
+    /// provider appends "Keyboard" and "Mouse".
     pub device_prefix: String,
 }
 
 impl UinputConfig {
-    /// The device node uinput has lived at since it moved out of `/dev/input`.
     pub const DEFAULT_DEVICE: &'static str = "/dev/uinput";
 }
 
@@ -157,11 +154,8 @@ impl UinputProvider {
 
     /// Maps a desktop position into the device's fixed normalised range.
     ///
-    /// The device spans the whole desktop bounding box rather than one monitor,
-    /// which is what makes hotplug free: the range never changes, so only the
-    /// origin and extent do and the device itself is never recreated.
-    /// [`crate::hid::mapping`] is what gets a hit on a mirrored panel into this
-    /// space in the first place.
+    /// The range spans the whole desktop bounding box rather than one monitor.
+    /// Hotplug changes the origin and extent without recreating the device.
     fn normalise(&mut self, position: DesktopPoint) -> Option<(i32, i32)> {
         let Some(extent) = self.desktop_extent else {
             if !self.warned_about_desktop {
@@ -196,9 +190,8 @@ impl HidProvider for UinputProvider {
     }
 
     fn mouse_move_rel(&mut self, delta: DesktopVector) {
-        // Dropped rather than queued when the desktop is not yet known: a
-        // relative motion has no meaning without the bounds to clamp it to, and
-        // `commit` reports the same condition once through `normalise`.
+        // The provider clamps relative motion to the desktop bounds and drops it
+        // until those bounds are known.
         let Some(extent) = self.desktop_extent else {
             return;
         };
@@ -236,13 +229,8 @@ impl HidProvider for UinputProvider {
         ])
     }
 
-    /// A no-op, and correctly so.
-    ///
-    /// uinput injects raw keycodes below the display server, and the host
-    /// applies whatever layout it is configured with. There is nothing to
-    /// upload and nothing that would honour it if there were. WayVR's is also
-    /// empty (`uinput.rs:219`) with no comment, which reads as unfinished; only
-    /// [`crate::hid::wl_virtual`] can carry a layout.
+    /// Raw keycodes are interpreted using the host's configured layout. This
+    /// provider cannot upload a keymap; only [`crate::hid::wl_virtual`] can.
     fn set_keymap(&mut self, _keymap: &XkbKeymap) -> Result<(), ProviderError> {
         Ok(())
     }
@@ -280,15 +268,12 @@ impl HidProvider for UinputProvider {
     }
 }
 
-/// What to tell a user whose `/dev/uinput` could not be opened.
+/// Provides checks and access guidance when the uinput provider cannot be created.
 ///
-/// Structured rather than a formatted string so the caller decides how to
-/// present it — a log line now, a panel in the headset later — and so the one
-/// piece of environment it needs, the user's login name, arrives as a parameter
-/// rather than being read here.
-///
-/// Modelled on WayVR's diagnostic (`uinput.rs:237-266`), with the security note
-/// it does not carry.
+/// The surrounding application chooses how to present the guidance and supplies
+/// the login name as a parameter rather than this library reading it from the
+/// environment. The guidance includes the security risk of membership in the
+/// `input` group.
 #[derive(Clone, Copy, Debug)]
 pub struct Advice<'a> {
     /// The login name to put in the `usermod` command, if the caller knows it.
@@ -322,15 +307,14 @@ impl fmt::Display for Advice<'_> {
 /// The kernel's fixed normalised range for the absolute axes.
 ///
 /// The number is arbitrary; what matters is that it never changes. A device
-/// declaring the desktop's real pixel extent would have to be destroyed and
-/// recreated on every hotplug, and a recreated device loses whatever focus the
-/// host had given it.
+/// using the desktop's logical extent as its range would have to be destroyed
+/// and recreated on every hotplug, which would replace the host input device.
 const MOUSE_EXTENT: f64 = 32768.0;
 
 /// The `resolution` reported for the absolute axes, in units per millimetre.
 ///
 /// Nonzero because a host that reads zero may classify the device as a touchpad
-/// rather than a pointer. WayVR reports the same 10 (`uinput.rs:59`).
+/// rather than a pointer.
 const ABS_RESOLUTION: i32 = 10;
 
 /// `BUS_USB`, which is what a virtual device conventionally claims.
@@ -394,11 +378,11 @@ impl UinputDevice {
         Ok(Self { node })
     }
 
-    /// Writes one group of events, ending with the caller's `EV_SYN`.
+    /// Writes a complete event group ending with `EV_SYN`.
     ///
-    /// A partial write is treated as a failure. The kernel accepts whole
-    /// `input_event` structures or none, so a short count means the group was
-    /// truncated, and a truncated group is a button that never came back up.
+    /// `write_all` retries short writes. If an I/O error occurs after a partial
+    /// write, the kernel may receive an incomplete group without its final
+    /// `EV_SYN`, so the error is returned to the provider.
     fn emit(&mut self, events: &[libc::input_event]) -> Result<(), ProviderError> {
         // SAFETY: `input_event` is a `repr(C)` plain-data structure with no
         // padding invariants and no pointers, so its bytes are a valid slice for
@@ -423,10 +407,8 @@ impl Drop for UinputDevice {
         // still open — the `File` is dropped after this.
         let destroyed = unsafe { libc::ioctl(self.node.raw_fd(), UI_DEV_DESTROY) };
         if destroyed < 0 {
-            // Reported rather than propagated: a device the kernel would not
-            // destroy is one that outlives the process as a phantom keyboard,
-            // which is worth a line in the log and is not something the caller
-            // can do anything about.
+            // `Drop` cannot propagate a failed destroy ioctl, so report it before
+            // the descriptor closes.
             warn!(
                 device = %self.node.name,
                 error = %io::Error::last_os_error(),
@@ -464,7 +446,6 @@ impl OpenNode {
         })
     }
 
-    /// Declares one capability bit.
     fn set_bit(
         &self,
         request: BitRequest,
@@ -481,7 +462,6 @@ impl OpenNode {
         Ok(())
     }
 
-    /// Issues a request whose argument the kernel reads from `argument`.
     fn ioctl<T>(
         &self,
         request: StructRequest<T>,
@@ -513,11 +493,10 @@ impl OpenNode {
     }
 }
 
-/// One event, with a zeroed timestamp.
+/// Builds an event with a zeroed timestamp.
 ///
-/// The kernel discards the timestamp a uinput write supplies and stamps the
-/// event itself, so filling it in would be work with no observable effect.
-/// WayVR calls `gettimeofday` for every group (`hid/mod.rs:48-55`).
+/// The kernel discards the timestamp supplied with a uinput write and stamps
+/// the event itself, so filling it in has no observable effect.
 const fn event(kind: u16, code: u16, value: i32) -> libc::input_event {
     libc::input_event {
         time: libc::timeval {

@@ -1,9 +1,7 @@
-//! The lifecycle's transitions, against the scripted portal and a source that
-//! opens nothing.
+//! The mirror lifecycle against a scripted portal and a recording stream source.
 //!
-//! No portal, no PipeWire, no display, and no GPU: every seam the lifecycle
-//! reaches through is substituted, which is what lets `lunette-v1.AC3.5` be
-//! stated as a test rather than only as a thing to try in a headset.
+//! The portal and stream seams are substituted, so these tests do not require a
+//! session bus, PipeWire, a display, or a GPU.
 
 #![expect(
     clippy::expect_used,
@@ -26,7 +24,6 @@ use crate::{
     },
 };
 
-/// Two monitors side by side, each 1920 by 1080 logical.
 fn roster() -> Roster {
     let mut roster = Roster::new();
     for (index, connector) in ["DP-1", "DP-2"].into_iter().enumerate() {
@@ -52,7 +49,6 @@ fn key(roster: &Roster, index: usize) -> MonitorKey {
     roster.monitors()[index].key().clone()
 }
 
-/// A stream sitting where the monitor at `index` sits.
 fn stream(node: u32, index: u32) -> PortalStream {
     PortalStream {
         node: NodeId::new(node).expect("a non-zero node identifier"),
@@ -73,7 +69,6 @@ fn response(streams: Vec<PortalStream>, token: &str) -> SessionResponse {
     }
 }
 
-/// A set over both monitors, with a portal that grants both streams.
 fn mirrors(log: &StreamLog) -> MirrorSet<FakePortal> {
     let mut portal = FakePortal::new();
     portal.will_grant(response(vec![stream(11, 0), stream(12, 1)], "fresh"));
@@ -84,11 +79,8 @@ fn mirrors(log: &StreamLog) -> MirrorSet<FakePortal> {
     mirrors
 }
 
-/// Polls until the exchange stops waiting, as a frame loop does over several
-/// frames.
-///
-/// Bounded, because a script that never terminates is a defect in the test
-/// rather than something to hang the suite on.
+/// The bound turns a non-terminating portal script into a test failure instead of
+/// hanging the suite.
 fn pump(mirrors: &mut MirrorSet<FakePortal>) -> Progress {
     for _ in 0..16 {
         let progress = mirrors.poll();
@@ -101,8 +93,6 @@ fn pump(mirrors: &mut MirrorSet<FakePortal>) -> Progress {
 
 #[test]
 fn nothing_is_asked_of_the_portal_until_a_monitor_is_mirrored() {
-    // The whole of the laziness: WayVR requests at screen creation, for every
-    // monitor, at startup.
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
 
@@ -261,7 +251,7 @@ fn revoking_when_nothing_was_ever_asked_for_asks_for_nothing() {
 
 #[test]
 fn a_monitor_no_attached_screen_carries_is_refused_rather_than_requested() {
-    // A key stored by a previous run whose monitor is now unplugged.
+    // This models a stored key whose monitor is no longer attached.
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
     let absent = MonitorKey::Connector(
@@ -313,8 +303,6 @@ fn a_monitor_appearing_is_reported_as_added() {
 
 #[test]
 fn pausing_a_mirror_keeps_its_stream() {
-    // Pause is for a panel out of view; stop is for a dismissed monitor. A pause
-    // that dropped the stream would re-prompt on the way back.
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
     let roster = roster();
@@ -366,8 +354,6 @@ fn pausing_a_monitor_that_is_not_mirrored_reports_that_it_is_not() {
 
 #[test]
 fn the_granted_token_is_recorded_for_every_monitor_the_session_covers() {
-    // The token restores the whole session, so whichever monitor is mirrored
-    // first on the next run has to be able to offer it.
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
     let roster = roster();
@@ -436,7 +422,6 @@ fn a_stored_token_is_offered_with_the_first_request() {
 
 #[test]
 fn a_refused_request_is_not_retried_by_polling() {
-    // A machine with no session bus would otherwise ask once a frame, for ever.
     let log = StreamLog::new();
     let roster = roster();
     let mut portal = FakePortal::new();
@@ -476,8 +461,8 @@ fn a_declined_dialog_is_reported_rather_than_leaving_the_monitor_waiting() {
 
 #[test]
 fn a_session_covering_none_of_the_wanted_monitors_starts_nothing() {
-    // The user selected a screen lunette was not asked about, which is a portal
-    // dialog outcome rather than a fault.
+    // A grant may omit a wanted monitor when the user did not select it in the
+    // portal dialog.
     let log = StreamLog::new();
     let roster = roster();
     let mut portal = FakePortal::new();
@@ -505,10 +490,9 @@ fn a_running_mirror_carries_no_frame_until_one_arrives() {
 
 #[test]
 fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
-    // The deferral the entry point depends on: a capture stream negotiates
-    // against the DRM formats the importer accepts, and those are not known
-    // until LOVR has made a graphics device. A configuration that mirrors from
-    // `lovr.load` runs before that.
+    // The source is unavailable until the graphics device supplies the DRM
+    // formats accepted by the importer. A mirror requested earlier remains wanted
+    // until the source can open it.
     let log = StreamLog::new();
     let roster = roster();
     let mut portal = FakePortal::new();
@@ -542,8 +526,6 @@ fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
 
 #[test]
 fn a_deferred_start_does_not_ask_the_portal_a_second_time() {
-    // The retry is over the held session, not over the request: a second dialog
-    // for a monitor the user already granted is the ritual this phase removes.
     let log = StreamLog::new();
     let roster = roster();
     let mut portal = FakePortal::new();
@@ -554,7 +536,6 @@ fn a_deferred_start_does_not_ask_the_portal_a_second_time() {
     let _ = mirrors.mirror(&key(&roster, 0));
     let _ = pump(&mut mirrors);
 
-    // Several frames with no source, as a boot sequence produces.
     for _ in 0..4 {
         assert_eq!(mirrors.poll(), Progress::Idle);
     }
@@ -566,8 +547,6 @@ fn a_deferred_start_does_not_ask_the_portal_a_second_time() {
 
 #[test]
 fn mirroring_reports_a_request_rather_than_a_mirror_while_no_source_exists() {
-    // `MirrorOutcome::Mirroring` promises a running stream. Saying it when the
-    // source refused would make `monitor.mirrored` disagree with itself.
     let roster = roster();
     let mut portal = FakePortal::new();
     portal.will_grant(response(vec![stream(11, 0), stream(12, 1)], "fresh"));

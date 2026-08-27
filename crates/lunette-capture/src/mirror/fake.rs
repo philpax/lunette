@@ -1,9 +1,7 @@
-//! A [`MonitorStreams`] that opens nothing, for the lifecycle's tests.
+//! A [`MonitorStreams`] implementation for deterministic lifecycle tests.
 //!
-//! PipeWire is an unmanaged dependency and a stream is a thread, so the
-//! transitions are exercised against a source that records what it was asked to
-//! open and what was dropped. Nothing here spawns a thread, connects to a node,
-//! or waits.
+//! The recording source logs stream lifecycle events without starting a PipeWire
+//! thread, connecting to a node, or waiting.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -13,10 +11,9 @@ use crate::{
     stream::{CapturedFrame, FrameCounts},
 };
 
-/// What a [`RecordingSource`] was asked to do, in the order it was asked.
+/// The ordered stream events recorded by a [`RecordingSource`].
 ///
-/// Shared rather than owned, so the copy the lifecycle holds and the copy the
-/// test reads are the same log.
+/// The log is shared so the lifecycle and the test observe the same events.
 #[derive(Clone, Debug, Default)]
 pub struct StreamLog {
     entries: Rc<RefCell<Vec<StreamEvent>>>,
@@ -28,13 +25,13 @@ impl StreamLog {
         Self::default()
     }
 
-    /// Everything recorded so far.
+    /// Returns a snapshot of the recorded events.
     #[must_use]
     pub fn entries(&self) -> Vec<StreamEvent> {
         self.entries.borrow().clone()
     }
 
-    /// The nodes opened so far, in order, including repeats.
+    /// Returns opened nodes in event order, including repeated opens.
     #[must_use]
     pub fn opened(&self) -> Vec<NodeId> {
         self.entries
@@ -49,7 +46,7 @@ impl StreamLog {
             .collect()
     }
 
-    /// The nodes whose streams have been stopped, in order.
+    /// Returns nodes whose streams were stopped, in event order.
     #[must_use]
     pub fn dropped(&self) -> Vec<NodeId> {
         self.entries
@@ -69,7 +66,6 @@ impl StreamLog {
     }
 }
 
-/// One thing that happened to a stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamEvent {
     Opened {
@@ -82,13 +78,13 @@ pub enum StreamEvent {
     Resumed {
         node: NodeId,
     },
-    /// The stream was released, which is what stopping is.
+    /// Dropping the stream stops capture and releases its resources.
     Dropped {
         node: NodeId,
     },
 }
 
-/// A source whose streams produce nothing and record everything.
+/// A source that records lifecycle events and produces no frames.
 #[derive(Clone, Debug, Default)]
 pub struct RecordingSource {
     log: StreamLog,
@@ -114,7 +110,6 @@ impl MonitorStreams for RecordingSource {
     }
 }
 
-/// A stream that carries no frames and reports its own end.
 #[derive(Debug)]
 struct RecordedStream {
     log: StreamLog,

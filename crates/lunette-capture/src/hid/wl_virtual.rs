@@ -1,34 +1,24 @@
 //! Linux-only: speaks `zwlr_virtual_pointer_v1` and `zwp_virtual_keyboard_v1`
 //! to the host compositor over a Wayland socket.
 //!
-//! The zero-setup provider, and the second the chain tries. It needs no
-//! permission and no kernel module, and its coordinate handling is better than
-//! uinput's: `motion_absolute` takes the extent on every call
-//! (`wl_virtual.rs:50-56` in WayVR), so nothing has to be recreated when the
-//! monitor layout changes.
+//! This provider needs no device permission or kernel module. Its absolute pointer
+//! requests include the desktop extent, so a monitor-layout change does not
+//! require recreating the device.
 //!
-//! What it costs is portability. Both protocols are wlroots extensions,
-//! implemented by sway, Hyprland, wayfire, labwc, dwl, river, and niri. **KWin
-//! and mutter implement neither and have no plans to**, which is why uinput is
-//! tried first rather than this.
+//! Both protocols are wlroots extensions. KWin and mutter do not implement them,
+//! so uinput remains the portable provider.
 //!
 //! # Thread affinity
 //!
-//! The provider owns a `wayland_client::EventQueue`, and its `commit` is a
-//! roundtrip on it. Nothing here may move between threads: a roundtrip from a
-//! second thread would interleave with the first thread's dispatch and read
-//! events belonging to it. WayVR declares `HidProvider: Sync + Send`
-//! (`provider/mod.rs:8`) and is thread-affine anyway; lunette's trait carries no
-//! such bound, so the type does not have to lie about it.
+//! [`WlVirtualProvider`] owns a `wayland_client::EventQueue`, and `commit`
+//! performs a roundtrip on it. The provider must stay on one thread: dispatching
+//! its queue from another thread could interleave event handling.
 //!
-//! # Disconnection is ordinary
+//! # Disconnection
 //!
-//! WayVR panics when the host compositor goes away — `.unwrap()` on flush at
-//! `wl_virtual.rs:146` and `:176`, and on roundtrip at `:199` and `:204`. A host
-//! session ending is a normal event, and it must not abort the process. Every
-//! one of those returns [`ProviderError::Disconnected`] here, which
-//! [`crate::hid::HostInput`] turns into a degradation to the dummy provider with
-//! a logged reason.
+//! Flush and roundtrip failures become [`ProviderError::Disconnected`].
+//! [`crate::hid::HostInput`] replaces a disconnected provider with the dummy and
+//! logs the reason instead of aborting the process.
 
 use std::{
     ffi::CString,
@@ -68,25 +58,20 @@ use crate::hid::{
     selection::{ProviderError, ProviderKind},
 };
 
-/// Where the host compositor's Wayland socket is, and what layout to upload.
+/// The host compositor's Wayland socket and keyboard layout.
 ///
-/// The socket is a path rather than something read from `WAYLAND_DISPLAY` here,
-/// because this is a library. The entry point joins `XDG_RUNTIME_DIR` and
-/// `WAYLAND_DISPLAY` — or takes an absolute `WAYLAND_DISPLAY` as-is, which the
-/// protocol permits — and passes the result in.
+/// The application resolves the socket from its environment and passes the
+/// resulting path to this library.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WlVirtualConfig {
     pub socket: PathBuf,
-    /// The layout to upload to the virtual keyboard.
+    /// The layout uploaded to the virtual keyboard.
     ///
-    /// Required rather than optional. `zwp_virtual_keyboard_v1` treats a `key`
-    /// request before a `keymap` request as a protocol error, which disconnects
-    /// the client rather than failing the request, so a provider with no keymap
-    /// is one that will be killed by the first keystroke.
+    /// The protocol disconnects a client that sends a `key` request before a
+    /// `keymap` request, so the provider always requires a layout.
     pub keymap: XkbKeymap,
 }
 
-/// A virtual pointer and keyboard on the host compositor's seat.
 pub struct WlVirtualProvider {
     connection: Connection,
     queue: EventQueue<Registry>,
@@ -106,10 +91,8 @@ pub struct WlVirtualProvider {
     wheel_residue: WheelDelta,
     /// The timestamp of the last request, in the protocol's milliseconds.
     ///
-    /// Monotonic and lunette's own rather than the wall clock: WayVR stamps
-    /// every request with `SystemTime::now()` (`wl_virtual.rs:253-258`), so a
-    /// clock step backwards produces timestamps a compositor may reorder or
-    /// discard.
+    /// The counter avoids clock adjustments that could make the compositor
+    /// reorder or discard requests.
     clock: u32,
 }
 
@@ -140,9 +123,8 @@ impl WlVirtualProvider {
         })?;
         let handle = queue.handle();
 
-        // The virtual pointer takes an optional seat, and the virtual keyboard
-        // requires one, so a compositor with no seat at these versions cannot
-        // host either device.
+        // The virtual keyboard requires a seat, so a compositor without a
+        // sufficiently recent `wl_seat` cannot host either device.
         let seat: WlSeat = bind(&globals, &handle, "wl_seat", 4..=9)?;
         let pointer_manager: ZwlrVirtualPointerManagerV1 =
             bind(&globals, &handle, "zwlr_virtual_pointer_manager_v1", 1..=2)?;
@@ -202,7 +184,6 @@ impl WlVirtualProvider {
             })
     }
 
-    /// Sends the modifier mask the compositor should believe is held.
     fn send_modifier_state(&mut self) {
         self.keyboard
             .modifiers(self.modifiers.depressed(), 0, self.modifiers.locked(), 0);
@@ -259,11 +240,6 @@ impl HidProvider for WlVirtualProvider {
         self.flush()
     }
 
-    /// Uploads a layout through a memfd.
-    ///
-    /// The compositor interprets the keycodes lunette sends under this layout,
-    /// which is the one capability uinput does not have: there, the host applies
-    /// whatever it is already configured with.
     fn set_keymap(&mut self, keymap: &XkbKeymap) -> Result<(), ProviderError> {
         let bytes = keymap.as_bytes_with_nul();
         let size = u32::try_from(bytes.len()).map_err(|_| ProviderError::Io {
@@ -346,9 +322,8 @@ impl HidProvider for WlVirtualProvider {
 
 /// The `wl_keyboard.keymap_format` value for XKB's version 1 text format.
 ///
-/// Written out rather than taken from `wayland-server`'s enum, which is the only
-/// place the wayland crates define it and which this crate has no other reason
-/// to depend on. WayVR reaches through smithay for it (`wl_virtual.rs:10`).
+/// The wayland crates expose this value only through `wayland-server`, which this
+/// crate does not otherwise need to depend on.
 const KEYMAP_FORMAT_XKB_V1: u32 = 1;
 
 /// How many `wl_pointer.axis` units one wheel detent is.
@@ -359,8 +334,6 @@ const KEYMAP_FORMAT_XKB_V1: u32 = 1;
 /// being implied by whatever the caller happened to pass.
 const AXIS_UNITS_PER_DETENT: f64 = 10.0;
 
-/// The dispatch target. It handles nothing: neither virtual device sends events,
-/// and the registry's are not interesting once the globals have been bound.
 struct Registry;
 
 impl Dispatch<WlRegistry, GlobalListContents> for Registry {
@@ -381,8 +354,6 @@ delegate_noop!(Registry: ignore ZwlrVirtualPointerManagerV1);
 delegate_noop!(Registry: ignore ZwpVirtualKeyboardV1);
 delegate_noop!(Registry: ignore ZwpVirtualKeyboardManagerV1);
 
-/// Binds one global, naming it in the error rather than leaving the caller to
-/// guess which of the three was missing.
 fn bind<I>(
     globals: &GlobalList,
     handle: &QueueHandle<Registry>,
@@ -401,11 +372,10 @@ where
         })
 }
 
-/// An anonymous file holding `bytes`, for handing to the compositor.
+/// Creates an anonymous file for the compositor to map.
 ///
-/// A memfd rather than a file under `XDG_RUNTIME_DIR`, so nothing has to be
-/// unlinked and nothing is left behind if lunette dies between creating it and
-/// sending it.
+/// A memfd needs no unlinking and leaves no file behind if lunette exits before
+/// it sends the descriptor.
 fn memfd(name: &str, bytes: &[u8]) -> Result<File, ProviderError> {
     let name = CString::new(name).map_err(|_| ProviderError::Io {
         operation: "name an anonymous file",
@@ -435,12 +405,10 @@ fn memfd(name: &str, bytes: &[u8]) -> Result<File, ProviderError> {
     Ok(file)
 }
 
-/// A coordinate relative to the desktop's origin, as the protocol's unsigned
-/// value.
+/// Converts a clamped coordinate to the protocol's unsigned offset.
 ///
-/// Saturating at zero rather than wrapping: the caller has already clamped to
-/// the desktop, so a negative here would be a rounding artefact at the origin,
-/// and a wrap would put the cursor at four billion.
+/// Saturating at zero prevents a rounding artefact at the origin from wrapping
+/// the cursor to a position near four billion.
 fn offset(value: f64, origin: f64) -> u32 {
     let relative = value - origin;
     if relative <= 0.0 {
@@ -476,7 +444,6 @@ mod tests {
 
     #[test]
     fn a_coordinate_left_of_the_origin_saturates_rather_than_wrapping() {
-        // A wrap would put the cursor four billion pixels away rather than one.
         assert_eq!(offset(-1921.0, -1920.0), 0);
     }
 
@@ -530,9 +497,9 @@ mod tests {
 
     #[test]
     fn one_detent_is_ten_units_of_the_protocols_continuous_axis() {
-        // The unit both providers read `WheelDelta` in. uinput multiplies the
+        // Both providers read `WheelDelta` in detents. uinput multiplies the
         // same value by 120 for its high-resolution axes, so a disagreement
-        // here is a wheel that scrolls twelve times too far on one of them.
+        // here makes one provider scroll twelve times too far.
         assert_eq!(1.0 * AXIS_UNITS_PER_DETENT, 10.0);
     }
 }

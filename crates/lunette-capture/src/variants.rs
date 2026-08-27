@@ -1,25 +1,18 @@
-//! Declaring an enum together with the list of every member it has.
+//! Declares enums with a runtime list of their members.
 //!
-//! Three enums here are enumerated at runtime: the keys and buttons a uinput
-//! device declares at creation, and the transforms a `wl_output` names. Each
-//! carried its members twice, once as variants and once as a list, and the
-//! second copy is one nothing checks — 165 keys in `VirtualKey`'s case. A key
-//! added to the enum and missed in the list is a key the virtual device never
-//! declares, so `sink:key` refuses it and the kernel is never asked.
+//! The capture crate iterates its keys, buttons, and surface transforms at
+//! runtime. Generating `ALL` from each enum keeps the list in declaration order
+//! and means adding a member also adds it to the list.
 //!
-//! The nameless sibling of `lunette_luau::closed_set!`. That macro is for a set
-//! whose members are known outside Rust by a name, and generates the naming
-//! machinery with the list; these are known by an integer the kernel or the
-//! protocol assigns, and each keeps its own accessor for it, because
-//! `from_evdev` and `from_wl_output` say which numbering they mean and
-//! `from_code` would not. Those accessors are exhaustive matches, so the
-//! compiler already holds them to the enum; it is only the list that needed a
-//! declaration to derive from.
+//! This macro is the local counterpart to `lunette_luau::closed_set!`. The
+//! sibling macro derives names and string conversions; this macro supplies the
+//! member slice and passes explicit discriminants through to the enum. Callers
+//! define conversions for the external numbering they use.
 
-/// Declares an enum and the list of its members.
+/// Declares an enum and a slice containing every member.
 ///
-/// Generates `ALL`, in declaration order. Discriminants are passed through, so
-/// an enum whose members carry the integer they travel as keeps it.
+/// Generates `ALL` in declaration order and passes explicit discriminants
+/// through to the generated enum.
 ///
 /// ```text
 /// variants! {
@@ -31,7 +24,6 @@
 ///         Right = 0x111,
 ///     }
 /// }
-///
 ///
 /// // Button::ALL is [Button::Left, Button::Right], and Button::Left as u16 is 0x110.
 /// ```
@@ -66,7 +58,6 @@ mod tests {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[repr(u16)]
         pub enum Coded {
-            /// Carries the number it travels as.
             First = 0x110,
             Second = 0x111,
         }
