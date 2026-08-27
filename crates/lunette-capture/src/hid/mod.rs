@@ -42,11 +42,11 @@ pub use crate::hid::{
 /// The interface to the host's keyboard and pointer.
 ///
 /// Pointer and button calls accumulate, and [`Self::commit`] flushes once per
-/// frame. The fallible calls report their errors instead of logging and
-/// continuing.
+/// frame. The fallible calls report their errors and do not log and
+/// continue.
 ///
 /// Implementors keep the accumulation in [`pointer::PendingPointer`], so the
-/// batching rules live in one place instead of one per provider.
+/// batching rules live in one place and apply to every provider.
 pub trait HidProvider {
     /// Which mechanism this is.
     fn kind(&self) -> ProviderKind;
@@ -104,15 +104,15 @@ pub trait HidProvider {
     /// # Errors
     ///
     /// [`ProviderError`] when the batch could not be sent.
-    /// [`ProviderError::is_fatal`] distinguishes a provider that is finished
-    /// from one that failed once.
+    /// [`ProviderError::is_fatal`] is false for a failure that the next call
+    /// might not repeat, and true for one that would repeat every frame.
     fn commit(&mut self) -> Result<(), ProviderError>;
 }
 
 /// Everything the chain needs to try each mechanism.
 ///
-/// Every field is a parameter instead of something read from the environment,
-/// because this is a library: the entry point resolves `WAYLAND_DISPLAY`,
+/// Every field is a parameter, never something read from the environment:
+/// this is a library, so the entry point resolves `WAYLAND_DISPLAY`,
 /// `XDG_RUNTIME_DIR`, and the user's configuration, and passes the result here.
 #[derive(Clone, Debug, Default)]
 pub struct HidConfig {
@@ -122,8 +122,8 @@ pub struct HidConfig {
     /// host Wayland session to reach.
     ///
     /// `None` is why [`ProviderError::NotConfigured`] exists: on a machine with
-    /// no Wayland socket, the error reports that no socket was supplied instead
-    /// of attempting to connect to a path that does not exist.
+    /// no Wayland socket, the error reports that no socket was supplied and
+    /// does not attempt to connect to a path that does not exist.
     pub wl_virtual: Option<WlVirtualConfig>,
 }
 
@@ -143,7 +143,7 @@ impl HidConfig {
 
 /// The provider in use and the failures recorded while selecting it.
 ///
-/// Owns the provider instead of exposing it, so a fatal error has one place to
+/// Owns the provider and does not expose it, so a fatal error has one place to
 /// be handled: a host compositor that goes away degrades the session to the
 /// dummy provider with a logged reason.
 pub struct HostInput {
@@ -178,8 +178,8 @@ impl HostInput {
 
     /// Sets the host desktop's position and size on the provider.
     ///
-    /// Called on every output change. The layout is rebuilt instead of updated
-    /// in place, and the provider takes the new origin and extent without
+    /// Called on every output change. The layout is rebuilt from scratch each
+    /// time, and the provider takes the new origin and extent without
     /// anything being recreated: uinput's device spans a fixed normalised range
     /// and `zwlr_virtual_pointer_v1` takes the extent on every call.
     pub fn set_desktop(&mut self, layout: &DesktopLayout) {
@@ -197,8 +197,8 @@ impl HostInput {
     ///
     /// A non-fatal failure is logged and the provider kept: one refused write
     /// does not mean the device is finished. A fatal failure replaces the
-    /// provider with the dummy. Keeping the provider reports the same
-    /// disconnection every frame for the rest of the session.
+    /// provider with the dummy. The dummy swallows the write, so the session
+    /// does not report the same disconnection every frame.
     pub fn commit(&mut self) {
         let Err(error) = self.provider.commit() else {
             return;
@@ -265,8 +265,8 @@ fn open_one(kind: ProviderKind, config: &HidConfig) -> Result<Box<dyn HidProvide
             WlVirtualProvider::open(wl_virtual)
                 .map(|provider| Box::new(provider) as Box<dyn HidProvider>)
         }
-        // Unreachable through `select`, which supplies the dummy itself instead
-        // of asking for it, and strips it from any configured order.
+        // Unreachable through `select`, which supplies the dummy itself without
+        // asking for it, and strips it from any configured order.
         ProviderKind::Dummy => Ok(Box::new(DummyProvider)),
     }
 }
