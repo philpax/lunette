@@ -1,14 +1,13 @@
-//! The provider that reaches nothing.
+//! A provider that accepts every call without reaching the host desktop.
 //!
 //! Installed when the chain is exhausted, and when a real provider's connection
-//! ends mid-session. Accepting every call and doing nothing is what keeps a
-//! session running on a machine where host input is unavailable: the mirrors
-//! still render, the panels still respond, and only the host cursor stays where
-//! it was.
+//! ends mid-session. Doing nothing is what keeps a session running on a machine
+//! where host input is unavailable: the mirrors still render, the panels still
+//! respond, and only the host cursor stays where it was.
 //!
-//! It is deliberately silent. The reason nothing reaches the host is reported
-//! once, by [`crate::hid::selection::NoHostInput`], rather than by this type on
-//! every call.
+//! The reason nothing reaches the host is reported once, by
+//! [`crate::hid::selection::NoHostInput`], rather than by this type on every
+//! call.
 
 use crate::hid::{
     HidProvider,
@@ -17,7 +16,6 @@ use crate::hid::{
     selection::{ProviderError, ProviderKind},
 };
 
-/// A provider that accepts everything and reaches nothing.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DummyProvider;
 

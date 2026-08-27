@@ -6,12 +6,12 @@
 //! kernel headers.
 //!
 //! Handrolling this rather than taking `input-linux` is a deliberate choice.
-//! `input-linux` 0.7.1 pulls `nix` 0.26 while its own `input-linux-sys` 0.8
-//! pulls `nix` 0.29, so it lands two copies of `nix` in the tree; and the part
-//! of it lunette would use is this file's worth of constants plus a wrapper over
-//! `ioctl`. The rest of its surface — reading devices, decoding event streams —
-//! is not wanted. The whole problem is visible here, which is the condition the
-//! house rules put on handrolling something.
+//! `input-linux` 0.6.0 pulls `nix` 0.26 and its `input-linux-sys` 0.8 pulls
+//! `nix` 0.26 as well, so the pair lands two copies of `nix` in the tree; and
+//! the part of it lunette would use is this file's worth of constants plus a
+//! wrapper over `ioctl`. The rest of its surface — reading devices, decoding
+//! event streams — is not wanted. The whole problem is visible here, which is
+//! the condition the house rules put on handrolling something.
 //!
 //! Nothing in this file is `unsafe`; it is constants and one arithmetic helper.
 //! The calls that use them are in [`crate::hid::uinput`].

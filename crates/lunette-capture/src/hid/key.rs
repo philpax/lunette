@@ -6,10 +6,9 @@
 //! Every value here is an evdev code. That is the vocabulary both providers
 //! want: uinput takes evdev codes directly, and `zwp_virtual_keyboard_v1`'s
 //! `key` request is documented as taking an evdev code as well. WayVR's
-//! `VirtualKey` (`subsystem/hid/mod.rs:81`) is numbered in X11 keycodes instead
-//! and subtracts eight at every call site (`uinput.rs:211`, `wl_virtual.rs:155`);
-//! there is no third consumer that wants the X11 numbering, so the offset is not
-//! reproduced here.
+//! `VirtualKey` is numbered in X11 keycodes instead and subtracts eight at every
+//! call site; there is no third consumer that wants the X11 numbering, so the
+//! offset is not reproduced here.
 //!
 //! Nothing in this file does I/O, so all of it is exercised directly.
 
@@ -233,11 +232,10 @@ impl fmt::Display for VirtualKey {
 variants! {
     /// A mouse button, named by its Linux evdev code.
     ///
-    /// Five rather than WayVR's three (`subsystem/hid/mod.rs:36-38`, which declares
-    /// `MOUSE_LEFT` through `MOUSE_MIDDLE` and panics on anything else at
-    /// `wl_virtual.rs:80`). Back and forward are ordinary buttons on an ordinary
-    /// mouse, and a closed set that omits them turns a user's hardware into an
-    /// unrepresentable case.
+    /// Five rather than WayVR's three: its virtual pointer provider only declares
+    /// `MOUSE_LEFT` through `MOUSE_MIDDLE`. Back and forward are ordinary buttons
+    /// on an ordinary mouse, and a closed set that omits them turns a user's
+    /// hardware into an unrepresentable case.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[repr(u16)]
     pub enum PointerButton {
@@ -278,7 +276,7 @@ impl fmt::Display for PointerButton {
 /// lock is bit 1, control bit 2, then `Mod1` through `Mod5` — because
 /// `zwp_virtual_keyboard_v1.modifiers` takes exactly that mask, and a second
 /// numbering would have to be converted at the one call site that matters.
-/// WayVR uses the same bits (`subsystem/hid/mod.rs:67-74`).
+/// WayVR uses the same bits.
 ///
 /// A newtype rather than a bare `u8`, so a mask and a key code cannot be
 /// transposed, and so [`Self::changes`] can be the single place that decides

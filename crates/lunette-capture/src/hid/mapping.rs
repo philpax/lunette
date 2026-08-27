@@ -3,23 +3,23 @@
 //! Two coordinate spaces meet here, and keeping them apart is the whole job.
 //!
 //! A [`HidProvider`](crate::hid::HidProvider) knows only the host desktop's
-//! bounding box: uinput's device spans it in a fixed normalised range
-//! (`uinput.rs:124` in WayVR), and `zwlr_virtual_pointer_v1.motion_absolute`
-//! takes it as the extent a position is expressed against. Neither knows what a
-//! monitor is.
+//! bounding box: uinput's device spans it in a fixed normalised range, as
+//! WayVR's does, and `zwlr_virtual_pointer_v1.motion_absolute` takes it as
+//! the extent a position is expressed against. Neither knows what a monitor
+//! is.
 //!
 //! Per-monitor targeting is upstream of that, and is what lives here. A
 //! [`MonitorMapping`] turns a normalised hit on the panel into a position inside
 //! one monitor's logical rectangle, including its rotation and flip, exactly as
-//! WayVR builds an `Affine2` per screen (`overlays/screen/backend.rs:93-145`).
-//! The provider then places it on the desktop.
+//! WayVR builds an `Affine2` per screen. The provider then places it on the
+//! desktop.
 //!
 //! The rotation itself is
 //! [`SurfaceTransform`](crate::monitor::SurfaceTransform), which lives with the
 //! rest of a monitor's geometry because that is where it is read from; what to
 //! do with it is [`reorient`], here.
 //!
-//! # Logical, never pixels
+//! # Logical coordinates
 //!
 //! Every dimension here is the compositor's logical geometry. On a display
 //! scaled by two the logical and pixel sizes differ by that factor, and a
@@ -27,14 +27,14 @@
 //! monitors at different scales sitting side by side is the case that makes it
 //! visible.
 //!
-//! # Recompute on every output change
+//! # Output changes
 //!
 //! [`DesktopLayout`] is derived, not stored: a monitor added, removed, or moved
 //! changes the bounding box, and the origin and extent handed to the provider
-//! change with it. WayVR applies them once at screen enumeration
-//! (`overlays/screen/wl.rs:114-122`) and nothing observed re-runs it. Neither
-//! provider needs anything recreated for a change — uinput's range is fixed and
-//! normalised, which is what that abstraction buys.
+//! change with it. WayVR applies them once at screen enumeration, and nothing
+//! observed re-runs it. Neither provider needs anything recreated for a change
+//! — uinput's range is fixed and normalised, which is what that abstraction
+//! buys.
 //!
 //! Pure. Nothing here touches a device, a compositor, or a display.
 
@@ -47,14 +47,14 @@ use crate::{
 
 /// A hit on a mirrored panel, normalised over its surface.
 ///
-/// `(0, 0)` is the panel's top-left corner and `(1, 1)` its bottom-right, in the
-/// panel's own orientation. Normalised rather than in pixels so that nothing
-/// here depends on the resolution the panel happens to be rendered at.
+/// `(0, 0)` is the panel's top-left corner and `(1, 1)` its bottom-right, in
+/// the panel's own orientation. Normalised rather than in pixels, so that
+/// nothing here depends on the resolution the panel happens to be rendered at.
 ///
 /// Values outside the unit square are representable, because a laser that has
-/// left the panel produces them, and [`MonitorMapping::map`] clamps rather than
-/// refusing: a pointer at the edge of a panel should reach the edge of the
-/// monitor, not vanish.
+/// left the panel produces them, and [`MonitorMapping::map`] clamps rather
+/// than refusing: a pointer at the edge of a panel should reach the edge of
+/// the monitor, not vanish.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct PanelPoint {
     pub u: f64,
@@ -133,10 +133,9 @@ impl MonitorMapping {
     /// The mapping for a monitor, or [`MappingError::EmptyMonitor`] when it has
     /// no area to map onto.
     ///
-    /// A compositor can report a monitor with a zero logical dimension — one
-    /// being reconfigured, or one whose mode has not been set. It is not a
-    /// monitor a pointer can be placed on, and saying so once here is better
-    /// than every consumer checking for it.
+    /// A compositor can report a monitor with a zero logical dimension: one
+    /// being reconfigured, or one whose mode has not been set. Such a monitor
+    /// cannot take a pointer.
     ///
     /// # Errors
     ///
@@ -226,7 +225,7 @@ impl DesktopLayout {
     /// Every [`MonitorMapping`] is non-empty by construction, so the box is too,
     /// and [`Self::extent`] is a divisor that can never be zero. That is why
     /// this takes mappings rather than geometries: the one degenerate case is
-    /// rejected where it can be named, not here where it could only be counted.
+    /// rejected where it can be named.
     ///
     /// # Errors
     ///
@@ -264,8 +263,7 @@ impl DesktopLayout {
     /// Where the bounding box begins.
     ///
     /// Not the coordinate origin in general: a monitor placed to the left of or
-    /// above the primary one has a negative logical position, and the box starts
-    /// there.
+    /// above the primary one has a negative logical position.
     #[must_use]
     pub const fn origin(&self) -> DesktopPoint {
         self.origin
@@ -339,9 +337,8 @@ impl Error for MappingError {}
 
 /// A rectangle's edges, in the logical coordinate space.
 ///
-/// `i64` rather than `i32` because the right edge is a position plus a size and
-/// both are at their type's full range; the sum of `i32::MAX` and `u32::MAX`
-/// does not fit in an `i32`.
+/// `i64` rather than `i32` because the right edge is a position plus a size:
+/// `i32` cannot hold the sum of `i32::MAX` and `u32::MAX`.
 #[derive(Clone, Copy, Debug)]
 struct Bounds {
     left: i64,
@@ -680,8 +677,8 @@ mod tests {
 
     #[test]
     fn a_hit_on_the_second_monitor_lands_on_the_second_monitor() {
-        // The criterion `lunette-v1.AC3.2` states: a pointer sent to a
-        // monitor's sink reaches that physical display, whichever it is.
+        // A pointer sent to a monitor's sink reaches that physical display,
+        // whichever it is.
         let second = mapping(1920, 0, 1920, 1080);
         let desktop = layout([mapping(0, 0, 1920, 1080), second]);
 

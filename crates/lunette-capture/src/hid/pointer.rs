@@ -91,11 +91,11 @@ impl fmt::Display for DesktopVector {
 /// How large the host desktop's bounding box is.
 ///
 /// Validated positive and finite at construction, because it is a divisor:
-/// uinput normalises a position by dividing through it (`uinput.rs:124` in
-/// WayVR), and `zwlr_virtual_pointer_v1.motion_absolute` takes it as the extent
-/// a position is expressed against. A zero extent would produce an infinity in
-/// the first case and a division by zero in the compositor in the second, and
-/// neither reports anything back.
+/// uinput normalises a position by dividing through it, and
+/// `zwlr_virtual_pointer_v1.motion_absolute` takes it as the extent a position
+/// is expressed against. A zero extent produces an infinity in the first case
+/// and a division by zero in the compositor in the second, and neither reports
+/// anything back.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct DesktopExtent {
     width: f64,
@@ -162,10 +162,9 @@ impl fmt::Display for WheelDelta {
 /// What a frame's pointer calls add up to.
 ///
 /// Pointer and button calls accumulate and `commit` flushes once per frame, as
-/// WayVR's `MouseAction` does (`subsystem/hid/mod.rs:28-34`). The reason is that
-/// a frame may produce several pointer calls — two hands, a laser that moved and
-/// then clicked — and sending each one as it arrives puts the host cursor
-/// somewhere it was never asked to stop.
+/// WayVR's `MouseAction` does. A frame may produce several pointer calls — two
+/// hands, a laser that moved and then clicked — and sending each one as it
+/// arrives puts the host cursor somewhere it was never asked to stop.
 ///
 /// Pure. The providers own one of these and differ only in what they do with
 /// what it yields.
@@ -193,13 +192,13 @@ impl PendingPointer {
 
     /// Asks for an absolute position.
     ///
-    /// The first position of a frame wins rather than the last, following
-    /// WayVR (`uinput.rs:157-160`): a laser that crosses a panel produces a
-    /// stream of positions, and the one that matters is where it was when the
-    /// frame's other events were decided.
+    /// The first position of a frame wins rather than the last, as it does in
+    /// WayVR: a laser that crosses a panel produces a stream of positions, and
+    /// the one that matters is where it was when the frame's other events were
+    /// decided.
     ///
-    /// A scroll already recorded suppresses the move entirely, which is the
-    /// same rule from the other side.
+    /// A scroll already recorded suppresses the move entirely, and
+    /// [`Self::scroll`] clears a motion that was recorded before it.
     pub fn move_to(&mut self, position: DesktopPoint) {
         if self.position.is_none() && self.wheel.is_none() {
             self.position = Some(position);
@@ -228,11 +227,10 @@ impl PendingPointer {
     /// frame than lost.
     ///
     /// The recorded position is forced to the latest requested one, so a click
-    /// lands where the laser is rather than where the frame's first move was —
-    /// unless a scroll has already suppressed this frame's motion, in which case
-    /// there is no position to send and reinstating one would put a motion event
-    /// back between the wheel events that [`Self::scroll`] took it out from
-    /// between.
+    /// lands where the laser is rather than where the frame's first move was.
+    /// When a scroll has already suppressed this frame's motion there is no
+    /// position to send, and reinstating one would put a motion event back
+    /// among the wheel events [`Self::scroll`] removed.
     pub fn press(&mut self, button: PointerButton, down: bool) {
         if self.button.is_none() {
             self.button = Some((button, down));
@@ -244,9 +242,9 @@ impl PendingPointer {
 
     /// Records a scroll, and suppresses this frame's motion.
     ///
-    /// WayVR drops the motion for the same reason (`uinput.rs:181-184`):
-    /// Chromium and everything built on it stop scrolling when a motion event
-    /// interleaves with the wheel events.
+    /// WayVR drops the motion for the same reason: Chromium and everything
+    /// built on it stop scrolling when a motion event interleaves with the
+    /// wheel events.
     pub fn scroll(&mut self, delta: WheelDelta) {
         if self.wheel.is_none() && !delta.is_zero() {
             self.wheel = Some(delta);
