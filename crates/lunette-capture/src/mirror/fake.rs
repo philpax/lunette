@@ -46,7 +46,7 @@ impl StreamLog {
             .collect()
     }
 
-    /// Returns nodes whose streams were stopped, in event order.
+    /// Returns nodes whose streams stopped, in event order.
     #[must_use]
     pub fn dropped(&self) -> Vec<NodeId> {
         self.entries

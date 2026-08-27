@@ -48,7 +48,8 @@ pub struct ProviderOrder(Vec<ProviderKind>);
 impl ProviderOrder {
     /// Removes the dummy and duplicate providers while preserving order.
     ///
-    /// A dummy before a real provider would stop the chain and report success.
+    /// A dummy before a real provider is selected first and reports success.
+    /// The real provider is not attempted.
     /// [`crate::hid::HidConfig::disabled`] represents an intentional choice to
     /// use no host input.
     #[must_use]
@@ -193,7 +194,7 @@ impl Error for ProviderFailure {
     }
 }
 
-/// Why one provider could not be opened, or could not carry on.
+/// Why one provider could not be opened, or could not continue.
 #[derive(Debug)]
 pub enum ProviderError {
     /// A system call failed. `operation` describes the operation, and `path`

@@ -5,9 +5,9 @@
 //! compositor's, so identical monitors of the same model share a descriptor.
 //! [`crate::monitor::Roster`] resolves that ambiguity.
 //!
-//! [`MonitorName`] deliberately has no [`PartialEq`]. Identity is decided by
-//! [`MonitorName::matches`], while [`MonitorName::compare`] orders names for
-//! presentation without making structural comparison an identity operation.
+//! [`MonitorName`] has no [`PartialEq`]. Identity is decided by
+//! [`MonitorName::matches`]. [`MonitorName::compare`] orders names for
+//! presentation; structural comparison is not an identity operation.
 
 use std::{cmp::Ordering, fmt};
 
@@ -19,7 +19,7 @@ use crate::monitor::geometry::LogicalPosition;
 closed_set! {
     /// A DRM connector's type, as the kernel names it.
     ///
-    /// A closed set rather than a string: parsing against the kernel's connector
+    /// A closed set of the kernel's connector kinds. Parsing against the
     /// kinds separates a real connector name from an opaque output identifier.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum ConnectorKind {
@@ -58,8 +58,8 @@ impl ConnectorKind {
 
 /// A DRM connector name, such as `DP-1` or `HDMI-A-2`.
 ///
-/// Parsed rather than stored as text, so `dp-01` and `DP-1` are one identity,
-/// while a string that is not a connector name cannot become one.
+/// The struct stores the parsed form. `dp-01` and `DP-1` are one identity,
+/// and a string that is not a connector name cannot become one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConnectorName {
     kind: ConnectorKind,
@@ -75,8 +75,8 @@ impl ConnectorName {
     /// Reads a connector name, or `None` if the text is not one.
     ///
     /// The source may provide a connector name or no value. The shape check
-    /// rejects opaque identifiers whose final group happens to contain only digits
-    /// by matching the connector type against the closed list of kernel connector
+    /// rejects opaque identifiers whose final group contains only digits by
+    /// matching the connector type against the closed list of kernel connector
     /// kinds.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
@@ -109,7 +109,7 @@ impl fmt::Display for ConnectorName {
 
 /// Persisted as the name the kernel prints, such as `DP-1`.
 ///
-/// Writes the connector's printed name rather than variant and index numbers, so
+/// Writes the connector's printed name, not variant and index numbers, so
 /// adding a [`ConnectorKind`] variant cannot silently renumber keys on disk.
 impl Serialize for ConnectorName {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -128,8 +128,7 @@ impl<'de> Deserialize<'de> for ConnectorName {
 /// A monitor's make and model, rendered as one string.
 ///
 /// Uses the `"{make} {model}"` form with `Unknown` substituted for an absent
-/// field. A monitor that reports only one of the two fields still has a
-/// descriptor.
+/// field. A monitor that reports only one of the two fields has a descriptor.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Descriptor(String);
@@ -207,10 +206,11 @@ impl MonitorName {
 
     /// Whether `target` names this monitor.
     ///
-    /// The connector is more specific than the descriptor and wins when both
-    /// match. Both comparisons ignore ASCII case. A shared descriptor matches
-    /// both monitors; [`crate::monitor::Roster`] demotes the later one so that at
-    /// most one monitor carries a given descriptor.
+    /// The connector is more specific than the descriptor, and a connector
+    /// match takes precedence when both match. Both comparisons ignore ASCII
+    /// case. A shared descriptor matches both monitors;
+    /// [`crate::monitor::Roster`] demotes the later one so that at most one
+    /// monitor carries a given descriptor.
     #[must_use]
     pub fn matches(&self, target: &str) -> bool {
         if self.connector.is_some() && ConnectorName::parse(target) == self.connector {
@@ -247,9 +247,9 @@ impl MonitorName {
     /// A total order over names, for arranging monitors independently of the
     /// order they were enumerated in.
     ///
-    /// This method is for presentation only; use [`Self::matches`] to decide
-    /// identity. Keeping ordering separate from equality prevents structural
-    /// comparison from being used as identity.
+    /// The order is for presentation only. Identity is decided by [`Self::matches`].
+    /// Keeping ordering separate from equality prevents structural comparison
+    /// from being used as identity.
     ///
     /// Names without a descriptor sort after names with one, so named monitors
     /// appear first.

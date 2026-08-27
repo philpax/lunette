@@ -79,8 +79,8 @@ fn mirrors(log: &StreamLog) -> MirrorSet<FakePortal> {
     mirrors
 }
 
-/// The bound turns a non-terminating portal script into a test failure instead of
-/// hanging the suite.
+/// The bound turns a non-terminating portal script into a test failure, so the
+/// suite does not hang.
 fn pump(mirrors: &mut MirrorSet<FakePortal>) -> Progress {
     for _ in 0..16 {
         let progress = mirrors.poll();
@@ -461,7 +461,7 @@ fn a_declined_dialog_is_reported_rather_than_leaving_the_monitor_waiting() {
 
 #[test]
 fn a_session_covering_none_of_the_wanted_monitors_starts_nothing() {
-    // A grant may omit a wanted monitor when the user did not select it in the
+    // A grant may omit a wanted monitor when the user does not select it in the
     // portal dialog.
     let log = StreamLog::new();
     let roster = roster();

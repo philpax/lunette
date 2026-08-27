@@ -1,13 +1,14 @@
 //! A provider that accepts every call without reaching the host desktop.
 //!
-//! Installed when the chain is exhausted, and when a real provider's connection
-//! ends mid-session. Doing nothing is what keeps a session running on a machine
-//! where host input is unavailable: the mirrors still render, the panels still
-//! respond, and only the host cursor stays where it was.
+//! The selection logic installs this type when the chain is exhausted. The
+//! per-frame commit installs it when a real provider's connection ends
+//! mid-session. Doing nothing keeps a session running on a machine where
+//! host input is unavailable. Mirrors still render, panels still respond,
+//! and the host cursor does not move.
 //!
 //! The reason nothing reaches the host is reported once, by
-//! [`crate::hid::selection::NoHostInput`], rather than by this type on every
-//! call.
+//! [`crate::hid::selection::NoHostInput`]. This type does not report the
+//! reason on every call.
 
 use crate::hid::{
     HidProvider,

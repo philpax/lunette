@@ -6,8 +6,8 @@
 //! same model report the same descriptor, and a monitor with neither a
 //! descriptor nor a connector has nothing left but where it sits.
 //!
-//! Pure over plain data. Nothing here touches the portal, PipeWire, or a
-//! display, so the whole of it is exercised directly by the tests below.
+//! Nothing here touches the portal, PipeWire, or a display, so the module is
+//! pure and the tests exercise it directly.
 
 use std::cmp::Ordering;
 
@@ -33,7 +33,8 @@ pub struct MonitorReport {
     pub transform: SurfaceTransform,
 }
 
-/// One attached monitor, as the rest of lunette refers to it.
+/// An attached monitor, after its identity is resolved against the others
+/// already added.
 #[derive(Clone, Debug)]
 pub struct Monitor {
     name: MonitorName,
@@ -71,8 +72,8 @@ impl Monitor {
     /// The monitor's resolution, which is the size a captured frame arrives at.
     ///
     /// Zero on both axes for a monitor whose mode the source could not read.
-    /// Reported rather than guessed from the logical size and a scale factor:
-    /// the two are only related by an integer on an unscaled display.
+    /// Reported rather than derived from the logical size: on a scaled display
+    /// the two differ by the scale factor.
     #[must_use]
     pub const fn pixels(&self) -> PixelExtent {
         self.pixels
@@ -80,9 +81,11 @@ impl Monitor {
 
     /// Which way up the panel is, relative to the rectangle it occupies.
     ///
-    /// What the pointer mapping needs on top of the geometry: the logical size
-    /// already accounts for a rotation, and this says which corner of the
-    /// mirrored panel is which corner of that rectangle.
+    /// The pointer mapping needs this on top of the geometry: the logical size
+    /// already accounts for a rotation, and the transform describes which
+    /// corner of the mirrored panel corresponds to which corner of the
+    /// rectangle. The pointer mapping places a normalised hit on the panel in
+    /// the rectangle by that correspondence.
     #[must_use]
     pub const fn transform(&self) -> SurfaceTransform {
         self.transform
@@ -115,17 +118,15 @@ impl Roster {
         }
     }
 
-    /// Adds a monitor, resolving its identity against those already added.
-    ///
-    /// The check runs incrementally rather than over the finished set, so a
-    /// monitor that appears while lunette is running is resolved the same way
-    /// as one present at startup.
+    /// Adds a monitor, resolving its identity incrementally against those
+    /// already added: a monitor that appears while lunette is running is
+    /// resolved the same way as one present at startup.
     ///
     /// Following niri (`src/backend/tty.rs:1050-1080`), a monitor whose
     /// descriptor another already carries is demoted to its connector: the
-    /// earlier one keeps the descriptor and the later one loses it. lunette has
-    /// no serial to separate them with, so this is commoner here than in niri
-    /// rather than rarer.
+    /// earlier one keeps the descriptor and the later one loses it. lunette
+    /// has no serial with which to separate duplicate descriptors, so the
+    /// demotion happens more often here than in niri.
     pub fn add(&mut self, report: MonitorReport) {
         let MonitorReport {
             name,
@@ -184,9 +185,8 @@ impl Roster {
 
     /// The monitor a recorded key names, if it is attached.
     ///
-    /// `None` covers the monitor that is absent at startup, which is ordinary
-    /// rather than exceptional: the key stays recorded, and the monitor is
-    /// found once it appears.
+    /// The key stays recorded when its monitor is absent at startup, and the
+    /// lookup succeeds once the monitor appears.
     #[must_use]
     pub fn find(&self, key: &MonitorKey) -> Option<&Monitor> {
         self.monitors
@@ -463,9 +463,9 @@ mod tests {
 
     #[test]
     fn a_rotated_monitor_keeps_its_transform_through_the_roster() {
-        // The regression: the roster carried no transform at all, so a
-        // portrait-mounted monitor reached the pointer mapping as though it were
-        // upright and every hit landed in the wrong corner.
+        // The regression: the roster once carried no transform, so the
+        // pointer mapping treated a portrait-mounted monitor as upright, and
+        // every hit landed in the wrong corner.
         let mut roster = Roster::new();
         roster.add(MonitorReport {
             name: named(Some("DP-1"), Some("Acme"), Some("X24")),

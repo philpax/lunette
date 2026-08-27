@@ -139,7 +139,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Returns the last portal error, if the last request failed.
     ///
-    /// The error remains available to callers instead of existing only in the log.
+    /// The error remains available to callers. The log also records it.
     #[must_use]
     pub const fn last_failure(&self) -> Option<&PortalError> {
         match &self.session {
@@ -307,8 +307,8 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Returns the newest frame produced by each running mirror.
     ///
-    /// Each stream discards older frames so callers receive the current picture
-    /// rather than a backlog.
+    /// Each stream discards older frames. Callers receive the current picture,
+    /// not a backlog.
     #[must_use]
     pub fn take_frames(&mut self) -> Vec<(MonitorKey, CapturedFrame)> {
         self.active

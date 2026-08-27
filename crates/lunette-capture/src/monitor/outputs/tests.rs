@@ -1,6 +1,6 @@
-//! The pure accumulator's decisions, with no Wayland connection involved.
+//! The accumulator's decisions, exercised without a Wayland connection.
 //!
-//! The protocol exchange that feeds it is covered separately, by
+//! The protocol exchange that feeds the accumulator is covered separately, by
 //! `crates/lunette/tests/host_outputs.rs`, which runs this enumeration against a
 //! real compositor.
 
@@ -17,7 +17,7 @@ fn output(name: u32) -> OutputId {
 }
 
 /// An output described the way a wlroots compositor describes one: a
-/// geometry event, a current mode, a scale, a connector name, and logical
+/// geometry event, a current mode, a scale, a connector name, and the logical
 /// geometry from `zxdg_output_v1`.
 fn described(outputs: &mut HostOutputs, id: OutputId, connector: &str, x: i32) {
     outputs.add(id);
@@ -56,9 +56,8 @@ fn a_fully_described_output_becomes_a_monitor() {
 
 #[test]
 fn an_output_that_has_said_nothing_yet_is_not_a_monitor() {
-    // Ordinary between the registry announcing an output and its first
-    // events arriving, and the reason an incomplete output is skipped rather
-    // than given a guessed geometry.
+    // The registry announces an output before its events arrive, and an
+    // incomplete output is skipped rather than given a guessed geometry.
     let mut outputs = HostOutputs::new();
     outputs.add(output(1));
 
@@ -67,8 +66,8 @@ fn an_output_that_has_said_nothing_yet_is_not_a_monitor() {
 
 #[test]
 fn logical_geometry_is_preferred_to_the_derived_form() {
-    // A fractionally scaled display: the integer scale says 2, so the
-    // derived size would be 1920x1080, and the compositor's own answer is
+    // A fractionally scaled display: the integer scale is 2, so the derived
+    // size would be 1920x1080, and the compositor reports a logical size of
     // 1280x720.
     let mut outputs = HostOutputs::new();
     outputs.add(output(1));
@@ -134,8 +133,9 @@ fn the_derived_size_swaps_the_axes_for_a_rotated_output() {
 
 #[test]
 fn a_scale_the_protocol_forbids_leaves_the_output_unplaceable() {
-    // Better than dividing by it, and better than silently treating the
-    // display as unscaled: the compositor said something meaningless.
+    // The compositor reported a scale the protocol forbids, so dividing by it
+    // or silently treating the display as unscaled would both be wrong. The
+    // output is left unplaceable.
     let mut outputs = HostOutputs::new();
     outputs.add(output(1));
     outputs.record_mode(output(1), true, PixelExtent::new(1920, 1080));
@@ -170,7 +170,7 @@ fn a_uuid_shaped_output_name_is_not_stored_as_a_connector() {
 #[test]
 fn a_make_of_unknown_does_not_become_an_identity() {
     // Several compositors send "Unknown" where the EDID carries nothing, and
-    // every such monitor would otherwise share one descriptor.
+    // such monitors would otherwise share one descriptor.
     let mut outputs = HostOutputs::new();
     outputs.add(output(1));
     outputs.record_geometry(
@@ -191,8 +191,9 @@ fn a_make_of_unknown_does_not_become_an_identity() {
 
 #[test]
 fn two_identical_monitors_are_separated_by_the_connectors_wl_output_reports() {
-    // The case `mapping_id` cannot serve on GNOME or KDE, and `wl_output`
-    // does on both.
+    // Two identical monitors need separation that `mapping_id` cannot provide
+    // on GNOME or KDE; the connector that `wl_output` reports provides it on
+    // both.
     let mut outputs = HostOutputs::new();
     described(&mut outputs, output(1), "DP-1", 0);
     described(&mut outputs, output(2), "DP-2", 1920);
@@ -251,7 +252,8 @@ fn announcing_the_same_output_twice_keeps_what_it_has_already_said() {
 #[test]
 fn an_event_for_an_output_that_is_gone_is_dropped_rather_than_reviving_it() {
     // The compositor can withdraw a global while events for it are still in
-    // flight, so this is a race rather than a defect.
+    // flight, so an event for a withdrawn output is a race condition, not a
+    // defect.
     let mut outputs = HostOutputs::new();
     described(&mut outputs, output(1), "DP-1", 0);
     assert!(outputs.remove(output(1)));

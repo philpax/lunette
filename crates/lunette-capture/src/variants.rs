@@ -1,8 +1,8 @@
 //! Declares enums with a runtime list of their members.
 //!
 //! The capture crate iterates its keys, buttons, and surface transforms at
-//! runtime. Generating `ALL` from each enum keeps the list in declaration order
-//! and means adding a member also adds it to the list.
+//! runtime. Generating `ALL` from each enum keeps the list in declaration order.
+//! Adding a member also adds it to the list.
 //!
 //! This macro is the local counterpart to `lunette_luau::closed_set!`. The
 //! sibling macro derives names and string conversions; this macro supplies the

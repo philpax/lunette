@@ -1,11 +1,11 @@
-//! Where the host cursor is asked to go, and what accumulates before a frame's
-//! commit.
+//! Where the host cursor is requested to go, and what accumulates before a
+//! frame's commit.
 //!
-//! Two things live here. The coordinate types are the host desktop's own
-//! space — logical, spanning every monitor — which is the only space either
-//! provider speaks. And [`PendingPointer`] is the batching every provider does
-//! between commits, extracted so that both of them share one copy of it and so
-//! it can be tested without opening a device.
+//! The coordinate types are the host desktop's own space, logical and
+//! spanning every monitor. This is the only space either provider uses.
+//! [`PendingPointer`] is the batching every provider does between commits,
+//! extracted so that both of them share one copy of it and so it can be
+//! tested without opening a device.
 //!
 //! Nothing here does I/O.
 
@@ -15,14 +15,14 @@ use crate::hid::key::PointerButton;
 
 /// A position on the host desktop, in the compositor's logical coordinates.
 ///
-/// Logical rather than pixels, for the reason
-/// [`crate::monitor::LogicalPosition`] gives: on a scaled display the two differ
-/// by the scale factor, and a pointer mapped through pixels lands wrong by
-/// exactly that ratio.
+/// The coordinate is in logical units, not pixels.
+/// [`crate::monitor::LogicalPosition`] states the reason: on a scaled display
+/// the two differ by the scale factor, and a pointer mapped through pixels
+/// lands wrong by exactly that ratio.
 ///
-/// Fractional, because a hit on a mirrored panel does not land on a whole
-/// logical pixel and rounding at the point of the hit throws away precision the
-/// provider still has a use for.
+/// The coordinate is fractional. A hit on a mirrored panel does not land on a
+/// whole logical pixel, and rounding at the point of the hit throws away
+/// precision the provider still has a use for.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct DesktopPoint {
     pub x: f64,
@@ -47,8 +47,8 @@ impl DesktopPoint {
     /// A non-rectangular arrangement leaves dead zones inside the desktop's
     /// bounding box, so this is not the whole of the clamping a pointer needs;
     /// [`crate::hid::mapping`] clamps to the target monitor first. This is the
-    /// last guard, and it is what keeps a relative motion from walking off the
-    /// desktop entirely.
+    /// last clamp, and it keeps a relative motion from leaving the desktop
+    /// entirely.
     #[must_use]
     pub fn clamped(self, origin: Self, extent: DesktopExtent) -> Self {
         Self::new(
@@ -131,10 +131,10 @@ impl fmt::Display for DesktopExtent {
 ///
 /// One unit is one click of a notched wheel, and the value is fractional
 /// because a trackpad-style source produces a fraction of one. Both providers
-/// convert from here into whatever their transport counts in — uinput's
+/// convert from here into whatever their transport counts in: uinput's
 /// high-resolution axes are 120ths of a detent, and `wl_pointer.axis` is ten
-/// surface-local units per detent — so the unit has to be stated once, here,
-/// and not implied differently at each end.
+/// surface-local units per detent. The unit has to be stated once, here, and
+/// not implied differently at each end.
 #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
 pub struct WheelDelta {
     pub x: f64,
@@ -161,18 +161,18 @@ impl fmt::Display for WheelDelta {
 
 /// What a frame's pointer calls add up to.
 ///
-/// Pointer and button calls accumulate and `commit` flushes once per frame, as
-/// WayVR's `MouseAction` does. A frame may produce several pointer calls — two
-/// hands, a laser that moved and then clicked — and sending each one as it
-/// arrives puts the host cursor somewhere it was never asked to stop.
+/// Pointer and button calls accumulate, and `commit` flushes once per frame,
+/// as WayVR's `MouseAction` does. A frame may produce several pointer calls,
+/// for example two hands or a laser that moved and then clicked. Sending each
+/// one as it arrives puts the host cursor at a position no call requested.
 ///
-/// Pure. The providers own one of these and differ only in what they do with
-/// what it yields.
+/// The type is pure. The providers own one of these and differ only in what
+/// they do with what it yields.
 #[derive(Clone, Debug, Default)]
 pub struct PendingPointer {
-    /// Where the last call asked the cursor to be, whether or not that position
-    /// is still going to be sent. Relative motion starts from here, so a
-    /// sequence of relative moves within one frame composes.
+    /// Where the last call requested the cursor to be, whether or not that
+    /// position is still going to be sent. Relative motion starts from here,
+    /// so a sequence of relative moves within one frame composes.
     last_requested: Option<DesktopPoint>,
     position: Option<DesktopPoint>,
     button: Option<(PointerButton, bool)>,
@@ -190,12 +190,11 @@ impl PendingPointer {
         }
     }
 
-    /// Asks for an absolute position.
+    /// Requests an absolute position.
     ///
-    /// The first position of a frame wins rather than the last, as it does in
-    /// WayVR: a laser that crosses a panel produces a stream of positions, and
-    /// the one that matters is where it was when the frame's other events were
-    /// decided.
+    /// The first position of a frame is the one sent, as in WayVR. A laser
+    /// that crosses a panel produces a stream of positions. The first position
+    /// is where the laser was when the frame's other events were decided.
     ///
     /// A scroll already recorded suppresses the move entirely, and
     /// [`Self::scroll`] clears a motion that was recorded before it.
@@ -206,10 +205,10 @@ impl PendingPointer {
         self.last_requested = Some(position);
     }
 
-    /// Asks for a displacement from wherever the cursor was last asked to be.
+    /// Requests a displacement from the last requested position.
     ///
-    /// Clamped to the desktop, because a relative motion has no other bound and
-    /// an unbounded one walks the cursor off every monitor.
+    /// The result is clamped to the desktop. A relative motion has no other
+    /// bound, and an unbounded one moves the cursor off the desktop.
     pub fn move_by(&mut self, delta: DesktopVector, origin: DesktopPoint, extent: DesktopExtent) {
         let position = self
             .last_requested
@@ -222,12 +221,12 @@ impl PendingPointer {
 
     /// Records a button change.
     ///
-    /// One per frame: a press and a release in the same frame would be a click
-    /// the host cannot observe, and the second of them is better delayed by a
-    /// frame than lost.
+    /// One per frame. A press and a release in the same frame would be a click
+    /// the host cannot observe. The second event is delayed by a frame, which
+    /// keeps it from being lost.
     ///
     /// The recorded position is forced to the latest requested one, so a click
-    /// lands where the laser is rather than where the frame's first move was.
+    /// lands where the laser is, not where the frame's first move was.
     /// When a scroll has already suppressed this frame's motion there is no
     /// position to send, and reinstating one would put a motion event back
     /// among the wheel events [`Self::scroll`] removed.
@@ -252,7 +251,7 @@ impl PendingPointer {
         }
     }
 
-    /// Takes what accumulated, leaving the last requested position behind.
+    /// Takes what accumulated, and keeps the last requested position.
     #[must_use]
     pub fn take(&mut self) -> PointerBatch {
         PointerBatch {
@@ -262,7 +261,7 @@ impl PendingPointer {
         }
     }
 
-    /// Where the cursor was last asked to be, whether or not it was sent.
+    /// Where the cursor was last requested to be, whether or not it was sent.
     #[must_use]
     pub const fn last_requested(&self) -> Option<DesktopPoint> {
         self.last_requested
@@ -384,9 +383,10 @@ mod tests {
 
     #[test]
     fn a_click_in_a_scrolling_frame_does_not_put_the_motion_back() {
-        // `press` forces the recorded position to the latest requested one, and
-        // doing that after a scroll would reinstate exactly the motion event
-        // `scroll` removed — which is what stops Chromium scrolling.
+        // `press` forces the recorded position to the latest requested one,
+        // which after a scroll would reinstate the motion event `scroll`
+        // removed. A motion event interleaved with the wheel events stops
+        // Chromium scrolling.
         let mut pending = PendingPointer::new();
         pending.move_to(DesktopPoint::new(10.0, 10.0));
         pending.scroll(WheelDelta::new(0.0, 5.0));
@@ -438,7 +438,7 @@ mod tests {
     #[test]
     fn the_last_requested_position_survives_a_commit() {
         // Otherwise a relative motion in the next frame restarts from the
-        // desktop origin rather than from where the cursor actually is.
+        // desktop origin. The cursor's actual position is lost.
         let (origin, extent) = desktop();
         let mut pending = PendingPointer::new();
         pending.move_to(DesktopPoint::new(100.0, 100.0));

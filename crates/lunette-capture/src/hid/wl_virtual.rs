@@ -1,5 +1,6 @@
-//! Linux-only: speaks `zwlr_virtual_pointer_v1` and `zwp_virtual_keyboard_v1`
-//! to the host compositor over a Wayland socket.
+//! Linux-only: implements the `zwlr_virtual_pointer_v1` and
+//! `zwp_virtual_keyboard_v1` protocols against the host compositor over a
+//! Wayland socket.
 //!
 //! This provider needs no device permission or kernel module. Its absolute pointer
 //! requests include the desktop extent, so a monitor-layout change does not
@@ -18,7 +19,7 @@
 //!
 //! Flush and roundtrip failures become [`ProviderError::Disconnected`].
 //! [`crate::hid::HostInput`] replaces a disconnected provider with the dummy and
-//! logs the reason instead of aborting the process.
+//! logs the reason. It does not abort the process.
 
 use std::{
     ffi::CString,
@@ -80,8 +81,8 @@ pub struct WlVirtualProvider {
     keyboard: ZwpVirtualKeyboardV1,
     /// The memfd the keymap was written to.
     ///
-    /// Held for the compositor's benefit: it maps the descriptor lazily, and a
-    /// closed one gives it nothing to map.
+    /// Held open because the compositor maps the descriptor lazily; a closed
+    /// one gives it nothing to map.
     keymap: Option<File>,
     pending: PendingPointer,
     modifiers: KeyModifiers,
@@ -330,8 +331,8 @@ const KEYMAP_FORMAT_XKB_V1: u32 = 1;
 ///
 /// The continuous value is in surface-local coordinates, and ten per detent is
 /// what libinput reports and what every wlroots compositor therefore expects.
-/// [`WheelDelta`] counts detents, so the conversion belongs here rather than
-/// being implied by whatever the caller happened to pass.
+/// [`WheelDelta`] counts detents, so the conversion is explicit here and not
+/// implied by the caller's argument.
 const AXIS_UNITS_PER_DETENT: f64 = 10.0;
 
 struct Registry;
@@ -421,9 +422,9 @@ fn offset(value: f64, origin: f64) -> u32 {
 /// How many whole detents `delta` completes, carrying the remainder forward.
 ///
 /// `delta` is in detents, as [`WheelDelta`] is. `axis_discrete` reports whole
-/// detents alongside the continuous value, and without the carry a
-/// trackpad-style stream of fractional deltas reports zero forever — so a host
-/// that reads only the discrete count never scrolls at all.
+/// detents alongside the continuous value. Without the carry, a
+/// trackpad-style stream of fractional deltas reports zero detents, so a host
+/// that reads only the discrete count never scrolls.
 fn detents(residue: &mut f64, delta: f64) -> i32 {
     *residue += delta;
     let steps = residue.trunc();

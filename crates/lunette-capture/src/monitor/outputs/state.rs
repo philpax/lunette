@@ -1,10 +1,10 @@
-//! What the host has said about its outputs, and the monitors that come out.
+//! What the host has said about its outputs, and the resulting monitors.
 //!
 //! The pure half of [`crate::monitor::outputs`]. Every method here takes what a
 //! Wayland event carried and records it; no Wayland type appears in a signature,
-//! which is what lets the decisions — the logical-geometry fallback, the axis
-//! swap, which outputs are complete enough to be monitors — be exercised with no
-//! display at all.
+//! which is what lets the decisions be exercised with no display at all: the
+//! logical-geometry fallback, the axis swap, and which outputs are complete
+//! enough to be monitors.
 
 use std::fmt;
 
@@ -20,8 +20,8 @@ use crate::monitor::{
 ///
 /// The registry's own global name, which is what `wl_registry.global_remove`
 /// carries and so the only identifier that survives an output being unplugged.
-/// A newtype because it shares a numeric space with every other kind of Wayland
-/// name and means nothing outside this module.
+/// It is a newtype because it shares a numeric space with every other kind of
+/// Wayland name and means nothing outside this module.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OutputId(u32);
 
@@ -44,12 +44,6 @@ impl fmt::Display for OutputId {
 }
 
 /// What the host has said about its outputs so far.
-///
-/// Pure over plain data: every method takes what an event carried and records
-/// it, and [`Self::roster`] turns the accumulation into monitors. No Wayland
-/// type appears in the signatures, which is what lets the whole of the decision
-/// making — the logical-geometry fallback, the axis swap, which outputs are
-/// complete enough to be monitors — be exercised with no display at all.
 #[derive(Clone, Debug, Default)]
 pub struct HostOutputs {
     /// In registry order, which is the order the compositor announced them. The
@@ -70,9 +64,9 @@ impl HostOutputs {
 
     /// Begins tracking an output the registry announced.
     ///
-    /// Announcing one twice is not an error: the compositor does not do it, and
-    /// answering by keeping what is already recorded is better than discarding
-    /// events that have already arrived.
+    /// Announcing one twice keeps the existing record. The registry never
+    /// announces the same output twice, and starting over would discard what
+    /// has already arrived.
     pub fn add(&mut self, output: OutputId) {
         if self.find(output).is_some() {
             return;
@@ -81,8 +75,8 @@ impl HostOutputs {
         self.changed = true;
     }
 
-    /// Stops tracking an output the registry withdrew. Reports whether it was
-    /// one.
+    /// Stops tracking an output the registry withdrew, reporting whether it
+    /// was being tracked.
     pub fn remove(&mut self, output: OutputId) -> bool {
         let Some(index) = self
             .outputs
@@ -101,7 +95,7 @@ impl HostOutputs {
     /// EDID says it is.
     ///
     /// An empty make or model arrives here as-is and is discarded by
-    /// [`MonitorName::new`], which is the one place that decides what counts as
+    /// [`MonitorName::new`], which is the one place that defines what counts as
     /// a reported field.
     pub fn record_geometry(
         &mut self,
@@ -120,9 +114,10 @@ impl HostOutputs {
         pending.model = Some(model);
         match transform {
             Some(transform) => pending.transform = transform,
-            // Refused rather than defaulted: a transform outside the protocol's
-            // eight would put the cursor in the wrong corner, and the previous
-            // value is at least one the compositor once sent.
+            // An unrecognised transform leaves the previous value in place. A
+            // transform outside the protocol's eight would put the cursor in
+            // the wrong corner, and the previous value is at least one the
+            // compositor once sent.
             None => warn!(%output, "the host reported an output transform lunette does not know"),
         }
         self.changed = true;
@@ -148,8 +143,8 @@ impl HostOutputs {
 
     /// `wl_output.mode`: the resolution, when the mode is the current one.
     ///
-    /// A mode that is not current describes what the output could be switched
-    /// to, and is ignored rather than overwriting what it is.
+    /// A mode that is not current describes a resolution the output could be
+    /// switched to, and is ignored; it does not replace the current one.
     pub fn record_mode(&mut self, output: OutputId, current: bool, pixels: PixelExtent) {
         let Some(pending) = self.find_mut(output) else {
             return;
@@ -162,8 +157,8 @@ impl HostOutputs {
         self.changed = true;
     }
 
-    /// `wl_output.scale`: the integer scale, for the fallback that has no
-    /// `zxdg_output_v1` to ask.
+    /// `wl_output.scale`: the integer scale, for the fallback used when no
+    /// `zxdg_output_v1` is available.
     pub fn record_scale(&mut self, output: OutputId, scale: i32) {
         let Some(pending) = self.find_mut(output) else {
             return;
@@ -217,10 +212,10 @@ impl HostOutputs {
 
     /// The monitors, with their identities resolved against one another.
     ///
-    /// An output that has not yet said enough to be placed on the desktop is
-    /// left out rather than given a guessed geometry. That is the ordinary state
-    /// of an output between its announcement and its first `done`, so it is not
-    /// reported as a fault; a monitor that stays incomplete appears in no
+    /// An output that has not yet reported enough to be placed on the desktop
+    /// is left out; it is not given a guessed geometry. That is the ordinary
+    /// state between an output's announcement and its first `done`, so it is
+    /// not logged as a fault. A monitor that stays incomplete appears in no
     /// roster, which is visible as its absence from `lunette.monitors()`.
     #[must_use]
     pub fn roster(&self) -> Roster {
@@ -300,10 +295,10 @@ impl PendingOutput {
 
     /// The logical size a compositor without `zxdg_output_manager_v1` implies.
     ///
-    /// Integer division, because `wl_output.scale` is an integer. A compositor
-    /// applying a fractional scale reports the nearest integer here and the true
-    /// logical size through `zxdg_output_v1`, so this is wrong exactly where the
-    /// better source is available and is not used.
+    /// The division is integer, because `wl_output.scale` is an integer. A
+    /// compositor applying a fractional scale reports the nearest integer here
+    /// and the true logical size through `zxdg_output_v1`, so the derived size
+    /// is wrong exactly where the better source is available and is not used.
     fn derived_size(&self) -> Option<LogicalSize> {
         let mode = self.mode?;
         // The protocol requires at least one. A compositor sending zero or a

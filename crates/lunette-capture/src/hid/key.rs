@@ -1,14 +1,15 @@
 //! Linux-only: the key and button codes are Linux's `input-event-codes.h`.
 //!
-//! What lunette can say to the host's keyboard and pointer, as closed sets
-//! rather than as the integers the kernel and the Wayland protocols carry.
+//! The keys and buttons lunette can send to the host's keyboard and pointer
+//! are closed sets. The kernel and the Wayland protocols carry the same codes
+//! as integers.
 //!
-//! Every value here is an evdev code. That is the vocabulary both providers
-//! want: uinput takes evdev codes directly, and `zwp_virtual_keyboard_v1`'s
+//! Every value here is an evdev code, the vocabulary both providers use.
+//! uinput accepts evdev codes directly, and `zwp_virtual_keyboard_v1`'s
 //! `key` request is documented as taking an evdev code as well. WayVR's
-//! `VirtualKey` is numbered in X11 keycodes instead and subtracts eight at every
-//! call site; there is no third consumer that wants the X11 numbering, so the
-//! offset is not reproduced here.
+//! `VirtualKey` is numbered in X11 keycodes and subtracts eight at every call
+//! site. No third consumer uses the X11 numbering, so the offset is not
+//! reproduced here.
 //!
 //! Nothing in this file does I/O, so all of it is exercised directly.
 
@@ -17,16 +18,16 @@ use std::fmt;
 variants! {
     /// One key on a keyboard, named by its Linux evdev code.
     ///
-    /// A closed set rather than a `u16`, so a caller cannot invent a code the
-    /// provider never declared to the kernel: a uinput device only emits the keys
-    /// it set a `KEYBIT` for at creation, and a key outside [`VirtualKey::ALL`]
-    /// would be dropped silently by the kernel rather than rejected.
+    /// The type is a closed set, not a `u16`, so a caller cannot invent a code
+    /// the provider never declared to the kernel. A uinput device only emits
+    /// the keys it set a `KEYBIT` for at creation, and the kernel silently
+    /// drops a key outside [`VirtualKey::ALL`] without reporting an error.
     ///
-    /// The set is the ordinary PC keyboard, including the keys a Japanese or Korean
-    /// layout adds, plus the media and browser keys a modern keyboard carries. Keys
-    /// outside it — a vendor's macro row, a laptop's fingerprint key — are not
-    /// representable, which is why [`Self::from_evdev`] returns [`Option`] rather
-    /// than guessing.
+    /// The set is the ordinary PC keyboard, including the keys a Japanese or
+    /// Korean layout adds, plus the media and browser keys a modern keyboard
+    /// carries. Keys outside it, a vendor's macro row or a laptop's
+    /// fingerprint key, are not representable. [`Self::from_evdev`] returns
+    /// [`Option`] because no variant exists for such a key.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[repr(u16)]
     pub enum VirtualKey {
@@ -211,9 +212,9 @@ impl VirtualKey {
     /// The key a Linux evdev code names, or `None` when lunette has no name for
     /// it.
     ///
-    /// `None` rather than a fallback variant: a code lunette cannot name is a
-    /// code no provider declared, so pretending otherwise would produce a key
-    /// event the kernel discards without saying so.
+    /// There is no fallback variant. A code lunette cannot name is a code no
+    /// provider declared, and inventing a variant would produce a key event
+    /// the kernel discards without reporting it.
     #[must_use]
     pub fn from_evdev(code: u16) -> Option<Self> {
         Self::ALL
@@ -232,10 +233,11 @@ impl fmt::Display for VirtualKey {
 variants! {
     /// A mouse button, named by its Linux evdev code.
     ///
-    /// Five rather than WayVR's three: its virtual pointer provider only declares
-    /// `MOUSE_LEFT` through `MOUSE_MIDDLE`. Back and forward are ordinary buttons
-    /// on an ordinary mouse, and a closed set that omits them turns a user's
-    /// hardware into an unrepresentable case.
+    /// The enum has five buttons. WayVR's virtual pointer provider declares
+    /// only `MOUSE_LEFT` through `MOUSE_MIDDLE`, so its pointer covers three.
+    /// Back and forward are ordinary buttons on an ordinary mouse, and a
+    /// closed set that omits them turns a user's hardware into an
+    /// unrepresentable case.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[repr(u16)]
     pub enum PointerButton {
@@ -272,15 +274,15 @@ impl fmt::Display for PointerButton {
 
 /// Which modifiers lunette is holding down.
 ///
-/// The bits are the XKB modifier indices of a standard keymap — shift is bit 0,
-/// lock is bit 1, control bit 2, then `Mod1` through `Mod5` — because
-/// `zwp_virtual_keyboard_v1.modifiers` takes exactly that mask, and a second
+/// The bits are the XKB modifier indices of a standard keymap: shift is bit
+/// 0, lock is bit 1, control is bit 2, and `Mod1` through `Mod5` follow.
+/// `zwp_virtual_keyboard_v1.modifiers` takes exactly this mask, so a second
 /// numbering would have to be converted at the one call site that matters.
 /// WayVR uses the same bits.
 ///
-/// A newtype rather than a bare `u8`, so a mask and a key code cannot be
-/// transposed, and so [`Self::changes`] can be the single place that decides
-/// which keys a modifier change implies.
+/// The type is a newtype, not a bare `u8`. A mask and a key code cannot be
+/// transposed, and [`Self::changes`] is the single place that decides which
+/// keys a modifier change implies.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct KeyModifiers(u8);
 
@@ -294,7 +296,9 @@ impl KeyModifiers {
     pub const SUPER: Self = Self(0x40);
     pub const ALT_GR: Self = Self(0x80);
 
-    /// The modifiers the host latches rather than holds.
+    /// The modifiers the host latches. A latched modifier stays set until
+    /// pressed again, and a held modifier stays set only while its key is
+    /// down.
     ///
     /// `zwp_virtual_keyboard_v1.modifiers` reports depressed and locked
     /// modifiers as separate masks, and a lock reported as depressed toggles
@@ -303,9 +307,9 @@ impl KeyModifiers {
 
     /// Every single-bit modifier, paired with the key that produces it.
     ///
-    /// Only the left-hand key of each pair: pressing one of the two is what
-    /// sets the modifier, and pressing both would leave the second stuck down
-    /// when the modifier clears.
+    /// Only the left-hand key of each pair is listed. Pressing one of the two
+    /// keys sets the modifier, and pressing both would leave the second key
+    /// stuck down when the modifier clears.
     const KEYS: [(Self, VirtualKey); 7] = [
         (Self::SHIFT, VirtualKey::LeftShift),
         (Self::CAPS_LOCK, VirtualKey::CapsLock),
@@ -318,9 +322,8 @@ impl KeyModifiers {
 
     /// Reads a mask, rejecting bits no modifier claims.
     ///
-    /// `None` rather than masking the unknown bits away: a caller that set one
-    /// meant something by it, and dropping it silently is the kind of loss the
-    /// house rules forbid.
+    /// The unknown bits are not masked away. A caller that set a bit meant
+    /// something by it, and dropping the bit is silent data loss.
     #[must_use]
     pub const fn from_bits(bits: u8) -> Option<Self> {
         const KNOWN: u8 = KeyModifiers::SHIFT.0
@@ -367,13 +370,14 @@ impl KeyModifiers {
 
     /// The key presses and releases that take the host from `self` to `target`.
     ///
-    /// The whole of what a provider's `set_modifiers` decides, so both
-    /// providers share it and it is tested without either.
+    /// This method is the whole of what a provider's `set_modifiers` decides,
+    /// so both providers share it and tests exercise it without either
+    /// provider.
     ///
-    /// Locks are excluded. A lock toggles on the key press rather than tracking
-    /// it, so replaying a lock change as a press would flip it in whichever
-    /// direction the host happened to be in — the host is told about locks
-    /// through the modifier mask instead.
+    /// Locks are excluded. A lock toggles on the key press instead of
+    /// following the key, so replaying a lock change as a press would flip it
+    /// in whichever direction the host happened to be in. The host receives
+    /// locks through the modifier mask instead.
     pub fn changes(self, target: Self) -> impl Iterator<Item = (VirtualKey, bool)> {
         let changed = (self.0 ^ target.0) & !Self::LOCKED.0;
         Self::KEYS
@@ -404,10 +408,10 @@ impl fmt::Display for KeyModifiers {
 
 /// A keyboard layout, in XKB's version 1 text format.
 ///
-/// Held as text rather than as a compiled `xkbcommon` keymap, because the only
+/// The layout is held as text, not as a compiled `xkbcommon` keymap. The only
 /// thing a provider does with it is write the bytes into a memfd and hand the
-/// descriptor to `zwp_virtual_keyboard_v1.keymap`. Compiling a layout name into
-/// this format is the caller's job, which also keeps this crate free of
+/// descriptor to `zwp_virtual_keyboard_v1.keymap`. Compiling a layout name
+/// into this format is the caller's job, which also keeps this crate free of
 /// `xkbcommon` and free of any assumption about where a layout comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct XkbKeymap(String);
@@ -415,9 +419,8 @@ pub struct XkbKeymap(String);
 impl XkbKeymap {
     /// Wraps a keymap, rejecting an empty one.
     ///
-    /// An empty keymap is one `zwp_virtual_keyboard_v1` treats as a protocol
-    /// error, which disconnects the whole client rather than failing the one
-    /// request.
+    /// `zwp_virtual_keyboard_v1` treats an empty keymap as a protocol error,
+    /// which disconnects the whole client instead of failing the one request.
     #[must_use]
     pub fn new(text: impl Into<String>) -> Option<Self> {
         let text = text.into();
@@ -523,8 +526,9 @@ mod tests {
 
     #[test]
     fn a_lock_is_never_replayed_as_a_key_press() {
-        // Caps lock toggles on the press rather than tracking it, so replaying
-        // it would flip the host into whichever state it was not already in.
+        // Caps lock toggles on the press instead of following the key, so
+        // replaying it would flip the host into whichever state it was not
+        // already in.
         let changes: Vec<_> = KeyModifiers::NONE
             .changes(KeyModifiers::CAPS_LOCK)
             .collect();

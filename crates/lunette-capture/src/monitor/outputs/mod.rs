@@ -5,31 +5,31 @@
 //! monitor (`crate::portal::correlation`) needs the monitors to already be
 //! known.
 //!
-//! # Why not `wlx_capture::wayland::WlxClient`
+//! # `wlx_capture::wayland::WlxClient` is not used
 //!
-//! Because it connects through `WAYLAND_DISPLAY` itself and takes no socket
+//! `WlxClient` connects through `WAYLAND_DISPLAY` itself and takes no socket
 //! parameter, and `CONTRIBUTING.md` forbids a library reading the environment.
 //! That is not a stylistic objection here: lunette's entry point overwrites
-//! `WAYLAND_DISPLAY` with lunette's *own* socket before any other thread exists,
+//! `WAYLAND_DISPLAY` with lunette's own socket before any other thread exists,
 //! so a component that reads the variable later would enumerate lunette's
 //! compositor rather than the host's, and find nothing.
 //!
 //! So the enumeration is written directly against `wayland-client`, which is
 //! already in the tree and already used the same way by
 //! [`crate::hid::wl_virtual`]: the socket arrives as a path, and the entry point
-//! is the only thing that resolves it. It also costs nothing extra —
+//! is the only thing that resolves it. It also costs nothing extra:
 //! `WlxClient` carries a dmabuf and screencopy client this has no use for.
 //!
 //! # Where a connector name comes from
 //!
 //! `wl_output.name`, added in `wl_output` version 4, whose documented content is
-//! the connector name — `DP-1`, `HDMI-A-1`, `eDP-1`. Both wlroots and mutter
+//! the connector name: `DP-1`, `HDMI-A-1`, `eDP-1`. Both wlroots and mutter
 //! send it. That is a strictly better source than the portal's `mapping_id`,
 //! which `docs/host-desktop.md` records as unusable: `mapping_id` is a real
 //! connector name on xdg-desktop-portal-wlr only, a random UUID on GNOME, and
-//! absent on KDE. It still passes [`ConnectorName::parse`], because a
-//! compositor is free to put anything there and a name that is not a connector
-//! must not be stored as though it were one.
+//! absent on KDE. The name still goes through [`ConnectorName::parse`]: a
+//! compositor is free to put anything there, and a name that is not a connector
+//! must not be stored as one.
 //!
 //! # Logical geometry, and the fallback
 //!
@@ -45,7 +45,7 @@
 //! # Nothing here blocks after startup
 //!
 //! [`OutputWatcher::connect`] performs two round trips, because a client cannot
-//! know what exists until the compositor has answered. After that,
+//! determine what exists until the compositor has answered. After that,
 //! [`OutputWatcher::poll`] reads only what has already arrived: the descriptor
 //! is polled with a zero timeout and the guard dropped when nothing is there, so
 //! a frame is never held up by the host compositor.
@@ -99,9 +99,8 @@ pub struct OutputWatcher {
 impl OutputWatcher {
     /// Connects to the host compositor and enumerates what it has.
     ///
-    /// `socket` is a path rather than something read from `WAYLAND_DISPLAY`,
-    /// for the reason the module note gives: by the time anything here runs, the
-    /// entry point has already pointed that variable at lunette's own socket.
+    /// `socket` is a path rather than something read from `WAYLAND_DISPLAY`;
+    /// the module note gives the reason.
     ///
     /// Two round trips, and they block. The first brings the registry's globals
     /// in, and the second brings in the events of the outputs bound during the
@@ -124,8 +123,8 @@ impl OutputWatcher {
 
     /// Enumerates over a connection that is already open.
     ///
-    /// The seam [`Self::connect`] is built on, and what an integration test uses
-    /// to point the enumeration at a compositor reached over a socket pair
+    /// The seam [`Self::connect`] is built on, and the call an integration test
+    /// uses to point the enumeration at a compositor reached over a socket pair
     /// rather than a path. The round trips block, so a caller whose compositor
     /// runs on the same thread has to put one of the two on another.
     ///
@@ -177,12 +176,11 @@ impl OutputWatcher {
     /// changed.
     ///
     /// Never waits. The descriptor is polled with a zero timeout, so a frame is
-    /// not held up by the host compositor, and `None` — nothing changed — is the
-    /// answer on almost every frame.
+    /// not held up by the host compositor, and `None` means nothing changed.
     ///
     /// A connection that has failed answers `None` for the rest of the session.
     /// The failure is not recoverable: the host session has ended, and the
-    /// monitors lunette knew about are gone with it.
+    /// monitors the watcher had enumerated are gone with it.
     pub fn poll(&mut self) -> Option<Roster> {
         if self.finished {
             return None;
@@ -281,7 +279,7 @@ impl Error for OutputError {
 ///
 /// Four is where `wl_output.name` arrives, which is the connector name and the
 /// whole reason to bind above the minimum. A compositor offering less is bound
-/// at what it offers and simply reports no connector.
+/// at what it offers and reports no connector.
 const WANTED_OUTPUT_VERSION: u32 = 4;
 
 /// The `zxdg_output_manager_v1` version lunette asks for.
@@ -295,8 +293,9 @@ const WANTED_XDG_OUTPUT_VERSION: u32 = 3;
 ///
 /// A zero-timeout `poll`, which is what makes [`OutputWatcher::poll`] able to
 /// use `wayland-client`'s blocking read without ever blocking on it. The
-/// alternative — putting the socket into non-blocking mode behind the library's
-/// back — would also break the round trips [`OutputWatcher::connect`] performs.
+/// alternative is putting the socket into non-blocking mode outside
+/// `wayland-client`. It would also break the round trips
+/// [`OutputWatcher::connect`] performs.
 fn readable(descriptor: i32) -> bool {
     let mut fds = libc::pollfd {
         fd: descriptor,
@@ -324,8 +323,8 @@ impl Registry {
     /// Creates the `zxdg_output_v1` for every output that does not have one.
     ///
     /// Called both when an output is bound and when the manager arrives, because
-    /// the registry announces globals in whichever order it likes and the two
-    /// orders need the same outcome.
+    /// the registry announces globals in either order and the two orders need
+    /// the same outcome.
     fn attach_logical_geometry(&mut self, handle: &QueueHandle<Self>) {
         let Some(manager) = &self.manager else {
             return;
@@ -401,7 +400,7 @@ impl Dispatch<WlRegistry, ()> for Registry {
                         logical.destroy();
                     }
                     // `release` exists from version 3. Below that the object is
-                    // simply dropped, which leaks one server-side object per
+                    // dropped, which leaks one server-side object per
                     // unplug and is what the protocol leaves a client with.
                     if bound.output.version() >= 3 {
                         bound.output.release();

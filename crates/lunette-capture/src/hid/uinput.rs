@@ -11,8 +11,8 @@
 //! surface.
 //!
 //! The provider creates separate keyboard and mouse devices, following WayVR's
-//! design. A device declaring both would appear to the host as one peripheral,
-//! and a compositor that classifies devices by capability could handle it
+//! design. A device declaring both would appear to the host as one peripheral.
+//! A compositor that classifies devices by capability could then handle it
 //! inconsistently.
 
 use std::{
@@ -75,15 +75,15 @@ pub struct UinputProvider {
     pending: PendingPointer,
     modifiers: KeyModifiers,
     desktop_origin: DesktopPoint,
-    /// `None` until the monitor roster is known. Absent rather than defaulted,
-    /// because the extent is a divisor and there is no size the desktop can be
-    /// assumed to have.
+    /// `None` until the monitor roster is known. Defaulting would be wrong:
+    /// the extent is a divisor, and the desktop has no size that can be
+    /// assumed.
     desktop_extent: Option<DesktopExtent>,
     /// Whether the "no desktop extent yet" warning has been emitted.
     ///
-    /// Once per provider rather than once per frame: the condition resolves as
-    /// soon as the monitor roster is known, and a per-frame warning would bury
-    /// everything else in the log until it does.
+    /// The warning is emitted once per provider. The condition resolves as
+    /// soon as the monitor roster is known. A per-frame warning would fill the
+    /// log until then.
     warned_about_desktop: bool,
 }
 
@@ -92,9 +92,9 @@ impl UinputProvider {
     ///
     /// # Errors
     ///
-    /// [`ProviderError::Io`] when the device node cannot be opened — which is
-    /// `ENOENT` if the `uinput` module is not loaded and `EACCES` if the user
-    /// lacks write access — or when the kernel refuses part of the setup.
+    /// [`ProviderError::Io`] when the device node cannot be opened, or when the
+    /// kernel refuses part of the setup. `ENOENT` means the `uinput` module is
+    /// not loaded; `EACCES` means the user lacks write access.
     pub fn open(config: &UinputConfig) -> Result<Self, ProviderError> {
         let keyboard = UinputDevice::create(
             &config.device,
@@ -154,7 +154,7 @@ impl UinputProvider {
 
     /// Maps a desktop position into the device's fixed normalised range.
     ///
-    /// The range spans the whole desktop bounding box rather than one monitor.
+    /// The range spans the whole desktop bounding box, not one monitor.
     /// Hotplug changes the origin and extent without recreating the device.
     fn normalise(&mut self, position: DesktopPoint) -> Option<(i32, i32)> {
         let Some(extent) = self.desktop_extent else {
@@ -270,10 +270,9 @@ impl HidProvider for UinputProvider {
 
 /// Provides checks and access guidance when the uinput provider cannot be created.
 ///
-/// The surrounding application chooses how to present the guidance and supplies
-/// the login name as a parameter rather than this library reading it from the
-/// environment. The guidance includes the security risk of membership in the
-/// `input` group.
+/// The surrounding application presents the guidance. It supplies the login
+/// name as a parameter; this library does not read the environment. The
+/// guidance includes the security risk of membership in the `input` group.
 #[derive(Clone, Copy, Debug)]
 pub struct Advice<'a> {
     /// The login name to put in the `usermod` command, if the caller knows it.
@@ -306,18 +305,18 @@ impl fmt::Display for Advice<'_> {
 
 /// The kernel's fixed normalised range for the absolute axes.
 ///
-/// The number is arbitrary; what matters is that it never changes. A device
-/// using the desktop's logical extent as its range would have to be destroyed
-/// and recreated on every hotplug, which would replace the host input device.
+/// The value is arbitrary; it must never change. A device using the desktop's
+/// logical extent as its range would have to be destroyed and recreated on
+/// every hotplug, which would replace the host input device.
 const MOUSE_EXTENT: f64 = 32768.0;
 
 /// The `resolution` reported for the absolute axes, in units per millimetre.
 ///
-/// Nonzero because a host that reads zero may classify the device as a touchpad
-/// rather than a pointer.
+/// Nonzero. A host that reads zero may classify the device as a touchpad
+/// instead of a pointer.
 const ABS_RESOLUTION: i32 = 10;
 
-/// `BUS_USB`, which is what a virtual device conventionally claims.
+/// `BUS_USB`, the bus type a virtual device conventionally reports.
 const BUS_USB: u16 = 0x03;
 
 /// The vendor identifier the created devices report.
@@ -331,10 +330,10 @@ const MOUSE_PRODUCT: u16 = 0x0002;
 /// A uinput device the kernel has created, destroyed when it is dropped.
 ///
 /// Distinct from [`OpenNode`], which is the descriptor before `UI_DEV_CREATE`
-/// has been issued. Only this type has a `Drop`, so a setup that fails partway
-/// destroys nothing and reports what actually went wrong: `UI_DEV_DESTROY`
-/// against a node with no device behind it fails, and warning about it would
-/// bury the real failure under a misleading second line.
+/// has been issued. Only this type has a `Drop`. A setup that fails partway
+/// destroys nothing and returns the real error. `UI_DEV_DESTROY` against a node
+/// with no device behind it fails; a warning about that failure would add a
+/// misleading second line to the log.
 struct UinputDevice {
     node: OpenNode,
 }
@@ -382,7 +381,7 @@ impl UinputDevice {
     ///
     /// `write_all` retries short writes. If an I/O error occurs after a partial
     /// write, the kernel may receive an incomplete group without its final
-    /// `EV_SYN`, so the error is returned to the provider.
+    /// `EV_SYN`; the error is returned to the provider.
     fn emit(&mut self, events: &[libc::input_event]) -> Result<(), ProviderError> {
         // SAFETY: `input_event` is a `repr(C)` plain-data structure with no
         // padding invariants and no pointers, so its bytes are a valid slice for
@@ -404,7 +403,7 @@ impl UinputDevice {
 impl Drop for UinputDevice {
     fn drop(&mut self) {
         // SAFETY: `UI_DEV_DESTROY` takes no argument, and the descriptor is
-        // still open — the `File` is dropped after this.
+        // still open; the `File` is dropped after this.
         let destroyed = unsafe { libc::ioctl(self.node.raw_fd(), UI_DEV_DESTROY) };
         if destroyed < 0 {
             // `Drop` cannot propagate a failed destroy ioctl, so report it before
@@ -420,8 +419,8 @@ impl Drop for UinputDevice {
 
 /// An open `/dev/uinput` descriptor, before any device exists behind it.
 ///
-/// Deliberately without a `Drop`: closing the descriptor is all that is wanted
-/// here, and that is `File`'s own.
+/// Deliberately without a `Drop`. Closing the descriptor is all that is
+/// needed; the `File` does it when the field is dropped.
 struct OpenNode {
     file: File,
     path: PathBuf,
@@ -452,9 +451,9 @@ impl OpenNode {
         what: &'static str,
         bit: c_int,
     ) -> Result<(), ProviderError> {
-        // SAFETY: `BitRequest` is minted only for the `UI_SET_*BIT` requests,
-        // every one of which takes the bit by value as an `int`, and the
-        // descriptor is open for the duration of the call.
+        // SAFETY: `BitRequest` is constructed only for the `UI_SET_*BIT`
+        // requests, every one of which takes the bit by value as an `int`, and
+        // the descriptor is open for the duration of the call.
         let result = unsafe { libc::ioctl(self.raw_fd(), request.code(), bit) };
         if result < 0 {
             return Err(self.last_error(what));
@@ -524,12 +523,12 @@ const fn absolute_axis(code: u16) -> libc::uinput_abs_setup {
     }
 }
 
-/// The device name as the fixed-size NUL-padded field the kernel wants.
+/// The device name as the fixed-size NUL-padded field the kernel requires.
 ///
-/// Truncated rather than rejected when it does not fit: the name is a label in
-/// `libinput list-devices` and nothing depends on its exact text, so a long
-/// prefix is a cosmetic problem rather than grounds for refusing to create the
-/// device. The truncation stops one byte short of the field so the NUL survives.
+/// The name is truncated when it does not fit; it is not rejected. The name is
+/// a label in `libinput list-devices`, and nothing depends on its exact text,
+/// so a long prefix is a cosmetic problem. The truncation stops one byte short
+/// of the field so the NUL survives.
 fn device_name(name: &str) -> [libc::c_char; libc::UINPUT_MAX_NAME_SIZE] {
     let mut field = [0; libc::UINPUT_MAX_NAME_SIZE];
     for (slot, byte) in field
@@ -583,8 +582,8 @@ mod tests {
 
     #[test]
     fn both_absolute_axes_span_the_same_fixed_range() {
-        // The range is what makes hotplug free: only the origin and extent
-        // change, never the device.
+        // Because the range is fixed, hotplug changes only the origin and
+        // extent, never the device.
         for axis in [absolute_axis(ABS_X), absolute_axis(ABS_Y)] {
             assert_eq!(axis.absinfo.minimum, 0);
             assert_eq!(axis.absinfo.maximum, 32768);

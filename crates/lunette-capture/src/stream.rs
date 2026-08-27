@@ -90,8 +90,8 @@ impl CaptureStream {
 
     /// Stops the stream producing without releasing the portal session.
     ///
-    /// Distinct from dropping the stream: this is the temporarily-invisible
-    /// panel, not the dismissed monitor.
+    /// Pause differs from dropping the stream. Pausing makes the panel
+    /// temporarily invisible. Dropping dismisses the monitor.
     pub fn pause(&mut self) {
         control(&mut self.capture).pause();
         debug!(stream = %self.name, "paused a capture stream");
@@ -116,8 +116,8 @@ impl fmt::Debug for CaptureStream {
 /// A captured frame ready for import.
 ///
 /// Owns its descriptors and carries only buffer layout, DRM format, modifier,
-/// and transform data. The type therefore crosses the thread boundary without a
-/// graphics dependency.
+/// and transform data. The type crosses the thread boundary without a graphics
+/// dependency.
 #[derive(Debug)]
 pub struct CapturedFrame {
     format: CaptureFormat,
@@ -342,7 +342,7 @@ impl FrameTransform {
     }
 }
 
-/// A bounded queue that discards old entries instead of blocking the producer.
+/// A bounded queue that discards old entries and never blocks the producer.
 ///
 /// PipeWire's process callback and the frame loop must not wait for each other.
 /// The queue keeps newer frames and counts discarded entries.
@@ -459,7 +459,7 @@ pub enum FrameError {
     /// The frame was blitted into a destination buffer, but this crate supplies
     /// no destination buffer.
     Implicit,
-    /// The stream negotiated shared memory rather than a dmabuf.
+    /// The stream negotiated shared memory. v1 imports dmabufs only.
     SharedMemory {
         kind: &'static str,
     },
@@ -536,7 +536,7 @@ impl Error for FrameError {
 /// The number of frames held before the oldest is discarded.
 ///
 /// Two entries cover one frame being drawn and one arriving. A deeper queue adds
-/// latency instead of throughput.
+/// latency without adding throughput.
 const QUEUE_DEPTH: NonZeroUsize = NonZeroUsize::MIN.saturating_add(1);
 
 /// Data passed to the PipeWire callback.

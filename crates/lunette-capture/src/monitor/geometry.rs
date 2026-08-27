@@ -4,6 +4,12 @@
 //! All three arrive together, from the `wl_output.geometry` and
 //! `zxdg_output_v1.logical_*` events that [`crate::monitor::outputs`] reads, so
 //! they are described together here.
+//!
+//! The coordinates are logical throughout. A pointer maps into a monitor's
+//! logical rectangle, and the stream correlation compares portal stream
+//! `position` and `size` against this geometry. The ScreenCast portal reports
+//! those values in the compositor's arrangement space, so the comparison holds
+//! only when both sides are in that space.
 
 use std::fmt;
 
@@ -13,8 +19,7 @@ use serde::{Deserialize, Serialize};
 /// space.
 ///
 /// Logical rather than pixel coordinates, because the two differ by the scale
-/// factor on a scaled display and every consumer of this — stream correlation,
-/// pointer mapping — works in the space the compositor arranges outputs in.
+/// factor on a scaled display.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LogicalPosition {
@@ -37,10 +42,7 @@ impl fmt::Display for LogicalPosition {
 
 /// How much of the logical coordinate space a monitor covers.
 ///
-/// The counterpart to [`LogicalPosition`], and logical for the same reason: the
-/// ScreenCast portal reports each stream's `position` and `size` in the
-/// compositor's own arrangement space, and the comparison against a
-/// `wl_output`'s geometry only holds if both sides are in that space.
+/// The counterpart to [`LogicalPosition`], and logical for the same reason.
 ///
 /// A width or height of zero is representable, because a compositor that
 /// reports one is describing a monitor lunette can do nothing with rather than
@@ -61,9 +63,9 @@ impl LogicalSize {
     /// A size the host reported as the protocol's signed pair.
     ///
     /// `None` for a negative dimension. `zxdg_output_v1.logical_size` does not
-    /// permit one, so it means the compositor is misbehaving — and coercing it
-    /// to zero would turn that into a monitor with no area, which reads as an
-    /// output that has simply not finished describing itself.
+    /// permit one, so the compositor is misbehaving. Coercing a negative
+    /// dimension to zero would produce a monitor with no area, and that reads
+    /// as an output that has not finished describing itself.
     #[must_use]
     pub fn from_signed(width: i32, height: i32) -> Option<Self> {
         match (u32::try_from(width), u32::try_from(height)) {
@@ -88,8 +90,8 @@ impl fmt::Display for LogicalSize {
 ///
 /// Deliberately not [`LogicalSize`]. On a scaled display the two differ by the
 /// scale factor, and they answer different questions: a pointer is placed in
-/// logical coordinates, and a captured frame arrives at this size. A single type
-/// for both is a transposition waiting to happen.
+/// logical coordinates, and a captured frame arrives at this size. A single
+/// type for both would let a caller transpose them silently.
 ///
 /// Zero is representable for the same reason [`LogicalSize`] allows it: a
 /// monitor whose mode has not been set reports one, and that is a monitor
@@ -162,9 +164,9 @@ variants! {
     /// How a monitor's panel is oriented relative to the rectangle it occupies.
     ///
     /// The eight values of `wl_output.transform`, as a closed set. The logical
-    /// geometry already accounts for the rotation — a portrait-mounted 1920x1080
-    /// panel reports a logical size of 1080x1920 — so this describes only which
-    /// corner of the panel corresponds to which corner of that rectangle.
+    /// geometry already accounts for the rotation: a portrait-mounted 1920x1080
+    /// panel reports a logical size of 1080x1920. The transform describes only
+    /// which corner of the panel corresponds to which corner of that rectangle.
     ///
     /// Here rather than beside the pointer mapping that consumes it, because this is
     /// what `wl_output.geometry` reports alongside the position, the make, and the
@@ -191,10 +193,11 @@ impl SurfaceTransform {
     /// fallback to [`Self::Normal`]: a value this does not recognise would put
     /// the cursor in the wrong corner, which is worse than reporting that the
     /// monitor cannot be mapped.
+    ///
     /// Searched rather than matched, so the mapping is stated once in
-    /// [`Self::as_wl_output`]. A second match would carry a wildcard, and a
-    /// transform missing from it would arrive as an unmappable monitor rather
-    /// than as a compilation failure.
+    /// [`Self::as_wl_output`]. A second match here would carry a wildcard, and
+    /// a transform missing from it would arrive as an unmappable monitor
+    /// rather than as a compilation failure.
     #[must_use]
     pub const fn from_wl_output(value: u32) -> Option<Self> {
         let mut index = 0;
@@ -225,10 +228,11 @@ impl SurfaceTransform {
 
     /// Whether the transform exchanges the two axes.
     ///
-    /// A rotated monitor's logical size is its pixel size with the axes swapped,
-    /// which is what makes this worth asking: the fallback that derives a
-    /// logical size from `wl_output.mode` and `wl_output.scale` has to swap them
-    /// back, and `zxdg_output_v1` reports the already-swapped size directly.
+    /// A rotated monitor's logical size is its pixel size with the axes
+    /// swapped. The fallback derives a logical size from `wl_output.mode` and
+    /// `wl_output.scale`, and it swaps the axes back after this call.
+    ///
+    /// `zxdg_output_v1` reports the already-swapped size directly.
     #[must_use]
     pub const fn swaps_axes(self) -> bool {
         matches!(
