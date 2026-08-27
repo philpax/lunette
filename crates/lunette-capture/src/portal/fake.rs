@@ -1,10 +1,10 @@
 //! A scripted [`ScreenCastPortal`] for tests.
 //!
 //! The portal is an unmanaged dependency, so the tests substitute an
-//! implementation of lunette's own seam rather than mocking D-Bus. Nothing here
-//! opens a bus, spawns a thread, or waits: a test states what the portal will
-//! answer and then polls, so a session that would take a user several seconds
-//! to approve takes a test one call.
+//! implementation of lunette's own seam and do not mock D-Bus. Nothing here
+//! opens a bus, spawns a thread, or waits. A test states what the portal will
+//! answer and then polls, so a session that takes a user several seconds to
+//! approve takes a test one call.
 //!
 //! [`ScreenCastPortal`]: crate::portal::ScreenCastPortal
 
@@ -21,13 +21,15 @@ use crate::portal::{
 /// last one repeats until it is terminal, and a terminal one is delivered once.
 ///
 /// A request made when no script is left answers
-/// [`RequestProgress::AwaitingUser`] forever, which is the honest stand-in for a
-/// dialog nobody is going to click.
+/// [`RequestProgress::AwaitingUser`] until the portal is dropped. That progress
+/// stands in for a dialog that nobody clicks, so the test ends without a
+/// timeout when the session never reaches a terminal progress.
 #[derive(Debug, Default)]
 pub struct FakePortal {
     scripts: VecDeque<Vec<RequestProgress>>,
     in_flight: HashMap<RequestId, VecDeque<RequestProgress>>,
-    /// Every request made, in order, so a test can assert on what was asked for.
+    /// Every request made, in order. A test reads this to assert on what was
+    /// asked for.
     pub requests: Vec<SessionRequest>,
     begin_failure: Option<PortalError>,
     next: u64,
@@ -63,8 +65,8 @@ impl FakePortal {
 
     /// Polls until the request reports a terminal progress.
     ///
-    /// Bounded, because a script that never terminates is a defect in the test
-    /// rather than something to hang the suite on.
+    /// Bounded. A script that never terminates is a defect in the test, so the
+    /// method panics and the suite does not hang.
     #[must_use]
     pub fn drive(&mut self, request: RequestId) -> RequestProgress {
         for _ in 0..16 {
@@ -113,8 +115,8 @@ impl ScreenCastPortal for FakePortal {
             return RequestProgress::Failed(PortalError::UnknownRequest(request));
         };
 
-        // The last entry repeats rather than being consumed, so a script says
-        // "and then it stays like that" without having to say how many times.
+        // The last entry repeats and is never consumed, so a script says
+        // "and then it stays like that" without counting how many times.
         let progress = if script.len() > 1 {
             script.pop_front()
         } else {
