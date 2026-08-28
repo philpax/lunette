@@ -1,19 +1,18 @@
 -- The mullion standard library.
 --
--- mullion is policy written in Lua over the `lunette` native API, and it uses
--- nothing that is not in docs/lua-api.md. lunette is mechanism; mullion is what
--- decides. A configuration may use as much or as little of it as it likes, and a
--- configuration that never mentions it at all is supported.
+-- mullion is policy written in Lua over the `lunette` native API. It uses
+-- nothing outside docs/lua-api.md. lunette is mechanism; mullion is policy.
+-- A configuration may use any part of the library, or none of it.
 --
--- This root module is what `require '@mullion'` resolves to, and its presence is
--- what makes the mount in crates/lunette/src/boot.rs observable. It holds no
--- state, registers no signal connection, and starts nothing, so it has no
--- teardown hook to register: there is nothing a reload could leave behind.
+-- `require '@mullion'` resolves to the root module through the mount in
+-- crates/lunette/src/boot.rs. It holds no state, registers no signal
+-- connection, and starts nothing. It registers no teardown hook, because a
+-- reload has nothing to leave behind.
 --
--- Submodules are required by their own paths — `require '@mullion/signal'`,
--- `require '@mullion/layout/arc'` — rather than being re-exported here. The
--- tiers are independent, and a configuration that wants signals should not load
--- the layout engine to get them.
+-- A configuration requires each submodule by its own path, for example
+-- `require '@mullion/signal'` and `require '@mullion/layout/arc'`. The root
+-- module does not re-export submodules. The tiers are independent. A
+-- configuration that uses signals does not load the layout engine.
 
 local mullion = {}
 
