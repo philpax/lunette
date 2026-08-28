@@ -62,3 +62,23 @@ Check comments at boundaries and state transitions for more than their local cod
 Use regex searches before and after editing to find fragile references and temporary identifiers. At minimum, search comments for line-number forms such as `:[0-9]+` and `:[0-9]+-[0-9]+`, path-plus-line references, internal requirement identifiers such as `[A-Za-z0-9_.-]+\.AC[0-9]+\.[0-9]+`, and task or phase names. Review every comment in the file, including comments that already appear plain. For each retained comment, make a case that it states a contract, rationale, or invariant that the nearby code does not make clear. Do not limit the pass to comments matched by a search or to comments changed by an earlier agent.
 
 Use `git diff --check`. Confirm that the diff changes comments only. Read the rewritten comments as prose, start to finish: a rewrite that inserts a period at every wrapped line, capitalizes mid-sentence, or leaves sentences that no longer parse is defective regardless of what it removed. Run the repository's prescribed format and test checks after the batch is complete.
+
+## Register verification
+
+The register of `plain-technical-prose` is the binding standard for the prose this skill produces. A pass is not complete until the file's comments satisfy the register, not merely the deletion-and-content rules above. Beyond what the register states, the following defects have recurred in practice and must be treated as failures; scan every comment with regex before considering the pass done, and fix every match:
+
+Banned phrase classes (grep for these, in comments only):
+
+- em-dashes and en-dashes: `—`, `–`;
+- verdict phrasing and formulaic contrast: `rather than`, `instead of`, `as opposed to`, `in lieu of`, `not X but Y`;
+- intensifiers and minimizers: `correctly`, `properly`, `simply`, `just`, `merely`, `only`, `at all`, `of course`, `obviously`, `clearly`, `importantly`, `deliberately` when it no more than reassures;
+- rhetorical and generated-sounding connectives: `which is what`, `what makes this`, `is what lets`, `so that`, `therefore` as a persuasive stage, `note that`, `in other words`, `as it were`, `it is worth`;
+- puns, idioms, and metaphors: `as X requires` (when X is a function name), `splices in`, `threaded through`, `behind the scenes`, `under the hood`, `drives`, `sits`, `lives`, `speaks`, `wants`, `knows`, `thinks`, `claims`, `tells`, `asks` where the subject is a component rather than a person, `the one that`, `the honest`, `the real` when it is a verdict;
+- past-tense and historical narration describing implementation history: `was`, `were`, `had` used to narrate what the code once did; `it was missed once`, `before`, `previously`, `used to`, `formerly`, `originally`, `since` (as history);
+- self-reference and process language: `this comment`, `this file`, `this pass`, `as requested`, `per the review`, `the task`, `cleanup`, `rewrite`, `register`;
+- fragile locations: line numbers, `path:line`, requirement identifiers (`[A-Za-z0-9_.-]+\.AC[0-9]+\.[0-9]+`);
+- first and second person: `you`, `your`, `we`, `our`, `us`, `I`, `my`.
+
+Do not let a match pass because it reads "fine" in context: each of these constructions has a plain-register replacement (split the sentence, name the actor, state the mechanism, drop the intensifier, present the fact). Exclusions: executable strings, identifiers, and test names are not comments and are untouched; a `SAFETY` or `# Safety` block mandated by a lint keeps its contract text but still must not contain these forms.
+
+The check is against the file as it will be committed. This register verification is part of the task and of the adversarial second pass, not an optional polish.
