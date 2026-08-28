@@ -1,15 +1,15 @@
 -- Covers lua/mullion/interaction.lua.
 --
--- The panels are real ones, from `spec.mullion.panel.fixture`: the module under
+-- The panels are real ones from `spec.mullion.panel.fixture`. The module under
 -- test raycasts through `panel:raycast` and moves panels through
--- `panel:setPose`, and a hand-written stand-in for those would be asserting the
--- stand-in's arithmetic rather than the panel's. The sinks and the seat are
--- fakes, because they are the native surface and this process has no client to
--- deliver to.
+-- `panel:setPose`. A hand-written stand-in would assert the stand-in's
+-- arithmetic and leave the panel's arithmetic untested.
 --
--- Nothing here touches `lovr.headset`. That is the point of the split:
--- everything that decides is in this module, and `mullion.laser` is the shell
--- that reads the device.
+-- The sinks and the seat are fakes. They are the native surface, and a test
+-- process has no client to deliver to.
+--
+-- The spec does not touch `lovr.headset`. The split keeps every decision in
+-- this module, and `mullion.laser` is the shell that reads the device.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -27,7 +27,7 @@ local sequence = fixture.sequence
 local lastCall = fixture.lastCall
 local TOLERANCE = fixture.TOLERANCE
 
--- A seat that records the sinks it was focused on.
+-- A seat that records every sink it focuses on.
 --
 -- The sinks and the window come from `spec.mullion.panel.fixture`, which holds
 -- the fakes the panel, interaction, and laser specs share.
@@ -114,8 +114,8 @@ end)
 
 spec('a forward deflection scrolls the content up', function()
   fresh()
-  -- Wayland's vertical axis grows downwards, so pushing the stick away from the
-  -- user — which a user reads as "go up the page" — is a negative delta.
+  -- Wayland's vertical axis grows downwards. Pushing the stick away from the
+  -- user means "go up the page", and the delta is negative.
   local _, dy = interaction.scrollDelta(0, 1, 1)
 
   expect.truthy(dy < 0, 'dy')
@@ -226,9 +226,9 @@ spec('a trigger released off the panel still releases on it', function()
   local pointer = interaction.newPointer { seat = newSeat() }
 
   pointer:update(looking { trigger = true }, { created })
-  -- Off the panel entirely, which is what a hand that slipped during a drag
-  -- does. A release that went nowhere would leave the client holding a button
-  -- down for the rest of the session.
+  -- The release happens off the panel. The pointer leaves the panel between
+  -- the press and the release. A release that reaches no surface would leave
+  -- the client holding the button down for the rest of the session.
   pointer:update(looking { direction = vector.pack(0, 1, 0) }, { created })
 
   local call = lastCall(window.sink, 'button')
@@ -259,8 +259,9 @@ spec('a still thumbstick sends no scroll', function()
   expect.falsy(lastCall(window.sink, 'scroll'), 'a scroll call')
 end)
 
--- The smallest thing satisfying the surface contract: a raycast, and whatever
--- behaviour it wants. Panels are one implementation; a keyboard is another.
+-- The smallest thing satisfying the surface contract: a raycast and callbacks
+-- for hover, leave, press, and release. Panels are one implementation; a
+-- keyboard is another.
 local function surfaceAhead(options)
   options = options or {}
   local recorded = { hovered = {}, left = 0, pressed = {}, released = 0 }
@@ -319,8 +320,8 @@ spec('a press on a surface with no sink reaches the surface', function()
 end)
 
 spec('a release reaches the surface the press went to', function()
-  -- Even when the ray has moved off it, which is what a button expects: a
-  -- press and its release are one gesture.
+  -- The release happens even when the ray has moved off the surface. A press
+  -- and its release are one gesture.
   fresh()
   local surface = surfaceAhead()
   local pointer = interaction.newPointer { seat = newSeat() }
@@ -374,7 +375,7 @@ spec('a pushed panel stops at the far limit rather than leaving the room', funct
   local pointer = interaction.newPointer { seat = newSeat() }
 
   pointer:update(looking { grip = true }, { created })
-  -- Far more push than the range allows, so the clamp is what decides.
+  -- Sixty frames of push exceed the range, and the clamp determines the result.
   for _ = 1, 60 do
     pointer:update(looking { grip = true, scrollY = 1, dt = 1 }, { created })
   end
@@ -398,8 +399,8 @@ spec('a pulled panel stops before it reaches the hand', function()
 end)
 
 spec('a stick held while grabbing scrolls nothing', function()
-  -- The stick means distance for as long as something is held, so a panel
-  -- being carried must not also scroll under the thumb that is carrying it.
+  -- The stick means distance for as long as something is held. A panel being
+  -- carried must not also scroll under the thumb that is carrying it.
   fresh()
   local created, window = panelAhead()
   local pointer = interaction.newPointer { seat = newSeat() }
@@ -420,7 +421,7 @@ spec('a second hand on a held panel resizes it rather than taking it over', func
   second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
   local before = created.width
 
-  -- The second hand moves away from the first, so the separation doubles.
+  -- The second hand moves away from the first, and the separation doubles.
   second:update(looking { grip = true, pose = poseAt(1.0, 0, 0) }, { created })
 
   expect.truthy(created.width > before, 'the panel to have grown')
@@ -449,7 +450,7 @@ spec('a resize stops rather than shrinking a panel out of reach', function()
 
   first:update(looking { grip = true }, { created })
   second:update(looking { grip = true, pose = poseAt(2.0, 0, 0) }, { created })
-  -- Hands together: the ratio goes to nearly nothing.
+  -- Hands together: the ratio falls to nearly nothing, and the minimum clamps the width.
   second:update(looking { grip = true, pose = poseAt(0.001, 0, 0) }, { created })
 
   expect.truthy(created.width >= interaction.TUNING.resizeMinimum - TOLERANCE, 'the panel to stop at resizeMinimum')
@@ -479,7 +480,7 @@ spec('a hand still holding a panel keeps it when the other lets go', function()
 
   first:update(looking { grip = true }, { created })
   second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
-  -- The carrying hand releases; the measuring hand inherits an ordinary grab.
+  -- The carrying hand releases, and the measuring hand's hold becomes an ordinary grab.
   first:update(looking { grip = false }, { created })
   second:update(looking { grip = true, pose = poseAt(0.5, 0, 0) }, { created })
   second:update(looking { grip = true, pose = poseAt(0.5, 0.5, 0) }, { created })
@@ -518,9 +519,9 @@ end)
 spec('a grab keeps the offset the hand started with', function()
   fresh()
   local created = panelAhead()
-  -- Grabbed from a hand that is not where the panel is, which is every grab: a
-  -- pointer that set the pose to the hand's own would teleport the panel into
-  -- the hand the moment it was grabbed.
+  -- The grab keeps the offset between the hand and the panel. A pointer that sets
+  -- the pose to the hand's own would teleport the panel into the hand at the grab.
+  -- Every grab starts with the hand somewhere else.
   local pointer = interaction.newPointer { seat = newSeat() }
 
   pointer:update(looking { grip = true, pose = poseAt(0, 1, 0) }, { created })
@@ -569,15 +570,15 @@ spec('a grip whose pose has not arrived yet grabs on the frame it does', functio
   local pointer = interaction.newPointer { seat = newSeat() }
 
   -- A hand tracked well enough to aim but whose pose has not arrived. The grip
-  -- is held throughout: an edge consumed by the refusal would mean no grab
+  -- is held throughout. An edge consumed by the refusal would mean no grab
   -- could start until the user let go and pressed again.
   local unposed = looking { grip = true }
   unposed.pose = nil
   pointer:update(unposed, { created })
 
   expect.falsy(pointer.grabbed, 'what is held while the pose is absent')
-  -- And the frame is not thrown away: the ray is over the panel, so the panel
-  -- hears about it as it would on any other frame.
+  -- The refused frame is not discarded. The ray is over the panel, and the
+  -- panel receives the pointer as on any other frame.
   expect.truthy(lastCall(window.sink, 'pointer'), 'a pointer call on the refused frame')
 
   pointer:update(looking { grip = true, pose = poseAt(0, 0, 0) }, { created })
@@ -586,11 +587,10 @@ spec('a grip whose pose has not arrived yet grabs on the frame it does', functio
 end)
 
 spec('the pose property is a module constant rather than a tuning field', function()
-  -- `storePose` and `restorePose` take a panel and not a pointer, so a key in
-  -- the tuning table would read as per-pointer and be read from the module
-  -- default whatever a pointer was created with — and a pose written under one
-  -- key and looked for under another is a hand-placed panel that does not come
-  -- back.
+  -- `storePose` and `restorePose` take a panel and not a pointer. A key in the
+  -- tuning table would read as per-pointer and be read from the module default
+  -- whatever a pointer was created with. A pose written under one key and looked
+  -- for under another is never found, so a hand-placed panel is never restored.
   expect.falsy(interaction.TUNING.poseProperty, 'a pose property in the tuning table')
   expect.equal(type(interaction.POSE_PROPERTY), 'string', 'the module constant')
 end)
@@ -672,9 +672,9 @@ spec('requiring the module twice leaves one teardown hook', function()
   fresh()
   local teardown = require '@mullion/teardown'
 
-  -- How many hooks this module has registered, counted rather than asserted to
-  -- be there: the registry is shared with every other module and with
-  -- lua/spec/mullion/teardown_spec.lua, which empties it.
+  -- How many hooks this module has registered. The registry is shared with every
+  -- other module and with lua/spec/mullion/teardown_spec.lua, which empties it.
+  -- The helper counts the module's hooks among the pending set.
   local function hooks()
     local found = 0
     for _, name in ipairs(teardown.pending()) do

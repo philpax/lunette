@@ -2,19 +2,18 @@
 --
 -- The acceptance criterion is that a soft reload applies an edited layout
 -- without disconnecting a client and without scrambling a hand-arranged
--- workspace, so the cases that matter most are the two halves of that: a panel
--- the user placed by hand comes back where they left it, and a window nobody
--- placed is placed by rule.
+-- workspace. The two halves matter most: a panel the user placed by hand comes
+-- back where they left it, and a window nobody placed is placed by rule.
 --
 -- The reload itself is native and is exercised by `crates/lunette/tests/reload.rs`
--- against a real session. What is reproduced here is the shape a reload leaves
--- behind: the hooks have run, the modules' state is empty, the configuration has
--- installed its sources again, and the windows and the native property store are
--- exactly as they were — because a reload does not touch them.
+-- against a real session. After a reload, the hooks have run, the modules'
+-- state is empty, the configuration has installed its sources again, and
+-- the windows and the native property store are untouched because a reload
+-- does not touch them.
 --
--- The panel fixture is required first, so that the `mullion.panel` and the
--- `lunette` these reach through are the fakes. A real `lunette.windows()` would
--- want a compositor.
+-- The panel fixture is required first, so the `mullion.panel` and the `lunette`
+-- these reach through are the fakes. A real `lunette.windows()` needs a
+-- compositor.
 
 local expect = require '@spec/expect'
 local fixture = require '@spec/mullion/panel/fixture'
@@ -42,13 +41,13 @@ local function reset()
   rules.report = function() end
 end
 
--- A window the fake `lunette.windows()` will answer with.
+-- A window the fake `lunette.windows()` enumerates.
 --
--- Wrapped as a handle, because that is what the native enumeration answers: a
--- window is mlua userdata, so `type(window)` is `'userdata'`. The adoption path
--- runs entirely over what `lunette.windows()` hands back, so a spec that drove
--- it with tables could not tell a module that indexes a window from one that
--- insists on a table — and the second refuses every real window.
+-- Wrapped as a handle, because the native enumeration returns mlua userdata:
+-- `type(window)` is `'userdata'`. The adoption path runs entirely over what
+-- `lunette.windows()` returns, so a spec that used tables for the windows
+-- could not distinguish a module that indexes a window from one that requires
+-- a table, and the second rejects every real window.
 local function newWindow(appId)
   local window = fixture.asHandle(fixture.newWindow(800, 600))
   window.appId = appId
@@ -56,8 +55,8 @@ local function newWindow(appId)
   return window
 end
 
--- What the configuration does at every start, whether it is the first or the
--- one a reload caused: it declares its rules and installs its sources.
+-- The configuration does the same at every start, first or after a reload:
+-- it declares its rules and installs its sources.
 local function configure()
   rules.setRules {
     {
@@ -68,9 +67,9 @@ local function configure()
   adopt.install()
 end
 
--- The reload, as far as this module can see one: every module's teardown hook
--- runs, so the panels and the sources go, and the configuration runs again.
--- Nothing touches the windows or the store, which is what a reload does not do.
+-- For the modules under test, a reload runs every module's teardown hook: the
+-- panels and the sources go, and the configuration runs again. Nothing touches
+-- the windows or the store; a reload does not.
 local function reload()
   panel.teardown()
   rules.teardown()
@@ -97,7 +96,7 @@ spec('a hand-placed panel returns to its stored pose after a reload', function()
 
   local placed = rules.place(window)
   expectPosition(placed, RULE_POSE, 'the rule should have placed it')
-  -- The user drags it, and the drop writes the pose to the native store.
+  -- The drop writes the dragged pose to the native store.
   placed:setPose(fixture.poseAt(HAND_POSE[1], HAND_POSE[2], HAND_POSE[3]))
   expect.truthy(interaction.storePose(placed), 'the drop should have stored the pose')
 
@@ -129,8 +128,8 @@ spec('a window that closed during the reload is not resurrected', function()
   rules.place(staying)
   rules.place(going)
 
-  -- The client exits while the reload is running: the compositor drops it from
-  -- the snapshot, so the next enumeration does not list it.
+  -- The client exits while the reload runs: the compositor drops it from the
+  -- snapshot, so the next enumeration does not list it.
   going.dead = true
   fixture.windows = { staying }
   reload()
@@ -147,9 +146,9 @@ spec('a window that opened during the reload is picked up', function()
   rules.place(first)
 
   reload()
-  -- The client that connected while the reload was running. The
-  -- `lunette.onWindowOpened` for it went to the state that has gone, so the
-  -- enumeration is the only way this configuration hears about it.
+  -- The client connected while the reload ran. The `lunette.onWindowOpened`
+  -- event for it went to the pre-reload state, which the reload discarded; the
+  -- enumeration reports the window to the configuration.
   local second = newWindow 'browser'
 
   local adopted = adopt.windows()
@@ -174,9 +173,8 @@ spec('a panel is found from a second handle to the same window', function()
   configure()
   local placed = rules.place(window)
 
-  -- What `lunette.windows()` hands back is a fresh handle every call, so the
-  -- lookup cannot be on the table. A handle carrying the same identifier is the
-  -- same window.
+  -- `lunette.windows()` returns a fresh handle every call, so the lookup cannot
+  -- be on the table. A handle carrying the same identifier is the same window.
   local again = { id = window.id, dead = false }
   expect.equal(panel.forSource(again), placed, 'the panel over the window')
   expect.equal(panel.forSource { id = window.id + 1 }, nil, 'a different window')
@@ -218,8 +216,8 @@ spec('a configuration can put the rules above the store', function()
       properties = { pose = pose.encode(fixture.poseAt(RULE_POSE[1], RULE_POSE[2], RULE_POSE[3])) },
     },
   }
-  -- Below `mullion.rules.DEFAULT_PRECEDENCE`, which is the statement that the
-  -- rules should beat what the user last dragged the window to.
+  -- Below `mullion.rules.DEFAULT_PRECEDENCE`: the rules beat what the user last
+  -- dragged the window to.
   adopt.install(rules.DEFAULT_PRECEDENCE - 1)
 
   local placed = rules.place(window)

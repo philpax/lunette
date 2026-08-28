@@ -1,15 +1,14 @@
 -- Assertions for the spec suite.
 --
--- Each raises on failure with a message saying what was wanted and what
--- arrived, and `spec.runner` turns that into the case's report. They raise
--- rather than returning a verdict so that a case stops at its first failure,
--- which is what makes the message about the first thing that went wrong rather
--- than about the wreckage after it.
+-- Each raises on failure with a message saying what is wanted and what
+-- arrived, and `spec.runner` turns that into the case's report. A case stops
+-- at its first failure. The message reports the first thing that went wrong,
+-- not the state of the run after it.
 
 local expect = {}
 
--- Renders a value for a failure message. Tables are rendered by address,
--- because a spec comparing two tables is comparing identity.
+-- Renders a value for a failure message. Tables render by address, because
+-- a spec comparing two tables is comparing identity.
 local function show(value: unknown): string
   if type(value) == 'string' then
     return string.format('%q', value)
@@ -39,18 +38,18 @@ function expect.falsy(actual: unknown, context: string?)
   end
 end
 
--- Equal to within `tolerance`. Every number this suite compares came out of
--- floating-point arithmetic, so an exact comparison would be asserting the
--- order the operations happened to be written in.
+-- Equal to within `tolerance`. Every number this suite compares comes out of
+-- floating-point arithmetic, so an exact comparison asserts the order the
+-- operations appear in the code.
 function expect.near(actual: unknown, wanted: number, tolerance: number, context: string?)
-  -- Through a local, so that the test narrows what the arithmetic below reads
-  -- rather than the parameter it was handed.
+  -- The local fixes the type of `actual`: the arithmetic below reads the
+  -- local, not the `unknown` parameter.
   local near = actual
   if type(near) ~= 'number' then
     fail((context or 'value') .. ': wanted a number near ' .. show(wanted) .. ', got ' .. show(actual))
     return
   end
-  -- Catches nan as well as a value that is merely far away: every comparison
+  -- Catches nan as well as a value that is far away: every comparison
   -- against nan is false, so the subtraction below would pass it.
   if not (math.abs(near - wanted) <= tolerance) then
     fail(
@@ -65,9 +64,10 @@ function expect.near(actual: unknown, wanted: number, tolerance: number, context
   end
 end
 
--- Asserts that `run` raises, and returns the message it raised with. `pattern`
--- is optional and is a Lua pattern the message has to contain, so a case can
--- assert it got the error it meant rather than any error at all.
+-- Asserts that `run` raises, and returns the message it raises with. `pattern`
+-- is optional and is a Lua pattern the message has to contain. A case can
+-- assert that the error message matches the pattern, not that it is any
+-- error.
 function expect.raises(run: () -> (), pattern: string?, context: string?): string
   local ok, message = pcall(run)
   if ok then
