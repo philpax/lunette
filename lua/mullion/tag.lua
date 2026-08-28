@@ -1,23 +1,24 @@
 -- Tags: named groups of panels, and which of them the user is looking at.
 --
--- docs/stdlib.md's tier 3, the part that decides what is shown. A tag has a
--- name, an index, a selected flag, and a layout attached, and a panel belongs to
--- a set of tags rather than to one workspace.
+-- docs/stdlib.md's tier 3, the part that determines what is shown. A tag has a
+-- name, an index, a selected flag, and a layout attached, and a panel belongs
+-- to a set of tags, not to one workspace.
 --
--- The set is the load-bearing part. "Show this panel on two tags" is expressible
--- without a special case only when membership is a set, and viewing two tags at
--- once is possible only when selection is. A single-current-workspace model
--- cannot be widened into either afterwards without breaking every caller, so it
--- is a set from the start. This is awesome's shape and none of its code:
--- CREDITS.md records that awesome is GPL-2 and lunette GPL-3-only.
+-- The model uses two sets: membership and selection. "Show this panel on two
+-- tags" is expressible without a special case when membership is a set.
+-- Viewing two tags at once is possible when selection is a set. A single-
+-- current-workspace model cannot be widened into either afterwards without
+-- breaking every caller. Both are sets from the start. The design is
+-- awesome's shape and none of its code. CREDITS.md records that awesome is
+-- GPL-2 and lunette GPL-3-only.
 --
--- Membership is held strongly and dead panels are dropped when they are next
--- looked for. A panel is destroyed explicitly rather than collected, so there is
--- nothing here to connect to a signal for; `panels` compacts, and a tag holding
--- a destroyed panel between one call and the next costs a table entry.
+-- Membership is held strongly. Dead panels are removed at the next lookup. A
+-- panel is destroyed explicitly, not collected. No signal connection is
+-- needed to remove it; `panels` compacts. A tag holding a destroyed panel
+-- between one call and the next costs a table entry.
 --
--- `mullion.tag.current` is one of the two module paths docs/lua-api.md attests,
--- so that name is fixed. It answers the selected tags rather than one tag,
+-- `mullion.tag.current` is one of the two module paths docs/lua-api.md
+-- attests. The name is fixed. It answers the selected tags, not one tag,
 -- because selection is multi.
 
 local signal = require '@mullion/signal'
@@ -25,14 +26,13 @@ local teardown = require '@mullion/teardown'
 
 local tag = {}
 
--- Declared here and defined below the public API, so the file reads
--- surface-first. The metatable is a table rather than a forward-declared local
--- because `new` reads it before the methods below are filled in.
+-- `methods` is filled in after the public API, which keeps the public API
+-- first. The metatable is a table, not a forward-declared local, because
+-- `new` reads it while the methods below are still unfilled.
 local methods = {}
 local metatable = { __index = methods }
 local compact, indexOf, byIndex
 
--- The options `new` takes: an index, a selected flag, and an optional layout.
 type TagOptions = {
   index: number?,
   selected: boolean?,
@@ -72,7 +72,7 @@ local _tagPrototype: Tag = setmetatable({
   members = {},
 }, metatable) :: Tag
 
--- Every tag, in creation order. Rebuilt when this file runs, so a soft reload
+-- Every tag, in creation order. Rebuilt at module load, so a soft reload
 -- starts with none.
 local tags: { Tag } = {}
 
@@ -81,9 +81,9 @@ local tags: { Tag } = {}
 -- `options` takes `index`, defaulting to one past the last tag's; `selected`,
 -- off by default; and `layout`, a function taking the tag's panels.
 --
--- A name another tag already holds raises. The name is what a configuration and
--- a saved arrangement both refer to a tag by, and two tags answering to one name
--- would make `find` a coin toss.
+-- A name another tag already holds raises. A configuration and a saved
+-- arrangement refer to a tag by its name, and two tags sharing one name would
+-- make `find` arbitrary.
 function tag.new(name: string, options: TagOptions?): Tag
   if type(name) ~= 'string' then
     error('mullion.tag: a tag is named by a string, not a ' .. type(name), 2)
@@ -112,9 +112,10 @@ end
 
 -- Every live tag, ordered by index and then by name.
 --
--- Ordered rather than in creation order so that two configurations declaring the
--- same tags in a different order arrange them the same way, and so that a saved
--- arrangement naming a tag lands on the same one it was written from.
+-- Two configurations declaring the same tags in a different order arrange
+-- them the same way because the order is index and name, not creation order.
+-- A saved arrangement names a tag, and the name resolves to the same tag in
+-- every configuration.
 function tag.all(): { Tag }
   local live: { Tag } = {}
   for _, existing in ipairs(tags) do
@@ -138,8 +139,8 @@ end
 
 -- The selected tags, in `all` order.
 --
--- Empty when nothing is selected, which is a configuration that has not chosen
--- yet rather than an error: a layout handed no tags arranges nothing.
+-- Empty when nothing is selected. A missing selection is not an error: a
+-- layout handed no tags arranges nothing.
 function tag.current(): { Tag }
   local selected: { Tag } = {}
   for _, existing in ipairs(tag.all()) do
@@ -152,8 +153,8 @@ end
 
 -- Selects `chosen` and deselects every other tag.
 --
--- The single-select case, which is what a configuration switching workspaces
--- with a key wants. Multi-select is `tagObject:setSelected(true)` on each.
+-- The single-select case. A configuration switching workspaces with a key
+-- uses it. Multi-select is `tagObject:setSelected(true)` on each.
 function tag.only(chosen: Tag)
   for _, existing in ipairs(tag.all()) do
     existing:setSelected(existing == chosen)
@@ -162,21 +163,21 @@ end
 
 -- Whether `value` is a tag.
 --
--- Public because `panelsOf` dispatches on it and a configuration writing its own
--- layout wants the same dispatch.
+-- Public because `panelsOf` dispatches on it, and a configuration writing its
+-- own layout needs the same dispatch.
 function tag.isTag(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == metatable
 end
 
 -- The live panels of `target`, deduplicated, as a fresh array.
 --
--- `target` is a tag, an array of tags, or an array of panels, so that a layout
--- can be handed `tag.current()` or a list a configuration assembled itself. The
--- dispatch is total: an array holding both raises rather than guessing.
+-- `target` is a tag, an array of tags, or an array of panels. A layout is
+-- handed `tag.current()` or a list a configuration assembled itself. The
+-- dispatch is total: an array holding both tags and panels raises.
 --
--- Deduplication is what makes membership a set rather than a list. A panel on
--- two selected tags appears once, so a layout does not place it twice and then
--- leave it wherever the second placement put it.
+-- Deduplication makes membership a set, not a list. A panel on two selected
+-- tags appears once, and a layout does not place it twice. Placing it twice
+-- leaves it at the position of the second placement.
 function tag.panelsOf(target: Tag | { Tag } | { Panel }): { Panel }
   if target == nil then
     error('mullion.tag: panels are of a tag or an array, and nil is neither', 2)
@@ -217,10 +218,9 @@ function tag.panelsOf(target: Tag | { Tag } | { Panel }): { Panel }
   return panels
 end
 
--- Destroys every tag. Registered as this module's teardown hook, because a soft
--- reload that left the old state's tags behind would leave the new state's
--- `tag.new` raising on names the user believes they are declaring for the first
--- time.
+-- Destroys every tag. Registered as this module's teardown hook. A soft
+-- reload that keeps the old state's tags makes the new state's `tag.new`
+-- raise on names the configuration declares for the first time.
 function tag.teardown()
   for _, existing in ipairs(tags) do
     existing.dead = true
@@ -230,9 +230,8 @@ function tag.teardown()
   tags = {}
 end
 
--- Adds `panel` to this tag, reporting whether it was not already on it.
---
--- Membership is a set, so adding twice adds once.
+-- Adds `panel` to this tag, reporting whether the panel is a new member.
+-- Membership is a set, and adding twice adds once.
 function methods:add(panel)
   if self.dead or panel == nil or panel.dead then
     return false
@@ -246,7 +245,7 @@ function methods:add(panel)
   return true
 end
 
--- Takes `panel` off this tag, reporting whether it was on it.
+-- Takes `panel` off this tag, reporting whether the removal took place.
 function methods:remove(panel)
   local at = indexOf(self.members, panel)
   if not at then
@@ -264,7 +263,7 @@ function methods:has(panel)
   return indexOf(self.members, panel) ~= nil
 end
 
--- This tag's live panels, in the order they were added, as a fresh array.
+-- This tag's live panels, in the order of addition, as a fresh array.
 function methods:panels()
   compact(self.members)
   local members = {}
@@ -276,9 +275,9 @@ end
 
 -- Selects or deselects the tag, announcing `property::selected`.
 --
--- Through `signal.setProperty`, so that a configuration hears about a selection
--- change rather than polling for one, and so that setting it to what it already
--- is says nothing.
+-- Selection changes go through `signal.setProperty`. A configuration hears
+-- about a selection change and does not poll for one. Setting the tag to what
+-- it already is announces nothing.
 function methods:setSelected(selected)
   if self.dead then
     return false
@@ -286,12 +285,12 @@ function methods:setSelected(selected)
   return signal.setProperty(self, 'selected', selected and true or false)
 end
 
--- Runs this tag's layout over its panels, reporting whether there was one.
+-- Runs this tag's layout over its panels, reporting whether there is one.
 --
 -- A tag that is not selected does not arrange itself. A layout places panels
--- where the user can see them, and a tag the user is not looking at has no such
--- place; arranging it anyway would move panels the user cannot see into the
--- space occupied by the ones they can.
+-- where the user can see them. A tag the user is not looking at has no such
+-- place. Arranging it would move panels the user cannot see into the space
+-- occupied by panels the user can see.
 function methods:apply()
   if self.dead or not self.selected then
     return false
@@ -304,8 +303,8 @@ function methods:apply()
   return true
 end
 
--- Withdraws the tag. Its panels are untouched: a tag holds panels and does not
--- own them, and a panel on two tags outlives either.
+-- Withdraws the tag. Its panels are untouched. A tag holds panels and does
+-- not own them, and a panel on two tags remains when either tag is destroyed.
 function methods:destroy()
   if self.dead then
     return false
@@ -324,8 +323,8 @@ function methods:destroy()
   return true
 end
 
--- Drops destroyed panels from `members`, in place and in order, so that a long
--- session does not accumulate them.
+-- Drops destroyed panels from `members`, in place and in order. This keeps a
+-- long session from accumulating them.
 function compact(members)
   local kept = 0
   for index = 1, #members do
@@ -340,7 +339,7 @@ function compact(members)
   end
 end
 
--- Where `panel` sits in `members`, or nothing.
+-- The position of `panel` in `members`, or nothing.
 function indexOf(members: { Panel }, panel: Panel): number?
   for index = 1, #members do
     if members[index] == panel then
@@ -350,8 +349,9 @@ function indexOf(members: { Panel }, panel: Panel): number?
   return nil
 end
 
--- Orders tags by index and then by name, so that two tags sharing an index still
--- have one order rather than whichever `table.sort` happened to produce.
+-- Orders tags by index and then by name. The name tiebreak keeps two tags
+-- sharing an index in a fixed order; `table.sort` alone would order them
+-- arbitrarily.
 function byIndex(left: Tag, right: Tag)
   if left.index ~= right.index then
     return left.index < right.index
@@ -359,8 +359,8 @@ function byIndex(left: Tag, right: Tag)
   return left.name < right.name
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name. A module body running a second time, as during a soft
+-- reload, leaves one hook and not two.
 teardown.register('mullion.tag', tag.teardown)
 
 return tag
