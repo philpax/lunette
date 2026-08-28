@@ -2,13 +2,13 @@
 -- of panels is captured as, the panels an arrangement is restored onto, and the
 -- `mullion.rules` source it is installed as.
 --
--- The other half — the file on disk, the load, and the save — is
--- `spec/mullion/persist/file_spec.lua`. The seam is the module's own: one half
--- is arrangements and panels, the other is bytes and a filesystem.
+-- The other half, `spec/mullion/persist/file_spec.lua`, covers the file on disk,
+-- the load, and the save. The split follows the module's own seam: one half is
+-- arrangements and panels, the other is bytes and a filesystem.
 --
 -- The fakes both halves build are `spec.mullion.persist.fixture`, which requires
--- the panel fixture, so that the `mullion.panel` this reaches through is the one
--- holding the fake `lunette`.
+-- the panel fixture, so `mullion.persist` loads the `mullion.panel` that holds
+-- the fake `lunette`.
 
 local expect = require '@spec/expect'
 local fixture = require '@spec/mullion/persist/fixture'
@@ -69,8 +69,8 @@ end)
 spec('a source with no identity is reported rather than saved', function()
   reset()
   local nameless = newWindowPanel 'terminal'
-  -- A window also carries an `id`, so a key that fell through to it would name
-  -- the compositor's identifier, which names nothing after a restart.
+  -- A window also carries an `id`. A key that used it would name the
+  -- compositor's identifier, which names nothing after a restart.
   nameless.source.appId = nil
 
   local entries = persist.entries(persist.capture { nameless })
@@ -158,9 +158,9 @@ end)
 
 spec('apply refuses a destroyed panel', function()
   reset()
-  -- Checked here as well as in `restore`, which is the layer that would
-  -- ordinarily have skipped it: a configuration applying an entry itself reaches
-  -- this directly, and a panel can be destroyed between the two calls.
+  -- `apply` refuses a destroyed panel, and `restore` skips one. A configuration
+  -- applying an entry calls `apply` directly, and a panel can be destroyed
+  -- between the two calls.
   local screen = newMonitorPanel 'a screen'
   screen:destroy()
 
@@ -170,9 +170,9 @@ end)
 spec('apply reports a size it cannot put back', function()
   reset()
   -- The contract makes `setSize` optional, so a surface can be movable and not
-  -- resizable. The pose goes back and the size cannot, and a size dropped in
-  -- silence would come back as a panel restored in the right place at the wrong
-  -- size, which reads as the arrangement having been saved wrong.
+  -- resizable. The pose goes back and the size cannot. A silently dropped size
+  -- returns a panel in the right place at the wrong size. The restored
+  -- arrangement does not match the saved one.
   local moved = { setPose = function() end }
 
   local outcome = persist.apply(newEntry { kind = 'window', key = 'terminal', tags = {} }, moved)
@@ -184,11 +184,11 @@ end)
 
 spec('a key running into a slot does not collide with another entry', function()
   reset()
-  -- 'a' at slot 11 and 'a1' at slot 1 would be one lookup if the parts of a key
-  -- were concatenated without a separator, and the second window would be placed
-  -- where the eleventh one was.
-  -- The colliding entry is written second, so a lookup that ran the parts
-  -- together would answer with it rather than with the one asked for.
+  -- Without a separator between the parts, the lookup for 'a' at slot 11 equals
+  -- the lookup for 'a1' at slot 1, and the second window would then be placed
+  -- where the eleventh entry is.
+  -- The colliding entry is written second, and a concatenating lookup returns it
+  -- for the a1 window.
   local file = persist.newFile {
     newEntry { key = 'a1', slot = 1, width = 2 },
     newEntry { key = 'a', slot = 11, width = 1 },
@@ -281,10 +281,10 @@ end)
 
 spec('install accepts what load returns, as the default configuration passes it', function()
   reset()
-  -- `etc/xdg/lunette/main.lua` writes `persist.install(persist.load())`, which
-  -- is the shape a configuration reaches for. A load and an arrangement are two
-  -- different things, and an install that only took the second raises here — on
-  -- the first frame of every fresh installation.
+  -- `etc/xdg/lunette/main.lua` writes `persist.install(persist.load())`, the
+  -- shape a configuration uses. A load and an arrangement are two different
+  -- things. An install limited to the arrangement form fails on the first frame
+  -- of every fresh installation.
   local saved = persist.newFile {
     newEntry { pose = pose.encode(lovr.math.newMat4():translate(3, 3, -3)) },
   }
@@ -296,8 +296,8 @@ spec('install accepts what load returns, as the default configuration passes it'
   expect.near(x, 3, TOLERANCE, 'x')
   expect.near(y, 3, TOLERANCE, 'y')
   expect.near(z, -3, TOLERANCE, 'z')
-  -- The entry named a tag nothing declared, which `mullion.rules` creates and
-  -- reports. Asserted so that the report is a decision rather than noise.
+  -- The entry named a tag nothing declared. `mullion.rules` creates the tag and
+  -- reports the creation. The assertions below require the report.
   expect.equal(#fixture.ruleReports, 1, 'what mullion.rules reported')
   expect.truthy(fixture.ruleReports[1]:find 'nothing declared the tag', 'what was reported')
 end)
@@ -305,8 +305,8 @@ end)
 spec('install accepts a load carrying no arrangement at all', function()
   reset()
   -- `forSession` answers nothing for a load this version cannot read, so a
-  -- configuration passing a load through without an `or` hands nil onwards. That
-  -- is a session with nothing to restore, not a session that fails to start.
+  -- configuration passing a load through without an `or` hands nil onwards. The
+  -- session starts with nothing to restore.
   persist.install(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())))
   persist.install(nil, rules.DEFAULT_PRECEDENCE + 1)
 

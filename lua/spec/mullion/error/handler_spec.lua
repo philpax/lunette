@@ -1,4 +1,4 @@
--- Covers lua/mullion/error.lua.
+-- Covers lua/mullion/error/init.lua.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -9,12 +9,12 @@ local teardown = require '@mullion/teardown'
 local spec = suite.new 'mullion.error'
 
 -- Captures reports and starts from an uninstalled handler with an empty
--- limiter, returning the list reports land in.
+-- limiter. Returns the list holding the reports.
 local function fresh()
   errors.uninstall()
-  -- Again, because `uninstall` returns early when nothing was installed and
-  -- most cases here never install. Without it a case would inherit the previous
-  -- case's suppression counts.
+  -- `uninstall` returns early when no handler is installed, and most cases
+  -- never install one. `forget` clears the suppression counts a case would
+  -- otherwise inherit from the previous case.
   errors.forget()
 
   local reports = {}
@@ -24,10 +24,9 @@ local function fresh()
   return reports
 end
 
--- A clock the case advances by hand. Nothing here waits for a real one:
--- CONTRIBUTING.md's rule is to wait for conditions rather than durations, and a
--- rate limiter's window is exactly the thing to inject rather than sleep
--- through.
+-- A clock the case advances by explicit calls. No spec waits for a real clock:
+-- CONTRIBUTING.md requires waiting for conditions, not durations, and the
+-- injected clock controls the limiter window.
 local function clock()
   local time = { now = 0 }
   function time.advance(seconds)
@@ -125,8 +124,8 @@ spec('the limiter evicts the least recently recorded key when it is full', funct
   limiter:record('a', 0)
   limiter:record('b', 0)
   limiter:record('a', 1)
-  -- 'c' is the third key and the bound is two, so the least recently recorded
-  -- goes. That is 'b': 'a' was recorded again after it.
+  -- 'c' is the third key and the bound is two, so eviction removes the least
+  -- recently recorded key, which is 'b': 'a' is recorded again after 'b'.
   limiter:record('c', 1)
 
   expect.falsy(limiter:record('a', 2), 'a, which is still tracked')
@@ -186,17 +185,17 @@ spec('the installed handler reports through the rate limiter', function()
   local time = clock()
 
   errors.install(time.read)
-  -- From one call site, and that matters: the handler computes the traceback
-  -- itself and the traceback is part of the rate-limit key, so the same message
-  -- raised from two lines is two keys. An error raised every frame comes from
-  -- one line, which is the case this stands in for.
+  -- The loop calls the handler from one call site. The handler computes the
+  -- traceback itself, and the traceback is part of the rate-limit key: the same
+  -- message raised from two lines is two keys. An error raised every frame
+  -- comes from one line, which this case models.
   for _ = 1, 2 do
     lovr.errhand 'it broke'
   end
   errors.uninstall()
 
-  -- Two calls, one report: the second was suppressed, which is the whole point
-  -- of an error raised every frame not filling the display.
+  -- Two calls produce one report: the second is suppressed, so an error raised
+  -- every frame does not fill the display.
   expect.equal(#reports, 1, 'report count')
 end)
 
@@ -242,9 +241,10 @@ spec('uninstall forgets what was rate-limited', function()
   errors.uninstall()
   errors.handle('it broke', 'a traceback', 0)
 
-  -- The same error within the window, and reported twice: the limiter the
-  -- second went through is a fresh one, so a reload does not inherit the old
-  -- state's suppression and silently swallow the first error of the new one.
+  -- The same error within the window produces two reports: uninstall clears
+  -- the limiter, so the second handled call uses a fresh one. A reload does
+  -- not inherit the old state's suppression, and the first error of the new
+  -- state is reported.
   expect.equal(#reports, 2, 'report count')
 end)
 

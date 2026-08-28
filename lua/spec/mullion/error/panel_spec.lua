@@ -9,8 +9,8 @@ local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.error.panel'
 
--- An uninstalled panel with nothing showing, and a captured report sink so that
--- a case driving the handler does not write to stderr.
+-- An uninstalled panel with nothing showing, and a captured report sink.
+-- A case that runs the handler writes no line to stderr.
 local function fresh()
   panel.uninstall()
   panel.clear()
@@ -24,8 +24,9 @@ local function fresh()
   return reports
 end
 
--- A `Pass` that records what it was asked to draw. The panel reaches for four
--- methods and nothing else, which is what makes standing in for one four lines.
+-- A `Pass` that records each draw call. The panel draws through `setColor`,
+-- `plane`, and `text`; the recorder counts planes and collects the texts and
+-- colors.
 local function recordingPass()
   local pass = { planes = 0, texts = {}, colors = {} }
   function pass:plane()
@@ -40,8 +41,8 @@ local function recordingPass()
   return pass
 end
 
--- Everything the pass was asked to draw, joined, for a case asserting that
--- something reached the panel rather than where on it.
+-- The texts the pass records, joined. A case asserting that something reached
+-- the panel reads the joined text and does not assert placement.
 local function drawnText(pass)
   return table.concat(pass.texts, '\n')
 end
@@ -72,8 +73,8 @@ spec('the previous report sink still runs', function()
 
   errors.handle('it broke', 'a traceback', 0)
 
-  -- The log keeps everything the panel summarises, which is what makes the
-  -- panel a summary rather than the only record.
+  -- The log keeps everything the panel summarises. The panel is a summary;
+  -- the log is the full record.
   expect.equal(#reports, 1, 'report count')
 
   panel.uninstall()
@@ -83,7 +84,7 @@ spec('a rate-limited error updates the panel once, not once per frame', function
   fresh()
   panel.install()
 
-  -- One frame's worth of a defect raised every frame, at 90 Hz.
+  -- A defect that raises every frame, 90 times at 90 Hz.
   for frame = 1, 90 do
     errors.handle('it broke', 'a traceback', frame / 90)
   end
@@ -151,8 +152,8 @@ spec('wrapping breaks between words when it can', function()
   end
   panel.show(table.concat(words, ' '))
 
-  -- Every line but the heading is whole words, which is what "breaks between
-  -- words" means from outside the wrapper.
+  -- Every line but the heading is whole words. The checks verify the wrapping
+  -- from the rendered lines.
   local lines = panel.lines()
   for index = 2, #lines do
     if lines[index] ~= '…' then

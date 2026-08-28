@@ -1,8 +1,8 @@
--- Covers lua/mullion/panel/init.lua, apart from the ray-quad intersection,
--- which lua/spec/mullion/panel/raycast_spec.lua covers.
+-- Covers lua/mullion/panel/init.lua, apart from the ray-quad intersection.
+-- lua/spec/mullion/panel/raycast_spec.lua covers the intersection.
 --
--- The fakes and the module under test come from `spec.mullion.panel.fixture`,
--- which states why `lunette` is faked and why both specs share one install.
+-- The fakes and the module under test come from `spec.mullion.panel.fixture`.
+-- It states why `lunette` is faked and why both specs share one install.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -18,22 +18,22 @@ local newPass = fixture.newPass
 local poseAt = fixture.poseAt
 local TOLERANCE = fixture.TOLERANCE
 
--- Starts a case with nothing left over, and answers with the claim log so that
--- a case reads the claims it caused.
+-- Starts a case with nothing left over and returns the claim log. A case
+-- reads the claims it caused.
 local function fresh()
   fixture.reset()
   return fixture.claims
 end
 
--- What `panel.opaqueShader` answers while a case is drawing with one available.
--- The spec run has no graphics module, so there is no real shader to build and
--- a case about the shader has to supply its own.
+-- What `panel.opaqueShader` returns while a case draws with one available. The
+-- spec run has no graphics module, so no real shader exists to build. A case
+-- about the shader supplies its own.
 local OPAQUE_SHADER = 'the opaque shader'
 
--- Draws `created` with a shader available, and answers the pass it drew into.
+-- Draws `created` with a shader available and returns the pass it drew into.
 --
--- The stub is put back whether or not the draw raised, so that a failure here
--- does not leave every later case drawing through it.
+-- The stub is put back whether or not the draw raised. A failure here does not
+-- leave every later case drawing through it.
 local function drawWithOpaqueShader(created)
   local pass = newPass()
   local previous = panel.opaqueShader
@@ -96,7 +96,7 @@ spec('setPose announces the change and copies the matrix', function()
 
   local pose = poseAt(1, 2, -3)
   created:setPose(pose)
-  -- Moving the caller's own matrix afterwards must not move the panel: a panel
+  -- Moving the caller's own matrix afterwards must not move the panel. A panel
   -- that kept the reference would follow a temporary the caller reused.
   pose:translate(10, 10, 10)
 
@@ -145,11 +145,11 @@ spec('a granted claim whose source is smaller than its layer sets a viewport mat
   local created = panel.fromWindow(newSource(800, 600), { height = 1 })
   created:update()
 
-  -- The ladder quantises upwards, so an 800x600 request is served by a
-  -- 1024x1024 layer and the source sits in its corner. Without the viewport the
-  -- runtime would composite the whole square, drawing the window squeezed into
-  -- the top-left quarter of it with blank around the rest. Phase 3's blit
-  -- clears that margin, which makes it blank rather than making it absent.
+  -- The ladder quantises upwards. An 800x600 request is served by a 1024x1024
+  -- layer and the source occupies its corner. Without the viewport the runtime
+  -- would composite the whole square, drawing the window squeezed into the
+  -- top-left quarter of it with blank around the rest. A later blit clears
+  -- that margin, leaving it blank.
   local layer = claims[1]:grant(1024, 1024)
   created:update()
 
@@ -256,9 +256,10 @@ spec('a re-grant after a revocation sets the viewport again', function()
 
   claims[1]:revoke()
   created:update()
-  -- A revoked claim takes a layer again as soon as one frees, and it is not the
-  -- same layer, so the viewport it was told about last time went with the old
-  -- one.
+  -- A revoked claim takes a layer again as soon as one frees
+  -- (docs/lua-api.md#layer-claims). The new layer is not the old one, and the
+  -- viewport set on the old layer does not carry over. A re-grant sets it
+  -- again.
   local layer = claims[1]:grant(1024, 1024)
   created:update()
 
@@ -321,10 +322,10 @@ spec('a source with no texture yet draws no quad', function()
   expect.equal(pass.planes, 0, 'planes drawn')
 end)
 
--- A source reporting `opaque` has a padding byte where alpha would be, and most
--- clients leave it at zero, so a panel that sampled it would draw the window
--- fully invisible. docs/rendering.md#alpha makes forcing it to one the
--- consumer's job, and the shader is how the quad path does it.
+-- A source reporting `opaque` has a padding byte where alpha would be, and
+-- most clients leave it at zero. A panel that sampled it would draw the window
+-- fully invisible. docs/rendering.md#alpha makes the consumer responsible for
+-- forcing it to one. The opaque shader performs that step on the quad path.
 spec('an opaque source is drawn through the opaque shader, which is then cleared', function()
   fresh()
   local source = newSource(800, 600, { texture = 'a texture', opaque = true })
@@ -337,10 +338,9 @@ spec('an opaque source is drawn through the opaque shader, which is then cleared
   expect.equal(pass.shaders[2], false, 'the shader cleared')
 end)
 
--- Drawn with a shader available, so that a panel setting one for every source
--- rather than for an opaque one is caught. Without the stub this case passes on
--- a run with no graphics module whatever the panel does, because there would be
--- no shader to set either way.
+-- Drawn with a shader available, so a panel that sets one for every source is
+-- caught. Without the stub, a run with no graphics module has no shader to
+-- set, and the case passes whatever the panel does.
 spec('a source that is not opaque sets no shader', function()
   fresh()
   local source = newSource(800, 600, { texture = 'a texture' })
@@ -352,10 +352,9 @@ spec('a source that is not opaque sets no shader', function()
   expect.equal(pass.planes, 1, 'planes drawn')
 end)
 
--- The spec run switches the graphics module off, so there is nothing to build a
--- shader from. A panel then draws without the correction rather than raising,
--- which is what keeps a session with no graphics module — this one — able to
--- call `draw` at all.
+-- The spec run switches the graphics module off, so nothing exists to build a
+-- shader from. A panel then draws without the correction and does not raise. A
+-- session with no graphics module can call `draw`.
 spec('the opaque shader is nothing when there is no graphics module', function()
   expect.falsy(lovr.graphics, 'the graphics module')
   expect.equal(panel.opaqueShader(), nil, 'the shader')
@@ -412,8 +411,8 @@ spec('a monitor panel never claims a layer', function()
 
   created:update()
 
-  -- `lunette.claimLayer` takes `window` and nothing else, so a mirrored screen
-  -- has no way to ask. Noted as a gap in the native API at the module head.
+  -- `lunette.claimLayer` takes `window` and nothing else, so a monitor panel
+  -- cannot request a layer. The module head notes this as a native API gap.
   expect.equal(#claims, 0, 'claim count')
   expect.falsy(created.granted, 'granted')
 end)

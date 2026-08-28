@@ -1,10 +1,10 @@
 -- Covers lua/mullion/pacing.lua.
 --
--- The whole module is pure, so every case here drives a pacer with observations
--- and reads the rate back. What is worth asserting is the exemption: that the
--- hint alone exempts a paused video that commits nothing, that a busy client
--- exempts itself without setting a hint at all, and that a window nobody is
--- looking at and nothing is happening in falls to the floor.
+-- The module is pure. Every case constructs a pacer, feeds it observations,
+-- and reads the rate back. The exemption rule yields three outcomes: the hint
+-- alone exempts a paused video that commits nothing, a busy client exempts
+-- itself without a hint, and a window out of view with no commits and no hint
+-- receives the background rate.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -13,7 +13,7 @@ local pacing = require '@mullion/pacing'
 
 local spec = suite.new 'mullion.pacing'
 
--- A short history with round numbers, so a case can count observations by hand.
+-- A short history with round numbers. A case can count the observations manually.
 local TUNING = {
   foreground = false,
   background = 1,
@@ -28,7 +28,8 @@ local function pacer(options)
   return pacing.newPacer { tuning = options.tuning or TUNING }
 end
 
--- Drives `count` observations of the same state and answers the last rate.
+-- Feeds `count` observations of the same state to the pacer and returns the
+-- last rate.
 local function observe(paced, state, count)
   local rate
   for _ = 1, count or 1 do
@@ -65,8 +66,8 @@ end)
 spec('a window reporting video is exempt even when it commits nothing', function()
   local paced = pacer()
 
-  -- A paused video player. Nothing commits, so the commit rate says idle; the
-  -- hint is the only thing that knows better.
+  -- A paused video player commits nothing. The commit record alone would
+  -- indicate an idle client; the hint exempts it.
   local rate = observe(paced, { visible = false, contentType = 'video', drew = false }, 4)
 
   expect.equal(rate, 30, 'the rate for a paused video out of view')
@@ -84,8 +85,8 @@ end)
 spec('a busy window is exempt without reporting anything', function()
   local paced = pacer()
 
-  -- The case the hint misses: adoption of `wp_content_type_v1` is thin, so a
-  -- client actually playing video usually reports 'none'.
+  -- The case the hint does not cover. Adoption of `wp_content_type_v1` is
+  -- thin, and a client playing video usually reports 'none'.
   local rate = observe(paced, { visible = false, contentType = 'none', drew = true }, 4)
 
   expect.equal(rate, 30, 'the rate for a client redrawing every frame')
@@ -96,7 +97,7 @@ spec('a window committing under the busy fraction is not exempt', function()
   local paced = pacer()
 
   -- One commit in four is a quarter, and the threshold is a half. A terminal
-  -- with a blinking cursor lives here.
+  -- with a blinking cursor commits at about this rate.
   paced:observe { visible = false, contentType = 'none', drew = true }
   local rate = observe(paced, { visible = false, contentType = 'none', drew = false }, 3)
 
@@ -120,8 +121,8 @@ spec('a window that stops committing stops being exempt once the history turns o
   observe(paced, { visible = false, contentType = 'none', drew = true }, 4)
   expect.equal(paced:current(), 30, 'the rate while busy')
 
-  -- Four quiet observations is exactly the history, so nothing of the busy
-  -- stretch is left in the ring.
+  -- Four quiet observations match the history length, and no busy sample
+  -- remains in the ring.
   local rate = observe(paced, { visible = false, contentType = 'none', drew = false }, 4)
 
   expect.equal(rate, 1, 'the rate after the busy history aged out')
@@ -131,8 +132,9 @@ spec('a window is judged on the samples it has, not the whole history', function
   local paced = pacer()
 
   -- Two observations into a history of four. Counting the empty slots as quiet
-  -- would put this at a half of nothing and hold the window out of exemption
-  -- for its first frames, which is exactly when a video player is starting.
+  -- would put the commit fraction at a quarter after the first commit and at a
+  -- half after the second. A starting video player would run at the background
+  -- rate during its first frame.
   local rate = observe(paced, { visible = false, contentType = 'none', drew = true }, 2)
 
   expect.equal(rate, 30, 'the rate for a window two frames old')
