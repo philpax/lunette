@@ -2,9 +2,11 @@
 --
 -- The layout is pure geometry, so it is checked as geometry: every panel the
 -- same distance from the centre, the gaps between them equal, and the middle of
--- an odd count straight ahead. The degenerate counts are here explicitly rather
--- than left to a generator to stumble into, because zero is the one that would
--- divide by zero and one is the one that would.
+-- an odd count straight ahead. The degenerate counts are here explicitly. A
+-- count of zero returns the empty list before the step arithmetic. A count of
+-- one spans nothing: the single panel keeps the tuning step and is at the
+-- arc's midpoint. The step-shrink condition requires `count > 1`, because one
+-- panel cannot exceed a span.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -14,14 +16,16 @@ local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.layout.arc'
 
--- Every number here came out of a trigonometric function and a 4x4 multiply, so
--- an exact comparison would be asserting the order the operations were written
--- in.
+-- Every number here came out of a trigonometric function and a 4x4 multiply,
+-- whose results land in the floating-point noise around the exact value.
+-- Comparisons use TOLERANCE.
 local TOLERANCE = 1e-5
 
--- A panel, as far as a layout is concerned: something with a pose it can be
--- told to move to. The real `mullion.panel` is not required, for the reason the
--- tag spec records.
+-- A layout needs a panel's pose and `dead` flag, and nothing more. The real
+-- `mullion.panel` is not required: requiring it would make these cases depend
+-- on the layer-claim fake the panel specs install, and the cases do not reach
+-- past those two fields. tag_spec.lua's `newPanel` makes the same choice for
+-- the same reason.
 local function newPanel(name)
   local panel = { name = name, dead = false, pose = lovr.math.newMat4() }
 
@@ -32,7 +36,7 @@ local function newPanel(name)
   return panel
 end
 
--- How far a pose sits from the arc's centre.
+-- The distance from a pose's position to the arc's centre.
 local function distanceFromCenter(pose, center)
   local x, y, z = pose:getPosition()
   local dx, dy, dz = x - center[1], y - center[2], z - center[3]
@@ -84,7 +88,7 @@ spec('a wide count narrows the step rather than exceeding the span', function()
 
   local placed = arc.angles(9, options)
   expect.near(placed[#placed] - placed[1], options.span, TOLERANCE, 'the total span')
-  -- Narrowing rather than clipping: every panel is still placed.
+  -- Narrowing keeps every panel placed.
   expect.equal(#placed, 9, 'the panels placed')
 end)
 
@@ -113,9 +117,9 @@ end)
 spec('a panel faces back towards the centre', function()
   local placed = arc.poses(3, { step = 1.0, radius = 2, center = { 0, 0, 0 } })
 
-  -- The panel's own +z, in world space. A quad drawn by `Pass:plane` faces +z,
-  -- so this is the direction the panel is readable from, and it should point
-  -- from the panel back at the centre.
+  -- The panel's own +z, in world space. A `Pass:plane` quad faces +z, so this
+  -- is the panel's facing direction. The check compares it with the direction
+  -- from the panel to the centre.
   for index, pose in ipairs(placed) do
     -- The centre is at the origin here, so the direction from the panel back to
     -- it is its own position negated.
@@ -147,8 +151,8 @@ spec('applying places the current tag and skips the unselected one', function()
   local placed = arc(tag.current())
 
   expect.equal(#placed, 2, 'the panels placed')
-  -- Untouched, so still at the origin. The arc's centre is at eye height, so a
-  -- panel it had placed would be a metre and a half up.
+  -- Untouched, so still at the origin. The arc's centre is at eye height, and
+  -- a placed panel would be a metre and a half above the origin.
   local unseenX, unseenY, unseenZ = unseen.pose:getPosition()
   expect.near(unseenX, 0, TOLERANCE, 'the unselected panel x')
   expect.near(unseenY, 0, TOLERANCE, 'the unselected panel y')
@@ -172,8 +176,8 @@ spec('a panel on two selected tags is placed once', function()
   local placed = arc(tag.current())
 
   expect.equal(#placed, 1, 'the panels placed')
-  -- One panel, so it is at the midpoint. A panel placed twice would have taken
-  -- the second of two positions and sat off to one side.
+  -- One panel, so it is at the midpoint. A panel placed twice would take the
+  -- second of two positions and be off to one side.
   local x = shared.pose:getPosition()
   expect.near(x, arc.TUNING.center[1], TOLERANCE, 'the shared panel x')
   tag.teardown()

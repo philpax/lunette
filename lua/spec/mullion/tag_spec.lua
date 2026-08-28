@@ -1,9 +1,9 @@
 -- Covers lua/mullion/tag.lua.
 --
--- Tags decide what a layout is handed, so the cases that matter are about the
--- set: a panel on two tags appears once, a tag nobody selected is not returned
--- by `current`, and a destroyed panel stops being a member without anything
--- having told the tag.
+-- The selected tags determine the panels a layout receives. The cases concern
+-- the membership set: a panel on two tags appears once, an unselected tag is
+-- not returned by `current`, and a destroyed panel leaves the set at the next
+-- lookup without a notification.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -12,16 +12,16 @@ local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.tag'
 
--- A panel, as far as a tag is concerned: something with a `dead` flag and a
--- pose. The real `mullion.panel` is not required here because nothing a tag does
--- reaches past those two, and requiring it would make these cases depend on the
--- layer-claim fake the panel specs install.
+-- For a tag, a panel is an object with a `dead` flag and a pose. Nothing a tag
+-- does reaches past those two fields. The cases never require `mullion.panel`;
+-- requiring it would make them depend on the layer-claim fake the panel specs
+-- install.
 local function newPanel(name)
   return { name = name, dead = false }
 end
 
--- A fresh registry for each case. `tag.new` refuses a name another tag holds, so
--- a case that left its tags behind would make the next one raise.
+-- A fresh registry for each case. `tag.new` raises on a name another tag
+-- holds. Leftover tags would make the next case raise.
 local function reset()
   tag.teardown()
 end
@@ -235,8 +235,8 @@ spec('teardown empties the registry', function()
   tag.teardown()
 
   expect.equal(#tag.all(), 0, 'the tags afterwards')
-  -- The name is free again, which is what a soft reload re-running a
-  -- configuration that declares its tags depends on.
+  -- The name is free again. A soft reload re-runs the configuration, which
+  -- declares its tags by name; leftover tags would make the declaration raise.
   expect.truthy(tag.new 'main', 'declaring the same name again')
 end)
 
@@ -254,14 +254,15 @@ spec('requiring twice leaves one teardown hook', function()
     end
   end
   expect.equal(registered, 1, 'the hooks named mullion.tag')
-  -- The second module body built its own registry, so the tags the first one
-  -- holds are not the ones the second sees. Emptying both leaves the rest of the
-  -- suite with the registry it expects.
+  -- The second module body builds its own registry. The first body's tags are
+  -- not in the second body's registry. Emptying both registries leaves the rest
+  -- of the suite with the registry it expects.
   reloaded.teardown()
   tag.teardown()
-  -- The second body's `register` replaced the hook with its own registry's, so
-  -- the first one's is put back: the rest of the suite holds the first module
-  -- table, and a reload would otherwise empty a registry nothing is using.
+  -- The second body's `register` replaces the hook with its own registry's
+  -- teardown. Registering the first module table's teardown restores the first
+  -- hook: the rest of the suite holds the first module table, and a reload
+  -- would otherwise empty a registry nothing is using.
   teardown.register('mullion.tag', tag.teardown)
 end)
 

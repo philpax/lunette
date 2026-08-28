@@ -1,12 +1,11 @@
 -- Covers lua/spec/runner.lua.
 --
--- The runner is what decides which specs run, so a defect in it is silent by
--- construction: a discovery that missed a directory would report every case it
--- did find as passing and say nothing about the ones it never loaded. That is
--- the one failure in this tree that no other spec can catch.
+-- The runner decides which spec files run. If discovery misses a directory,
+-- the run reports every case it finds as passing and reports nothing about the cases
+-- it never loads. No other spec in this tree catches that failure.
 --
--- Discovery is driven against a table of strings rather than a real directory,
--- which is what `runner.discover` taking its filesystem as an argument is for.
+-- Discovery runs against a table of strings. `runner.discover` takes its filesystem
+-- as an argument, and the specs pass that table to it.
 
 local expect = require '@spec/expect'
 local runner = require '@spec/runner'
@@ -23,8 +22,8 @@ local function fakeFilesystem(directories)
       if not items then
         error('the fake filesystem has no directory at ' .. path)
       end
-      -- Copied, because `discover` sorts what it is given and a fake that
-      -- handed out its own table would be reordered under it.
+      -- `discover` sorts the list it receives. The copy prevents the sort
+      -- from reordering the fixture's table.
       local listed = {}
       for index, item in ipairs(items) do
         listed[index] = item
@@ -47,9 +46,9 @@ spec('discovery finds spec files and skips everything else', function()
   expect.equal(table.concat(names, ','), '@spec/signal_spec', 'the names found')
 end)
 
--- The defect this file exists for. A module under a new subdirectory that
--- discovery does not descend into is a whole file's worth of coverage lost with
--- no report of any kind.
+-- A module under a new subdirectory that discovery does not descend into
+-- never runs. The run reports nothing about it, and a whole spec file's coverage
+-- is lost.
 spec('discovery descends into subdirectories', function()
   local filesystem = fakeFilesystem {
     ['@spec'] = { 'a_spec.lua', 'nested' },
@@ -82,9 +81,9 @@ spec('discovery of an empty tree finds nothing rather than raising', function()
   expect.equal(#names, 0, 'the names found')
 end)
 
--- A file under `lua/spec/` that runs nothing is coverage silently lost, so it
--- is an error rather than a skip. `@spec/expect` is a module that is not a
--- suite, which is what a mis-written spec file looks like from here.
+-- A file under `lua/spec/` that runs nothing loses its coverage silently.
+-- `collect` raises an error for it and does not skip it. `@spec/expect` is a module
+-- that is not a suite, and a mis-written spec file returns such a module.
 spec('a module that is not a suite is refused', function()
   expect.raises(function()
     runner.collect { '@spec/expect' }

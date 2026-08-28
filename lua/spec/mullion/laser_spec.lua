@@ -1,10 +1,10 @@
 -- Covers lua/mullion/laser.lua.
 --
--- The device is driven through `options.readInput`, which is the seam the
--- module has for exactly this: `lovr.headset` is switched off in the spec run,
--- and a laser that could only be driven by a real controller would be a laser
--- nothing could check. `laser.headsetInput`, the default that does read the
--- headset, is the part this cannot reach and is a human gate.
+-- The device reads input through `options.readInput`, the seam this module
+-- exists for: `lovr.headset` is switched off in the spec run, and a laser
+-- dependent on a real controller would be a laser nothing could check.
+-- `laser.headsetInput`, the default that reads the headset, is the part a
+-- spec cannot reach and is a human gate.
 --
 -- The seats come from `spec.mullion.laser_fixture`, which states why `lunette`
 -- is faked. The panels are real, from `spec.mullion.panel.fixture`.
@@ -41,8 +41,8 @@ local function looking(options)
   }
 end
 
--- A `readInput` answering whatever the case last put in `frame`, so a case can
--- change the input between updates without rebuilding the laser.
+-- A `readInput` that returns whatever the case last put in `frame`. A case
+-- changes the input between updates without rebuilding the laser.
 local function newDevice(frame)
   local device = { frame = frame, hands = {} }
 
@@ -164,9 +164,9 @@ spec('a hand that stops being tracked stops pointing', function()
 end)
 
 spec('a beam stops at a surface that is not a panel', function()
-  -- A wrist button and a keyboard are surfaces rather than panels, and the
-  -- pointer picks across all of them, so the beam stops on one without the
-  -- configuration reporting anything.
+  -- A wrist button and a keyboard are surfaces, not panels. The pointer
+  -- raycasts every surface, and the beam stops at the first hit. No panel
+  -- or registration is involved.
   fresh()
   local device = newDevice(looking())
   local left = laser.new('left', { readInput = device.read })
@@ -299,7 +299,8 @@ spec('requiring the module twice leaves one teardown hook', function()
     return found
   end
 
-  -- Through the fixture's fake `lunette`, since the module body requires it.
+  -- The module body requires `@lunette`. The reload substitutes the fixture's
+  -- fake for it.
   local function reload()
     local previous = package.loaded['@lunette']
     package.loaded['@lunette'] = { newSeat = function() end }
