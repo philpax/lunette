@@ -1,7 +1,7 @@
-//! The Luau type checker, built from the Luau the LÖVR fork carries.
+//! The Luau type checker, built from the Luau that the LÖVR fork vendors.
 //!
-//! `lunette check` and the standing check both run through here, so the command
-//! a user reaches for and the check CI runs are one code path. The C surface it
+//! `lunette check` and the standing check both run through this module, so
+//! the command and the CI check are one code path. The C surface this module
 //! wraps is `analyze.cpp`.
 
 use std::{
@@ -11,10 +11,10 @@ use std::{
     ptr, slice,
 };
 
-/// What a check was asked to do.
+/// The parameters of one check.
 #[derive(Clone, Debug)]
 pub struct Request {
-    /// Loaded into the global scope before anything is checked.
+    /// The check loads the definitions into the global scope at the start.
     pub definitions: Option<PathBuf>,
     /// The files to check. Each is its own module name.
     pub roots: Vec<PathBuf>,
@@ -36,19 +36,19 @@ impl Request {
     }
 }
 
-/// What one check found.
+/// The results of one check.
 #[derive(Clone, Debug, Default)]
 pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
-    /// The roots that were read. A root absent from here was skipped, which no
-    /// count of diagnostics would reveal.
+    /// The roots the check reads. A root absent from this list is skipped; no
+    /// count of diagnostics reveals the skip.
     pub checked: Vec<PathBuf>,
 }
 
 impl Report {
-    /// Whether anything worth failing a build over was found.
+    /// Whether the report contains a diagnostic other than a lint warning.
     ///
-    /// Lint warnings do not count; lint errors do.
+    /// Lint warnings do not fail a build; every other kind does.
     #[must_use]
     pub fn is_clean(&self) -> bool {
         !self
@@ -57,7 +57,7 @@ impl Report {
             .any(|diagnostic| diagnostic.kind != Kind::LintWarning)
     }
 
-    /// The roots that were asked for and not read.
+    /// The roots the request names that the check does not read.
     #[must_use]
     pub fn skipped<'a>(&self, request: &'a Request) -> Vec<&'a Path> {
         request
@@ -69,12 +69,12 @@ impl Report {
     }
 }
 
-/// One thing the checker found.
+/// One diagnostic the checker reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
     pub kind: Kind,
     pub module: PathBuf,
-    /// One-based lines, zero-based columns, as Luau counts them.
+    /// One-based lines and zero-based columns, matching Luau's numbering.
     pub line: u32,
     pub column: u32,
     pub end_line: u32,
@@ -120,9 +120,9 @@ impl fmt::Display for Kind {
 ///
 /// # Errors
 ///
-/// If a path holds an interior NUL, or the checker could not run at all — an
-/// unreadable definitions file, or one that does not load. A definitions file
-/// that failed to load carries its own diagnostics on the error.
+/// If a path holds an interior NUL, or the checker cannot run: the
+/// definitions file is unreadable, or it does not load. When a definitions
+/// file does not load, the error contains the diagnostics from the load.
 pub fn check(request: &Request) -> Result<Report, Error> {
     let definitions = request
         .definitions
@@ -149,7 +149,7 @@ pub fn check(request: &Request) -> Result<Report, Error> {
     };
 
     // SAFETY: every pointer in `raw` is valid for the call, and the callee
-    // copies what it keeps. The report is freed below on every path.
+    // copies what it keeps. Every path that obtains a report frees it.
     let report = unsafe { ffi::lunette_luau_check(&raw) };
     if report.is_null() {
         return Err(Error::Failed {
@@ -158,11 +158,11 @@ pub fn check(request: &Request) -> Result<Report, Error> {
         });
     }
 
-    // SAFETY: a non-null report is a live allocation the callee filled in, and
-    // its arrays are valid for their stated counts.
+    // SAFETY: a non-null report is a live allocation that the callee
+    // populated, and its arrays are valid for their stated counts.
     let outcome = unsafe { collect(report) };
-    // SAFETY: the report has not been freed, and nothing borrows it now that
-    // `collect` has copied everything out.
+    // SAFETY: the report has not been freed, and nothing borrows it after
+    // `collect` copies everything out.
     unsafe { ffi::lunette_luau_report_free(report) };
     outcome
 }
@@ -177,16 +177,18 @@ unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error
     let diagnostics = if report.diagnostics.is_null() {
         Vec::new()
     } else {
-        // SAFETY: the pointer is non-null and the count is the callee's own.
+        // SAFETY: the pointer is non-null, and the count belongs to the
+        // callee's report.
         unsafe { slice::from_raw_parts(report.diagnostics, report.diagnostic_count) }
             .iter()
-            // SAFETY: each string is NUL-terminated and lives until the free.
+            // SAFETY: each string is NUL-terminated and remains valid until
+            // the report is freed.
             .map(|raw| unsafe { diagnostic(raw) })
             .collect()
     };
 
     if !report.failure.is_null() {
-        // SAFETY: as above.
+        // SAFETY: the pointer is non-null, and the string is NUL-terminated.
         let reason = unsafe { CStr::from_ptr(report.failure) }
             .to_string_lossy()
             .into_owned();
@@ -199,10 +201,13 @@ unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error
     let checked = if report.checked.is_null() {
         Vec::new()
     } else {
-        // SAFETY: as above.
+        // SAFETY: the pointer is non-null, and the count belongs to the
+        // callee's report. Each string is NUL-terminated and remains valid
+        // until the report is freed.
         unsafe { slice::from_raw_parts(report.checked, report.checked_count) }
             .iter()
-            // SAFETY: as above.
+            // SAFETY: the pointer for the string is valid for the
+            // lifetime of the report's checked array.
             .map(|raw| {
                 PathBuf::from(
                     unsafe { CStr::from_ptr(*raw) }
@@ -229,11 +234,13 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
         ffi::LUNETTE_LUAU_LINT_WARNING => Kind::LintWarning,
         _ => Kind::TypeError,
     };
-    // SAFETY: the caller guarantees the strings.
+    // SAFETY: the caller guarantees the strings. Each string is
+    // NUL-terminated and remains valid until the report is freed.
     let module = unsafe { CStr::from_ptr(raw.module) }
         .to_string_lossy()
         .into_owned();
-    // SAFETY: as above.
+    // SAFETY: the caller guarantees the string is NUL-terminated and
+    // remains valid until the report is freed.
     let message = unsafe { CStr::from_ptr(raw.message) }
         .to_string_lossy()
         .into_owned();
@@ -249,13 +256,14 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
     }
 }
 
-/// A check that could not run.
+/// A check that cannot run.
 #[derive(Debug)]
 pub enum Error {
-    /// A path held an interior NUL.
+    /// A path holds an interior NUL.
     Path(NulError),
-    /// The checker refused the request. `diagnostics` carries what it managed
-    /// to say, which for a definitions file that did not load is why.
+    /// The checker rejects the request. `diagnostics` holds the diagnostics
+    /// the checker produces alongside the rejection. When a definitions file
+    /// fails to load, those diagnostics state why.
     Failed {
         reason: String,
         diagnostics: Vec<Diagnostic>,
@@ -377,8 +385,9 @@ mod tests {
         assert_eq!(diagnostic.line, 1, "the line");
     }
 
-    /// A root that cannot be read produces no diagnostics at all, which is the
-    /// shape that let unresolved requires silently skip whole files.
+    /// A root that cannot be read produces no diagnostics. Without the
+    /// skipped-roots report, an unresolved require would silently skip a
+    /// whole file.
     #[test]
     fn an_unreadable_root_is_reported_as_skipped() {
         let directory = tempfile::TempDir::new().expect("a temporary directory");

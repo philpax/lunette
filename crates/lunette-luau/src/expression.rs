@@ -1,14 +1,14 @@
 //! A Luau type expression, and how it renders.
 //!
-//! The tree exists so that a type is built rather than formatted. A union
-//! interpolated into a string is one an author has to remember to parenthesise
-//! before putting a `?` on it, and `(A) -> B?` is a function returning `B?`
-//! rather than an optional function, which is the kind of mistake that reaches
-//! a user as a type error in their own configuration.
+//! A type is a structured value that code builds. It is not a string that
+//! code formats with interpolation. A union interpolated into a string needs
+//! parentheses when a `?` is added. Without the parentheses,
+//! `(A) -> B?` is a function returning `B?`, not an optional function. A user
+//! sees the mistake as a type error in their own configuration.
 
 use std::fmt;
 
-/// A type as Luau writes it.
+/// A type in Luau's syntax.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     /// A type named by an identifier: `Window`, `number`, `nil`.
@@ -31,8 +31,8 @@ pub enum Type {
         parameters: Vec<Parameter>,
         returns: Box<Type>,
     },
-    /// `(A, B)`, which is also how a function spells returning nothing and how
-    /// it spells returning more than one value.
+    /// `(A, B)`. A function uses this type for an empty return and for a
+    /// multi-value return.
     Tuple(Vec<Type>),
 }
 
@@ -70,8 +70,8 @@ impl Type {
         }
     }
 
-    /// The union of a set of string singletons, which is what a closed set of
-    /// names is seen as.
+    /// The union of a set of string singletons, which is how the code
+    /// represents a closed set of names.
     #[must_use]
     pub fn literals(names: &[&'static str]) -> Self {
         Self::Union(names.iter().copied().map(Self::Literal).collect())
@@ -79,9 +79,9 @@ impl Type {
 
     /// Whether this needs parentheses to be the operand of `?`.
     ///
-    /// `A | B` and `(A) -> B` both bind looser than the postfix `?`, so an
-    /// optional one is `(A | B)?` rather than `A | B?`, which parses as
-    /// `A | (B?)` and means something else.
+    /// `A | B` and `(A) -> B` both bind looser than the postfix `?`. An
+    /// optional of them is `(A | B)?`. Without the parentheses, `A | B?`
+    /// parses as `A | (B?)`, which is a different type.
     const fn binds_looser_than_optional(&self) -> bool {
         matches!(
             self,
@@ -92,8 +92,8 @@ impl Type {
     /// Whether this needs parentheses to be a member of a union or an
     /// intersection.
     ///
-    /// A function type does: `((A) -> B) | C`. An optional does not, because
-    /// `A | B?` is already the union that `(A | B)?` is.
+    /// A function type needs parentheses: `((A) -> B) | C`. An optional does
+    /// not. `A | B?` is already the union that `(A | B)?` is.
     const fn binds_looser_than_union(&self) -> bool {
         matches!(self, Self::Function { .. })
     }
@@ -175,7 +175,7 @@ impl fmt::Display for Type {
     }
 }
 
-/// Renders each member, parenthesising the ones that would otherwise absorb the
+/// Renders each member, parenthesising the ones that bind looser than the
 /// separator.
 fn render_joined(out: &mut String, members: &[Type], separator: &str) {
     for (index, member) in members.iter().enumerate() {
