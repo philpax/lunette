@@ -1,15 +1,14 @@
 -- Carrying a surface: taking hold of one, moving it with the hand, pushing it
 -- along the ray, sizing it between two hands, and letting go.
 --
--- Split from `mullion.interaction` because the two halves answer different
--- questions. That one decides what a pointer is over and where its input goes;
--- this one is the arithmetic of a hand holding something, and it is where the
--- feel of a grab lives.
+-- The interaction module has two halves. `mullion.interaction` tracks what a
+-- pointer is over and where its input goes. This module is the arithmetic of a
+-- hand holding something, and the feel of a grab is the tuning applied to it.
 --
--- Each function takes the pointer as its first argument, and
--- `mullion.interaction` installs them as methods on one. They are written
--- against `mullion.interaction.types`, so this file names no live pointer and
--- holds no state of its own.
+-- Each function takes the pointer as its first argument. `mullion.interaction`
+-- installs them as methods on a pointer. They are written against
+-- `mullion.interaction.types`. None of them names a live pointer, and the
+-- grab module holds no state of its own.
 
 local pointing = require '@mullion/interaction/types'
 local signal = require '@mullion/signal'
@@ -19,8 +18,9 @@ local grab = {}
 type Pointer = pointing.Pointer
 type Surface = pointing.Surface
 
--- Every live pointer, as `mullion.interaction` answers it. Passed in rather
--- than read, because the list is that module's state and this file holds none.
+-- Every live pointer, as `mullion.interaction` provides them. The caller
+-- passes them in, because the list is `mullion.interaction`'s state and the
+-- grab module holds none.
 export type Pointers = () -> { Pointer }
 
 -- What `install` is given: the pointer registry and the pose store, both owned
@@ -32,12 +32,12 @@ export type Host = {
 
 local host: Host
 
--- Declared here and defined below the public functions, so the file reads
--- surface-first.
+-- Declared above the public functions and defined below them. The public API
+-- comes first.
 local grabberOf: (Surface, Pointer) -> Pointer?
 local distanceBetween: ({ number }?, { number }?) -> number?
 
--- Takes the module's own state, and answers the functions to install as
+-- Takes the module's own state and returns the functions to install as
 -- methods. Called once, from `mullion.interaction`.
 function grab.install(given: Host)
   host = given
@@ -50,11 +50,11 @@ function grab.install(given: Host)
   }
 end
 
--- Takes hold of a panel, remembering where the hand was relative to it.
+-- Takes hold of a panel and records the hand's position relative to it.
 --
--- The offset is what makes a grab feel like a grab: the panel keeps its
--- position and orientation relative to the hand rather than snapping to it, so
--- a panel grabbed from two metres away stays two metres away.
+-- The offset keeps the panel's position and orientation relative to the hand.
+-- A panel grabbed from two metres away stays two metres away; it does not snap
+-- to the hand.
 function grab.beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolean
   if not handPose or not target.setPose then
     return false
@@ -63,8 +63,8 @@ function grab.beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolea
   local x: number, y: number, z: number = handPose:getPosition()
   self.grabbed = target
 
-  -- A panel already held by the other hand is being resized rather than taken
-  -- over. The hand that had it keeps carrying it, and this one measures.
+  -- A panel already held by the other hand stays with that hand. This grab
+  -- measures the separation for a resize.
   local partner = grabberOf(target, self)
   local separation = partner and distanceBetween({ x, y, z }, partner.handPosition)
   if partner and separation and target.width and separation > 0 then
@@ -75,25 +75,24 @@ function grab.beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolea
 
   local targetPose = target.pose
   if not targetPose then
-    -- The field is set above because the scaling branch reports through it. A
-    -- refusal has to leave the pointer as it found it: `update` returns early
-    -- on a pointer that holds something, so a grab that never began would
-    -- suppress hover, pick, and click until the grip was released.
+    -- The scaling branch keeps `grabbed` set, so the assignment precedes it. A refusal
+    -- clears it: `update` returns early on a pointer that holds something, so a grab
+    -- that never began would suppress hover, pick, and click until the grip is released.
     self.grabbed = nil
     return false
   end
   local inverse: Mat4 = lovr.math.newMat4(handPose):invert()
   local base: Mat4 = inverse:mul(targetPose)
   self.grab = {
-    -- The hand's inverse times the panel's pose: apply the hand's new pose to
-    -- it and the panel arrives where the hand has taken it.
+    -- The inverse of the hand's pose times the panel's pose. Apply the hand's new pose
+    -- to it and the panel arrives where the hand has taken it.
     offset = lovr.math.newMat4(base),
-    -- The same, kept unchanged. A push is applied to this rather than to the
-    -- offset it last produced, so the distance is a value rather than an
-    -- accumulation, and the clamp cannot walk the panel somewhere on its own.
+    -- The same value as the offset, and it stays unchanged. Each push rebuilds
+    -- the offset from this copy, so the pushed distance stays a single value
+    -- and the clamp cannot move the panel on its own.
     base = base,
-    -- How far the stick has moved the panel from where it was picked up, and
-    -- how far away that was.
+    -- How far the stick has moved the panel from its pickup position, and how far away
+    -- the panel is at the start.
     pushed = 0,
     reach = -select(3, base:getPosition()),
     x = x,
@@ -126,8 +125,8 @@ end
 
 -- Sizes the grabbed panel by how far apart the two hands holding it are.
 --
--- The ratio is against the separation when the second hand closed, so the panel
--- keeps the size it had until the hands actually move apart or together.
+-- The ratio is against the separation when the second hand closes, so the panel
+-- keeps that size until the hands move apart or together.
 function grab.scaleWith(self: Pointer, handPose: Mat4?): ()
   local scaling = self.scaling
   local target = self.grabbed
@@ -137,8 +136,8 @@ function grab.scaleWith(self: Pointer, handPose: Mat4?): ()
 
   local partner = scaling.partner
   if not partner or partner.grabbed ~= target or partner.dead then
-    -- The other hand let go. This one inherits an ordinary grab rather than
-    -- dropping the panel, which is what a hand still holding something means.
+    -- The other hand no longer holds the panel. This hand keeps holding it and
+    -- inherits an ordinary grab.
     self.scaling = nil
     local x: number, y: number, z: number = handPose:getPosition()
     local targetPose = target.pose
@@ -175,10 +174,10 @@ end
 
 -- Moves a grabbed panel along the hand's forward axis.
 --
--- The stick is the same one that scrolls, and it means this instead for as long
--- as something is held. The offset is what moves rather than the panel: a grab
--- is the hand's pose applied to an offset, so changing the offset is what makes
--- the new distance survive the next frame's drag.
+-- The stick that scrolls in other contexts pushes the panel while a grab
+-- is held. `dragTo` derives the panel pose from the hand's pose and the offset
+-- each frame, so a push changes the offset. The new distance then survives
+-- the next frame's drag.
 function grab.push(self: Pointer, deflection: number, dt: number): ()
   local grab = self.grab
   if not grab or not grab.base or dt <= 0 then
@@ -190,8 +189,8 @@ function grab.push(self: Pointer, deflection: number, dt: number): ()
     return
   end
 
-  -- Pushing the stick away moves the panel away, and away is -Z in the hand's
-  -- frame, so the sign is flipped once, here.
+  -- Pushing the stick away moves the panel away, and away is -Z in the hand's frame.
+  -- The offset applies the pushed distance negated.
   local pushedBefore: number = grab.pushed
   local reachAtGrab: number = grab.reach
   local reachScale: number = tuning.reachScale
@@ -206,17 +205,18 @@ function grab.push(self: Pointer, deflection: number, dt: number): ()
   grab.pushed = pushed
   grab.offset:set(lovr.math.newMat4():translate(0, 0, -pushed):mul(grab.base))
 
-  -- The dead zone is about a hand that shook while the grip went down. A stick
-  -- deflected past its own dead zone is deliberate, so it starts the grab
-  -- moving rather than waiting for the hand to travel too.
+  -- The dead zone covers a hand that shakes while the grip goes down. A stick
+  -- beyond its own dead zone is a deliberate input, so it starts the grab
+  -- moving. The grab does not wait for the hand to travel too.
   grab.moving = true
 end
 
 -- Moves the grabbed panel to where the hand has taken it.
 --
--- Nothing moves until the hand has left the dead zone, and then everything does
--- for the rest of the grab. Re-checking each frame would make a slow drag
--- stutter, since a hand crossing a room a millimetre per frame never leaves it.
+-- Nothing moves until the hand has left the dead zone, and then everything
+-- moves for the rest of the grab. Re-checking each frame would make a slow
+-- drag stutter, since a hand crossing a room a millimetre per frame
+-- never leaves it.
 function grab.dragTo(self: Pointer, handPose: Mat4?): ()
   local grab = self.grab
   if not handPose or not grab then
@@ -241,7 +241,7 @@ function grab.dragTo(self: Pointer, handPose: Mat4?): ()
   target:setPose(lovr.math.newMat4():set(handPose):mul(grab.offset))
 end
 
--- Lets go, and writes where the panel ended up to the property store.
+-- Lets go and records the panel's final pose in the property store.
 function grab.endGrab(self: Pointer): boolean
   local target = self.grabbed
   self.grabbed, self.grab, self.scaling = nil, nil, nil
