@@ -9,10 +9,10 @@ members = [
 ]
 resolver = "3"
 
-# `cargo run` and `cargo build` with no package named are the development loop,
-# and lunette is what a contributor means by them. The checks name
-# `--workspace` explicitly, so narrowing the default does not narrow what CI
-# covers; a bare `cargo test` covers this crate alone, which is the cost.
+# `cargo run` and `cargo build` with no package named build lunette, the
+# crate the development loop works in. The checks name `--workspace`
+# explicitly, so the narrow default leaves CI coverage unchanged. A bare
+# `cargo test` covers this crate alone, which is the cost of the narrowing.
 default-members = ["crates/lunette"]
 
 [workspace.package]
@@ -20,8 +20,8 @@ edition = "2024"
 license = "GPL-3.0-only"
 
 # The restriction lints the CONTRIBUTING checks rely on. Each crate opts in
-# with `[lints] workspace = true`; lunette-compositor deliberately does not, so
-# the vendored WayVR code stays exempt until it is rewritten.
+# with `[lints] workspace = true`; lunette-compositor does not, so the
+# vendored WayVR code stays exempt until it is rewritten.
 [workspace.lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"
@@ -33,8 +33,8 @@ expect_used = "warn"
 arc-swap = "=1.9.2"
 ariadne = "=0.6.0"
 # 0.38.0+1.3.281 upstream. The build metadata is left off the requirement
-# because Cargo ignores it when matching and warns about every mention of it;
-# `=0.38.0` is what actually pins the release.
+# because Cargo ignores it when matching and warns about every mention of
+# it; `=0.38.0` pins the release.
 ash = "=0.38.0"
 bindgen = "=0.72.1"
 cc = "=1.4.0"
@@ -49,43 +49,45 @@ parking_lot = "=0.12.5"
 pretty_assertions = "=1.4.1"
 serde = "=1.0.229"
 smallvec = "=1.15.2"
-# `default-features = false` is set here rather than at the member, because the
-# default set drags in libseat, libinput, udev, gbm, winit, and a GL renderer —
-# a whole session backend for a compositor that renders nothing itself.
+# `default-features = false` is set here, not at the member. The default
+# feature set includes libseat, libinput, udev, gbm, winit, and a GL
+# renderer, a whole session backend for a compositor that renders nothing
+# itself.
 smithay = { version = "=0.7.0", default-features = false }
 smol_str = "=0.3.6"
-# Constant-time comparison, for the token that attributes a client to a process.
-# Handrolling one invites the optimiser to reintroduce the early exit.
+# The crate provides constant-time comparison for the token that attributes a
+# client to a process. Handrolling one lets the optimiser reintroduce the
+# early exit.
 subtle = "=2.6.1"
 tempfile = "=3.27.0"
-# The build metadata is left off the requirement for the reason given on `ash`:
-# Cargo ignores it when matching and warns about every mention of it. The
-# release is `1.1.4+spec-1.1.0`.
+# The build metadata is left off the requirement for the same reason as on
+# `ash`: Cargo ignores it when matching and warns about every mention of it.
+# The release is `1.1.4+spec-1.1.0`.
 toml = "=1.1.4"
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
 wayland-client = "=0.31.15"
 wayland-protocols = "=0.32.13"
-# `zwp_virtual_keyboard_v1`, for the host-input provider.
+# The host-input provider uses `zwp_virtual_keyboard_v1`.
 wayland-protocols-misc = { version = "=0.3.12", default-features = false }
-# `zwlr_virtual_pointer_v1`, for the host-input provider.
+# The host-input provider uses `zwlr_virtual_pointer_v1`.
 wayland-protocols-wlr = { version = "=0.3.12", default-features = false }
-# wlx-capture 0.6.0, pinned at a revision of the WayVR monorepo rather than at
-# the standalone https://github.com/galister/wlx-capture. That repository is
+# wlx-capture 0.6.0, pinned at a revision of the WayVR monorepo, not at the
+# standalone https://github.com/galister/wlx-capture. That repository is
 # stuck at 0.6.0's predecessor, 0.5.4, which depends on `ashpd` with the
 # `async-std` executor and on a personal fork of pipewire-rs; 0.6.0 replaced
 # both with `dbus` over a hand-rolled portal client and crates.io `pipewire`
 # 0.10, and lives only in the monorepo with no independent tag. Fixes still go
-# upstream — upstream is now this subdirectory.
+# upstream. Upstream is now this subdirectory.
 #
 # `pipewire` implies `wayland`, so smithay-client-toolkit arrives whatever the
 # feature set; dropping `xshm` prunes exactly one crate. Feature pruning is not
-# where the weight is, so the set says what the crate uses and nothing more.
+# where the weight is. The set names what the crate uses and nothing more.
 # The keymap: compilation, forward keysym lookup, and the reverse lookup
 # `typeText` is built on. Pinned at 0.8.0 because smithay 0.7 carries a
 # non-optional `^0.8.0` dependency on it; 0.9.0 would resolve to a second copy
 # and split the xkb types, so a keymap compiled here could not be handed to a
-# smithay keyboard at all. `wayland` is the feature smithay itself asks for.
+# smithay keyboard. `wayland` is the feature smithay itself uses.
 xkbcommon = { version = "=0.8.0", features = ["wayland"] }
 wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719d3f23a20e50bd3237c29a8082cb", default-features = false, features = [
     "pipewire",
