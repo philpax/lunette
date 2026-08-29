@@ -6,8 +6,9 @@
 //!
 //! [`HitContext`] stores window geometry and input regions as a testable snapshot.
 //! Its surface identifier is generic, so the geometry can be tested without a
-//! Wayland client or graphics device. [`context`] builds the snapshot from the
-//! live surface tree.
+//! Wayland client or graphics device.
+//!
+//! [`context`] builds the snapshot from the live surface tree.
 
 use std::sync::Arc;
 
@@ -29,28 +30,27 @@ use crate::protocol::{PixelPoint, PixelSize};
 
 /// Everything a window presents to input, as one testable snapshot.
 ///
-/// `T` identifies a surface. Production uses
-/// `WlSurface`; tests use names, which keeps the algorithm
-/// independent of the protocol.
+/// `T` identifies a surface. Production uses `WlSurface`; tests use names,
+/// which keeps the algorithm independent of the protocol.
 #[derive(Clone, Debug)]
 pub(crate) struct HitContext<T> {
     /// The toplevel's subsurface tree, bottom-most first, excluding the
-    /// toplevel itself. The toplevel is the fallback rather than a member: a
-    /// point inside the window that no subsurface claims belongs to it.
+    /// toplevel itself. The toplevel is the fallback surface: a point
+    /// inside the window that no subsurface claims belongs to it.
     surfaces: Arc<[HitSurface<T>]>,
     /// One entry per configured popup, deepest first, each holding its own
     /// subtree bottom-most first.
     popups: Arc<[PopupTree<T>]>,
-    /// The toplevel's own extent, which is what "inside the window" means.
+    /// The toplevel's own extent; this defines "inside the window".
     client_area: PixelSize,
 }
 
 impl<T: Clone> HitContext<T> {
     /// What a point in the sink's pixel space lands on.
     ///
-    /// Returns `None` when the point is outside the window and every popup. The
-    /// input path withdraws the pointer instead of clamping it to an edge, which
-    /// would make the client believe that it still hovers something.
+    /// Returns `None` when the point is outside the window and every popup.
+    /// The input path withdraws the pointer; it does not clamp it to an edge.
+    /// Clamping would make the client believe that it still hovers something.
     pub(crate) fn target_at(&self, point: PixelPoint) -> Option<HitTarget<T>> {
         // A popup may extend beyond the toplevel, so check it before the bounds.
         if let Some(surface) = self.popup_at(point) {
@@ -81,8 +81,8 @@ impl<T: Clone> HitContext<T> {
     ///
     /// Popup trees are searched in the order smithay reports them, which is
     /// deepest first, so a nested menu wins over the menu that opened it.
-    /// Within one tree the last accepting surface wins, because the tree is
-    /// collected bottom-to-top.
+    /// Within one tree the last accepting surface wins; the tree is collected
+    /// bottom-to-top.
     fn popup_at(&self, point: PixelPoint) -> Option<HitTarget<T>> {
         self.popups.iter().find_map(|popup| {
             let surface = popup
@@ -112,8 +112,7 @@ pub(crate) enum HitTarget<T> {
     Toplevel { position: PixelPoint },
     Surface {
         surface: T,
-        /// Where the surface sits, which is what a pointer focus is anchored
-        /// at.
+        /// The surface's top-left position; pointer focus anchors at it.
         origin: PixelPoint,
         /// The point in the surface's own coordinates.
         local: PixelPoint,
@@ -129,17 +128,17 @@ pub(crate) enum HitTarget<T> {
 /// One surface's geometry and input region, in the sink's pixel space.
 ///
 /// No `PartialEq`: smithay's `RegionAttributes` has none, and comparing two
-/// input regions structurally would answer a different question from comparing
-/// the sets of points they cover.
+/// input regions structurally would answer a different question from
+/// comparing the sets of points they cover.
 #[derive(Clone, Debug)]
 pub(crate) struct HitSurface<T> {
     pub(crate) surface: T,
-    /// Where the surface's top-left corner sits. Negative for a popup placed
-    /// above or to the left of its parent.
+    /// The surface's top-left corner. Negative for a popup placed above or to
+    /// the left of its parent.
     pub(crate) origin: PixelPoint,
     /// The extent of the surface's buffer in logical pixels. Absent when the
-    /// surface has no buffer, which happens for a container subsurface whose
-    /// children carry the content.
+    /// surface has no buffer; a container subsurface whose children carry the
+    /// content has no buffer.
     pub(crate) size: Option<PixelSize>,
     /// The region the client accepts input in. Absent means the whole surface,
     /// which is the protocol's default.
@@ -193,7 +192,8 @@ struct PopupTree<T> {
 /// Collects the geometry and input regions used for one hit-test snapshot.
 ///
 /// `size_of` supplies logical buffer sizes without coupling this module to a
-/// graphics handle. The compositor owns the size lookup and its graphics resources.
+/// graphics handle. The compositor owns the size lookup and its graphics
+/// resources.
 pub(crate) fn context(
     toplevel: &WlSurface,
     client_area: PixelSize,
@@ -204,8 +204,9 @@ pub(crate) fn context(
     let popups = PopupManager::popups_for_surface(toplevel)
         .filter_map(|(popup, point)| {
             if !is_configured(&popup) {
-                // An unconfigured popup has no agreed geometry, so exclude it from
-                // hit testing until the client answers the configure.
+                // An unconfigured popup has no agreed geometry. It is
+                // excluded from hit testing until the client answers the
+                // configure.
                 debug!("skipping an unconfigured popup in the hit test");
                 return None;
             }
@@ -227,8 +228,8 @@ pub(crate) fn context(
 
 /// Walks a surface tree bottom-to-top and accumulates subsurface offsets.
 ///
-/// It keeps bufferless surfaces because their children may have buffers, and
-/// their input regions may still claim points.
+/// Bufferless surfaces are kept; their children may have buffers, and their
+/// input regions may still claim points.
 fn collect_tree(
     root: &WlSurface,
     origin: Point<i32, Logical>,
@@ -286,8 +287,8 @@ fn input_region(states: &SurfaceData) -> Option<RegionAttributes> {
 
 /// Returns whether a popup has configured geometry.
 ///
-/// Missing role data and a poisoned state lock both exclude the popup from hit
-/// testing instead of propagating a panic through the dispatch loop.
+/// Missing role data and a poisoned state lock both exclude the popup from
+/// hit testing; neither propagates a panic through the dispatch loop.
 fn is_configured(popup: &PopupKind) -> bool {
     with_states(popup.wl_surface(), |states| {
         states

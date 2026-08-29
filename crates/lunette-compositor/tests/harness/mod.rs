@@ -1,15 +1,15 @@
 //! Linux-only: shared setup for logic-headless Wayland integration tests.
 //!
-//! The harness drives the real display and handlers through a real Wayland client.
+//! The harness runs the real display and handlers through a real Wayland client.
 //! `TestCompositor` inserts one end of an in-process `UnixStream::pair()` and
-//! drives the compositor on the calling thread. `TestClient` owns the other end,
+//! runs the compositor on the calling thread. `TestClient` owns the other end,
 //! which is nonblocking. No listener, socket path, runtime directory, or process
 //! environment is involved.
 //!
 //! The compositor uses a fake `BufferImporter`, so these tests exercise protocol
 //! and state handling without a graphics device, XR runtime, or headset. Client
-//! and compositor conditions are polled with `DEADLINE` bounds rather than fixed
-//! sleeps.
+//! and compositor conditions are polled with `DEADLINE` bounds; fixed sleeps are
+//! not used.
 
 use lunette_compositor::{
     protocol::{PixelSize, WindowSnapshot},
@@ -20,7 +20,7 @@ use lunette_compositor::{
 /// Interface names advertised by the default compositor, in the sorted order
 /// returned by `TestClient::globals`.
 ///
-/// The selection globals remain advertised without a host compositor. A host
+/// The selection globals stay advertised without a host compositor. A host
 /// bridge changes selection forwarding, not the client-facing protocol surface.
 pub const EXPECTED_GLOBALS: [&str; 16] = [
     "ext_data_control_manager_v1",
@@ -48,7 +48,7 @@ pub const WINDOW_SIZE: PixelSize = PixelSize::new(640, 480);
 ///
 /// `TestClient::open_toplevel` commits the surface without a buffer, waits for
 /// `xdg_surface.configure`, and acknowledges it before `attach_buffer` commits
-/// content. The returned client remains alive so it owns the Wayland objects and
+/// content. The returned client stays alive so it owns the Wayland objects and
 /// socket for the caller's test.
 pub fn with_one_window() -> (TestCompositor, TestClient) {
     let mut compositor = TestCompositor::new();

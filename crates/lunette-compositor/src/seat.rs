@@ -5,18 +5,17 @@
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! A `wl_seat` exposes one pointer and one keyboard. Each simultaneous cursor
-//! therefore needs its own seat, and [`SeatRegistry`] keys per-seat state by
-//! [`SeatId`].
+//! needs its own seat, and [`SeatRegistry`] keys per-seat state by [`SeatId`].
 //!
 //! `SeatHandler` callbacks receive a [`Seat`] but no [`SeatId`]. State used by
-//! those callbacks lives in `Seat::user_data`; state addressed by [`SeatId`]
-//! lives in [`SeatEntry`].
+//! those callbacks is stored in `Seat::user_data`; state addressed by
+//! [`SeatId`] is stored in [`SeatEntry`].
 //!
-//! Pointer hover and keyboard focus are independent. Callers choose focus, while
-//! this module stores hover state for each seat.
+//! Pointer hover and keyboard focus are independent. Callers choose focus,
+//! while this module stores hover state for each seat.
 //!
 //! Smithay serials are global across seats. Input paths use smithay's shared
-//! serial counter rather than maintaining a counter per seat.
+//! serial counter and do not keep a per-seat counter.
 
 use std::{cell::RefCell, error::Error, fmt, sync::Arc};
 
@@ -261,8 +260,8 @@ pub(crate) struct MouseState {
 
 /// Stores the cursor image requested by a seat's focused client.
 ///
-/// The handler receives the seat, so the state is stored in that seat's
-/// user-data map rather than in compositor-global state.
+/// The handler receives no [`SeatId`], so the state is stored in that seat's
+/// user-data map.
 pub(crate) fn set_cursor_image(seat: &Seat<CompositorState>, image: CursorImageStatus) {
     seat.user_data().insert_if_missing(CursorImage::default);
     if let Some(cursor) = seat.user_data().get::<CursorImage>() {

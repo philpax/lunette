@@ -5,7 +5,7 @@
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 //! Each command resolves its [`SeatId`] before delivery. An unknown seat is
-//! refused instead of being routed to another seat.
+//! refused; it is not routed to another seat.
 
 use std::{error::Error, fmt, sync::Arc};
 
@@ -53,7 +53,8 @@ impl CompositorState {
     }
 
     /// The compositor forwards every key event. Binding policy belongs to Lua,
-    /// so the compositor must not swallow a key before the configuration sees it.
+    /// and the compositor must not swallow a key before the configuration sees
+    /// it.
     pub(super) fn press_key(&mut self, seat: SeatId, key: Keycode, pressed: bool) {
         let Some(keyboard) = self.seats.get(seat).map(SeatEntry::keyboard) else {
             warn!(%seat, "a key was addressed to a seat that does not exist");
@@ -126,7 +127,7 @@ impl CompositorState {
     ///
     /// After a failure while typing, the method attempts to restore any
     /// synthetic layout already loaded. If that restore fails, the synthetic
-    /// layout remains tracked so later requests can repair it before native
+    /// layout remains tracked, so later requests can repair it before native
     /// typing.
     pub(super) fn type_text(&mut self, seat: SeatId, text: &str) {
         let Some(entry) = self.seats.get(seat) else {
@@ -357,12 +358,12 @@ impl CompositorState {
     }
 
     /// Sends one axis event in one `wl_pointer.frame`. A diagonal delta uses a
-    /// separate call for each axis so clients accumulate the components.
+    /// separate call for each axis, so clients accumulate the components.
     ///
-    /// Continuous and discrete deltas remain distinct because clients use the
-    /// difference to choose kinetic scrolling. A discrete delta carries both a
-    /// distance and a step count because clients older than version 5 receive
-    /// only `wl_pointer.axis`.
+    /// Continuous and discrete deltas remain distinct. Clients use the
+    /// difference for kinetic scrolling. A discrete delta carries both a
+    /// distance and a step count, because clients older than version 5 receive
+    /// `wl_pointer.axis` only.
     pub(super) fn scroll(
         &mut self,
         seat: SeatId,
@@ -434,7 +435,7 @@ impl CompositorState {
 /// What `wl_pointer.axis_value120` counts per wheel detent.
 ///
 /// smithay accumulates these and emits `axis_discrete` for a client older than
-/// version 8, so a partial detent is carried rather than rounded away.
+/// version 8. A partial detent is preserved; it is not rounded away.
 const V120_PER_DETENT: i32 = 120;
 
 /// Describes a keymap upload failure.

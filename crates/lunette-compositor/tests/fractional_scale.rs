@@ -8,9 +8,9 @@
 //! the ceiling of the fractional scale for clients without fractional-scale
 //! support; the logical size uses the fractional scale.
 //!
-//! `TestCompositor` drives the real display and handlers on the calling thread.
+//! `TestCompositor` runs the real display and handlers on the calling thread.
 //! The harness connects over `UnixStream::pair()` and uses a recording importer
-//! instead of a graphics device. The driver records protocol events in arrival
+//! in place of a graphics device. The driver records protocol events in arrival
 //! order. `open_toplevel` completes the initial configure handshake before a
 //! test attaches a buffer, and `TestClient` retains fractional-scale objects for
 //! their surface lifetime.
@@ -129,7 +129,7 @@ fn raising_the_output_scale_tells_the_client_to_render_sharper() {
     let surface_id = client.surface_id().expect("a toplevel was opened");
 
     let fractional = client.request_fractional_scale(&surface);
-    // This buffer exceeds the 1280x720 bounds at scale 2.0, making the new
+    // This buffer exceeds the 1280x720 bounds at scale 2.0, which makes the new
     // logical configure observable.
     client.attach_buffer(&mut compositor, PixelSize::new(1600, 900));
     client.settle_quiet(&mut compositor);

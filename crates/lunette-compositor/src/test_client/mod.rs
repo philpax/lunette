@@ -1,15 +1,14 @@
-//! Linux-only: drives a real Wayland client over an in-process `UnixStream` pair.
+//! Linux-only: a real Wayland client on the calling thread, connected over an in-process
+//! `UnixStream` pair.
 //!
-//! The client and compositor run on the calling thread. [`TestClient::settle`]
-//! flushes the client, steps the compositor, and dispatches replies until a
+//! [`TestClient::settle`] flushes the client, steps the compositor, and dispatches replies until a
 //! condition holds or [`DEADLINE`] expires. It polls without sleeping.
 //!
-//! Tests use `Connection::from_socket` because `connect_to_env` mutates the
-//! process environment. [`Driver`] records events received from the compositor,
-//! and this module retains protocol objects whose lifetimes affect behavior.
+//! Tests use `Connection::from_socket`. `connect_to_env` mutates the process environment.
+//! [`Driver`] records events received from the compositor. This module retains protocol objects
+//! whose lifetimes affect behaviour.
 //!
-//! Shared-memory buffers use anonymous `memfd` files rather than filesystem
-//! paths.
+//! Shared-memory buffers use anonymous `memfd` files, so the tests share no filesystem paths.
 
 #![expect(
     clippy::expect_used,
@@ -101,17 +100,20 @@ pub struct TestClient {
     seats: Vec<(u32, WlSeat)>,
     /// Bound outputs keyed by registry name; repeated binds reuse the stored proxy.
     outputs: Vec<(u32, WlOutput)>,
-    /// Popups and their `xdg_surface` objects remain alive for the popup's protocol lifetime.
+    /// Popups and their `xdg_surface` objects stay alive for the popup's protocol lifetime.
     popups: Vec<(XdgPopup, XdgSurface)>,
-    /// Subsurfaces remain alive while their surfaces have a subsurface role; destroying one removes that role.
+    /// Subsurfaces stay alive while their surfaces have a subsurface role; destroying one removes
+    /// that role.
     subsurfaces: Vec<WlSubsurface>,
     pointer: Option<WlPointer>,
-    /// Buffers remain alive until the compositor releases them; a dropped proxy cannot receive the release.
+    /// Buffers stay alive until the compositor releases them; a dropped proxy cannot receive the
+    /// release.
     buffers: Vec<WlBuffer>,
-    /// Fractional-scale objects remain alive while their surfaces use them; destroying one removes its state.
+    /// Fractional-scale objects stay alive while their surfaces use them; destroying one removes
+    /// its state.
     fractional_scales: Vec<WpFractionalScaleV1>,
-    /// One content-type object is retained per surface; a second request is a protocol error, and
-    /// destroying the object resets the surface's content type.
+    /// One content-type object is retained per surface; requesting a second one is a protocol
+    /// error, and destroying the object resets the surface's content type.
     content_types: Vec<(ObjectId, WpContentTypeV1)>,
 }
 
@@ -217,8 +219,8 @@ impl TestClient {
                 Ok(_) => {}
                 // The nonblocking socket reports that no event arrived this round.
                 Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
-                // Protocol errors are observed through `is_disconnected`; other read
-                // failures indicate a broken test connection.
+                // A protocol error is observed through `is_disconnected`; other
+                // read failures indicate a broken test connection.
                 Err(WaylandError::Protocol(_)) => {}
                 Err(error) => panic!("the client could not read from the compositor: {error}"),
             }
@@ -593,7 +595,8 @@ impl TestClient {
         bound
     }
 
-    /// Requests a surface's `wp_fractional_scale_v1` without settling so the caller observes its reply.
+    /// Requests a surface's `wp_fractional_scale_v1` without settling, so the caller observes its
+    /// reply.
     pub fn request_fractional_scale(&mut self, surface: &WlSurface) -> WpFractionalScaleV1 {
         let handle = self.queue.handle();
         let manager = self.bind::<WpFractionalScaleManagerV1>(1);
@@ -620,7 +623,8 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
-    /// Reuses the surface's retained content-type object; requesting a second one is a protocol error.
+    /// Reuses the surface's retained content-type object; requesting a second one is a protocol
+    /// error.
     fn content_type_of(&mut self, surface: &WlSurface) -> WpContentTypeV1 {
         let id = surface.id();
         if let Some((_, object)) = self.content_types.iter().find(|(held, _)| *held == id) {

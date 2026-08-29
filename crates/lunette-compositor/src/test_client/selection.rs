@@ -84,7 +84,7 @@ impl TestClient {
     }
 
     /// Publishes a client-owned selection with the listed MIME types in their supplied order.
-    /// The returned source must remain alive while the compositor may request its bytes.
+    /// The returned source must stay alive while the compositor may request its bytes.
     ///
     /// The client must own keyboard focus before setting the selection. This test client uses
     /// serial zero, which the compositor accepts for a focused client. The compositor forwards
@@ -162,8 +162,9 @@ impl TestClient {
             }
         }
 
-        // The receive request transfers this descriptor when the queue is flushed; close the test
-        // client's copy before stepping so EOF depends only on the selection owner's descriptor.
+        // The receive request transfers this descriptor when the queue is flushed; the test
+        // client's copy closes before stepping so EOF depends only on the selection owner's
+        // descriptor.
         drop(writer);
         self.settle_quiet(compositor);
         reader
@@ -278,7 +279,7 @@ impl Driver {
 
 /// Reads a nonblocking transfer descriptor to EOF on the test thread.
 ///
-/// The harness deadline turns a missing write or missing close into a test failure instead of a
+/// The harness deadline turns a missing write or missing close into a test failure, not a
 /// blocked test thread.
 ///
 /// # Panics

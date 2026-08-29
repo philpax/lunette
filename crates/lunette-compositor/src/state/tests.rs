@@ -68,7 +68,8 @@ fn a_surface_falling_back_to_shared_memory_releases_the_dmabuf_it_held() {
         "a dmabuf is held for as long as lunette samples it"
     );
 
-    // A shared-memory commit replaces the dmabuf when modifier negotiation changes.
+    // A shared-memory commit replaces the dmabuf when modifier negotiation
+    // changes.
     client.attach_buffer(&mut compositor, PixelSize::new(640, 480));
     client.settle(&mut compositor, |driver| !driver.released.is_empty());
 
@@ -89,8 +90,8 @@ fn surface_of(event: &Event) -> Option<crate::protocol::SurfaceId> {
 
 #[test]
 fn destroying_a_surface_that_is_not_a_window_reports_it_gone() {
-    // Non-toplevel surfaces also create frame-thread textures, so destruction must
-    // report `SurfaceGone` for their retired images.
+    // Non-toplevel surfaces also create frame-thread textures, so destruction
+    // must report `SurfaceGone` for their retired images.
     let (mut compositor, mut client) = with_one_window();
     let cursor = client.open_plain_surface(&mut compositor, PixelSize::new(24, 24));
 
@@ -365,7 +366,7 @@ fn a_spawned_process_output_is_reported_as_bytes() {
     }));
     compositor.step();
 
-    // Child output is arbitrary bytes rather than guaranteed UTF-8.
+    // Child output is arbitrary bytes, not guaranteed UTF-8.
     compositor.spawns().write(0, Stream::Stderr, &[0xFF, b'!']);
 
     let events = compositor.collect_events(|events| {
@@ -436,8 +437,8 @@ fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
     }));
     compositor.step();
 
-    // Wrappers and Flatpak launchers can connect with a different PID, so
-    // attribution must fall back to the authentication token.
+    // Wrappers and Flatpak launchers connect with a different PID, so
+    // attribution falls back to the authentication token.
     let plan = compositor.spawns().requested();
     let token = plan[0]
         .env

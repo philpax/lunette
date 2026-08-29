@@ -130,8 +130,8 @@ fn every_withheld_callback_is_answered_when_the_surface_comes_due() {
     expect_frame(&mut compositor, &mut client);
     let answered = client.frames(&surface).len();
 
-    // Each commit adds a callback to the pending list rather than replacing it, so
-    // the deadline answers all three.
+    // Each commit appends a callback to the pending list, so the deadline answers
+    // all three.
     for _ in 0..3 {
         client.request_frame(&surface);
         client.settle_quiet(&mut compositor);
@@ -216,8 +216,8 @@ fn returning_a_surface_to_view_answers_it_without_serving_out_the_slow_interval(
     pace(&compositor, surface, limited(60.0));
     client.settle_quiet(&mut compositor);
 
-    // Raising the rate uses a new 60 Hz interval from the last send, rather than
-    // waiting for the old 1 Hz deadline.
+    // Raising the rate restarts the interval from the last send; the old 1 Hz
+    // deadline does not apply.
     compositor.advance_clock(Duration::from_millis(17));
     expect_frame(&mut compositor, &mut client);
 }
@@ -231,7 +231,7 @@ fn pacing_set_for_a_surface_that_has_gone_is_dropped() {
     compositor.step();
 
     // Surface identifiers are not reused, so a stale command cannot affect a later
-    // surface and is dropped after destruction.
+    // surface; it is dropped after destruction.
     pace(&compositor, surface, limited(1.0));
     compositor.step();
 }

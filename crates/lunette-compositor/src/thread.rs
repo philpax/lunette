@@ -2,10 +2,11 @@
 //!
 //! `calloop::EventLoop` is not `Send`, so the compositor constructs all of its
 //! state inside that thread. The main thread sends commands through a bounded,
-//! nonblocking channel. The compositor sends events through a bounded channel and
-//! waits for capacity so state-changing events are not discarded. A blocking
-//! command send could deadlock when dispatch emits events before it drains commands.
-//! Snapshots cross the boundary as immutable values published through an [`ArcSwap`].
+//! nonblocking channel. The compositor sends events through a bounded channel
+//! and waits for capacity so state-changing events are not discarded. A
+//! blocking command send could deadlock when dispatch emits events before it
+//! drains commands. Snapshots cross the boundary as immutable values published
+//! through an [`ArcSwap`].
 
 use std::{
     error::Error,
@@ -59,10 +60,11 @@ pub fn spawn(
     )
 }
 
-/// Starts the compositor thread with injected process-spawning and process-inspection seams.
+/// Starts the compositor thread with injected process-spawning and
+/// process-inspection seams.
 ///
-/// Production uses the system spawner and `/proc` inspector. Tests inject fakes so they do not
-/// fork processes or read the host's `/proc`.
+/// Production uses the system spawner and `/proc` inspector. Tests inject
+/// fakes so they do not fork processes or read the host's `/proc`.
 pub fn spawn_with(
     config: CompositorConfig,
     socket: Option<WaylandSocket>,
@@ -210,8 +212,9 @@ impl EventReceiver {
 
     /// Waits up to `timeout` for one event.
     ///
-    /// This is the only blocking protocol operation. Command sends stay nonblocking because the
-    /// compositor can block here while dispatch is waiting to drain its command channel.
+    /// This is the only blocking protocol operation. Command sends stay
+    /// nonblocking because the compositor can block here while dispatch is
+    /// waiting to drain its command channel.
     pub fn wait(&self, timeout: Duration) -> Result<Event, WaitError> {
         self.queue
             .recv_timeout(timeout)
@@ -373,7 +376,8 @@ fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>)
     info!("compositor thread running");
 
     let outcome = event_loop.run(None, &mut data, |data| {
-        // Sweep after dispatch so imports whose buffers were destroyed during dispatch can be collected.
+        // Sweep after dispatch so imports whose buffers were destroyed
+        // during dispatch can be collected.
         data.state.sweep_imports();
         data.state.send_frame_callbacks();
         data.state.publish_if_dirty();
@@ -385,7 +389,8 @@ fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>)
     match outcome {
         Ok(()) => info!("compositor thread stopped"),
         Err(error) => {
-            // A failed loop leaves the Wayland socket and stale snapshot owned by this process.
+            // A failed loop leaves the Wayland socket and stale snapshot
+            // owned by this process.
             error!(%error, "compositor event loop failed; aborting the process");
             std::process::abort();
         }
@@ -411,7 +416,8 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
 
     let mut display = Display::<CompositorState>::new().map_err(StartError::CreateDisplay)?;
 
-    // Level-triggered readiness dispatches again when a client still has unread requests.
+    // Level-triggered readiness dispatches again while a client still has
+    // unread requests.
     let poll_fd = display
         .backend()
         .poll_fd()
@@ -487,7 +493,8 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
         },
     });
 
-    // Publish before acknowledging startup so readers never observe the placeholder as initial state.
+    // Publish before acknowledging startup so readers never observe the
+    // placeholder as initial state.
     state.publish_if_dirty();
 
     Ok((event_loop, LoopData { display, state }))

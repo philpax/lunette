@@ -151,7 +151,7 @@ fn reconfiguring_an_output_tells_the_clients_that_bound_it() {
     assert_eq!(state.refresh, 120_000);
     assert_eq!(state.scale, 2);
     // Reconfiguration repeats geometry, mode, scale, and description, but the
-    // protocol sends `wl_output.name` only once for each object.
+    // protocol sends `wl_output.name` once per object.
     assert_eq!(
         client.driver().output_names(output),
         vec!["lunette-1".to_owned()],
@@ -198,7 +198,8 @@ fn a_destroyed_output_stops_being_advertised() {
 #[test]
 fn destroying_an_output_with_two_clients_on_two_outputs_does_not_cross_them() {
     // Teardown sends `wl_surface.leave` only when the output and surface belong to
-    // the same client; pairing resources from different clients aborts the backend.
+    // the same client; pairing resources from different clients aborts the
+    // backend.
     let mut compositor = with_three_outputs();
     let (second_stream, _second_client) = compositor.connect_assigned(SECOND_OUTPUT);
     let (third_stream, _third_client) = compositor.connect_assigned(THIRD_OUTPUT);
@@ -278,7 +279,7 @@ fn a_client_whose_output_is_destroyed_falls_back_to_the_default() {
         output: SECOND_OUTPUT,
     });
     // A global removal and replacement can arrive in separate dispatch rounds;
-    // wait for the new registry name rather than the withdrawn one.
+    // wait for the new registry name, not the withdrawn one.
     client.settle(&mut compositor, |driver| {
         driver
             .globals
@@ -428,7 +429,7 @@ fn binding_an_output_the_client_was_never_advertised_is_refused() {
     let mut compositor = with_three_outputs();
 
     // Registry names are shared by clients on one display, so another client's
-    // valid output name exercises bind-time filtering rather than name parsing.
+    // valid output name exercises bind-time filtering, not name parsing.
     let (second_stream, _second) = compositor.connect_assigned(SECOND_OUTPUT);
     let (third_stream, _third) = compositor.connect_assigned(THIRD_OUTPUT);
     let mut client = TestClient::from_stream(second_stream, &mut compositor);

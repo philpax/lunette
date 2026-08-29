@@ -48,7 +48,7 @@ pub enum Command {
         process: ProcessId,
         signal: ProcessSignal,
     },
-    /// Asks a toplevel to close. The client may prompt, or refuse.
+    /// Requests that a toplevel close. The client may prompt, or refuse.
     CloseWindow {
         window: WindowId,
     },
@@ -65,7 +65,7 @@ pub enum Command {
         sink: SinkId,
         position: PixelPoint,
     },
-    /// Withdraws a seat's pointer from whatever it was over.
+    /// Withdraws a seat's pointer from whatever it hovers over.
     PointerLeave {
         seat: SeatId,
     },
@@ -91,20 +91,21 @@ pub enum Command {
     },
     /// Gives a seat's keyboard focus to a sink, or takes it away.
     ///
-    /// A host sink cannot be focused because lunette does not choose the host
-    /// desktop's keyboard focus.
+    /// A host sink cannot be focused because lunette has no control over the
+    /// host desktop's keyboard focus.
     Focus {
         seat: SeatId,
         sink: Option<SinkId>,
     },
-    /// Replaces a seat's modifier state wholesale.
+    /// Replaces a seat's modifier state in full.
     Modifiers {
         seat: SeatId,
         modifiers: ModifierState,
     },
     /// Types text that the active layout may not be able to express.
     ///
-    /// Do not interleave this request with [`Command::Key`] for the same seat.
+    /// Interleaving this request with [`Command::Key`] for the same seat is not
+    /// supported.
     TypeText {
         seat: SeatId,
         text: String,
@@ -118,7 +119,7 @@ pub enum Command {
         seat: SeatId,
     },
     /// Selects the seat that bridges the host clipboard and primary selection.
-    /// At most one seat can hold the bridge.
+    /// At most one seat can bridge.
     SetClipboardBridge {
         seat: Option<SeatId>,
     },
@@ -144,11 +145,11 @@ pub enum Command {
     /// nothing until [`Command::AdoptGraphics`] arrives. The Wayland display,
     /// client connections, and retained `wl_buffer`s remain active.
     ReleaseGraphics,
-    /// Hands the compositor an importer built against a new device.
+    /// Supplies an importer built against a new device to the compositor.
     ///
     /// The compositor emits [`Event::BufferImported`] for each retained buffer
     /// it restores, followed by [`Event::GraphicsAdopted`]. The importer is
-    /// owned rather than shared so one device has one import cache.
+    /// owned, not shared, so one device has one import cache.
     AdoptGraphics {
         importer: Box<dyn BufferImporter>,
     },
@@ -160,7 +161,7 @@ pub enum Command {
 /// A report from the compositor thread to the main thread.
 ///
 /// The main thread drains events before reading the corresponding snapshot, so
-/// each event observes the state that includes it.
+/// each event's effects are present in the snapshot that follows it.
 #[derive(Debug)]
 pub enum Event {
     /// A mapped toplevel appears in the next snapshot.
@@ -176,7 +177,7 @@ pub enum Event {
         window: WindowId,
         title: String,
     },
-    /// A surface committed new content.
+    /// A surface has committed new content.
     SurfaceDamaged {
         surface: SurfaceId,
     },
@@ -283,7 +284,7 @@ pub struct ProcessSnapshot {
     pub process: ProcessId,
     /// The process ID, if it is available.
     pub pid: Option<Pid>,
-    /// Whether the process was adopted rather than spawned.
+    /// Whether the process was adopted or spawned.
     pub external: bool,
     pub alive: bool,
 }
@@ -295,11 +296,11 @@ pub struct ProcessSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeatSnapshot {
     pub seat: SeatId,
-    /// What clients see on `wl_seat.name`, and how a client tells two seats
-    /// apart.
+    /// The name reported on `wl_seat.name`; clients use it to distinguish
+    /// two seats.
     pub name: String,
     pub keymap: Arc<KeymapText>,
-    /// The modifiers this seat is holding, as clients were last told.
+    /// The modifiers held by this seat, as last reported to clients.
     pub modifiers: ModifierState,
     /// Whether this is the seat whose selections are the host desktop's. At most
     /// one seat is, because the host has one clipboard.
@@ -356,7 +357,7 @@ pub struct ImportedImage {
     pub modifier: Modifier,
 }
 
-/// An opaque non-zero image handle meaningful only to the owning device.
+/// An opaque non-zero image handle. The owning device interprets its value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageHandle(NonZeroU64);
 
@@ -459,8 +460,8 @@ pub enum FramePacing {
 closed_set! {
     /// A client's content-type hint from `wp_content_type_v1`.
     ///
-    /// The value is a hint, not a detector. Lua combines it with other signals
-    /// when it applies rendering policy.
+    /// The value is advisory. Lua combines it with other signals when it
+    /// applies rendering policy.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum ContentType {
         #[default]

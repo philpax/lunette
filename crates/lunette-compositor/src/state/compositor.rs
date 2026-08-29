@@ -91,8 +91,7 @@ const SEAT_NAME: &str = "lunette";
 /// Configuration for the virtual monitor, buffer support, host selection, X11
 /// bridge, and default keymap.
 ///
-/// The output size is configurable, so this value provides defaults rather than
-/// a fixed constant.
+/// The output size is configurable, so this value provides defaults.
 #[derive(Debug)]
 pub struct CompositorConfig {
     pub output: OutputMode,
@@ -100,9 +99,9 @@ pub struct CompositorConfig {
     /// How the host desktop's clipboard is reached. Absent keeps selections
     /// inside lunette.
     pub host_selection: Option<Box<dyn HostSelectionSource>>,
-    /// The display lunette uses. Absent when no socket was bound.
+    /// The display lunette uses. Absent when no socket is bound.
     pub display: Option<DisplayName>,
-    /// Where to find xwayland-satellite. Absent disables X11 clients.
+    /// Where to find xwayland-satellite. When absent, X11 clients are disabled.
     pub satellite: Option<XwaylandSatellite>,
     /// The desktop's own keyboard layout, which a seat that names none inherits.
     /// The binary reads it from the environment; nothing in this crate does.
@@ -129,8 +128,8 @@ impl Default for CompositorConfig {
 /// What lunette can accept over `zwp_linux_dmabuf_v1`.
 ///
 /// Both fields come from the graphics device, which this crate does not have,
-/// so they arrive as a parameter. Without a device — in a test, or on a machine
-/// whose driver lacks the import extensions — the global is still advertised
+/// so they arrive as a parameter. Without a device (in a test, or on a machine
+/// whose driver lacks the import extensions), the global is still advertised
 /// with no formats, and clients fall back to `wl_shm`.
 #[derive(Clone, Debug, Default)]
 pub struct DmabufSupport {
@@ -173,8 +172,8 @@ pub(crate) struct CompositorState {
     pub(super) xdg_shell: XdgShellState,
     pub(super) shm: ShmState,
     pub(super) seat_state: SeatState<Self>,
-    /// Every seat lunette serves. Holding an entry is what keeps its `wl_seat`
-    /// global advertised.
+    /// Every seat lunette serves. Holding an entry keeps its `wl_seat` global
+    /// advertised.
     pub(super) seats: SeatRegistry,
     pub(super) dmabuf: DmabufState,
     pub(super) data_device: DataDeviceState,
@@ -185,8 +184,8 @@ pub(crate) struct CompositorState {
     pub(super) selection: SelectionBridge,
     pub(super) kde_decoration: KdeDecorationState,
     pub(super) popups: PopupManager,
-    /// Every virtual monitor lunette advertises. Holding an entry is what keeps
-    /// its `wl_output` global advertised.
+    /// Every virtual monitor lunette advertises. Holding an entry keeps its
+    /// `wl_output` global advertised.
     pub(super) outputs: OutputRegistry,
 
     #[expect(dead_code, reason = "held so the global stays advertised")]
@@ -217,9 +216,9 @@ pub(crate) struct CompositorState {
     /// while there is something to reap.
     pub(super) process_poll: Option<RegistrationToken>,
     pub(super) loop_handle: LoopHandle<'static, LoopData>,
-    /// Polled with the spawned processes, and dropped with the state: dropping
-    /// it asks the bridge's process group to stop, which is how
-    /// xwayland-satellite and the `Xwayland` it started are reaped.
+    /// Polled with the spawned processes, and dropped with the state. Dropping
+    /// it stops the bridge's process group, which reaps xwayland-satellite and
+    /// the `Xwayland` it started.
     pub(super) satellite: Satellite,
     /// The unanswered callbacks accumulated by each surface.
     ///
@@ -285,8 +284,8 @@ impl CompositorState {
         // format requires corresponding importer support.
         let shm = ShmState::new::<Self>(display, Vec::new());
         let viewporter = ViewporterState::new::<Self>(display);
-        // Fractional scale support requires the viewporter so clients can use
-        // an integer buffer scale with a corrected logical destination.
+        // Fractional scale support requires the viewporter. Clients use an
+        // integer buffer scale with a corrected logical destination.
         let fractional_scale = FractionalScaleManagerState::new::<Self>(display);
         // Report content type without applying throttling policy in the compositor.
         let content_type = ContentTypeState::new::<Self>(display);
@@ -478,7 +477,7 @@ impl CompositorState {
 
     /// Sends a close request without killing the client or removing the window.
     ///
-    /// The client may refuse the request; the window disappears only after the
+    /// The client may refuse the request. The window disappears after the
     /// client destroys the toplevel.
     fn close_window(&mut self, window: WindowId) {
         let Some(tracked) = self.windows.get(window) else {
@@ -508,8 +507,8 @@ impl CompositorState {
             return;
         };
 
-        // Set the pending states before requesting the size so both are sent in
-        // the same configure.
+        // Set the pending states before requesting the size, so both are sent
+        // in the same configure.
         tracked.toplevel().with_pending_state(|pending| {
             for state in states {
                 pending.states.set(protocol_state(*state));
@@ -541,8 +540,8 @@ impl CompositorState {
     /// Sweeps imported images after dispatch may have dropped a client's `wl_buffer`
     /// reference.
     ///
-    /// Sweeping only when a new import arrives retains images from clients that
-    /// have disconnected or stopped sending requests.
+    /// Sweeping on a new import alone retains images from clients that have
+    /// disconnected or stopped sending requests.
     pub(crate) fn sweep_imports(&mut self) {
         self.importer.sweep();
     }
@@ -610,8 +609,9 @@ impl CompositorState {
 
     /// Injects failures after `skip` successful keymap uploads for restoration tests.
     ///
-    /// The normal upload path rejects only invalid layouts, so tests cannot provoke
-    /// a failure at the point needed to exercise restoration of an existing keymap.
+    /// The normal upload path rejects invalid layouts alone, so tests cannot
+    /// provoke a failure at the point needed to exercise restoration of an
+    /// existing keymap.
     pub(crate) fn fail_keymap_uploads(&self, skip: usize, count: usize) {
         self.failing_uploads.set((skip, count));
     }
@@ -721,7 +721,7 @@ pub(super) const fn protocol_state(state: ToplevelState) -> xdg_toplevel::State 
 /// Maps the protocol's toplevel states onto the ones the snapshot reports.
 ///
 /// `xdg_toplevel::State` is non-exhaustive, so a state from a later protocol
-/// version has no counterpart and is reported as absent rather than guessed at.
+/// version has no counterpart and is reported as absent.
 pub(super) fn toplevel_state(state: xdg_toplevel::State) -> Option<ToplevelState> {
     match state {
         xdg_toplevel::State::Maximized => Some(ToplevelState::Maximized),
@@ -770,8 +770,8 @@ fn create_dmabuf_global(
 
 /// Reads a role attribute that the client sets, such as its title or app id.
 ///
-/// A poisoned role-attribute mutex yields `None` instead of propagating an
-/// earlier panic through the dispatch loop.
+/// A poisoned role-attribute mutex yields `None`; an earlier panic is not
+/// propagated through the dispatch loop.
 pub(super) fn toplevel_attribute<T>(
     surface: &ToplevelSurface,
     read: impl FnOnce(&XdgToplevelSurfaceRoleAttributes) -> T,

@@ -38,10 +38,11 @@ pub enum ScrollAxis {
 
 /// A scroll value that preserves its source unit.
 ///
-/// Continuous values are surface-local pixel distances; discrete values are whole
-/// wheel detents. Wayland clients use the distinction when choosing kinetic scrolling,
-/// and the detent count remains available for protocol versions that support it while
-/// the continuous axis value remains available for older clients.
+/// Continuous values are surface-local pixel distances; discrete values are
+/// whole wheel detents. Wayland clients use the distinction to choose kinetic
+/// scrolling; the detent count remains available for protocol versions that
+/// support it, and the continuous axis value remains available for older
+/// clients.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ScrollDelta {
     Continuous(f64),
@@ -76,8 +77,8 @@ impl Keycode {
 closed_set! {
     /// A keyboard modifier accepted by the input protocol.
     ///
-    /// `NAMES` and modifier-state arrays preserve this declaration order. Modifier
-    /// serialization resolves each name to its XKB mask index.
+    /// `NAMES` and modifier-state arrays preserve this declaration order.
+    /// Modifier serialization resolves each name to its XKB mask index.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum KeyModifier {
         Shift = "shift",
@@ -127,8 +128,9 @@ impl Keysym {
 
     /// The canonical Unicode keysym for a character.
     ///
-    /// This uses the Unicode encoding instead of a legacy alias such as Latin-1
-    /// or a keypad keysym, so generated keymaps use one stable representation.
+    /// This uses the Unicode encoding. A legacy alias such as Latin-1 or a
+    /// keypad keysym does not cover every character, so generated keymaps keep
+    /// one stable representation.
     #[must_use]
     pub const fn from_char(character: char) -> Self {
         Self(Self::UNICODE_BASE | character as u32)

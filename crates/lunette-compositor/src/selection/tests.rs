@@ -3,7 +3,8 @@
 //!
 //! [`SelectionBridge::resolve`] checks the client-visible offer identity and MIME
 //! request before the caller transfers a destination descriptor to the host.
-//! The pure check makes empty, incompatible, and stale selections deterministic.
+//! The check has no host or client dependency, so empty, incompatible, and stale
+//! selections are deterministic.
 
 #![expect(
     clippy::expect_used,
@@ -43,8 +44,6 @@ fn a_mime_type_rejects_what_no_source_could_be_asked_for() {
 
 #[test]
 fn a_mime_type_is_matched_byte_for_byte() {
-    // MIME types are compared byte for byte; case folding would accept a request
-    // that does not match the advertised type.
     let held = offer(SelectionKind::Clipboard, first_offer(), &["UTF8_STRING"]);
 
     assert!(held.carries("UTF8_STRING"));
@@ -68,8 +67,8 @@ fn offer_identifiers_never_repeat() {
 
 #[test]
 fn an_empty_selection_is_refused_rather_than_read() {
-    // An absent host selection is rejected before the caller transfers the
-    // client's destination descriptor to the host.
+    // The client's destination descriptor is not transferred to the host for an
+    // absent host selection.
     let bridge = bridge();
     let asked = offer(SelectionKind::Clipboard, first_offer(), &["text/plain"]);
 
@@ -81,8 +80,8 @@ fn an_empty_selection_is_refused_rather_than_read() {
 
 #[test]
 fn a_mime_type_the_offer_does_not_carry_is_refused_rather_than_substituted() {
-    // The bridge refuses an unadvertised MIME type instead of substituting a
-    // different encoding for the client request.
+    // The bridge refuses an unadvertised MIME type and substitutes no encoding
+    // for the client request.
     let mut bridge = bridge();
     let id = first_offer();
     let held = offer(SelectionKind::Clipboard, id, &["image/png"]);

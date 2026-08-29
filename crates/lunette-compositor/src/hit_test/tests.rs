@@ -1,5 +1,5 @@
-//! The tests use `&'static str` instead of Wayland surfaces, so the hit-test geometry runs
-//! without a client, display, or graphics device.
+//! The tests use `&'static str` in place of Wayland surfaces, so the hit-test
+//! geometry runs without a client, display, or graphics device.
 
 use pretty_assertions::assert_eq;
 use smithay::{
@@ -161,7 +161,8 @@ fn a_subsurface_receives_the_point_in_its_own_coordinates() {
 
 #[test]
 fn overlapping_surfaces_resolve_top_most_first() {
-    // `collect_tree` stores surfaces bottom-most first, and hit testing searches in reverse.
+    // `collect_tree` stores surfaces bottom-most first, and hit testing
+    // searches in reverse.
     let context = context(
         vec![
             surface("below", (0.0, 0.0), (50, 50)),
@@ -291,8 +292,8 @@ fn a_point_outside_every_popup_falls_through_to_the_window() {
 
 #[test]
 fn a_popup_reaching_past_the_window_still_receives() {
-    // Popup lookup precedes the client-area bounds check because a popup can
-    // extend beyond the toplevel.
+    // Popup lookup precedes the client-area bounds check because a popup
+    // can extend beyond the toplevel.
     let context = context(
         Vec::new(),
         vec![vec![surface("menu", (80.0, 10.0), (40, 40))]],
@@ -311,7 +312,8 @@ fn a_popup_reaching_past_the_window_still_receives() {
 
 #[test]
 fn a_nested_popup_wins_over_the_one_that_opened_it() {
-    // `PopupManager::popups_for_surface` supplies trees deepest first, so the first match wins.
+    // `PopupManager::popups_for_surface` supplies trees deepest first, so
+    // the first match wins.
     let context = context(
         Vec::new(),
         vec![
@@ -341,7 +343,8 @@ fn a_nested_popup_wins_over_the_one_that_opened_it() {
 
 #[test]
 fn within_one_popup_tree_the_last_accepting_surface_wins() {
-    // Each tree stores surfaces bottom-most first, and `popup_at` searches in reverse.
+    // Each tree stores surfaces bottom-most first, and `popup_at` searches
+    // in reverse.
     let context = context(
         Vec::new(),
         vec![vec![

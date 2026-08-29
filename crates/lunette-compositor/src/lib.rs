@@ -1,8 +1,8 @@
 //! Wayland compositor and protocol state for lunette.
 //!
-//! This crate deliberately has no dependency on `lunette-lovr`. Its logic and
-//! protocol tests run without a graphics device or XR runtime, and omitting the
-//! LÖVR bindings lets those tests link without `liblovr.so`.
+//! This crate has no dependency on `lunette-lovr`. Its logic and protocol tests
+//! run without a graphics device or XR runtime, and omitting the LÖVR bindings
+//! allows those tests to link without `liblovr.so`.
 
 pub mod client;
 pub(crate) mod hit_test;

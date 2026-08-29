@@ -93,7 +93,7 @@ fn a_click_beside_a_popup_still_reaches_the_window() {
 fn a_popup_that_has_not_acknowledged_its_configure_does_not_take_the_click() {
     // The client has not acknowledged the popup's configure, so its geometry is
     // not agreed. It has no buffer, but its explicit input region would otherwise
-    // let it claim input. Hit-testing excludes unconfigured popups.
+    // make it a pointer target. Hit-testing excludes unconfigured popups.
     let (mut compositor, mut client) = with_one_window();
     let pointer = client.open_pointer(&mut compositor);
     let popup = client.open_unconfigured_popup(&mut compositor, POPUP_ORIGIN, POPUP_SIZE);

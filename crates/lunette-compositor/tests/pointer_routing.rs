@@ -1,8 +1,8 @@
 //! These tests verify pointer events at the Wayland client boundary.
 //!
-//! The client records protocol events rather than compositor focus state. The
-//! harness uses an in-process socketpair and a fake importer, so these tests do
-//! not require a GPU.
+//! The client records protocol events, not compositor focus state. The
+//! harness uses an in-process socketpair and a fake importer, so these tests
+//! require no GPU.
 
 #![expect(
     clippy::expect_used,
@@ -191,8 +191,9 @@ fn a_continuous_scroll_reaches_the_client_as_a_distance_on_the_axis_it_named() {
 
 #[test]
 fn a_discrete_scroll_reaches_the_client_as_notches_and_a_distance() {
-    // Clients before `wl_pointer` version 5 receive only `axis`; report each
-    // wheel detent as ten surface-local units to preserve toolkit expectations.
+    // Clients before `wl_pointer` version 5 receive only `axis`; each wheel
+    // detent is reported as ten surface-local units to preserve toolkit
+    // expectations.
     for (axis, steps) in [(ScrollAxis::Vertical, 2), (ScrollAxis::Horizontal, -1)] {
         let (mut compositor, mut client, sink, pointer) = with_pointer_over_a_window();
 

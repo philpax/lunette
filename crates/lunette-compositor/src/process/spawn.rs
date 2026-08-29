@@ -27,8 +27,9 @@ use tracing::{debug, warn};
 
 use crate::protocol::{Argv, Pid, ProcessOutcome, ProcessSignal, SignalNumber, Stream};
 
-/// Bounds each non-blocking output read to limit compositor work. Unread output
-/// remains in the pipe, so continued child output eventually applies backpressure.
+/// Bounds each non-blocking output read to limit compositor work.
+/// Unread output remains in the pipe, so continued child output
+/// eventually applies backpressure.
 const OUTPUT_CHUNK: usize = 8192;
 
 /// Grace period before escalating from `SIGTERM` to `SIGKILL`.
@@ -37,8 +38,8 @@ const TERMINATE_GRACE: Duration = Duration::from_millis(200);
 /// Interval between non-blocking waits during the termination grace period.
 const REAP_POLL: Duration = Duration::from_millis(5);
 
-/// Abstracts process creation so tests can record spawn plans without starting a
-/// real process.
+/// Abstracts process creation so tests can record spawn plans
+/// without starting a real process.
 pub trait ProcessSpawner: Send {
     /// # Errors
     ///
@@ -46,30 +47,30 @@ pub trait ProcessSpawner: Send {
     fn spawn(&mut self, plan: &SpawnPlan) -> Result<Box<dyn ChildProcess>, SpawnError>;
 }
 
-/// Abstracts a spawned child so tests can control its lifetime and output without
-/// starting a real process.
+/// Abstracts a spawned child so tests can control its lifetime
+/// and output without starting a real process.
 pub trait ChildProcess: Send {
     fn pid(&self) -> Pid;
 
     /// Returns one terminal outcome after the child has ended and been reaped.
-    /// Returns `None` while the child runs and after the terminal outcome was
-    /// returned.
+    /// Returns `None` while the child runs and after the terminal outcome
+    /// has been returned.
     fn poll(&mut self) -> Option<ProcessOutcome>;
 
     /// Returns and clears output accumulated since the previous call.
     fn read_output(&mut self) -> Vec<(Stream, Vec<u8>)>;
 
     /// Signals the child's process group. Implementations must ignore calls after
-    /// [`ChildProcess::poll`] returns an outcome because reaping releases the
-    /// process-group identifier for reuse.
+    /// [`ChildProcess::poll`] returns an outcome. Reaping releases
+    /// the process-group identifier for reuse.
     fn signal(&mut self, signal: ProcessSignal);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnPlan {
     pub argv: Argv,
-    /// Applied to the inherited environment in order; later pairs with the same
-    /// name override earlier pairs.
+    /// Applied to the inherited environment in order; later pairs
+    /// with the same name override earlier pairs.
     pub env: Vec<(OsString, OsString)>,
     pub cwd: Option<PathBuf>,
 }
@@ -102,17 +103,18 @@ impl ProcessSpawner for SystemSpawner {
             command.current_dir(cwd);
         }
 
-        // SAFETY: `pre_exec` runs after `fork` and before `exec`, when the child
-        // may hold locks copied from other threads. The closure calls only the
-        // async-signal-safe rustix syscalls below, which do not allocate.
+        // SAFETY: `pre_exec` runs after `fork` and before `exec`,
+        // when the child may hold locks copied from other threads.
+        // The closure calls no other functions. The rustix syscalls below
+        // are async-signal-safe and do not allocate.
         unsafe {
             command.pre_exec(|| {
-                // Create the process group that contains the child and its
-                // descendants, so lunette can signal them as one unit.
+                // Create the process group containing the child and its descendants,
+                // so lunette can signal them as one unit.
                 process::setsid().map_err(io::Error::from)?;
 
-                // Ask Linux to send SIGTERM when the parent process dies before
-                // the normal child teardown runs.
+                // Request SIGTERM from Linux when the parent process dies
+                // before the normal child teardown runs.
                 process::set_parent_process_death_signal(Some(Signal::TERM))
                     .map_err(io::Error::from)?;
 
@@ -125,8 +127,8 @@ impl ProcessSpawner for SystemSpawner {
             cause,
         })?;
 
-        // The compositor thread polls these pipes, so a blocking descriptor could
-        // stall process polling. Failure is logged; the spawn still succeeds.
+        // The compositor thread polls these pipes, so a blocking descriptor
+        // could stall process polling. Failure is logged; the spawn still succeeds.
         for pipe in [
             child.stdout.as_ref().map(|out| out.as_raw()),
             child.stderr.as_ref().map(|err| err.as_raw()),
@@ -186,8 +188,9 @@ impl ChildProcess for SystemChild {
                     (None, Some(signal)) => ProcessOutcome::Signalled {
                         signal: SignalNumber::new(signal),
                     },
-                    // Preserve the interface's total outcome mapping if the status
-                    // contains neither an exit code nor a signal.
+                    // The status can contain neither an exit code nor a signal.
+                    // The outcome mapping is total; the fallback counts
+                    // as an exit with code -1.
                     (None, None) => ProcessOutcome::Exited { code: -1 },
                 }
             }),
@@ -228,9 +231,9 @@ impl ChildProcess for SystemChild {
 }
 
 impl SystemChild {
-    /// Reaps a stopping child, allowing `TERMINATE_GRACE` for `SIGTERM` before
-    /// sending `SIGKILL` to its process group. The final wait reaps the child after
-    /// escalation instead of leaving a zombie.
+    /// Reaps a stopping child, allowing `TERMINATE_GRACE` for `SIGTERM`
+    /// before sending `SIGKILL` to its process group. The final wait
+    /// reaps the child after the escalation and does not leave a zombie.
     fn reap(&mut self) {
         let deadline = Instant::now() + TERMINATE_GRACE;
         loop {
@@ -253,6 +256,7 @@ impl SystemChild {
 
         debug!(pid = %self.pid, "a process group did not stop when asked; killing it");
         if let Err(error) = signal_group(self.pid, ProcessSignal::Kill) {
+            // The group may have exited between the grace poll and the kill.
             debug!(pid = %self.pid, %error, "the process group was already gone");
         }
         match self.child.wait() {
@@ -263,8 +267,8 @@ impl SystemChild {
 }
 
 impl Drop for SystemChild {
-    /// Dropping a running child requests process-group termination and attempts to
-    /// reap the child before the handle is released.
+    /// Dropping a running child requests process-group termination, then
+    /// attempts to reap the child before the handle is released.
     fn drop(&mut self) {
         if !self.liveness.may_signal() {
             return;
@@ -279,8 +283,8 @@ impl Drop for SystemChild {
 }
 
 /// Tracks whether this handle may use the child's process-group identifier.
-/// Reaping releases the identifier for reuse, so a reaped child must not be
-/// signalled.
+/// Reaping releases the identifier for reuse, so a reaped child must
+/// not be signalled.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Liveness {
     /// The child has not been reaped, so signalling its group is permitted.
@@ -339,8 +343,8 @@ impl Error for SpawnError {
     }
 }
 
-/// Sends a signal to the process group identified by `pid`, not only to the
-/// process with that identifier.
+/// Sends a signal to the process group identified by `pid`. The process
+/// with that identifier receives the signal as a member of the group.
 pub(crate) fn signal_group(pid: Pid, signal: ProcessSignal) -> io::Result<()> {
     let signal = match signal {
         ProcessSignal::Hangup => Signal::HUP,
@@ -354,8 +358,9 @@ pub(crate) fn signal_group(pid: Pid, signal: ProcessSignal) -> io::Result<()> {
     process::kill_process_group(pid, signal).map_err(io::Error::from)
 }
 
-/// Reads at most `OUTPUT_CHUNK` bytes from a non-blocking pipe. Returns `None`
-/// when no bytes are available, the pipe is closed, or the read fails.
+/// Reads at most `OUTPUT_CHUNK` bytes from a non-blocking pipe.
+/// Returns `None` when no bytes are available, the pipe is closed,
+/// or the read fails.
 fn read_available(pipe: &mut impl Read) -> Option<Vec<u8>> {
     let mut buffer = vec![0_u8; OUTPUT_CHUNK];
     match pipe.read(&mut buffer) {

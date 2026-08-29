@@ -34,11 +34,12 @@ impl fmt::Display for LayoutName {
 pub struct KeymapText(String);
 
 impl KeymapText {
-    /// Rejects empty or whitespace-only text before it reaches a keymap upload.
+    /// Rejects text that is empty or entirely whitespace before it reaches a keymap
+    /// upload.
     ///
-    /// A keymap upload carries a non-empty XKB text object; an empty payload is
-    /// not a usable keymap and the receiving Wayland protocol rejects it by
-    /// disconnecting the client rather than reporting a recoverable request error.
+    /// A keymap upload must carry a non-empty XKB text object. The receiving
+    /// Wayland protocol rejects an empty payload by disconnecting the client;
+    /// the failure has no recoverable request error.
     #[must_use]
     pub fn new(text: impl Into<String>) -> Option<Self> {
         let text = text.into();

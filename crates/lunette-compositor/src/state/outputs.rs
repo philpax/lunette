@@ -20,8 +20,8 @@ use crate::{
 };
 
 impl CompositorState {
-    /// Rejects a duplicate identifier instead of replacing the existing output,
-    /// which would silently reconfigure its bound clients.
+    /// Rejects a duplicate identifier. Replacing the existing output would
+    /// silently reconfigure its bound clients.
     pub(super) fn create_output(&mut self, output: OutputId, mode: OutputMode) {
         match self.outputs.create(&self.display, output, mode) {
             Ok(()) => {
@@ -66,7 +66,7 @@ impl CompositorState {
 
     /// Reassigns clients, surfaces, and windows from a withdrawn output to the
     /// default. The default global is re-advertised when client assignments
-    /// change so clients that already read the registry can see it.
+    /// change, so clients that already read the registry can see it.
     fn adopt_orphans(&mut self, withdrawn: OutputId, orphaned: &[WlSurface]) {
         self.assignments
             .retain(|_, assigned| *assigned != withdrawn);
@@ -160,11 +160,11 @@ impl CompositorState {
     /// fractional-scale protocol.
     ///
     /// Smithay replays a preferred scale set before the client creates its
-    /// `wp_fractional_scale_v1` object, so pre-setting it prevents the first frame
-    /// from using the wrong scale.
+    /// `wp_fractional_scale_v1` object, so pre-setting it prevents the first
+    /// frame from using the wrong scale.
     ///
-    /// Smithay stores fractional-scale state in thread-affine surface data. This
-    /// method therefore runs only on the compositor thread.
+    /// Smithay stores fractional-scale state in thread-affine surface data, so this
+    /// method runs on the compositor thread alone.
     pub(super) fn send_surface_scale(&self, surface: &WlSurface) {
         let mode = self.mode_of(self.output_of(surface));
 

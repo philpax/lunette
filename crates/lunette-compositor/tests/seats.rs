@@ -65,7 +65,8 @@ fn two_seats_hover_two_different_windows_at_once() {
 
     let (left, right) = add_both_seats(&mut compositor, &mut first);
     let left_pointer = first.open_pointer_for(&mut compositor, left);
-    // Seat names identify existing globals when a second connection binds its own registry.
+    // Seat names identify existing globals when a second connection binds its own
+    // registry.
     await_seats(&mut compositor, &mut second, SEAT_COUNT);
     let right_pointer = second.open_pointer_for(&mut compositor, right);
 
@@ -158,8 +159,8 @@ fn a_button_is_refused_on_a_seat_whose_pointer_is_elsewhere() {
     let right_pointer = client.open_pointer_for(&mut compositor, right);
 
     let sink = windows(&compositor, 1)[0].sink;
-    // Button routing checks the named seat's hovered window; another seat's hover does not
-    // qualify.
+    // Button routing checks the named seat's hovered window; another seat's hover
+    // does not qualify.
     compositor.send(Command::Pointer {
         seat: LEFT.0,
         sink,
@@ -212,7 +213,8 @@ fn destroying_a_seat_leaves_the_other_one_working() {
             && driver.keyboard_focus(&right_keyboard).is_some()
     });
 
-    // The compositor sends pointer and keyboard leaves before withdrawing the seat global.
+    // The compositor sends pointer and keyboard leaves before withdrawing the seat
+    // global.
     compositor.send(Command::DestroySeat { seat: RIGHT.0 });
     client.settle(&mut compositor, |driver| {
         driver
@@ -525,8 +527,8 @@ fn a_seat_whose_layout_does_not_compile_is_not_created() {
 
 #[test]
 fn the_default_seat_exists_when_the_desktop_default_names_two_layouts() {
-    // An inherited multi-layout default is narrowed to its first entry because one seat exposes one
-    // layout group.
+    // An inherited multi-layout default is narrowed to its first entry because one
+    // seat exposes one layout group.
     let mut compositor = TestCompositor::with_config(CompositorConfig {
         keymap_defaults: KeymapDefaults::new(KeymapConfig {
             layout: Some("us,de".to_owned()),
@@ -592,7 +594,8 @@ fn add_both_seats(
     (LEFT.1, RIGHT.1)
 }
 
-/// Waits for registry events to reach the client instead of assuming fixed event-loop timing.
+/// Waits for registry events to reach the client; it does not assume fixed
+/// event-loop timing.
 fn await_seats(compositor: &mut TestCompositor, client: &mut TestClient, expected: usize) {
     client.settle(compositor, |driver| {
         driver

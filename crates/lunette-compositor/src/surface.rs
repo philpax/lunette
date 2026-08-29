@@ -12,7 +12,7 @@
 //! only after sampling ends.
 //!
 //! [`BufferImporter`] separates Wayland buffer handling from graphics-device
-//! imports. The graphics implementation lives in `lunette`, while this crate
+//! imports. The graphics implementation is in `lunette`, while this crate
 //! supplies the seam used by device-free compositor tests.
 
 use std::collections::HashMap;
@@ -150,9 +150,10 @@ pub trait BufferImporter: Send + std::fmt::Debug {
 
     /// Copies a client's shared-memory buffer into tightly packed pixels.
     ///
-    /// The compositor copies `pixels` from the client's pool mapping before this call;
-    /// the mapping is not passed to the importer. The slice is valid only for this call,
-    /// and the frame thread uploads the returned pixels because it owns the graphics queue.
+    /// The compositor copies `pixels` from the client's pool mapping before this
+    /// call and does not pass the mapping to the importer. The slice does not
+    /// outlive this call, and the frame thread uploads the returned pixels
+    /// because it owns the graphics queue.
     fn import_shm(&mut self, pixels: &[u8], layout: ShmLayout)
     -> Result<PixelBuffer, ImportFailed>;
 
@@ -174,7 +175,7 @@ pub trait BufferImporter: Send + std::fmt::Debug {
 ///
 /// It rejects imports so the commit path releases the client buffer and preserves
 /// the surface's previous content until the client draws again. The compositor keeps
-/// this implementation instead of using an optional importer, so every call follows
+/// this implementation and does not use an optional importer, so every call follows
 /// the same stateful interface.
 #[derive(Debug)]
 pub(crate) struct NoGraphics;
@@ -275,8 +276,9 @@ pub struct ShmLayout {
 
 /// A shared-memory pixel format supported by lunette.
 ///
-/// Lunette accepts the two formats required by `wl_shm`; other protocol formats
-/// are rejected rather than passed to an importer without support for them.
+/// Lunette accepts the two formats required by `wl_shm`; other protocol
+/// formats are rejected, since an importer without support for them cannot
+/// accept them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ShmFormat {
     /// Little-endian bytes in `[B, G, R, A]` order.
@@ -316,7 +318,8 @@ pub enum BufferTransform {
 impl BufferTransform {
     /// Converts a protocol transform when it is known to this implementation.
     ///
-    /// Unknown values are rejected rather than silently treated as `Normal`.
+    /// Unknown values are rejected; a value unknown to this implementation is
+    /// not treated as `Normal`.
     #[must_use]
     pub fn from_protocol(transform: wl_output::Transform) -> Option<Self> {
         match transform {
@@ -344,7 +347,7 @@ impl BufferTransform {
 /// A positive integer buffer scale from `wl_surface.set_buffer_scale`.
 ///
 /// A surface that has not set a scale uses 1. Zero and negative values are
-/// rejected as protocol errors rather than clamped.
+/// rejected as protocol errors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BufferScale(u32);
 

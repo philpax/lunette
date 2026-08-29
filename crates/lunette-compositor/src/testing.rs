@@ -2,7 +2,7 @@
 //!
 //! [`TestCompositor`] uses the real event loop, display, and handlers. Tests
 //! connect clients with `UnixStream::pair()` and step the compositor directly,
-//! so the harness does not bind a listening socket or read or write the runtime
+//! so the harness binds no listening socket and reads or writes no runtime
 //! filesystem, process environment, graphics device, XR runtime, or headset.
 //!
 //! [`RecordingImporter`] is the graphics seam. It records import requests and
@@ -70,8 +70,8 @@ pub fn silent_compositor() -> (CompositorHandle, SilentCompositor) {
     let thread = thread::Builder::new()
         .name("silent-compositor".to_owned())
         .spawn(move || {
-            // Dropping an endpoint closes its channel, which would make the
-            // handle appear disconnected instead of leaving it waiting.
+            // Dropping an endpoint closes its channel, which would make the handle appear
+            // disconnected. The endpoints stay alive, so the handle keeps waiting.
             let _channels = (
                 command_channel,
                 EventSender {
@@ -143,7 +143,7 @@ impl TestCompositor {
         let (event_loop, data) = build(Ingredients {
             config,
             // `None` prevents a listener from binding and avoids runtime-path
-            // access; clients use in-process socket pairs instead.
+            // access; clients use in-process socket pairs.
             socket: None,
             importer: recording_importer(imports.clone()),
             spawner: Box::new(FakeSpawner {
@@ -185,7 +185,7 @@ impl TestCompositor {
             .insert_client(ours, Arc::new(ClientState::default()))
             .expect("the display accepts a client");
 
-        // Attach the client before returning it so socket-pair clients receive
+        // Attach the client before returning it, so socket-pair clients receive
         // the same process attribution as listener clients.
         self.data.state.attach_client(&client);
 
@@ -231,7 +231,7 @@ impl TestCompositor {
     }
 
     /// Steps until `ready` accepts the collected events or `DEADLINE` expires.
-    /// It polls the condition instead of sleeping for a fixed duration.
+    /// It polls the condition; it does not sleep for a fixed duration.
     pub fn collect_events(&mut self, ready: impl Fn(&[Event]) -> bool) -> Vec<Event> {
         let expiry = std::time::Instant::now() + DEADLINE;
         let mut collected = Vec::new();
@@ -329,7 +329,7 @@ impl ImportLog {
         self.dmabufs.load(Ordering::Relaxed)
     }
 
-    /// Returns how often the compositor asks the importer to release retired
+    /// Returns how often the compositor requests that the importer release retired
     /// images.
     #[must_use]
     pub fn sweep_count(&self) -> u64 {
@@ -366,7 +366,7 @@ pub fn recording_importer(log: ImportLog) -> Box<dyn BufferImporter> {
 }
 
 /// Replaces the graphics device without calling graphics APIs. The fabricated
-/// image handle is an opaque protocol value that this crate never dereferences.
+/// image handle is an opaque protocol value the crate never dereferences.
 #[derive(Debug)]
 struct RecordingImporter {
     log: ImportLog,
@@ -424,8 +424,8 @@ impl BufferImporter for RecordingImporter {
             layouts.push(layout);
         }
 
-        // Repacking is outside this seam; return a buffer with the requested
-        // shape after recording the layout.
+        // Repacking is outside this seam; the return is a buffer with the requested
+        // shape, recorded after the layout is logged.
         let blank = vec![
             0;
             (layout.size.width as usize)
@@ -602,15 +602,15 @@ impl ChildProcess for FakeChild {
 }
 
 impl Drop for FakeChild {
-    /// Matches the real child lifecycle: terminate a running child's process
-    /// group and mark it reaped; a reaped child receives no signal.
+    /// Matches the real child lifecycle: a running child's process group is
+    /// terminated and the child is marked reaped; a reaped child receives no signal.
     fn drop(&mut self) {
         self.signal(ProcessSignal::Terminate);
         self.with(|state| state.liveness = Liveness::Reaped);
     }
 }
 
-/// A process inspector backed by in-memory tables rather than `/proc`.
+/// A process inspector backed by in-memory tables, not `/proc`.
 /// Environment blocks use the same NUL-separated, byte-preserving format as
 /// `/proc/<pid>/environ`.
 #[derive(Clone, Debug, Default)]

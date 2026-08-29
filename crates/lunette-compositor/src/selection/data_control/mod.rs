@@ -1,12 +1,13 @@
-//! Linux-only: speaks `ext_data_control_v1` or `zwlr_data_control_v1` to the
-//! host compositor over a Wayland socket.
+//! Linux-only: the client side of `ext_data_control_v1` or
+//! `zwlr_data_control_v1`, connected to the host compositor over a
+//! Wayland socket.
 //!
 //! Data control bridges clipboard and primary selection without requiring focus.
 //! The standardised `ext_data_control_v1` protocol is preferred, with
 //! `zwlr_data_control_v1` as the fallback. If the host provides neither, the
 //! bridge reports the failure and the session continues without host bridging.
 //!
-//! The Wayland connection and event queue stay on a worker thread because a
+//! The worker thread owns the Wayland connection and its event queue because a
 //! Wayland event queue cannot be dispatched from two threads. Bounded channels
 //! carry commands to the worker and events back to the compositor thread.
 //!
@@ -16,7 +17,7 @@
 //! [`crate::selection`] for the transfer contract.
 //!
 //! A host can re-announce a selection that lunette publishes. While lunette owns
-//! a selection, the worker discards that announcement rather than proxying its
+//! a selection, the worker discards that announcement and does not proxy its
 //! source back to lunette's clients. The protocols do not order source
 //! cancellation and replacement announcements; `docs/input.md` records the
 //! resulting echo-handling choice.
@@ -77,7 +78,7 @@ const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(5);
 
 /// The host desktop's clipboard accessed through a Wayland socket.
 ///
-/// The application supplies the socket path because this library does not read
+/// The application supplies the socket path because the source does not read
 /// `WAYLAND_DISPLAY` itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataControlSource {
@@ -249,7 +250,7 @@ fn connect(socket: &Path) -> Result<Connection, HostStartError> {
 
 /// Waits up to [`HANDSHAKE_DEADLINE`] for the host to answer a `wl_display.sync`.
 ///
-/// The response is peeked rather than read, so the real event queue receives it.
+/// The response is peeked, so the real event queue still receives it.
 /// The probe shares the connection's file description, which applies the read
 /// timeout while the socket remains blocking.
 fn handshake(
@@ -418,8 +419,9 @@ impl Worker {
         if let Some(guard) = self.connection.prepare_read() {
             match guard.read() {
                 Ok(_) => {}
-                // Level-triggered readiness can race with another read, so an
-                // empty nonblocking read is ordinary rather than a fault.
+                // Level-triggered readiness can race with another read, so a
+                // read may return `WouldBlock` with no data; that arm returns
+                // normally.
                 Err(WaylandError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
                 Err(error) => return Err(WorkerError::Wayland(error)),
             }
@@ -478,10 +480,10 @@ struct Host {
     /// The host object outlives this bounded local list because the host may name
     /// it later.
     offers: Vec<(ObjectId, Vec<MimeType>)>,
-    /// The current offer stays alive for later `receive` requests until the next
+    /// The current offer remains for later `receive` requests until the next
     /// selection event replaces or clears it.
     current: [Option<Current>; 2],
-    /// The source remains alive while lunette owns the host selection.
+    /// The source persists while lunette owns the host selection.
     sources: [Option<Source>; 2],
     counter: OfferCounter,
 }
@@ -518,7 +520,8 @@ impl Host {
     }
 
     /// The data-control protocols do not check ownership for
-    /// `set_selection(null)`, so this sends it only for a source lunette owns.
+    /// `set_selection(null)`, so this sends it when lunette owns the source
+    /// being cleared and omits it otherwise.
     fn withdraw(&mut self, kind: SelectionKind) {
         if !self.supports(kind) {
             return;
@@ -549,7 +552,7 @@ impl Host {
         current
             .offer
             .receive(request.mime.into_string(), request.pipe.as_fd());
-        // The host owns its descriptor after `receive`; closing lunette's copy
+        // The host owns the descriptor after `receive`; dropping lunette's copy
         // lets the client observe end-of-file.
         drop(request.pipe);
     }
@@ -578,8 +581,8 @@ impl Host {
         }
 
         if self.offers.len() >= PENDING_OFFER_LIMIT {
-            // Keep the host object alive after forgetting its local MIME list;
-            // the host may still name it in a later selection event.
+            // The host object must survive after forgetting its local MIME list,
+            // because the host may still name it in a later selection event.
             warn!(
                 limit = PENDING_OFFER_LIMIT,
                 "the host has announced more selections than it has named; forgetting the oldest"
@@ -636,7 +639,7 @@ impl Host {
         self.current[kind.index()] = Some(Current { id, offer });
 
         // Publish the new identifier before destroying the old offer so an
-        // in-flight read is rejected as stale rather than using the replacement.
+        // in-flight read is rejected as stale and does not read the replacement.
         if let Some(previous) = previous {
             previous.offer.destroy();
         }

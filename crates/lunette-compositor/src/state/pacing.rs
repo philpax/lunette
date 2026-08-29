@@ -23,13 +23,13 @@ impl CompositorState {
         self.pacing.set(surface, pacing);
     }
 
-    /// Sends callbacks for due surfaces. A client that does not receive a callback
-    /// can stop drawing and processing its event loop. Throttled surfaces receive
-    /// callbacks at the configured floor, and withheld surfaces arm a timer for
-    /// the earliest deadline.
+    /// Sends callbacks for due surfaces. A client that does not receive a
+    /// callback can stop drawing and processing its event loop. Throttled
+    /// surfaces receive callbacks at the configured floor, and withheld
+    /// surfaces arm a timer for the earliest deadline.
     ///
-    /// `SurfaceAttributes::merge_into` extends the callback list rather than
-    /// replacing it, so withheld callbacks remain queued until the surface is due.
+    /// `SurfaceAttributes::merge_into` extends the callback list. It does not
+    /// replace it, so withheld callbacks remain queued until the surface is due.
     pub(crate) fn send_frame_callbacks(&mut self) {
         if self.frame_callbacks.is_empty() {
             self.disarm_pacing_wakeup();
@@ -114,8 +114,8 @@ impl CompositorState {
         self.started.elapsed()
     }
 
-    /// Uses a virtual clock in tests so pacing assertions do not depend on scheduler
-    /// timing. Test code advances this clock explicitly.
+    /// Uses a virtual clock in tests, so pacing assertions do not depend on
+    /// scheduler timing. Test code advances this clock explicitly.
     #[cfg(any(test, feature = "test-fakes"))]
     fn elapsed(&self) -> Duration {
         self.clock_offset

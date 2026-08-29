@@ -2,7 +2,7 @@
 //!
 //! Client-owned selections reach the host only from the bridge seat. Host-owned
 //! selections are advertised on that seat as compositor-owned offers, carrying
-//! the host offer identity so later reads use the offer that was advertised.
+//! the host offer identity so later reads use the offered identity.
 
 use std::os::fd::OwnedFd;
 
@@ -39,8 +39,9 @@ impl CompositorState {
         set_primary_focus(&self.display, seat, client);
     }
 
-    /// Publishes or withdraws a client-owned selection only when it belongs to the bridge seat.
-    /// Other seats retain independent selections for their focused clients.
+    /// Publishes or withdraws a client-owned selection only when it belongs to the
+    /// bridge seat. Other seats retain independent selections for their focused
+    /// clients.
     pub(super) fn client_selection(
         &mut self,
         kind: SelectionKind,
@@ -63,8 +64,8 @@ impl CompositorState {
             .filter_map(MimeType::new)
             .collect();
 
-        // A source without MIME types cannot answer a request, so withdraw only
-        // lunette's host offer instead of publishing an empty selection.
+        // A source without MIME types cannot answer a request. Withdraw only
+        // lunette's host offer; do not publish an empty selection.
         if mimes.is_empty() {
             self.selection.withdraw_from_host(kind);
             return;

@@ -6,7 +6,7 @@
 //! Tracks Wayland toplevels, their assigned outputs, and their configure sizes.
 //!
 //! `WindowManager` owns each `ToplevelSurface` from creation until destruction.
-//! It runs on the compositor thread because Smithay stores surface state in
+//! It runs on the compositor thread; Smithay stores surface state in
 //! thread-affine data. A window remains tracked while unmapped, and its
 //! `WindowId` and `SinkId` remain stable if it maps again.
 //!
@@ -130,8 +130,8 @@ impl WindowManager {
             .filter(move |window| window.output == output)
     }
 
-    /// Reassigns windows before a withdrawn output is rescaled. Their output is
-    /// used for snapshot identity and configure bounds.
+    /// Reassigns windows before a withdrawn output is rescaled. Snapshot
+    /// identity and configure bounds use the window's output.
     pub(crate) fn move_to_output(&mut self, from: OutputId, to: OutputId) {
         for window in &mut self.windows {
             if window.output == from {
@@ -233,8 +233,8 @@ impl Window {
 
     /// Sends a configure with the requested size clamped to client limits and
     /// output bounds. It updates the pending xdg state before sending the
-    /// configure, and does not resend an unchanged clamped size while it is
-    /// pending.
+    /// configure, and while the clamped size is pending it is not resent
+    /// unchanged.
     pub(crate) fn request_size(&mut self, size: Size<i32, Logical>, bounds: Size<i32, Logical>) {
         let clamped = clamp_configure_size(size, self.min_size, self.max_size, bounds);
 
@@ -319,7 +319,7 @@ impl SizeChange {
 
 /// Clamps a requested logical size to a non-zero output bound and the client's
 /// limits. The minimum is clamped to the output before the maximum is raised to
-/// it; an inverted client range is resolved at the minimum rather than rejected.
+/// it; an inverted client range is resolved at the minimum and not rejected.
 #[must_use]
 pub(crate) fn clamp_configure_size(
     size: Size<i32, Logical>,

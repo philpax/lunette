@@ -25,8 +25,7 @@ pub struct SpawnRequest {
     ///
     /// An unknown output is ignored and also uses the default output.
     pub output: Option<OutputId>,
-    /// Whether the request asks the child to use the X11 bridge instead of
-    /// connecting to Wayland directly.
+    /// Whether the child uses the X11 bridge or connects to Wayland directly.
     pub xwayland: bool,
 }
 
@@ -76,8 +75,8 @@ pub enum ProcessOutcome {
     Signalled {
         signal: SignalNumber,
     },
-    /// The program did not start. The message identifies the failure, and this
-    /// outcome is reported through [`crate::protocol::Event::ProcessExited`].
+    /// The program could not be started. The message identifies the failure, and
+    /// this outcome is reported through [`crate::protocol::Event::ProcessExited`].
     SpawnFailed {
         message: String,
     },
@@ -117,7 +116,7 @@ impl ProcessOutcome {
         }
     }
 
-    /// Returns the spawn-failure message, or `None` for a process that ran.
+    /// Returns the spawn-failure message, or `None` for the other outcomes.
     #[must_use]
     pub fn message(&self) -> Option<&str> {
         match self {
@@ -141,8 +140,8 @@ pub enum ProcessSignal {
 
 /// The operating-system number of a signal that terminated a process.
 ///
-/// This domain is separate from [`ProcessSignal`], which contains only signals
-/// the process API can send.
+/// This domain is separate from [`ProcessSignal`], which is limited to the
+/// signals the process API can send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SignalNumber(i32);
 
@@ -212,7 +211,7 @@ mod tests {
     use super::*;
 
     /// The exhaustive match makes a new outcome a compile error until its Lua
-    /// discriminator and payload accessor are handled here.
+    /// discriminator and payload accessor are handled in this match.
     #[test]
     fn every_outcome_is_named_and_carries_exactly_its_own_field() {
         let signal = SignalNumber::new(9);

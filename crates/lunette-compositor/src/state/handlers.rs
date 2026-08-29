@@ -355,8 +355,8 @@ impl XdgShellHandler for CompositorState {
 
 impl CompositorState {
     /// A panel has one window in it, so a request to fill the screen is a
-    /// request to fill the panel, and refusing it leaves clients that expect a
-    /// fullscreen surface — video players, games — drawing at the wrong size.
+    /// request to fill the panel. Refusing it leaves clients that expect a
+    /// fullscreen surface (video players, games) drawing at the wrong size.
     fn fill_output(&mut self, surface: &ToplevelSurface, state: xdg_toplevel::State) {
         let size = self.surface_bounds(surface.wl_surface());
 
@@ -427,11 +427,11 @@ impl KdeDecorationHandler for CompositorState {
     }
 }
 
-/// [`Self::SelectionUserData`] is a [`HostOffer`], because the only selection
-/// lunette itself owns is one it took from the host: a selection a client owns
-/// is served by that client, and smithay routes those without asking here.
-/// Carrying the offer identifier in the user data is what makes a read that
-/// outlived its selection distinguishable from a current one.
+/// [`Self::SelectionUserData`] is a [`HostOffer`]. The only selection lunette
+/// itself owns is one it took from the host; a selection a client owns is
+/// served by that client, and smithay routes those without asking here.
+/// Carrying the offer identifier in the user data distinguishes a read that
+/// outlived its selection from a current one.
 impl SelectionHandler for CompositorState {
     type SelectionUserData = HostOffer;
 
@@ -501,10 +501,10 @@ impl GlobalDispatch<WlOutput, OutputGlobal> for CompositorState {
 
     /// The backend calls this predicate both when advertising globals and when
     /// binding them. The bind-time check prevents a client from binding a global
-    /// it was not shown, so both checks are required.
+    /// it was not shown; both checks are required.
     ///
-    /// There is no `&mut D` here, which is why the assignment lives in
-    /// [`ClientState`] rather than in compositor state keyed by `ClientId`.
+    /// `can_view` receives the client but no compositor state, so the assignment
+    /// lives in [`ClientState`], not in compositor state keyed by `ClientId`.
     fn can_view(client: Client, global: &OutputGlobal) -> bool {
         client
             .get_data::<ClientState>()
@@ -552,7 +552,7 @@ delegate_xdg_decoration!(CompositorState);
 delegate_xdg_shell!(CompositorState);
 
 /// A client-side titlebar consumes space inside lunette's panel, while the
-/// panel's frame is outside the client surface. GTK and Qt otherwise choose
+/// panel's frame is outside the client surface. GTK and Qt otherwise draw
 /// client-side decoration.
 fn force_server_side(toplevel: &ToplevelSurface) {
     toplevel.with_pending_state(|state| {

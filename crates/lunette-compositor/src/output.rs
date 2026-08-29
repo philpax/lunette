@@ -26,7 +26,7 @@ use crate::{
     state::CompositorState,
 };
 
-/// Outputs in creation order, which is also their advertisement order.
+/// Outputs in creation order; advertisement follows the same order.
 #[derive(Debug, Default)]
 pub(crate) struct OutputRegistry {
     outputs: Vec<OutputEntry>,
@@ -115,9 +115,9 @@ impl OutputRegistry {
         for instance in &entry.instances {
             for surface in entry.live_surfaces() {
                 // A shared output can hold resources from several clients. Pair
-                // each surface with an instance from the same client; the
-                // backend aborts the compositor thread for a cross-client leave
-                // instead of reporting a protocol error.
+                // each surface with an instance from the same client; a
+                // cross-client leave aborts the compositor thread in the
+                // backend, and no protocol error is reported.
                 if surface.client().as_ref() == instance.client().as_ref() {
                     surface.leave(instance);
                 }
@@ -257,7 +257,7 @@ pub(crate) struct OutputEntry {
     mode: OutputMode,
     global: GlobalId,
     instances: Vec<WlOutput>,
-    /// Weak references so the registry does not keep client-owned surfaces alive.
+    /// Weak references; the registry does not keep client-owned surfaces alive.
     surfaces: Vec<Weak<WlSurface>>,
 }
 

@@ -20,15 +20,16 @@
 //! [`SelectionHandler::send_selection`], and lunette forwards the descriptor to
 //! the selected host data-control offer (`ext_data_control_offer_v1` or
 //! `zwlr_data_control_offer_v1`), where the host's selection owner writes.
-//! When the host requests a lunette-owned selection, its data-control source
-//! supplies the descriptor. The host worker emits [`HostEvent::Send`], and the
-//! compositor forwards the descriptor to the bridge seat's client through
-//! `request_data_device_client_selection` or `request_primary_client_selection`.
-//! The client that owns the selection writes it.
+//! When the host requests a selection lunette owns, the data-control source
+//! that lunette published supplies the descriptor. The host worker emits
+//! [`HostEvent::Send`], and the compositor forwards the descriptor to the
+//! bridge seat's client through `request_data_device_client_selection` or
+//! `request_primary_client_selection`. The client that owns the selection
+//! writes it.
 //!
 //! The compositor and host worker do not wait on selection pipes. Their bounded
-//! command and event queues use nonblocking sends, so a slow reader stalls only
-//! the process that owns the bytes.
+//! command and event queues use nonblocking sends, so a slow reader stalls the
+//! process that owns the bytes.
 //!
 //! [`HostRead`] owns a host-request descriptor until [`HostSelection::read`]
 //! accepts it. A rejected request returns the complete value in [`Rejected`], so
@@ -38,7 +39,7 @@
 //!
 //! lunette re-offers each source's MIME list unchanged in both directions. MIME
 //! requests match byte for byte; a request for an unadvertised type is refused
-//! with [`Refusal::Unrepresentable`] rather than substituted.
+//! with [`Refusal::Unrepresentable`]. The bridge substitutes no encoding.
 
 mod data_control;
 mod host;
@@ -99,14 +100,15 @@ impl SelectionKind {
 
 /// A MIME type advertised by a selection source.
 ///
-/// MIME types compare byte for byte, as required by the selection protocols.
+/// The selection protocols require MIME types to compare byte for byte.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MimeType(String);
 
 impl MimeType {
-    /// Rejects an empty MIME type or one with surrounding whitespace instead of trimming it.
+    /// Rejects an empty MIME type or one with surrounding whitespace.
     ///
-    /// Later requests compare the stored value byte for byte with the advertised value.
+    /// Later requests compare the stored value byte for byte with the advertised
+    /// value.
     #[must_use]
     pub fn new(name: impl Into<String>) -> Option<Self> {
         let name = name.into();
@@ -221,7 +223,7 @@ pub struct HostRead {
     pub pipe: OwnedFd,
 }
 
-/// Why a host-selection read was refused.
+/// Why a host-selection read is refused.
 ///
 /// The caller drops the client's destination descriptor without sending it to
 /// the host for every variant, so the client observes end-of-file.
@@ -231,7 +233,7 @@ pub enum Refusal {
     NoSelection,
     /// The offer does not carry the requested MIME type.
     Unrepresentable,
-    /// The offer the request was made from has been replaced.
+    /// The offer advertised to the client has been replaced.
     Stale,
 }
 
@@ -265,8 +267,8 @@ pub(crate) struct SelectionBridge {
     offers: [Option<HostOffer>; 2],
     /// Whether lunette owns each selection on the host.
     ///
-    /// The data-control protocols clear the current selection without checking
-    /// its owner, so the bridge withdraws only selections it published.
+    /// The data-control protocols clear a selection without checking its owner,
+    /// so the bridge withdraws a selection it published and no other.
     published: [bool; 2],
 }
 
@@ -356,7 +358,7 @@ impl SelectionBridge {
         self.published[kind.index()] = true;
     }
 
-    /// Withdraws only a selection that lunette previously published.
+    /// Withdraws a selection that lunette published.
     ///
     /// Clearing an unowned host selection would destroy another application's
     /// clipboard contents.
