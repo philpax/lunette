@@ -1,16 +1,16 @@
-//! The module roots a configuration reaches by name.
+//! The module roots a configuration resolves by name.
 //!
-//! `require '@mullion/panel'` has to resolve twice: once in the running
-//! session, where LÖVR's virtual filesystem answers it, and once in the
-//! checker, where Luau reads a `.luaurc` from disk exactly as an editor does.
-//! Those are different mechanisms and neither can see the other, so the set of
-//! roots is stated here and both derive from it. Stated twice, a root added to
-//! one is a root the other silently does not have, and the symptom is a
-//! configuration that runs but cannot be checked, or checks but does not run.
+//! `require '@mullion/panel'` resolves twice. The running session resolves
+//! it from LÖVR's virtual filesystem. In the checker, Luau resolves it from
+//! a `.luaurc` on disk, as an editor does. The two mechanisms are
+//! independent, so the set of roots is stated once and both derive from it.
+//! With the roots stated twice, a root added to one mechanism is a root the
+//! other silently does not have, and the configuration then runs but cannot
+//! be checked, or checks but does not run.
 //!
-//! The `.luaurc` files in the tree are generated from this, and
-//! `lunette --dump-config` writes one beside the configuration it copies, so a
-//! user's own configuration resolves the same names their editor does.
+//! The `.luaurc` files in the tree are generated from these aliases.
+//! `lunette --dump-config` writes one beside the configuration it copies,
+//! and a user's configuration resolves the same names their editor does.
 
 use std::fmt::Write as _;
 
@@ -19,40 +19,39 @@ use std::fmt::Write as _;
 pub struct Alias {
     /// The name that follows the `@`.
     pub name: &'static str,
-    /// The directory under the standard-library root that holds it. It is what
-    /// the checker reads, and for a mounted root it is also what the session
-    /// mounts.
+    /// The directory under the standard-library root. The checker reads it,
+    /// and the session mounts it for a mounted root.
     pub directory: &'static str,
-    /// How a running session answers the name.
+    /// How a running session resolves the name.
     pub resolution: Resolution,
 }
 
-/// How a running session answers a root, which is not how the checker does.
+/// How a running session resolves a root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Resolution {
     /// Mounted into LÖVR's virtual filesystem under the alias.
     Mounted,
     /// Registered natively through `package.preload`. The directory holds the
     /// generated declarations, which the checker reads and the session never
-    /// does: nothing on disk answers `require '@lunette'` at runtime.
+    /// does. At runtime, no file on disk resolves `require '@lunette'`.
     Native,
 }
 
-/// The standard library's own module, which is Lua.
+/// The standard library's own module, written in Lua.
 pub const MULLION: Alias = Alias {
     name: "mullion",
     directory: "mullion",
     resolution: Resolution::Mounted,
 };
 
-/// The native API, which exists on disk only as its declarations.
+/// The native API, whose on-disk form is its declarations.
 pub const LUNETTE: Alias = Alias {
     name: "lunette",
     directory: "lunette",
     resolution: Resolution::Native,
 };
 
-/// The specs, which a development tree has and an installed one does not.
+/// The specs, present in a development tree, absent from an installed one.
 pub const SPEC: Alias = Alias {
     name: "spec",
     directory: "spec",
@@ -63,7 +62,7 @@ pub const SPEC: Alias = Alias {
 pub const ALIASES: &[Alias] = &[MULLION, LUNETTE, SPEC];
 
 impl Alias {
-    /// The mount point a session gives this root, for the ones it mounts.
+    /// The mount point a session gives a root it mounts.
     #[must_use]
     pub fn mount_point(&self) -> String {
         format!("@{}", self.name)
@@ -73,8 +72,8 @@ impl Alias {
 /// Renders a `.luaurc` whose aliases resolve against `root`.
 ///
 /// `root` is a path to the standard library, written as the file that carries
-/// it must write it: relative to that file's own directory, since that is what
-/// Luau resolves an alias against, or absolute where no relative path is stable.
+/// it must write it: relative to that file's own directory, since Luau resolves
+/// an alias against that, or absolute where no relative path is stable.
 #[must_use]
 pub fn luaurc(root: &str) -> String {
     let mut out = String::from("{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n");
@@ -118,9 +117,6 @@ mod tests {
         assert!(rendered.contains("\"lunette\": \"/usr/local/share/lunette/lua/lunette\""));
     }
 
-    /// The one root whose directory holds declarations rather than the modules
-    /// a session runs, which is why the checker and the session disagree about
-    /// it and both are right.
     #[test]
     fn the_native_module_is_not_mounted() {
         assert_eq!(LUNETTE.resolution, Resolution::Native);

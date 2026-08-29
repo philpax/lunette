@@ -1,9 +1,9 @@
 //! The ledger's bookkeeping, exercised without a graphics device.
 //!
-//! A texture here is an integer or a counter, which is what the generic on
-//! [`TextureLedger`] is for. The rotation, the frame check, the dead-handle
-//! rule, the retirement schedule, and the stabilising copy are all production
-//! code paths; only the texture itself is a stand-in.
+//! The generic type parameter on [`TextureLedger`] lets a texture here be an
+//! integer or a counter. The rotation, the frame check, the dead-handle rule,
+//! the retirement schedule, and the stabilising copy are production code
+//! paths. The texture itself is a stand-in.
 
 #![expect(
     clippy::expect_used,
@@ -24,7 +24,7 @@ use pretty_assertions::assert_eq;
 use super::*;
 
 /// Stands in for a LÖVR texture. The ledger never dereferences what it
-/// holds, which is the property that makes this substitution honest.
+/// holds, so the stand-in needs no texture behaviour.
 type FakeTexture = u32;
 
 fn surface(raw: u64) -> SurfaceId {
@@ -54,8 +54,8 @@ fn ledger() -> TextureLedger<FakeTexture> {
     TextureLedger::new()
 }
 
-/// An imported texture handed back with no stabilised copy alongside it, which
-/// is what every change to a surface nobody has stabilised produces.
+/// An imported texture handed back with no stabilised copy alongside it.
+/// Every change to a surface nobody has stabilised produces this release.
 fn released(imported: Option<FakeTexture>) -> Released<FakeTexture> {
     Released {
         imported,
@@ -91,8 +91,9 @@ fn a_handle_from_an_earlier_frame_is_refused() {
 
 #[test]
 fn a_handle_from_a_later_frame_is_refused_too() {
-    // Not reachable through the public API, but the check is an equality
-    // rather than an ordering, and stating that keeps it one.
+    // A later-frame handle is not reachable through the public API, but the
+    // check is an equality comparison. The test keeps the comparison an
+    // equality; an ordering check would not refuse the later frame.
     let mut ledger = ledger();
     ledger.install(surface(1), 7, description(64, 32));
 
@@ -308,10 +309,10 @@ fn an_uploaded_buffer_always_carries_alpha_because_the_repack_forced_it() {
 
 /// Stands in for a texture that can be copied into.
 ///
-/// Identity is the number, and it is the property the stabilising copy exists
-/// to provide, so equality is the number alone. Every texture descended from
-/// one source shares a log of the copies made between them, which is how a test
-/// sees a copy that the ledger performed on its own.
+/// Identity is the number, the property the stabilising copy provides, so
+/// equality is the number alone. Every texture descended from one source
+/// shares a log of the copies made between them. A test reads the log to
+/// see the copies the ledger made.
 #[derive(Clone, Debug)]
 struct CountingTexture {
     id: u32,
@@ -322,7 +323,7 @@ struct CountingTexture {
 struct Shared {
     /// The last identifier handed out by [`CopyableTexture::allocate_copy`].
     allocated: Cell<u32>,
-    /// Every copy made, as the source and the destination it was written into.
+    /// Every copy, as the source and the destination it is written into.
     copies: RefCell<Vec<(u32, u32)>>,
     /// Whether the device refuses to allocate or to copy.
     refuse: Cell<bool>,
