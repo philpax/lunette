@@ -1,39 +1,39 @@
 //! Per-window state that outlives the Lua state.
 //!
 //! A soft reload discards the Lua state and re-runs `main.lua`
-//! (`docs/architecture.md`), so anything the standard library must remember
-//! across one cannot be kept in Lua. State a rule can derive comes back when the
-//! rules re-run; a pose the user placed by hand, a size they dragged, a tag they
-//! assigned by hand does not. This is where those live.
+//! (`docs/architecture.md`); anything the standard library must remember
+//! across a reload cannot be kept in Lua. State a rule can derive comes back
+//! when the rules re-run; a pose the user placed by hand, a size they
+//! dragged, a tag they assigned by hand do not. This store holds those.
 //!
-//! # Why `win.userdata` will not do
+//! # `win.userdata`
 //!
-//! `docs/architecture.md` gives windows a `userdata` field, which looks like the
-//! obvious place for per-window state. It holds a Lua value, and a Lua value
-//! does not survive its state being discarded — so `userdata` is for state that
-//! is worth keeping for the rest of the session and worth losing on a reload,
-//! and this store is for the rest. The two have different lifetimes and both are
-//! wanted; neither replaces the other.
+//! `docs/architecture.md` gives windows a `userdata` field, the obvious place
+//! for per-window state. It holds a Lua value, and a Lua value does not
+//! survive its state being discarded. `userdata` is for state that is worth
+//! keeping for the rest of the session and worth losing on a reload; this
+//! store is for the rest. The two have different lifetimes, and both are
+//! needed; neither replaces the other.
 //!
 //! # Plain values only
 //!
-//! [`PropertyValue`] is a boolean, a finite number, or a string, and a table is
-//! refused by name. A table would hold Lua values, which is the same problem one
+//! [`PropertyValue`] is a boolean, a finite number, or a string, and a table
+//! is refused by name. A table would hold Lua values, the same problem one
 //! level down: the entries would be dangling references the moment the state
-//! went. A caller wanting structure encodes it into a string itself and knows
-//! that it did.
+//! is discarded. A caller that requires structure encodes it into a string
+//! itself and keeps the meaning of that encoding.
 //!
 //! # Lineage
 //!
-//! awesome keeps per-client state in X properties on the window, because those
-//! outlive the window manager's own process, and skips or alters rule
-//! application at startup when it finds some. lunette has no X server, so this
-//! is the adaptation: a native store that outlives the Lua state for the same
-//! reason. `docs/lua-api.md` records the choice.
+//! awesome keeps per-client state in X properties on the window, because
+//! those outlive the window manager's own process, and skips or alters rule
+//! application at startup when any are present. lunette has no X server, and
+//! this is the adaptation: a native store that outlives the Lua state for the
+//! same reason. `docs/lua-api.md` records the choice.
 //!
-//! Writing any of this to disk, so that it survives a full restart rather than a
-//! reload, is the standard library's own business and is not here. This store is
-//! live state, keyed by an identifier that a restart does not preserve.
+//! Writing any of this to disk, to survive a full restart, belongs to the
+//! standard library, not to this module. This store is live state, keyed by
+//! an identifier that a restart does not preserve.
 
 use std::{
     borrow::Borrow,
@@ -48,7 +48,7 @@ use lunette_luau::Type;
 /// The properties every window is carrying, keyed by window.
 ///
 /// Empty until something is stored. A window with no properties occupies
-/// nothing, which matters because most windows never acquire one.
+/// nothing; most windows never acquire one.
 #[derive(Debug, Default)]
 pub struct WindowProperties {
     windows: HashMap<WindowId, BTreeMap<PropertyKey, PropertyValue>>,
@@ -67,8 +67,8 @@ impl WindowProperties {
 
     /// Removes `key` from `window`, reporting whether it held anything.
     ///
-    /// The window's own entry goes with its last property, so a window that
-    /// acquired and then lost every property costs the same as one that never
+    /// The window's own entry is removed alongside its last property. A window that
+    /// acquires and then loses every property costs the same as one that never
     /// had any.
     pub fn clear(&mut self, window: WindowId, key: &str) -> bool {
         let Some(properties) = self.windows.get_mut(&window) else {
@@ -84,8 +84,8 @@ impl WindowProperties {
 
     /// What `window` holds under `key`, if anything.
     ///
-    /// An absent key is `None` rather than an error. A configuration asking for
-    /// a pose it has not yet placed is the ordinary first case, not a defect.
+    /// An absent key is `None`, not an error. A configuration asking for a
+    /// pose it has not yet placed is the ordinary first case.
     #[must_use]
     pub fn get(&self, window: WindowId, key: &str) -> Option<&PropertyValue> {
         self.windows.get(&window)?.get(key)
@@ -93,9 +93,9 @@ impl WindowProperties {
 
     /// Everything `window` holds, in key order.
     ///
-    /// Ordered so that what a caller reads back does not depend on the hash of
-    /// the keys it happened to use. The order is not part of the Lua surface —
-    /// a Lua table has none — but it is what makes a test state one answer.
+    /// The order does not depend on the hash of keys the caller supplied. The
+    /// order is not part of the Lua surface, because a Lua table has none; the
+    /// fixed order lets a test assert one answer.
     pub fn of(&self, window: WindowId) -> impl Iterator<Item = (&PropertyKey, &PropertyValue)> {
         self.windows.get(&window).into_iter().flatten()
     }
@@ -103,8 +103,8 @@ impl WindowProperties {
     /// Drops the properties of every window `live` does not name.
     ///
     /// Called once per frame with the windows the frame can still describe.
-    /// Entries live as long as the window does, not as long as the Lua state: a
-    /// reload leaves them untouched, and a window closing takes its own with it.
+    /// Entries live as long as the window does, not as long as the Lua state; a
+    /// reload leaves them untouched, and a window closing removes its properties.
     pub fn retain(&mut self, live: &[WindowId]) {
         self.windows.retain(|window, _| live.contains(window));
     }
@@ -124,8 +124,8 @@ impl WindowProperties {
 
 /// The name a property is stored under.
 ///
-/// A newtype rather than a `String`, because the store's whole surface takes one
-/// and an argument that is merely a string could as easily be the value.
+/// A newtype over `String`, because the store's whole surface takes a key,
+/// and a bare `String` argument could be the value.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PropertyKey(String);
 
@@ -149,8 +149,8 @@ impl PropertyKey {
     }
 }
 
-/// So that a lookup borrows the caller's string rather than allocating a key to
-/// throw away.
+/// A lookup borrows the caller's string without allocating a key to discard
+/// afterwards.
 impl Borrow<str> for PropertyKey {
     fn borrow(&self) -> &str {
         &self.0
@@ -165,10 +165,10 @@ impl fmt::Display for PropertyKey {
 
 /// The Luau type of [`PropertyValue`], in the order the union states it.
 ///
-/// Built rather than written out, so that what a property is declared to hold
-/// carries no punctuation of its own: whether it ends up optional, or inside a
-/// table, is the caller's to say and the rendering follows from the structure.
-/// `the_declared_union_covers_every_variant` is what keeps it in step with the
+/// Built from structure. What a property is declared to hold carries no
+/// punctuation of its own: whether it ends up optional or inside a table
+/// is the caller's to decide, and the rendering follows from the structure.
+/// `the_declared_union_covers_every_variant` verifies the union against the
 /// enum.
 #[must_use]
 pub fn property_value() -> Type {
@@ -177,9 +177,9 @@ pub fn property_value() -> Type {
 
 /// What a property may hold.
 ///
-/// Deliberately not a Lua value. See the module documentation: a stored Lua
-/// table would not survive the state it belongs to being discarded, which is the
-/// one thing this store exists to do.
+/// Not a Lua value. Tables are refused by name, because a Lua table would
+/// dangle once the state it belongs to is discarded. See the module
+/// documentation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyValue {
     Boolean(bool),
@@ -192,9 +192,9 @@ pub enum PropertyValue {
 impl PropertyValue {
     /// Reads a number, refusing one that is not finite.
     ///
-    /// A nan or an infinity here is a defect in the caller's maths — a pose
-    /// derived from a zero-length vector, most likely — and storing it would
-    /// hand the same broken value back after a reload, where it is far harder to
+    /// A nan or an infinity here is a defect in the caller's maths; the
+    /// likeliest source is a pose derived from a zero-length vector. Storing
+    /// it returns the same broken value after a reload, where it is harder to
     /// trace. `lunette.claimLayer` refuses a nan priority for the same reason.
     ///
     /// # Errors
@@ -211,19 +211,19 @@ impl PropertyValue {
     }
 }
 
-/// What a caller got wrong on the way into the store.
+/// What a caller supplied that the store cannot hold.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyError {
-    /// The key named nothing.
+    /// The key names nothing.
     EmptyKey,
-    /// The value was of a kind the store cannot hold.
+    /// The value is of a kind the store cannot hold.
     Unsupported {
         key: PropertyKey,
-        /// What the value was, for the message. Lua's own type name, which is
-        /// message content rather than something anything branches on.
+        /// What the value is, for the message. Lua's own type name; message
+        /// content, not something anything branches on.
         kind: &'static str,
     },
-    /// The number was a nan or an infinity.
+    /// The number is a nan or an infinity.
     NotFinite { key: PropertyKey, value: f64 },
 }
 
@@ -256,10 +256,10 @@ mod tests {
 
     use super::*;
 
-    /// The declared union and the enum are two statements of one set, and this
-    /// is what stops them parting. The match is exhaustive, so a variant added
-    /// to [`PropertyValue`] fails to compile here rather than going unmentioned
-    /// in what Lua is told a property holds.
+    /// The declared union and the enum are two statements of one set; this test
+    /// keeps the two statements equal. The match is exhaustive, so a variant
+    /// added to [`PropertyValue`] fails to compile here until the declared
+    /// union states it.
     #[test]
     fn the_declared_union_covers_every_variant() {
         let Type::Union(members) = property_value() else {

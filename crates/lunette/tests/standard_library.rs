@@ -1,18 +1,19 @@
-//! Linux-only: the `mullion` standard library is mounted where it was asked
-//! for, and a configuration cannot write over it.
+//! Linux-only: the `mullion` standard library is mounted where `require`
+//! resolves it, and a configuration cannot write over it.
 //!
 //! The mount is installed by wrapping the `package.preload` entry LÖVR creates
-//! `lovr.filesystem` from, because `vendor/lovr/etc/boot.lua` creates that
-//! module and runs `main.lua` on the same coroutine resume, leaving the host no
-//! moment between the two. That wrapping is only observable on a state the real
-//! boot sequence built: LÖVR's virtual filesystem does not exist on a state a
-//! unit test creates, so there is nothing for a unit test to mount into.
+//! `lovr.filesystem` from. `vendor/lovr/etc/boot.lua` creates that module and
+//! runs `main.lua` on the same coroutine resume, leaving the host no moment
+//! between the two. The wrapping is observable on a state the boot sequence
+//! builds and not on a state a unit test creates, because LÖVR's virtual
+//! filesystem does not exist there. A unit test has nothing to mount into.
 //!
-//! It spawns the real binary, for the same reason and under the same terms as
-//! `exit_status.rs`, which carries the full note. The fixture switches off the
-//! audio, graphics, and headset modules and opens no window, so no display, no
-//! XR runtime, and no sound device are needed; nothing here sleeps or touches
-//! the network, and every directory it writes is a temporary one it removes.
+//! The test spawns the lunette binary for the same reason and under the same
+//! terms as `exit_status.rs`, which records the full rationale. The fixture
+//! switches off the audio, graphics, and headset modules and opens no window,
+//! so no display, no XR runtime, and no sound device are needed; the run
+//! neither sleeps nor touches the network, and every directory it writes is a
+//! temporary one it removes.
 
 use std::{
     fs,
@@ -24,16 +25,16 @@ use tempfile::TempDir;
 
 /// The root module of the standard library the tests write for themselves.
 ///
-/// The `fixture` field is what the run checks, so a session that resolved some
-/// other `mullion` — an installed one, a developer's own — fails rather than
-/// passing on the wrong tree.
+/// The run checks for the `fixture` field. A session that resolves some other
+/// `mullion` tree, an installed one or a developer's own, does not satisfy
+/// the check. The suite cannot pass with the wrong standard library.
 const FIXTURE_ROOT_MODULE: &str = "return { fixture = true }\n";
 
-/// The field [`FIXTURE_ROOT_MODULE`] carries, named to the fixture so that it
-/// checks contents rather than paths.
+/// The field [`FIXTURE_ROOT_MODULE`] carries. Checking for the field verifies
+/// contents, not paths.
 const FIXTURE_MARKER: &str = "fixture";
 
-/// The status the fixture quits with when every assertion held.
+/// The fixture quits with this status when every assertion holds.
 const PASSED: i32 = 9;
 
 #[test]
@@ -45,10 +46,10 @@ fn the_override_is_mounted_and_require_resolves_from_it() {
     assert_eq!(outcome.status, Some(PASSED), "{}", outcome.stderr);
 }
 
-/// The repository's own `lua/` resolves, not only a tree the test wrote.
+/// The repository's own `lua/` resolves as well as a tree the test writes.
 ///
-/// Without this the suite would pass on a standard library whose root module was
-/// missing or unparseable, since every other case here supplies its own.
+/// The other cases supply their own trees. Without this case the suite would
+/// pass with a standard library whose root module is missing or unparseable.
 #[test]
 fn the_repository_standard_library_resolves() {
     let stdlib = repository_standard_library();
@@ -61,8 +62,8 @@ fn the_repository_standard_library_resolves() {
 /// A standard library that is not installed is not a boot failure.
 ///
 /// `docs/lua-api.md` makes a configuration that never mentions `mullion` a
-/// supported configuration, so a missing mount has to leave the session running
-/// and let `require` be the thing that reports it.
+/// supported configuration, so a missing mount leaves the session running, and
+/// `require` reports it.
 #[test]
 fn a_missing_standard_library_does_not_stop_the_session() {
     let absent = temporary_directory("lunette-standard-library-absent-");
@@ -73,13 +74,12 @@ fn a_missing_standard_library_does_not_stop_the_session() {
 }
 
 /// A configuration cannot overwrite the standard library it is running on top
-/// of, which is a failure no reload could repair.
+/// of. An overwrite is a failure no reload can repair.
 ///
 /// The fixture writes over the root module's own path through
-/// `lovr.filesystem.write` and then requires it again. The write lands in the
+/// `lovr.filesystem.write` and then requires it again. The write goes to the
 /// save directory, which is mounted behind the standard library, so the module
-/// it loads is unchanged — and the file on disk is untouched, which is what is
-/// asserted here.
+/// it loads is unchanged. The test asserts that the file on disk is untouched.
 #[test]
 fn a_configuration_cannot_write_over_the_standard_library() {
     let stdlib = standard_library_tree();
@@ -96,7 +96,7 @@ fn a_configuration_cannot_write_over_the_standard_library() {
     );
 }
 
-/// A standard library tree holding nothing but a marked root module.
+/// A standard library tree holding a single marked root module.
 fn standard_library_tree() -> TempDir {
     let directory = temporary_directory("lunette-standard-library-");
     let module = directory.path().join("mullion");
@@ -109,7 +109,7 @@ fn standard_library_tree() -> TempDir {
     directory
 }
 
-/// The `lua/` directory of the working tree this test was built from.
+/// The `lua/` directory of the working tree this test is built from.
 fn repository_standard_library() -> PathBuf {
     // `crates/lunette` up two levels to the workspace root.
     let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) else {
@@ -131,43 +131,44 @@ fn temporary_directory(prefix: &str) -> TempDir {
     }
 }
 
-/// What one run of the binary reported.
+/// The status and error output of one run of the binary.
 struct Outcome {
     status: Option<i32>,
-    /// Quoted on failure, because a Lua error, a failed mount, and boot.lua's
-    /// own complaints all say what went wrong there and nowhere else.
+    /// Quoted on failure. A Lua error, a failed mount, and boot.lua's own
+    /// complaints all say what went wrong. The message appears in stderr and
+    /// nowhere else.
     stderr: String,
 }
 
-/// Runs the binary against the mount fixture, with `arguments` reaching the
+/// Runs the binary against the mount fixture. `arguments` reach the
 /// configuration as `arg[1..]`.
 fn run(standard_library: &Path, arguments: &[&str]) -> Outcome {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
         .join("require-mullion");
-    // Checked before the run, so that a mislaid fixture fails as itself rather
-    // than as boot.lua's "no main.lua" path.
+    // The check runs first. A mislaid fixture then fails at the assert that
+    // names it, and boot.lua's "no main.lua" path is not reached.
     assert!(
         directory.join("lunette").join("main.lua").is_file(),
         "the require-mullion fixture is missing its main.lua"
     );
 
-    // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and fails
-    // the boot when it cannot, and the read-only check writes into that
-    // directory on purpose. A temporary one per run gives each its own tree, and
-    // also removes the dependency on `HOME`, which is unset below.
+    // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and
+    // fails the boot when it cannot, and the read-only check writes into that
+    // directory on purpose. A temporary one per run gives each run its own
+    // tree and removes the dependency on `HOME`, which is not set in the run.
     let data_directory = temporary_directory("lunette-standard-library-data-");
 
     let output = Command::new(env!("CARGO_BIN_EXE_lunette"))
-        // The fixture directory holds a `lunette` subdirectory, which is what
-        // `$XDG_CONFIG_HOME/lunette` resolves to. `HOME` is removed so that the
-        // developer's own configuration cannot be reached if the fixture is ever
-        // mislaid, which would otherwise turn a missing fixture into a confusing
-        // pass.
-        // Removed for the reason `HOME` is: a developer's shell exports it to
-        // point a session at the working copy, and a fixture that is mislaid
-        // would otherwise load the shipped configuration and pass confusingly.
+        // The fixture directory holds a `lunette` subdirectory, and
+        // `$XDG_CONFIG_HOME/lunette` resolves to it. `HOME` is removed to
+        // keep the run from reaching the developer's own configuration when
+        // the fixture is mislaid. The run would otherwise pass confusingly.
+        // `LUNETTE_CONFIG_PATH` is removed for the same reason as `HOME`: a
+        // developer's shell exports it to point a session at the working
+        // copy, and a mislaid fixture would otherwise load the shipped
+        // configuration and pass confusingly.
         .env_remove("LUNETTE_CONFIG_PATH")
         .env("XDG_CONFIG_HOME", &directory)
         .env("XDG_DATA_HOME", data_directory.path())

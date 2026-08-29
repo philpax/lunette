@@ -1,23 +1,23 @@
-//! What a Rust type is seen as in Luau.
+//! How a Rust type maps to a Luau type.
 //!
-//! Rust has no reflection, so the mapping is written out: one impl per type
-//! that crosses into Lua. A leaf appears here and nowhere else, which is what
-//! lets every signature be derived rather than restated.
+//! Rust has no reflection. One impl per type that crosses into Lua states the
+//! mapping, and a leaf appears here and nowhere else. Every signature derives
+//! from this mapping, and nothing is restated.
 
 use std::collections::HashMap;
 
 use crate::expression::Type;
 
-/// The Luau type a value of this Rust type is seen as.
+/// The Luau type for a value of this Rust type.
 pub trait Typed {
     fn luau() -> Type;
 }
 
 /// The types of an argument tuple, in order.
 ///
-/// Separate from [`Typed`] because a tuple of arguments is a list of types
-/// rather than one type: `(f64, f64)` reaches Lua as two arguments, not as one
-/// value of type `(number, number)`.
+/// Separate from [`Typed`] because a tuple of arguments is a list of types.
+/// `(f64, f64)` reaches Lua as two arguments, and a single argument never has
+/// the type `(number, number)`.
 pub trait Arguments {
     fn luau() -> Vec<Type>;
 }
@@ -72,7 +72,7 @@ impl<K: Typed, V: Typed> Typed for HashMap<K, V> {
     }
 }
 
-/// Returning nothing, which Luau writes as an empty tuple.
+/// The empty tuple is the Luau type for returning nothing.
 impl Typed for () {
     fn luau() -> Type {
         Type::Tuple(Vec::new())
@@ -112,8 +112,8 @@ tuples! {
 
 /// The impls for mlua's own types.
 ///
-/// Behind the feature so that a crate naming its Luau types does not link a Lua
-/// binding to do it.
+/// The `mlua` feature gates this module. A crate that names its Luau types
+/// does not link a Lua binding.
 #[cfg(feature = "mlua")]
 mod lua {
     use mlua::{LuaString, UserDataRef};
@@ -126,7 +126,7 @@ mod lua {
         }
     }
 
-    /// A handle borrowed from Lua is seen as the handle.
+    /// A handle borrowed from Lua has the Luau type of the value it borrows.
     impl<T: Typed + 'static> Typed for UserDataRef<T> {
         fn luau() -> Type {
             T::luau()

@@ -1,8 +1,7 @@
 //! Linux-only: the LÖVR side of the layer seam.
 //!
-//! Nothing here decides anything. Every policy the pool applies is in
-//! [`crate::layers::LayerPool`], and this is only the four calls that policy is
-//! expressed in terms of.
+//! The LÖVR side applies no policy. [`crate::layers::LayerPool`] applies
+//! every policy through the [`LayerBackend`] and [`LayerBlitter`] calls.
 
 use std::{ffi::c_void, ptr::NonNull};
 
@@ -23,10 +22,10 @@ use crate::{
 
 /// A LÖVR `Layer` lunette owns a reference to.
 ///
-/// A reference rather than the object: `lovrHeadsetSetLayers` takes its own
-/// while the layer is submitted, and the whole point of this one is that it is
-/// independent of that. It is handed back through [`LayerBackend::destroy`] or
-/// [`LayerBackend::abandon`]; dropping it instead leaks the reference.
+/// The reference is independent of the one `lovrHeadsetSetLayers` takes
+/// while the layer is submitted. It is handed back through
+/// [`LayerBackend::destroy`] or [`LayerBackend::abandon`]; dropping it leaks
+/// the reference.
 #[derive(Debug)]
 pub struct LovrLayer(NonNull<Layer>);
 
@@ -40,18 +39,18 @@ impl LovrLayer {
 
 /// The frame thread's authority to create and destroy layers.
 ///
-/// A token rather than a unit struct so that the thread and session guarantee
-/// is stated once, at construction, instead of on every method of the trait —
-/// which would make the trait unsafe and unimplementable by a test fake.
+/// The type is a token. The thread and session guarantee is stated once, at
+/// construction; stating it on every method of the trait would make the trait
+/// unsafe, and a test fake could not implement it.
 #[derive(Debug)]
 pub struct LovrLayers(());
 
 impl LovrLayers {
     /// # Safety
     ///
-    /// This must be the thread that owns LÖVR's headset module, and it must
-    /// stay that way for as long as the value lives. LÖVR's headset state is
-    /// global and unsynchronised, so a second thread holding one of these is a
+    /// The caller must be the thread that owns LÖVR's headset module, and
+    /// must stay that thread for the value's lifetime. LÖVR's headset state is
+    /// global and unsynchronised; a second thread holding one of these is a
     /// data race in C.
     #[must_use]
     pub const unsafe fn new() -> Self {
@@ -65,14 +64,14 @@ impl LayerBackend for LovrLayers {
     fn layer_limit(&self) -> u32 {
         // SAFETY: holding a `LovrLayers` is the guarantee that this is the
         // thread that owns the headset module. The call reads one field of it
-        // and is answered with zero when there is no system.
+        // and returns zero when there is no system.
         unsafe { lovrHeadsetGetLayerLimit() }
     }
 
-    /// The generation rather than `lovrHeadsetIsActive`, because the boolean is
-    /// the same on both sides of a `lovr.headset.stop()` and
-    /// `lovr.headset.start()` in one callback, while every swapchain the pool
-    /// held died in between.
+    /// Uses the session generation, not `lovrHeadsetIsActive`. The boolean is the same
+    /// before and after a `lovr.headset.stop()` and
+    /// `lovr.headset.start()` pair inside one callback,
+    /// while the stop destroys every swapchain the pool holds.
     fn session(&self) -> SessionPresence {
         // SAFETY: the thread guarantee above. The call reads two fields of the
         // headset module's state and allocates nothing.
@@ -98,16 +97,14 @@ impl LayerBackend for LovrLayers {
         NonNull::new(raw).map(LovrLayer)
     }
 
-    /// `main` is `scene`, which is false only for a frame lunette drew nothing
-    /// into: the projection layer carries everything lunette draws itself, so
-    /// submitting it on such a frame would composite an image nothing was
-    /// rendered into. [`crate::scene`] has the rest, including why the flag on
-    /// its own saves almost nothing.
+    /// `main` is `scene`. It is false only on a frame where lunette draws nothing:
+    /// the projection layer carries everything lunette draws itself, and
+    /// submitting it on such a frame composites an image nothing drew into.
+    /// [`crate::scene`] has the rest, including why the flag alone saves almost nothing.
     ///
     /// The pointers are gathered into a contiguous array because
-    /// `lovrHeadsetSetLayers` takes one; it copies what it keeps out of it
-    /// (`headset.c:2769-2781`) and retains each layer, so the array itself does
-    /// not outlive the call.
+    /// `lovrHeadsetSetLayers` takes one. It copies what it keeps out of the
+    /// array and retains each layer, so the array does not outlive the call.
     fn submit(&mut self, layers: &[&Self::Layer], scene: SceneRendering) -> bool {
         let mut pointers: Vec<*mut Layer> = layers.iter().map(|layer| layer.as_ptr()).collect();
         let Ok(count) = u32::try_from(pointers.len()) else {
@@ -115,22 +112,22 @@ impl LayerBackend for LovrLayers {
         };
 
         // SAFETY: the thread guarantee above. Every pointer names a layer this
-        // pool holds a reference to, so none can be destroyed by the release of
-        // the previous list that this call performs before retaining the new
-        // one.
+        // pool holds a reference to, so none is destroyed by the release of
+        // the previous list that this call performs before retaining the new one.
         unsafe { lovrHeadsetSetLayers(pointers.as_mut_ptr(), count, scene.drawn()) }
     }
 
     fn destroy(&mut self, layer: Self::Layer) {
         // SAFETY: the thread guarantee above, and the reference being dropped
-        // is the one this type holds. LÖVR's own counting decides whether that
-        // is the last one — so a layer still in the list `lovrHeadsetSetLayers`
-        // holds survives this, and is destroyed when that list is replaced.
+        // is the one this type holds. LÖVR's own counting determines whether
+        // that is the last one; a layer still in the list
+        // `lovrHeadsetSetLayers` holds survives this, and is destroyed
+        // when that list is replaced.
         unsafe { lovrRelease(layer.0.as_ptr().cast::<c_void>(), Some(lovrLayerDestroy)) };
     }
 
-    /// The layer is deliberately not released, which leaks it. Releasing the
-    /// reference here would run `lovrLayerDestroy`, and that calls
+    /// The layer is intentionally not released, which leaks it. Releasing
+    /// the reference here would run `lovrLayerDestroy`, and that calls
     /// `xrDestroySwapchain` on a handle `xrDestroySession` has already
     /// invalidated. A few hundred bytes, on a path taken once per lost session,
     /// is the cheaper of the two.
@@ -139,17 +136,17 @@ impl LayerBackend for LovrLayers {
 
 /// LÖVR's side of the blit seam.
 ///
-/// A token for the same reason [`LovrLayers`] is one: the guarantee is about the
-/// thread, and stating it once at construction keeps the trait implementable by
-/// a fake.
+/// A token for the same reason [`LovrLayers`] is one: the guarantee is about
+/// the thread, and stating it once at construction keeps the trait
+/// implementable by a fake.
 #[derive(Debug)]
 pub struct LovrBlits(());
 
 impl LovrBlits {
     /// # Safety
     ///
-    /// This must be the thread that owns LÖVR's graphics and headset modules,
-    /// and it must stay that way for as long as the value lives.
+    /// The caller must be the thread that owns LÖVR's graphics and headset modules,
+    /// and must stay that thread for the value's lifetime.
     #[must_use]
     pub const unsafe fn new() -> Self {
         Self(())
@@ -167,8 +164,9 @@ impl LayerBlitter for LovrBlits {
         let raw = NonNull::new(raw)?;
 
         // SAFETY: the swapchain owns the texture and outlives the returned
-        // value, which the blit ledger drops without releasing — `LovrTexture`
-        // has no destructor, so dropping one takes no reference away.
+        // value. The blit ledger drops the value without releasing it;
+        // `LovrTexture` has no destructor, so dropping one takes no reference
+        // away.
         Some(unsafe { LovrTexture::borrowed(raw) })
     }
 
@@ -176,10 +174,10 @@ impl LayerBlitter for LovrBlits {
         source.can_copy_to(destination)
     }
 
-    /// Through the one copy mechanism in the codebase, which is why this is a
-    /// delegation rather than a second `lovrTextureCopy` call site.
-    /// `window:stabilize()` uses the same one, so the `syncStream` barriers that
-    /// order a copy against LÖVR's own rendering are emitted from one place.
+    /// Delegates to the one copy mechanism in the codebase, so no second
+    /// `lovrTextureCopy` call site exists. `window:stabilize()` uses the same
+    /// mechanism, so the `syncStream` barriers that order a copy against
+    /// LÖVR's own rendering are emitted from one place.
     fn copy(&mut self, source: &Self::Texture, destination: &Self::Texture) -> bool {
         source.copy_to(destination)
     }

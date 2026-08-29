@@ -1,10 +1,10 @@
-//! Window handles: what one reports, what it does, and what it does once its
-//! window has gone.
+//! Window handles: what a handle reports, what it does, and how a dead handle
+//! behaves.
 //!
-//! The dead-handle rule is most of what is here. A handle whose window the
-//! snapshot no longer lists answers from what it last knew and returns `false`
-//! from its methods rather than raising, because a window closing half a frame
-//! early is ordinary and taking the session down over it is not.
+//! A handle whose window the snapshot no longer lists reads its last-known
+//! values, returns `false` from its methods, and raises nothing. A window can
+//! close in the middle of a frame, and raising over that would crash the
+//! session for a routine event.
 
 use lunette_compositor::protocol::{
     Command, ContentType, FramePacing, PixelSize, ToplevelState, ToplevelStates,
@@ -167,9 +167,10 @@ fn get_texture_answers_with_the_texture_the_ledger_holds() {
 
 #[test]
 fn a_window_whose_buffer_has_no_alpha_channel_reports_itself_opaque() {
-    // The regression: an X-variant fourcc maps to an alpha Vulkan format, so
-    // the padding byte arrives as alpha and is usually zero. Nothing consumed
-    // the distinction, and a `XR24` client drew fully invisible.
+    // An X-variant fourcc maps to an alpha Vulkan format, so the padding byte
+    // arrives as alpha and is usually zero. Sampling it as alpha would render
+    // an `XR24` client fully invisible; the format mapping records these as
+    // opaque instead.
     let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     session.with_textures(|textures| {
         textures.install(
@@ -232,8 +233,8 @@ fn get_texture_answers_false_before_the_client_has_committed_anything() {
 #[test]
 fn a_texture_handle_is_refused_once_its_frame_has_passed() {
     // Not reachable from Lua, which resolves a reference in the call that
-    // built it. The ledger's rule is what `getTexture` relies on, so the test
-    // states it at the boundary rather than only inside `texture.rs`.
+    // creates it. `getTexture` relies on the ledger's rule, so the test states
+    // the rule at the Lua boundary in addition to `texture/ledger.rs`.
     let session = session(Vec::new());
     session.with_textures(|textures| {
         textures.install(
@@ -479,7 +480,7 @@ fn stabilizing_hands_back_the_same_texture_while_the_buffer_rotates() {
     );
     assert_ne!(stable, imported, "the copy is lunette's, not the client's");
 
-    // The client commits its next buffer, which is a different texture.
+    // The install stands in for the client committing its next buffer.
     session.with_textures(|textures| {
         textures.install(
             surface_id(1),

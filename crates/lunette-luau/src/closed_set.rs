@@ -1,22 +1,23 @@
-//! Declaring a closed set together with the names it is known by.
+//! Declaring a closed set together with the names of its members.
 //!
-//! A set whose members are listed twice is a set that drifts: the list and the
-//! names are written apart, a variant is added to one, and the other is quietly
-//! short. Every consumer here derives from the declaration, so adding a member
-//! is one line and there is nowhere for a second list to go stale.
+//! A set whose members are listed twice is written as two separate lists.
+//! Adding a variant to one list does not add it to the other. Every consumer
+//! derives from the declaration; adding a member is one line, and no second
+//! list is updated manually.
 //!
-//! Naming rather than projection, because not every closed set reaches Lua. A
-//! DRM connector kind has names and no Luau type; one that does reach Lua says
-//! so beside itself, in one line, from [`NAMES`](crate::Type::literals).
+//! The macro records names and generates no Luau type, because not every
+//! closed set is exposed to Lua. A DRM connector kind has names without a
+//! Luau type. For a set exposed to Lua, one line beside the declaration
+//! builds the union type from [`NAMES`](crate::Type::literals).
 
-/// Declares an enum and the names its members are known by.
+/// Declares an enum and the names of its members.
 ///
 /// Generates `ALL`, `NAMES`, `as_str`, `from_name`, and [`Display`]. The enum
 /// must derive [`Copy`], because `as_str` takes its receiver by value.
 ///
 /// ```
 /// lunette_luau::closed_set! {
-///     /// Which pipeline a sink's events travel.
+///     /// Which pipeline a sink's events use.
 ///     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 ///     pub enum InputDomain {
 ///         /// A surface this compositor hosts.
@@ -58,7 +59,7 @@ macro_rules! closed_set {
             /// Every name, in the order they are declared.
             pub const NAMES: &'static [&'static str] = &[$($spelling),+];
 
-            /// The name this member is known by.
+            /// The name this member maps to.
             #[must_use]
             pub const fn as_str(self) -> &'static str {
                 match self {
@@ -68,9 +69,9 @@ macro_rules! closed_set {
 
             /// The member a name refers to, rejecting anything else.
             ///
-            /// `None` rather than a default: an unrecognised name is a typo,
-            /// and a member that silently stands in for one is harder to find
-            /// than an error.
+            /// An unrecognised name is a typo, and `from_name` returns `None` for it.
+            /// A default member would substitute for the typo, and the substitution is
+            /// harder to find than an error.
             #[must_use]
             pub fn from_name(name: &str) -> Option<Self> {
                 Self::ALL
@@ -93,14 +94,14 @@ mod tests {
     use crate::Type;
 
     closed_set! {
-        /// A set with the shapes a real declaration has: a default, a doc
-        /// comment per member, and a name that is not the variant lowercased.
+        /// A set with the properties a declaration can have: a default member, a doc
+        /// comment per member, and a spelling that differs from the lowercased variant name.
         #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
         pub enum Sample {
-            /// The one a missing value means.
+            /// The member a missing value maps to.
             #[default]
             None = "none",
-            /// A name Rust cannot spell as an identifier.
+            /// A name Rust cannot write as an identifier.
             CapsLock = "capsLock",
             Video = "video",
         }
@@ -137,7 +138,7 @@ mod tests {
         assert_eq!(Sample::CapsLock.to_string(), "capsLock");
     }
 
-    /// The reason a set declared this way can be projected in one line.
+    /// A set declared this way builds its union type in one line from `NAMES`.
     #[test]
     fn the_names_are_what_a_luau_union_is_built_from() {
         assert_eq!(

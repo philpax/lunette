@@ -1,91 +1,56 @@
-//! When a surface's accumulated frame callbacks are answered.
+//! Tracks when the compositor may answer each surface's `wl_surface.frame`
+//! callback. A client uses that callback to schedule its next frame.
 //!
-//! A Wayland client draws only after the compositor answers its
-//! `wl_surface.frame` callback, so this is the whole of how often a client that
-//! nobody is looking at costs anything. Lua decides the rate — visibility,
-//! gaze, distance, focus, whether a game is running — and this decides when the
-//! next answer is owed.
+//! This state reads no clock: callers supply elapsed time, and the compositor
+//! thread performs callback delivery and timer registration. The compositor
+//! keeps withheld callbacks pending until their surface is due, so pacing does
+//! not discard a Wayland callback.
 //!
-//! Pure. Nothing here reads a clock or touches a `wl_callback`: every entry
-//! point takes the current time as an argument and answers a question about it,
-//! and [`crate::state`] does the sending. That is what makes the policy
-//! testable without a client, a socket, or a sleep.
-//!
-//! # Why not `send_frames_surface_tree`
-//!
-//! smithay's own throttle (`src/desktop/wayland/utils.rs:217-266`) is not
-//! usable for this. It sends when the surface is on the primary scan-out output
-//! **or** when the frame is overdue (`:245-249`), so the scan-out branch
-//! bypasses the throttle entirely — rate limiting with it means passing a
-//! closure that deliberately names a non-matching output, to disable half the
-//! function in order to reach the other half. And its `SurfaceFrameThrottling
-//! State` (`:484-503`) is declared without `pub`, so it cannot be named, reset,
-//! or inspected, and there is nowhere to hang a per-surface override.
-//!
-//! Withholding is safe because callbacks accumulate rather than replace:
-//! smithay's `SurfaceAttributes::merge_into` extends the list
-//! (`src/wayland/compositor/handlers.rs:146`), so a callback withheld across
-//! several commits is still there to be answered and no `wl_callback` is ever
-//! dropped without its `done`.
+//! The supplied time is monotonic elapsed compositor time. Production supplies
+//! the compositor's elapsed clock, while tests supply explicit durations.
 
 use std::{collections::HashMap, time::Duration};
 
 use crate::protocol::{FramePacing, FrameRate, SurfaceId};
 
-/// The slowest a surface is ever paced, in hertz.
+/// The minimum supported frame-callback rate, in hertz.
 ///
-/// `docs/rendering.md`: the floor is approximately 1 Hz, not zero. A client
-/// answered no frame callbacks at all stops pumping its event loop, and stops
-/// answering input with it, so it looks hung rather than idle. A rate below
-/// this is paced at this instead, which is what keeps a throttled window
-/// responsive to a click.
+/// A lower requested rate is clamped to this floor so a throttled client still
+/// receives callbacks and can process input.
 pub(crate) const FLOOR_HERTZ: f64 = 1.0;
 
-/// How often each surface's frame callbacks are answered.
+/// Tracks the frame-callback deadline for each surface.
 ///
-/// A surface with no entry is unthrottled, which is the state every surface
-/// starts in: throttling is something Lua asks for, not something a client is
-/// subjected to by default.
+/// Surfaces without pacing state are unthrottled.
 #[derive(Debug, Default)]
 pub(crate) struct FramePacer {
     surfaces: HashMap<SurfaceId, SurfacePace>,
 }
 
 impl FramePacer {
-    /// Sets how often a surface is answered.
-    ///
-    /// When it was last answered is kept, so a rate change is measured from the
-    /// last real send rather than restarting the interval. Raising the rate
-    /// therefore takes effect at once when the old interval has already
-    /// elapsed, and at the new interval's boundary otherwise.
+    /// Sets a surface's pacing mode without changing its last-send time.
     pub(crate) fn set(&mut self, surface: SurfaceId, pacing: FramePacing) {
         self.surfaces.entry(surface).or_default().pacing = pacing;
     }
 
-    /// Whether a surface holding callbacks should be answered at `now`.
+    /// Returns whether a pending surface callback is due at `now`.
     #[must_use]
     pub(crate) fn is_due(&self, surface: SurfaceId, now: Duration) -> bool {
         self.due_at(surface, now) <= now
     }
 
-    /// Records that a surface was answered at `now`.
+    /// Records an actual callback delivery at `now`.
     ///
-    /// Only a send that actually happened is recorded. A surface holding no
-    /// callbacks is not "answered", so an idle client does not spend its budget
-    /// on silence and then wait an extra interval for the frame it finally
-    /// asks for.
+    /// The deadline advances only after a pending callback is delivered.
     pub(crate) fn record_sent(&mut self, surface: SurfaceId, now: Duration) {
         if let Some(pace) = self.surfaces.get_mut(&surface) {
             pace.last_sent = Some(now);
         }
     }
 
-    /// The earliest moment any of `withheld` becomes due.
+    /// Returns the earliest deadline among `withheld` surfaces.
     ///
-    /// `None` when nothing is withheld. The caller wakes the event loop then,
-    /// because a client waiting on a frame callback sends nothing, and a
-    /// compositor that only wakes on client traffic would never wake to
-    /// deliver it.
+    /// Returns `None` when `withheld` is empty.
     #[must_use]
     pub(crate) fn next_due(
         &self,
@@ -98,13 +63,12 @@ impl FramePacer {
             .min()
     }
 
-    /// Drops a surface that has gone.
+    /// Removes pacing state when the surface is destroyed.
     pub(crate) fn forget(&mut self, surface: SurfaceId) {
         self.surfaces.remove(&surface);
     }
 
-    /// When a surface's callbacks are next owed, which is `now` for one that is
-    /// unthrottled or has never been answered.
+    /// Returns the next callback deadline for a surface.
     fn due_at(&self, surface: SurfaceId, now: Duration) -> Duration {
         self.surfaces
             .get(&surface)
@@ -112,13 +76,11 @@ impl FramePacer {
     }
 }
 
-/// One surface's rate and when it was last answered.
+/// Stores one surface's pacing mode and last callback-delivery time.
 #[derive(Clone, Copy, Debug, Default)]
 struct SurfacePace {
     pacing: FramePacing,
-    /// `None` until the first send, so a surface that has never been drawn is
-    /// answered immediately rather than waiting out an interval it was not
-    /// present for.
+    /// No deadline applies until the first callback delivery.
     last_sent: Option<Duration>,
 }
 
@@ -134,12 +96,10 @@ impl SurfacePace {
     }
 }
 
-/// The gap between callbacks for a rate, with the floor applied.
+/// Converts a rate to an interval after applying the minimum rate.
 fn interval(rate: FrameRate) -> Duration {
-    // Clamped before the reciprocal rather than after. `FrameRate` admits any
-    // finite positive value, and the reciprocal of a very small one overflows
-    // `Duration::from_secs_f64`, which panics; clamping first bounds the
-    // reciprocal to one second and makes the panic unreachable.
+    // Clamp before taking the reciprocal so a very small positive rate cannot
+    // overflow `Duration::from_secs_f64`.
     Duration::from_secs_f64(1.0 / rate.get().max(FLOOR_HERTZ))
 }
 
@@ -249,14 +209,9 @@ mod tests {
         pacer.set(surface(1), rate(60.0));
         pacer.record_sent(surface(1), secs(1.0));
 
-        // Out of view: throttled to the floor, and withheld for most of a
-        // second.
         pacer.set(surface(1), rate(1.0));
         assert!(!pacer.is_due(surface(1), secs(1.5)));
 
-        // Back in view before the floor's interval elapsed. The 60 Hz budget
-        // was met long ago, so the client is answered on the next tick rather
-        // than serving out the throttled interval it no longer has.
         pacer.set(surface(1), rate(60.0));
         assert!(pacer.is_due(surface(1), secs(1.5)));
     }

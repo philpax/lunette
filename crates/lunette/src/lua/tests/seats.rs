@@ -4,10 +4,10 @@
 //! string the compositor would have published, and the answers come out of the
 //! same compiled copy production uses.
 //!
-//! The host half is `lunette-v1.AC3.3`. What is established here is that a
+//! The host half is the mirroring contract this module establishes: a
 //! keystroke addressed to a host sink reaches the provider, under the seat's
-//! layout, having uploaded that layout first — the last of those being the
-//! reason `wl_virtual` was left unconfigured before this.
+//! layout, after uploading that layout first. Because the upload must precede
+//! the first keystroke, `wl_virtual` is not configured in the production path.
 
 use std::sync::Arc;
 
@@ -25,7 +25,7 @@ const KEY_A: u32 = 30;
 
 /// A seat carrying an explicitly named layout.
 ///
-/// Named rather than defaulted, so the assertions below hold whatever the
+/// The name is explicit, so the assertions below hold whatever the
 /// compositor's inherited default is.
 fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
     let keymap = Keymap::compile(
@@ -42,8 +42,8 @@ fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
         name: name.to_owned(),
         keymap: Arc::clone(keymap.text()),
         modifiers: ModifierState::new(),
-        // The default seat is the bridged one, which is what the compositor
-        // starts with; a test that wants another asks for it.
+        // The default seat is the bridged one, which is the seat the compositor
+        // starts with; a test that needs another constructs it with `seat`.
         clipboard_bridge: raw == 1,
     }
 }
@@ -106,7 +106,7 @@ fn forward_lookup_reports_nothing_for_a_key_that_types_nothing() {
     let session = us_session(Vec::new());
     let lua = lua(&session);
 
-    // `KEY_LEFTSHIFT`, which has a keysym and no text.
+    // `KEY_LEFTSHIFT` has a keysym and no text.
     let (character, symbol): (Option<String>, Option<u32>) = run(
         &lua,
         "local s = lunette.seats()[1] return s:characterFor(42), s:symbolFor(42)",
@@ -121,9 +121,9 @@ fn reverse_lookup_returns_a_keycode_and_modifiers_lua_can_feed_back() {
     let session = us_session(Vec::new());
     let lua = lua(&session);
 
-    // The round trip is what makes this worth asserting: whatever `strokeFor`
-    // hands back has to produce the character it was asked about when fed
-    // through the forward path, which does not share code with the inversion.
+    // The round trip is the reason this is worth asserting: whatever `strokeFor`
+    // returns must produce the character the caller asked for when fed through
+    // the forward path, which does not share code with the inversion.
     let (keycode, modifiers, again): (u32, Table, String) = run(
         &lua,
         "local s = lunette.seats()[1]
@@ -303,7 +303,7 @@ fn bridging_a_seat_names_it_and_unbridging_names_no_seat() {
 #[test]
 fn asking_for_the_bridge_a_seat_already_has_queues_nothing() {
     // A configuration may call this every frame without knowing which seat
-    // holds it, and a command per frame would republish the snapshot forever.
+    // holds it. A command per frame would republish the snapshot forever.
     let session = us_session(Vec::new());
     let lua = lua(&session);
 
@@ -408,6 +408,7 @@ fn a_keycode_the_host_provider_never_declared_is_refused_rather_than_sent() {
     let lua = lua(&session);
 
     // 84 is a gap in the evdev table, so no provider declares it.
+    // A keymap cannot map a keycode outside the table.
     let sent: bool = run(&lua, "return lunette.monitors()[1].sink:key(84, true)");
 
     assert!(!sent);
@@ -449,7 +450,7 @@ fn a_modifier_the_host_cannot_represent_is_refused_rather_than_partly_applied() 
     let lua = lua(&session);
 
     // Neither `zwp_virtual_keyboard_v1`'s mask nor uinput's key table has a bit
-    // for `Mod3`. Sending shift alone would leave the host holding something
+    // for `Mod3`. Sending shift alone would leave the host holding a modifier
     // the caller did not ask for.
     let applied: bool = run(
         &lua,
@@ -525,9 +526,9 @@ fn leaving_a_window_sink_withdraws_the_pointer_without_touching_focus() {
 
 #[test]
 fn leaving_a_sink_whose_window_is_gone_reports_false_like_every_other_method() {
-    // `docs/lua-api.md` promises that every method answers `false` on a dead
-    // handle, and a caller that trusts one method's answer and not another's has
-    // no way to tell which is which.
+    // `docs/lua-api.md` states that every method answers `false` on a dead
+    // handle. A caller that trusts one method's answer and not another's has no
+    // way to tell which is which.
     let session = us_session(vec![window(1, "term", "foot", PixelSize::new(800, 600))]);
     let lua = lua(&session);
     run::<()>(&lua, "sink = lunette.windows()[1].sink");

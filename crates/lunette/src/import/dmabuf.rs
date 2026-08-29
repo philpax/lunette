@@ -1,27 +1,26 @@
-//! Linux-only: turning a client's dmabuf into a `VkImage` on LÖVR's device.
+//! Linux-only: turns a client's dmabuf into a `VkImage` on LÖVR's device.
 //!
-//! The compositor thread calls this. It creates images and allocates memory,
-//! and it never submits: the queue belongs to the frame thread, and the frame
-//! thread is also what destroys what is created here.
+//! The compositor thread calls this. It creates images, allocates memory, and
+//! never submits. The queue belongs to the frame thread, and the frame thread
+//! destroys what is created here.
 //!
 //! # Ownership across the two threads
 //!
 //! An image outlives the import that created it. LÖVR wraps it in a `Texture`
 //! whose view is retired through LÖVR's own deferred morgue, so `vkDestroyImage`
-//! must not run in the same tick. [`ImageArena`] is where the two threads meet:
-//! the compositor thread inserts and retires, the frame thread collects what was
-//! retired and destroys it once enough ticks have passed. Nothing else may hold
-//! a `vk::Image` from here.
+//! must not run in the same tick. The two threads coordinate through
+//! [`ImageArena`]: the compositor thread inserts and retires, the frame thread
+//! collects what was retired and destroys it once enough ticks have passed.
+//! Nothing else may hold a `vk::Image` from here.
 //!
-//! # What is deliberately not handled
+//! # Out of scope
 //!
-//! A disjoint dmabuf — planes backed by different buffer objects — is rejected
-//! rather than imported. Handling one needs `VK_IMAGE_CREATE_DISJOINT_BIT`, an
-//! allocation per plane, and `vkBindImageMemory2` with
-//! `VkBindImagePlaneMemoryInfo`. Importing it as though it were contiguous
-//! would read one plane's memory at another plane's offset, which produces a
-//! picture rather than an error, and that is the worst of the outcomes
-//! available.
+//! A disjoint dmabuf, whose planes are backed by different buffer objects, is
+//! rejected. Supporting one needs `VK_IMAGE_CREATE_DISJOINT_BIT`, an allocation
+//! per plane, and `vkBindImageMemory2` with `VkBindImagePlaneMemoryInfo`. A
+//! contiguous import of a disjoint buffer reads one plane's memory at another
+//! plane's offset. The result is a wrong picture with no error, the worst of
+//! the outcomes available.
 
 use std::{
     collections::HashMap,
@@ -48,10 +47,10 @@ use crate::import::{
 
 /// Imports client dmabufs, once each.
 ///
-/// The cache is keyed on the buffer's identity rather than its contents, so a
-/// client cycling three buffers imports three images and then imports nothing
-/// further. That is also what makes the discarding-transition question in
-/// LÖVR's upload path a once-per-buffer concern rather than a per-frame one.
+/// The cache is keyed on the buffer's identity, not on its contents. A client
+/// cycling three buffers imports three images and then imports nothing
+/// further. The discarding-transition question in LÖVR's upload path applies
+/// once per buffer, not once per frame.
 pub(crate) struct DmabufImporter {
     device: Arc<GraphicsDevice>,
     arena: ImageArena,
@@ -82,13 +81,14 @@ impl DmabufImporter {
 
     /// Drops the entries whose buffers the client has destroyed.
     ///
-    /// Retiring here rather than at destruction time is what keeps the cache
-    /// from pinning a client's file descriptors: the key is weak, so the entry
-    /// becomes collectable as soon as the compositor releases the buffer.
+    /// Retiring the image at sweep time, not at the time the client destroys
+    /// the buffer, keeps the cache from pinning the client's file descriptors.
+    /// The key is weak, so the entry becomes collectable as soon as the
+    /// compositor releases the buffer.
     ///
-    /// Called from the import above and from [`BufferImporter::sweep`], because
-    /// imports are not the only thing that makes an entry collectable and a
-    /// compositor whose clients have all disconnected performs none.
+    /// An entry can become collectable outside an import, and a compositor
+    /// whose clients have all disconnected performs no imports.
+    /// [`BufferImporter::sweep`] also calls this method.
     ///
     /// [`BufferImporter::sweep`]: lunette_compositor::surface::BufferImporter::sweep
     pub(crate) fn evict_gone_buffers(&mut self) {
@@ -109,9 +109,9 @@ impl DmabufImporter {
         let planes = PlaneLayouts::gather(dmabuf)?;
 
         let image = self.create_image(dmabuf, mapping, size, &planes)?;
-        // Named before the memory is imported, so a driver that somehow
-        // returned a null handle is rejected while there is still nothing to
-        // unwind but the image itself.
+        // The handle is named before the memory is imported, so a null handle
+        // from the driver is rejected while nothing beyond the image requires
+        // unwinding.
         let Some(handle) = ImageHandle::new(image.as_raw()) else {
             // SAFETY: the image was created above and nothing else has seen it.
             unsafe { self.device.raw().destroy_image(image, None) };
@@ -145,9 +145,9 @@ impl DmabufImporter {
 
     /// Creates the image with the client's exact layout.
     ///
-    /// The explicit create info rather than the list variant: the client's
-    /// modifier is known, and the list variant would have the driver choose one
-    /// and then require reading back which it chose.
+    /// The explicit create info, not the list variant: the client's modifier
+    /// is known, and the list variant would have the driver choose one and
+    /// then require reading back which it chose.
     fn create_image(
         &self,
         dmabuf: &Dmabuf,
@@ -178,8 +178,8 @@ impl DmabufImporter {
             .usage(IMPORT_USAGE)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             // The client wrote the buffer outside Vulkan, so there is no layout
-            // to preserve; the acquire barrier the frame thread records is what
-            // moves it into a layout LÖVR can read.
+            // to preserve. The acquire barrier the frame thread records moves
+            // it into a layout LÖVR can read.
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .push_next(&mut external)
             .push_next(&mut format_list)
@@ -199,8 +199,8 @@ impl DmabufImporter {
     ) -> Result<vk::DeviceMemory, DmabufError> {
         let requirements_info = vk::ImageMemoryRequirementsInfo2::default().image(image);
         let mut dedicated = vk::MemoryDedicatedRequirements::default();
-        // Scoped so the chain releases its borrow of `dedicated`, which is what
-        // the driver wrote the dedicated-allocation hint into.
+        // Scoped so the chain releases its borrow of `dedicated`; the driver
+        // wrote the dedicated-allocation hint into that struct.
         let requirements = {
             let mut chain = vk::MemoryRequirements2::default().push_next(&mut dedicated);
             // SAFETY: a Vulkan 1.1 core call against an image from this device.
@@ -264,7 +264,7 @@ impl DmabufImporter {
                 .memory(memory)
                 .memory_offset(0);
             // SAFETY: a Vulkan 1.1 core call binding this image to the memory
-            // just allocated for it.
+            // allocated for it in this function.
             match unsafe { self.device.raw().bind_image_memory2(&[bind]) } {
                 Ok(()) => Ok(memory),
                 Err(error) => {
@@ -281,12 +281,12 @@ impl DmabufImporter {
     ///
     /// VUID-VkMemoryAllocateInfo-memoryTypeIndex-00648 requires the index come
     /// from here whenever the descriptor was created outside Vulkan, which a
-    /// client dmabuf always was. Taking the image's requirements alone happens
-    /// to work on Mesa and is not what the specification permits.
+    /// client dmabuf always is. Taking the image's requirements alone happens
+    /// to work on Mesa, and the specification does not permit it.
     ///
-    /// A borrow rather than a raw descriptor, because this module's other
-    /// descriptor-taking call donates: `vkGetMemoryFdPropertiesKHR` leaves
-    /// ownership with the caller and the type is where that is said.
+    /// Descriptor import happens through a borrow, not a raw descriptor. This
+    /// module's other descriptor-taking call donates: `vkGetMemoryFdPropertiesKHR`
+    /// leaves ownership with the caller, and the parameter type states that.
     fn memory_type_bits(&self, fd: BorrowedFd<'_>) -> Result<u32, DmabufError> {
         let mut properties = vk::MemoryFdPropertiesKHR::default();
         // SAFETY: the call reads the descriptor without taking ownership of it,
@@ -315,8 +315,8 @@ impl fmt::Debug for DmabufImporter {
 /// The images lunette created and has not yet destroyed.
 ///
 /// Shared between the compositor thread, which creates and retires, and the
-/// frame thread, which destroys. A `parking_lot::Mutex` because every span
-/// under it is a map operation with no await and no reentry.
+/// frame thread, which destroys. `parking_lot::Mutex` guards it: every span
+/// under the lock is a map operation with no await and no reentry.
 #[derive(Clone, Default)]
 pub struct ImageArena(Arc<Mutex<ArenaInner>>);
 
@@ -333,13 +333,13 @@ impl ImageArena {
     /// Marks an image as no longer referenced by the compositor.
     ///
     /// Retiring is not destroying. LÖVR may still hold a view onto the image,
-    /// and destroying it in the same tick would free memory a recorded command
+    /// and destroying it in the same tick frees memory a recorded command
     /// buffer still names.
     fn retire(&self, handle: ImageHandle) {
         self.0.lock().retired.push(handle);
     }
 
-    /// Takes the images retired since the last call, for the frame thread to
+    /// Takes the images retired after the last call, for the frame thread to
     /// schedule.
     #[must_use]
     pub fn take_retired(&self) -> Vec<ImageHandle> {
@@ -369,29 +369,26 @@ impl ImageArena {
         }
     }
 
-    /// Forgets every image without destroying it, reporting how many there
-    /// were.
+    /// Forgets every image without destroying it, and reports the count.
     ///
-    /// For a restart, and only for a restart. The device these images were
-    /// created against is destroyed immediately afterwards, and
-    /// `vkDestroyDevice` frees what the device still owns — so the memory is
-    /// not leaked, but it is a violation of that call's valid usage:
-    /// `VUID-vkDestroyDevice-device-05137` requires every child object to have
-    /// been destroyed first. The validation layers report one image and one
-    /// allocation per abandoned entry on every restart, which is expected
-    /// output; `docs/rendering.md` records the trade and the phase plan's
-    /// restart gate says which reports are these and which would be a real
-    /// miss. Destroying them here instead would be the invalid case
+    /// This serves a restart and nothing else. The device that created the
+    /// images is destroyed immediately afterwards, and `vkDestroyDevice` frees
+    /// what the device still owns, so the memory is not leaked. The call still
+    /// violates that call's valid usage: `VUID-vkDestroyDevice-device-05137`
+    /// requires every child object to have been destroyed first. The validation
+    /// layers report one image and one allocation per abandoned entry on every
+    /// restart, which is expected output; `docs/rendering.md` records the trade.
+    ///
+    /// Destroying the images here would be the invalid case
     /// `crates/lunette/src/texture/lovr.rs` records: LÖVR retires an imported
-    /// texture's *view* through a morgue that only `gpu_destroy` empties, and
+    /// texture's view through a morgue that `gpu_destroy` empties, and
     /// `vkDestroyImage` on an image that still has a view is not allowed. There
-    /// are no further frames to defer into, because the ones that would run are
-    /// the next session's and its device is a different device.
+    /// are no further frames to defer into, because the frames that would run
+    /// belong to the next session, whose device is a different device.
     ///
-    /// What this does buy is the thing that matters: no handle from the old
-    /// device survives into the new one's lifetime. A retained handle would be
-    /// destroyed later against a device that never created it, which is a
-    /// use-after-free rather than a leak.
+    /// No handle from the old device survives into the new one's lifetime. A
+    /// retained handle would be destroyed later against a device that never
+    /// created it, which is a use-after-free and not a leak.
     #[must_use]
     pub fn abandon_all(&self) -> usize {
         let mut inner = self.0.lock();
@@ -401,8 +398,8 @@ impl ImageArena {
         abandoned
     }
 
-    /// How many images are still alive. Diagnostic: a number that only grows is
-    /// how a leak in the retirement path shows up.
+    /// How many images are still alive. Diagnostic: a count that grows without
+    /// bound indicates a leak in the retirement path.
     #[must_use]
     pub fn live(&self) -> usize {
         self.0.lock().live.len()
@@ -464,14 +461,15 @@ impl PlaneLayouts {
     }
 }
 
-/// Hands a descriptor to a Vulkan call that takes ownership on success only.
+/// Hands a descriptor to a Vulkan call that takes ownership when the call
+/// succeeds.
 ///
 /// `VkImportMemoryFdInfoKHR` transfers the descriptor to the implementation
 /// when the allocation succeeds (Vulkan-Docs `chapters/memory.adoc:2637`). The
 /// specification does not state the failure case, and the transfer is
 /// conditioned on success, so on failure the caller still owns it. Encoding
-/// both halves here is what stops a call site closing a descriptor the driver
-/// now owns, or leaking one it does not.
+/// both halves stops a call site from closing a descriptor the driver now
+/// owns, or from leaking one it does not.
 fn with_donated_fd<T, E>(
     descriptor: OwnedFd,
     donate: impl FnOnce(RawFd) -> Result<T, E>,
@@ -482,7 +480,7 @@ fn with_donated_fd<T, E>(
         Err(error) => {
             // SAFETY: the call failed, so ownership did not transfer, and `raw`
             // came from the `OwnedFd` this function consumed. Reconstructing it
-            // is what closes it.
+            // closes it.
             drop(unsafe { OwnedFd::from_raw_fd(raw) });
             Err(error)
         }
@@ -493,7 +491,7 @@ fn with_donated_fd<T, E>(
 ///
 /// Two descriptors for the same dma-buf share an inode on the anonymous
 /// `dmabuf` filesystem, whether they arrived as one descriptor or as a `dup` of
-/// it. Two separate buffer objects do not, which is what makes this the
+/// it. Two separate buffer objects do not share an inode. The share is the
 /// distinction between a contiguous buffer and a disjoint one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct BufferIdentity {
@@ -505,8 +503,8 @@ pub(crate) struct BufferIdentity {
 pub(crate) fn identify_buffer(descriptor: BorrowedFd<'_>) -> std::io::Result<BufferIdentity> {
     use std::os::unix::fs::MetadataExt as _;
 
-    // SAFETY: `File` is the only way to reach `fstat` from `std`, and it closes
-    // on drop; `ManuallyDrop` is what keeps the borrowed descriptor open. The
+    // SAFETY: `File` is the std route to `fstat`, and it closes
+    // on drop. `ManuallyDrop` keeps the borrowed descriptor open. The
     // descriptor is valid for the borrow's lifetime, which spans this call.
     let file = ManuallyDrop::new(unsafe { File::from_raw_fd(descriptor.as_raw_fd()) });
     let metadata = file.metadata()?;
@@ -526,15 +524,15 @@ fn is_disjoint(identities: &[BufferIdentity]) -> bool {
 
 /// Widens a dmabuf's per-plane offsets and strides into Vulkan's layout struct.
 ///
-/// Only `offset` and `row_pitch` are read for an explicit-modifier image; the
-/// remaining three fields must be zero, which is what `default` gives them.
-/// smithay's offsets and strides are `u32` and Vulkan's are `VkDeviceSize`, so
-/// each widens rather than being reinterpreted.
+/// An explicit-modifier image reads `offset` and `row_pitch`; the remaining
+/// three fields must be zero, and `default` gives them zero. smithay's offsets
+/// and strides are `u32` and Vulkan's are `VkDeviceSize`, so the conversion
+/// widens each value and does not reinterpret its bits.
 ///
-/// The three counts have to agree. `planes` is what the descriptors reported and
-/// is what the image is created for, so producing fewer layouts than that would
-/// describe a different image from the one the client sent — a picture rather
-/// than an error, which is the outcome this module exists to refuse.
+/// The three counts have to agree. The descriptors report `planes`, and the
+/// image is created for that many planes. Fewer layouts would describe a
+/// different image from the one the client sent, a wrong picture with no
+/// error, which this module exists to refuse.
 fn plane_layouts(
     offsets: &[u32],
     strides: &[u32],
@@ -574,8 +572,8 @@ fn buffer_size(dmabuf: &Dmabuf) -> Result<PixelSize, DmabufError> {
 /// Why a dmabuf could not be imported.
 ///
 /// Public because it is reachable through [`crate::import::CaptureImportError`],
-/// which the frame thread reports: an error a caller can see the `Display` of
-/// but not the variants of is one they cannot act on.
+/// which the frame thread reports. An error whose variants are hidden from the
+/// caller leaves nothing to act on.
 #[derive(Debug)]
 pub enum DmabufError {
     UnsupportedFormat(Fourcc),
@@ -687,12 +685,12 @@ mod tests {
 
     /// A descriptor to hand around, and the other end of the pipe it came from.
     ///
-    /// A pipe rather than a file, so no filesystem is touched, and both ends
-    /// rather than one because the write end is what makes the read end's
-    /// closure observable. Asking whether a descriptor *number* is still open
-    /// answers a question about whichever thread claimed it next — the kernel
-    /// hands out the lowest free number and the harness runs tests in parallel
-    /// — so the question has to be about this pipe instead.
+    /// A pipe, not a file, so no filesystem is touched. Both ends, not one,
+    /// because the write end makes the read end's closure observable. Asking
+    /// whether a descriptor number is still open answers a question about
+    /// whichever thread claimed it next; the kernel hands out the lowest free
+    /// number, and the harness runs tests in parallel. The question has to be
+    /// about this pipe instead.
     fn pipe() -> (OwnedFd, OwnedFd) {
         let (read, write) = std::io::pipe().expect("a pipe can be created");
         (OwnedFd::from(read), OwnedFd::from(write))
@@ -706,8 +704,8 @@ mod tests {
     /// Whether the read end of the pipe `write` belongs to has been closed.
     ///
     /// A write into a pipe with no reader fails with `EPIPE`. Rust's runtime
-    /// sets `SIGPIPE` to `SIG_IGN` at startup, so the error arrives rather than
-    /// the signal.
+    /// sets `SIGPIPE` to `SIG_IGN` at startup, so the error arrives and the
+    /// signal does not.
     fn read_end_is_closed(write: BorrowedFd<'_>) -> bool {
         matches!(rustix::io::write(write, b"."), Err(rustix::io::Errno::PIPE))
     }
@@ -804,8 +802,8 @@ mod tests {
 
     #[test]
     fn an_empty_plane_set_is_not_reported_as_disjoint() {
-        // It is rejected as having no planes instead, which is the more
-        // accurate error; this states that the two checks do not overlap.
+        // The empty set is rejected as having no planes, which is the more
+        // accurate error; the two checks do not overlap.
         assert!(!is_disjoint(&[]));
     }
 
@@ -868,9 +866,8 @@ mod tests {
 
     #[test]
     fn no_planes_at_all_produces_no_layouts() {
-        // Reachable only through `PlaneLayouts::gather`, which rejects the
-        // empty case before it gets here; stated so the two checks stay
-        // distinct.
+        // Reachable through `PlaneLayouts::gather`, which rejects the
+        // empty case before it gets here; the two checks stay distinct.
         assert!(
             plane_layouts(&[], &[], 0)
                 .expect("the counts agree")

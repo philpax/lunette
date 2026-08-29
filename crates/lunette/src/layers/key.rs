@@ -1,4 +1,5 @@
-//! What a `Layer` fixes at creation, and so what the free list is keyed by.
+//! A `Layer` fixes its key at creation, and the free list is keyed by that
+//! key.
 
 use std::fmt;
 
@@ -8,10 +9,12 @@ use crate::scale::quantize_dimension;
 
 /// A layer size on the ladder [`crate::scale`] defines.
 ///
-/// The field is private and the only constructor quantises, so a size straight
-/// off a panel cannot become a key. Two panels a pixel apart would otherwise
-/// take two `Layer`s, neither would ever match the other's free-list entry, and
-/// a drag resize would allocate every frame.
+/// The field is private, and the sole constructor quantises. A size that has
+/// not passed through [`LayerSize::quantized`] cannot become a key.
+///
+/// In the absence of quantisation, two panels a pixel apart take two `Layer`s.
+/// Neither ever matches the other's free-list entry, and a drag resize
+/// allocates a layer every frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayerSize(PixelSize);
 
@@ -41,48 +44,49 @@ impl fmt::Display for LayerSize {
 
 /// The four booleans `LayerInfo` freezes alongside the size.
 ///
-/// Named fields rather than positional arguments, because four booleans in a
-/// row is a transposition waiting to happen and every one of them changes what
-/// the runtime does with the layer.
+/// The fields are named. Four positional booleans are easy to pass in the
+/// wrong order, and each of the four changes what the runtime does with the
+/// layer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayerProperties {
-    /// Two views rather than one. Costs two slots of the budget, because
-    /// `lovrHeadsetSetLayers` counts it that way.
+    /// The layer shows two views. It costs two slots of the budget, because
+    /// `lovrHeadsetSetLayers` counts the stereo layer that way.
     pub stereo: bool,
-    /// Written once and never again. The pool never sets this: a pooled layer
-    /// is by definition reused, and LÖVR raises on the second acquire of an
-    /// immutable one.
+    /// The layer is written once and never rewritten. The pool never sets
+    /// this flag, because a pooled layer is reused and LÖVR raises on the
+    /// second acquire of an immutable layer.
     pub immutable: bool,
-    /// Whether the runtime looks at the layer's alpha channel at all. LÖVR
-    /// turns this into `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`;
-    /// without it the layer composites as opaque and its fourth component is
-    /// ignored.
+    /// Whether the runtime reads the layer's alpha channel. LÖVR maps this to
+    /// `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`; without it the
+    /// layer composites as opaque and the alpha channel is ignored.
     pub transparent: bool,
-    /// Sampled with filtering rather than nearest.
+    /// The runtime samples the layer with filtering. Sampling is
+    /// nearest-neighbour when the flag is clear.
     pub filter: bool,
 }
 
 impl LayerProperties {
-    /// What a panel wants: one view, reusable, opaque, and filtered.
+    /// The defaults for a panel layer: one view, a reusable layer, opaque
+    /// composition, and filtered sampling.
     ///
-    /// Opaque is the resolution of the X-variant alpha problem, and it is the
-    /// only one available on this path. `Xrgb8888` and `Xbgr8888` have no alpha
-    /// channel, so they are imported as the alpha-carrying format with the same
-    /// component order and whatever the client left in the padding byte arrives
-    /// as alpha. The in-scene quad forces it to one in a fragment stage; a
-    /// composition layer goes to the runtime with no shader and no Lua
-    /// consumer, and a copy cannot fix it either — `lovrTextureCopy` and
-    /// `lovrTextureBlit` are `vkCmdCopyImage` and `vkCmdBlitImage`, which read
-    /// the image rather than a view, so an image-view swizzle does not reach
-    /// them. The layer's own blend flag is what is left, and turning it off
-    /// makes the padding byte unreachable for every source format, before and
-    /// after a client renegotiates one.
+    /// Opaque composition resolves the X-variant alpha problem, and no other
+    /// resolution exists on this path. `Xrgb8888` and `Xbgr8888` have no alpha
+    /// channel, so they are imported as the alpha-carrying format with the
+    /// same component order, and whatever the client left in the padding byte
+    /// arrives as alpha. The in-scene quad forces alpha to one in a fragment
+    /// stage. A composition layer reaches the runtime with no shader and no
+    /// Lua consumer. A copy cannot fix the alpha either: `lovrTextureCopy`
+    /// and `lovrTextureBlit` are `vkCmdCopyImage` and `vkCmdBlitImage`, which
+    /// read the image, not a view, so an image-view swizzle does not reach
+    /// them. The layer's blend flag is the remaining control, and turning it
+    /// off makes the padding byte unreachable for every source format;
+    /// renegotiating the format does not change that.
     ///
-    /// The cost is that a genuinely translucent client is composited opaque
-    /// while it holds a layer. A panel that wants translucency renders as an
-    /// in-scene quad, where the shader path resolves alpha correctly, and
-    /// choosing between sharpness and translucency is Lua's to make by claiming
-    /// or not claiming. `docs/rendering.md` records this.
+    /// The cost is that a translucent client is composited opaque while it
+    /// holds a layer. A translucent panel renders as an in-scene quad, where
+    /// the shader path resolves alpha. Lua chooses between sharpness and
+    /// translucency by claiming a layer or not. `docs/rendering.md` records
+    /// this.
     pub const PANEL: Self = Self {
         stereo: false,
         immutable: false,
@@ -91,17 +95,16 @@ impl LayerProperties {
     };
 }
 
-/// Everything a `Layer` fixes at creation, and so everything a free-list entry
-/// has to match for a claim to reuse it.
+/// Everything a `Layer` fixes at creation, and everything a free-list entry
+/// must match for a claim to reuse it.
 ///
-/// A named type rather than a tuple: it is a domain type, it appears in several
-/// signatures, and a bare `(u32, u32, bool, bool, bool, bool)` is unreadable at
-/// every one of them.
+/// A named type: it is a domain type, it appears in several signatures, and a
+/// bare `(u32, u32, bool, bool, bool, bool)` is unreadable at each of them.
 ///
-/// `format` is deliberately absent, though the acceptance criterion this serves
-/// names it. There is exactly one: `lovrSwapchainInit` hard-codes
-/// `VK_FORMAT_R8G8B8A8_SRGB`, and session start aborts outright if the runtime
-/// refuses it. A field for it would imply a choice that does not exist.
+/// `format` is absent. There is exactly one format: `lovrSwapchainInit`
+/// hard-codes `VK_FORMAT_R8G8B8A8_SRGB`, and session start aborts outright if
+/// the runtime refuses it. A format field would imply a choice that does not
+/// exist.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayerKey {
     size: LayerSize,
@@ -126,9 +129,9 @@ impl LayerKey {
 
     /// How much of the runtime's layer budget one of these spends.
     ///
-    /// Two for a stereo layer, because `lovrHeadsetSetLayers` inserts the
+    /// A stereo layer spends two, because `lovrHeadsetSetLayers` inserts the
     /// right-eye copy as its own entry and checks the doubled total. The Lua
-    /// wrapper checks the object count instead; the two disagree and the native
+    /// wrapper checks the object count; the two disagree, and the native
     /// check is the binding one.
     #[must_use]
     pub const fn slots(self) -> u32 {
@@ -169,8 +172,6 @@ mod tests {
 
     #[test]
     fn two_sizes_a_pixel_apart_share_a_key() {
-        // The reason the size is quantised at all: without this a drag resize
-        // misses the free list on every frame of the drag.
         assert_eq!(size(1000, 1000), size(1001, 1000));
     }
 

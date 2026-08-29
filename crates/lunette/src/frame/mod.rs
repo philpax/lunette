@@ -5,8 +5,7 @@
 //! snapshot and queues commands; [`lunette_compositor::thread`] publishes
 //! snapshots and consumes commands; [`crate::import`] turns a client buffer into
 //! an image and [`crate::texture`] turns that into something Lua can sample.
-//! This module is what runs between them, once per frame, in the order the
-//! pieces require.
+//! This module runs between them once per frame, in the order the pieces need.
 //!
 //! # The order of a frame
 //!
@@ -14,20 +13,20 @@
 //!
 //! 1. Start the compositor if LÖVR has created its graphics device and the
 //!    compositor is not running yet. See below.
-//! 2. Install the compositor's latest snapshot on the session, which advances
-//!    the frame generation and so invalidates the previous frame's texture
-//!    handles.
-//! 3. Drain the event channel. Every event is applied to the texture ledger and
-//!    then queued for `lovr.lun*` dispatch. The drain follows the snapshot
-//!    rather than preceding it so that a handler reading `lunette.windows()`
-//!    sees a snapshot that already accounts for the event it was handed.
+//! 2. Install the compositor's latest snapshot on the session. The install
+//!    advances the frame generation and invalidates the previous frame's
+//!    texture handles.
+//! 3. Drain the event channel. Every event is applied to the texture ledger
+//!    and then queued for `lovr.lun*` dispatch. The drain follows the snapshot
+//!    so a handler reading `lunette.windows()` sees a snapshot that already
+//!    accounts for the event it was handed.
 //! 4. Refresh the stabilised copies, and record an acquire barrier over every
 //!    texture the frame may sample.
 //! 5. Destroy the images whose deferral has elapsed. This is last because
-//!    [`destroy_due_images`] is only sound once everything that can retire an
+//!    [`destroy_due_images`] is sound only once everything that can retire an
 //!    image has run: the drain at step 3, which releases the textures a
 //!    client's commits displaced, and the capture import and the sweep for
-//!    stopped mirrors, which are what release a mirrored monitor's.
+//!    stopped mirrors, which release a mirrored monitor's textures.
 //!
 //! At frame end: record the release barriers, then hand the frame's queued
 //! commands to the compositor.
@@ -35,27 +34,26 @@
 //! # Why the compositor cannot start with everything else
 //!
 //! The compositor imports client dmabufs against LÖVR's `VkDevice`, so it
-//! cannot exist before LÖVR has made one — which happens inside `boot.lua`,
-//! several steps after the process starts. So the start is deferred to the
-//! first frame at which `lovrGraphicsIsInitialized` answers true, and the
-//! listening socket is bound long before that, by the entry point, for the
-//! reason `crates/lunette/src/main.rs` records.
+//! cannot exist before LÖVR has made one. LÖVR makes it inside `boot.lua`,
+//! several steps after the process starts. The start is deferred to the first
+//! frame at which `lovrGraphicsIsInitialized` answers true, and the
+//! listening socket is bound long before that, by the entry point. The reason
+//! is in `crates/lunette/src/main.rs`.
 //!
 //! A failure to start is reported once and not retried. The socket is dropped
 //! with the attempt, so a second attempt would be against a name that is no
-//! longer bound, and the failures that can occur here — a device without the
-//! import extensions, a thread that cannot be spawned — do not become true
+//! longer bound, and the failures that can occur here, a device without the
+//! import extensions or a thread that cannot be spawned, do not become true
 //! later.
 //!
 //! # Why the same is true after a restart
 //!
 //! `lunette.restart()` destroys the device and builds another, and the
-//! compositor thread outlives both. So the readiness test above runs for every
-//! device rather than only the first: [`FrameDriver::quiesce`] takes the device
-//! back before the Lua state closes, and the first frame of the next session at
-//! which LÖVR has one again lends it out. [`crate::restart`] states the ordering
-//! that makes the exchange safe, and it is the exacting part of this module.
-
+//! compositor thread outlives both. The readiness test runs for every device,
+//! not the first one. [`FrameDriver::quiesce`] takes the device back before
+//! the Lua state closes, and the first frame of the next session at which LÖVR
+//! has one again lends it out. [`crate::restart`] states the ordering that
+//! makes the exchange safe, and it is the exacting part of this module.
 mod mirroring;
 mod teardown;
 
@@ -92,9 +90,9 @@ use crate::{
 /// What the entry point resolved before any thread existed, for the compositor
 /// to be built from later.
 ///
-/// The socket is here rather than being bound on demand because binding it is
-/// what produces the display name, and the display name has to be exported into
-/// the environment while the process is still single-threaded.
+/// The socket is here because binding it produces the display name, and the
+/// display name must be exported into the environment while the process is
+/// still single-threaded.
 #[derive(Debug)]
 pub struct Startup {
     pub socket: WaylandSocket,
@@ -103,27 +101,28 @@ pub struct Startup {
     /// served.
     pub satellite: Option<XwaylandSatellite>,
     /// How the two open questions about the import barrier are answered for
-    /// this run. Both are milestone 0's to measure.
+    /// this run. Both are what milestone 0 exists to measure.
     pub barriers: BarrierPolicy,
     /// The host's own screens, or `None` when lunette cannot reach them.
     pub host: Option<HostDesktop>,
-    /// How the host desktop's clipboard is reached. Absent when there is no host
-    /// Wayland session, and selections then stay inside lunette.
+    /// How the host desktop's clipboard is reached. Absent when there is no
+    /// host Wayland session, and selections then stay inside lunette.
     ///
     /// Separate from [`Self::host`] because it survives a host whose screens
     /// cannot be captured: a session with no screencast portal still has a
     /// clipboard worth bridging.
     pub clipboard: Option<DataControlSource>,
     /// The desktop's own keyboard layout, which a seat that names none
-    /// inherits. Read from `XKB_DEFAULT_*` by the entry point, because the
-    /// compositor crate is a library and libraries do not read the environment.
+    /// inherits. The entry point reads it from `XKB_DEFAULT_*`, because the
+    /// compositor crate is a library and libraries do not read the
+    /// environment.
     pub keymap_defaults: KeymapDefaults,
 }
 
 /// The host desktop the entry point opened, for the frame loop to drive.
 ///
-/// Here rather than resolved on demand for the reason the socket is: the host's
-/// `WAYLAND_DISPLAY` has to be read before the entry point overwrites it with
+/// Resolved at startup for the reason the socket is: the host's
+/// `WAYLAND_DISPLAY` must be read before the entry point overwrites it with
 /// lunette's own, which is before any other thread exists.
 pub struct HostDesktop {
     /// The host's `wl_output`s, kept up to date as they change.
@@ -131,13 +130,14 @@ pub struct HostDesktop {
     /// The mirror lifecycle's frame-loop half. The same object the Lua session
     /// reaches through `MirrorRegistry`, held here through the other trait.
     pub mirrors: Rc<dyn MirrorFrames>,
-    /// The per-monitor pointer mapping, which is rebuilt on every output change.
+    /// The per-monitor pointer mapping, which is rebuilt on every output
+    /// change.
     pub pointer: Rc<HostPointer>,
     /// Where the portal's restore tokens are written, or `None` when they
-    /// cannot be. Resolved by the entry point, because where a state directory
-    /// is is its knowledge, and absent when the file on disk was written by a
-    /// later lunette — rendering this version's fields over it would drop the
-    /// ones this version does not know about.
+    /// cannot be. The entry point resolves the path, because the state
+    /// directory is its knowledge, and it is absent when the file on disk was
+    /// written by a later lunette. Writing this version's fields over it would
+    /// drop the ones this version does not know about.
     pub tokens: Option<TokenFile>,
 }
 
@@ -152,26 +152,27 @@ impl fmt::Debug for HostDesktop {
 
 /// Drives one frame of the session against the compositor.
 ///
-/// Owned by the boot sequence and outliving every Lua state, so that a restart
+/// Owned by the boot sequence and outliving every Lua state, so a restart
 /// throws the state away without disturbing the clients.
 #[derive(Debug)]
 pub struct FrameDriver {
     session: Rc<Session<LovrTexture>>,
     /// The same pool [`Session`] reaches through `ClaimRegistry`, held here
-    /// concretely as well. The trait is what Lua needs and is deliberately
-    /// dyn-safe; the blit and the submit need the backend's own `Layer` type,
-    /// which no dyn-safe trait can hand back.
+    /// concretely as well. Lua needs the trait, which is dyn-safe by design; the
+    /// blit and the submit need the backend's own `Layer` type, which no
+    /// dyn-safe trait can hand back.
     layers: Rc<PoolRegistry<LovrLayers>>,
     blits: LovrBlits,
     blitted: BlitLedger<LovrTexture>,
     /// Consumed by the first successful or failed start.
     startup: Option<Startup>,
     compositor: Option<Compositor>,
-    /// The host's own screens, for the whole session rather than only until the
-    /// compositor starts, which is why it is lifted out of [`Startup`] here.
+    /// The host's own screens, for the whole session rather than only until
+    /// the compositor starts. This is why it is lifted out of [`Startup`]
+    /// here.
     host: Option<HostDesktop>,
     barriers: BarrierPolicy,
-    /// Handed to [`Session::begin`] while there is no compositor, so that the
+    /// Handed to [`Session::begin`] while there is no compositor, so the
     /// generation still advances and a texture handle from the frame before is
     /// still refused.
     empty: Arc<Snapshot>,
@@ -203,12 +204,12 @@ enum GraphicsState {
     /// not arrived. The compositor refuses imports and releases the buffers it
     /// is offered, so a client that commits now redraws later.
     ///
-    /// There is deliberately no third state for "no device, ever again". A
+    /// There is no third state for "no device, ever again". A
     /// compositor that can never import refuses every commit and releases the
-    /// buffer, and a client answers a released buffer by drawing another — so
+    /// buffer, and a client answers a released buffer by drawing another, so
     /// the clients would spin for the rest of the process. The answer to a
-    /// device that cannot be borrowed is [`FrameDriver::stop_compositor`], which
-    /// disconnects them instead.
+    /// device that cannot be borrowed is [`FrameDriver::stop_compositor`],
+    /// which disconnects them.
     Quiesced,
 }
 
@@ -243,9 +244,9 @@ impl Compositor {
 }
 
 impl FrameDriver {
-    /// `blits` carries the same thread guarantee the pool's backend does, which
-    /// is why it is taken rather than made here: this type is constructed by the
-    /// entry point, which is the one place able to state it.
+    /// `blits` carries the same thread guarantee the pool's backend does. This
+    /// type is constructed by the entry point, the one place able to state it,
+    /// so `blits` is taken rather than made here.
     #[must_use]
     pub fn new(
         session: Rc<Session<LovrTexture>>,
@@ -278,28 +279,28 @@ impl FrameDriver {
 
         self.drain_events();
 
-        // Before the lifecycle's own poll, so that a monitor plugged in this
+        // Before the lifecycle's own poll, so a monitor plugged in this
         // frame is announced this frame rather than next.
         self.attach_outputs();
 
         // After the snapshot, for the reason the compositor's events are: a
         // handler reading `lunette.monitors()` has to see the monitor it was
-        // handed. This is also what carries a portal exchange forward, so a
-        // dialog the user has not answered costs one non-blocking poll a frame.
+        // handed. This also carries a portal exchange forward, so a dialog the
+        // user has not answered costs one non-blocking poll a frame.
         for monitor in self.session.mirrors().poll() {
             self.session.push_event(LuaEvent::MonitorAdded { monitor });
         }
 
         self.persist_tokens();
 
-        // After the portal exchange, because that is what starts a stream, and
-        // before the barriers below, because a texture installed here has to be
+        // After the portal exchange, because that starts a stream, and before
+        // the barriers below, because a texture installed here has to be
         // acquired for the frame that is about to sample it.
         self.drop_stopped_mirrors();
         self.import_capture_frames();
 
         // The frame boundary the pool decides on. Before `boot.lua` polls and
-        // so before `lovr.update`, which is what lets a callback read a claim's
+        // so before `lovr.update`, which lets a callback read a claim's
         // realisation and have it hold for the whole of the frame it draws.
         self.session.resolve_layers();
 
@@ -308,8 +309,8 @@ impl FrameDriver {
             ledger.refresh_stable();
             for texture in ledger.textures() {
                 // SAFETY: this is the frame thread, LÖVR's graphics module is
-                // initialised because a texture exists at all, and the acquire
-                // is recorded before anything in the frame can sample it —
+                // initialised because a texture exists, and the acquire
+                // is recorded before anything in the frame can sample it.
                 // `lovr.draw` has not run yet.
                 if !unsafe { texture.acquire(barriers) } {
                     warn!("an imported texture could not be acquired for this frame");
@@ -318,8 +319,8 @@ impl FrameDriver {
         });
 
         // The same acquire for a mirrored monitor's texture. An image imported
-        // from PipeWire needs it exactly as a client's does; they differ only in
-        // which ledger holds them.
+        // from PipeWire needs it exactly as a client's does; they differ only
+        // in which ledger holds them.
         self.session.with_monitor_textures(|textures| {
             for texture in textures.textures() {
                 // SAFETY: as the acquire above.
@@ -341,8 +342,8 @@ impl FrameDriver {
             let now = self.session.generation();
             self.session.with_textures(|ledger| {
                 // SAFETY: the ordering the function documents is the ordering
-                // of this method, stated in the module note above. The arena and
-                // the device are one lifetime's: a restart replaces both
+                // of this method, stated in the module note above. The arena
+                // and the device are one lifetime's: a restart replaces both
                 // together, so a handle from an older device is unreachable
                 // from here.
                 unsafe { destroy_due_images(ledger, &graphics.arena, &graphics.device, now) };
@@ -354,10 +355,10 @@ impl FrameDriver {
     pub fn end_frame(&mut self) {
         // Again here, and not only at frame start. LÖVR initialises graphics
         // during the first frame, so at that frame's start there was no device
-        // to lend and no compositor — but by its end there is, and `lovr.load`
-        // has already run and queued whatever it asked for. Without this the
-        // first frame's commands, which is where a configuration does its
-        // spawning, are flushed into nothing.
+        // to lend and no compositor. By its end there is, and `lovr.load` has
+        // already run and queued whatever it asked for. Without this the first
+        // frame's commands, where a configuration does its spawning, are
+        // flushed into nothing.
         self.start_if_ready();
 
         let barriers = self.barriers;
@@ -380,9 +381,9 @@ impl FrameDriver {
             }
         });
 
-        // Once, at frame end, alongside the compositor's commands: a host sink's
-        // pointer and button calls only accumulate, so a frame that moved the
-        // cursor five times sends one motion.
+        // Once, at frame end, alongside the compositor's commands: a host
+        // sink's pointer and button calls only accumulate, so a frame that
+        // moved the cursor five times sends one motion.
         self.session.host().commit();
 
         let commands = self.session.flush();
@@ -400,10 +401,10 @@ impl FrameDriver {
             // Never waiting. The compositor may be blocked reporting an event,
             // and it drains commands only between dispatches, so a main thread
             // that waited here would be waiting for a thread that is waiting
-            // for it. A refused command is reported and the rest of the frame's
-            // are abandoned, because they were queued in order and delivering
-            // the tail without the head would apply the configuration out of
-            // sequence.
+            // for it. A refused command is reported and the rest of the
+            // frame's are abandoned, because they were queued in order and
+            // delivering the tail without the head would apply the
+            // configuration out of sequence.
             if let Err(error) = compositor.handle.commands().try_send(command) {
                 warn!(%error, "the frame's remaining commands were not delivered");
                 break;
@@ -414,10 +415,10 @@ impl FrameDriver {
     /// Stops the compositor thread, which disconnects every client.
     ///
     /// Terminal for the session: [`FrameDriver::start_if_ready`] starts a
-    /// compositor only while [`FrameDriver::startup`] is unspent, and it is spent
-    /// by the first start. Every caller reaches here having decided that no
-    /// client can be served again, and disconnecting is what tells the clients
-    /// so — one that stays connected to a compositor that can never import
+    /// compositor only while [`FrameDriver::startup`] is unspent, and it is
+    /// spent by the first start. Every caller reaches here having decided that
+    /// no client can be served again, and disconnecting conveys that to the
+    /// clients. A client that stays connected to a compositor that can never import
     /// redraws, is refused, and redraws again for the rest of the process.
     ///
     /// [`FrameDriver::startup`]: FrameDriver#structfield.startup
@@ -442,12 +443,12 @@ impl FrameDriver {
         );
     }
 
-    /// Starts the compositor once LÖVR has a device to lend it, or lends it the
-    /// new one after a restart.
+    /// Starts the compositor once LÖVR has a device to lend it, or lends it
+    /// the new one after a restart.
     ///
     /// Both cases wait on the same signal and neither can be done earlier, so
-    /// they share the readiness test rather than being two call sites that both
-    /// have to remember it.
+    /// they share the readiness test. Two call sites would both have to
+    /// remember it.
     fn start_if_ready(&mut self) {
         let wanted = match &self.compositor {
             None if self.startup.is_some() => Readiness::Start,
@@ -458,9 +459,9 @@ impl FrameDriver {
             None => return,
         };
 
-        // SAFETY: the call reads a flag on LÖVR's graphics state and touches no
-        // Rust memory. It is safe before initialisation, which is the whole
-        // reason it is what the readiness test asks.
+        // SAFETY: the call reads a flag on LÖVR's graphics state and touches
+        // no Rust memory. It is safe before initialisation, which is why the
+        // readiness test queries it.
         if !unsafe { lovrGraphicsIsInitialized() } {
             return;
         }
@@ -508,9 +509,9 @@ impl FrameDriver {
     /// after a restart.
     ///
     /// The compositor has been idle since it acknowledged the quiesce, holding
-    /// its clients and their buffers. Adopting is what lets it import again, and
-    /// it re-imports every retained buffer as it does — so a client that has
-    /// drawn nothing since the restart gets its content back regardless.
+    /// its clients and their buffers. Adopting lets it import again, and it
+    /// re-imports every retained buffer as it does, so a client that has drawn
+    /// nothing since the restart gets its content back regardless.
     ///
     /// Nothing is waited on here. The re-imports arrive as ordinary
     /// [`Event::BufferImported`] reports and are drained by the next frame
@@ -519,12 +520,12 @@ impl FrameDriver {
         let graphics = match borrow_graphics() {
             Ok(graphics) => graphics,
             Err(error) => {
-                // Stopped rather than left running with no device. A compositor
-                // that cannot import refuses every commit and releases the
-                // buffer, and a client answers a released buffer by drawing
-                // another — so the clients would spin for the rest of the
-                // process. Disconnecting says so, and the failures that reach
-                // here do not become false later.
+                // Stopped rather than left running with no device. A
+                // compositor that cannot import refuses every commit and
+                // releases the buffer, and a client answers a released buffer
+                // by drawing another, so the clients would spin for the rest
+                // of the process. Disconnecting says so, and the failures that
+                // reach here do not become false later.
                 error!(
                     "{error}; the compositor has no device to import against, so it is stopped and \
                      its clients are disconnected"
@@ -539,10 +540,10 @@ impl FrameDriver {
             return;
         };
 
-        // `try_send` and not a wait, for the reason the whole protocol uses it:
-        // a main thread that blocked filling this channel could deadlock against
-        // a compositor blocked filling the event channel. A full queue here is a
-        // frame's worth of commands ahead of us and is drained by the frame that
+        // `try_send` and not a wait, for the reason the whole protocol uses
+        // it: a main thread that blocked filling this channel could deadlock
+        // against a compositor blocked filling the event channel. A full queue
+        // here is a frame's worth of commands ahead and is drained by the frame that
         // follows, so the retry is the next frame's.
         let offered = compositor
             .handle
@@ -576,11 +577,11 @@ impl FrameDriver {
     /// Copies each claim's window into the layer it holds, and hands the
     /// runtime the list to composite.
     ///
-    /// The submit runs whatever the copies decided. A layer skipped because its
-    /// window has not committed since the last copy still goes to the runtime,
-    /// which re-composites it from the image its swapchain last released;
-    /// leaving it out of the list would make its panel disappear rather than
-    /// hold still.
+    /// The submit runs whatever the copies decided. A layer skipped because
+    /// its window has not committed since the last copy still goes to the
+    /// runtime, which re-composites it from the image its swapchain last
+    /// released; leaving it out of the list would make its panel disappear
+    /// rather than hold still.
     fn blit_layers(&mut self) {
         let now = self.session.generation();
         let scene = self.session.scene();
@@ -606,9 +607,9 @@ impl FrameDriver {
 
                 if report.iter().any(|(_, outcome)| outcome.copied()) {
                     // Only matters on a frame that draws no scene, where the
-                    // gate on `lovr.headset.getPass` is what submits the
-                    // stream these copies were recorded into. `crate::scene`
-                    // has the reasoning.
+                    // gate on `lovr.headset.getPass` submits the stream these
+                    // copies were recorded into. `crate::scene` has the
+                    // reasoning.
                     session.note_copies_recorded();
                 }
 
@@ -645,10 +646,10 @@ impl FrameDriver {
         }
     }
 
-    /// Applies to the ledger what one compositor event asks of it.
+    /// Applies to the ledger what one compositor event requests of it.
     fn apply(&self, event: &Event) {
         // The window in a `WindowClosed` is already absent from this frame's
-        // snapshot — that is what the event reports — so its surface is read
+        // snapshot, which the event reports, so its surface is read
         // from the frame before, which the session still holds.
         let surface_of = |window| self.session.window(window).map(|window| window.surface);
 
@@ -670,16 +671,16 @@ impl FrameDriver {
     /// Turns an imported buffer into a texture and installs it.
     ///
     /// A new texture every time, including for shared memory where the pixels
-    /// could have been written into the existing one. Installing is what marks
-    /// the surface damaged, which is what a stabilised copy is refreshed from,
-    /// and a refill that skipped the install would leave that copy showing an
-    /// older frame for ever.
+    /// could have been written into the existing one. Installing marks the
+    /// surface damaged, and a stabilised copy is refreshed from that damage; a
+    /// refill that skipped the install would leave that copy showing an older
+    /// frame for ever.
     fn install(&self, surface: SurfaceId, buffer: &ImportedBuffer) {
         let description = crate::texture::describe(buffer);
         // SAFETY: this is the frame thread and LÖVR's graphics module is
         // initialised, because the compositor that produced this event could
-        // not have started otherwise. An image handle names an image the arena
-        // holds, created with the usage `crate::import::device::IMPORT_USAGE`
+        // not have started otherwise. An image handle names an image the
+        // arena holds, created with the usage `crate::import::device::IMPORT_USAGE`
         // declares.
         let texture = unsafe {
             match buffer {
@@ -703,11 +704,11 @@ impl FrameDriver {
     }
 }
 
-/// What one compositor event asks of the texture ledger.
+/// What one compositor event requests of the texture ledger.
 ///
-/// A separate step from performing it so that the decision is a pure function of
-/// the event: turning a buffer into a texture needs a graphics device and this
-/// does not, which is what makes the mapping testable.
+/// A separate step from performing it: the decision is a pure function of the
+/// event, and turning a buffer into a texture needs a graphics device while
+/// this does not. The split makes the mapping testable.
 #[derive(Debug, PartialEq, Eq)]
 enum LedgerChange<'a> {
     /// The surface committed a buffer, which becomes its new texture.
@@ -718,14 +719,14 @@ enum LedgerChange<'a> {
     /// The surface's client is gone. Its textures are handed back and the
     /// description survives, so reads keep answering with last-known values.
     MarkDead(SurfaceId),
-    /// The surface itself is gone. Everything the ledger holds for it is handed
-    /// back, and the entry with it.
+    /// The surface itself is gone. Everything the ledger holds for it is
+    /// handed back, and the entry with it.
     ///
-    /// This is what keeps a popup, a subsurface, or a cursor surface from
-    /// leaving a texture behind. Every `wl_surface` mints a [`SurfaceId`] and so
-    /// every one can hold a texture, but only a toplevel is ever reported
-    /// closed — so without this the ledger would name a freed image in the
-    /// frame's barriers for the rest of the session.
+    /// This keeps a popup, a subsurface, or a cursor surface from leaving a
+    /// texture behind. Every `wl_surface` has its own [`SurfaceId`], so every
+    /// one can hold a texture, but only a toplevel is ever reported closed.
+    /// Without this the ledger would name a freed image in the frame's
+    /// barriers for the rest of the session.
     Forget(SurfaceId),
     /// Nothing the textures care about. A window opening or retitling is the
     /// snapshot's business, damage is already recorded by the install that
@@ -735,8 +736,8 @@ enum LedgerChange<'a> {
 
 /// Reads an event as a change to the ledger.
 ///
-/// Exhaustive so that a variant added to the protocol has to be given an answer
-/// here rather than silently doing nothing.
+/// Exhaustive so a variant added to the protocol has to be given an
+/// answer here, with no silent default.
 fn ledger_change<'a>(
     event: &'a Event,
     surface_of: impl FnOnce(WindowId) -> Option<SurfaceId>,
@@ -750,10 +751,11 @@ fn ledger_change<'a>(
             surface_of(*window).map_or(LedgerChange::Nothing, LedgerChange::MarkDead)
         }
         Event::SurfaceGone { surface } => LedgerChange::Forget(*surface),
-        // The restart acknowledgements say nothing about a texture. The images
-        // are handled by `FrameDriver::quiesce`, which drives the exchange, and
-        // the re-imports a `GraphicsAdopted` follows arrive as their own
-        // `BufferImported` reports and are installed by the arm above.
+        // The restart acknowledgements say nothing about a texture. The
+        // images are handled by `FrameDriver::quiesce`, which operates the
+        // exchange, and the re-imports a `GraphicsAdopted` follows arrive as
+        // their own `BufferImported` reports and are installed by the arm
+        // above.
         Event::WindowOpened { .. }
         | Event::TitleChanged { .. }
         | Event::SurfaceDamaged { .. }
@@ -766,15 +768,15 @@ fn ledger_change<'a>(
 
 /// Which monitors the sweep for stopped mirrors releases.
 ///
-/// The union of what the two ledgers name, rather than either alone. `holding`
-/// is the monitors [`MonitorTextures`] has a texture for; `retaining` is the
+/// The union of what the two ledgers name, not either one alone. `holding` is
+/// the monitors [`MonitorTextures`] has a texture for; `retaining` is the
 /// monitors [`CaptureImporter`] still holds buffers for. The sets diverge: a
 /// frame whose image imports but whose texture the device refuses retains a
-/// buffer and never reaches the texture ledger, so reading only `holding` would
-/// leave that monitor's buffers alive for the rest of the process.
+/// buffer and never reaches the texture ledger, so reading only `holding`
+/// would leave that monitor's buffers alive for the rest of the process.
 ///
-/// Pure and separate from the sweep because the part worth getting right is the
-/// set, and the release itself is FFI.
+/// Pure and separate from the sweep because the part worth getting right is
+/// the set, and the release itself is FFI.
 ///
 /// [`CaptureImporter`]: crate::import::CaptureImporter
 fn stopped_monitors(
@@ -803,15 +805,16 @@ enum Readiness {
 
 /// Borrows LÖVR's device and builds the state one device's lifetime owns.
 ///
-/// Called at startup and again after every restart, which is why it is separate
-/// from [`start`]: the thread is started once and the device is borrowed as many
-/// times as the session is rebuilt.
+/// Called at startup and again after every restart, which is why it is
+/// separate from [`start`]: the thread is started once and the device is
+/// borrowed as many times as the session is rebuilt.
 ///
 /// # Safety of the borrow
 ///
-/// The caller must have established that LÖVR's graphics module is initialised,
-/// and the device stays valid until either [`FrameDriver::shutdown`] has stopped
-/// the thread that borrows it or [`FrameDriver::quiesce`] has taken it back.
+/// The caller must have established that LÖVR's graphics module is
+/// initialised, and the device stays valid until either
+/// [`FrameDriver::shutdown`] has stopped the thread that borrows it or
+/// [`FrameDriver::quiesce`] has taken it back.
 fn borrow_graphics() -> Result<Graphics, StartupError> {
     // SAFETY: the caller's guarantee, stated above.
     let device = unsafe { GraphicsDevice::borrow_from_lovr() }.map_err(StartupError::Device)?;
@@ -831,8 +834,8 @@ fn start(startup: Startup, graphics: &Graphics) -> Result<CompositorHandle, Star
         display: name,
         satellite,
         barriers: _,
-        // Lifted out by `FrameDriver::new`, because it outlives this start and
-        // is not consumed by it.
+        // Lifted out by `FrameDriver::new`, because it outlives this start
+        // and is not consumed by it.
         host: _,
         clipboard,
         keymap_defaults,
@@ -861,8 +864,8 @@ fn start(startup: Startup, graphics: &Graphics) -> Result<CompositorHandle, Star
 /// The DRM formats a capture stream may negotiate.
 ///
 /// The same set the compositor advertises to its own clients, because both go
-/// through the one dmabuf import path: a format the importer cannot accept is a
-/// format the stream must not agree to, whichever side produced the buffer.
+/// through the one dmabuf import path: a format the importer cannot accept is
+/// a format the stream must not agree to, whichever side produced the buffer.
 fn capture_formats(device: &GraphicsDevice) -> Vec<DrmFormat> {
     device
         .dmabuf_support()
@@ -877,9 +880,9 @@ fn capture_formats(device: &GraphicsDevice) -> Vec<DrmFormat> {
 
 /// Drops lunette's references to the textures a ledger change handed back.
 ///
-/// The images behind them are not retired here. The compositor retires an image
-/// when the client destroys the buffer it came from, which is the point at which
-/// nothing can commit it again; a texture being displaced says only that a newer
+/// The images behind them are not retired here. The compositor retires an
+/// image when the client destroys the buffer it came from, the point at which
+/// nothing can commit it again; a texture being displaced says that a newer
 /// buffer arrived.
 fn release(released: Released<LovrTexture>) {
     for texture in released {

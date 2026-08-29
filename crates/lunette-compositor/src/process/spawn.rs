@@ -1,9 +1,11 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/process.rs and backend/wayvr/mod.rs (the spawn and attribution fragments at :1232-1349), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from the spawn and attribution fragments in WayVR
+//! (https://github.com/wayvr-org/wayvr), in backend/wayvr/process.rs and
+//! backend/wayvr/mod.rs, at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! Linux-only: spawns through `setsid` and `prctl`.
-//!
-//! Starting a child, reading what it writes, and signalling its process group.
+//! Linux-only: creates process groups with `setsid`, sets parent-death signalling with
+//! `prctl`, and configures non-blocking output pipes with `fcntl`.
 
 use std::{
     error::Error,
@@ -25,94 +27,63 @@ use tracing::{debug, warn};
 
 use crate::protocol::{Argv, Pid, ProcessOutcome, ProcessSignal, SignalNumber, Stream};
 
-/// How much of a child's output is taken in one read.
-///
-/// One chunk per stream per poll, and [`crate::state`] polls ten times a second,
-/// so a child's output is carried at roughly 80 KB/s per stream and anything
-/// past that backs up in the pipe until the next poll. That is deliberate: the
-/// output is diagnostic, a chatty child must not be able to make the compositor
-/// thread spend a frame reading, and the pipe's own buffer is the backpressure.
-/// A child that outruns it is slowed, not truncated.
+/// Bounds each non-blocking output read to limit compositor work.
+/// Unread output remains in the pipe, so continued child output
+/// eventually applies backpressure.
 const OUTPUT_CHUNK: usize = 8192;
 
-/// How long a child is given to honour `SIGTERM` before `SIGKILL` follows.
-///
-/// A duration rather than a condition, because the thing being waited on is a
-/// process choosing whether to exit, and there is no state to poll for other
-/// than the exit itself. It bounds lunette's own teardown: this is spent once
-/// per still-running child, and only when lunette is already stopping.
+/// Grace period before escalating from `SIGTERM` to `SIGKILL`.
 const TERMINATE_GRACE: Duration = Duration::from_millis(200);
 
-/// How often the grace period is rechecked.
+/// Interval between non-blocking waits during the termination grace period.
 const REAP_POLL: Duration = Duration::from_millis(5);
 
-/// Starts child processes.
-///
-/// A seam, because subprocesses are exactly what the house rule says to route
-/// through one: the production implementation forks, and a test substitutes a
-/// fake and asserts on what would have been started. Nothing above this trait
-/// knows which it is talking to.
+/// Abstracts process creation so tests can record spawn plans
+/// without starting a real process.
 pub trait ProcessSpawner: Send {
-    /// Starts a process, or reports why it could not be started.
-    ///
     /// # Errors
     ///
-    /// Returns [`SpawnError`] when the program cannot be found or executed. A
-    /// mistyped program name is the common case, and it is the only report a
-    /// caller gets for one.
+    /// Returns [`SpawnError`] when the request cannot be started.
     fn spawn(&mut self, plan: &SpawnPlan) -> Result<Box<dyn ChildProcess>, SpawnError>;
 }
 
-/// A running child.
-///
-/// Behind the same seam as the spawner, so a test can end a process, feed it
-/// output, and observe the events without a real one existing.
+/// Abstracts a spawned child so tests can control its lifetime
+/// and output without starting a real process.
 pub trait ChildProcess: Send {
     fn pid(&self) -> Pid;
 
-    /// The outcome, once the child has ended and been reaped. `None` while it
-    /// is still running, and `None` for ever after the outcome is reported
-    /// once.
+    /// Returns one terminal outcome after the child has ended and been reaped.
+    /// Returns `None` while the child runs and after the terminal outcome
+    /// has been returned.
     fn poll(&mut self) -> Option<ProcessOutcome>;
 
-    /// Takes whatever the child has written since the last call.
+    /// Returns and clears output accumulated since the previous call.
     fn read_output(&mut self) -> Vec<(Stream, Vec<u8>)>;
 
-    /// Signals the child's whole process group.
-    ///
-    /// An implementation must ignore this once [`ChildProcess::poll`] has
-    /// reported an outcome. The pid is the group's leader, so reaping the child
-    /// frees the pgid too, and a signal sent afterwards lands on whichever
-    /// unrelated group the kernel has since given that number to.
+    /// Signals the child's process group. Implementations must ignore calls after
+    /// [`ChildProcess::poll`] returns an outcome. Reaping releases
+    /// the process-group identifier for reuse.
     fn signal(&mut self, signal: ProcessSignal);
 }
 
-/// What to start and what environment to start it in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnPlan {
     pub argv: Argv,
-    /// Added to the environment the child inherits, in the order given.
+    /// Applied to the inherited environment in order; later pairs
+    /// with the same name override earlier pairs.
     pub env: Vec<(OsString, OsString)>,
     pub cwd: Option<PathBuf>,
 }
 
-/// What a spawned client is told about how to reach lunette.
-///
-/// WayVR builds these strings from `WaylandEnv` (`mod.rs:99-108`) and sets them
-/// at `mod.rs:1301-1302`. They arrive here as a value because the socket that
-/// produces them is created elsewhere, and because a library assembling an
-/// environment from its own process's is exactly the coupling that makes it
-/// untestable.
+/// Display names passed to spawned clients through their environment.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DisplayEnvironment {
-    /// What `WAYLAND_DISPLAY` is set to, such as `wayland-20`.
+    /// Value exported as `WAYLAND_DISPLAY`.
     pub wayland_display: OsString,
-    /// What `DISPLAY` is set to, such as `:20`. Meaningful only when
-    /// xwayland-satellite is running, and harmless when it is not.
+    /// Value exported as `DISPLAY`.
     pub x11_display: OsString,
 }
 
-/// The real `fork` and `exec`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemSpawner;
 
@@ -132,22 +103,18 @@ impl ProcessSpawner for SystemSpawner {
             command.current_dir(cwd);
         }
 
-        // SAFETY: `pre_exec` runs between `fork` and `exec`, in a child that
-        // may hold locks the parent's other threads were holding, so only
-        // async-signal-safe calls are permitted. Both of these are single
-        // syscalls through rustix and allocate nothing.
+        // SAFETY: `pre_exec` runs after `fork` and before `exec`,
+        // when the child may hold locks copied from other threads.
+        // The closure calls no other functions. The rustix syscalls below
+        // are async-signal-safe and do not allocate.
         unsafe {
             command.pre_exec(|| {
-                // A session of its own, so the child and everything it starts
-                // share a process group lunette can signal as a unit. WayVR
-                // signals only the direct child, so a shell wrapper's
-                // grandchildren outlive it.
+                // Create the process group containing the child and its descendants,
+                // so lunette can signal them as one unit.
                 process::setsid().map_err(io::Error::from)?;
 
-                // A backstop for lunette dying without running its own
-                // teardown. It fires on the death of the thread that forked,
-                // which is the compositor thread, and that thread outliving
-                // the process is not a case that exists.
+                // Request SIGTERM from Linux when the parent process dies
+                // before the normal child teardown runs.
                 process::set_parent_process_death_signal(Some(Signal::TERM))
                     .map_err(io::Error::from)?;
 
@@ -160,8 +127,8 @@ impl ProcessSpawner for SystemSpawner {
             cause,
         })?;
 
-        // Non-blocking, because the reads happen on the compositor thread and a
-        // child that writes nothing must not stall it.
+        // The compositor thread polls these pipes, so a blocking descriptor
+        // could stall process polling. Failure is logged; the spawn still succeeds.
         for pipe in [
             child.stdout.as_ref().map(|out| out.as_raw()),
             child.stderr.as_ref().map(|err| err.as_raw()),
@@ -187,7 +154,6 @@ impl ProcessSpawner for SystemSpawner {
     }
 }
 
-/// Borrows a pipe's descriptor without taking it from the child.
 trait AsRawPipe {
     fn as_raw(&self) -> std::os::fd::BorrowedFd<'_>;
 }
@@ -222,9 +188,9 @@ impl ChildProcess for SystemChild {
                     (None, Some(signal)) => ProcessOutcome::Signalled {
                         signal: SignalNumber::new(signal),
                     },
-                    // `wait` reported neither, which the interface permits and
-                    // the kernel does not produce. Naming it as an exit of
-                    // unknown cause beats inventing a signal number.
+                    // The status can contain neither an exit code nor a signal.
+                    // The outcome mapping is total; the fallback counts
+                    // as an exit with code -1.
                     (None, None) => ProcessOutcome::Exited { code: -1 },
                 }
             }),
@@ -265,12 +231,9 @@ impl ChildProcess for SystemChild {
 }
 
 impl SystemChild {
-    /// Waits for a signalled child, escalating to `SIGKILL` if it does not go.
-    ///
-    /// Without this the child stays a zombie for as long as lunette runs, since
-    /// nothing else waits on it. `SIGKILL` cannot be caught, so the blocking
-    /// wait that follows the escalation ends promptly rather than inheriting a
-    /// child's decision not to exit.
+    /// Reaps a stopping child, allowing `TERMINATE_GRACE` for `SIGTERM`
+    /// before sending `SIGKILL` to its process group. The final wait
+    /// reaps the child after the escalation and does not leave a zombie.
     fn reap(&mut self) {
         let deadline = Instant::now() + TERMINATE_GRACE;
         loop {
@@ -293,6 +256,7 @@ impl SystemChild {
 
         debug!(pid = %self.pid, "a process group did not stop when asked; killing it");
         if let Err(error) = signal_group(self.pid, ProcessSignal::Kill) {
+            // The group may have exited between the grace poll and the kill.
             debug!(pid = %self.pid, %error, "the process group was already gone");
         }
         match self.child.wait() {
@@ -303,11 +267,8 @@ impl SystemChild {
 }
 
 impl Drop for SystemChild {
-    /// Asks the child's whole group to stop, and waits for the child itself.
-    ///
-    /// WayVR sends `SIGTERM` to the direct child here (`process.rs:88-97`). A
-    /// group is the correct unit: the direct child of a wrapper script is the
-    /// script, and killing it leaves the application running with no window.
+    /// Dropping a running child requests process-group termination, then
+    /// attempts to reap the child before the handle is released.
     fn drop(&mut self) {
         if !self.liveness.may_signal() {
             return;
@@ -321,33 +282,26 @@ impl Drop for SystemChild {
     }
 }
 
-/// Whether a child still exists as a process, and so whether its process group
-/// may be addressed.
-///
-/// The distinction is not bookkeeping. `wait` returns a reaped child's pid to
-/// the kernel's free pool, and `setsid` made that pid the group's leader, so the
-/// pgid becomes free with it. A machine with the usual `pid_max` of 32768 wraps
-/// the pid space in minutes under load, at which point `kill(-pid, …)` addresses
-/// whichever unrelated process group has since been given that number. Every
-/// signal this crate sends is therefore gated on the process not having been
-/// reaped.
+/// Tracks whether this handle may use the child's process-group identifier.
+/// Reaping releases the identifier for reuse, so a reaped child must
+/// not be signalled.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Liveness {
-    /// Not yet waited on, so the pid is still lunette's and still addressable.
+    /// The child has not been reaped, so signalling its group is permitted.
     #[default]
     Running,
-    /// Waited on. The pid is the kernel's again and must never be signalled.
+    /// The child has been reaped, so signalling its group is forbidden.
     Reaped,
 }
 
 impl Liveness {
-    /// Whether the process group behind this pid is still the child's.
     pub(crate) fn may_signal(self) -> bool {
         matches!(self, Self::Running)
     }
 }
 
-/// Why a process could not be started.
+/// Describes why a process request could not be started. Its formatted message
+/// names the program and includes the underlying I/O error.
 #[derive(Debug)]
 pub struct SpawnError {
     program: OsString,
@@ -355,22 +309,16 @@ pub struct SpawnError {
 }
 
 impl SpawnError {
-    /// The message reported through `ProcessOutcome::SpawnFailed`.
+    /// Returns the message used by `ProcessOutcome::SpawnFailed`.
     #[must_use]
     pub fn message(&self) -> String {
         self.to_string()
     }
 
-    /// Reports a spawn refused before anything was started.
-    ///
-    /// The registry uses it when the authentication token cannot be drawn.
-    /// Reported the same way as a program that could not be executed, because
-    /// the outcome the caller sees is the same: no process exists.
     pub(crate) fn refused(program: OsString, cause: io::Error) -> Self {
         Self { program, cause }
     }
 
-    /// Builds an error a fake spawner can report.
     #[cfg(any(test, feature = "test-fakes"))]
     #[must_use]
     pub fn for_test(program: OsString, cause: io::Error) -> Self {
@@ -395,8 +343,8 @@ impl Error for SpawnError {
     }
 }
 
-/// Signals a process group, which is the process itself and everything it
-/// started under the session `setsid` gave it.
+/// Sends a signal to the process group identified by `pid`. The process
+/// with that identifier receives the signal as a member of the group.
 pub(crate) fn signal_group(pid: Pid, signal: ProcessSignal) -> io::Result<()> {
     let signal = match signal {
         ProcessSignal::Hangup => Signal::HUP,
@@ -410,7 +358,9 @@ pub(crate) fn signal_group(pid: Pid, signal: ProcessSignal) -> io::Result<()> {
     process::kill_process_group(pid, signal).map_err(io::Error::from)
 }
 
-/// Reads whatever is available on a non-blocking pipe.
+/// Reads at most `OUTPUT_CHUNK` bytes from a non-blocking pipe.
+/// Returns `None` when no bytes are available, the pipe is closed,
+/// or the read fails.
 fn read_available(pipe: &mut impl Read) -> Option<Vec<u8>> {
     let mut buffer = vec![0_u8; OUTPUT_CHUNK];
     match pipe.read(&mut buffer) {

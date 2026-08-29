@@ -1,41 +1,40 @@
 //! Linux-only: the control socket, and the thread that accepts on it.
 //!
-//! `lunctl` hands the running session a Lua chunk and gets the values back
-//! ([the Lua API](../../../docs/lua-api.md#lunctl)). This module is the transport
-//! and the queue; [`eval`] is what the main thread does with a chunk once it has one,
-//! [`serialise`] is what turns
-//! the results into something a socket carries, and [`wire`] is what travels over
-//! it.
+//! `lunctl` sends the running session a Lua chunk and receives the values
+//! back ([the Lua API](../../../docs/lua-api.md#lunctl)). The module provides
+//! the transport and the queue. [`eval`] evaluates a chunk on the main thread.
+//! [`serialise`] turns the results into a form a socket carries. [`wire`] is
+//! that form, and it travels over the socket.
 //!
-//! # The thread does not touch Lua
+//! # Threads and Lua
 //!
-//! `docs/architecture.md` records the rule the whole design rests on: Rust holds
-//! no long-lived reference into Lua. It follows that a chunk cannot be evaluated
-//! where it arrives. The control thread reads a chunk, puts it on a bounded
-//! queue, and waits for an answer; the *main* thread takes it off that queue
-//! between two frames, evaluates it, and answers. Nothing in this module ever
-//! sees a `Lua`.
+//! `docs/architecture.md` records the rule the design follows: Rust holds no
+//! long-lived reference into Lua. A chunk cannot be evaluated where it
+//! arrives. The control thread reads a chunk, puts it on a bounded queue, and
+//! waits for an answer. The main thread takes the chunk off that queue between
+//! two frames, evaluates it, and answers. The control thread never touches a
+//! `Lua`.
 //!
-//! # Why this cannot deadlock
+//! # Deadlock avoidance
 //!
 //! `lunette-compositor`'s module documentation sets out the cycle two bounded
-//! channels can form when both sides block, and `crate::restart` records how the
-//! compositor handshake avoids it. The control thread is a third party, and the
-//! rule that keeps it out of the cycle is that **the main thread never waits on
-//! it**. [`ChunkQueue::drain`] takes what is already queued and returns; it does
-//! not block for a chunk, and it does not block to answer one, because the reply
-//! channel has room for exactly the answer it is about to put in it.
+//! channels can form when both sides block, and `crate::restart` records how
+//! the compositor handshake avoids it. The control thread is a third party.
+//! The rule that keeps it out of the cycle: the main thread never waits on it.
+//! [`ChunkQueue::drain`] takes what is already queued and returns. It does not
+//! block for a chunk, and it cannot block to answer one. The reply channel has
+//! room for exactly one value, the answer.
 //!
-//! The control thread does wait, in one direction only, and under a bound:
-//! [`REPLY_TIMEOUT`]. A session that has stopped drawing therefore costs a
-//! `lunctl` invocation a wait and an answer rather than a hang.
+//! The control thread waits in one direction, under the bound [`REPLY_TIMEOUT`].
+//! A session that has stopped drawing costs a `lunctl` invocation a wait and
+//! an answer, not a hang.
 //!
 //! # Backpressure
 //!
-//! The queue is bounded at [`QUEUE_DEPTH`]. A client flooding chunks is answered
-//! [`Reply::Busy`] rather than growing a queue the session will never work
-//! through, which is the same reason the compositor's command channel is
-//! bounded.
+//! The queue is bounded at [`QUEUE_DEPTH`]. A client flooding chunks receives
+//! [`Reply::Busy`] and cannot grow the queue. The session works through the
+//! queue one frame boundary at a time, and the compositor's command channel is
+//! bounded for the same reason.
 
 pub mod eval;
 pub mod identifier;
@@ -72,31 +71,32 @@ const QUEUE_DEPTH: usize = 4;
 
 /// How many chunks one frame boundary answers.
 ///
-/// A bound on how much of a boundary a flood of chunks may take, rather than on
-/// how many can be waiting: the rest stay queued and are answered at the next
+/// A bound on how much of a boundary a flood of chunks may take, not on how
+/// many can be waiting. The rest stay queued and are answered at the next
 /// boundary, a frame later.
 pub const CHUNKS_PER_FRAME: usize = 4;
 
 /// How long the control thread waits for the session to answer one chunk.
 ///
-/// Generous, because the session answers between frames and a frame that is
-/// taking a long time is not a reason to give up on it. Bounded, because a
-/// session that has stopped drawing altogether would otherwise leave `lunctl`
-/// hanging with nothing to report.
+/// The wait is generous, because the session answers between frames and a
+/// long frame is not a reason to end the wait. The wait is bounded, because
+/// a session that has stopped drawing would otherwise leave `lunctl` waiting
+/// indefinitely with nothing to report.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// How long a connection has to send its chunk before it is dropped.
+/// How long a connection has to send its chunk. After that time, the
+/// connection is dropped.
 ///
-/// A client that connects and says nothing would otherwise hold the accept loop,
-/// and the accept loop is serial.
+/// A client that connects and sends nothing would otherwise hold the accept
+/// loop, and the accept loop is serial.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Whether the session offers a control socket at all.
+/// Whether the session offers a control socket.
 ///
 /// `docs/lua-api.md` requires the switch: `lunctl` is equivalent to root access
 /// on the user's session, and a user who wants no evaluation endpoint must be
-/// able to have none. It defaults to enabled, because in-headset iteration is
-/// the reason it exists.
+/// able to have none. The switch defaults to enabled, because in-headset
+/// iteration is the purpose of the endpoint.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ControlSwitch {
     #[default]
@@ -105,19 +105,18 @@ pub enum ControlSwitch {
 }
 
 impl ControlSwitch {
-    /// Reads the switch from what the entry point found in the environment.
+    /// Reads the switch from the value the entry point read from the environment.
     ///
-    /// A value rather than a variable name, because a library does not read the
-    /// environment.
+    /// The argument is the value, not the variable name, because a library does
+    /// not read the environment.
     ///
-    /// Unset and empty are enabled, so the only reason to set the variable at
-    /// all is to turn the endpoint off. An unrecognised value is therefore an
-    /// attempt to disable that got the spelling wrong — `false`, `0`, `no`,
-    /// `disabled` — and answering it by opening a socket that evaluates
-    /// arbitrary Lua would be the failure this switch exists to prevent. The
-    /// warning goes to stderr, which a user who set the variable in a systemd
-    /// unit may never read, so the warning cannot be what carries the decision.
-    /// Anything that is not `on` is off.
+    /// Unset and empty mean enabled, so any other value is an attempt to
+    /// disable. An unrecognised value is an attempt to disable with the wrong
+    /// spelling: `false`, `0`, `no`, `disabled`. Answering such a value with a
+    /// socket that evaluates arbitrary Lua would be the failure the switch
+    /// prevents. The warning goes to stderr; a user who set the variable in a
+    /// systemd unit may never read it, so the return value reports the
+    /// decision. Anything that is not `on` is off.
     #[must_use]
     pub fn from_setting(setting: Option<&str>) -> Self {
         match setting.map(str::trim) {
@@ -135,14 +134,14 @@ impl ControlSwitch {
     }
 }
 
-/// Starts the control thread, unless the switch says not to.
+/// Starts the control thread unless the switch disables it.
 ///
 /// `runtime_directory` is `$XDG_RUNTIME_DIR`, resolved by the entry point.
 ///
 /// # Errors
 ///
 /// As [`ControlSocket::bind`]. A session without a control socket is still a
-/// session, so the caller reports rather than stopping.
+/// session, so the caller reports and continues.
 pub fn start(
     switch: ControlSwitch,
     runtime_directory: &Path,
@@ -158,8 +157,8 @@ pub fn start(
 
 /// Runs the accept loop for an already-bound socket.
 ///
-/// Split from [`start`] so that a test can bind its own socket in a temporary
-/// directory and drive the thread against it.
+/// Split from [`start`]; a test can bind its own socket in a temporary
+/// directory and run the thread against it.
 #[must_use]
 pub fn serve(socket: ControlSocket) -> (ControlThread, ChunkQueue) {
     let (sender, receiver) = mpsc::sync_channel(QUEUE_DEPTH);
@@ -191,7 +190,7 @@ pub fn serve(socket: ControlSocket) -> (ControlThread, ChunkQueue) {
     )
 }
 
-/// The accepting thread, for as long as the session wants one.
+/// The accepting thread, for the session's lifetime.
 #[derive(Debug)]
 pub struct ControlThread {
     thread: Option<JoinHandle<()>>,
@@ -208,9 +207,9 @@ impl ControlThread {
 
     /// Stops the thread and waits for it.
     ///
-    /// The flag alone would not be enough: the thread is blocked in `accept`,
-    /// which no flag reaches. A connection to its own socket is what wakes it,
-    /// and it checks the flag before doing anything with what it accepted.
+    /// The flag alone is not enough: the thread is blocked in `accept`, which
+    /// no flag reaches. A connection to the thread's own socket wakes it, and
+    /// the thread checks the flag before doing anything with what it accepted.
     pub fn stop(&mut self) {
         let Some(thread) = self.thread.take() else {
             return;
@@ -244,13 +243,13 @@ impl ChunkQueue {
     ///
     /// Called between frames, on the thread that owns the Lua state. It never
     /// blocks: a queue with nothing on it costs one non-blocking receive, and
-    /// `answer` is called only for a chunk that is actually there — so a caller
-    /// can build its view of the Lua state inside the closure rather than once a
-    /// frame for nothing.
+    /// `answer` runs when a chunk is present. A caller can build its view of the
+    /// Lua state inside the closure, so an empty queue builds nothing. Nothing
+    /// obtained from Lua outlives the call.
     ///
     /// `limit` bounds how much of a frame boundary a flood of chunks may take.
     ///
-    /// Returns how many were answered.
+    /// Returns how many it answered.
     pub fn drain(&self, limit: usize, mut answer: impl FnMut(&str) -> Reply) -> usize {
         let mut answered = 0;
         while answered < limit {
@@ -277,16 +276,17 @@ pub fn answer(lua: &Lua, chunk: &str, budget: Budget) -> Reply {
         Evaluation::Raised(message) => Reply::RuntimeError(message),
         Evaluation::Abandoned { after } => Reply::Abandoned { after },
         Evaluation::Unrepresentable(error) => Reply::Unrepresentable(error.to_string()),
-        // Structurally unreachable from here — the frame loop is the only caller
-        // and it is not itself inside a chunk — and answered rather than
-        // asserted, because a client waiting on a socket deserves a reason.
+        // Structurally unreachable from here: the frame loop calls this, and it
+        // is not itself inside a chunk. The case is answered and not asserted,
+        // because a panic would end the session and reach the client as an
+        // unexplained end of file.
         Evaluation::Reentered => {
             Reply::RuntimeError("lunctl: a chunk cannot be evaluated from inside one".to_owned())
         }
     }
 }
 
-/// One chunk, and the channel its answer goes back down.
+/// One chunk, and the channel that carries its answer back.
 #[derive(Debug)]
 struct Request {
     chunk: String,
@@ -296,9 +296,9 @@ struct Request {
 impl Request {
     /// Sends the answer back.
     ///
-    /// Cannot block: the channel has room for exactly one value and this is the
-    /// only send. A connection that has already given up leaves the receiver
-    /// dropped, which is a discarded answer rather than an error.
+    /// Cannot block: the channel has room for exactly one value, and this is
+    /// the single send. A connection that has already gone away leaves the
+    /// receiver dropped, so the send fails and the answer is discarded.
     fn answer(self, reply: Reply) {
         if self.reply.send(reply).is_err() {
             debug!("a lunctl connection went away before its answer was ready");
@@ -318,7 +318,7 @@ fn accept_loop(socket: &ControlSocket, sender: &SyncSender<Request>, stopping: &
             Err(error) => {
                 warn!("lunctl: a connection could not be accepted: {error}");
                 // An accept that fails for a reason other than a transient one
-                // will keep failing, and a spin on a dead listener is worse than
+                // keeps failing, and a spin on a dead listener is worse than
                 // a session with no control socket.
                 if !transient(&error) {
                     break;
@@ -338,12 +338,11 @@ fn transient(error: &io::Error) -> bool {
     )
 }
 
-/// Reads one chunk, queues it, and writes what came back.
+/// Reads one chunk, queues it, and writes what comes back.
 ///
-/// One connection at a time, and one chunk per connection. A `lunctl` invocation
-/// is a shell command rather than a session, and the accept loop being serial is
-/// what keeps the number of chunks in flight equal to the queue depth rather
-/// than to the number of processes that felt like connecting.
+/// One connection at a time, and one chunk per connection. A `lunctl`
+/// invocation is a shell command, not a session. The serial accept loop means
+/// at most `QUEUE_DEPTH` chunks are in flight at once.
 fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
     if let Err(error) = stream.set_read_timeout(Some(READ_TIMEOUT)) {
         debug!(%error, "a lunctl connection could not be given a read timeout");
@@ -351,8 +350,8 @@ fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
 
     let reply = match wire::read_request(&mut stream) {
         // A chunk that could not be read is still answered. Closing on one
-        // reaches the client as an end of file, which it can only report as a
-        // session it could not reach — and the session is right here.
+        // reaches the client as an end of file, which the client reports as a
+        // session it could not reach. The session is present.
         Err(error) => Reply::Malformed(error.to_string()),
         Ok(request) if request.version == wire::PROTOCOL_VERSION => submit(sender, request.chunk),
         Ok(request) => Reply::Incompatible {
@@ -362,19 +361,19 @@ fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
     };
 
     write_answer(&mut stream, &reply);
-    // The client reads until the peer closes, so the shutdown is what ends its
-    // read rather than the process exiting eventually.
+    // The client reads until the peer closes, so the shutdown ends its read;
+    // the process exiting eventually is not enough.
     if let Err(error) = stream.shutdown(Shutdown::Both) {
         debug!(%error, "a lunctl connection could not be shut down");
     }
 }
 
-/// Writes one answer, saying so when the answer is what does not fit.
+/// Writes one answer, and reports when the answer itself does not fit.
 ///
-/// A reply larger than a frame is the one write failure with something left to
-/// say. `wire::write_frame` refuses an oversized body before it writes any of
-/// it, so the stream is untouched and the substitute is the first thing on it.
-/// Every other failure is the connection itself, where a second write would only
+/// A reply larger than a frame is the one write failure with a remedy.
+/// `wire::write_frame` refuses an oversized body before writing any of it, so
+/// the stream is untouched and the substitute is the first thing on it.
+/// Every other failure is in the connection itself, where a second write would
 /// fail again.
 fn write_answer(stream: &mut UnixStream, reply: &Reply) {
     let Err(error) = wire::write_reply(stream, reply) else {
@@ -405,9 +404,9 @@ fn submit(sender: &SyncSender<Request>, chunk: String) -> Reply {
 
     match sender.try_send(request) {
         Ok(()) => {}
-        // Backpressure rather than a growing queue: the session works through
-        // chunks at one frame boundary at a time, and a client that can produce
-        // them faster than that is told so.
+        // Backpressure, not a growing queue: the session works through chunks
+        // one frame boundary at a time, and a client that produces them faster
+        // receives [`Reply::Busy`].
         Err(TrySendError::Full(_)) => return Reply::Busy,
         Err(TrySendError::Disconnected(_)) => return Reply::Unanswered,
     }
@@ -454,7 +453,7 @@ mod tests {
         wire::read_reply(&mut stream).expect("an answer comes back")
     }
 
-    /// Waits for `condition`, rather than for a duration.
+    /// Waits for `condition`, not for a duration.
     fn until(mut condition: impl FnMut() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
@@ -474,7 +473,7 @@ mod tests {
 
         let asking = thread::spawn(move || ask(&path, "return 1 + 1"));
 
-        // The main thread's part: drain until something was there to drain.
+        // The main thread's part: drain until at least one chunk arrives.
         let mut seen = None;
         until(|| {
             queue.drain(4, |chunk| {
@@ -490,8 +489,8 @@ mod tests {
         );
     }
 
-    /// The whole path `lunette-v1.AC8.1` asks for: a chunk over the socket, an
-    /// evaluation on the thread that owns the state, and a nested table back.
+    /// The whole path: a chunk over the socket, an evaluation on the thread
+    /// that owns the state, and a nested table back.
     #[test]
     fn a_chunk_over_the_socket_is_evaluated_and_its_nested_table_comes_back() {
         let runtime = runtime();
@@ -516,10 +515,10 @@ mod tests {
             panic!("{:?} is not a table", values[0]);
         };
 
-        // Membership rather than order: a hash part has no order of its own, and
-        // LuaJIT seeds its string hash per state, so two runs can traverse the
-        // same table two ways. The wire preserves whichever order it was given,
-        // and that is all it promises.
+        // Membership, not order: a hash part has no order of its own, and
+        // LuaJIT seeds its string hash per state, so two runs can traverse
+        // the same table in different orders. The wire preserves whichever
+        // order it received, and specifies no stronger guarantee.
         assert!(
             table.array.is_empty(),
             "the chunk returned no array part: {:?}",
@@ -545,8 +544,8 @@ mod tests {
         );
     }
 
-    /// A chunk that never finishes must not hold the frame loop, and the client
-    /// must be told what happened rather than left waiting.
+    /// A chunk that never finishes must not hold the frame loop. The client
+    /// receives the verdict, not a wait.
     #[test]
     fn a_chunk_that_overruns_its_budget_is_answered_rather_than_stalling_the_loop() {
         let runtime = runtime();
@@ -555,8 +554,8 @@ mod tests {
 
         let asking = thread::spawn(move || ask(&path, "while true do end"));
 
-        // The budget is what is under test here, so this duration is the
-        // measurement rather than a wait for something else to happen.
+        // This duration is the measurement under test, not a wait for another
+        // event.
         let lua = crate::test_lua::session_lua();
         let budget = Budget::of(Duration::from_millis(50));
         until(|| queue.drain(CHUNKS_PER_FRAME, |chunk| answer(&lua, chunk, budget)) > 0);
@@ -589,10 +588,9 @@ mod tests {
 
     #[test]
     fn a_full_queue_applies_backpressure_rather_than_growing() {
-        // Against the queue itself rather than through the socket, because what
-        // is under test is what happens when the session cannot keep up, and a
-        // test that had to fill the queue over a socket first would be racing
-        // the very drain it wants not to happen.
+        // Against the queue itself, not through the socket. The case under
+        // test is a session that cannot keep up, and filling the queue over a
+        // socket first would race the drain the test observes.
         let (sender, _receiver) = mpsc::sync_channel(QUEUE_DEPTH);
         let mut queued = Vec::new();
         for index in 0..QUEUE_DEPTH {
@@ -609,8 +607,8 @@ mod tests {
         assert_eq!(submit(&sender, "return 1".to_owned()), Reply::Busy);
     }
 
-    /// A session that stopped drawing must not leave a client hanging, and it
-    /// must not claim the chunk ran either.
+    /// A session that stopped drawing must not leave a client waiting, and the
+    /// answer must not report that the chunk ran.
     #[test]
     fn a_session_that_never_answers_is_reported_rather_than_waited_on_forever() {
         let (sender, receiver) = mpsc::sync_channel(QUEUE_DEPTH);
@@ -647,8 +645,8 @@ mod tests {
     }
 
     /// A chunk that succeeded and answered too much must not read as a session
-    /// that is not there. Closing the connection is what made it: the client
-    /// sees an end of file and can only call that unreachable.
+    /// that is not there. Closing the connection produced the end of file the
+    /// client sees, and the client reports that as an unreachable session.
     #[test]
     fn an_answer_too_large_for_a_frame_is_named_rather_than_closed_on() {
         let runtime = runtime();
@@ -683,7 +681,7 @@ mod tests {
 
         let mut stream = UnixStream::connect(&path).expect("the socket accepts");
         // A well-formed frame whose chunk is not text. Lua source in some other
-        // encoding is a mistake worth reporting rather than compiling.
+        // encoding is a mistake to report, not to compile.
         let body = vec![wire::PROTOCOL_VERSION, 0xff, 0xfe];
         let length = u32::try_from(body.len()).expect("it fits");
         io::Write::write_all(&mut stream, &length.to_le_bytes()).expect("the length is written");
@@ -735,9 +733,8 @@ mod tests {
             ControlSwitch::Disabled
         );
         // Every spelling of "off" a user might reach for. Unset already means
-        // enabled, so a value that is neither word is an attempt to disable that
-        // got the spelling wrong, and answering it with an open endpoint is the
-        // one failure this switch exists to prevent.
+        // enabled, so a value that is neither word is a misspelled attempt to
+        // disable, and the endpoint must not open for it.
         for spelling in ["disabled", "false", "0", "no", "of", "OFFF"] {
             assert_eq!(
                 ControlSwitch::from_setting(Some(spelling)),

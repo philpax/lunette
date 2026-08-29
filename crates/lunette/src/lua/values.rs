@@ -1,13 +1,12 @@
 //! The values that cross into Lua and are not handles.
 //!
-//! Each one exists because Rust states something less precisely than Luau does:
-//! a texture that may be `false`, a string that is one of four words, a
-//! property that is a number or a string but not a table. Wrapping them is what
-//! lets every signature be derived rather than restated.
+//! Each wrapper exists because the Rust type of the value is less precise than the Luau type:
+//! a texture may be `false`, a string is one of four words,
+//! a property is a number or a string but not a table.
+//! Each wrapper declares its Luau type once, and every signature derives from that declaration.
 //!
-//! Each type is followed by the conversion it crosses by and the Luau type it
-//! is seen as, so what a wrapper carries and what it is declared to be are read
-//! together rather than a file apart.
+//! Each type is followed by the conversion that carries it across and the Luau type it is seen as.
+//! What a wrapper carries and what it is declared to be are read together.
 
 use lunette_compositor::protocol::{
     ContentType, InputDomain, PointerButton, ProcessOutcome, Stream,
@@ -55,7 +54,7 @@ impl Typed for MaybeLayer {
     }
 }
 
-/// What a window's client says it draws.
+/// What a window's client draws.
 #[derive(Clone, Copy, Debug)]
 pub struct ContentTypeName(pub ContentType);
 
@@ -89,9 +88,9 @@ impl Typed for SinkDomain {
 
 /// The domain of a sink that reaches a window this compositor hosts.
 ///
-/// One arm of the union [`SinkDomain`] covers, for the view of a sink that is
-/// known to be a window's. No value of it ever crosses: the field it declares
-/// is answered by the domain the sink actually carries.
+/// One arm of the union [`SinkDomain`] covers, for the view of a sink known to be a window's.
+/// No value of it crosses into Lua.
+/// The field it declares is satisfied by the domain the sink carries.
 #[derive(Clone, Copy, Debug)]
 pub struct WindowDomain;
 
@@ -111,7 +110,7 @@ impl Typed for HostDomain {
     }
 }
 
-/// A pointer button, by the name Lua spells it with.
+/// A pointer button, by its name in Lua.
 #[derive(Clone, Copy, Debug)]
 pub struct PointerButtonName(pub PointerButton);
 
@@ -141,7 +140,7 @@ impl Aliased for PointerButtonName {
     };
 }
 
-/// A value a property can hold, on the way in.
+/// A value a property can hold, as the caller passes it in.
 #[derive(Debug)]
 pub struct PropertyArgument(pub Value);
 
@@ -157,7 +156,7 @@ impl Typed for PropertyArgument {
     }
 }
 
-/// What a property held, or nil for a key that was never set.
+/// What a property holds, or nil for a key that has not been set.
 #[derive(Debug)]
 pub struct StoredProperty(pub Value);
 
@@ -167,9 +166,8 @@ impl IntoLua for StoredProperty {
     }
 }
 
-/// A union with nil rather than `T?`. The reader of a property is asking what a
-/// key holds, and the scalars followed by nil answers that in the order they
-/// were declared.
+/// The property scalars with `nil` appended, not `T?`.
+/// The reader of a property sees what a key holds. The scalars precede `nil` in declaration order.
 impl Typed for StoredProperty {
     fn luau() -> Type {
         let Type::Union(mut members) = property_value() else {
@@ -196,7 +194,7 @@ impl Typed for PropertyMap {
     }
 }
 
-/// What a stroke is asked for by: a character to type, or a keysym to produce.
+/// A stroke request names a character to type or a keysym to produce.
 #[derive(Debug)]
 pub struct StrokeQuery(pub Value);
 
@@ -212,10 +210,10 @@ impl Typed for StrokeQuery {
     }
 }
 
-/// A layer a granted claim now holds.
+/// A layer a granted claim holds.
 ///
-/// Distinct from [`MaybeLayer`]: a grant carries one, so the event declares a
-/// layer rather than a layer or `false`.
+/// Distinct from [`MaybeLayer`]. A grant carries one layer, and the event
+/// declares the layer, never `false`.
 #[derive(Debug)]
 pub struct GrantedLayer(pub Value);
 
@@ -263,7 +261,7 @@ impl Typed for OutcomeName {
     }
 }
 
-/// A function subscribing to errors, by what it is handed.
+/// A function subscribing to errors, by what it receives.
 #[derive(Debug)]
 pub struct ErrorListener(pub Function);
 
@@ -286,8 +284,8 @@ impl Typed for ErrorListener {
     }
 }
 
-/// The function that ends a subscription. Calling it twice is harmless: the
-/// second call names a subscription that is no longer there.
+/// The function that ends a subscription. Calling it twice is harmless:
+/// the second call names a subscription that is no longer there.
 #[derive(Debug)]
 pub struct Cancel(pub Function);
 

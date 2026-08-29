@@ -1,22 +1,19 @@
 //! Repacking a client's `wl_shm` buffer into pixels the frame thread can
 //! upload.
 //!
-//! Ported in shape from WayVR's `image_importer.rs:50-100`, with two
-//! departures.
+//! Ported from WayVR's `image_importer.rs`, with two departures.
 //!
 //! WayVR uploads from the compositor's own thread and then blocks on the
-//! submission (`image_importer.rs:96-97`, carrying its own `//TODO: async`).
-//! lunette cannot: the only thread allowed to submit is the frame thread, and
-//! blocking it on a client's commit is what `AC7.1` exists to prevent. So this
-//! module does the part that is pure — validate the layout, strip the stride
-//! padding, force alpha where the format has none — and the frame thread does
-//! the upload through LÖVR's own batched path.
+//! submission. lunette cannot: the frame thread is the sole kind of thread
+//! allowed to submit, and blocking it on a client's commit would let a stalled
+//! client extend lunette's frame time. This module validates the layout,
+//! strips the stride padding, and forces alpha where the format has none. The
+//! frame thread performs the upload through LÖVR's own batched path.
 //!
-//! WayVR also accepts more formats here than `wl_shm` mandates. lunette does
-//! not, and the restriction is deliberate: `Argb8888` and `Xrgb8888` are the
-//! two every client must support, anything beyond them is a client opting into
-//! a format the importer would have to be taught, and the dmabuf path is where
-//! a client that wants ten-bit colour should be.
+//! WayVR accepts more formats than `wl_shm` mandates; lunette does not.
+//! `Argb8888` and `Xrgb8888` are the two formats every client must support.
+//! A format beyond them extends the importer, and the dmabuf path is where a
+//! client that needs ten-bit colour belongs.
 
 use std::fmt;
 
@@ -24,18 +21,18 @@ use lunette_compositor::surface::{PixelBuffer, ShmFormat, ShmLayout};
 
 /// Copies a client's buffer into a tightly packed one.
 ///
-/// The copy is not incidental. A client's rows are padded to its own stride,
-/// and a texture upload wants them contiguous; stripping the padding here is
-/// what makes the frame thread's work a straight memory copy with no layout
-/// arithmetic. Forcing alpha for [`ShmFormat::Xrgb8888`] rides along for free,
-/// because every byte is already being touched.
+/// A client's rows are padded to its own stride, and a texture upload requires
+/// contiguous rows. Stripping the padding here means the frame thread's
+/// upload is a straight memory copy with no layout arithmetic. Forcing alpha
+/// for [`ShmFormat::Xrgb8888`] is free, because the copy pass already touches
+/// every byte.
 ///
 /// # Errors
 ///
 /// Rejects a layout that describes more bytes than `pixels` holds, a stride
-/// narrower than a row, and a buffer with no pixels in it. None of the three is
-/// recoverable, and importing anyway would read past the client's pool or
-/// produce a texture no graphics API will accept.
+/// narrower than a row, and a buffer with no pixels in it. None of these is
+/// recoverable: importing anyway would read past the client's pool or produce
+/// a texture no graphics API will accept.
 pub(crate) fn repack(pixels: &[u8], layout: ShmLayout) -> Result<PixelBuffer, ShmError> {
     let row = RowGeometry::of(layout)?;
 
@@ -62,21 +59,21 @@ pub(crate) fn repack(pixels: &[u8], layout: ShmLayout) -> Result<PixelBuffer, Sh
 
 /// Sets every fourth byte to `0xFF`.
 ///
-/// `Xrgb8888` is little-endian `[B, G, R, X]`, so the fourth byte of each pixel
-/// is the undefined one. A client is free to leave anything there, and a
-/// consumer that samples it renders the surface with arbitrary transparency —
-/// which is what WayVR's dmabuf path does for the X formats. Here the pixels
-/// are being copied anyway, so the honest value is written in.
+/// `Xrgb8888` is little-endian `[B, G, R, X]`, so the fourth byte of each
+/// pixel carries no colour. A client is free to leave anything there. A
+/// consumer that samples it renders the surface with arbitrary transparency;
+/// WayVR's dmabuf path samples it for the X formats. Here the bytes are
+/// copied anyway, so writing `0xFF` is free.
 fn force_alpha_opaque(pixels: &mut [u8]) {
     for pixel in pixels.as_chunks_mut::<BYTES_PER_PIXEL>().0 {
         pixel[ALPHA_BYTE] = u8::MAX;
     }
 }
 
-/// The arithmetic a repack depends on, computed once and checked as it goes.
+/// The row arithmetic a repack depends on, computed once.
 ///
-/// Every product is checked rather than wrapped. A client controls all three
-/// inputs, so an overflow here is a buffer overread reachable from any
+/// Every product is checked. A client controls the width, the height, and
+/// the stride; an overflow here is a buffer overread reachable from any
 /// connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RowGeometry {
@@ -114,11 +111,11 @@ impl RowGeometry {
         })
     }
 
-    /// The bytes the repack actually reads.
+    /// The bytes the repack reads.
     ///
     /// The last row's padding is never read, so a buffer trimmed to its final
-    /// pixel is accepted. Requiring `stride * rows` would reject it, and the
-    /// only thing that would buy is agreement with a stricter check upstream.
+    /// pixel is accepted. Requiring `stride * rows` would reject it, with no
+    /// benefit beyond agreement with a stricter check upstream.
     fn bytes_read(self) -> usize {
         self.stride
             .saturating_mul(self.rows - 1)
@@ -203,8 +200,8 @@ mod tests {
         }
     }
 
-    /// A buffer whose every byte is distinguishable, so a misplaced row is
-    /// visible in the assertion rather than hidden by repeated values.
+    /// A buffer whose every byte is distinguishable. A misplaced row is then
+    /// visible in the assertion, and repeated values cannot hide it.
     fn counted(length: usize) -> Vec<u8> {
         #[expect(
             clippy::cast_possible_truncation,
@@ -245,9 +242,8 @@ mod tests {
 
     #[test]
     fn the_last_rows_padding_need_not_be_present() {
-        // Three rows at a stride of 16, but the final row's padding is absent:
-        // the repack never reads it, so the buffer is complete as far as it is
-        // concerned.
+        // Three rows at a stride of 16, but the final row's padding is absent.
+        // The repack never reads it, so the buffer is accepted.
         let pixels = counted(16 * 2 + 8);
         let packed = repack(&pixels, layout(2, 3, 16, ShmFormat::Argb8888))
             .expect("only the bytes that are read have to be present");
@@ -353,11 +349,10 @@ mod tests {
 
     #[test]
     fn a_geometry_too_large_for_the_address_space_is_rejected_rather_than_wrapped() {
-        // Which of the three refusals answers depends on the pointer width: the
+        // Which refusal answers depends on the pointer width: the
         // multiplication by four overflows a 32-bit `usize` and does not
-        // overflow a 64-bit one, where the stride instead turns out to be
-        // narrower than the row it has to hold. Either way nothing is read, and
-        // that is what this asserts rather than which branch produced it.
+        // overflow a 64-bit one, where the stride turns out narrower than the
+        // row it has to hold. Either way the repack reads nothing.
         for geometry in [
             layout(u32::MAX, 1, u32::MAX, ShmFormat::Argb8888),
             layout(u32::MAX, u32::MAX, u32::MAX, ShmFormat::Argb8888),

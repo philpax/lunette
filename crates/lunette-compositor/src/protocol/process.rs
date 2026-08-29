@@ -1,11 +1,3 @@
-//! What a spawned process is asked for, and what becomes of it.
-//!
-//! A spawn is one [`SpawnRequest`] across the channel and one
-//! [`crate::protocol::Event::ProcessExited`] back, so what is here is the two
-//! ends of that and the identifiers in between: the argument vector, the exit
-//! outcome, the signals lunette will send, and the process identifier the
-//! operating system answers with.
-
 use std::{
     ffi::{OsStr, OsString},
     fmt,
@@ -17,34 +9,27 @@ use lunette_luau::closed_set;
 
 use crate::protocol::{OutputId, ProcessId};
 
-/// What to start, and how to attribute what connects afterwards.
+/// A request to start a process and assign its clients to an output.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnRequest {
-    /// Allocated by the main thread before the request is sent, so
-    /// `lunette.spawn` can return a handle without waiting for a reply.
+    /// The main thread allocates this before sending the request, so the API can
+    /// return a stable process handle without waiting for the compositor.
     pub process: ProcessId,
     pub argv: Argv,
-    /// Added to the environment the child inherits, not a replacement for it.
+    /// Entries are added to the child's inherited environment in order; they do
+    /// not replace that environment.
     pub env: Vec<(OsString, OsString)>,
     pub cwd: Option<PathBuf>,
-    /// The only output this client is shown. Absent means the output every
-    /// session starts with, which is what a client lunette did not spawn is
-    /// shown too.
+    /// The output visible to the child's clients. `None` uses the session's
+    /// default output, which is also used for adopted clients.
     ///
-    /// An output that does not exist when the spawn arrives is refused and the
-    /// client falls back to the default one: a client shown no monitor at all
-    /// cannot pick a scale or a refresh rate.
+    /// An unknown output is ignored and also uses the default output.
     pub output: Option<OutputId>,
-    /// Whether the child is launched against an X server rather than the
-    /// Wayland socket directly.
+    /// Whether the child uses the X11 bridge or connects to Wayland directly.
     pub xwayland: bool,
 }
 
-/// A command line, which is a program and its arguments rather than a list that
-/// might be empty.
-///
-/// `execvp` has no meaning for an empty list, so the emptiness is rejected once
-/// here rather than being re-checked at every layer that handles a spawn.
+/// A command line split into its program and arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Argv {
     program: OsString,
@@ -59,8 +44,8 @@ impl Argv {
         }
     }
 
-    /// Splits a caller-supplied list into a program and its arguments,
-    /// rejecting an empty list.
+    /// Returns `None` for an empty list; otherwise stores its first item as the
+    /// program and the remaining items as arguments.
     pub fn from_list(list: Vec<OsString>) -> Option<Self> {
         let mut items = list.into_iter();
         let program = items.next()?;
@@ -81,7 +66,7 @@ impl Argv {
     }
 }
 
-/// How a process ended.
+/// The terminal result reported for a process.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProcessOutcome {
     Exited {
@@ -90,16 +75,16 @@ pub enum ProcessOutcome {
     Signalled {
         signal: SignalNumber,
     },
-    /// The child never ran. The message names what failed, and is the only
-    /// report a caller gets for a mistyped program name.
+    /// The program could not be started. The message identifies the failure, and
+    /// this outcome is reported through [`crate::protocol::Event::ProcessExited`].
     SpawnFailed {
         message: String,
     },
 }
 
 impl ProcessOutcome {
-    /// The name Lua reads on `event.outcome`, which says which of the other
-    /// fields the event carries.
+    /// The discriminator sent to Lua as `event.outcome`; each variant exposes a
+    /// value through its corresponding accessor.
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -109,14 +94,11 @@ impl ProcessOutcome {
         }
     }
 
-    /// Every name, in the order the declared union states them.
-    ///
-    /// A list rather than a derivation, because the variants carry payloads and
-    /// so cannot be enumerated as values; `every_outcome_is_named` is what holds
-    /// it to the enum.
+    /// The complete discriminator set exposed to Lua, in declaration order.
+    /// Keep this list aligned with the variants and their [`Self::as_str`] values.
     pub const NAMES: &'static [&'static str] = &["exited", "signalled", "spawnFailed"];
 
-    /// The status a process exited with, for the outcome that has one.
+    /// Returns the exit status, or `None` for the other outcomes.
     #[must_use]
     pub const fn code(&self) -> Option<i32> {
         match self {
@@ -125,7 +107,7 @@ impl ProcessOutcome {
         }
     }
 
-    /// The signal that killed the process, for the outcome that has one.
+    /// Returns the terminating signal, or `None` for the other outcomes.
     #[must_use]
     pub const fn signal(&self) -> Option<SignalNumber> {
         match self {
@@ -134,7 +116,7 @@ impl ProcessOutcome {
         }
     }
 
-    /// What failed, for the outcome that never ran.
+    /// Returns the spawn-failure message, or `None` for the other outcomes.
     #[must_use]
     pub fn message(&self) -> Option<&str> {
         match self {
@@ -144,10 +126,10 @@ impl ProcessOutcome {
     }
 }
 
-/// A signal lunette is willing to send to a process group.
+/// A signal the process API can send to a process group.
 ///
-/// A closed set rather than a number, because sending an arbitrary signal is
-/// not a capability the Lua API offers.
+/// This closed set does not represent every signal the operating system can
+/// report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProcessSignal {
     Hangup,
@@ -156,8 +138,10 @@ pub enum ProcessSignal {
     Kill,
 }
 
-/// The number of a signal that killed a process. Any signal may be observed,
-/// so this is not the same domain as [`ProcessSignal`].
+/// The operating-system number of a signal that terminated a process.
+///
+/// This domain is separate from [`ProcessSignal`], which is limited to the
+/// signals the process API can send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SignalNumber(i32);
 
@@ -180,7 +164,7 @@ impl fmt::Display for SignalNumber {
 }
 
 closed_set! {
-    /// One of a child's captured output streams.
+    /// A captured output stream reported by the process event API.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum Stream {
         Stdout = "stdout",
@@ -188,9 +172,10 @@ closed_set! {
     }
 }
 
-/// A process identifier. Non-zero, and never negative: a process group is
-/// addressed by negating this at the point of the signal, not by carrying a
-/// negative number around.
+/// A positive operating-system process identifier.
+///
+/// The process API derives a process-group target from this value when sending a
+/// signal, so the identifier itself never carries a negative group value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pid(NonZeroI32);
 
@@ -225,9 +210,8 @@ mod tests {
 
     use super::*;
 
-    /// The names and the variants are two statements of one set, and the match
-    /// is exhaustive, so a variant added to [`ProcessOutcome`] fails to compile
-    /// here rather than going unnamed in what Lua is told an event carries.
+    /// The exhaustive match makes a new outcome a compile error until its Lua
+    /// discriminator and payload accessor are handled in this match.
     #[test]
     fn every_outcome_is_named_and_carries_exactly_its_own_field() {
         let signal = SignalNumber::new(9);

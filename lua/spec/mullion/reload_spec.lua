@@ -1,20 +1,20 @@
 -- Every module is safe to require twice.
 --
 -- A soft reload discards the Lua state and runs every module body again
--- (docs/lua-api.md#reload), and CONTRIBUTING.md makes a module that leaks a
--- timer, a signal connection, or a teardown hook across one a defect. This is
--- what makes that checkable rather than a thing review is trusted to notice: the
--- tree is walked, every module is required twice, and what accumulated is
--- counted.
+-- (docs/lua-api.md#reload). CONTRIBUTING.md makes a module that leaks a
+-- timer, a signal connection, or a teardown hook across a reload a defect.
+-- The check walks the tree, requires every module twice, and counts what
+-- accumulated. The suite catches the leak; review does not have to notice
+-- it.
 --
--- The second pass keeps one `mullion.teardown` and replaces everything else, so
--- the registry the two passes register into is the same one. That is the shape a
--- reload has, and a module that appended rather than replaced would leave two
--- hooks under one name here.
+-- The registry is the module-level state of `mullion.teardown`. The second
+-- pass keeps that module and re-runs every other body, so both passes
+-- use the same registry, as a reload does. `teardown.register` replaces a
+-- hook under its name; appending would leave two hooks under one name.
 --
--- Nothing this case does reaches the module tables the rest of the suite holds:
--- the copies it makes are its own, and `package.loaded` is put back the way it
--- was found before the case returns.
+-- This case does not reach the module tables the rest of the suite holds.
+-- The snapshot tables the case builds are its own, and it restores
+-- `package.loaded` before it returns.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -32,7 +32,7 @@ local function moduleNames()
   return names
 end
 
--- What `package.loaded` holds for each of `names`, so the case can put it back.
+-- What `package.loaded` holds for each of `names`.
 local function snapshot(names)
   local held = {}
   for _, name in ipairs(names) do
@@ -47,9 +47,8 @@ local function restore(held)
   end
 end
 
--- Requires every module named, having first dropped whatever `package.loaded`
--- held for it, so that each module body runs again. `keep` names the one module
--- that is not dropped.
+-- Drops the `package.loaded` entry for every named module except the one
+-- `keep` names, then requires them all. A dropped module runs its body again.
 local function requireAll(names, keep)
   for _, name in ipairs(names) do
     if name ~= keep then
@@ -61,7 +60,7 @@ local function requireAll(names, keep)
   end
 end
 
--- How many names appear more than once in `pending`, as a report.
+-- The names that appear more than once in `pending`, joined by ', '.
 local function duplicates(pending)
   local seen, repeated = {}, {}
   for _, name in ipairs(pending) do
@@ -78,19 +77,18 @@ spec('requiring every module twice leaves one teardown hook each', function()
   local held = snapshot(names)
 
   local ok, raised = pcall(function()
-    -- The first pass builds a registry of its own, so the counts below are
-    -- about this case rather than about whatever the rest of the suite has
-    -- registered.
+    -- The first pass builds a registry of its own. The counts below describe
+    -- this case, not the registrations the rest of the suite holds.
     requireAll(names)
     local teardown = require '@mullion/teardown'
     local first = teardown.pending()
 
-    -- The second pass keeps that registry and re-runs every other module body,
-    -- which is what a soft reload does.
-    -- Named as the tree names it. A name in any other form matches nothing,
-    -- which would clear the registry the first pass filled and leave the two
-    -- passes reading different ones — and the local above still holds the
-    -- first, so every assertion below would compare it against itself.
+    -- Named as the tree names it. The name must match the module name the
+    -- tree produces; any other form matches no module, and `requireAll` drops
+    -- the teardown module and runs its body again. The two passes then
+    -- register into different registries, and the local `teardown` table
+    -- still holds the first, so the assertions compare a registry against
+    -- itself.
     requireAll(names, tree.MODULE_ROOT .. '/teardown')
     local second = teardown.pending()
 
@@ -106,20 +104,21 @@ spec('requiring every module twice leaves one teardown hook each', function()
   end
 end)
 
--- A module body is run again under an environment that records what it assigns
--- rather than under `_G`, because by the time this case runs every module has
--- already been required once and a global one of them set is already in `_G`.
--- Comparing `_G` before and against after would therefore pass on exactly the
--- defect it is looking for.
+-- A module body runs under an environment that records what it assigns.
+-- The bodies do not run under `_G`. By the time this case runs, every module
+-- has been required once already, and a global one of them set is already in
+-- `_G`. A comparison of `_G` before and after the runs would pass even when
+-- a body writes a global.
 --
--- `setfenv` is Lua 5.1's, which is LuaJIT's, so this needs nothing exotic. The
--- `require` calls inside a body resolve normally, so a module still gets the
--- dependencies it expects; only its own assignments are diverted.
+-- `setfenv` is Lua 5.1's, and LuaJIT keeps it. Requires inside a body
+-- resolve through `_G`, so a module still gets the dependencies it expects;
+-- a body's own assignments are diverted.
 spec('no module writes a global', function()
   local names = moduleNames()
   local held = snapshot(names)
-  -- A registry of its own, so that the bodies run below register their hooks
-  -- somewhere the rest of the suite is not looking at.
+  -- The entry is dropped so the require that follows re-runs the module
+  -- body. The body builds a fresh registry, separate from the registry the
+  -- rest of the suite holds.
   local heldTeardown = package.loaded['@mullion/teardown']
   package.loaded['@mullion/teardown'] = nil
   require '@mullion/teardown'
@@ -157,9 +156,9 @@ spec('no module writes a global', function()
   expect.equal(table.concat(written, ', '), '', 'globals the module bodies wrote')
 end)
 
--- Requiring twice without dropping `package.loaded` is the other half of the
--- rule: a configuration that requires a module a second time gets the module it
--- already had, and not a second copy with a state of its own.
+-- The other half of the rule leaves `package.loaded` in place: a
+-- configuration that requires a module a second time gets the module it
+-- already had, not a second copy with a state of its own.
 spec('requiring a module twice returns the same table', function()
   for _, name in ipairs(moduleNames()) do
     expect.equal(require(name), require(name), 'two requires of ' .. name)

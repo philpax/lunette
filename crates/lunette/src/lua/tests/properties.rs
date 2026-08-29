@@ -1,10 +1,9 @@
 //! The per-window property store, exercised through the Lua surface.
 //!
 //! The store itself is tested in `crates/lunette/src/properties.rs`, which needs
-//! no Lua state at all. What is here is the boundary: what a configuration is
-//! allowed to store, what it is told when it stores something else, and — the
-//! whole reason the store exists — what is still there after the Lua state has
-//! been thrown away and rebuilt.
+//! no Lua state. These tests cover the boundary: what a configuration is allowed
+//! to store, what error a disallowed value raises, and what is still there after
+//! the Lua state has been discarded and rebuilt.
 
 use lunette_compositor::protocol::PixelSize;
 use pretty_assertions::assert_eq;
@@ -13,9 +12,9 @@ use crate::lua::tests::{error, lua, run, session, snapshot, window};
 
 #[test]
 fn a_stored_value_survives_the_lua_state_being_discarded() {
-    // The soft reload, simulated: the Lua state goes and another is built
-    // against the same session, which is what `boot.rs` does for a restart and
-    // what Phase 7's reload does without even rebuilding the session.
+    // The soft reload is simulated: the Lua state is discarded and another is
+    // built against the same session. A restart in `boot.rs` does the same. The
+    // reload rebuilds the Lua state without rebuilding the session.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
 
     {
@@ -47,9 +46,9 @@ fn a_stored_value_survives_the_lua_state_being_discarded() {
 
 #[test]
 fn a_window_identifier_is_the_same_after_a_reload() {
-    // Stated on its own because the whole reload story rests on it and nothing
-    // else in the suite says so. The compositor thread is not restarted by a
-    // soft reload, so the identifiers it minted are the identifiers it keeps.
+    // The reload behaviour depends on window identifiers staying stable. The
+    // compositor thread is not restarted by a soft reload, so the identifiers
+    // it creates remain unchanged.
     let session = session(vec![
         window(4, "editor", "foot", PixelSize::new(64, 32)),
         window(9, "browser", "firefox", PixelSize::new(64, 32)),
@@ -77,8 +76,8 @@ fn a_window_identifier_is_the_same_after_a_reload() {
 
 #[test]
 fn a_table_is_refused_with_the_key_named() {
-    // A table holds Lua values, so storing one would put the problem the store
-    // exists to solve one level down.
+    // A table holds Lua values, so accepting one would move the store's
+    // serialisation problem into the table's contents.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
 
@@ -130,9 +129,9 @@ fn storing_nil_removes_the_key() {
 
 #[test]
 fn every_key_a_window_holds_can_be_enumerated() {
-    // Without this a configuration could only read back keys it hardcoded, and
-    // a key it computed — a tag name, a monitor identity — would survive the
-    // reload unreachable.
+    // Without this, a configuration could read back keys it hardcoded and no
+    // others. A key it computed, such as a tag name or a monitor identity, would
+    // survive the reload unreachable.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
 
     {
@@ -159,8 +158,8 @@ fn every_key_a_window_holds_can_be_enumerated() {
 
 #[test]
 fn a_windows_properties_go_when_the_window_does() {
-    // Entries live as long as the window, not as long as the Lua state. The
-    // frame the window closes in still answers, because that is the frame
+    // Entries have the window's lifetime, not the Lua state's. The frame the
+    // window closes in still returns them, because that is the frame
     // `lunwindowclosed` is dispatched in and a handler tidying up after a panel
     // reads them there.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
@@ -230,9 +229,9 @@ fn storing_against_a_dead_handle_returns_false_and_keeps_nothing() {
 
 #[test]
 fn a_value_that_is_not_a_finite_number_is_refused() {
-    // The same rule `lunette.claimLayer` applies to a priority: a nan is a
-    // defect in the caller's maths, and one that came back after a reload would
-    // be far harder to trace than one reported here.
+    // The same rule `lunette.claimLayer` applies to a priority: a NaN is a
+    // defect in the caller's maths, and one that returns after a reload is
+    // harder to trace than one rejected at the call site.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
 

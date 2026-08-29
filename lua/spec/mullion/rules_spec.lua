@@ -1,14 +1,13 @@
 -- Covers lua/mullion/rules.lua.
 --
--- The acceptance criterion this module carries is that a rule matching on
--- `appId` places a newly spawned window without further scripting, so the case
--- that matters most is the one that goes all the way to a panel at the pose the
--- rule named. The rest is matching and composition, both pure over synthetic
--- window tables.
+-- A rule matching on `appId` places a newly spawned window without further
+-- scripting. The case that matters most ends with a panel at the pose the
+-- rule named. The rest is matching and composition, both pure over
+-- synthetic window tables.
 --
--- The panel fixture is required before `mullion.rules` is, so that the
--- `mullion.panel` the module captures is the one holding the fake `lunette`. A
--- real `lunette.claimLayer` would want a layer pool with no headset behind it.
+-- The panel fixture loads first, so the `mullion.panel` the rules module
+-- captures holds the fake `lunette`. The real `lunette.claimLayer` hands back
+-- a claim against a layer pool with no headset behind it.
 
 local expect = require '@spec/expect'
 local fixture = require '@spec/mullion/panel/fixture'
@@ -29,11 +28,12 @@ local function newWindow(appId, title)
   return window
 end
 
--- The module's own `report`, captured before any case replaces it.
+-- The module's own `report`. Cases replace `rules.report`, so the final case
+-- uses this copy.
 local defaultReport = rules.report
 
--- What `rules.report` was told, so that a case can assert a rule was reported
--- rather than let it print into the run's output.
+-- Every message `rules.report` receives. A case asserts a rule here; the
+-- messages do not print into the run's output.
 local reported = {}
 local function captureReports()
   reported = {}
@@ -96,7 +96,8 @@ spec('a rule matching an absent field does not match rather than raising', funct
     { match = { appId = 'terminal' }, properties = { width = 1 } },
   }
 
-  -- No `appId` at all, which is what a client that never set one looks like.
+  -- The window carries no `appId`. A client that never sets one looks like
+  -- this.
   local properties = rules.resolve { title = 'a window' }
   expect.falsy(properties.width, 'the width')
 end)
@@ -214,9 +215,9 @@ end)
 spec('sources at one precedence apply in registration order', function()
   reset()
   -- More than a couple, because `table.sort` is not stable: a comparator that
-  -- called two sources at one precedence equal would be free to permute them,
-  -- and with two entries it would happen not to. The order is stated by the
-  -- registration tiebreak rather than left to whatever the sort produced.
+  -- calls two sources at one precedence equal could permute them, and two
+  -- entries would not reveal it. The registration tiebreak states the order;
+  -- the sort does not produce one.
   local registered = { 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a' }
   for _, name in ipairs(registered) do
     rules.addSource(name, 10, function()
@@ -321,9 +322,9 @@ spec('placing a window makes a panel at the pose the rule named', function()
 end)
 
 -- The regression: a window handle is userdata, not a table, so a guard that
--- insisted on a table raised for every real window. The shipped configuration
--- installs a rules table with a non-nil `match`, which is what reaches this, so
--- every window opening and every window adopted by a reload raised.
+-- insists on a table raises for every real window. The shipped configuration
+-- installs a rules table with a non-nil `match`; every window opening and
+-- every window adopted by a reload reaches this path.
 spec('placing a window handle that is not a table matches it', function()
   reset()
   local placed = lovr.math.newMat4():translate(1, 1.5, -2)
@@ -340,8 +341,9 @@ spec('placing a window handle that is not a table matches it', function()
   expect.equal(#fixture.panel.all(), 1, 'the panels')
 end)
 
--- The other half of the same guard: a match that names a field the handle does
--- not carry answers false rather than raising, whichever shape the handle is.
+-- The other half of the same guard: a match that names a field the handle
+-- does not carry answers false. The answer is the same for either shape of
+-- handle.
 spec('a window handle that is not a table can fail to match', function()
   reset()
   rules.setRules {
@@ -353,8 +355,8 @@ spec('a window handle that is not a table can fail to match', function()
   expect.equal(properties.width, nil, 'the width of a window no rule matched')
 end)
 
--- A window is indexed, so a value that cannot be indexed is still refused. The
--- fix widens the guard rather than removing it.
+-- A window is indexed, so a value that cannot be indexed is still refused.
+-- The fix widens the guard; it does not remove the gate.
 spec('a window that is neither a table nor userdata is refused', function()
   reset()
   local ok, message = pcall(rules.matches, { appId = 'terminal' }, 'terminal')
@@ -417,8 +419,8 @@ spec('a tag a rule names and nothing declared is reported as created', function(
 
   rules.place(newWindow 'terminal')
 
-  -- Creating it is the right answer — refusing would lose the window over a
-  -- declaration order — but a misspelt name arrives the same way, and a
+  -- Creating it is the right answer. Refusing would lose the window over a
+  -- declaration order, but a misspelt name arrives the same way, and a
   -- workspace nobody asked for holding a window nobody can find is worse than
   -- a line of output.
   expect.equal(#reported, 1, 'the reports')
@@ -504,8 +506,9 @@ spec('requiring twice leaves one teardown hook', function()
   end
   expect.equal(registered, 1, 'the hooks named mullion.rules')
   reloaded.teardown()
-  -- The second body's `register` replaced the hook with its own sources', so the
-  -- first one's is put back: the rest of the suite holds the first module table.
+  -- Re-requiring overwrote the `mullion.rules` entry in the teardown list.
+  -- `teardown.register` restores the first module table's teardown as that
+  -- entry, because the rest of the suite holds the first module table.
   teardown.register('mullion.rules', rules.teardown)
 end)
 
@@ -516,9 +519,9 @@ spec('the default report logs at the level it is given', function()
     logged[#logged + 1] = { message = message, level = level, tag = tag }
   end
 
-  -- A rule the configuration wrote that could not be honoured is a warning, and
-  -- that is the default. A tag created on demand is documented behaviour rather
-  -- than a mistake, so it is passed `info` explicitly.
+  -- A rule the configuration wrote that could not be honoured reports at
+  -- `warn`, the default level. A tag created on demand is documented
+  -- behaviour, so its report passes `info` explicitly.
   local ran, raised = pcall(function()
     defaultReport 'a rule that could not be honoured'
     defaultReport('a tag created on demand', 'info')

@@ -3,43 +3,41 @@
 --
 -- Pure. Nothing here reads or writes a file; `mullion.persist` is the shell that
 -- does, and it is the module a configuration requires. This half is separate
--- because the version matrix is the part worth reasoning about on its own, and
--- because a format that takes text in and hands data back needs no filesystem to
--- be exercised.
+-- so the version matrix can be reasoned about on its own, and because a format
+-- that turns text into data needs no filesystem to be exercised.
 --
 -- # The versions
 --
--- The matrix is answered by construction, which is the shape
--- `crates/lunette-capture/src/tokens.rs` uses for the same problem:
+-- The matrix is handled by construction; `crates/lunette-capture/src/tokens.rs`
+-- uses the same shape for the same problem:
 --
--- - A new mullion reading an old file finds the fields it knows and nothing for
---   the ones that did not exist yet, which read as absent.
+-- - A new mullion reading an old file reads the fields the file holds; fields
+--   added after that version read as absent.
 -- - An old mullion reading a new file gets a `fromTheFuture` load, and
---   `loaded:forSession()` answers nothing at all. That is the case worth
---   designing for: rewriting a file holding fields this version cannot
---   represent would drop them, corrupting the file rather than failing on it.
---   There is no arrangement to render and no file object to hand `save`, so the
---   rule cannot be lost to a later refactor that stops checking the kind.
+--   `loaded:forSession()` returns nothing. The version check exists for this
+--   case: saving a file that holds fields this version cannot represent would
+--   drop those fields and corrupt the file; failing on the file does not. There
+--   is no arrangement to render and no file object to give `save`, so a
+--   refactor that stops checking the kind still cannot write the file.
 -- - The version is bumped when a field is added, not when one is first depended
---   on. A default lets a new reader parse an old file; only the version stops an
---   old writer rewriting a new one.
+--   on. A default lets a new reader parse an old file; the version check stops
+--   an old writer saving a new one.
 --
 -- # The text
 --
--- A Lua chunk returning a table, loaded under an empty environment so that it
--- can build tables and reach nothing. `string.format`'s `%q` is the escaping,
--- which is the one part of writing a serialiser that has a tail worth not
--- writing again.
+-- A Lua chunk returning a table, loaded under an empty environment.
+-- `string.format`'s `%q` provides the escaping, the part of a serialiser with a
+-- correctness tail.
 --
--- This module holds no state and starts nothing, so it registers no teardown
--- hook: there is nothing a reload could leave behind.
+-- This module holds no state and starts nothing, so it installs no teardown
+-- hook: no timer, connection, or coroutine survives a reload.
 
 local format = {}
 
 -- The fields of an entry that render as a scalar, as `ENTRY_FIELDS` names them
 -- and `renderEntry` reads them. `tags` is not one: it is a list, and is written
--- separately. A closed set, so that both of those are checked against it rather
--- than against a bare string.
+-- separately. A closed set; `ENTRY_FIELDS` and `renderEntry` both check against
+-- it, and a bare string would not be checked.
 export type EntryField = 'kind' | 'key' | 'slot' | 'pose' | 'width' | 'height'
 
 -- One entry: what an arrangement holds for a single window or monitor.
@@ -77,29 +75,28 @@ type BrokenLoad = {
 }
 export type Loaded = ArrangementLoad | FutureLoad | BrokenLoad
 
--- Declared here and defined below the public API, so the file reads
--- surface-first.
+-- Declared here and defined below the public API, so the surface precedes the
+-- implementation.
 local fileMetatable, loadedMetatable, quote
 local renderEntry: (Entry) -> string
 local readEntry: (any) -> (Entry?, string?)
 
--- What this version of mullion writes.
+-- The format version this mullion writes.
 format.CURRENT_VERSION = 1
 
--- The fields an entry is written with, in a fixed order, so that an arrangement
--- that has not changed renders identically and the file does not churn between
--- runs. `tags` is written last and separately, being the one that is a list.
+-- The fields an entry is written with, in a fixed order. An arrangement that
+-- has not changed renders identically, and the file does not churn between
+-- runs. `tags` is a list and is written last, separately.
 format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' } :: { EntryField }
 
 -- An arrangement, from a list of entries.
 --
--- The only constructor of something `render` accepts, and so the only thing
--- `mullion.persist.save` accepts. A caller cannot assemble one out of a plain
--- table, which is what makes the from-the-future rule structural rather than a
--- check somebody has to remember.
+-- Everything `render` accepts comes from here, and `mullion.persist.save`
+-- accepts the same. A caller cannot assemble one out of a plain table; the
+-- from-the-future rule is structural, and no check has to be remembered.
 --
--- The list is copied, so a caller sorting or trimming its own array afterwards
--- does not quietly rewrite the arrangement that is about to be saved.
+-- The list is copied; a caller sorting or trimming the array afterwards does
+-- not change the arrangement that is about to be saved.
 function format.newFile(entries: { Entry }): File
   local held: { Entry } = {}
   for index = 1, #(entries or {}) do
@@ -119,9 +116,9 @@ end
 
 -- Whether `value` is a load `read`, `empty`, or `broken` produced.
 --
--- A load and an arrangement are two different things and a caller holding the
--- wrong one is the mistake worth naming, so the two are told apart by their
--- metatables rather than by which fields happen to be present.
+-- A load and an arrangement are two different things, and a caller can mistake
+-- one for the other. The two metatables distinguish them; the fields that
+-- happen to be present cannot.
 function format.isLoaded(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == loadedMetatable
 end
@@ -138,23 +135,24 @@ function format.entries(file: File): { Entry }
   return copied
 end
 
--- What the file's text says, as a load.
+-- The file's text, as a load.
 --
--- The load is one of three kinds, and `forSession` is what a caller asks for the
--- arrangement rather than reading the kind itself:
+-- The load is one of three kinds. `forSession` returns the arrangement; the
+-- caller does not read the kind itself:
 --
 -- - `arrangement`, carrying one, and `skipped`, the entries it could not read.
 -- - `fromTheFuture`, carrying `found` and `supported` and no arrangement.
 -- - `broken`, carrying `message` and no arrangement.
 --
--- Broken is a load rather than a raise. A save file is written by a previous
--- process and may have been truncated by a machine losing power mid-write, which
--- is an ordinary external condition rather than a defect in the caller.
+-- `broken` is a load, not a raise. A save file is written by a previous process
+-- and may have been truncated by a machine losing power mid-write; that is an
+-- ordinary external condition, not a defect in the caller.
 --
 -- An entry that is not the shape this version writes is skipped and named in
--- `skipped` rather than taken partially. A half-read entry would place a panel
--- somewhere nobody chose, which is harder to diagnose than one that did not come
--- back. Reporting is the shell's: this answers what happened and prints nothing.
+-- `skipped`; a partial entry is never taken. A half-read entry would place a
+-- panel somewhere nobody chose, which is harder to diagnose than an entry that
+-- is refused. `read` returns what happened and prints nothing; the shell
+-- reports.
 function format.read(text: unknown): Loaded
   if type(text) ~= 'string' then
     return format.broken('the file is a ' .. type(text) .. ', not text')
@@ -162,13 +160,13 @@ function format.read(text: unknown): Loaded
 
   -- LuaJIT returns `nil, message` for an unparseable chunk; Luau raises a
   -- syntax error instead. The file is broken either way, and the loader must
-  -- report it, not propagate it.
+  -- report the break, not propagate it.
   local ok, chunk = pcall(loadstring, text, '@arrangement')
   if not ok or not chunk then
     return format.broken(tostring(chunk or 'the file is not parseable'))
   end
-  -- An empty environment, so the chunk can build tables and reach nothing. It is
-  -- data this process wrote, and it is still read as though it were not.
+  -- An empty environment, so the chunk can build tables and reach nothing. The
+  -- environment is empty even when the process wrote the file itself.
   setfenv(chunk, {})
 
   local ran, held = pcall(chunk)
@@ -214,7 +212,7 @@ function format.read(text: unknown): Loaded
   return arrangement
 end
 
--- A load carrying an empty arrangement, which is what a first run has.
+-- A load carrying an empty arrangement; a first run has one of these.
 function format.empty(): ArrangementLoad
   local arrangement: ArrangementLoad = {
     kind = 'arrangement',
@@ -226,7 +224,7 @@ function format.empty(): ArrangementLoad
   return arrangement
 end
 
--- A load of a file that could not be read at all.
+-- A load of a file that could not be read.
 function format.broken(message: string): BrokenLoad
   local broken: BrokenLoad = { kind = 'broken', message = message, skipped = {} }
   setmetatable(broken, loadedMetatable)
@@ -235,8 +233,8 @@ end
 
 -- An arrangement as the file's text.
 --
--- Always at `CURRENT_VERSION`: this is what this version writes, whatever
--- version the arrangement was read at.
+-- The render is always at `CURRENT_VERSION`; the version the read returned does
+-- not change it.
 function format.render(file: File): string
   if not format.isFile(file) then
     error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
@@ -258,8 +256,8 @@ end
 
 -- The arrangement a load carries, or nothing.
 --
--- Nothing for a load this version cannot represent, which is what stops it being
--- rewritten: there is no arrangement to render and nothing `save` accepts.
+-- Nothing for a load this version cannot represent. The absent load blocks a
+-- write-back: there is no arrangement to render and nothing `save` accepts.
 loadedMetatable = {
   __index = {
     forSession = function(self: Loaded): File?
@@ -271,21 +269,20 @@ loadedMetatable = {
   },
 }
 
--- An arrangement. A table with this metatable and no other is what `render`
--- accepts, which is what makes `newFile` the only way to hold one.
+-- An arrangement. `render` accepts a table with this metatable and no other;
+-- that acceptance makes `newFile` the required constructor for an arrangement.
 fileMetatable = {}
 
--- A value as Lua source. Strings go through `%q`, which is the escaping that has
--- a tail worth not writing again.
+-- A value as Lua source. Strings go through `%q`, the escaping with a
+-- correctness tail.
 function quote(value)
   if type(value) == 'string' then
     return string.format('%q', value)
   end
   if type(value) == 'number' then
-    -- Seventeen digits, which brings a double back unchanged. A metre size that
+    -- Seventeen digits round-trip a double unchanged. A metre size that
     -- lost its last digit would shrink a panel a little at every restart, and
-    -- the drift would be diagnosed as a layout defect rather than a formatting
-    -- one.
+    -- the drift would be diagnosed as a layout defect, not a formatting one.
     return string.format('%.17g', value)
   end
   error('mullion.persist: an entry holds strings and numbers, not a ' .. type(value))
@@ -293,14 +290,14 @@ end
 
 -- One entry as a line of the file.
 --
--- A field the entry does not carry is left out rather than written as nothing. A
--- reader takes an absent field as absent, which is how a file written before a
--- field existed reads to a version that has it.
+-- A field the entry does not carry is left out, never written as nothing.
+-- A reader treats an absent field as absent, so a file written without the
+-- field reads with that field absent.
 function renderEntry(entry: Entry): string
   -- Keyed by `EntryField`, so a name here that the field set does not carry is a
-  -- type error, and so is one in `ENTRY_FIELDS`. What the type cannot say is
-  -- that every field is present; the spec in `persist/format_spec.lua` asserts
-  -- that, so a field added to the set and not to this table fails there.
+  -- type error, and so is one in `ENTRY_FIELDS`. The type does not express that
+  -- every field is present; `persist/format_spec.lua` asserts that, and a field
+  -- added to the set but not to this table fails there.
   local values: { [EntryField]: string | number | nil } = {
     kind = entry.kind,
     key = entry.key,
@@ -327,9 +324,9 @@ function renderEntry(entry: Entry): string
   return '    { ' .. table.concat(fields, ', ') .. ' },'
 end
 
--- One entry out of a loaded table, or nothing and the reason it was refused.
--- `any` rather than `unknown`: this reads keys off a table that came from a
--- decoder, and narrowing `unknown` gets as far as `table` and no further.
+-- One entry out of a loaded table, or nothing and the reason it is refused.
+-- The parameter is `any`, not `unknown`: this reads keys off a table that came
+-- from a decoder, and narrowing `unknown` gets as far as `table` and no further.
 function readEntry(stored: any): (Entry?, string?)
   if type(stored) ~= 'table' then
     return nil, 'an entry is a table, not a ' .. type(stored)

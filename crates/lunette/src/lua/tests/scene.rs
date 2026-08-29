@@ -1,8 +1,8 @@
 //! Whether lunette renders a scene of its own, from the configuration's side.
 //!
-//! [`crate::scene`] covers the gate itself against a fake `lovr.headset`; what
-//! is here is the session's half — when a change takes effect, and what the
-//! gate is told on a frame that copied into a layer.
+//! [`crate::scene`] covers the gate itself against a fake `lovr.headset`.
+//! This module covers the session side: when a change takes effect, and what
+//! the gate receives on a frame that copied into a layer.
 
 use mlua::Lua;
 use pretty_assertions::assert_eq;
@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// A state with the module installed and a `lovr.headset` for the gate to wrap,
-/// which the plain [`crate::lua::tests::lua`] state deliberately lacks.
+/// which the plain [`crate::lua::tests::lua`] state lacks.
 fn gated_lua(session: &TestSession) -> Lua {
     let lua = crate::test_lua::session_lua();
     lua.load(
@@ -33,8 +33,8 @@ fn gated_lua(session: &TestSession) -> Lua {
     .expect("the fake headset module loads");
 
     install(&lua, session).expect("the module installs");
-    // What `boot.lua:340-345` leaves behind, which the module's event
-    // dispatchers are installed into.
+    // boot.lua sets up the `lovr` scaffolding, and the module's event
+    // dispatchers install into it.
     lua.load("lovr = {} lovr.handlers = setmetatable({}, { __index = lovr })")
         .exec()
         .expect("the lovr scaffolding loads");
@@ -56,9 +56,10 @@ fn the_scene_is_drawn_until_a_configuration_says_otherwise() {
 
 #[test]
 fn turning_the_scene_off_takes_effect_at_the_next_frame_boundary() {
-    // Not mid-frame: the frame's `setLayers` has already gone out with `main`
-    // true, and a gate that answered nothing after it would leave the runtime
-    // compositing a projection layer nothing was drawn into.
+    // The change does not take effect mid-frame: the frame's `setLayers` has
+    // already gone out with `main` true, and a gate that answers nothing after
+    // that would leave the runtime compositing a projection layer with nothing
+    // drawn into it.
     let session = session(Vec::new());
     let lua = gated_lua(&session);
 
@@ -94,8 +95,8 @@ fn a_skipped_frame_answers_nothing_where_boot_lua_asks_for_a_pass() {
 
 #[test]
 fn the_frame_that_copied_into_a_layer_is_the_one_that_flushes() {
-    // And only that frame: the flush is taken rather than read, so a frame's
-    // second gated call does not submit LÖVR's stream a second time.
+    // The flush is taken, not read: the first gated call consumes it, so a
+    // frame's second gated call does not submit LÖVR's stream a second time.
     let session = session(Vec::new());
     session.set_scene(SceneRendering::Skipped);
     session.begin(session.snapshot());
@@ -137,10 +138,11 @@ fn turning_the_scene_back_on_restores_the_pass() {
 
 #[test]
 fn the_scene_switch_reads_its_argument_the_way_lua_reads_a_condition() {
-    // Truthiness rather than a type check, because that is what a configuration
-    // writing `lunette.setSceneEnabled(panel.anyInScene())` means by it. The
-    // one consequence worth pinning is that calling it with nothing at all
-    // turns the scene off rather than raising.
+    // The switch reads its argument by truthiness, as Lua reads a condition,
+    // and does not check the argument's type. A configuration writes
+    // `lunette.setSceneEnabled(panel.anyInScene())` and passes the result,
+    // which may be any truthy or falsy value. Calling the switch with no
+    // argument turns the scene off and does not raise.
     let session = session(Vec::new());
     let lua = gated_lua(&session);
 

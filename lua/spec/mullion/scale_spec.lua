@@ -1,10 +1,10 @@
 -- Covers lua/mullion/scale.lua.
 --
--- The whole module is pure, so every case here drives a chooser with numbers
--- and reads the scale back. What is worth asserting is the hysteresis: that a
--- distance approaching a boundary changes nothing until it is crossed, that
--- crossing back needs more than crossing forward did, and that a panel at
--- either end of the ladder clamps rather than running off it.
+-- The module is pure, so each case passes numbers to a chooser and reads the
+-- returned scale. The cases assert the hysteresis: a distance approaching a
+-- boundary changes nothing until it crosses the boundary, crossing back needs
+-- more distance than crossing forward, and a panel at either end of the ladder
+-- clamps to that end.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -14,12 +14,12 @@ local scale = require '@mullion/scale'
 
 local spec = suite.new 'mullion.scale'
 
--- A ladder with round rungs, so a case can name a distance and a rung and the
--- arithmetic between them is readable. The real ladder is exercised separately.
+-- A ladder with round rungs keeps the arithmetic between a named distance and
+-- a named rung readable. The default ladder is exercised separately.
 local LADDER = { 1, 2, 4 }
 
--- Tuning with round margins, for the reason the ladder has round rungs. The
--- reference is one metre, so a distance in metres is the reciprocal of the
+-- The tuning has round margins for the same reason the ladder has round rungs.
+-- The reference is one metre. A distance in metres is the reciprocal of the
 -- ideal scale.
 local TUNING = { reference = 1, raise = 0.1, lower = 0.2, nearest = 0.05 }
 
@@ -37,8 +37,8 @@ local function distanceFor(wanted)
 end
 
 spec('the first distance picks a step outright', function()
-  -- No previous step means no hysteresis to hold it back. An ideal of 2.5 takes
-  -- the largest rung no greater than it.
+  -- With no previous step, the first choice is made without hysteresis. An
+  -- ideal of 2.5 takes the largest rung no greater than it.
   local chosen = chooser():choose(distanceFor(2.5))
 
   expect.equal(chosen, 2, 'the step for an ideal of 2.5')
@@ -54,12 +54,13 @@ spec('a distance beyond the top of the ladder clamps to it', function()
   local picked = chooser()
 
   expect.equal(picked:choose(distanceFor(50)), 4, 'the step for an ideal far above the ladder')
-  -- Walking further in still clamps rather than running off the end.
+  -- A still larger distance clamps to the same step.
   expect.equal(picked:choose(distanceFor(500)), 4, 'the step after walking closer still')
 end)
 
 spec('a distance of zero takes the top rather than raising', function()
-  -- A user who walks their head through a panel is not a caller mistake.
+  -- A user walks their head through a panel in normal use, and a distance of
+  -- zero is valid input.
   local chosen = chooser():choose(0)
 
   expect.equal(chosen, 4, 'the step for a panel at no distance at all')
@@ -70,7 +71,8 @@ spec('approaching a rung does not change the step until the margin is passed', f
   picked:choose(distanceFor(1))
   expect.equal(picked:current(), 1, 'the step it settled on')
 
-  -- The rung above is 2, and the raise margin is a tenth, so 2.19 is not enough.
+  -- The rung above is 2, and the raise margin is a tenth. The raise threshold
+  -- is 2.2, and 2.19 stays below it.
   local held, changed = picked:choose(distanceFor(2.19))
   expect.equal(held, 1, 'the step just short of the raise threshold')
   expect.falsy(changed, 'whether the step changed')
@@ -85,9 +87,9 @@ spec('crossing back needs the lower threshold, not the upper one', function()
   picked:choose(distanceFor(2.5))
   expect.equal(picked:current(), 2, 'the step it settled on')
 
-  -- The ideal that would not have reached this rung from below — anything under
-  -- 2 — still does not give it back. The lower threshold is a fifth below the
-  -- rung, so it takes an ideal under 1.6.
+  -- Without hysteresis, an ideal below 2 takes rung 1. Under hysteresis, an
+  -- ideal of 1.9 keeps the step at 2. The lower threshold is a fifth below the
+  -- rung, and the step falls when the ideal drops below 1.6.
   expect.equal(picked:choose(distanceFor(1.9)), 2, 'the step at an ideal below the rung')
   expect.equal(picked:choose(distanceFor(1.61)), 2, 'the step just short of the lower threshold')
   expect.equal(picked:choose(distanceFor(1.59)), 1, 'the step just past the lower threshold')
@@ -97,8 +99,8 @@ spec('the dead band means an ideal oscillating around a rung changes nothing', f
   local picked = chooser()
   picked:choose(distanceFor(2.5))
 
-  -- The user breathing, in numbers: the ideal wanders either side of the rung
-  -- and neither threshold is reached, so the client is never told anything.
+  -- The ideal moves either side of the rung, and neither threshold is reached.
+  -- The client receives no step change.
   for _, ideal in ipairs { 2.0, 1.98, 2.05, 1.95, 2.1, 1.9 } do
     local chosen, changed = picked:choose(distanceFor(ideal))
     expect.equal(chosen, 2, 'the step at an ideal of ' .. ideal)
@@ -111,7 +113,7 @@ spec('a jump of several steps arrives in one call', function()
   picked:choose(distanceFor(1))
   expect.equal(picked:current(), 1, 'the step it settled on')
 
-  -- One rung a call would make the client re-render at every rung on the way.
+  -- A limit of one rung per call re-renders at every rung on the way.
   expect.equal(picked:choose(distanceFor(20)), 4, 'the step after a jump to the far end')
   expect.equal(picked:choose(distanceFor(0.1)), 1, 'the step after a jump back')
 end)
@@ -123,8 +125,8 @@ spec('resetting drops the hysteresis so the next choice is made outright', funct
 
   picked:reset()
   expect.equal(picked:current(), nil, 'the step after a reset')
-  -- An ideal of 1.9 would have kept the rung of 2 through hysteresis; without a
-  -- previous step it takes the largest rung no greater than it.
+  -- An ideal of 1.9 keeps the rung of 2 under hysteresis. With no previous step
+  -- it takes the largest rung no greater than it.
   expect.equal(picked:choose(distanceFor(1.9)), 1, 'the step chosen after a reset')
 end)
 
@@ -135,8 +137,8 @@ spec('every scale a chooser emits is on the ladder it was given', function()
     rungs[rung] = true
   end
 
-  -- A walk in and out again, at a finer grain than either margin, so the sweep
-  -- passes through every threshold in both directions.
+  -- The walk covers the range and returns at a finer grain than either margin,
+  -- so the sweep passes through every threshold in both directions.
   for tenths = 1, 100 do
     local chosen = picked:choose(tenths / 10)
     expect.truthy(rungs[chosen], 'the scale ' .. chosen .. ' is a rung of the ladder')
@@ -148,8 +150,9 @@ spec('every scale a chooser emits is on the ladder it was given', function()
 end)
 
 spec('a walk that only closes never lowers the step', function()
-  -- Monotone in, monotone up. Hysteresis widens the band a rung holds, so it can
-  -- delay a rise; a rise it delayed must not come out as a fall.
+  -- The walk is monotone in distance, so the step is monotone up. Hysteresis
+  -- widens the band a rung holds and can delay a rise; a delayed rise must not
+  -- appear as a fall.
   local picked = chooser()
   local previous = picked:choose(10)
 
@@ -171,8 +174,6 @@ spec('a walk that only recedes never raises the step', function()
   end
 end)
 
--- The real ladder, which is the one the layer pool keys on.
-
 spec('the default ladder is the one the native layer publishes', function()
   local published = lunette.scaleSteps()
 
@@ -185,8 +186,8 @@ end)
 spec('a chooser given no ladder uses the default one', function()
   local picked = scale.newChooser()
 
-  -- The bottom of the published ladder is 1, and a panel far away asks for less
-  -- than that, so it clamps there.
+  -- The bottom of the published ladder is 1. A far panel produces an ideal
+  -- below that, and the step clamps to 1.
   expect.equal(picked:choose(1000), scale.STEPS[1], 'the step for a very distant panel')
   expect.equal(picked:choose(0.01), scale.STEPS[#scale.STEPS], 'the step for a very near one')
 end)

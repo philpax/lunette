@@ -1,11 +1,11 @@
 -- A configuration that does not compile.
 --
--- Deliberately, and this is the whole fixture: `lunette-v1.AC8.4` is about what
--- happens when a user leaves a `main.lua` in this state, and the only way to
--- establish it is to leave one in this state.
+-- The compile failure is the fixture: it establishes the case of a user
+-- leaving a `main.lua` in this state, which no other fixture can establish
+-- except by leaving one in this state.
 --
--- Callbacks are defined before the defect so that the case can assert they are
--- not left bound: a `main.lua` that raises partway through has already installed
+-- Callbacks are defined before the defect so the case can assert they are not
+-- left bound: a `main.lua` that raises partway through has already installed
 -- some of itself.
 
 function lovr.update()

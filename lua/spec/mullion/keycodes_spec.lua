@@ -1,10 +1,9 @@
 -- Covers lua/mullion/keycodes.lua.
 --
--- The module is data, so what is worth checking is that the data agrees with
--- itself: a modifier keycode that names a modifier `sink:modifiers` does not
--- take, or a key that appears twice in the matrix, is the kind of mistake a
--- table this shape invites and that nothing else would notice until a client
--- refused a modifier set at runtime.
+-- The module is a data table. The tests verify that the data agrees with
+-- itself. A modifier keycode whose name `sink:modifiers` does not accept
+-- raises a runtime error when a client applies a modifier set. No other
+-- check detects a key that appears twice in the matrix.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -13,7 +12,6 @@ local keycodes = require '@mullion/keycodes'
 
 local spec = suite.new 'mullion.keycodes'
 
--- Whether `name` is one of the modifier names.
 local function isModifierName(name)
   for _, known in ipairs(keycodes.MODIFIER_ORDER) do
     if known == name then
@@ -52,8 +50,8 @@ spec('every width in the matrix is a positive number of key units', function()
 end)
 
 spec('every modifier keycode names a modifier the native surface takes', function()
-  -- The names are passed to `sink:modifiers` unchanged, and it raises on one it
-  -- does not know. A typo here would be a runtime error in the user's face.
+  -- The names are passed to `sink:modifiers` unchanged, and the sink raises
+  -- an error on an unknown name.
   for code, name in pairs(keycodes.MODIFIERS) do
     expect.truthy(isModifierName(name), 'keycode ' .. code .. " names '" .. name .. "'")
   end
@@ -87,9 +85,9 @@ spec('the named keycodes are in the matrix', function()
 end)
 
 spec('the two modifier keycodes that come in pairs name the same modifier', function()
-  -- Left and right shift are different keycodes and the same modifier. A
-  -- keyboard whose right shift latched something else would be a keyboard on
-  -- which half the capital letters came out lowercase.
+  -- Left and right shift are different keycodes and the same modifier. If
+  -- the right shift named a different modifier, half the capital letters
+  -- would come out lowercase.
   expect.equal(keycodes.MODIFIERS[42], 'shift', 'the left shift')
   expect.equal(keycodes.MODIFIERS[54], 'shift', 'the right shift')
   expect.equal(keycodes.MODIFIERS[29], 'control', 'the left control')

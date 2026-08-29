@@ -1,28 +1,28 @@
-//! Linux-only: the Vulkan device LÖVR created, borrowed for buffer import.
+//! Linux-only: the Vulkan device LÖVR owns, borrowed for buffer import.
 //!
-//! lunette never creates a device. LÖVR does that, and this module wraps the
-//! handles it exposes so the import path can issue its own Vulkan calls against
-//! them. Borrowed means borrowed: [`GraphicsDevice`] has no destructor, and
-//! `vkDestroyDevice` and `vkDestroyInstance` are never called from here.
+//! lunette never creates a device. LÖVR creates one, and this module wraps
+//! the handles LÖVR exposes. The import path issues its own Vulkan calls
+//! against those handles. The device is borrowed: [`GraphicsDevice`] has no
+//! destructor, and `vkDestroyDevice` and `vkDestroyInstance` are never called
+//! here.
 //!
-//! # Why the extensions are verified rather than assumed
+//! # Extension verification
 //!
 //! `ash::Instance::load` and `ash::Device::load` cannot fail. A function
-//! pointer the loader could not resolve becomes a stub that panics when it is
-//! called (`ash-0.38.0/src/extensions_generated.rs:12032`), so a missing
-//! extension does not surface at construction — it surfaces as a panic in the
-//! middle of a frame. The only defence is to ask what was enabled, which is
-//! what the five booleans on LÖVR's `GraphicsFeatures` are for, and to refuse
-//! construction with a message naming the extension that is absent.
+//! pointer the loader fails to resolve becomes a stub that panics when it is
+//! called. A missing extension does not surface at construction. It surfaces
+//! as a panic in the middle of a frame. The defence is to read the five
+//! booleans on LÖVR's `GraphicsFeatures` and to refuse construction with a
+//! message naming the extension that is absent.
 //!
-//! # Vulkan 1.1 is the ceiling as well as the floor
+//! # The Vulkan 1.1 boundary
 //!
-//! LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` (`gpu_vk.c:3089`).
-//! Everything this module calls is therefore either Vulkan 1.1 core —
-//! `vkGetPhysicalDeviceProperties2`, `vkGetPhysicalDeviceFormatProperties2`,
-//! `vkGetImageMemoryRequirements2`, `vkBindImageMemory2`, all without a `KHR`
-//! suffix — or an extension entry point loaded explicitly. A 1.2 or 1.3 call
-//! would compile, load, and panic.
+//! LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)`. Everything this
+//! module calls is Vulkan 1.1 core or an extension entry point loaded
+//! explicitly. The 1.1 core calls are `vkGetPhysicalDeviceProperties2`,
+//! `vkGetPhysicalDeviceFormatProperties2`, `vkGetImageMemoryRequirements2`,
+//! `vkBindImageMemory2`, all without a `KHR` suffix. A 1.2 or 1.3 call would
+//! compile, load, and panic.
 
 use std::{fmt, mem::MaybeUninit, sync::Arc};
 
@@ -37,15 +37,15 @@ use tracing::{debug, warn};
 
 use crate::import::formats::{self, SUPPORTED};
 
-/// The Vulkan device LÖVR owns, with the loaders buffer import needs.
+/// The Vulkan device LÖVR owns, with the loaders the import path needs.
 ///
-/// Shared across threads: the compositor thread creates images through it, and
-/// the frame thread destroys them and records barriers. Both are read-only uses
-/// of the handle itself, and Vulkan permits concurrent use of a `VkDevice` from
-/// several threads.
+/// Shared across threads. The compositor thread creates images with it, and
+/// the frame thread destroys them and records barriers. Both are read-only
+/// uses of the handle itself, and Vulkan permits concurrent use of a
+/// `VkDevice` from several threads.
 pub struct GraphicsDevice {
-    /// Kept alive because the loader it opened is what every function pointer
-    /// below was resolved from. Never called directly.
+    /// Held because the instance and device loaders obtain their function
+    /// pointers from it. Never called directly.
     _entry: ash::Entry,
     device: ash::Device,
     queue_family: u32,
@@ -55,13 +55,13 @@ pub struct GraphicsDevice {
 }
 
 impl GraphicsDevice {
-    /// Wraps the device LÖVR created.
+    /// Wraps the device LÖVR owns.
     ///
     /// # Errors
     ///
     /// Reports the first thing that makes import impossible: the graphics
-    /// module not being initialised, a Vulkan loader that could not be opened,
-    /// a device below Vulkan 1.1, or any of the five extensions being absent.
+    /// module not being initialised, a Vulkan loader that cannot be opened, a
+    /// device below Vulkan 1.1, or any of the five extensions being absent.
     ///
     /// # Safety
     ///
@@ -81,18 +81,18 @@ impl GraphicsDevice {
         }
 
         // SAFETY: `Entry::load` opens the system Vulkan loader. LÖVR has one
-        // open already, so this raises its reference count rather than
-        // initialising a second copy.
+        // open already. This call raises that loader's reference count and
+        // does not initialise a second copy.
         let entry = unsafe { ash::Entry::load() }.map_err(DeviceError::LoadVulkan)?;
 
         let handles = LovrHandles::query();
         // SAFETY: `load` builds a dispatch table from `vkGetInstanceProcAddr`
-        // and the instance LÖVR created. It is not `unsafe` because it can
-        // fail, but because the handle must be a live instance from the same
-        // loader, which the check above establishes.
+        // and the instance LÖVR created. The `unsafe` contract is that the
+        // handle is a live instance from the same loader.
+        // `lovrGraphicsIsInitialized` establishes that.
         let instance = unsafe { ash::Instance::load(entry.static_fn(), handles.instance) };
 
-        // SAFETY: `physical_device` came from the instance just wrapped.
+        // SAFETY: `physical_device` belongs to the instance wrapped above.
         let properties =
             unsafe { instance.get_physical_device_properties(handles.physical_device) };
         if properties.api_version < vk::API_VERSION_1_1 {
@@ -101,15 +101,15 @@ impl GraphicsDevice {
             });
         }
 
-        // SAFETY: as above, for the device.
+        // SAFETY: `device` is a live device handle from the same loader.
         let device = unsafe { ash::Device::load(instance.fp_v1_0(), handles.device) };
-        // The only loader the import path needs. `VK_EXT_image_drm_format_modifier`
-        // has to be enabled for `VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT` to be a
-        // legal tiling, which is LÖVR's job, but its single entry point reads back
-        // the modifier the driver chose — and the explicit create info means the
-        // modifier is named rather than chosen. `VK_KHR_external_memory` and
+        // The one loader the import path needs. `VK_EXT_image_drm_format_modifier`
+        // must be enabled for `VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT` to be a
+        // legal tiling. Enabling it is LÖVR's job. Its single entry point reads
+        // back the modifier the driver chose; the explicit create info names
+        // the modifier. `VK_KHR_external_memory` and
         // `VK_EXT_external_memory_dma_buf` contribute structures and no entry
-        // points at all.
+        // points.
         let external_memory_fd = khr::external_memory_fd::Device::new(&instance, &device);
 
         let render_node = query_render_node(&instance, handles.physical_device)?;
@@ -134,10 +134,9 @@ impl GraphicsDevice {
 
     /// What to advertise over `zwp_linux_dmabuf_v1`.
     ///
-    /// Feedback needs the render node as well as the formats, and without the
-    /// node no feedback global can be built at all — so a device whose driver
-    /// does not report one advertises nothing and clients fall back to
-    /// `wl_shm`.
+    /// Feedback needs the render node as well as the formats. A device whose
+    /// driver does not report a render node advertises nothing and clients
+    /// fall back to `wl_shm`.
     #[must_use]
     pub fn dmabuf_support(&self) -> DmabufSupport {
         DmabufSupport {
@@ -151,8 +150,8 @@ impl GraphicsDevice {
         &self.device
     }
 
-    /// The family LÖVR submits on, and therefore the destination of an
-    /// ownership acquire.
+    /// The family LÖVR submits on. It is the destination of an ownership
+    /// acquire.
     #[must_use]
     pub fn queue_family(&self) -> u32 {
         self.queue_family
@@ -166,7 +165,7 @@ impl GraphicsDevice {
 
 impl fmt::Debug for GraphicsDevice {
     /// Hand-written because neither `ash::Instance` nor `ash::Device` is
-    /// `Debug`, and a dispatch table's contents would be noise anyway.
+    /// `Debug`. A dispatch table's contents would be noise.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GraphicsDevice")
             .field("queue_family", &self.queue_family)
@@ -178,9 +177,9 @@ impl fmt::Debug for GraphicsDevice {
 
 /// The optional Vulkan extensions the import path depends on.
 ///
-/// Named separately from LÖVR's `GraphicsFeatures` so the "which of these is
-/// missing" decision is a pure function over five booleans, testable without a
-/// device, rather than a read of a struct only a live graphics module produces.
+/// Named separately from LÖVR's `GraphicsFeatures`. The "which of these is
+/// missing" decision is a pure function over five booleans and needs no
+/// device. Reading the struct directly requires a live graphics module.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ImportExtensions {
     pub external_memory: bool,
@@ -193,10 +192,9 @@ pub struct ImportExtensions {
 impl ImportExtensions {
     /// What LÖVR reports it enabled.
     fn from_lovr() -> Self {
-        // Zeroed rather than uninitialised: `lovrGraphicsGetFeatures`
-        // (`graphics.c:985-1002`) assigns every field today, but the struct
-        // grows upstream, and a zero byte is a valid `false` while an
-        // uninitialised one is not a valid `bool` at all.
+        // Zeroed. `lovrGraphicsGetFeatures` assigns every field, but upstream may
+        // add fields. A zero byte is a valid `false`; an uninitialised byte is
+        // not a valid `bool`.
         let mut features = MaybeUninit::<GraphicsFeatures>::zeroed();
         // SAFETY: the pointer addresses a live, fully initialised allocation,
         // and the call fills it without retaining it. The caller has
@@ -215,13 +213,13 @@ impl ImportExtensions {
         }
     }
 
-    /// The extensions that are absent, named as Vulkan names them.
+    /// The extensions that are absent, with their Vulkan names.
     ///
     /// All five are required. `VK_KHR_external_memory` and
-    /// `VK_EXT_external_memory_dma_buf` contribute structures rather than entry
-    /// points, so nothing loads them and nothing would panic without them —
-    /// they would simply be ignored, and the import would fail validation in a
-    /// way that is far harder to read than this list.
+    /// `VK_EXT_external_memory_dma_buf` contribute structures and no entry
+    /// points. Nothing loads them and nothing panics without them. They are
+    /// ignored, and the import fails validation in a way that is harder to read
+    /// than this list.
     #[must_use]
     pub fn missing(&self) -> Vec<&'static str> {
         [
@@ -252,11 +250,11 @@ struct LovrHandles {
 }
 
 impl LovrHandles {
-    /// Reads the four handles LÖVR created.
+    /// Reads the four handles LÖVR exposes.
     ///
-    /// `gpu_vk_get_queue` returns the queue and writes both indices, so the
-    /// queue itself is discarded: lunette never submits, and holding a queue it
-    /// must not use would invite one.
+    /// `gpu_vk_get_queue` returns the queue and writes both indices. The
+    /// queue itself is discarded. lunette never submits, and a held queue
+    /// would risk misuse.
     fn query() -> Self {
         let mut queue_family = 0;
         let mut queue_index = 0;
@@ -283,10 +281,9 @@ impl LovrHandles {
 /// The DRM render node the physical device belongs to.
 ///
 /// `VK_EXT_physical_device_drm` contributes a property structure and no entry
-/// point, so it is enough for the physical device to support it — LÖVR does not
-/// enable it, and does not have to. Chaining a structure from an unsupported
-/// extension is not permitted, so support is checked first and the answer is
-/// absent rather than wrong when it is missing.
+/// point. LÖVR does not enable it, and does not have to. Chaining a structure
+/// from an unsupported extension is not permitted. Support is checked first.
+/// The answer is absent when the extension is missing.
 fn query_render_node(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
@@ -326,15 +323,15 @@ fn query_render_node(
     }
 }
 
-/// The formats and modifiers the device will actually accept an import in.
+/// The formats and modifiers the device accepts for an import.
 ///
 /// Two filters, and both are needed. The modifier list on
 /// `vkGetPhysicalDeviceFormatProperties2` says a modifier exists for the
-/// format; it says nothing about whether an image can be created with it at the
-/// tiling and usage lunette declares, which is what the per-candidate
-/// `vkGetPhysicalDeviceImageFormatProperties2` answers.
+/// format. It says nothing about whether an image can be created with it at
+/// the tiling and usage lunette declares. The per-candidate
+/// `vkGetPhysicalDeviceImageFormatProperties2` answers that.
 ///
-/// A format the driver refuses entirely is dropped rather than reported: the
+/// A format the driver refuses entirely is dropped and not reported. The
 /// list is a negotiation offer, and offering something that cannot be imported
 /// is worse than offering less.
 fn query_formats(instance: &ash::Instance, physical_device: vk::PhysicalDevice) -> Vec<Format> {
@@ -368,11 +365,10 @@ fn query_formats(instance: &ash::Instance, physical_device: vk::PhysicalDevice) 
 
 /// The modifier list for one format, through the two-call idiom.
 ///
-/// The list structure is built by hand on the second call rather than through
-/// `.drm_format_modifier_properties(&mut storage)`: that builder derives the
-/// count from the slice, and on the first call — where the slice is necessarily
-/// empty — it would report a capacity of zero and the driver would write
-/// nothing.
+/// The list structure is built by hand on the second call. The
+/// `.drm_format_modifier_properties(&mut storage)` builder derives the count
+/// from the slice. On the first call the slice is necessarily empty. The
+/// builder reports a capacity of zero, and the driver writes nothing.
 fn query_modifiers(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
@@ -381,8 +377,8 @@ fn query_modifiers(
     let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
     let mut properties = vk::FormatProperties2::default().push_next(&mut list);
     // SAFETY: a Vulkan 1.1 core call. `VK_EXT_image_drm_format_modifier` is
-    // established as enabled before the device is constructed, so the chained
-    // structure is one the driver understands.
+    // established as enabled before the device is constructed, and the driver
+    // understands the chained structure.
     unsafe {
         instance.get_physical_device_format_properties2(physical_device, format, &mut properties)
     };
@@ -399,8 +395,8 @@ fn query_modifiers(
         ..Default::default()
     };
     let mut properties = vk::FormatProperties2::default().push_next(&mut list);
-    // SAFETY: as above, and `storage` has room for the count the first call
-    // reported.
+    // SAFETY: the call is a Vulkan 1.1 core call, and `storage` has room for
+    // the count the first call reported.
     unsafe {
         instance.get_physical_device_format_properties2(physical_device, format, &mut properties)
     };
@@ -453,11 +449,11 @@ fn importable(
 
 /// The usage every imported image is created with.
 ///
-/// It must match what [`crate::texture`] later declares to `lovrTextureCreate`.
-/// LÖVR never validates an imported image's usage — it builds a
-/// `VkImageViewUsageCreateInfo` from the declaration alone (`gpu_vk.c:838-846`)
-/// — so a mismatch surfaces as a failed `vkCreateImageView` inside LÖVR rather
-/// than as anything this crate can report.
+/// It must match what [`crate::texture`] declares to `lovrTextureCreate`.
+/// LÖVR never validates an imported image's usage. It builds a
+/// `VkImageViewUsageCreateInfo` from the declaration alone. A mismatch
+/// fails the `vkCreateImageView` call inside LÖVR. This crate does not
+/// report it.
 pub(crate) const IMPORT_USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::from_raw(
     vk::ImageUsageFlags::SAMPLED.as_raw()
         | vk::ImageUsageFlags::TRANSFER_SRC.as_raw()
@@ -589,9 +585,9 @@ mod tests {
 
     #[test]
     fn the_import_usage_matches_what_lovr_is_told() {
-        // LÖVR builds an image view from the usage the caller declares, so
-        // these two have to agree. The declaration lives in `crate::texture`,
-        // and this is the assertion that keeps them from drifting apart.
+        // LÖVR builds an image view from the usage the caller declares, and
+        // the two must agree. The declaration is in `crate::texture`. The
+        // assertions check all three flags.
         assert!(IMPORT_USAGE.contains(vk::ImageUsageFlags::SAMPLED));
         assert!(IMPORT_USAGE.contains(vk::ImageUsageFlags::TRANSFER_SRC));
         assert!(IMPORT_USAGE.contains(vk::ImageUsageFlags::TRANSFER_DST));

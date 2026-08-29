@@ -1,17 +1,19 @@
 -- The physical keyboard: where the keys are, and which of them are modifiers.
 --
--- An evdev keycode names a position on a keyboard and not a letter. Keycode 30
--- is the first key of the home row on every layout, and what it types is the
--- layout's business — so this file says where the keys are and a seat's keymap
--- says what they are. That division is the only one that does not lie to a user
--- who is not on QWERTY, and lunette already knows the truth.
+-- An evdev keycode names a position on a keyboard and not a letter. Keycode
+-- 30 is the first key of the home row on every layout, and what it types
+-- belongs to the layout. The keycodes here name positions, and a seat's
+-- keymap names letters. Naming a key by position stays accurate for a user
+-- who is not on QWERTY, and lunette already obtains the letters from a
+-- seat's keymap.
 --
--- Separate from `mullion.keyboard` because it is a different thing: that module
--- is a widget, and this is a description of a keyboard. A configuration binding
--- a key wants the names here without wanting the widget.
+-- Separate from `mullion.keyboard` because it is a different thing: that
+-- module is a widget, and this is a description of a keyboard. A
+-- configuration binding a key uses the names here and does not need the
+-- widget.
 --
--- This module holds no state and starts nothing, so it registers no teardown
--- hook: there is nothing a reload could leave behind.
+-- The module holds no state and starts nothing, so it installs no teardown
+-- hook. A reload leaves nothing behind.
 
 local lunette = require '@lunette'
 
@@ -26,8 +28,8 @@ export type Key = {
 -- A row of keys.
 export type Row = { Key }
 
--- The keycodes with names of their own, for a caller that wants to press one
--- without knowing evdev by heart.
+-- The keycodes with names of their own, for a caller that presses one
+-- without memorising evdev.
 keycodes.SHIFT = 42
 keycodes.CAPS_LOCK = 58
 keycodes.BACKSPACE = 14
@@ -36,8 +38,8 @@ keycodes.SPACE = 57
 
 -- Which keycodes are modifiers, and which modifier each is.
 --
--- A key here latches rather than sending. The names are `sink:modifiers`'s, so
--- the set is passed on unchanged rather than translated.
+-- A key here latches and sends nothing. The names are the set
+-- `sink:modifiers` takes, and the set passes on unchanged.
 keycodes.MODIFIERS = {
   [42] = 'shift',
   [54] = 'shift',
@@ -49,28 +51,27 @@ keycodes.MODIFIERS = {
   [58] = 'capsLock',
 }
 
--- The modifiers that stay on until pressed again, rather than clearing after
--- the next key.
+-- The modifiers that stay on until pressed again. A modifier not in this set
+-- clears after the next key.
 local locks: { [string]: boolean } = { capsLock = true }
 keycodes.LOCKS = locks
 
--- The order modifiers are reported in, so that what a client is told does not
--- depend on the order a table happened to be walked in.
+-- The order modifiers are reported in. A fixed order keeps the order a
+-- client receives independent of table iteration order.
 --
--- Asked for rather than listed. The set is the runtime's, and a copy of it here
--- would go stale the moment a modifier was added: `seat:setModifiers` would
--- refuse a name this file never learned, or hold one it never reported.
+-- The order is requested, not listed. The set is the runtime's. A copy here
+-- would go stale the moment a modifier is added: `seat:setModifiers` would
+-- refuse a name the runtime dropped, or omit a name the runtime added.
 keycodes.MODIFIER_ORDER = lunette.modifierNames()
 
 -- Where the keys are, in evdev keycodes, one array per row.
 --
--- `width` is in key units and defaults to one. `label` is what is drawn when a
--- key types nothing a legend could show — a keymap answers `\r` for enter,
--- which is not something to draw on a key.
+-- `width` is in key units and defaults to one. `label` sets the text drawn
+-- when a key types a character that has no legend, such as `\r` for enter.
 --
--- This is a compact ANSI arrangement. It is a starting point rather than a
--- claim: a configuration wanting a different one passes its own rows to
--- `mullion.keyboard`, which is the whole extent of the customisation offered.
+-- This is a compact ANSI arrangement and the default layout.
+-- `mullion.keyboard` uses it unless a configuration passes its own rows, and
+-- that is the full extent of the customisation offered.
 keycodes.ROWS = {
   {
     { code = 41 },

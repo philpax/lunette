@@ -1,15 +1,16 @@
 -- The fakes the two `mullion.persist` spec files share.
 --
--- `mullion.persist` has two halves — the arrangement panels are in, and the file
--- on disk — and a spec file for each. Both build the same panels, the same
--- entries, and the same in-memory filesystem, so those live here rather than
--- being written twice and drifting.
+-- `mullion.persist` has two halves, the arrangement of panels and the file on
+-- disk, and a spec file for each. Both specs build the same panels, the same
+-- entries, and the same in-memory filesystem. Defining each of them once
+-- avoids two copies that drift apart.
 --
--- `spec.mullion.panel.fixture` is required through this, so that the
--- `mullion.panel` these reach is the one holding the fake `lunette`.
+-- The fixture requires `spec.mullion.panel.fixture`, which installs the fake
+-- `lunette` and then loads `mullion.panel`. The `mullion.panel` the two
+-- specs reach holds that fake.
 --
--- Not a spec file: the runner collects `*_spec.lua` and this is not one, so it
--- runs no cases of its own.
+-- The runner collects `*_spec.lua`, and the fixture's name does not match, so
+-- the runner runs no cases from it.
 
 local panels = require '@spec/mullion/panel/fixture'
 
@@ -20,23 +21,25 @@ local tag = require '@mullion/tag'
 
 local fixture = {}
 
--- How close two metre quantities have to be to count as equal. Every number a
--- restore produces went through a matrix and a decimal rendering, so an exact
--- comparison would be asserting the formatting.
+-- Two metre quantities count as equal when they differ by at most this amount.
+-- Every number a restore produces goes through a matrix and a decimal
+-- rendering, so an exact comparison would assert the formatting.
 fixture.TOLERANCE = 1e-5
 
--- What `persist.report` was told, so that a case can assert an entry was
--- reported rather than let it print into the run's output.
+-- The messages `persist.report` received. `reset` replaces `persist.report`
+-- with a capture that appends each message to `fixture.reported`. A case
+-- asserts against the list, and the messages do not print into the run's
+-- output.
 fixture.reported = {}
 
--- What `mullion.rules` reported, kept apart from `mullion.persist`'s own reports
--- so that a case counting these is not counting that module's. A saved entry
--- names the tags it was on, and placing a window through the rules recreates
--- them, which that module says out loud.
+-- The messages `mullion.rules` reported, kept apart from `mullion.persist`'s
+-- reports so a case counting these does not count the other module's.
+-- A saved entry names the tags the window carries. Placing a window through
+-- the rules recreates those tags, and `mullion.rules` reports the recreation.
 fixture.ruleReports = {}
 
--- Discards everything a previous case left behind, including the memory of a
--- load that was declined.
+-- Discards everything a previous case left behind, including a declined load,
+-- and reinstalls the report captures.
 function fixture.reset()
   rules.teardown()
   tag.teardown()
@@ -68,16 +71,16 @@ function fixture.newMonitorPanel(id, options)
   return panels.panel.fromMonitor(monitor, options)
 end
 
--- A window source the rules can place, which is not a panel: `rules.place`
--- makes that itself.
+-- A window source the rules can place. The helper returns a source, and
+-- `rules.place` creates the panel from it.
 function fixture.newWindow(appId, id)
   local window = panels.newWindow(800, 600)
   window.appId, window.id = appId, id or 1
   return window
 end
 
--- A filesystem that holds one file in memory, so that the cases about an absent
--- or unwritable file do not depend on the state of a real directory.
+-- A filesystem holding one file in memory. The cases about an absent or
+-- unwritable file do not depend on the state of a real directory.
 function fixture.newFilesystem(text)
   local filesystem = { text = text, writes = 0, writable = true }
 
@@ -101,7 +104,7 @@ function fixture.newFilesystem(text)
   return filesystem
 end
 
--- An entry as this version writes them, with whatever a case wants changed.
+-- An entry in the shape this version writes. A case overrides any field.
 function fixture.newEntry(overrides)
   local entry = {
     kind = 'window',
@@ -118,7 +121,8 @@ function fixture.newEntry(overrides)
   return entry
 end
 
--- A file's text at a version this mullion cannot read.
+-- A file's text at a version higher than `persist.CURRENT_VERSION`. This
+-- mullion leaves such a file alone.
 function fixture.fromTheFutureText()
   return 'return { version = ' .. (persist.CURRENT_VERSION + 1) .. ', entries = {}, curvature = 0.3 }'
 end

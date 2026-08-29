@@ -7,17 +7,13 @@ local teardown = require '@mullion/teardown'
 
 local spec = suite.new 'mullion.teardown'
 
--- The module's own `report`, captured before any case replaces it.
---
--- Every case below substitutes the hook, which is why nothing here covered the
--- default until the default was found to raise: it called `io.stderr`, and Luau
--- has no `io` at all.
+-- The module's own `report`. The default-report case restores it.
 local defaultReport = teardown.report
 
--- Empties the registry and captures reports, returning the list they land in.
+-- Empties the registry and captures reports, returning the list of messages.
 --
--- Every case starts here, because the registry is module-level state and the
--- modules loaded before this spec ran have already registered their own hooks.
+-- Every case starts here. The registry is module-level state, and prior cases
+-- and other modules have already registered their own hooks.
 local function fresh()
   teardown.run()
 
@@ -229,8 +225,8 @@ spec('the default report logs rather than raising', function()
   teardown.register('raises', function()
     error 'deliberate'
   end)
-  -- `run` reports outside the `xpcall` that guards the hook, so a `report` that
-  -- raises takes the reload down with it rather than being contained.
+  -- `run` reports outside the `xpcall` that guards the hook. A `report` that
+  -- raises aborts the reload, because the `xpcall` does not cover the report.
   local ran, raised = pcall(teardown.run)
 
   lovr.log = previousLog
@@ -245,12 +241,11 @@ end)
 spec('a module body running twice leaves one hook, not two', function()
   fresh()
 
-  -- Dropping the cache and requiring again is what a soft reload does to every
-  -- module: docs/lua-api.md#reload clears `package.loaded` and re-runs the
-  -- configuration, so a module body runs a second time against a registry that
-  -- may still hold what the first run put there. Registering by name is what
-  -- makes that leave one hook. This spec runs last, so the fresh module table
-  -- it leaves behind reaches nothing.
+  -- A soft reload drops `package.loaded` and re-runs the configuration
+  -- (docs/lua-api.md#reload), so a module body runs a second time against a
+  -- registry that may still hold what the first run put there. Registering by
+  -- name leaves one hook. This spec runs last, so no later case reads the
+  -- fresh module table it leaves behind.
   local cached = package.loaded['@mullion/signal']
   package.loaded['@mullion/signal'] = nil
   require '@mullion/signal'

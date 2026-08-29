@@ -1,17 +1,17 @@
 //! Linux-only: the parts of `linux/input.h` and `linux/uinput.h` lunette uses.
 //!
-//! `libc` carries the structures — `input_event`, `input_id`, `input_absinfo`,
-//! `uinput_setup`, `uinput_abs_setup` — but not the event-type constants and
-//! not the ioctl request numbers, so those are written out here against the
-//! kernel headers.
+//! `libc` carries the structures `input_event`, `input_id`, `input_absinfo`,
+//! `uinput_setup`, and `uinput_abs_setup`. It does not carry the event-type
+//! constants or the ioctl request numbers. Those are written out here against
+//! the kernel headers.
 //!
-//! Handrolling this rather than taking `input-linux` is a deliberate choice.
-//! `input-linux` 0.7.1 pulls `nix` 0.26 while its own `input-linux-sys` 0.8
-//! pulls `nix` 0.29, so it lands two copies of `nix` in the tree; and the part
-//! of it lunette would use is this file's worth of constants plus a wrapper over
-//! `ioctl`. The rest of its surface — reading devices, decoding event streams —
-//! is not wanted. The whole problem is visible here, which is the condition the
-//! house rules put on handrolling something.
+//! The deliberate choice is to handroll this, not to take `input-linux`.
+//! `input-linux` 0.6.0 pulls `nix` 0.26, and its `input-linux-sys` 0.8 pulls
+//! `nix` 0.26 as well, so the pair puts two copies of `nix` in the tree. The
+//! part of it lunette would use is this file's worth of constants plus a
+//! wrapper over `ioctl`. The rest of its surface is not wanted: reading
+//! devices and decoding event streams. The whole problem is visible here,
+//! which is the condition the house rules put on handrolling something.
 //!
 //! Nothing in this file is `unsafe`; it is constants and one arithmetic helper.
 //! The calls that use them are in [`crate::hid::uinput`].
@@ -21,7 +21,7 @@ use std::{ffi::c_ulong, marker::PhantomData};
 // The ioctl request encoding below is Linux's asm-generic one, which covers
 // x86, arm, arm64, riscv, and loongarch. Alpha, MIPS, PowerPC, and SPARC use a
 // different bit layout for the direction field, so the numbers this produces
-// would be wrong there rather than merely unsupported.
+// would be wrong there, not merely unsupported.
 #[cfg(any(
     target_arch = "mips",
     target_arch = "mips32r6",
@@ -42,7 +42,7 @@ pub const EV_SYN: u16 = 0x00;
 pub const EV_KEY: u16 = 0x01;
 /// Relative axis events, which is how a wheel reports.
 pub const EV_REL: u16 = 0x02;
-/// Absolute axis events, which is how the pointer position is reported.
+/// Absolute axis events, which is how the device reports the pointer position.
 pub const EV_ABS: u16 = 0x03;
 
 /// `SYN_REPORT`, the code that ends an event group.
@@ -53,9 +53,9 @@ pub const ABS_Y: u16 = 0x01;
 
 /// `REL_WHEEL_HI_RES`, in 120ths of a detent.
 ///
-/// The high-resolution axes rather than `REL_WHEEL`: a host that understands
-/// them scrolls smoothly, and one that does not still receives the low-resolution
-/// events the kernel synthesises from them.
+/// The device declares the high-resolution axes, not `REL_WHEEL`. A host
+/// that understands them scrolls smoothly, and one that does not still
+/// receives the low-resolution events the kernel synthesises from them.
 pub const REL_WHEEL_HI_RES: u16 = 0x0b;
 /// `REL_HWHEEL_HI_RES`, in 120ths of a detent.
 pub const REL_HWHEEL_HI_RES: u16 = 0x0c;
@@ -66,7 +66,7 @@ pub const WHEEL_HI_RES_PER_DETENT: f64 = 120.0;
 /// A request whose argument the kernel reads from a pointer to `T`.
 ///
 /// The request number encodes `size_of::<T>()`, so the request and the type of
-/// its argument are one fact rather than two that have to be kept agreeing.
+/// its argument are one fact, not two that have to be kept agreeing.
 /// Carrying the type in the request is what lets [`crate::hid::uinput`]'s
 /// generic `ioctl` say something true about the bytes the kernel reads: a call
 /// site cannot pair `UI_DEV_SETUP` with a `uinput_abs_setup`, because the types
@@ -89,8 +89,8 @@ impl<T> StructRequest<T> {
 /// A `UI_SET_*BIT` request, whose argument is one `int` passed by value.
 ///
 /// A separate type from [`StructRequest`] because the calling convention
-/// differs: the kernel reads the bit out of the argument register rather than
-/// through a pointer, so the two must not be interchangeable at a call site.
+/// differs: the kernel reads the bit out of the argument register, not through
+/// a pointer, so the two must not be interchangeable at a call site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BitRequest(c_ulong);
 
@@ -101,7 +101,7 @@ impl BitRequest {
     }
 }
 
-/// `UI_DEV_CREATE`: brings the configured device into existence.
+/// `UI_DEV_CREATE`: creates the configured device.
 pub const UI_DEV_CREATE: c_ulong = io(1);
 /// `UI_DEV_DESTROY`: removes it again.
 pub const UI_DEV_DESTROY: c_ulong = io(2);
@@ -118,14 +118,14 @@ pub const UI_SET_RELBIT: BitRequest = iow_bit(102);
 /// `UI_SET_ABSBIT`: declares one absolute axis.
 pub const UI_SET_ABSBIT: BitRequest = iow_bit(103);
 
-/// The `'U'` in `_IOW('U', …)`, which is what makes these requests uinput's.
+/// The `'U'` in `_IOW('U', ...)`, which is what makes these requests uinput's.
 const UINPUT_IOCTL_TYPE: u32 = b'U' as u32;
 
 const IOC_NR_SHIFT: u32 = 0;
 const IOC_TYPE_SHIFT: u32 = 8;
 const IOC_SIZE_SHIFT: u32 = 16;
 const IOC_DIR_SHIFT: u32 = 30;
-/// `_IOC_WRITE`: the argument is read by the kernel from userspace.
+/// `_IOC_WRITE`: the kernel reads the argument from userspace.
 const IOC_DIR_WRITE: u32 = 1;
 
 /// `_IO('U', nr)`: a request that carries no argument.
@@ -162,8 +162,8 @@ mod tests {
 
     #[test]
     fn the_argumentless_requests_match_the_kernel_headers() {
-        // `_IO('U', 1)` and `_IO('U', 2)`, which every uinput example in the
-        // kernel documentation shows as these literals.
+        // `_IO('U', 1)` and `_IO('U', 2)`. Every uinput example in the kernel
+        // documentation shows these requests as these literals.
         assert_eq!(UI_DEV_CREATE, 0x5501);
         assert_eq!(UI_DEV_DESTROY, 0x5502);
     }
@@ -181,8 +181,8 @@ mod tests {
     #[test]
     fn the_structure_requests_carry_the_structure_size() {
         // The size in the request number is taken from the request's own
-        // argument type, so this states that the type is the one the kernel
-        // expects rather than that two constants agree.
+        // argument type. This states that the type is the one the kernel
+        // expects, not that two constants agree.
         assert_eq!(
             (UI_DEV_SETUP.code() >> IOC_SIZE_SHIFT) & 0x3fff,
             size_of::<libc::uinput_setup>() as c_ulong,

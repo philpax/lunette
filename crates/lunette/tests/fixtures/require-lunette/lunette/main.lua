@@ -2,11 +2,11 @@
 --
 -- The host registers `@lunette` in `package.preload` between `luax_preload` and
 -- loading `boot.lua`. Nothing else in the suite exercises that state: the unit
--- tests build their own, which proves the module works and not that it was
--- installed where a configuration can reach it.
+-- tests build their own, which shows that the module works. It does not show
+-- that the module was installed where a configuration can reach it.
 --
--- Each failure quits with its own status, so the run says which assertion did
--- not hold rather than only that one did not.
+-- Each failure quits with its own status, so the run reports which assertion
+-- did not hold. A shared status would not name the failed assertion.
 
 function lovr.load()
   local resolved, lunette = pcall(require, '@lunette')
@@ -21,8 +21,8 @@ function lovr.load()
     return
   end
 
-  -- No compositor is running, so there is nothing to list. Calling it is the
-  -- point: it reads the session the host built before the Lua state existed.
+  -- No compositor is running, so there is nothing to list. The call reads the
+  -- session the host built before the Lua state existed.
   local windows = lunette.windows()
   if type(windows) ~= 'table' or #windows ~= 0 then
     lovr.event.quit(13)

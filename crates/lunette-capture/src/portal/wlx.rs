@@ -1,25 +1,26 @@
 //! Linux-only: `wlx-capture`'s D-Bus ScreenCast client behind lunette's seam.
 //!
 //! The only place in this crate that names a `wlx-capture` portal type.
-//! Everything above it is written in [`crate::portal`]'s own vocabulary, so the
-//! logic that decides anything is testable without a session bus.
+//! Everything above it is written in [`crate::portal`]'s own vocabulary, so
+//! the decision logic is testable without a session bus.
 //!
-//! # Not `Send`, deliberately
+//! # Thread affinity
 //!
 //! `ScreenCastManager` polls D-Bus futures with a no-op waker on the calling
-//! thread (`pipewire/mod.rs:840`), `DbusFuture` is not `Send` (`mod.rs:632`),
-//! and `ScreenCastParams.token` is an `Rc<str>` (`mod.rs:46`). This type is
-//! constructed on the thread that will drive it and never leaves it.
+//! thread (`pipewire/mod.rs:840`). `DbusFuture` is not `Send` (`mod.rs:632`).
+//! `ScreenCastParams.token` is an `Rc<str>` (`mod.rs:46`). `WlxPortal` is
+//! constructed on the thread that drives it and never leaves it.
 //!
-//! # What this adapter cannot observe
+//! # Fields `wlx-capture` discards
 //!
-//! Two fields the portal sends are discarded before they reach here.
-//! `parse_start_response` (`pipewire/mod.rs:686-691`) reads `streams` and
-//! `restore_token` and drops the response's `persist_mode`, so
-//! [`GrantedPersistMode::Unstated`] is what every grant reports. `parse_streams`
-//! (`mod.rs:693-733`) reads `node_id`, `position`, and `size` and drops
-//! `mapping_id`, so [`PortalStream::connector`] is always `None`. Both are
-//! upstream changes, and neither is load-bearing: geometry is the mechanism.
+//! Two fields the portal sends are discarded before they reach this adapter.
+//! `parse_start_response` reads `streams` and `restore_token` and drops the
+//! response's `persist_mode` (`pipewire/mod.rs:686-691`), so every grant
+//! reports [`GrantedPersistMode::Unstated`]. `parse_streams` reads `node_id`,
+//! `position`, and `size` and drops `mapping_id` (`mod.rs:693-733`), so
+//! [`PortalStream::connector`] is always `None`. Both drops happen in
+//! upstream `wlx-capture`. Neither is load-bearing: geometry is the
+//! mechanism.
 
 use std::{collections::HashMap, rc::Rc};
 
@@ -50,9 +51,9 @@ impl WlxPortal {
     ///
     /// # Errors
     ///
-    /// When the session bus cannot be reached, which is what a process with no
-    /// session — a system service, a container without the bus socket bound —
-    /// sees.
+    /// Connecting fails when the session bus cannot be reached. A process with
+    /// no session sees this error: a system service, or a container without
+    /// the bus socket bound.
     pub fn connect() -> Result<Self, PortalError> {
         Ok(Self {
             manager: ScreenCastManager::new().map_err(translate_error)?,
@@ -104,13 +105,13 @@ impl ScreenCastPortal for WlxPortal {
 
 /// Translates a request into the parameters `wlx-capture` takes.
 ///
-/// `screens_only` and `allow_multiple` are constants rather than fields: a
-/// window belongs to lunette's own compositor, and one dialog listing every
-/// screen is what removes the prescribed selection order.
+/// `screens_only` and `allow_multiple` are constants. A window belongs to
+/// lunette's own compositor. One dialog listing every screen removes the
+/// prescribed selection order.
 fn params_for(request: &SessionRequest) -> Result<ScreenCastParams, PortalError> {
-    // `persist` is a bool mapping to 0 or 2, so the middle mode has no
-    // representation. Sending 2 for it would ask for a longer-lived grant than
-    // the caller wanted.
+    // `ScreenCastParams.persist` is a bool encoding 0 or 2, so `WhileRunning`
+    // has no representation. Sending 2 for `WhileRunning` asks for a
+    // longer-lived grant than the caller wanted.
     let persist = match request.persist_mode {
         PersistMode::DoNot => false,
         PersistMode::UntilRevoked => true,
@@ -156,10 +157,10 @@ fn translate_stream(stream: &PipewireStream) -> Result<PortalStream, PortalError
 
 /// Widens a stream's reported extent, discarding a negative one.
 ///
-/// The portal's `size` is a pair of signed integers and a negative extent
-/// describes no rectangle, so it is dropped rather than wrapped into an
-/// enormous unsigned one. A stream with no usable size still correlates on its
-/// position.
+/// The portal's `size` is a pair of signed integers. A negative extent
+/// describes no rectangle, so it is discarded: wrapping it into an unsigned
+/// value would produce an enormous extent. A stream with no usable size still
+/// correlates on its position.
 fn logical_size((width, height): (i32, i32)) -> Option<LogicalSize> {
     Some(LogicalSize::new(
         u32::try_from(width).ok()?,
@@ -182,7 +183,7 @@ fn translate_error(error: ScreenCastError) -> PortalError {
         | ScreenCastError::DbusDisconnected
         | ScreenCastError::InvalidObjectPath(_)) => PortalError::Dbus(error.to_string()),
         // Only reachable by polling an identifier `wlx-capture` has already
-        // retired, which this adapter's own bookkeeping prevents.
+        // retired. This adapter's own bookkeeping prevents that.
         ScreenCastError::UnknownRequest => {
             PortalError::Dbus("the portal client lost track of the request".to_owned())
         }
@@ -209,8 +210,8 @@ mod tests {
 
     #[test]
     fn a_session_is_always_asked_for_every_screen_in_one_dialog() {
-        // `allow_multiple` is what removes the prescribed selection order, and
-        // `screens_only` keeps lunette's own windows out of the list.
+        // `allow_multiple` removes the prescribed selection order. `screens_only`
+        // keeps lunette's own windows out of the list.
         let params = params_for(&SessionRequest::new(None, CursorPolicy::Hidden))
             .expect("the default request is expressible");
 
@@ -280,8 +281,10 @@ mod tests {
 
     #[test]
     fn this_client_never_observes_what_persistence_the_backend_granted() {
-        // Stated rather than assumed: the day `parse_start_response` reads
-        // `persist_mode`, this test is what says the adapter has to change too.
+        // `parse_start_response` drops `persist_mode`, so the adapter always
+        // reports `GrantedPersistMode::Unstated`. When upstream reads
+        // `persist_mode`, the assertion fails and the adapter has to change
+        // too.
         let translated = translate_response(ScreenCastResponse {
             streams: vec![stream(7, Some((1920, 1080)))],
             restore_token: Some("fresh".to_owned()),

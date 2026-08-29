@@ -1,14 +1,8 @@
-//! What the client learned from the compositor, and the handlers that learn it.
+//! Records Wayland events from the test client for assertions.
 //!
-//! [`TestClient`](crate::test_client::TestClient) sends; this receives. Every
-//! `Dispatch` implementation lands here, each one recording what arrived rather
-//! than reacting to it, so a test asserts over the record afterwards instead of
-//! racing the event that produced it.
-//!
-//! Events are kept in the order they arrived and against the object they
-//! reached, not collapsed to a latest value. Two seats mean two pointers, and
-//! an event that does not say which pointer it reached says nothing about
-//! routing; the same goes for two outputs and two surfaces.
+//! Dispatch handlers preserve event arrival order and key records by the object
+//! that received each event. This keeps routing across multiple seats, outputs,
+//! and surfaces observable to tests.
 
 use std::{
     io::{Read, Seek, SeekFrom},
@@ -63,80 +57,52 @@ use wayland_protocols::{
 
 use crate::protocol::ScrollAxis;
 
-/// What the client learned from the compositor.
 #[derive(Debug, Default)]
 pub struct Driver {
     pub globals: Vec<Global>,
     pub(super) registry: Option<WlRegistry>,
-    /// The serial each `xdg_surface` was last configured with. Keyed, because a
-    /// popup has its own `xdg_surface` and acknowledging the wrong one is a
-    /// protocol error.
+    /// Stores the latest serial for each `xdg_surface`; clients must acknowledge
+    /// the serial for the same surface before attaching a buffer.
     configures: Vec<(ObjectId, u32)>,
-    /// Every configure serial the compositor ever sent, in order. Kept apart
-    /// from `configures` because that one keeps only the latest per surface,
-    /// and the property worth asserting — that no two events anywhere share a
-    /// serial — needs all of them.
+    /// Stores every configure serial in arrival order so tests can check global
+    /// serial uniqueness across surfaces.
     configure_serials: Vec<u32>,
     pub toplevel_size: Option<(i32, i32)>,
     pub closed: bool,
-    /// Every seat the client has bound, in the order it bound them.
     seats: Vec<SeatRecord>,
-    /// Every pointer event delivered, in order, against the pointer it was
-    /// delivered to. Two seats mean two pointers, and an event that does not
-    /// say which one it reached says nothing about routing.
+    /// Stores each pointer event with the object that received it, in arrival
+    /// order, so tests can verify routing between seats.
     pointer: Vec<(ObjectId, PointerEvent)>,
-    /// Every keyboard event delivered, in order, against the keyboard it was
-    /// delivered to. Two seats mean two keyboards, for the reason they mean two
-    /// pointers.
+    /// Stores each keyboard event with the object that received it, in arrival
+    /// order, so tests can verify routing between seats.
     keyboard: Vec<(ObjectId, KeyboardEvent)>,
-    /// Every buffer the compositor released, in order. A client may reuse a
-    /// buffer only once it appears here.
+    /// A client may reuse a buffer after the compositor sends `wl_buffer.release`.
     pub released: Vec<ObjectId>,
-    /// What each bound `wl_output` reported, by output object. Applied at
-    /// `done`, because the properties arrive as separate events and a test
-    /// reading between two of them would see half a configuration.
+    /// Publishes each output's pending properties only when `wl_output.done`
+    /// arrives, so a read never observes a partial configuration.
     outputs: Vec<(ObjectId, OutputRecord)>,
-    /// Which outputs each surface was told it is on, by surface. Kept as a list
-    /// rather than a set so that a duplicate enter is visible rather than
-    /// absorbed.
+    /// Stores output identifiers for each surface in event order. Duplicate
+    /// `wl_surface.enter` events remain observable.
     surface_outputs: Vec<(ObjectId, Vec<ObjectId>)>,
-    /// Every `wl_surface.preferred_buffer_scale` a surface was sent, in order.
-    /// In order rather than latest-only, because the protocol sends one only
-    /// when the value changes and a test asserting that needs to count them.
     surface_buffer_scales: Vec<(ObjectId, Vec<i32>)>,
-    /// Every `wp_fractional_scale_v1.preferred_scale` an object was sent, in
-    /// 120ths, in order. Kept whole for the reason the buffer scales are.
+    /// Stores `preferred_scale` values in protocol units: 120ths.
     fractional_scales: Vec<(ObjectId, Vec<u32>)>,
-    /// The timestamp of every `wl_callback.done` answering a frame request, by
-    /// the surface it was asked for. A count rather than a flag, because
-    /// withholding is about how many arrive and when, not whether any did.
+    /// Stores each frame callback timestamp by surface and in arrival order;
+    /// withheld callbacks remain distinguishable from delivered callbacks.
     frames: Vec<(ObjectId, Vec<u32>)>,
 
-    // The selection half, in `selection.rs`. The fields live here because that
-    // is where the struct is, and everything that reads them is in the submodule.
-    /// The MIME types each selection offer advertised, by offer object.
     pub(super) offers: Vec<(ObjectId, Vec<String>)>,
-    /// The clipboard offer each data device was last given, by device. Keyed
-    /// because two seats mean two devices, and a selection that does not say
-    /// which one it reached says nothing about the bridge.
     pub(super) clipboard: Vec<(ObjectId, Option<WlDataOffer>)>,
-    /// The primary-selection offer each device was last given, keyed for the
-    /// reason the clipboard is.
     pub(super) primary: Vec<(ObjectId, Option<ZwpPrimarySelectionOfferV1>)>,
-    /// Requests the compositor made of this client's own sources, each with the
-    /// descriptor to write into.
+    /// Keeps the compositor-provided descriptor alive until the test writes and
+    /// closes it.
     pub(super) sends: Vec<(String, OwnedFd)>,
-    /// Whether one of this client's sources was cancelled.
     pub(super) cancelled: bool,
 }
 
 impl Driver {
-    /// The timestamp of every frame callback a surface has been answered, in
-    /// order.
-    ///
-    /// Empty for a surface that asked for none, and for one whose requests are
-    /// being withheld — which is the case a pacing test is about, so it is an
-    /// answer rather than an absence.
+    /// Returns callback timestamps in arrival order. An empty slice means that
+    /// no callback has arrived, including when the compositor withholds them.
     #[must_use]
     pub fn frames(&self, surface: &ObjectId) -> &[u32] {
         self.frames
@@ -145,7 +111,8 @@ impl Driver {
             .map_or(&[], |(_, stamps)| stamps.as_slice())
     }
 
-    /// The serial an `xdg_surface` was last configured with.
+    /// Returns the latest serial for an `xdg_surface`; the caller acknowledges it
+    /// before attaching a buffer.
     #[must_use]
     pub fn configure_serial(&self, xdg_surface: &XdgSurface) -> Option<u32> {
         let id = xdg_surface.id();
@@ -155,16 +122,15 @@ impl Driver {
             .map(|(_, serial)| *serial)
     }
 
-    /// Every configure serial the compositor has sent, in order.
+    /// Returns configure serials in arrival order, including serials for different
+    /// surfaces.
     #[must_use]
     pub fn configure_serials(&self) -> Vec<u32> {
         self.configure_serials.clone()
     }
 
-    /// What an output reported, as of its latest `done`.
-    ///
-    /// Absent until the first `done`, so a caller never reads a configuration
-    /// the compositor is half-way through sending.
+    /// Returns the latest state published by `wl_output.done`, or `None` before
+    /// the first `done`.
     #[must_use]
     pub fn output(&self, output: &WlOutput) -> Option<OutputState> {
         let id = output.id();
@@ -174,10 +140,8 @@ impl Driver {
             .and_then(|(_, record)| record.current.clone())
     }
 
-    /// Every `wl_output.name` one output object was sent, in order.
-    ///
-    /// `wayland.xml` sends it once per object, so anything but a single entry is
-    /// a conformance violation.
+    /// Returns `wl_output.name` events in arrival order. A name is sent once per
+    /// output object, so repeated entries expose a protocol violation.
     #[must_use]
     pub fn output_names(&self, output: &WlOutput) -> Vec<String> {
         let id = output.id();
@@ -187,11 +151,8 @@ impl Driver {
             .map_or_else(Vec::new, |(_, record)| record.names.clone())
     }
 
-    /// Which outputs a surface has been told it is on, in the order it was told.
-    ///
-    /// Keyed by object identifier rather than by the proxy, because a test that
-    /// opened a toplevel through [`TestClient::open_toplevel`] holds the
-    /// identifier and not the surface.
+    /// Returns output identifiers from `wl_surface.enter` in arrival order; the
+    /// list reflects the surface's current output membership after leaves.
     #[must_use]
     pub fn surface_outputs(&self, surface: &ObjectId) -> Vec<ObjectId> {
         self.surface_outputs
@@ -200,7 +161,7 @@ impl Driver {
             .map_or_else(Vec::new, |(_, outputs)| outputs.clone())
     }
 
-    /// Every `preferred_buffer_scale` a surface has been sent, in order.
+    /// Returns `preferred_buffer_scale` factors in arrival order.
     #[must_use]
     pub fn buffer_scales(&self, surface: &ObjectId) -> Vec<i32> {
         self.surface_buffer_scales
@@ -209,8 +170,8 @@ impl Driver {
             .map_or_else(Vec::new, |(_, scales)| scales.clone())
     }
 
-    /// Every `preferred_scale` a `wp_fractional_scale_v1` has been sent, in
-    /// 120ths, in order.
+    /// Returns `preferred_scale` values in arrival order and protocol units of
+    /// 120ths.
     #[must_use]
     pub fn preferred_scales(&self, scale: &WpFractionalScaleV1) -> Vec<u32> {
         let id = scale.id();
@@ -220,13 +181,11 @@ impl Driver {
             .map_or_else(Vec::new, |(_, scales)| scales.clone())
     }
 
-    /// The name a seat advertised on `wl_seat.name`, once it has.
     #[must_use]
     pub fn seat_name(&self, seat: &WlSeat) -> Option<String> {
         self.seat(seat).and_then(|record| record.name.clone())
     }
 
-    /// Every seat name the client has seen, for a failure message.
     #[must_use]
     pub fn seat_names(&self) -> Vec<String> {
         self.seats
@@ -235,19 +194,17 @@ impl Driver {
             .collect()
     }
 
-    /// Whether a seat has advertised a pointer capability.
     #[must_use]
     pub fn has_pointer(&self, seat: &WlSeat) -> bool {
         self.seat(seat).is_some_and(|record| record.has_pointer)
     }
 
-    /// Whether a seat has advertised a keyboard capability.
     #[must_use]
     pub fn has_keyboard(&self, seat: &WlSeat) -> bool {
         self.seat(seat).is_some_and(|record| record.has_keyboard)
     }
 
-    /// Every event delivered to one keyboard, in order.
+    /// Returns events delivered to this keyboard in arrival order.
     #[must_use]
     pub fn keyboard_events(&self, keyboard: &WlKeyboard) -> Vec<KeyboardEvent> {
         let id = keyboard.id();
@@ -258,7 +215,8 @@ impl Driver {
             .collect()
     }
 
-    /// Every key press and release delivered to one keyboard, in order.
+    /// Returns key presses and releases in arrival order; key codes use evdev
+    /// numbering.
     #[must_use]
     pub fn keys(&self, keyboard: &WlKeyboard) -> Vec<(u32, bool)> {
         self.keyboard_events(keyboard)
@@ -270,7 +228,7 @@ impl Driver {
             .collect()
     }
 
-    /// The last modifier masks the compositor told one keyboard about.
+    /// Returns the latest depressed and locked modifier masks, if any.
     #[must_use]
     pub fn modifiers(&self, keyboard: &WlKeyboard) -> Option<(u32, u32)> {
         self.keyboard_events(keyboard)
@@ -282,10 +240,8 @@ impl Driver {
             })
     }
 
-    /// Every keymap the compositor uploaded to one keyboard, in order.
-    ///
-    /// The text as the client would read it, so a test can assert that a
-    /// keymap was restored to exactly what it was before.
+    /// Returns keymap text delivered to this keyboard in arrival order. Each
+    /// value excludes the protocol's terminating NUL.
     #[must_use]
     pub fn keymaps(&self, keyboard: &WlKeyboard) -> Vec<String> {
         self.keyboard_events(keyboard)
@@ -297,7 +253,8 @@ impl Driver {
             .collect()
     }
 
-    /// Whether one keyboard currently holds focus on a surface.
+    /// Returns the surface named by the latest keyboard enter, or `None` after a
+    /// leave or before any enter.
     #[must_use]
     pub fn keyboard_focus(&self, keyboard: &WlKeyboard) -> Option<ObjectId> {
         self.keyboard_events(keyboard)
@@ -311,7 +268,7 @@ impl Driver {
             .flatten()
     }
 
-    /// Every event delivered to one pointer, in order.
+    /// Returns events delivered to this pointer in arrival order.
     #[must_use]
     pub fn events(&self, pointer: &WlPointer) -> Vec<PointerEvent> {
         let id = pointer.id();
@@ -322,7 +279,8 @@ impl Driver {
             .collect()
     }
 
-    /// The first pointer enter delivered to one pointer, if one arrived.
+    /// Returns the first entered surface and its surface-local coordinates, if
+    /// any.
     #[must_use]
     pub fn first_enter(&self, pointer: &WlPointer) -> Option<(ObjectId, f64, f64)> {
         self.events(pointer)
@@ -333,8 +291,8 @@ impl Driver {
             })
     }
 
-    /// The serial of the last enter delivered to one pointer, which is what a
-    /// `set_cursor` request has to carry.
+    /// Returns the latest enter serial, which `set_cursor` must use for this
+    /// pointer.
     #[must_use]
     pub fn enter_serial(&self, pointer: &WlPointer) -> Option<u32> {
         self.events(pointer)
@@ -346,7 +304,8 @@ impl Driver {
             })
     }
 
-    /// Every button press and release delivered to one pointer, in order.
+    /// Returns button presses and releases in arrival order; button codes use the
+    /// values carried by `wl_pointer.button`.
     #[must_use]
     pub fn buttons(&self, pointer: &WlPointer) -> Vec<(u32, bool)> {
         self.events(pointer)
@@ -380,39 +339,29 @@ impl Driver {
     }
 }
 
-/// What one bound `wl_output` has told the client about itself.
-///
-/// Two halves, because the protocol sends the properties as separate events and
-/// applies them at `done`. A test reading `current` never sees a configuration
-/// the compositor is part-way through sending.
 #[derive(Debug, Default)]
 struct OutputRecord {
     pending: OutputState,
     current: Option<OutputState>,
-    /// Every `wl_output.name` the object was sent, rather than the latest one.
-    /// The protocol sends it once per object and it does not change over the
-    /// lifetime of the global, so the count is the thing worth asserting.
     names: Vec<String>,
 }
 
-/// One output's configuration, as the client was told it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OutputState {
     /// The current mode's resolution, in pixels.
     pub size: (i32, i32),
-    /// The current mode's refresh rate, in millihertz, which is the unit
-    /// `wl_output.mode` carries.
+    /// The `wl_output.mode` refresh rate, in millihertz.
     pub refresh: i32,
-    /// The physical size in millimetres, from `wl_output.geometry`.
+    /// The physical output dimensions, in millimetres.
     pub physical: (i32, i32),
-    /// The integer scale, which is one until the compositor says otherwise.
+    /// The integer output scale factor.
     pub scale: i32,
-    /// The name, present only from version 4.
+    /// The output name, sent by `wl_output` version 4 and later.
     pub name: Option<String>,
+    /// The output description, sent by `wl_output` version 4 and later.
     pub description: Option<String>,
 }
 
-/// What one bound seat has told the client about itself.
 #[derive(Debug)]
 struct SeatRecord {
     seat: ObjectId,
@@ -421,7 +370,6 @@ struct SeatRecord {
     has_keyboard: bool,
 }
 
-/// One entry from the registry.
 #[derive(Clone, Debug)]
 pub struct Global {
     pub name: u32,
@@ -429,18 +377,15 @@ pub struct Global {
     pub version: u32,
 }
 
-/// A pointer event as the client received it.
-///
-/// Coordinates are surface-local, which is the whole point of asserting on
-/// them: the compositor is what translates a sink-relative position into the
-/// surface's own frame.
+/// Pointer events retain surface-local coordinates and protocol serials so tests
+/// can verify routing and cursor requests.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PointerEvent {
     Enter {
         surface: ObjectId,
         x: f64,
         y: f64,
-        /// What a `set_cursor` request has to quote back.
+        /// The serial that a subsequent `set_cursor` request must repeat.
         serial: u32,
     },
     Motion {
@@ -454,27 +399,22 @@ pub enum PointerEvent {
     Leave {
         surface: ObjectId,
     },
-    /// `wl_pointer.axis_source`. Recorded as the protocol's own enum, because
-    /// what a client does with a scroll turns on whether it came from a notched
-    /// wheel or a continuous surface.
+    /// The `wl_pointer.axis_source` value that describes the input device.
     AxisSource {
         source: wl_pointer::AxisSource,
     },
-    /// `wl_pointer.axis`, the one axis event every version receives.
     Axis {
         axis: ScrollAxis,
         value: f64,
     },
-    /// `wl_pointer.axis_discrete`, which smithay synthesises from the v120
-    /// count for a client older than version 8.
+    /// Discrete steps carried by the compatibility `axis_discrete` event for
+    /// clients below `wl_pointer` version 8.
     AxisDiscrete {
         axis: ScrollAxis,
         steps: i32,
     },
 }
 
-/// The axis a `wl_pointer` axis event named, or nothing for one from a protocol
-/// version this client does not know.
 fn scroll_axis(axis: wayland_client::WEnum<wl_pointer::Axis>) -> Option<ScrollAxis> {
     match axis {
         wayland_client::WEnum::Value(wl_pointer::Axis::VerticalScroll) => {
@@ -515,10 +455,6 @@ impl Dispatch<WlRegistry, ()> for Driver {
     }
 }
 
-/// `wl_surface.enter` and `wl_surface.leave` are what a client learns its
-/// output from, and `preferred_buffer_scale` is what it learns the whole-number
-/// scale from, so the surface cannot be a no-op the way the rest of its events
-/// are.
 impl Dispatch<WlSurface, ()> for Driver {
     fn event(
         state: &mut Self,
@@ -545,10 +481,6 @@ impl Dispatch<WlSurface, ()> for Driver {
     }
 }
 
-/// A frame callback carries the surface it was asked for as its user data, so
-/// that a `done` can be counted against the right surface. The object itself
-/// says nothing about which surface it belongs to, and the compositor answers
-/// one callback per request rather than one per surface.
 impl Dispatch<WlCallback, ObjectId> for Driver {
     fn event(
         state: &mut Self,
@@ -579,12 +511,6 @@ impl Dispatch<WpFractionalScaleV1, ()> for Driver {
     }
 }
 
-/// The list an object's events accumulate into, appending an empty one on the
-/// first sighting.
-///
-/// A `Vec` of pairs rather than a map for the reason [`Driver`]'s other keyed
-/// records are: the counts are in the single digits, and a test reading one out
-/// wants the order it arrived in.
 fn entry_for<T>(records: &mut Vec<(ObjectId, Vec<T>)>, id: ObjectId) -> &mut Vec<T> {
     if let Some(index) = records.iter().position(|(target, _)| *target == id) {
         return &mut records[index].1;
@@ -658,7 +584,7 @@ impl Dispatch<XdgWmBase, ()> for Driver {
         _connection: &Connection,
         _handle: &QueueHandle<Self>,
     ) {
-        // A client that does not pong is disconnected as unresponsive.
+        // The compositor disconnects a client that does not answer a ping.
         if let xdg_wm_base::Event::Ping { serial } = event {
             wm_base.pong(serial);
         }
@@ -788,17 +714,15 @@ impl Dispatch<WlPointer, ()> for Driver {
                     steps: discrete,
                 }
             }
-            // The frame and stop refinements say nothing these tests assert on.
             _ => return,
         };
         state.pointer.push((pointer.id(), recorded));
     }
 }
 
-/// A keyboard event as the client received it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyboardEvent {
-    /// The layout the compositor uploaded, read back out of the mapped file.
+    /// Keymap text read from the descriptor supplied with `wl_keyboard.keymap`.
     Keymap {
         text: String,
     },
@@ -808,7 +732,7 @@ pub enum KeyboardEvent {
     Leave {
         surface: ObjectId,
     },
-    /// The key in evdev numbering, which is what `wl_keyboard.key` carries.
+    /// A key code in the numbering carried by `wl_keyboard.key`.
     Key {
         key: u32,
         pressed: bool,
@@ -850,28 +774,22 @@ impl Dispatch<WlKeyboard, ()> for Driver {
                 depressed: mods_depressed,
                 locked: mods_locked,
             },
-            // `repeat_info` is policy the client applies itself and says
-            // nothing about what was delivered.
             _ => return,
         };
         state.keyboard.push((keyboard.id(), recorded));
     }
 }
 
-/// The keymap the compositor sent, as the client reads it.
-///
-/// The size the protocol carries includes the terminating NUL, which is not
-/// part of the text; a comparison against the compositor's own string would
-/// otherwise never match.
+/// Reads the keymap text from a clone of the descriptor owned by the keymap
+/// event. The protocol size includes the terminating NUL, which is omitted from
+/// the returned text.
 fn read_keymap(fd: &OwnedFd, size: u32) -> String {
     let length = usize::try_from(size).expect("a keymap size that fits in memory");
     let mut file = std::fs::File::from(
         fd.try_clone()
             .expect("the keymap descriptor can be duplicated"),
     );
-    // The descriptor is duplicated rather than owned, so it shares its offset
-    // with the one the compositor kept: a second keymap event would otherwise
-    // read from where the first one stopped.
+    // Reset the shared file offset so each keymap event reads from the beginning.
     file.seek(SeekFrom::Start(0))
         .expect("the keymap file is seekable");
     let mut bytes = vec![0_u8; length];
@@ -915,6 +833,4 @@ delegate_noop!(Driver: ignore WlSubcompositor);
 delegate_noop!(Driver: ignore WpFractionalScaleManagerV1);
 delegate_noop!(Driver: ignore WlSubsurface);
 delegate_noop!(Driver: ignore XdgPositioner);
-// An `xdg_popup` carries its own configure and a `popup_done`; neither says
-// anything about where input lands, which is what these tests are about.
 delegate_noop!(Driver: ignore XdgPopup);

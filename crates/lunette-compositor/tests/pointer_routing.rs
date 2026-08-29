@@ -1,8 +1,8 @@
-//! Where a pointer aimed at a sink actually lands.
+//! These tests verify pointer events at the Wayland client boundary.
 //!
-//! The client binds `wl_pointer` and records what arrives, so these assert on
-//! the protocol events a real client would see rather than on the compositor's
-//! internal focus. See `tests/harness/mod.rs` for why none of it needs a GPU.
+//! The client records protocol events, not compositor focus state. The
+//! harness uses an in-process socketpair and a fake importer, so these tests
+//! require no GPU.
 
 #![expect(
     clippy::expect_used,
@@ -28,7 +28,6 @@ use wayland_client::protocol::wl_pointer::WlPointer;
 /// `BTN_LEFT`, the evdev code a left click carries on the wire.
 const BTN_LEFT: u32 = 0x110;
 
-/// Where the pointer is aimed, in the sink's pixels.
 const AIM: (f64, f64) = (12.0, 34.0);
 
 #[test]
@@ -55,9 +54,8 @@ fn a_pointer_aimed_at_a_sink_enters_that_sink_s_surface_in_surface_local_coordin
         entered, surface,
         "the pointer entered a surface other than the one behind the sink"
     );
-    // The toplevel sits at the origin of the space the position is measured in,
-    // so surface-local is the position as given. A translation would show up
-    // here as an offset.
+    // The test window starts at the sink origin, so the sink position is already
+    // surface-local. A translation would indicate incorrect routing.
     assert_eq!((x, y), AIM);
 }
 
@@ -128,8 +126,9 @@ fn withdrawing_the_pointer_leaves_the_surface_it_had_entered() {
     );
 }
 
-/// A window with the default seat's pointer already over it, which is what
-/// every scroll below needs before an axis event can be delivered.
+/// Sets up a client with the default seat's pointer over its window.
+///
+/// The pointer must enter a window before the client can receive an axis event.
 fn with_pointer_over_a_window() -> (TestCompositor, TestClient, SinkId, WlPointer) {
     let (mut compositor, mut client) = with_one_window();
     let pointer = client.open_pointer(&mut compositor);
@@ -149,8 +148,8 @@ fn with_pointer_over_a_window() -> (TestCompositor, TestClient, SinkId, WlPointe
 
 #[test]
 fn a_continuous_scroll_reaches_the_client_as_a_distance_on_the_axis_it_named() {
-    // Both axes, because a compositor that routes one and drops the other looks
-    // correct to a caller that only ever scrolls vertically.
+    // Exercise both axes to detect routing that handles vertical scrolling but
+    // drops horizontal scrolling.
     for (axis, distance) in [(ScrollAxis::Vertical, -15.0), (ScrollAxis::Horizontal, 7.5)] {
         let (mut compositor, mut client, sink, pointer) = with_pointer_over_a_window();
 
@@ -192,9 +191,9 @@ fn a_continuous_scroll_reaches_the_client_as_a_distance_on_the_axis_it_named() {
 
 #[test]
 fn a_discrete_scroll_reaches_the_client_as_notches_and_a_distance() {
-    // The distance rides along because `wl_pointer.axis` is the only axis event
-    // a client older than version 5 receives at all, and ten surface-local units
-    // per detent is the convention every toolkit reads it under.
+    // Clients before `wl_pointer` version 5 receive only `axis`; each wheel
+    // detent is reported as ten surface-local units to preserve toolkit
+    // expectations.
     for (axis, steps) in [(ScrollAxis::Vertical, 2), (ScrollAxis::Horizontal, -1)] {
         let (mut compositor, mut client, sink, pointer) = with_pointer_over_a_window();
 
@@ -238,7 +237,7 @@ fn a_scroll_over_a_sink_the_seats_pointer_is_not_on_reaches_no_client() {
     let pointer = client.open_pointer(&mut compositor);
     let sink = only_window(&compositor).sink;
 
-    // No `Command::Pointer` first, so the seat's pointer is over nothing.
+    // A sink does not target a client until the seat's pointer has entered it.
     compositor.send(Command::Scroll {
         seat: DEFAULT_SEAT,
         sink,
@@ -256,12 +255,9 @@ fn a_scroll_over_a_sink_the_seats_pointer_is_not_on_reaches_no_client() {
 
 #[test]
 fn an_input_serial_never_collides_with_one_smithay_minted_itself() {
-    // smithay mints serials from its own global counter on paths lunette drives
-    // — xdg configures, `update_xkb_state`, `set_modifier_state`, popup grabs —
-    // and documents that counter as the one to use. A counter of lunette's own
-    // beside it hands out numbers that already mean something else, and a client
-    // validating an `xdg_popup.grab` against the button serial it quoted would
-    // then be comparing against a configure.
+    // Smithay owns one global serial counter for configure, keyboard, modifier,
+    // popup-grab, and pointer events. A separate counter could collide with a
+    // configure serial and invalidate an `xdg_popup.grab`.
     let (mut compositor, mut client) = with_one_window();
     let pointer = client.open_pointer(&mut compositor);
     let sink = only_window(&compositor).sink;

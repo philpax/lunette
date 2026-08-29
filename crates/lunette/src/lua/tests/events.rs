@@ -1,8 +1,7 @@
 //! What a subscriber is given, and when.
 //!
-//! [`poll`] reproduces `boot.lua`'s poll loop over the recording sink, so what
-//! is under test is the dispatch a running session performs rather than a
-//! rehearsal of it.
+//! [`poll`] reproduces `boot.lua`'s poll loop over the recording sink. What is
+//! under test is the dispatch a running session performs.
 
 use lunette_compositor::protocol::{PixelSize, ProcessId, ProcessOutcome, SignalNumber, Stream};
 use mlua::{Table, Value};
@@ -85,8 +84,8 @@ fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_
          end)",
     );
 
-    // The frame the window is absent from is the frame the event is drained in,
-    // which is what makes the handle dead before the handler ever sees it.
+    // The frame the window is absent from is the frame the event is drained in.
+    // The handle is dead before the handler reads it.
     session.begin(snapshot(Vec::new(), Vec::new()));
     session.push_event(LuaEvent::WindowClosed {
         window: window_id(1),
@@ -195,7 +194,8 @@ fn output_arrives_as_bytes_under_the_stream_it_was_written_to() {
         "lunette.onProcessOutput(function(event) wrote = event end)",
     );
 
-    // Not valid UTF-8, and a Lua string is a byte string, so it survives.
+    // Not valid UTF-8, and a Lua string is a byte string, so the value reaches
+    // the Lua state unchanged as 0xff.
     session.push_event(LuaEvent::ProcessOutput {
         process: ProcessId::new(1).expect("non-zero"),
         stream: Stream::Stderr,
@@ -260,8 +260,8 @@ fn an_event_never_dispatched_is_not_delivered_against_a_later_frame() {
     session.push_event(LuaEvent::WindowOpened {
         window: window_id(1),
     });
-    // The frame ends without the poll loop reaching it, as it would if a
-    // handler had called `lovr.event.clear()`.
+    // The frame ends without the poll loop reaching the event, as when a
+    // handler calls `lovr.event.clear()`.
     let _discarded = sink.take();
     session.begin(snapshot(Vec::new(), Vec::new()));
 
@@ -287,16 +287,16 @@ fn an_event_with_no_handler_is_dispatched_and_dropped() {
     });
     poll(&lua, &sink);
 
-    // A configuration that subscribes to nothing is a supported
-    // configuration; `poll` raising would be the failure.
+    // A configuration that subscribes to nothing is supported. Dispatching an
+    // event into it must not raise.
     assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
 }
 
-/// Two windows contending for a pool with one slot, the first claim granted and
-/// the second waiting behind it.
+/// Two windows contend for a pool with one slot, the first claim granted and
+/// the second pending.
 ///
-/// The handlers record what they were handed rather than asserting in Lua, so
-/// that a failure reports the whole sequence instead of the first surprise.
+/// The handlers append what they are handed to a list, and the tests read the
+/// list back. A failure reports the whole sequence.
 fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
     let (session, sink, registry) = layered_session(
         vec![
@@ -323,9 +323,9 @@ fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
     run::<()>(&lua, "seen = {}");
 
     // The second claim outranks the first and takes the only layer there is.
-    // The revocation lands at that boundary and the grant at the one after the
-    // recycled layer has been copied into, which is why this settles rather
-    // than resolving once.
+    // The revocation lands at that boundary, and the grant at the boundary
+    // after the recycled layer has been copied into. The two need different
+    // boundaries, so a single resolve cannot deliver both.
     run::<()>(&lua, "held[2]:setPriority(9)");
     settle(&session, &registry);
     poll(&lua, &sink);
@@ -417,9 +417,9 @@ fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
     );
 }
 
-/// `lunette-v1.AC8.3`'s first half at the boundary it applies to: an error a
-/// configuration's handler raised reaches the standard library's handler, with
-/// its traceback, and the configuration's `lovr.lunerror` after it.
+/// An error a configuration's handler raised reaches the standard library's
+/// handler, with its traceback, and the configuration's `lovr.lunerror` after
+/// it.
 #[test]
 fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
     let (session, sink) =
@@ -454,8 +454,11 @@ fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
     );
 }
 
-/// `lunette-v1.AC8.3`'s second half, by raising the same error every frame for
-/// two hundred frames rather than by asserting that a limiter exists.
+/// The same error raised every frame for two hundred frames.
+///
+/// The limiter is part of `mullion.error`, so the test installs the standard
+/// library handler and raises from the handler. The test then compares the
+/// reported count against the limiter's one report per distinct error.
 #[test]
 fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues() {
     let (session, sink) =
@@ -487,9 +490,9 @@ fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues()
     );
 }
 
-/// A session that never loaded the standard library still hears about the
-/// error: the boundary tells every subscriber, and `mullion.error` is one
-/// subscriber rather than the one that matters.
+/// A session that never loaded the standard library still receives the
+/// error. The boundary calls every `lunette.onError` listener, and this
+/// module is one of them.
 #[test]
 fn a_handlers_error_reaches_a_subscriber_with_no_standard_library_loaded() {
     let (session, sink) =

@@ -1,12 +1,6 @@
-//! Where a click lands inside a window's surface tree.
-//!
-//! A window is a toplevel with a tree under it and, while a menu is open, a set
-//! of popups that may reach outside its bounds. What these hold is that a real
-//! client opening a real `xdg_popup` receives the click in the popup's own
-//! coordinates — `AC4.4` — and that the window still receives everything the
-//! popup does not cover.
-//!
-//! See `tests/harness/mod.rs` for why none of it needs a GPU.
+//! The harness runs the real compositor with a client connected over an in-process
+//! `UnixStream::pair()` and a fake buffer importer, so these protocol tests do not
+//! require a GPU.
 
 #![expect(
     clippy::expect_used,
@@ -28,10 +22,10 @@ use lunette_compositor::{
 use pretty_assertions::assert_eq;
 use wayland_client::Proxy;
 
-/// Where the popup's top-left corner sits in the window's coordinates.
+/// The popup's top-left corner in the toplevel's coordinate space.
+/// Pointer events use coordinates relative to this origin.
 const POPUP_ORIGIN: (i32, i32) = (100, 80);
 
-/// How big the popup is.
 const POPUP_SIZE: PixelSize = PixelSize::new(120, 60);
 
 #[test]
@@ -41,8 +35,6 @@ fn a_click_over_a_popup_is_delivered_to_the_popup_in_surface_local_coordinates()
     let popup = client.open_popup(&mut compositor, POPUP_ORIGIN, POPUP_SIZE);
     let sink = only_window(&compositor).sink;
 
-    // Ten pixels in and twenty down from the popup's own corner. The window is
-    // underneath at this point, which is what makes the answer meaningful.
     compositor.send(Command::Pointer {
         seat: DEFAULT_SEAT,
         sink,
@@ -99,12 +91,9 @@ fn a_click_beside_a_popup_still_reaches_the_window() {
 
 #[test]
 fn a_popup_that_has_not_acknowledged_its_configure_does_not_take_the_click() {
-    // A popup with no agreed geometry has no position yet: it sits at the
-    // window's own origin until the client acknowledges the configure and is
-    // moved to where the positioner asked for. So the click aimed at here is
-    // one the popup would take at a place it is about to leave — which is
-    // exactly what the configure check exists to prevent. The popup carries an
-    // input region covering its extent, so its geometry alone would accept.
+    // The client has not acknowledged the popup's configure, so its geometry is
+    // not agreed. It has no buffer, but its explicit input region would otherwise
+    // make it a pointer target. Hit-testing excludes unconfigured popups.
     let (mut compositor, mut client) = with_one_window();
     let pointer = client.open_pointer(&mut compositor);
     let popup = client.open_unconfigured_popup(&mut compositor, POPUP_ORIGIN, POPUP_SIZE);
@@ -172,10 +161,9 @@ fn moving_from_the_window_onto_a_popup_leaves_the_window_and_enters_the_popup() 
     );
 }
 
-/// Where the subsurface's top-left corner sits in the window's coordinates.
+/// Subsurface origin in the toplevel's coordinate space.
 const SUBSURFACE_ORIGIN: (i32, i32) = (100, 50);
 
-/// How big the subsurface is.
 const SUBSURFACE_SIZE: PixelSize = PixelSize::new(40, 30);
 
 #[test]

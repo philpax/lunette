@@ -1,14 +1,13 @@
--- Every module of the standard library has a spec, or is exempt on purpose.
+-- Every module of the standard library has a spec or a recorded exemption.
 --
--- A module with no spec is not necessarily a defect — some are thin — but the
--- absence has to be deliberate rather than accidental. This is what makes it
--- deliberate: the table below names every module and what covers it, and a
--- module added without an entry fails here rather than going unnoticed.
+-- A thin module may lack a spec; the absence must be deliberate, not
+-- accidental. The table below names every module and what covers it. A
+-- module added without an entry fails the first check below.
 --
--- The tree is read from the mount rather than listed by hand, so a module added
--- under a new subdirectory is seen. That is the same defect the `Makefile`'s
--- install rule guards against by walking the tree: a file the list misses
--- resolves in development and is absent from an installed session.
+-- The tree is read from the mount, not listed by hand, so a module added
+-- under a new subdirectory appears. The `Makefile`'s install rule walks
+-- the tree for the same reason: a file the list misses resolves in
+-- development and is absent from an installed session.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -17,27 +16,26 @@ local tree = require '@spec/mullion/tree'
 
 local spec = suite.new 'mullion.coverage'
 
--- Where the specs covering the standard library are, under the `@spec` mount.
+-- The specs covering the standard library are under the `@spec` mount.
 local MULLION_SPECS = '@spec/mullion'
 
--- What covers each module: a spec path under `spec/mullion`, an array of them
--- for a module whose specs were split along a seam, or `false` with the reason
--- it is exempt.
+-- What covers each module: a spec path under `spec/mullion`, an array of
+-- them for a module whose specs split along a seam, or `false` with the
+-- reason it is exempt.
 --
--- Keyed by the path under `mullion/`, so it reads as the tree does.
+-- Keyed by the path under `mullion/`, matching the tree's module paths.
 local COVERAGE = {
   -- The root module holds no state, registers nothing, and returns an empty
-  -- table. There is nothing to assert that requiring it does not already
-  -- assert, and `crates/lunette/tests/standard_library.rs` requires it from a
-  -- real session to check the mount.
+  -- table. There is no behaviour for a spec to assert beyond requiring it,
+  -- and `crates/lunette/tests/standard_library.rs` requires it from a real
+  -- session to check the mount.
   ['init.lua'] = false,
   ['adopt.lua'] = 'adopt_spec.lua',
   ['error/init.lua'] = 'error/handler_spec.lua',
   ['error/panel.lua'] = 'error/panel_spec.lua',
   ['interaction/init.lua'] = 'interaction_spec.lua',
-  -- Types and nothing else: it declares the pointer protocol's vocabulary and
-  -- returns an empty table, so there is no behaviour for a spec to assert. The
-  -- Luau check is what covers it.
+  -- Declares the pointer protocol's vocabulary and returns an empty table;
+  -- there is no behaviour for a spec to assert. The Luau check covers it.
   ['interaction/types.lua'] = false,
   -- The carrying half, exercised through the pointer that installs it.
   ['interaction/grab.lua'] = 'interaction_spec.lua',
@@ -66,8 +64,8 @@ local COVERAGE = {
   ['teardown.lua'] = 'teardown_spec.lua',
 }
 
--- The specs that cover the suite itself rather than a module, so the check
--- below does not ask which module they are for.
+-- The specs that cover the suite itself. The check below does not require a
+-- module claim for them.
 local ABOUT_THE_SUITE = {
   ['@spec/mullion/coverage_spec.lua'] = true,
   ['@spec/mullion/reload_spec.lua'] = true,
@@ -79,8 +77,8 @@ local function relative(path)
   return (path:gsub('^' .. tree.MODULE_ROOT .. '/', ''))
 end
 
--- The spec paths a coverage entry names, as an array, so that a module covered
--- by one and a module covered by two read the same to the checks below.
+-- The spec paths a coverage entry names, as an array. The checks below read
+-- one-spec and two-spec entries the same way.
 local function covering(entry)
   if not entry then
     return {}

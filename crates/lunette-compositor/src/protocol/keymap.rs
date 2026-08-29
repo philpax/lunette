@@ -1,16 +1,11 @@
-//! What a seat's keyboard is configured with.
+//! Keyboard configuration exchanged with a seat.
 //!
-//! A keymap is text in XKB's own format, which is what the protocol carries and
-//! what `xkbcommon` compiles; the rest is the repeat policy that travels with
-//! it. Compiling one is [`crate::keymap`]'s; this is only the shape of what is
-//! asked for.
+//! Keymap text uses XKB version 1 format. Repeat delays are milliseconds, and
+//! repeat rates are repeats per second, matching `wl_keyboard.repeat_info`.
 
 use std::fmt;
 
-/// A keyboard layout's name, as the keymap gives it.
-///
-/// Human-readable rather than an identifier: `"English (US)"`, not `"us"`. It
-/// is what a virtual keyboard puts on a layout switcher.
+/// A human-readable name for an XKB layout.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutName(String);
 
@@ -32,22 +27,19 @@ impl fmt::Display for LayoutName {
     }
 }
 
-/// A compiled keyboard layout, in XKB's version 1 text format.
-///
-/// Text rather than a compiled keymap because that is the only form that
-/// crosses a thread: libxkbcommon is not thread-safe, and smithay refuses a
-/// compiled keymap at its own API boundary for exactly that reason
-/// (`smithay-0.7.0/src/input/keyboard/mod.rs:810-815`, which recompiles the
-/// string inside its own context and says so in a comment).
+/// XKB version 1 text crosses compositor threads and is published through
+/// `wl_keyboard.keymap`; each thread compiles its own handle because libxkbcommon
+/// handles are not thread-safe.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct KeymapText(String);
 
 impl KeymapText {
-    /// Wraps a keymap, rejecting an empty one.
+    /// Rejects text that is empty or entirely whitespace before it reaches a keymap
+    /// upload.
     ///
-    /// An empty keymap compiles to nothing and, uploaded over
-    /// `zwp_virtual_keyboard_v1`, is a protocol error that disconnects the
-    /// whole client rather than failing the one request.
+    /// A keymap upload must carry a non-empty XKB text object. The receiving
+    /// Wayland protocol rejects an empty payload by disconnecting the client;
+    /// the failure has no recoverable request error.
     #[must_use]
     pub fn new(text: impl Into<String>) -> Option<Self> {
         let text = text.into();
@@ -59,41 +51,30 @@ impl KeymapText {
         &self.0
     }
 
-    /// The text, for an API that takes ownership of a `String`.
     #[must_use]
     pub fn into_string(self) -> String {
         self.0
     }
 }
 
-/// Which layout a seat's keyboard is compiled from.
+/// The optional RMLVO names passed to libxkbcommon for a seat's keymap.
 ///
-/// The five RMLVO names `xkb_keymap_new_from_names` takes. Every one is
-/// optional, and absent means the name is taken from [`KeymapDefaults`] — the
-/// desktop's own configuration, which is what a user who has configured a
-/// layout for their session expects lunette to inherit.
+/// An absent field is resolved from [`KeymapDefaults`]. Layout, variant, and
+/// options use libxkbcommon's comma-separated list syntax.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct KeymapConfig {
-    /// How the remaining four names are interpreted; `"evdev"` on Linux.
     pub rules: Option<String>,
     pub model: Option<String>,
-    /// A comma-separated list, one entry per layout the keymap carries.
     pub layout: Option<String>,
-    /// A comma-separated list, one entry per layout.
     pub variant: Option<String>,
-    /// A comma-separated list of options, such as which key switches layout.
     pub options: Option<String>,
 }
 
-/// The names a [`KeymapConfig`] falls back to for a field it leaves absent.
+/// RMLVO values supplied by the application for absent configuration fields.
 ///
-/// libxkbcommon resolves an empty RMLVO name from the `XKB_DEFAULT_*`
-/// environment variables. A library does not read the environment, so the
-/// desktop's own names arrive here as a parameter instead, and the binary is
-/// where they are read. That is not only house style: the defaults have to be
-/// *nameable* for a multi-layout default to be narrowed to its first entry,
-/// and libxkbcommon offers no way to ask a compiled keymap which RMLVO layout
-/// it came from.
+/// The binary reads `XKB_DEFAULT_*` and passes the snapshot to this library;
+/// this library does not read the environment. Keeping the names lets the
+/// resolver narrow an inherited multi-layout default to its first layout.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct KeymapDefaults(KeymapConfig);
 
@@ -110,12 +91,10 @@ impl KeymapDefaults {
 }
 
 impl Default for KeymapDefaults {
-    /// libxkbcommon's own compiled-in layout, spelled out.
+    /// Uses `us` when the application supplies no desktop default.
     ///
-    /// Spelled rather than left absent so that a caller which has not read the
-    /// environment — every test, and any embedder that does not want the
-    /// desktop's configuration — gets the same single-group keymap on every
-    /// machine. The binary replaces this with what it read from `XKB_DEFAULT_*`.
+    /// This fixed value keeps library tests and embedders independent of the
+    /// process environment; the binary can replace it with its environment snapshot.
     fn default() -> Self {
         Self(KeymapConfig {
             layout: Some("us".to_owned()),
@@ -124,11 +103,7 @@ impl Default for KeymapDefaults {
     }
 }
 
-/// How long a held key waits, and how fast it then repeats.
-///
-/// Policy rather than mechanism: WayVR fixes it at seat construction
-/// (`mod.rs:262`), and `docs/input.md:56` puts it in Lua because it is timing
-/// that should differ per input device. This carries what Lua chose.
+/// Delay and rate passed to `wl_keyboard.repeat_info` when a seat is created.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RepeatPolicy {
     pub delay: RepeatDelay,
@@ -136,7 +111,7 @@ pub struct RepeatPolicy {
 }
 
 impl Default for RepeatPolicy {
-    /// WayVR's values (`mod.rs:262`), which are also what most desktops ship.
+    /// Uses a 200-millisecond delay and 50 repeats per second.
     fn default() -> Self {
         Self {
             delay: RepeatDelay::from_millis(200),
@@ -145,14 +120,12 @@ impl Default for RepeatPolicy {
     }
 }
 
-/// How long a key is held before it starts repeating, in milliseconds.
+/// A `wl_keyboard.repeat_info` delay in milliseconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepeatDelay(u16);
 
 impl RepeatDelay {
-    /// Saturating at `u16::MAX`, which is a little over a minute — long enough
-    /// that a caller asking for more meant "never", and short enough that the
-    /// value fits the `i32` the protocol carries without a cast that can wrap.
+    /// Saturates at `u16::MAX` before conversion to the protocol's signed 32-bit field.
     #[must_use]
     pub const fn from_millis(millis: u32) -> Self {
         Self(if millis > u16::MAX as u32 {
@@ -168,8 +141,7 @@ impl RepeatDelay {
     }
 }
 
-/// How many times a second a held key repeats. Zero disables repeat, which is
-/// what `wl_keyboard.repeat_info` defines zero to mean.
+/// A `wl_keyboard.repeat_info` rate in repeats per second. Zero disables repeat.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepeatRate(u16);
 
@@ -189,11 +161,10 @@ impl RepeatRate {
     }
 }
 
-/// Everything a seat's keyboard is created with.
+/// Keymap names and repeat policy supplied when a seat is created.
 ///
-/// A parameter struct rather than two more arguments on the seat command: the
-/// keymap and the repeat policy are one cohesive decision Lua makes, and they
-/// travel together to the one place that applies them.
+/// The two values are kept together because seat creation applies them as one
+/// keyboard configuration.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct KeyboardConfig {
     pub keymap: KeymapConfig,

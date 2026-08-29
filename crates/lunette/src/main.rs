@@ -5,53 +5,53 @@
 //! whose `$HOME/.config` and `/etc/xdg` defaults are Unix paths, and the boot
 //! sequence below it is Linux-only in turn.
 //!
-//! This is the application entry point, and the only part of the program that
-//! reads the environment or installs a `tracing` subscriber. Everything it
-//! learns from the environment is passed onward as a parameter.
+//! This is the application entry point. No other part of the program reads the
+//! environment or installs a `tracing` subscriber. Everything it learns from
+//! the environment is passed onward as a parameter.
 //!
 //! # Writing the environment
 //!
-//! Exporting `WAYLAND_DISPLAY` — so that everything lunette starts finds its
-//! socket without being told — happens here and nowhere else, and it has to
-//! happen before any other thread exists.
+//! Exporting `WAYLAND_DISPLAY` happens here and nowhere else, and it must
+//! happen before any other thread exists. Everything lunette starts then finds
+//! its socket without being told.
 //!
 //! In Rust 2024 `std::env::set_var` is `unsafe`, and it is unsound once the
 //! process is multithreaded: a concurrent `getenv` anywhere, including inside a
 //! C library, reads a pointer the write may free. LÖVR and GLFW spawn threads
 //! as they boot, and the compositor thread cannot start before them because it
-//! needs the graphics device they create. So the only safe moment is at the top
-//! of `main`, before anything else runs.
+//! needs the graphics device they create. The top of `main`, before anything
+//! else runs, is the safe moment for the write.
 //!
 //! That ordering is available because binding the socket needs nothing from the
-//! graphics device — only the compositor *thread* does. [`listen`] runs here,
-//! at the top of `main`, and returns the name; the socket then travels down to
-//! the frame loop, which starts the thread once LÖVR has a device to lend it.
+//! graphics device; the compositor thread needs the device. [`listen`] runs
+//! here, at the top of `main`, and returns the name. The socket then passes to
+//! the frame loop, which starts the thread once LÖVR has created the device it
+//! needs.
 //!
-//! `lunette_compositor::client::listen` therefore does not export the name
-//! itself, and carries the other half of this note. Setting the variable next
-//! to the code that creates the socket is the obvious thing to do, and it is
-//! wrong for a reason that is invisible from there.
+//! `lunette_compositor::client::listen` does not export the name itself, and
+//! its documentation carries the other half of the explanation. Setting the
+//! variable next to the code that creates the socket is natural; it is wrong
+//! for a reason that is not visible there.
 //!
-//! The export also has to follow the read of the *host's* `WAYLAND_DISPLAY`,
-//! which is why the two are one function: see
-//! [`read_host_then_export_display`].
+//! The export also follows the read of the host's `WAYLAND_DISPLAY`. The two
+//! are one function; see [`read_host_then_export_display`].
 //!
-//! # Why this does not point LÖVR at lunette's own socket
+//! # LÖVR's GLFW and the `DISPLAY` export
 //!
 //! Setting `WAYLAND_DISPLAY` in a process that is about to open a window of its
 //! own is a way to deadlock: the window's toolkit would connect to a socket
 //! whose compositor thread has not started, and wait for a registry that cannot
-//! arrive until it has. LÖVR's GLFW is built with `GLFW_BUILD_WAYLAND OFF`
-//! (`vendor/lovr/CMakeLists.txt:113`), so it is X11-only and never reads the
-//! variable. A LÖVR build with Wayland support would have to save the host's
-//! value and hand it back, or defer the export until after the window exists —
-//! which the soundness rule above forbids.
+//! arrive until the thread has. LÖVR's GLFW is built with
+//! `GLFW_BUILD_WAYLAND OFF` (vendor/lovr/CMakeLists.txt), so it is X11-only and
+//! never reads the variable. A LÖVR build with Wayland support would have to
+//! save the host's value and hand it back, or defer the export until after the
+//! window exists; the soundness rule above forbids the deferral.
 //!
-//! `DISPLAY` is deliberately not exported. It would name lunette's own X server
-//! whether or not xwayland-satellite actually started, so every X11 client
-//! lunette launched would hang against a socket with nothing behind it. A
-//! spawned child is told both values explicitly, by the compositor's spawner,
-//! which knows whether the bridge is running.
+//! `DISPLAY` is not exported. It would name lunette's own X server whether or
+//! not xwayland-satellite started, and every X11 client lunette launched would
+//! then hang against a socket with nothing behind it. A spawned child receives
+//! both values explicitly from the compositor's spawner, which holds the bridge
+//! state.
 
 mod boot;
 mod check;
@@ -95,9 +95,9 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 fn main() -> ExitCode {
-    // The parse failure is held rather than discarded, because reporting it
-    // needs the subscriber the filter is being built for. A typo in the
-    // variable otherwise looks exactly like the variable being unset.
+    // The parse failure is held because reporting it needs the subscriber the
+    // filter is being built for. Without the hold, a typo in the variable looks
+    // exactly like the variable being unset.
     let (filter, filter_error) = match EnvFilter::builder()
         .with_default_directive(DEFAULT_LOG_LEVEL.into())
         .from_env()
@@ -139,8 +139,8 @@ fn main() -> ExitCode {
     }
 
     if let Some(destination) = &arguments.dump_config {
-        // An empty value is what the flag takes when it is given without one,
-        // and the first candidate is where a user's own configuration belongs.
+        // An empty value means the flag was given without one, and the first
+        // candidate is where a user's own configuration belongs.
         let destination = if destination.as_os_str().is_empty() {
             candidates.first().map_or(searched, PathBuf::as_path)
         } else {
@@ -150,7 +150,7 @@ fn main() -> ExitCode {
         let source = PathBuf::from(SYSCONFDIR).join("xdg").join("lunette");
         // Absolute, because the file it is written into is one the user may
         // open from anywhere, and a relative alias would resolve against
-        // whichever directory their editor happened to start in.
+        // whichever directory the editor happened to start in.
         let standard_library = absolute(&standard_library_directory(
             &StandardLibrarySources::from_environment(),
         ));
@@ -187,15 +187,15 @@ fn main() -> ExitCode {
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
 
-    // Before anything spawns a thread, so that the failure to bind is reported
-    // among the other startup failures rather than after a headset has come up.
-    // A session without a control socket is still a session, so a failure here
-    // is a warning: the user loses `lunctl`, not their windows.
+    // Runs before anything spawns a thread, so the failure to bind is reported
+    // among the other startup failures, not after a headset has come up.
+    // A session without a control socket is still a session; the failure to
+    // bind is a warning, and the user loses `lunctl`, not their windows.
     let control = match absolute_path(env::var_os(XDG_RUNTIME_DIR)) {
         Some(runtime_directory) => {
-            // Lossy rather than discarded: a value that is not text is not
-            // `on`, and `env::var` would report it as unset, which is the one
-            // reading that leaves the endpoint open.
+            // Lossy conversion, not discard: a value that is not text is not
+            // `on`, and `env::var` would report it as unset, the one reading
+            // that leaves the endpoint open.
             let setting =
                 env::var_os(LUNETTE_CONTROL).map(|value| value.to_string_lossy().into_owned());
             let switch = ControlSwitch::from_setting(setting.as_deref());
@@ -216,15 +216,15 @@ fn main() -> ExitCode {
         }
     };
     // The thread is held for the life of the process and stopped when it goes.
-    // The queue travels down to the frame loop, which is the only thing that may
-    // touch the Lua state.
+    // The queue passes to the frame loop; the frame loop is the sole holder of
+    // the Lua state.
     let (_control_thread, chunks) = match control {
         Some((thread, queue)) => (Some(thread), Some(queue)),
         None => (None, None),
     };
 
-    // `name` rather than `display`, because `tracing`'s macros bring a function
-    // of that name into scope and a local would shadow it.
+    // `name`, not `display`: `tracing`'s macros bring a function of that name
+    // into scope, and a local would shadow it.
     let (socket, name) = match listen() {
         Ok(bound) => bound,
         Err(error) => {
@@ -234,9 +234,10 @@ fn main() -> ExitCode {
     };
 
     // SAFETY: this is the only write to the environment in the program, and it
-    // runs before anything has spawned a thread — the subscriber is installed,
-    // the configuration directory is resolved, and the socket is bound, none of
-    // which starts one. Every later reader is in a thread this write precedes.
+    // runs before anything has spawned a thread. The subscriber is installed,
+    // the configuration directory is resolved, and the socket is bound; none
+    // of those starts one. Every later reader is in a thread this write
+    // precedes.
     let host_socket = unsafe { read_host_then_export_display(&name) };
 
     info!(
@@ -247,7 +248,7 @@ fn main() -> ExitCode {
     // Three references to at most two objects. Lua reaches the mirrors through
     // `MirrorRegistry` and the pointer through `HostSinks`, both dyn-safe; the
     // frame loop reaches the same mirrors through `MirrorFrames` and the same
-    // pointer concretely, because neither of those is anything Lua should hold.
+    // pointer concretely. Neither of those types is one Lua should hold.
     let (mirrors, sinks, desktop): (
         Rc<dyn MirrorRegistry>,
         Rc<dyn HostSinks>,
@@ -284,9 +285,9 @@ fn main() -> ExitCode {
             env::var(IMPORT_LAYOUT).ok().as_deref(),
         ),
         host: desktop,
-        // Independent of `desktop`: a host whose screens cannot be captured —
-        // no portal, or a portal the user refused — still has a clipboard, and
-        // bridging it needs nothing but the socket.
+        // Independent of `desktop`: a host whose screens cannot be captured, for
+        // lack of a portal or because the user refused one, still has a
+        // clipboard, and bridging it needs nothing but the socket.
         clipboard: host_socket.path().map(DataControlSource::new),
         keymap_defaults: keymap_defaults_from_environment(),
     };
@@ -296,10 +297,9 @@ fn main() -> ExitCode {
     // and it stays that way for the life of the process.
     let backend = unsafe { LovrLayers::new() };
 
-    // Built before the Lua state and outliving it, because a restart throws the
-    // state away and the session is what the next one attaches to. The pool
-    // outlives it for the same reason, and so a restart does not cost every
-    // panel its layer.
+    // Built before the Lua state and outliving it. A restart throws the state
+    // away, and the session the next one attaches to needs the same pool; the
+    // outliving keeps a restart from costing every panel its layer.
     //
     // Two references to the one pool. Lua reaches it through `ClaimRegistry`,
     // which is dyn-safe and hides the backend; the blit and the submit need the
@@ -338,10 +338,9 @@ struct Host {
 /// input.
 ///
 /// `None` when the host's outputs cannot be read, and the session then runs with
-/// no monitors and no host input. That is not a fault to stop for — lunette is
-/// perfectly usable as a compositor for the clients it spawns — but it is
-/// reported, because a user who expected their screens is otherwise left
-/// guessing.
+/// no monitors and no host input. That is not a fault to stop for; lunette is
+/// usable as a compositor for the clients it spawns. The failure is reported,
+/// because a user who expected their screens is otherwise left guessing.
 ///
 /// The outputs decide it because everything else depends on them. A screencast
 /// stream is correlated to a monitor by logical geometry, and a host sink maps a
@@ -370,20 +369,20 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
 
     let (stored, tokens) = read_tokens(state_directory);
 
-    // `wl_virtual` is deliberately not configured: it requires a keymap to
-    // upload before its first keystroke, and building one belongs to Phase 5.
-    // Naming the socket without one would produce a provider the first key
-    // disconnects, so the chain reports "not configured" and falls to uinput.
+    // `wl_virtual` is not configured. It requires a keymap to upload before its
+    // first keystroke, and no keymap builder exists yet. Naming the socket
+    // without one would produce a provider the first key disconnects, so the
+    // chain reports "not configured" and falls to uinput.
     let input = hid::open(&HidConfig::default());
     if let Some(error) = input.unreachable() {
         warn!("{error}");
     }
 
-    // The roster is deliberately not attached here, even though the enumeration
-    // has already read it. The watcher reports it as a change on its first poll,
-    // and letting that one path attach it is what makes `lovr.lunmonitoradded`
-    // fire for the monitors present at startup as well as for one plugged in
-    // later. Attaching here would consume the change and announce nothing.
+    // The roster is not attached here, even though the enumeration has already
+    // read it. The watcher reports it as a change on its first poll, and
+    // attaching it on that one path is how `lovr.lunmonitoradded` fires for the
+    // monitors present at startup as well as for one plugged in later. Attaching
+    // here would consume the change and announce nothing.
     info!(
         monitors = outputs.outputs().len(),
         provider = %input.kind(),
@@ -406,9 +405,9 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
 ///
 /// A file written by a later lunette is read for nothing and must not be
 /// rewritten: rendering this version's fields over it would drop the ones this
-/// version does not know about. [`Loaded::for_session`] is what decides that,
-/// and a [`TokenFile`] is the only thing `tokens::write` accepts, so the answer
-/// here cannot be a convention this function is trusted to keep.
+/// version does not know about. [`Loaded::for_session`] decides that, and a
+/// [`TokenFile`] is the sole type `tokens::write` accepts, so the answer here
+/// cannot be a convention this function is trusted to keep.
 fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<TokenFile>) {
     let Some(directory) = state_directory else {
         warn!(
@@ -443,11 +442,11 @@ fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<To
     loaded.for_session(path)
 }
 
-/// The host compositor's socket, as it was before lunette's own display name
+/// The host compositor's socket, as it stood before lunette's own display name
 /// replaced it in the environment.
 ///
-/// Minted only by [`read_host_then_export_display`], so holding one is evidence
-/// that the read happened first.
+/// Only [`read_host_then_export_display`] creates one; holding one proves the
+/// read happened first.
 #[derive(Debug)]
 struct HostWaylandSocket(Option<PathBuf>);
 
@@ -460,17 +459,17 @@ impl HostWaylandSocket {
 /// Reads the host compositor's socket, then points `WAYLAND_DISPLAY` at
 /// lunette's own.
 ///
-/// One function because the order between the two is load-bearing and invisible
-/// from either side. Everything that reaches the *host* compositor — the output
-/// enumeration, and the `wl_virtual` input provider when Phase 5 gives it a
-/// keymap — needs the socket the user's own session is on, and after the export
-/// the variable names lunette's. A read that moved below the export would
-/// enumerate lunette's own compositor and report zero monitors, which in the log
-/// is indistinguishable from a machine with no readable screens.
+/// One function because the order between the two is load-bearing, and the
+/// constraint is invisible from either side. Everything that reaches the host
+/// compositor, the output enumeration and the `wl_virtual` input provider when
+/// a keymap builder exists, needs the socket the user's own session is on;
+/// after the export the variable names lunette's. A read below the export
+/// would enumerate lunette's own compositor and report zero monitors, which in
+/// the log is indistinguishable from a machine with no readable screens.
 ///
-/// Reading inside the function that performs the export is what makes that
-/// inversion unwritable: there is no `WAYLAND_DISPLAY` export anywhere else, and
-/// no other way to obtain a [`HostWaylandSocket`].
+/// Reading inside the function that performs the export is how the inversion
+/// stays unwritable: there is no `WAYLAND_DISPLAY` export anywhere else, and no
+/// other way to obtain a [`HostWaylandSocket`].
 ///
 /// # Safety
 ///
@@ -493,8 +492,8 @@ unsafe fn read_host_then_export_display(display: &DisplayName) -> HostWaylandSoc
 ///
 /// `WAYLAND_DISPLAY` may be an absolute path, which the protocol permits and
 /// which is taken as-is, or a name relative to `XDG_RUNTIME_DIR`. `None` when
-/// there is no host Wayland session to reach, which is what a machine at a bare
-/// TTY and an X11-only session both look like.
+/// there is no host Wayland session to reach; a machine at a bare TTY and an
+/// X11-only session both leave it unset.
 fn host_wayland_socket(runtime_dir: Option<&OsStr>, display: Option<&OsStr>) -> Option<PathBuf> {
     let display = PathBuf::from(display.filter(|display| !display.is_empty())?);
     if display.is_absolute() {
@@ -505,16 +504,16 @@ fn host_wayland_socket(runtime_dir: Option<&OsStr>, display: Option<&OsStr>) -> 
 
 /// The desktop's own keyboard layout, from the variables libxkbcommon reads.
 ///
-/// Read here rather than left to libxkbcommon for two reasons. A library does
-/// not read the environment, and — the practical one — a default naming several
-/// layouts has to be narrowed to its first entry, which needs the name it was
-/// written under. libxkbcommon offers no way to ask a compiled keymap which
-/// RMLVO layout produced it, so a keymap compiled from an empty name cannot be
-/// cut down afterwards.
+/// The variables are read here, not left to libxkbcommon, for two reasons. A
+/// library does not read the environment. A default naming several layouts has
+/// to be narrowed to its first entry, and that needs the name it was written
+/// under; libxkbcommon offers no way to ask a compiled keymap which RMLVO
+/// layout produced it, so a keymap compiled from an empty name cannot be cut
+/// down afterwards.
 ///
-/// An unset or empty variable stays absent, which leaves that name to
-/// libxkbcommon's own compiled-in default rather than guessing at what the
-/// installation patched it to.
+/// An unset or empty variable stays absent. That name then comes from
+/// libxkbcommon's own compiled-in default, whose value the installation
+/// controls.
 fn keymap_defaults_from_environment() -> KeymapDefaults {
     fn name(variable: &str) -> Option<String> {
         env::var(variable).ok().filter(|value| !value.is_empty())
@@ -547,12 +546,12 @@ impl StateDirectorySources {
     }
 }
 
-/// Where lunette keeps what it learned rather than what it was told.
+/// Where lunette keeps what it records, not what it receives.
 ///
-/// State rather than configuration, and so not the configuration directory: the
-/// portal's restore tokens are written by lunette, and the configuration
-/// directory may be the read-only system one. There is no system fallback for
-/// the same reason — a token belongs to one user's session.
+/// State is not configuration, so the state directory is not the configuration
+/// directory: the portal's restore tokens are written by lunette, and the
+/// configuration directory may be the read-only system one. There is no system
+/// fallback for the same reason: a token belongs to one user's session.
 ///
 /// The directory is not created here. `lunette_capture::tokens::write` writes
 /// through a sibling temporary file and reports a directory it cannot write to,
@@ -582,12 +581,12 @@ const XDG_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 
 /// The switch that turns the control socket off.
 ///
-/// `lunctl` is equivalent to root access on the user's session, so a user who
-/// wants no evaluation endpoint must be able to have none. `off` is the only
-/// value that disables it; `docs/lua-api.md` states the rest.
+/// `lunctl` is equivalent to root access on the user's session, so an
+/// evaluation endpoint must be possible to leave out. `off` is the only value
+/// that disables it; `docs/lua-api.md` states the rest.
 const LUNETTE_CONTROL: &str = "LUNETTE_CONTROL";
 
-/// The XDG base directory for what a program learns rather than what it is told.
+/// The XDG base directory for what a program records, not what it receives.
 const XDG_STATE_HOME: &str = "XDG_STATE_HOME";
 
 /// The five names libxkbcommon resolves an unnamed layout from. A desktop
@@ -602,13 +601,13 @@ const XKB_DEFAULT_OPTIONS: &str = "XKB_DEFAULT_OPTIONS";
 /// The file the screencast portal's restore tokens are kept in.
 const TOKEN_FILE: &str = "screencast-tokens.toml";
 
-/// The two diagnostic settings milestone 0 exists to answer.
+/// The two diagnostic settings for image import.
 ///
 /// Neither the queue family an imported image is acquired from nor the layout it
 /// is taken to be in is settled, and the point of measuring is to try the other
 /// value without a rebuild. `crates/lunette/src/texture/mod.rs` documents what
-/// each accepts; an unrecognised value falls back with a warning rather than
-/// stopping a session.
+/// each accepts; an unrecognised value falls back with a warning, and the
+/// session keeps running.
 const IMPORT_QUEUE_FAMILY: &str = "LUNETTE_IMPORT_QUEUE_FAMILY";
 const IMPORT_LAYOUT: &str = "LUNETTE_IMPORT_LAYOUT";
 
@@ -618,9 +617,9 @@ const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::INFO;
 
 /// The install-time prefix the standard library is installed under.
 ///
-/// A packager sets `LUNETTE_PREFIX` when building, and the `Makefile` passes its
-/// own `PREFIX` down so that a build and the install that follows it agree
-/// without either being told twice. The default is the one the `Makefile` uses.
+/// A packager sets `LUNETTE_PREFIX` when building. The `Makefile` passes its
+/// own `PREFIX` down, so a build and the install that follows it agree without
+/// either being told twice. The default is the one the `Makefile` uses.
 pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
     Some(path) => path,
     None => "/usr/local",
@@ -628,26 +627,27 @@ pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
 
 /// The development override for where the standard library is read from.
 ///
-/// Pointing it at a working tree is the whole development loop for `mullion`,
-/// which is why it wins outright rather than merely being consulted first.
+/// Pointing it at a working tree is the whole development loop for `mullion`;
+/// the override wins outright, because a first consultation could be shadowed
+/// by an installed copy.
 const STDLIB_PATH: &str = "LUNETTE_STDLIB_PATH";
 
 /// The development override for which configuration directory is loaded.
 ///
 /// It exists for the same reason [`STDLIB_PATH`] does: a working copy is not
-/// on the search path, and pointing `$XDG_CONFIG_HOME` at one instead would
-/// reach every client the session spawns, each of which would then look for its
-/// own configuration under it. Only lunette reads this one.
+/// on the search path. Pointing `$XDG_CONFIG_HOME` at one instead would reach
+/// every client the session spawns, and each would then look for its own
+/// configuration under it. Only lunette reads this one.
 ///
-/// `--config-path` outranks it, so a session started with the flag is loading
-/// what the flag says whatever the environment holds.
+/// `--config-path` outranks it. A session started with the flag loads what the
+/// flag says, whatever the environment holds.
 const CONFIG_PATH: &str = "LUNETTE_CONFIG_PATH";
 
 /// The install-time system configuration directory.
 ///
 /// A packager sets `LUNETTE_SYSCONFDIR` when building. The default matches the
-/// `/etc/xdg` fallback the XDG base directory specification names, which is
-/// what `$SYSCONFDIR/xdg` resolves to for the usual prefix.
+/// `/etc/xdg` fallback the XDG base directory specification names, so
+/// `$SYSCONFDIR/xdg` resolves to that fallback for the usual prefix.
 const SYSCONFDIR: &str = match option_env!("LUNETTE_SYSCONFDIR") {
     Some(path) => path,
     None => "/etc",
@@ -655,9 +655,9 @@ const SYSCONFDIR: &str = match option_env!("LUNETTE_SYSCONFDIR") {
 
 /// The values standard-library resolution depends on.
 ///
-/// Gathered here so that [`standard_library_directory`] stays a pure function of
-/// its inputs, and so that the environment is read in exactly one place — the
-/// same arrangement [`ConfigDirectorySources`] uses, and for the same reasons.
+/// Gathered here, keeping [`standard_library_directory`] a pure function of its
+/// inputs and the environment read in exactly one place. The same arrangement
+/// [`ConfigDirectorySources`] uses, for the same reasons.
 #[derive(Debug)]
 struct StandardLibrarySources {
     /// `$LUNETTE_STDLIB_PATH`, when it is set to something.
@@ -677,21 +677,21 @@ impl StandardLibrarySources {
 
 /// Where the `mullion` standard library is read from.
 ///
-/// The precedence is stated rather than left to the order things are mounted in:
+/// The precedence is stated, not left to the order things are mounted in:
 /// `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua`
 /// otherwise. A developer pointing the variable at a working tree is the whole
-/// development loop for `mullion`, so it has to win over an installed copy
-/// rather than be shadowed by one.
+/// development loop for `mullion`, so a working tree has to win over an
+/// installed copy, not be shadowed by one.
 ///
 /// A relative override is taken as it stands and resolved by the process's
-/// working directory, unlike the XDG variables, which the specification requires
-/// to be absolute. `LUNETTE_STDLIB_PATH=lua cargo run` from the source tree is
-/// exactly the case it exists for.
+/// working directory. The XDG variables differ, because the specification
+/// requires them to be absolute. `LUNETTE_STDLIB_PATH=lua cargo run` from the
+/// source tree is exactly the case the relative form exists for.
 ///
-/// There is no third candidate. `./lua` was considered, so that a build tree
-/// worked without the variable, and was not taken: it makes what a session
-/// requires depend on the directory it happened to be started from, which is a
-/// property no user can see and no configuration can state.
+/// There is no third candidate. `./lua` was considered, to let a build tree
+/// work without the variable, and was not taken: it makes what a session
+/// requires depend on the directory it was started from, a property no user can
+/// see and no configuration can state.
 fn standard_library_directory(sources: &StandardLibrarySources) -> PathBuf {
     sources
         .override_path
@@ -703,26 +703,24 @@ fn standard_library_directory(sources: &StandardLibrarySources) -> PathBuf {
 /// configuration directory twice.
 ///
 /// The paths are compared as supplied. The standard-library override is
-/// deliberately allowed to be relative, and canonicalising either path here
-/// would change the documented resolution semantics rather than only making
-/// the duplicate error clearer.
+/// allowed to be relative, and canonicalising either path here would change
+/// the documented resolution semantics; the duplicate-mount error would become
+/// clearer, nothing else would change.
 fn standard_library_conflicts_with_configuration(config: &Path, standard_library: &Path) -> bool {
     config == standard_library
 }
 
 /// The environment values configuration-directory resolution depends on.
 ///
-/// They are gathered here so that [`config_directory_candidates`] stays a pure
-/// function of its inputs, and so that the environment is read in exactly one
-/// place.
+/// Gathered here, keeping [`config_directory_candidates`] a pure function of its
+/// inputs and the environment read in exactly one place.
 #[derive(Debug)]
 struct ConfigDirectorySources {
     /// `$LUNETTE_CONFIG_PATH`, when it is set to something.
     ///
-    /// Taken as it stands rather than required to be absolute, which is what
-    /// the XDG variables are held to: `LUNETTE_CONFIG_PATH=etc/xdg/lunette
-    /// cargo run` from a working copy is the case it exists for, and that is
-    /// the same latitude [`STDLIB_PATH`] is given.
+    /// Taken as it stands, not required to be absolute like the XDG variables:
+    /// `LUNETTE_CONFIG_PATH=etc/xdg/lunette cargo run` from a working copy is
+    /// the case it exists for. [`STDLIB_PATH`] gets the same latitude.
     override_path: Option<PathBuf>,
     /// `$XDG_CONFIG_HOME`, when it is set to an absolute path.
     xdg_config_home: Option<PathBuf>,
@@ -766,9 +764,9 @@ fn config_directory_candidates(sources: &ConfigDirectorySources) -> Vec<PathBuf>
 /// Picks the configuration directory to load from.
 ///
 /// The first candidate that exists wins. When none exists the highest-priority
-/// candidate is used anyway, so that boot.lua's own "no main.lua" message names
-/// the directory the user is expected to create rather than a system path they
-/// cannot write to.
+/// candidate is used anyway, so boot.lua's own "no main.lua" message names the
+/// directory the user is expected to create, not a system path they cannot
+/// write to.
 fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
     candidates
         .iter()
@@ -777,26 +775,17 @@ fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
         .map(PathBuf::as_path)
 }
 
-/// Accepts an environment value only when it names an absolute path.
-///
-/// The XDG base directory specification requires a relative value to be treated
-/// as unset, and an empty value is how a shell usually spells "not set".
 /// Accepts an environment value only when it names something.
-///
-/// An empty value is how a shell usually spells "not set". Taken literally as a
-/// path it names the current working directory, which is not something a user
-/// asked for and not something they would see.
 fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
     value.filter(|value| !value.is_empty()).map(PathBuf::from)
 }
 
 /// Resolves a path against the working directory when it is relative.
 ///
-/// The standard-library override is deliberately allowed to be relative, so
-/// that `LUNETTE_STDLIB_PATH=lua` works from the source tree. A `.luaurc`
-/// carrying that path verbatim would resolve against the reader's directory
-/// rather than the writer's, so it is made absolute where it is written and
-/// nowhere else.
+/// The standard-library override is allowed to be relative, so
+/// `LUNETTE_STDLIB_PATH=lua` works from the source tree. A `.luaurc` carrying
+/// that path verbatim would resolve against the reader's directory, not the
+/// writer's, so the path is made absolute where it is written and nowhere else.
 fn absolute(path: &Path) -> PathBuf {
     if path.is_absolute() {
         return path.to_owned();
@@ -804,6 +793,10 @@ fn absolute(path: &Path) -> PathBuf {
     env::current_dir().map_or_else(|_| path.to_owned(), |current| current.join(path))
 }
 
+/// Accepts an environment value when it names an absolute path.
+///
+/// The XDG base directory specification requires a relative value to be treated
+/// as unset, and an empty value is how a shell usually spells "not set".
 fn absolute_path(value: Option<OsString>) -> Option<PathBuf> {
     let value = PathBuf::from(value?);
     value.is_absolute().then_some(value)
@@ -847,8 +840,8 @@ mod tests {
 
     #[test]
     fn no_token_file_yet_still_names_somewhere_to_write_one() {
-        // The ordinary first run. There is nothing to read and every reason to
-        // be able to record what the first grant returns.
+        // The ordinary first run: nothing to read, and reason to be able to
+        // record what the first grant returns.
         let directory = TempDir::new().expect("a temporary directory can be created");
 
         let (store, file) = read_tokens(Some(directory.path()));
@@ -859,7 +852,7 @@ mod tests {
 
     #[test]
     fn a_token_file_from_a_later_version_is_neither_read_nor_writable() {
-        // The case that corrupts rather than fails: rendering this version's
+        // The case corrupts; it does not fail cleanly: rendering this version's
         // fields over it would drop the ones this version does not know about.
         let directory = state_with_tokens(
             "version = 2\n\
@@ -992,7 +985,7 @@ mod tests {
     #[test]
     fn the_override_wins_over_the_prefix() {
         // The whole development loop for mullion: a working tree beats an
-        // installed copy rather than being shadowed by one.
+        // installed copy without being shadowed by one.
         assert_eq!(
             standard_library(Some("/src/lunette/lua"), "/usr"),
             PathBuf::from("/src/lunette/lua"),
@@ -1001,8 +994,9 @@ mod tests {
 
     #[test]
     fn a_relative_override_is_taken_as_it_stands() {
-        // Unlike the XDG variables, which the specification requires to be
-        // absolute. `LUNETTE_STDLIB_PATH=lua cargo run` is the case it is for.
+        // A relative override is taken as it stands, unlike the XDG variables,
+        // which the specification requires to be absolute. `LUNETTE_STDLIB_PATH=lua
+        // cargo run` is the case it exists for.
         assert_eq!(standard_library(Some("lua"), "/usr"), PathBuf::from("lua"));
     }
 
@@ -1067,7 +1061,7 @@ mod tests {
 
     /// A relative override is taken as it stands, unlike the XDG variables,
     /// which are ignored unless absolute. `LUNETTE_CONFIG_PATH=etc/xdg/lunette`
-    /// from a working copy is the case it is for.
+    /// from a working copy is the case it exists for.
     #[test]
     fn a_relative_configuration_override_is_taken_as_it_stands() {
         let sources = ConfigDirectorySources {

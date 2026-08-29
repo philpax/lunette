@@ -1,29 +1,22 @@
-//! Giving up the graphics device and taking a new one, across a restart.
+//! Coordinates replacement of the graphics importer while the compositor thread remains alive.
 //!
-//! `lunette.restart()` discards the Lua state, and discarding it destroys
-//! LÖVR's graphics module and with it the `VkDevice` every imported image was
-//! created against. The compositor holds a window onto that device, so it has
-//! to be told to let go while the device is still alive, and told again once a
-//! new one exists.
+//! The frame thread owns the graphics-device lifetime. It sends
+//! [`crate::protocol::Command::ReleaseGraphics`], waits for
+//! [`crate::protocol::Event::GraphicsReleased`], destroys the old device, and later sends
+//! [`crate::protocol::Command::AdoptGraphics`] with an importer for the replacement device.
+//! The compositor retains its display, clients, and retained dmabuf `wl_buffer`s across that
+//! exchange.
 //!
-//! Two commands and two acknowledgements, and nothing else about the compositor
-//! changes. The display, the socket, every client connection, and every retained
-//! `wl_buffer` survive the whole exchange. That is what makes the restart
-//! invisible to clients: the compositor never speaks Vulkan to one, it imports
-//! the descriptors a client hands it, and a descriptor outlives the device it
-//! was imported into.
+//! A retained dmabuf buffer remains held while lunette samples its imported image. Re-importing
+//! it against the replacement device restores content without another client commit. Shared
+//! memory is the fallback: its pixels are copied into compositor-owned storage and its client
+//! `wl_buffer` is released during the commit, so it has no buffer to re-import and recovers on a
+//! later commit.
 //!
-//! # Why the buffers are retained rather than dropped
-//!
-//! A retained `wl_buffer` is a buffer the client has been told nothing about
-//! since it committed, so its pixels are still there. Re-importing it against
-//! the new device gives the surface its content back without the client having
-//! drawn anything, which is the difference between a restart the user sees as a
-//! hitch and one they see as every window going blank.
-//!
-//! Shared memory has no equivalent. Its pixels are copied out and the buffer
-//! released within the import that read them, so there is nothing retained to
-//! re-import; a shared-memory surface gets its content back on its next commit.
+//! [`crate::surface::BufferImporter`] runs on the compositor thread and never submits queue
+//! work. The frame thread consumes [`crate::protocol::Event::BufferImported`] events and performs
+//! uploads and other submissions. The importer trait is the graphics boundary used by device-free
+//! tests.
 
 use tracing::{info, warn};
 
@@ -34,17 +27,8 @@ use crate::{
 };
 
 impl CompositorState {
-    /// Gives up every graphics object, so the device may be destroyed.
-    ///
-    /// Dropping the importer is the whole of it: it owns the import cache, the
-    /// images that cache names, and the reference to the device. What survives
-    /// is deliberate — the retained buffers, which
-    /// [`CompositorState::adopt_graphics`] re-imports.
-    ///
-    /// The acknowledgement is reported after the importer has been dropped, not
-    /// before. The main thread destroys the device the moment it sees the
-    /// acknowledgement, so reporting first would put the drop and the
-    /// destruction in a race.
+    /// Drops the device-bound importer before reporting [`Event::GraphicsReleased`]. The frame
+    /// thread destroys the device after receiving that event.
     pub(super) fn release_graphics(&mut self) {
         let previous = std::mem::replace(
             &mut self.importer,
@@ -59,22 +43,14 @@ impl CompositorState {
         self.report(Event::GraphicsReleased);
     }
 
-    /// Takes a new importer and restores what the clients still hold.
+    /// Installs the replacement importer and re-imports each retained dmabuf. Successful
+    /// re-imports report [`Event::BufferImported`] before [`Event::GraphicsAdopted`].
     ///
-    /// Every retained buffer is imported again through the path a commit takes,
-    /// so the frame thread rebuilds its textures from the events it already
-    /// knows how to handle rather than from a second mechanism.
-    ///
-    /// A buffer that cannot be imported against the new device is released to
-    /// its client and counted. The surface then shows nothing until the client
-    /// draws again, which is the correct outcome: the alternative is presenting
-    /// content lunette can no longer read.
+    /// A failed re-import removes the retained buffer, which releases it to the client. The
+    /// surface has no new content until the client commits another buffer.
     pub(super) fn adopt_graphics(&mut self, importer: Box<dyn BufferImporter>) {
         self.importer = importer;
 
-        // Collected first. The import borrows the whole state mutably, and it
-        // both retains and forgets buffers as it goes, so iterating the map it
-        // is mutating is not available.
         let retained: Vec<_> = self
             .buffers
             .entries()
@@ -85,10 +61,6 @@ impl CompositorState {
         let mut failed = 0;
         for (surface, buffer) in retained {
             let Some(content) = self.contents.get(&surface).copied() else {
-                // A buffer is retained only by an import that recorded the
-                // content alongside it, so this cannot happen; forgetting it
-                // releases the buffer rather than leaving one held that nothing
-                // describes.
                 warn!(%surface, "a retained buffer had no recorded content; releasing it");
                 self.buffers.forget(surface);
                 failed += 1;
@@ -98,8 +70,6 @@ impl CompositorState {
             if self.import_dmabuf(surface, &buffer, content.transform, content.scale) {
                 restored += 1;
             } else {
-                // Releases the buffer as well as dropping it, so the client is
-                // free to draw into it again.
                 self.buffers.forget(surface);
                 failed += 1;
             }

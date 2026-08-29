@@ -1,18 +1,12 @@
-//! A compositor that runs on the calling thread, for tests.
+//! Test support for a compositor driven on the calling thread.
 //!
-//! The compositor's own tests must run with no graphics device, no XR runtime,
-//! and no headset attached (`AC9.4`), and they must not touch the filesystem or
-//! the environment. What makes that possible is here: [`TestCompositor`] builds
-//! the real event loop, the real display, and the real handlers, but binds no
-//! listening socket and is stepped by the test rather than by a thread.
+//! [`TestCompositor`] uses the real event loop, display, and handlers. Tests
+//! connect clients with `UnixStream::pair()` and step the compositor directly,
+//! so the harness binds no listening socket and reads or writes no runtime
+//! filesystem, process environment, graphics device, XR runtime, or headset.
 //!
-//! Clients arrive over a `UnixStream::pair()`. One end goes to
-//! `DisplayHandle::insert_client`, the other is the client's. No socket is
-//! bound, no path is written, and `XDG_RUNTIME_DIR` is never read.
-//!
-//! [`RecordingImporter`] stands in for the graphics device. It is the seam the
-//! whole no-GPU property rests on: nothing below it is reachable from this
-//! crate.
+//! [`RecordingImporter`] is the graphics seam. It records import requests and
+//! returns opaque image handles without calling graphics APIs.
 
 #![expect(
     clippy::expect_used,
@@ -57,24 +51,14 @@ use crate::{
     },
 };
 
-/// How long a test waits for a condition before declaring it a failure.
-///
-/// Nothing here waits for a duration. This is only the point at which waiting
-/// for a condition stops being patience and starts being a hang.
+/// Maximum time to wait for a test condition.
 pub const DEADLINE: Duration = Duration::from_secs(5);
 
-/// A compositor thread that accepts every command and answers none.
+/// A compositor thread that accepts commands without sending responses.
 ///
-/// The shape of a compositor wedged behind a flooding client: the command
-/// channel has room, so a send succeeds, and nothing ever comes back. It is the
-/// only way to reach the timeout branch of the restart quiesce, which is the
-/// path a degraded restart takes and therefore the one a caller most needs to
-/// have exercised.
-///
-/// The thread holds the far ends of all three channels, so the handle sees a
-/// live compositor rather than a disconnected one, and parks until
-/// [`SilentCompositor::stop`] releases it — so `CompositorHandle::shutdown`
-/// joins rather than hanging, and no thread outlives the test.
+/// The thread owns the far endpoints of all three channels, so the handle stays
+/// connected while the thread waits. [`SilentCompositor::stop`] releases the
+/// thread before `CompositorHandle::shutdown` joins it.
 #[must_use]
 pub fn silent_compositor() -> (CompositorHandle, SilentCompositor) {
     let (commands, command_channel) = calloop::channel::sync_channel(COMMAND_CAPACITY);
@@ -86,9 +70,8 @@ pub fn silent_compositor() -> (CompositorHandle, SilentCompositor) {
     let thread = thread::Builder::new()
         .name("silent-compositor".to_owned())
         .spawn(move || {
-            // Held for the thread's whole life. Dropping any of them would close
-            // a channel, and a closed channel is the *other* failure — a
-            // compositor that has gone — which this is deliberately not.
+            // Dropping an endpoint closes its channel, which would make the handle appear
+            // disconnected. The endpoints stay alive, so the handle keeps waiting.
             let _channels = (
                 command_channel,
                 EventSender {
@@ -118,15 +101,12 @@ pub fn silent_compositor() -> (CompositorHandle, SilentCompositor) {
     )
 }
 
-/// Releases the thread [`silent_compositor`] parked.
-///
-/// Not a `Drop`: the handle's `shutdown` joins the thread, so the release has to
-/// be something a test can perform *before* it joins rather than something that
-/// happens when the guard falls out of scope.
+/// Releases a silent compositor thread before its handle is joined.
 pub struct SilentCompositor(Arc<(Mutex<bool>, Condvar)>);
 
 impl SilentCompositor {
-    /// Lets the thread return, so that a join can complete.
+    /// Sets the release flag and wakes the parked thread before the handle joins
+    /// it.
     pub fn stop(self) {
         let (flag, released) = &*self.0;
         *flag.lock().expect("the stop flag is not poisoned") = true;
@@ -134,7 +114,6 @@ impl SilentCompositor {
     }
 }
 
-/// A compositor stepped by the caller rather than by a thread.
 pub struct TestCompositor {
     event_loop: CompositorLoop,
     data: LoopData,
@@ -147,14 +126,11 @@ pub struct TestCompositor {
 }
 
 impl TestCompositor {
-    /// Builds a compositor with the default configuration and no graphics
-    /// device.
     #[must_use]
     pub fn new() -> Self {
         Self::with_config(CompositorConfig::default())
     }
 
-    /// Builds a compositor with a configuration of the caller's choosing.
     #[must_use]
     pub fn with_config(config: CompositorConfig) -> Self {
         let (commands, command_channel) = calloop::channel::sync_channel(COMMAND_CAPACITY);
@@ -166,9 +142,8 @@ impl TestCompositor {
 
         let (event_loop, data) = build(Ingredients {
             config,
-            // No listening socket: a test connects over a socket pair, so
-            // nothing is bound, no path is written, and two tests running at
-            // once cannot collide over a display number.
+            // `None` prevents a listener from binding and avoids runtime-path
+            // access; clients use in-process socket pairs.
             socket: None,
             importer: recording_importer(imports.clone()),
             spawner: Box::new(FakeSpawner {
@@ -195,11 +170,8 @@ impl TestCompositor {
         }
     }
 
-    /// Connects a client over a socket pair and hands back the client's end.
-    ///
-    /// The client's end is non-blocking, because both ends live on the same
-    /// thread: a blocking read on the client would wait for a compositor that
-    /// only runs when the test steps it.
+    /// Connects a client over an in-process socket pair. The client end is
+    /// non-blocking because the compositor advances only when the test steps it.
     pub fn connect(&mut self) -> (UnixStream, Client) {
         let (ours, theirs) = UnixStream::pair().expect("a socket pair can always be made");
         theirs
@@ -213,26 +185,16 @@ impl TestCompositor {
             .insert_client(ours, Arc::new(ClientState::default()))
             .expect("the display accepts a client");
 
-        // The same call the listening socket makes, so a test sees the same
-        // attribution a real connection gets.
+        // Attach the client before returning it, so socket-pair clients receive
+        // the same process attribution as listener clients.
         self.data.state.attach_client(&client);
 
         (theirs, client)
     }
 
-    /// Connects a client already assigned to an output.
-    ///
-    /// Per-client output filtering is only meaningful with two clients holding
-    /// two different assignments, and the ordinary route — a spawn naming an
-    /// output, then the child presenting its token — attributes every client
-    /// over a socket pair to the same pid, so two of them cannot hold two
-    /// assignments. The assignment is therefore written directly, which is the
-    /// state `attach_client` produces for a client whose spawn named one.
-    ///
-    /// Written after `connect`, because `attach_client` clears the assignment
-    /// for a process no spawn named an output for. Nothing has been dispatched
-    /// by then: `insert_client` does not dispatch, so the client's own
-    /// `wl_registry` is still unread and the first advertisement sees this.
+    /// Connects a client with a direct output assignment. The assignment follows
+    /// attachment, which clears process-derived assignments, and precedes the
+    /// first dispatch, which advertises filtered outputs.
     pub fn connect_assigned(&mut self, output: OutputId) -> (UnixStream, Client) {
         let (stream, client) = self.connect();
         if let Some(state) = client.get_data::<ClientState>() {
@@ -241,22 +203,15 @@ impl TestCompositor {
         (stream, client)
     }
 
-    /// Runs one round of the event loop, then flushes everything that produced.
-    ///
-    /// Returns immediately when nothing is ready, so a caller stepping in a
-    /// loop spins rather than waits.
+    /// Runs one event-loop round and flushes its output.
     pub fn step(&mut self) {
         self.step_for(Duration::ZERO);
     }
 
-    /// Runs one round, waiting up to `timeout` for something to happen.
-    ///
-    /// The wait is what lets a timer inside the compositor — the one that reaps
-    /// spawned processes — fire without the test sleeping.
+    /// Runs one event-loop round, waiting up to `timeout` for an event.
     pub fn step_for(&mut self, timeout: Duration) {
-        // The body of `thread::run`'s loop callback, in its order, so a test
-        // sees what a running compositor does rather than an approximation of
-        // it.
+        // Keep the same post-dispatch ordering as the running compositor: retire
+        // imports, send frame callbacks, publish state, then flush clients.
         self.event_loop
             .dispatch(timeout, &mut self.data)
             .expect("the event loop dispatches");
@@ -266,23 +221,17 @@ impl TestCompositor {
         drop(self.data.display.flush_clients());
     }
 
-    /// The latest published snapshot.
     #[must_use]
     pub fn snapshot(&self) -> Arc<Snapshot> {
         self.snapshots.load()
     }
 
-    /// Every event reported since the last drain.
     pub fn drain_events(&self) -> Vec<Event> {
         self.events.drain().collect()
     }
 
-    /// Steps until the events collected satisfy `ready`, failing at the
-    /// deadline.
-    ///
-    /// Waits for a condition rather than for a duration: the compositor's own
-    /// timers decide when a process's output and exit are noticed, and a fixed
-    /// sleep long enough for that on one machine is not long enough on another.
+    /// Steps until `ready` accepts the collected events or `DEADLINE` expires.
+    /// It polls the condition; it does not sleep for a fixed duration.
     pub fn collect_events(&mut self, ready: impl Fn(&[Event]) -> bool) -> Vec<Event> {
         let expiry = std::time::Instant::now() + DEADLINE;
         let mut collected = Vec::new();
@@ -302,36 +251,29 @@ impl TestCompositor {
         }
     }
 
-    /// Queues a command, as the main thread would.
     pub fn send(&self, command: Command) {
         self.commands
             .try_send(command)
             .expect("the test compositor is still running and its queue has room");
     }
 
-    /// How many buffers the importer was asked for.
     #[must_use]
     pub fn imports(&self) -> ImportLog {
         self.imports.clone()
     }
 
-    /// What the spawner was asked to start, and the children it handed back.
     #[must_use]
     pub fn spawns(&self) -> SpawnLog {
         self.spawns.clone()
     }
 
-    /// The `/proc` the compositor consults when attributing a client.
     #[must_use]
     pub fn proc(&self) -> FakeInspector {
         self.proc.clone()
     }
 
-    /// What a seat's focused client last asked its cursor to look like.
-    ///
-    /// The one piece of per-seat state no client can observe on another seat's
-    /// behalf, so a test asserting that two seats keep separate cursors has to
-    /// read it from this side.
+    /// Returns cursor state from the compositor because a client cannot observe
+    /// another seat's cursor state.
     #[must_use]
     pub fn cursor_image(&self, seat: SeatId) -> Option<CursorImage> {
         self.data
@@ -344,24 +286,15 @@ impl TestCompositor {
             })
     }
 
-    /// Lets the next `skip` keymap uploads through and fails the `count` after
-    /// them.
-    ///
-    /// `lunette-v1.AC4.3` requires the client's own keymap handling to survive a
-    /// failure part-way through typing, and a real upload fails only on a layout
-    /// that does not compile — which `type_text`'s generator verifies before it
-    /// hands one over. So the failure is injected rather than provoked, and
-    /// `skip` is what decides which upload it lands on.
+    /// Lets `skip` keymap uploads succeed, then fails the next `count` uploads.
+    /// The production path rejects only invalid layouts, so the seam injects a
+    /// failure at a chosen upload to exercise keymap restoration.
     pub fn fail_keymap_uploads(&self, skip: usize, count: usize) {
         self.data.state.fail_keymap_uploads(skip, count);
     }
 
-    /// Moves the compositor's clock forward.
-    ///
-    /// Frame pacing is the one thing here measured against a clock, and the
-    /// intervals are tenths of a second and whole seconds. A test that slept
-    /// for one would be slow and would still be racing the machine it runs on,
-    /// so it moves virtual time instead and steps.
+    /// Advances the compositor's virtual clock. Frame pacing reads this clock,
+    /// so tests avoid sleeping while exercising time-dependent behavior.
     pub fn advance_clock(&mut self, by: Duration) {
         self.data.state.advance_clock(by);
     }
@@ -373,29 +306,19 @@ impl Default for TestCompositor {
     }
 }
 
-/// What a seat's cursor is, in the terms a test asserts on.
-///
-/// A summary of smithay's `CursorImageStatus`, because an integration test does
-/// not depend on smithay and has no way to name that type. Which surface a
-/// client supplied is not carried: what a test about seats needs to tell apart
-/// is a seat whose client set a cursor from one whose client did not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CursorImage {
-    /// The client asked for no cursor at all.
     Hidden,
-    /// A cursor from the theme, which is what a seat starts with.
     Named,
-    /// A surface the client drew itself.
     Surface,
 }
 
-/// What the fake importer was asked to do.
+/// Records importer requests and injected failures.
 #[derive(Clone, Debug, Default)]
 pub struct ImportLog {
     dmabufs: Arc<AtomicU64>,
     shm: Arc<Mutex<Vec<ShmLayout>>>,
-    /// When set, every import is refused with this message. Lets a test drive
-    /// the path where a client's buffer cannot be imported.
+    /// A set refusal makes every subsequent import fail with this message.
     refusal: Arc<Mutex<Option<String>>>,
     sweeps: Arc<AtomicU64>,
 }
@@ -406,8 +329,8 @@ impl ImportLog {
         self.dmabufs.load(Ordering::Relaxed)
     }
 
-    /// How many times the importer has been asked to release what the clients
-    /// no longer hold.
+    /// Returns how often the compositor requests that the importer release retired
+    /// images.
     #[must_use]
     pub fn sweep_count(&self) -> u64 {
         self.sweeps.load(Ordering::Relaxed)
@@ -437,25 +360,19 @@ impl ImportLog {
     }
 }
 
-/// A fake importer reporting into `log`.
 #[must_use]
 pub fn recording_importer(log: ImportLog) -> Box<dyn BufferImporter> {
     Box::new(RecordingImporter { log })
 }
 
-/// Stands in for the graphics device.
-///
-/// It records what it was asked for and answers with a handle that is not a
-/// real image. Nothing in this crate dereferences the handle — that is the
-/// whole point of it crossing the protocol as an opaque integer — so a
-/// fabricated one is indistinguishable from a real one here.
+/// Replaces the graphics device without calling graphics APIs. The fabricated
+/// image handle is an opaque protocol value the crate never dereferences.
 #[derive(Debug)]
 struct RecordingImporter {
     log: ImportLog,
 }
 
 impl RecordingImporter {
-    /// A handle that is deliberately not a valid image.
     fn fabricate(size: PixelSize, format: Fourcc) -> ImportedImage {
         ImportedImage {
             image: ImageHandle::new(0xDEAD_0000_0000_0001).unwrap_or_else(|| unreachable!()),
@@ -467,8 +384,6 @@ impl RecordingImporter {
 }
 
 impl BufferImporter for RecordingImporter {
-    /// Always. A test that wants the no-device path uses the real `NoGraphics`,
-    /// by releasing the graphics as a restart does.
     fn accepts_imports(&self) -> bool {
         true
     }
@@ -509,9 +424,8 @@ impl BufferImporter for RecordingImporter {
             layouts.push(layout);
         }
 
-        // Repacking is the real importer's job and is tested there; the fake
-        // only has to produce a buffer of the right shape, so it produces a
-        // blank one rather than duplicating the arithmetic under test.
+        // Repacking is outside this seam; the return is a buffer with the requested
+        // shape, recorded after the layout is logged.
         let blank = vec![
             0;
             (layout.size.width as usize)
@@ -522,18 +436,13 @@ impl BufferImporter for RecordingImporter {
             .ok_or_else(|| ImportFailed::new("the fake importer packed a buffer of the wrong size"))
     }
 
-    /// Counted rather than acted on: the fake holds no images, so there is
-    /// nothing to release, and what a test needs to see is that the compositor
-    /// asked.
+    /// Records the sweep request without retaining imported images.
     fn sweep(&mut self) {
         self.log.sweeps.fetch_add(1, Ordering::Relaxed);
     }
 }
 
-/// What the fake spawner was asked to start, and the children it handed back.
-///
-/// Cloneable and shared, so a test holds one while the compositor holds the
-/// other and neither has to reach into the other's state.
+/// Records spawn requests and shares control of fake children between clones.
 #[derive(Clone, Debug, Default)]
 pub struct SpawnLog {
     inner: Arc<Mutex<SpawnLogState>>,
@@ -548,28 +457,25 @@ struct SpawnLogState {
 }
 
 impl SpawnLog {
-    /// Everything the compositor asked to be started, in order.
+    /// Returns spawn requests in submission order.
     #[must_use]
     pub fn requested(&self) -> Vec<SpawnPlan> {
         self.with(|state| state.requested.clone())
     }
 
-    /// Makes every subsequent spawn fail, as a mistyped program name does.
+    /// Makes subsequent spawns fail with the supplied I/O error reason.
     pub fn refuse(&self, reason: &str) {
         self.with(|state| state.refusal = Some(reason.to_owned()));
     }
 
-    /// Ends the nth child that was started.
     pub fn finish(&self, index: usize, outcome: ProcessOutcome) {
         self.child(index, |child| child.outcome = Some(outcome.clone()));
     }
 
-    /// Makes the nth child appear to have written something.
     pub fn write(&self, index: usize, stream: Stream, bytes: &[u8]) {
         self.child(index, |child| child.output.push((stream, bytes.to_vec())));
     }
 
-    /// Every signal the nth child's process group was sent.
     #[must_use]
     pub fn signals(&self, index: usize) -> Vec<ProcessSignal> {
         let mut signals = Vec::new();
@@ -577,7 +483,6 @@ impl SpawnLog {
         signals
     }
 
-    /// The pid the nth child was given.
     #[must_use]
     pub fn pid(&self, index: usize) -> Option<Pid> {
         let mut pid = None;
@@ -603,7 +508,7 @@ impl SpawnLog {
     }
 }
 
-/// A spawner that starts nothing and records what it was asked for.
+/// A spawner seam that records requests and returns controllable fake children.
 #[derive(Debug, Default)]
 pub struct FakeSpawner {
     pub log: SpawnLog,
@@ -644,10 +549,8 @@ struct FakeChildState {
     outcome: Option<ProcessOutcome>,
     output: Vec<(Stream, Vec<u8>)>,
     signals: Vec<ProcessSignal>,
-    /// Whether the child has been waited on, tracked exactly as the real one
-    /// tracks it. The fake carries this because the rule it guards — that a
-    /// reaped pid is never signalled — is the whole reason a test would look at
-    /// [`SpawnLog::signals`] after a child has exited.
+    /// Tracks whether the child has been reaped. A reaped child's process-group
+    /// identifier must not receive signals because the kernel can reuse it.
     liveness: Liveness,
 }
 
@@ -699,21 +602,17 @@ impl ChildProcess for FakeChild {
 }
 
 impl Drop for FakeChild {
-    /// Mirrors `SystemChild`'s drop, which asks a still-running child's process
-    /// group to stop and leaves a reaped one alone.
-    ///
-    /// Without this the fake would be silent on exactly the path the real one is
-    /// dangerous on, and a test could not tell the two apart.
+    /// Matches the real child lifecycle: a running child's process group is
+    /// terminated and the child is marked reaped; a reaped child receives no signal.
     fn drop(&mut self) {
         self.signal(ProcessSignal::Terminate);
         self.with(|state| state.liveness = Liveness::Reaped);
     }
 }
 
-/// A `/proc` that answers from a table rather than from the filesystem.
-///
-/// A test that wants a client attributed to a process plants that process's
-/// token against the connecting pid, which over a socket pair is the test's own.
+/// A process inspector backed by in-memory tables, not `/proc`.
+/// Environment blocks use the same NUL-separated, byte-preserving format as
+/// `/proc/<pid>/environ`.
 #[derive(Clone, Debug, Default)]
 pub struct FakeInspector {
     environments: Arc<Mutex<HashMap<i32, Vec<u8>>>>,
@@ -721,15 +620,15 @@ pub struct FakeInspector {
 }
 
 impl FakeInspector {
-    /// Sets a process's whole environment block, NUL-separated as `/proc` has
-    /// it.
+    /// Sets a process environment block in the NUL-separated format used by
+    /// `/proc/<pid>/environ`.
     pub fn set_environment(&self, pid: i32, block: Vec<u8>) {
         if let Ok(mut environments) = self.environments.lock() {
             environments.insert(pid, block);
         }
     }
 
-    /// Sets a single variable in a process's environment.
+    /// Encodes one variable as `key=value\0` in the process environment block.
     pub fn set_variable(&self, pid: i32, key: &str, value: &[u8]) {
         let mut block = Vec::new();
         block.extend_from_slice(key.as_bytes());
@@ -739,7 +638,7 @@ impl FakeInspector {
         self.set_environment(pid, block);
     }
 
-    /// Makes a process appear to have ended.
+    /// Makes `is_running` report that the process no longer exists.
     pub fn kill(&self, pid: i32) {
         if let Ok(mut dead) = self.dead.lock() {
             dead.push(pid);

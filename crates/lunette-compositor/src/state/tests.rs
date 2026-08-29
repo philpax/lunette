@@ -1,10 +1,6 @@
-//! Tests for [`crate::state`].
-//!
-//! What a client sees over the protocol — the globals, mapping, retitling,
-//! disconnection, and pointer routing — is covered by the integration suite in
-//! `tests/`, which reaches the crate through its public API. What is here is
-//! everything that needs `pub(crate)` access, plus the command paths a client
-//! cannot drive on its own.
+//! These tests cover state paths that require `pub(crate)` access or commands
+//! clients cannot send directly. Client-visible protocol behavior is covered by
+//! the integration suite.
 
 #![expect(
     clippy::expect_used,
@@ -31,7 +27,6 @@ use crate::{
     testing::TestCompositor,
 };
 
-/// A compositor with one mapped window, and the client that owns it.
 fn with_one_window() -> (TestCompositor, TestClient) {
     let mut compositor = TestCompositor::new();
     let mut client = TestClient::connect(&mut compositor);
@@ -46,11 +41,8 @@ fn only_window(compositor: &TestCompositor) -> WindowSnapshot {
     snapshot.windows[0].clone()
 }
 
-/// A compositor that accepts linear `argb8888` over `zwp_linux_dmabuf_v1`.
-///
-/// The formats normally come from the graphics device. A test has none, so it
-/// names the one the fake importer accepts, which is all the dmabuf path needs
-/// to be reachable.
+/// Supplies the linear `argb8888` format that the fake importer accepts.
+/// Tests have no graphics device to provide dmabuf formats.
 fn accepting_dmabuf() -> CompositorConfig {
     CompositorConfig {
         dmabuf: DmabufSupport {
@@ -76,7 +68,8 @@ fn a_surface_falling_back_to_shared_memory_releases_the_dmabuf_it_held() {
         "a dmabuf is held for as long as lunette samples it"
     );
 
-    // The fallback a client makes when modifier negotiation changes under it.
+    // A shared-memory commit replaces the dmabuf when modifier negotiation
+    // changes.
     client.attach_buffer(&mut compositor, PixelSize::new(640, 480));
     client.settle(&mut compositor, |driver| !driver.released.is_empty());
 
@@ -86,7 +79,6 @@ fn a_surface_falling_back_to_shared_memory_releases_the_dmabuf_it_held() {
     );
 }
 
-/// The surface an event names, for the events that name one.
 fn surface_of(event: &Event) -> Option<crate::protocol::SurfaceId> {
     match event {
         Event::BufferImported { surface, .. }
@@ -98,10 +90,8 @@ fn surface_of(event: &Event) -> Option<crate::protocol::SurfaceId> {
 
 #[test]
 fn destroying_a_surface_that_is_not_a_window_reports_it_gone() {
-    // The regression: a cursor surface, a popup, and a subsurface all commit
-    // buffers, so each becomes a texture on the frame thread. Only a toplevel
-    // is ever reported closed, so without this event the frame thread held a
-    // texture over an image the compositor had already retired.
+    // Non-toplevel surfaces also create frame-thread textures, so destruction
+    // must report `SurfaceGone` for their retired images.
     let (mut compositor, mut client) = with_one_window();
     let cursor = client.open_plain_surface(&mut compositor, PixelSize::new(24, 24));
 
@@ -152,8 +142,6 @@ fn unmapping_a_window_reports_the_surface_gone_after_the_window_closed() {
     let (mut compositor, mut client) = with_one_window();
     drop(compositor.drain_events());
 
-    // A null buffer unmaps a toplevel, and the protocol lets the client map it
-    // again by committing another.
     client.detach_buffer(&mut compositor);
 
     let events = compositor.drain_events();
@@ -175,10 +163,6 @@ fn unmapping_a_window_reports_the_surface_gone_after_the_window_closed() {
 
 #[test]
 fn a_dispatch_sweeps_the_importer_even_though_it_imported_nothing() {
-    // Retirement was driven by imports alone, so a client that disconnected —
-    // or fell quiet — left its images held for the life of the process, and
-    // the live count the shutdown path logs described buffers freed long
-    // before.
     let (mut compositor, client) = with_one_window();
     let imports = compositor.imports();
     let (sweeps, dmabufs) = (imports.sweep_count(), imports.dmabuf_count());
@@ -382,7 +366,7 @@ fn a_spawned_process_output_is_reported_as_bytes() {
     }));
     compositor.step();
 
-    // Not UTF-8, which a child's output is under no obligation to be.
+    // Child output is arbitrary bytes, not guaranteed UTF-8.
     compositor.spawns().write(0, Stream::Stderr, &[0xFF, b'!']);
 
     let events = compositor.collect_events(|events| {
@@ -453,9 +437,8 @@ fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
     }));
     compositor.step();
 
-    // The connecting pid over a socket pair is the test's own, which is not
-    // the pid the spawner reported — exactly the shape a shell wrapper or a
-    // flatpak sandbox produces, and the reason the token exists.
+    // Wrappers and Flatpak launchers connect with a different PID, so
+    // attribution falls back to the authentication token.
     let plan = compositor.spawns().requested();
     let token = plan[0]
         .env
@@ -483,8 +466,6 @@ fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
     );
 }
 
-/// A configuration with a bound display and an x11 bridge, as the entry
-/// point would build it.
 fn with_display() -> CompositorConfig {
     CompositorConfig {
         display: Some(crate::client::DisplayName::for_test(20)),

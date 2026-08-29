@@ -5,48 +5,34 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-# The `closed_set!` macro, for the connector kinds the kernel names.
 lunette-luau.workspace = true
-# The uinput device: the `input_event` and `uinput_setup` structures, plus
-# `ioctl`, `write`, and `memfd_create`. The ioctl request numbers and the
-# event-type constants are not in `libc` and are written out in
-# `src/hid/evdev.rs`; see that file for why `input-linux` is not taken instead.
+# The Linux input ABI constants and ioctl requests are defined in
+# `src/hid/evdev.rs`. That file documents the reasons the crate does not use `input-linux`.
 libc.workspace = true
-# The frame queue's lock. Every span under it is a push or a pop with no await
-# and no reentry, which is what the non-poisoning guard is for.
+# The frame queue uses a synchronous lock and never holds it across an await, so a
+# non-poisoning guard is sufficient.
 parking_lot.workspace = true
-# The monitor identity that keys a restore token, and the file that holds them.
-# `derive` is what the identity types are written with; the format is `toml`.
 serde = { workspace = true, features = ["derive"] }
-# A frame carries at most four planes, so the usual case allocates nothing.
+# A frame has at most four planes, so the usual case fits in the inline buffer.
 smallvec.workspace = true
-# The restore-token file's format. A serialised format rather than a hand-rolled
-# encoding because the file holds a monitor's make and model, which is whatever
-# its EDID says: quoting and escaping arbitrary text is exactly the kind of tail
-# that is not worth handrolling. Already in the tree, so it costs no new crate.
+# Serializes restore tokens as TOML. The file contains arbitrary EDID text.
+# Handling its quoting and escaping in a hand-rolled format is error-prone.
 toml.workspace = true
 tracing.workspace = true
-# The `wl_virtual` input provider and the `wl_output` enumeration talk to the
-# host compositor directly, as a client. Already in the tree beneath
-# wlx-capture, so neither adds a crate.
 wayland-client.workspace = true
-# `zxdg_output_manager_v1`, which reports each output's logical geometry — the
-# space a screencast stream's position and size are correlated against.
-# `unstable` is what gates the `zv1` protocols.
+# The `unstable` feature exposes the `zv1` module used for logical output
+# geometry through `zxdg_output_manager_v1`.
 wayland-protocols = { workspace = true, features = ["client", "unstable"] }
-# `zwp_virtual_keyboard_v1`. It lives in the misc set rather than the wlr one
-# because it started as a GNOME-adjacent proposal, but only wlroots implements
-# it, so it travels with `zwlr_virtual_pointer_v1` in practice.
+# `zwp_virtual_keyboard_v1` is generated in the misc protocol set, although
+# wlroots implements it.
 wayland-protocols-misc = { workspace = true, features = ["client"] }
-# `zwlr_virtual_pointer_v1`.
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 
 [features]
-# The scripted portal that stands in for xdg-desktop-portal, and the recording
-# input provider that stands in for uinput and the host compositor. Off by
-# default so a release build carries none of it; the crate's own unit tests
-# reach them through `cfg(test)`.
+# Enables the scripted portal and recording input provider used by tests. The
+# feature is off by default; the crate's unit tests enable the modules with
+# `cfg(test)`, while integration tests enable them through this feature.
 test-fakes = []
 
 [dev-dependencies]

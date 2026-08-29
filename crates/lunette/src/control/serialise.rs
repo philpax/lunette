@@ -1,61 +1,56 @@
-//! Turning what a chunk returned into something that fits down the socket.
+//! Converts a chunk's return values into [`crate::control::wire::Value`], the
+//! shape the protocol carries to the client. Values with no wire form raise
+//! [`SerialiseError`]s that name the offending path.
 //!
-//! [`crate::control::wire::Value`] is the shape; this is the conversion into it,
-//! and the refusals that keep the conversion honest.
+//! # Unrepresentable values are errors
 //!
-//! # Nothing is dropped silently
+//! Functions, coroutines, userdata that is not a lunette handle, and tables
+//! used as keys have no wire form. Each raises an error naming the path to the
+//! offending value. `CONTRIBUTING.md` calls dropping content that cannot be
+//! represented a correctness bug, and [the Lua API]
+//! (../../../docs/lua-api.md#lunctl) criticises awesome's remote control for
+//! its `tostring` fallback. A chunk can remove an unrepresentable value before
+//! returning it.
 //!
-//! Functions, coroutines, and userdata that is not a lunette handle have no wire
-//! form, and neither does a table used as a key. Each is an error naming the
-//! path to the offending value, not a `tostring` fallback — dropping content that
-//! cannot be represented is a correctness bug per `CONTRIBUTING.md`, and the
-//! `tostring` fallback is exactly what
-//! [the Lua API](../../../docs/lua-api.md#lunctl) criticises awesome's remote
-//! control for. A caller that wants to ignore an unrepresentable value can strip
-//! it in the chunk, where it knows what it is looking at.
+//! # Conversion decisions
 //!
-//! # The awkward cases, each with an answer
-//!
-//! - **Cycles are an error**, not a back-reference. A back-reference would be
-//!   more faithful, and it would make the value tree a graph that every consumer
-//!   — including `lunctl`'s own renderer — has to be total over. A chunk that
-//!   wants to inspect a cyclic structure can break the cycle itself.
-//! - **Shared subtables are duplicated**, and identity is not preserved. That
-//!   follows from the line above: with no back-references there is nothing to
-//!   share with. [`MAX_NODES`] is what keeps a wide directed acyclic graph from
-//!   expanding without bound, and it produces a clean error rather than an
-//!   allocation failure. It is consulted as each key is read as well as as each
-//!   value is converted, so a single table too wide to carry is refused while it
-//!   is being collected rather than after it has been.
-//! - **Mixed array and hash parts both survive.** `{1, 2, x = 3}` is one Lua
+//! - Cycles raise an error. The protocol has no back-reference form. A
+//!   back-reference would be more faithful, and it would make the value tree a
+//!   graph that every consumer, including `lunctl`'s renderer, must be total
+//!   over. A chunk can break a cycle itself before returning the table.
+//! - Shared subtables are duplicated, and identity is not preserved. With no
+//!   back-reference there is nothing to share with. [`MAX_NODES`] bounds the
+//!   reply, and a table too wide to carry is refused during collection.
+//! - Mixed array and hash parts both convert. `{1, 2, x = 3}` is one Lua
 //!   value, and `TableValue` carries both halves.
-//! - **`nil` holes end the array part** and everything past one is carried under
+//! - `nil` holes end the array part, and everything past one is carried under
 //!   its integer key. The length operator is never consulted, because a table
 //!   with a hole gives it no single answer.
-//! - **NaN, the infinities, and negative zero travel as their bits.** A number
-//!   that is whole and fits an `i64` becomes an integer; everything else becomes
-//!   a float, so nothing is rounded into a form it did not have.
-//! - **Metamethods are not honoured.** Traversal is raw, so what is serialised is
-//!   what the table actually holds. `__index` can fabricate fields that do not
-//!   exist and `__pairs` can hide ones that do, and a wire format whose contents
-//!   depend on which of those a caller installed is not an inspection tool.
+//! - NaN, the infinities, and negative zero are carried by their bits. A
+//!   number that is whole and fits an `i64` becomes an integer; every other
+//!   number becomes a float. No number is rounded into a different form.
+//! - Metamethods are not honoured. Traversal is raw, so what is serialised is
+//!   what the table holds. `__index` can fabricate fields that do not exist,
+//!   and `__pairs` can hide fields that do. A wire format whose contents
+//!   depend on which metamethods a caller installed is not an inspection tool.
 //!
-//! `docs/lua-api.md` records all of this as a decision rather than as an
-//! implementation detail.
+//! `docs/lua-api.md` records these choices as decisions, not as implementation
+//! details.
 //!
 //! # Handles are identifiers, never addresses
 //!
 //! A handle serialises as its kind and the identity the session keys it on
-//! (`docs/architecture.md`). Not `tostring(handle)`: addresses are reused after
-//! collection, so an id derived from one could come to refer to a different
-//! object — a defect that appears only under memory pressure. It is not the
-//! userdata's identity in any case, since a fresh one is minted on every read;
-//! `win.id` and its siblings are the stable thing, which is what this reads.
+//! (`docs/architecture.md`). The identity is not `tostring(handle)`. Addresses
+//! are reused after collection, so an id derived from one can come to refer to
+//! a different object. The failure occurs when memory pressure makes the
+//! allocator reuse the address. The identity is not the userdata's either,
+//! because a fresh userdata is created on every read. `win.id` and its
+//! siblings are stable, and the serialiser reads those.
 //!
 //! A handle is recognised by [`HANDLE_METAFIELD`] on its metatable, which is
 //! invisible to ordinary Lua indexing and is declared by each handle type
-//! alongside its fields. A userdata without it — a LÖVR `Texture`, say — is
-//! unrepresentable and says so.
+//! alongside its fields. A userdata without it, a LÖVR `Texture` for instance,
+//! is unrepresentable and raises an error.
 
 use std::{collections::HashSet, error::Error, ffi::c_void, fmt};
 
@@ -68,23 +63,22 @@ use crate::control::{
 
 /// The metatable field each native handle is tagged with.
 ///
-/// A metafield rather than a field, so it does not appear in `pairs` and is not
-/// reachable through ordinary indexing: mlua routes a userdata's `__index` to
-/// the fields it was registered with, and this is not one of them.
+/// A metafield does not appear in `pairs` and is not reachable through
+/// ordinary indexing. mlua routes a userdata's `__index` to the fields the
+/// type registered, and the field is not one of them.
 pub const HANDLE_METAFIELD: &str = "__lunettehandle";
 
 /// How many values one reply may carry, counting every key and every value of
 /// every table.
 ///
-/// A cap turns a pathological structure — a wide directed acyclic graph, a table
-/// of every window's every property — into a clean error rather than into an
-/// allocation that fails somewhere unrelated.
+/// The cap turns a pathological structure, a wide directed acyclic graph or a
+/// table of every window's every property, into a clean error. Without the
+/// cap, an allocation fails somewhere unrelated.
 ///
-/// A key counts because a key is materialised: the traversal copies every key it
-/// reads before it converts any of the values, so counting only values would let
-/// one very wide table allocate without bound before the cap was consulted. The
-/// consequence is that a table of scalars is bounded at half this many entries,
-/// which is the honest reading of "how much one reply carries".
+/// A key counts because the traversal materialises it: every key is copied
+/// before any value is converted. A count of values alone would let one very
+/// wide table allocate without bound until the cap is consulted. A table of
+/// scalars holds at most half this many entries.
 pub const MAX_NODES: usize = 200_000;
 
 /// Converts a chunk's return values.
@@ -108,8 +102,9 @@ pub fn results(values: MultiValue) -> Result<Vec<Value>, SerialiseError> {
 
 /// [`results`], boxed for `crate::control::eval::evaluate`.
 ///
-/// The seam takes a boxed error so that the evaluation does not have to know
-/// what a serialiser is; this is the adaptor rather than a second conversion.
+/// The evaluation requires a boxed error and does not depend on the
+/// serialiser's type. `render` boxes the error and performs no second
+/// conversion.
 ///
 /// # Errors
 ///
@@ -121,9 +116,9 @@ pub fn render(values: MultiValue) -> Result<Vec<Value>, Box<dyn Error + Send + S
 /// Why a value could not be put on the wire.
 #[derive(Debug)]
 pub enum SerialiseError {
-    /// A value with no wire form at all.
+    /// A value with no wire form.
     Unrepresentable { path: ValuePath, kind: String },
-    /// Userdata carrying a handle tag this build does not know.
+    /// A userdata carrying a handle tag unknown to this build.
     UnknownHandle { path: ValuePath, name: String },
     /// A table that reaches itself.
     Cycle { path: ValuePath },
@@ -133,10 +128,10 @@ pub enum SerialiseError {
     TooManyNodes { limit: usize },
     /// Reading the value raised.
     ///
-    /// The cause is rendered rather than kept: the answer this becomes crosses
-    /// a thread to reach the client, and `mlua::Error` is neither `Send` nor
-    /// `Sync` because it can hold a Lua value. Keeping it would make the whole
-    /// error unable to leave the Lua thread, which is where it has to go.
+    /// The cause is rendered as a string. The error crosses a thread to reach
+    /// the client, and `mlua::Error` is neither `Send` nor `Sync` because it
+    /// can hold a Lua value. Keeping the cause would make the error unable to
+    /// leave the Lua thread.
     Lua { path: ValuePath, cause: String },
 }
 
@@ -175,10 +170,10 @@ impl fmt::Display for SerialiseError {
 
 impl Error for SerialiseError {}
 
-/// Where in the returned values something sits.
+/// Where in the returned values something is.
 ///
-/// Rendered when the error is built rather than carried as a live borrow, so an
-/// error outlives the traversal that produced it.
+/// The path is rendered when the error is built. It is not carried as a live
+/// borrow, so the error outlives the traversal that produced it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValuePath(String);
 
@@ -194,8 +189,8 @@ impl fmt::Display for ValuePath {
 struct Walk {
     path: Vec<Step>,
     /// The tables on the path from the root to here, by address. A cycle is a
-    /// table that is already on it; a table that merely appears twice in
-    /// different branches is not one, and is duplicated.
+    /// table that is already on it; a table that appears twice in different
+    /// branches is not one, and is duplicated.
     open: Vec<*const c_void>,
     nodes: usize,
 }
@@ -227,13 +222,13 @@ impl Walk {
 enum Step {
     Result(usize),
     Index(i64),
-    /// A string key that reads as an identifier.
+    /// A string key that is an identifier, rendered as a name.
     Field(String),
     /// Every other key, rendered as a subscript.
     Key(String),
 }
 
-/// The step a key leads through, so an error names the way a reader would.
+/// The path step a key renders as, in the form a caller would write for it.
 fn step_for(key: &Key) -> Step {
     match key {
         Key::Integer(index) => Step::Index(*index),
@@ -265,21 +260,21 @@ fn convert(walk: &mut Walk, value: &LuaValue) -> Result<Value, SerialiseError> {
     }
 }
 
-/// A Lua number, as an integer where that is exact and as a float otherwise.
+/// A Lua number, as an integer where the conversion is exact and as a float
+/// otherwise.
 ///
-/// LuaJIT holds every number as a double, so the distinction is made here rather
-/// than read off the value: a whole number inside `i64` is carried as one, and
-/// everything else — a fraction, a magnitude past `i64`, an infinity, a NaN — is
-/// carried by its bits.
+/// LuaJIT holds every number as a double, so the distinction is drawn here.
+/// A whole number inside `i64` is carried as one; a fraction, a magnitude
+/// past `i64`, an infinity, and a NaN are carried by their bits.
 fn number_value(number: f64) -> Value {
-    // The bounds are what make the cast exact. `i64::MAX` is not representable
-    // as a double, so the comparison is against the next double below it.
+    // The bounds make the cast exact. `i64::MAX` is not representable as a
+    // double, so the comparison uses the next double below it.
     const UPPER: f64 = 9_223_372_036_854_775_295.0;
     const LOWER: f64 = -9_223_372_036_854_775_808.0;
 
     if number.fract() == 0.0 && (LOWER..=UPPER).contains(&number) {
-        // Negative zero is a whole number, and it is not the integer zero: the
-        // sign is information a caller can see, so it stays a float.
+        // Negative zero is a whole number and is not the integer zero. Its
+        // sign is visible to a caller, so it stays a float.
         if number != 0.0 || number.is_sign_positive() {
             return Value::Integer(number as i64);
         }
@@ -306,16 +301,14 @@ fn convert_table(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError
 }
 
 fn table_body(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError> {
-    // `Table::pairs` traverses with `lua_next`, which is raw: `__pairs` is not
-    // consulted and `__index` cannot fabricate an entry. That is the decision
-    // recorded in `docs/lua-api.md`, not an accident of the API.
+    // `Table::pairs` traverses with `lua_next`, which is raw. `__pairs` is
+    // not consulted, and `__index` cannot fabricate an entry. `docs/lua-api.md`
+    // records this as a decision.
     let mut pairs = Vec::new();
     for pair in table.pairs::<LuaValue, LuaValue>() {
-        // Counted here rather than once the traversal reaches the values: every
-        // key is copied into `pairs` as it is read, so a table wide enough to
-        // exhaust the cap would otherwise be fully materialised before anything
-        // noticed. A key is a node, which is what makes the cap a bound on this
-        // loop as well as on the tree below it.
+        // The traversal copies every key into `pairs` as it reads it. Counting
+        // the keys here bounds the copy loop; a count of values alone would
+        // materialise a too-wide table before the cap is consulted.
         walk.count()?;
         let (key, value) = pair.map_err(|cause| SerialiseError::Lua {
             path: walk.here(),
@@ -324,9 +317,9 @@ fn table_body(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError> {
         pairs.push((convert_key(walk, &key)?, value));
     }
 
-    // The contiguous run from 1, found by looking rather than by asking: a table
-    // with a `nil` hole gives the length operator no single answer, and the
-    // entries past the hole belong under their integer keys.
+    // The contiguous run from 1 is found by looking, not by the length
+    // operator: a table with a `nil` hole gives the operator no single answer,
+    // and entries past the hole belong under their integer keys.
     let indices: HashSet<i64> = pairs
         .iter()
         .filter_map(|(key, _)| match key {
@@ -345,8 +338,8 @@ fn table_body(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError> {
         match key {
             Key::Integer(index) if index >= 1 && index <= length => {
                 walk.path.push(Step::Index(index));
-                // The index is in `1 ..= length` and `length` came from a
-                // `usize`, so both conversions are exact.
+                // The index is in `1 ..= length`, and `length` fits a `usize`,
+                // so both conversions are exact.
                 let slot = usize::try_from(index - 1).unwrap_or(0);
                 array[slot] = convert(walk, &value)?;
                 walk.path.pop();
@@ -380,9 +373,9 @@ fn convert_key(walk: &mut Walk, key: &LuaValue) -> Result<Key, SerialiseError> {
 }
 
 fn convert_handle(walk: &mut Walk, userdata: &AnyUserData) -> Result<Value, SerialiseError> {
-    // A userdata mlua did not register — a LÖVR `Texture`, for instance — has no
-    // metatable this can read, and the failure is the right answer rather than
-    // something to report as a fault.
+    // A userdata without a metatable, a LÖVR `Texture` for instance, is not
+    // a handle and has no wire form. The branch below refuses such a value;
+    // the refusal is a routine outcome, not a fault.
     let tagged = userdata
         .metatable()
         .and_then(|metatable| metatable.get::<Option<String>>(HANDLE_METAFIELD))
@@ -415,9 +408,9 @@ fn convert_handle(walk: &mut Walk, userdata: &AnyUserData) -> Result<Value, Seri
         LuaValue::Integer(number) => Some(HandleId::Number(number)),
         LuaValue::Number(number) => Some(match number_value(number) {
             Value::Integer(number) => HandleId::Number(number),
-            // A handle identifier that is not whole is a defect in whatever
-            // minted it, and rounding one here would produce an id naming a
-            // different object.
+            // A handle identifier that is not whole is a defect in the code
+            // that produced it. Rounding the id would produce an identifier
+            // naming a different object.
             _ => {
                 return Err(SerialiseError::Unrepresentable {
                     path: walk.here(),
@@ -449,11 +442,11 @@ mod tests {
     use super::*;
     use crate::control::wire::{Reply, read_reply, write_reply};
 
-    /// A handle of each shape, standing in for the session's own.
+    /// A fake handle that covers each id shape.
     ///
-    /// A fake rather than a `Window`: what is under test is the tagging
-    /// convention, and building a real handle needs a session, a snapshot, and a
-    /// texture that none of this reads.
+    /// The tests substitute a fake for a `Window`. A real handle needs a
+    /// session, a snapshot, and a texture that none of the tests reads; the
+    /// tagging convention is the behaviour under test.
     struct FakeHandle {
         id: Option<i64>,
         text: Option<String>,
@@ -544,8 +537,8 @@ mod tests {
 
     #[test]
     fn a_nested_table_survives_the_wire() {
-        // The property that earns its place: this is a public wire protocol, so
-        // what came out of Lua has to be what arrives at `lunctl`.
+        // The wire protocol is public, so what came out of Lua has to be what
+        // arrives at `lunctl`. This test exercises both directions.
         let values = returned("return { title = 'a window', size = { 1920, 1080 } }")
             .expect("it serialises");
 
@@ -573,7 +566,8 @@ mod tests {
 
     #[test]
     fn a_nil_hole_ends_the_array_and_what_follows_keeps_its_integer_key() {
-        // `#t` gives a table with a hole no single answer, so it is never asked.
+        // The length operator gives a table with a hole no single answer,
+        // and the test never calls it.
         let values = returned("local t = {1, 2} t[4] = 4 return t").expect("it serialises");
 
         let table = table_of(&values[0]);
@@ -603,8 +597,9 @@ mod tests {
         assert_eq!(path.to_string(), "result 1.inner.back");
     }
 
-    /// A table reachable twice by different routes is not a cycle. It is
-    /// duplicated, and identity is not preserved — the documented answer.
+    /// A table reachable twice by different routes is not a cycle. The table is
+    /// duplicated, and identity is not preserved. The module documentation
+    /// records this as a decision.
     #[test]
     fn a_shared_subtable_is_duplicated_rather_than_refused() {
         let values = returned("local shared = { 1 } return { first = shared, second = shared }")
@@ -674,8 +669,9 @@ mod tests {
         );
     }
 
-    /// The userdata is minted fresh on every read, so the wire form has to agree
-    /// across two reads of the same thing. The id is what makes that true.
+    /// The userdata is created fresh on every read, so the wire form has to
+    /// agree across two reads of the same thing. The two forms are equal
+    /// because both carry the same id.
     #[test]
     fn two_reads_of_the_same_window_serialise_alike() {
         let values = returned("return window(7), window(7)").expect("it serialises");
@@ -685,7 +681,7 @@ mod tests {
 
     #[test]
     fn a_handle_with_a_text_id_serialises_as_text() {
-        // A monitor's saved identity, which is a string rather than a number.
+        // A monitor's saved identity is a string, not a number.
         let values = returned("return namedHandle('Acme X24')").expect("it serialises");
 
         assert_eq!(
@@ -697,8 +693,9 @@ mod tests {
         );
     }
 
-    /// A handle for something that has gone still serialises. Its id names an
-    /// object nothing will answer for, which is inert rather than misleading.
+    /// A handle whose object no longer exists still serialises. Its id names
+    /// an object nothing will answer for; the value is inert, and no consumer
+    /// mistakes it for a live handle.
     #[test]
     fn a_handle_with_no_id_serialises_as_one_without() {
         let values = returned("return idlessHandle()").expect("it serialises");
@@ -714,8 +711,8 @@ mod tests {
 
     #[test]
     fn userdata_that_is_not_a_handle_is_refused_rather_than_stringified() {
-        // A LÖVR `Texture` is exactly this case, and `tostring` on one is what
-        // the design rejects awesome for.
+        // A LÖVR `Texture` is exactly this case. The design rejects awesome's
+        // `tostring` fallback for it.
         let error = returned("return untagged()").expect_err("it is not a handle");
 
         assert!(
@@ -777,13 +774,13 @@ mod tests {
         );
     }
 
-    /// The cap has to bound the collecting loop, not only the conversion that
+    /// The cap has to bound the collecting loop and the conversion that
     /// follows it. A table whose entries alone exhaust it is refused while it is
     /// being read, so the keys are never all copied at once.
     #[test]
     fn a_single_table_too_wide_to_carry_is_refused_while_it_is_being_collected() {
-        // Under half the cap in entries, so counting only values would let this
-        // through and materialise every key first.
+        // The table has under half the cap in entries, so a count restricted
+        // to values would let it through and materialise every key first.
         let values = returned(&format!(
             "local t = {{}} for i = 1, {} do t[i] = i end return t",
             MAX_NODES / 2 + 1
@@ -812,8 +809,8 @@ mod tests {
             ),
             ("return { [true] = function() end }", "result 1[true]"),
             ("return { [1.5] = function() end }", "result 1[1.5]"),
-            // A reserved word is not a name, so it is written the way a reader
-            // would have had to write it.
+            // A reserved word is not a name, so the path writes it the way a
+            // caller must write it.
             (
                 "local t = {} t['end'] = function() end return t",
                 "result 1['end']",

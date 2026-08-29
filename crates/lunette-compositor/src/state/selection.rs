@@ -1,19 +1,8 @@
-//! What the clipboard and the primary selection do, in both directions.
+//! Bridges clipboard and primary-selection offers between the host and one seat.
 //!
-//! Split from [`crate::state::compositor`] for the reason [`crate::state::input`]
-//! is: that file owns the globals and the state they are served from, and this
-//! one owns what happens when a selection changes. The vocabulary — MIME types,
-//! offer identifiers, the bridge seat — lives in [`crate::selection`], which has
-//! no smithay state in it and can be reasoned about on its own.
-//!
-//! Three paths meet here.
-//!
-//! - A lunette client sets a selection, and if it did so on the bridge seat the
-//!   offer is published to the host.
-//! - The host sets a selection, and it is offered to the bridge seat as a
-//!   compositor-owned selection whose user data names the offer it came from.
-//! - Either side asks the other for the bytes, and a descriptor is passed
-//!   through. Nothing here reads or writes one.
+//! Client-owned selections reach the host only from the bridge seat. Host-owned
+//! selections are advertised on that seat as compositor-owned offers, carrying
+//! the host offer identity so later reads use the offered identity.
 
 use std::os::fd::OwnedFd;
 
@@ -41,23 +30,18 @@ use crate::{
 };
 
 impl CompositorState {
-    /// Gives a seat's data devices the client that now holds its keyboard.
+    /// Selection offers follow keyboard focus for both selection protocols.
     ///
-    /// Both selections, because a client that is focused for one and not the
-    /// other would see half a clipboard. Without this no client is ever offered
-    /// a selection at all: `wl_data_device` delivers an offer only to the
-    /// focused client, which is the protocol's own rule.
+    /// Wayland sends an offer only to the client focused on the seat.
     pub(super) fn focus_selection(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         let client = focused.and_then(|surface| surface.client());
         set_data_device_focus(&self.display, seat, client.clone());
         set_primary_focus(&self.display, seat, client);
     }
 
-    /// A client set, or cleared, one of its seat's selections.
-    ///
-    /// Only the bridge seat reaches the host. Another seat's selection is stored
-    /// by smithay against that seat and is offered to the clients focused on it,
-    /// which is what makes two hands able to hold two different clipboards.
+    /// Publishes or withdraws a client-owned selection only when it belongs to the
+    /// bridge seat. Other seats retain independent selections for their focused
+    /// clients.
     pub(super) fn client_selection(
         &mut self,
         kind: SelectionKind,
@@ -80,11 +64,8 @@ impl CompositorState {
             .filter_map(MimeType::new)
             .collect();
 
-        // A source that advertises nothing can answer no request, so publishing
-        // it would put a selection on the host that every paste comes back empty
-        // from. Taking lunette's own offer off says the same thing honestly —
-        // and does nothing at all when lunette had no offer there, because the
-        // host's clipboard then belongs to something on the desktop.
+        // A source without MIME types cannot answer a request. Withdraw only
+        // lunette's host offer; do not publish an empty selection.
         if mimes.is_empty() {
             self.selection.withdraw_from_host(kind);
             return;
@@ -92,11 +73,10 @@ impl CompositorState {
         self.selection.publish_to_host(kind, &mimes);
     }
 
-    /// A client asked to read the selection lunette took from the host.
+    /// Forwards a client request for a host-owned selection to the host.
     ///
-    /// The descriptor is the client's own pipe. It goes to the host connection
-    /// unread, and the host's clipboard owner writes into it directly; a refusal
-    /// closes it, which the client sees as an empty paste.
+    /// The pipe belongs to the client. The host writes the requested bytes into
+    /// it, or the compositor closes it when the request is refused.
     pub(super) fn serve_selection(&mut self, mime: &str, pipe: OwnedFd, offer: &HostOffer) {
         let resolved = self.selection.resolve(offer, mime);
         let Some(host) = self.selection.host() else {
@@ -122,18 +102,12 @@ impl CompositorState {
         }
     }
 
-    /// Names the seat whose selections are the host desktop's, or takes the
-    /// bridge away.
+    /// Changes the seat whose selections are bridged to the host.
     ///
-    /// The change takes effect where every other mutation does: this runs when
-    /// the command is applied, and the snapshot that reports it is published at
-    /// the end of the same tick.
-    ///
-    /// A selection the new seat already held is *not* pushed to the host. Only a
-    /// compositor-owned selection can be read back, and one a client owns cannot
-    /// be re-advertised without asking that client for a MIME list smithay does
-    /// not expose. The next copy on the seat crosses; the one from before the
-    /// bridge moved does not.
+    /// The new bridge state is reported with the next state snapshot. An existing
+    /// client-owned selection on the new seat is not re-advertised because
+    /// Smithay does not expose its MIME list; a later selection change is
+    /// forwarded.
     pub(super) fn set_clipboard_bridge(&mut self, seat: Option<SeatId>) {
         if let Some(wanted) = seat
             && self.seats.get(wanted).is_none()
@@ -163,19 +137,8 @@ impl CompositorState {
         self.touch();
     }
 
-    /// Detaches a seat from the host: lunette's offer comes off the host, and
-    /// the host's offers come off the seat.
-    ///
-    /// Both halves, because leaving either would be a seat that still speaks for
-    /// the host in one direction — a paste on the desktop reaching a hand that
-    /// no longer owns the clipboard, or a stale offer sitting on a seat nothing
-    /// refreshes.
-    ///
-    /// Neither half touches a selection lunette does not own. The stale-offer
-    /// argument holds only for the compositor-owned selection lunette put on the
-    /// seat from the host; a selection a lunette client set is that client's,
-    /// and destroying it because the bridge moved would break a copy that had
-    /// nothing to do with the host.
+    /// Removes compositor-owned offers in both directions when a bridge moves.
+    /// Client-owned selections remain on their seat.
     fn unbridge(&mut self, seat: SeatId) {
         for &kind in SelectionKind::ALL {
             self.selection.withdraw_from_host(kind);
@@ -183,21 +146,14 @@ impl CompositorState {
         }
     }
 
-    /// Clears one of a seat's selections, but only when lunette is what put it
-    /// there.
-    ///
-    /// `current_*_selection_userdata` answers `Some` only for an
-    /// `OfferReplySource::Compositor`, which is exactly "lunette advertised this
-    /// on the seat's behalf". A client's own source answers `None` and is left
-    /// alone.
+    /// Clears a selection only when its user data identifies it as compositor-owned.
     fn clear_lunettes_selection(&mut self, seat: SeatId, kind: SelectionKind) {
         let Some(entry) = self.seats.get(seat) else {
             return;
         };
         let handle = entry.seat().clone();
 
-        // The borrow is scoped, because the clear below takes the same `RefCell`
-        // mutably and holding a read across it would panic.
+        // Drop the read borrow before the clear mutably borrows the same `RefCell`.
         let ours = match kind {
             SelectionKind::Clipboard => current_data_device_selection_userdata(&handle).is_some(),
             SelectionKind::Primary => current_primary_selection_userdata(&handle).is_some(),
@@ -213,7 +169,6 @@ impl CompositorState {
         }
     }
 
-    /// Applies one report from the host desktop's clipboard.
     pub(crate) fn host_selection(&mut self, event: HostEvent) {
         match event {
             HostEvent::Offered { kind, offer, mimes } => {
@@ -247,12 +202,9 @@ impl CompositorState {
         }
     }
 
-    /// Offers what the host holds to the bridge seat.
-    ///
-    /// The MIME list is the host's own, unchanged. The [`HostOffer`] rides along
-    /// as smithay's `SelectionUserData`, which is how a later read is matched
-    /// against the offer it was made from rather than against whatever the host
-    /// holds by then.
+    /// Advertises the host offer's unchanged MIME list on the bridge seat.
+    /// The stored identity binds later reads to this offer, even after the host
+    /// announces a replacement offer.
     fn offer_to_bridge(&mut self, offer: &HostOffer) {
         let Some(seat) = self.bridge_seat() else {
             return;
@@ -268,8 +220,6 @@ impl CompositorState {
         }
     }
 
-    /// Takes the host's offer off the bridge seat, leaving anything a lunette
-    /// client owns alone.
     fn clear_on_bridge(&mut self, kind: SelectionKind) {
         let Some(seat) = self.selection.seat() else {
             return;
@@ -277,20 +227,14 @@ impl CompositorState {
         self.clear_lunettes_selection(seat, kind);
     }
 
-    /// The host asked for the bytes behind a selection a lunette client owns.
-    ///
-    /// The descriptor goes straight to that client. `request_*_client_selection`
-    /// refuses a MIME type the client's source does not carry, which is the same
-    /// rule the other direction follows and for the same reason.
+    /// Forwards a host request for a client-owned selection to the bridge seat.
+    /// The client-side selection source rejects MIME types that it does not offer.
     fn host_wants_bytes(&mut self, kind: SelectionKind, mime: &MimeType, pipe: OwnedFd) {
         let Some(seat) = self.bridge_seat() else {
             debug!(%kind, "the host asked for a selection no seat is bridged to");
             return;
         };
 
-        // The two calls return two different `SelectionRequestError` types, so
-        // the message is taken here rather than the error being carried out of
-        // the match; what a caller does with either is report it.
         let refused = match kind {
             SelectionKind::Clipboard => {
                 request_data_device_client_selection(&seat, mime.as_str().to_owned(), pipe)
@@ -308,7 +252,6 @@ impl CompositorState {
         }
     }
 
-    /// The bridge seat, as the smithay handle every selection call takes.
     fn bridge_seat(&self) -> Option<Seat<Self>> {
         let id = self.selection.seat()?;
         match self.seats.get(id) {
@@ -320,7 +263,6 @@ impl CompositorState {
         }
     }
 
-    /// Reports what the clipboard bridge is doing, once, at startup.
     pub(super) fn report_bridge(&self) {
         match (self.selection.seat(), self.selection.host().is_some()) {
             (Some(seat), true) => info!(%seat, "the host clipboard is bridged to this seat"),

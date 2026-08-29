@@ -5,10 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-# Optional so that the crates below lunette can name their Luau types without
-# taking a Lua binding with them: lunette-compositor's tests run headless, and
-# a closed set declaring its union is not a reason to link mlua. `lunette`
-# turns this on, and the leaf impls for mlua's own types come with it.
+# mlua is optional. The crates below lunette can name their Luau types without
+# taking a Lua binding with them. lunette-compositor's tests run headless.
+# A closed set declaring its union is not a reason to link mlua. The `mlua`
+# feature adds the impls for mlua's own types. `lunette` enables the feature.
 mlua = { workspace = true, optional = true }
 
 [lints]

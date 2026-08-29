@@ -1,34 +1,19 @@
-//! Ported from WayVR (https://github.com/wayvr-org/wayvr), backend/wayvr/mod.rs (the surface-buffer fragments), at commit 98f800c644719d3f23a20e50bd3237c29a8082cb.
+//! Adapted from WayVR's `backend/wayvr/mod.rs` surface-buffer fragments at commit
+//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! What a client last committed to a surface, and who owns the buffer behind
-//! it.
+//! Per-surface state for the compositor's commit path.
 //!
-//! Three concerns live here, all of them per-surface bookkeeping the commit
-//! path in [`crate::state`] reaches for.
+//! [`SurfaceRegistry`] maps compositor-thread `wl_surface` object IDs to stable
+//! [`SurfaceId`] values that can cross to the main thread.
 //!
-//! [`SurfaceRegistry`] names surfaces. The protocol identifies a `wl_surface`
-//! by an `ObjectId`, which is meaningless outside this thread, so every surface
-//! the compositor reports on is given a [`SurfaceId`] the main thread can hold.
+//! [`RetainedBuffers`] holds each surface's client buffer while lunette samples it.
+//! It releases a buffer when the surface stops using it, so the client can reuse it
+//! only after sampling ends.
 //!
-//! [`RetainedBuffers`] implements the release rule. WayVR keeps the current
-//! dmabuf's `wl_buffer` alive in surface user data and releases the previous
-//! one on the next commit (`mod.rs:1351-1383`, released at `comp.rs:255-258`).
-//! Lunette keeps the same rule but in ordinary compositor state rather than
-//! `UserData`: `UserData` records the inserting thread and only drops a
-//! non-threadsafe payload on that thread, leaking otherwise
-//! (`smithay-0.7.0/src/utils/user_data.rs:91-102`), which for a surface
-//! destroyed off-thread would leak the retained buffer. The compositor thread
-//! is the only writer either way, so the `RefCell` upstream needs is gone.
-//!
-//! Losing the rule is not a cosmetic regression: a client that is not told a
-//! buffer is finished with reuses it, and lunette then samples a buffer being
-//! drawn into.
-//!
-//! [`BufferImporter`] is the seam between a committed buffer and an image on
-//! the graphics device. The implementation lives in `lunette`, because this
-//! crate must not gain a graphics dependency; a fake stands in for it in tests,
-//! which is what keeps the suite runnable with no device present.
+//! [`BufferImporter`] separates Wayland buffer handling from graphics-device
+//! imports. The graphics implementation is in `lunette`, while this crate
+//! supplies the seam used by device-free compositor tests.
 
 use std::collections::HashMap;
 
@@ -43,12 +28,10 @@ use smithay::{
 
 use crate::protocol::{ImportedImage, PixelSize, SurfaceId};
 
-/// Names every surface the compositor has reported on.
+/// Maps compositor-thread surface objects to stable identifiers.
 ///
 /// Identifiers are minted in order and never reused, so a stale [`SurfaceId`]
-/// held by the main thread cannot come to mean a different surface. The
-/// counter is 64-bit and advances once per surface, so exhausting it is not a
-/// case worth handling.
+/// cannot refer to a different surface.
 #[derive(Debug, Default)]
 pub(crate) struct SurfaceRegistry {
     ids: HashMap<ObjectId, SurfaceId>,
@@ -56,7 +39,7 @@ pub(crate) struct SurfaceRegistry {
 }
 
 impl SurfaceRegistry {
-    /// The surface's identifier, minting one if this is the first sighting.
+    /// Returns the stable identifier for a surface, minting one on first sight.
     pub(crate) fn id_for(&mut self, surface: &WlSurface) -> SurfaceId {
         if let Some(id) = self.ids.get(&surface.id()) {
             return *id;
@@ -70,32 +53,26 @@ impl SurfaceRegistry {
         id
     }
 
-    /// The surface's identifier, if it has one. Does not mint.
+    /// Returns a surface's identifier without minting one.
     pub(crate) fn get(&self, surface: &WlSurface) -> Option<SurfaceId> {
         self.ids.get(&surface.id()).copied()
     }
 
     /// Whether an identifier still names a live surface.
-    ///
-    /// A linear scan, and deliberately: this answers a question the main thread
-    /// asks a few times per window, and a second index would have to be kept
-    /// consistent with this one for no gain.
     #[must_use]
     pub(crate) fn knows(&self, id: SurfaceId) -> bool {
         self.ids.values().any(|known| *known == id)
     }
 
-    /// Drops a destroyed surface's identifier, returning what it was.
+    /// Removes a destroyed surface's identifier and returns it.
     pub(crate) fn forget(&mut self, surface: &WlSurface) -> Option<SurfaceId> {
         self.ids.remove(&surface.id())
     }
 }
 
-/// Something a client can be told it may draw into again.
+/// A buffer that can be released to its client.
 ///
-/// A trait rather than `WlBuffer` directly so the release rule can be tested
-/// without a connected client. The rule is the part worth testing; the protocol
-/// call is one line.
+/// This seam lets tests verify buffer lifetime without a Wayland connection.
 pub(crate) trait ReleasableBuffer {
     fn release(&self);
 }
@@ -106,11 +83,10 @@ impl ReleasableBuffer for WlBuffer {
     }
 }
 
-/// The buffers lunette is still reading from, one per surface.
+/// The buffer lunette is still sampling for each surface.
 ///
-/// Holding one is what stops a client reusing it. Every path that stops reading
-/// goes through this type, so there is no way to drop a retained buffer without
-/// telling the client.
+/// A retained buffer is not released until sampling stops, which prevents the
+/// client from drawing into memory that lunette is still reading.
 #[derive(Debug)]
 pub(crate) struct RetainedBuffers<B> {
     retained: HashMap<SurfaceId, B>,
@@ -125,19 +101,10 @@ impl<B> Default for RetainedBuffers<B> {
 }
 
 impl<B: ReleasableBuffer + PartialEq> RetainedBuffers<B> {
-    /// Takes ownership of a surface's new buffer and releases the one it
-    /// replaces.
+    /// Retains a surface's buffer and releases the buffer it replaces.
     ///
-    /// The release happens here rather than at the call site because a caller
-    /// that forgets it produces a client drawing into a buffer lunette is
-    /// sampling, which shows up as tearing rather than as an error.
-    ///
-    /// Retaining the buffer already held is a no-op rather than a release.
-    /// Two paths reach it: a client that commits the same `wl_buffer` twice
-    /// without changing it, and the re-import a restart performs against the
-    /// buffers it kept. Releasing there would tell the client it may draw into
-    /// a buffer lunette is still sampling, which is the exact failure the rule
-    /// exists to prevent.
+    /// Retaining the same buffer is a no-op. Re-importing a retained buffer during
+    /// a graphics restart must not release it while lunette still samples it.
     pub(crate) fn retain(&mut self, surface: SurfaceId, buffer: B) {
         let Some(previous) = self.retained.insert(surface, buffer) else {
             return;
@@ -147,21 +114,16 @@ impl<B: ReleasableBuffer + PartialEq> RetainedBuffers<B> {
         }
     }
 
-    /// Every buffer still held, by the surface it belongs to.
+    /// Iterates retained buffers with their surface identifiers.
     ///
-    /// For the re-import a restart performs: these are the buffers whose
-    /// content survived the graphics device being destroyed, and re-importing
-    /// them is what stops every client having to redraw.
+    /// The graphics restart uses these buffers to re-import content without a new
+    /// client commit.
     pub(crate) fn entries(&self) -> impl Iterator<Item = (SurfaceId, &B)> {
         self.retained
             .iter()
             .map(|(surface, buffer)| (*surface, buffer))
     }
 
-    /// Releases a surface's buffer and stops tracking it.
-    ///
-    /// Called when the surface is destroyed, when its client disconnects, and
-    /// when a commit removes the buffer without attaching another.
     pub(crate) fn forget(&mut self, surface: SurfaceId) {
         if let Some(buffer) = self.retained.remove(&surface) {
             buffer.release();
@@ -174,80 +136,47 @@ impl<B: ReleasableBuffer + PartialEq> RetainedBuffers<B> {
     }
 }
 
-/// Turns a committed client buffer into an image on the graphics device.
+/// Imports committed client buffers without coupling the compositor to graphics APIs.
 ///
-/// The implementation lives in `lunette`, which owns the device; this crate
-/// only knows that an import either produced a handle or did not. Keeping the
-/// graphics code on the far side of this trait is what lets the compositor's
-/// tests run with no device, no runtime, and no headset (`AC9.4`).
-///
-/// The compositor thread calls this, so an implementation may create images and
-/// allocate memory but must not submit work to a queue: the queue belongs to
-/// the frame thread.
+/// Implementations run on the compositor thread. They may create images and allocate
+/// memory, but must not submit queue work because the frame thread owns the queue.
+/// This seam also lets compositor tests run without a graphics device.
 pub trait BufferImporter: Send + std::fmt::Debug {
     /// Imports a client's dmabuf.
     ///
-    /// The `Dmabuf` owns its file descriptors and closes them when it drops, so
-    /// an implementation that hands one to the graphics API duplicates it
-    /// first.
+    /// The `Dmabuf` owns its file descriptors and closes them on drop. An
+    /// implementation that transfers a descriptor to the graphics API must duplicate it.
     fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> Result<ImportedImage, ImportFailed>;
 
-    /// Repacks a client's shared-memory buffer.
+    /// Copies a client's shared-memory buffer into tightly packed pixels.
     ///
-    /// `pixels` is a mapping of the client's pool and is valid only for the
-    /// duration of the call, so an implementation copies out of it before
-    /// returning.
-    ///
-    /// The return type differs from [`BufferImporter::import_dmabuf`] because
-    /// the two paths reach the device by different routes. A dmabuf becomes an
-    /// image through `vkCreateImage` and `vkAllocateMemory`, neither of which
-    /// touches a queue, so the compositor thread may do it. A shared-memory
-    /// buffer becomes a texture through an upload, and only the thread that
-    /// owns the queue may submit one — so this path stops at plain pixels and
-    /// the frame thread finishes the job.
+    /// The compositor copies `pixels` from the client's pool mapping before this
+    /// call and does not pass the mapping to the importer. The slice does not
+    /// outlive this call, and the frame thread uploads the returned pixels
+    /// because it owns the graphics queue.
     fn import_shm(&mut self, pixels: &[u8], layout: ShmLayout)
     -> Result<PixelBuffer, ImportFailed>;
 
-    /// Whether an import can succeed at all.
+    /// Whether the importer can accept dmabuf objects from the client.
     ///
-    /// False only while a restart has taken the graphics device away. The
-    /// distinction is not cosmetic: `zwp_linux_buffer_params_v1.create_immed`
-    /// answers a failed import with a protocol error, which disconnects the
-    /// client, so a compositor with no device must accept a client's buffer
-    /// object and refuse it later at the commit — where refusing costs the
-    /// client a redraw rather than its connection.
-    ///
-    /// Answered by the importer rather than tracked beside it, so there is one
-    /// source of truth for whether a device is lent.
+    /// A graphics restart returns `false` while no device is available. The dmabuf
+    /// protocol must still acknowledge buffer creation: rejecting the import there
+    /// disconnects the client, while rejecting the buffer at commit lets it redraw.
     fn accepts_imports(&self) -> bool;
 
-    /// Releases whatever the implementation holds for buffers the client has
-    /// destroyed.
+    /// Drops cached imports whose client buffers are no longer alive.
     ///
-    /// An implementation that caches imports keys the cache weakly, so an entry
-    /// becomes collectable once the compositor drops the `wl_buffer` it retained
-    /// — but nothing notices that on its own. The compositor calls this whenever
-    /// a surface's content goes away and once per dispatch, so a client that
-    /// disconnects or falls quiet does not leave its images held for the life of
-    /// the process.
+    /// Implementations with weak cache keys must sweep after dispatch and when a
+    /// surface releases content, because dropping a `wl_buffer` does not sweep the cache.
     fn sweep(&mut self);
 }
 
-/// An importer that refuses everything, for the window in which lunette has no
-/// graphics device.
+/// An importer used while a graphics restart has no device available.
 ///
-/// A restart destroys the `VkDevice` the real importer was built against, so
-/// between [`Command::ReleaseGraphics`] and [`Command::AdoptGraphics`] there is
-/// nothing to import into. Refusing is the correct answer rather than a
-/// degraded one: the commit path releases a buffer it could not import, the
-/// surface keeps the content it already had, and the client is free to draw
-/// again.
-///
-/// A `None` importer would say the same thing, but every call site would then
-/// have to remember which of the two states it is in. This says it once.
-///
-/// [`Command::ReleaseGraphics`]: crate::protocol::Command::ReleaseGraphics
-/// [`Command::AdoptGraphics`]: crate::protocol::Command::AdoptGraphics
+/// It rejects imports so the commit path releases the client buffer and preserves
+/// the surface's previous content until the client draws again. The compositor keeps
+/// this implementation and does not use an optional importer, so every call follows
+/// the same stateful interface.
 #[derive(Debug)]
 pub(crate) struct NoGraphics;
 
@@ -268,18 +197,15 @@ impl BufferImporter for NoGraphics {
         Err(ImportFailed::new(NO_DEVICE))
     }
 
-    /// Nothing is held, so there is nothing to release.
     fn sweep(&mut self) {}
 }
 
 const NO_DEVICE: &str = "lunette has no graphics device while a restart is in progress";
 
-/// Tightly packed pixels, on their way to a texture upload.
+/// Compositor-owned pixels packed as `width * height * 4` bytes for texture upload.
 ///
-/// Tightly packed means what it says: the client's stride padding is gone, and
-/// `pixels` is exactly `width * height * 4` bytes. The invariant is checked at
-/// construction rather than asserted at use, so a consumer computing an offset
-/// into it does not have to re-derive whether it holds.
+/// Construction rejects any other length, so consumers can use the dimensions without
+/// repeating the size check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PixelBuffer {
     size: PixelSize,
@@ -288,11 +214,6 @@ pub struct PixelBuffer {
 }
 
 impl PixelBuffer {
-    /// Wraps pixels that match their own declared dimensions.
-    ///
-    /// Returns nothing when they do not, which is the only failure available: a
-    /// buffer of the wrong length is a defect in whatever packed it, not
-    /// something a caller can correct.
     #[must_use]
     pub fn new(size: PixelSize, format: ShmFormat, pixels: Vec<u8>) -> Option<Self> {
         let expected = usize::try_from(size.width)
@@ -323,12 +244,6 @@ impl PixelBuffer {
     }
 }
 
-/// Why a buffer could not be imported.
-///
-/// A message rather than a category, because every case is reported the same
-/// way — the buffer is released, the surface keeps its previous contents, and
-/// the reason is logged — and inventing categories nothing branches on would be
-/// a guess.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportFailed {
     message: String,
@@ -351,36 +266,31 @@ impl std::fmt::Display for ImportFailed {
 
 impl std::error::Error for ImportFailed {}
 
-/// How a shared-memory buffer's bytes are arranged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShmLayout {
     pub size: PixelSize,
-    /// Bytes per row, which the client may pad beyond the row's own width.
+    /// Bytes per row, including any client padding.
     pub stride: u32,
     pub format: ShmFormat,
 }
 
-/// A shared-memory pixel format lunette accepts.
+/// A shared-memory pixel format supported by lunette.
 ///
-/// Only the two `wl_shm` mandates. Anything further is a client opting into a
-/// format the importer would have to be taught, and WayVR restricts this path
-/// the same way (`image_importer.rs:66-72`) while accepting more for dmabuf.
+/// Lunette accepts the two formats required by `wl_shm`; other protocol
+/// formats are rejected, since an importer without support for them cannot
+/// accept them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ShmFormat {
-    /// Little-endian `[B, G, R, A]`.
+    /// Little-endian bytes in `[B, G, R, A]` order.
     Argb8888,
-    /// Little-endian `[B, G, R, X]`. The fourth byte carries no alpha, so a
-    /// consumer forces it to one rather than sampling it.
+    /// Little-endian bytes in `[B, G, R, X]` order. The importer sets the fourth
+    /// byte to opaque alpha before upload.
     Xrgb8888,
 }
 
 impl ShmFormat {
-    /// Four for both variants, and named so a stride calculation does not
-    /// hard-code it.
     pub const BYTES_PER_PIXEL: u32 = 4;
 
-    /// Recognises a protocol format, rejecting the ones lunette does not
-    /// import.
     #[must_use]
     pub fn from_protocol(format: wl_shm::Format) -> Option<Self> {
         match format {
@@ -391,11 +301,7 @@ impl ShmFormat {
     }
 }
 
-/// How a client asked its buffer to be interpreted before it is displayed.
-///
-/// Ported from `wl_transform_to_frame_transform` (`comp.rs:696-710`), which
-/// converts to `wlx_capture`'s enum. Lunette does not depend on `wlx-capture`
-/// here, so the same eight cases land on a type of this crate's own.
+/// A client's requested buffer transform before display.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BufferTransform {
     #[default]
@@ -410,11 +316,10 @@ pub enum BufferTransform {
 }
 
 impl BufferTransform {
-    /// Recognises a protocol transform.
+    /// Converts a protocol transform when it is known to this implementation.
     ///
-    /// `wl_output::Transform` is non-exhaustive, so a value from a future
-    /// protocol version has no meaning here and is reported as such rather than
-    /// silently becoming `Normal`.
+    /// Unknown values are rejected; a value unknown to this implementation is
+    /// not treated as `Normal`.
     #[must_use]
     pub fn from_protocol(transform: wl_output::Transform) -> Option<Self> {
         match transform {
@@ -430,7 +335,6 @@ impl BufferTransform {
         }
     }
 
-    /// Whether the transform exchanges the buffer's width and height.
     #[must_use]
     pub const fn swaps_axes(self) -> bool {
         matches!(
@@ -440,12 +344,10 @@ impl BufferTransform {
     }
 }
 
-/// The integer scale a client says its buffer is drawn at.
+/// A positive integer buffer scale from `wl_surface.set_buffer_scale`.
 ///
-/// `wl_surface.set_buffer_scale` is a positive integer by protocol, and a
-/// surface that has never set one is at 1. Zero and negatives are a protocol
-/// error rather than a value to clamp, which is why construction rejects them
-/// instead of taking WayVR's `.max(1)` (`comp.rs:186`).
+/// A surface that has not set a scale uses 1. Zero and negative values are
+/// rejected as protocol errors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BufferScale(u32);
 
@@ -477,21 +379,20 @@ impl Default for BufferScale {
     }
 }
 
-/// What a client last committed to a surface.
+/// The size, transform, and scale from a surface's last committed buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SurfaceContent {
-    /// The buffer's size in its own pixels, before the scale is applied.
+    /// The buffer's size in its own pixels, before scaling.
     pub(crate) size: PixelSize,
     pub(crate) transform: BufferTransform,
     pub(crate) scale: BufferScale,
 }
 
 impl SurfaceContent {
-    /// The size the surface occupies in logical pixels.
+    /// Returns the surface size in logical pixels.
     ///
-    /// A rotating transform exchanges the axes, and the scale divides both.
-    /// WayVR computes this at `comp.rs:182-191` without the transform, which is
-    /// correct only while every client is unrotated.
+    /// Quarter-turn transforms exchange the axes before the positive buffer scale
+    /// divides both dimensions.
     pub(crate) fn logical_size(self) -> PixelSize {
         let (width, height) = if self.transform.swaps_axes() {
             (self.size.height, self.size.width)
@@ -515,8 +416,7 @@ mod tests {
 
     use super::*;
 
-    /// Records which buffers were released, in order, so a test can assert the
-    /// rule rather than the protocol call.
+    /// Records releases in order for buffer-lifetime assertions.
     #[derive(Clone, Debug, PartialEq)]
     struct CountedBuffer {
         name: &'static str,
@@ -571,9 +471,7 @@ mod tests {
         );
     }
 
-    /// Telling a client it may reuse a buffer lunette is still sampling is the
-    /// failure the retention rule exists to prevent, and retaining the same
-    /// buffer twice is the way to reach it without a second buffer existing.
+    /// Retaining the same buffer must not release it while sampling continues.
     #[test]
     fn retaining_the_buffer_already_held_releases_nothing() {
         let released = Rc::new(RefCell::new(Vec::new()));

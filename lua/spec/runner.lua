@@ -1,33 +1,32 @@
 -- Runs the `lua/spec/` suites and reports what failed.
 --
--- The standard library is Lua and the workspace's checks compile Rust, so
+-- The standard library is Lua, and the workspace's checks compile Rust, so
 -- nothing else in the tree would run this code. `crates/lunette/tests/
--- mullion_spec.rs` drives it inside the real binary, which is where a real
--- LuaJIT and a real `lovr.filesystem` are: the devshell ships no standalone
--- interpreter, and the mount the specs are required through is LÖVR's virtual
--- filesystem rather than the process's.
+-- mullion_spec.rs` runs it inside the binary, where a LuaJIT and a
+-- `lovr.filesystem` are available. The devshell ships no standalone
+-- interpreter. The specs are required through a mount on LÖVR's virtual
+-- filesystem, not the process's.
 --
--- Discovery is separated from running, and both take their outside world as an
--- argument. `discover` is handed a directory lister; `run` is handed the suites
--- it is to run. Nothing here reaches for `lovr`, so the runner is exercised by
--- its own spec without a filesystem at all.
+-- Discovery is separated from running, and each takes its outside world as an
+-- argument. `discover` takes a directory lister; `run` takes the suites to
+-- run. The runner never requires `lovr`, so its own spec exercises it with a
+-- fake filesystem.
 
 local suite = require '@spec/suite'
 
 local runner = {}
 
--- The suffix a spec file's name ends with, and the extension it carries.
 local SPEC_SUFFIX = '_spec.lua'
 
 -- Module names for every spec file under `directory`, in sorted order.
 --
 -- `filesystem` is a table of `list(path)`, returning the names directly inside
 -- a directory, and `isDirectory(path)`. `lovr.filesystem` supplies both under
--- different names; the fixture adapts it, so this stays testable against a
+-- different names. The fixture adapts it, so this stays testable against a
 -- table of strings.
 --
--- `prefix` is the module path `directory` is reached by, with its trailing slash:
--- `@spec/mullion/` for `@spec/mullion`.
+-- `prefix` is the module path `directory` is reached by, with its trailing
+-- slash: `@spec/mullion/` for `@spec/mullion`.
 function runner.discover(filesystem, directory, prefix)
   local names = {}
 
@@ -50,9 +49,9 @@ end
 
 -- Requires each named module and returns the suites they hand back.
 --
--- A spec file that returns something other than a suite is an error rather than
--- a skip: a file under `lua/spec/` that runs nothing is a file whose coverage
--- was silently lost.
+-- A spec file that returns something other than a suite is an error, not a
+-- skip: a file under `lua/spec/` that runs nothing loses its coverage
+-- silently.
 function runner.collect(names)
   local suites = {}
   for _, name in ipairs(names) do
@@ -68,13 +67,13 @@ end
 -- Runs every case of every suite and returns what happened.
 --
 -- The result is `{ total = n, failures = { { suite, case, message } } }`. Each
--- case runs under `xpcall` with a traceback, because one case raising must not
--- stop the rest: a run that reports every failure is one round of fixing, and a
--- run that reports the first is as many rounds as there are failures.
+-- case runs under `xpcall` with a traceback. One case raising must not stop
+-- the rest: a run that reports every failure is one round of fixing, and a run
+-- that reports the first is as many rounds as there are failures.
 --
 -- `onCaseFinished` is optional and is called with no arguments after each case.
 -- The fixture uses it to drain LÖVR's temporary-vector pool, which is otherwise
--- only drained at a frame boundary and this run never reaches one.
+-- drained at a frame boundary and this run never reaches one.
 function runner.run(suites, onCaseFinished)
   local results = { total = 0, failures = {} }
 
@@ -100,7 +99,6 @@ function runner.run(suites, onCaseFinished)
   return results
 end
 
--- What `run` produced, as one string to print.
 function runner.format(results)
   local lines = {}
   for _, failure in ipairs(results.failures) do

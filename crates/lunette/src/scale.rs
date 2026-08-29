@@ -1,31 +1,29 @@
 //! The discrete steps lunette quantises a continuous scale or size to.
 //!
-//! Two things want the same ladder. The layer pool quantises a requested panel
-//! size before it becomes a pool key, so that a panel resized continuously by a
-//! drag settles on a rung the free list already holds instead of allocating a
-//! `Layer` per frame — and every allocation can block, which is what
-//! [`crate::layers`] records. `wp_fractional_scale_v1` carries a scale in
-//! 120ths and wants a small set of values rather than a continuum, both for
-//! that reason and because a client re-lays-out on every change it is told
-//! about.
+//! Two consumers use the same ladder. The layer pool quantises a requested
+//! panel size before it becomes a pool key, so a panel resized continuously by
+//! a drag stabilises on a rung the free list already holds and does not
+//! allocate a `Layer` per frame. Every `Layer` allocation can block;
+//! [`crate::layers`] records the constraint. `wp_fractional_scale_v1` carries
+//! a scale in 120ths and accepts a small set of values for the same reason,
+//! and because a client re-lays out on every change it is told about.
 //!
-//! So there is one ladder and one place to tune it, and the two stay consistent
-//! by construction rather than by anyone remembering.
+//! One ladder and one place to tune it keep the two consumers consistent by
+//! construction.
 //!
-//! # How a size is quantised against a ladder of scales
+//! # Rungs of the ladder
 //!
 //! The rungs are the steps applied to a base cell and to every doubling of it:
 //! 128 pixels, then 128 times each step, then 256 times each step, and so on.
-//! Only the steps below 2x take part, because the doubling already covers the
-//! rest and including them would produce a denser ladder — more distinct keys,
-//! and a lower free-list hit rate, which is the thing the ladder exists to
-//! raise.
+//! The steps below 2x take part; the doubling covers the rest. Including the
+//! higher steps would produce a denser ladder: more distinct keys, and a lower
+//! free-list hit rate, the rate the ladder exists to raise.
 
 /// A scale factor on the ladder, in 120ths of one.
 ///
-/// 120ths rather than a float because that is the unit `wp_fractional_scale_v1`
-/// carries. Keeping the protocol's own unit makes the set finite, exactly
-/// comparable, and free of a conversion at the boundary that reports it.
+/// 120ths is the unit `wp_fractional_scale_v1` carries, not a float. Keeping
+/// the protocol's own unit makes the set finite, exactly comparable, and free
+/// of a conversion at the boundary that reports it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScaleStep(u32);
 
@@ -71,20 +69,20 @@ pub const MIN_DIMENSION: u32 = 128;
 
 /// The largest rung.
 ///
-/// Every device lunette targets accepts a 8192-pixel image, and a layer larger
-/// than this is a mistake rather than a request: at four bytes a pixel a square
-/// one already costs 256 MiB a swapchain image.
+/// Every device lunette targets accepts an 8192-pixel image. Only layers at or
+/// below this size are legitimate requests: at four bytes a pixel, a square
+/// layer at the limit costs 256 MiB per swapchain image.
 pub const MAX_DIMENSION: u32 = 8192;
 
 /// Rounds one dimension up to the ladder.
 ///
-/// Up rather than to the nearest, because a layer smaller than the surface
-/// being shown on it discards pixels the client already rendered, which is the
-/// one thing a composition layer exists to avoid.
+/// The rounding direction is up, not to the nearest rung: a layer smaller
+/// than the surface shown on it discards pixels the client already rendered,
+/// and a composition layer exists to avoid that loss.
 ///
 /// `None` for a zero dimension. A layer with no extent has no swapchain to
-/// allocate, and answering with the smallest rung would turn a caller's mistake
-/// into a silently wrong-sized panel.
+/// allocate, and answering with the smallest rung would turn a caller's
+/// mistake into a silently wrong-sized panel.
 #[must_use]
 pub fn quantize_dimension(pixels: u32) -> Option<u32> {
     if pixels == 0 {
@@ -98,8 +96,6 @@ pub fn quantize_dimension(pixels: u32) -> Option<u32> {
     let mut base = MIN_DIMENSION;
     while base <= MAX_DIMENSION {
         for step in STEPS {
-            // The doubling of `base` covers everything from 2x up, and the
-            // rungs it produces are the same ones.
             if step.in_120ths() >= 2 * ScaleStep::DENOMINATOR {
                 break;
             }
@@ -129,7 +125,7 @@ mod tests {
 
     use super::*;
 
-    /// Every size a panel plausibly asks for, and a margin either side of the
+    /// Every size a panel plausibly requests, plus a margin either side of the
     /// ladder's own ends.
     const SAMPLED: RangeInclusive<u32> = 1..=9000;
 
@@ -189,8 +185,8 @@ mod tests {
 
     #[test]
     fn the_ladder_is_coarse_enough_to_be_worth_having() {
-        // The whole point is that a drag resize settles. If consecutive rungs
-        // were a pixel apart the pool would allocate per frame anyway.
+        // A drag resize must stabilise on a rung. Consecutive rungs a pixel
+        // apart would make the pool allocate per frame.
         let mut rungs: Vec<u32> = (1..=MAX_DIMENSION).filter_map(quantize_dimension).collect();
         rungs.dedup();
 
@@ -215,8 +211,8 @@ mod tests {
 
     #[test]
     fn an_ordinary_panel_lands_on_a_rung_near_what_it_asked_for() {
-        // 1920x1080 is the size a mirrored monitor and most terminals ask for,
-        // so the waste on it is the waste that matters.
+        // A mirrored monitor and most terminals ask for 1920x1080, so the
+        // waste on that size matters most.
         assert_eq!(quantize_dimension(1920), Some(1920));
         assert_eq!(quantize_dimension(1080), Some(1152));
     }

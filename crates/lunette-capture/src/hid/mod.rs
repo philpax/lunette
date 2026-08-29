@@ -1,32 +1,16 @@
 //! Linux-only: reaches the host's keyboard and pointer through `/dev/uinput` or
 //! the wlroots virtual-input protocols.
 //!
-//! Driving the host desktop, as distinct from driving the Wayland clients
-//! lunette hosts itself — those go through `lunette-compositor`'s seat, and the
-//! two must not be confused. A key sent here reaches whatever the *host*
-//! compositor currently focuses, which is `lunette-v1.AC3.3`, and lunette does
-//! not choose what that is.
+//! This module drives the host desktop. The Wayland clients lunette hosts
+//! itself go through `lunette-compositor`'s seat; the two paths are separate.
+//! A key sent here reaches whatever the host compositor currently focuses.
+//! Lunette does not control that focus.
 //!
-//! # The chain is real
+//! # Thread affinity
 //!
-//! [`open`] tries uinput, then `wl_virtual`, then the dummy, and every attempt
-//! that fails is kept and reported. uinput is first because it works under any
-//! compositor and under X11; `wl_virtual` is second because it is implemented by
-//! the wlroots family only. A configuration override reorders them.
-//!
-//! WayVR has no such chain: `HidWrapper::new` (`subsystem/input.rs:22-41`)
-//! matches a configuration enum, calls exactly one initialiser, and installs a
-//! dummy on failure, so `docs/host-desktop.md:37` describes behaviour that does
-//! not exist there. [`crate::hid::selection`] is where it exists here, and it is
-//! pure, so the ordering is tested without a device and without a compositor.
-//!
-//! # One thread
-//!
-//! [`HidProvider`] requires neither `Send` nor `Sync`.
-//! [`wl_virtual::WlVirtualProvider`] owns a `wayland_client::EventQueue` and
-//! commits with a roundtrip on it, so it is thread-affine whatever bound the
-//! trait carries — WayVR declares `Sync + Send` (`provider/mod.rs:8`) and is
-//! thread-affine regardless. Not declaring it is how the type stays honest.
+//! [`HidProvider`] requires neither `Send` nor `Sync`: the virtual-input
+//! provider keeps its `wayland_client::EventQueue` on one thread, so the trait
+//! does not declare bounds the provider cannot honour.
 
 pub mod dummy;
 pub mod evdev;
@@ -55,39 +39,36 @@ pub use crate::hid::{
     wl_virtual::{WlVirtualConfig, WlVirtualProvider},
 };
 
-/// What lunette can ask of the host's keyboard and pointer.
+/// The interface to the host's keyboard and pointer.
 ///
-/// Ported from WayVR's `HidProvider` (`subsystem/hid/provider/mod.rs:8`), with
-/// the same division: pointer and button calls accumulate, and [`Self::commit`]
-/// flushes once per frame. The differences are that the fallible calls say so
-/// rather than logging and continuing, and that the trait requires neither
-/// `Send` nor `Sync`.
+/// Pointer and button calls accumulate, and [`Self::commit`] flushes once per
+/// frame. The fallible calls report their errors and do not log and
+/// continue.
 ///
 /// Implementors keep the accumulation in [`pointer::PendingPointer`], so the
-/// batching rules are one piece of code rather than one per provider.
+/// batching rules live in one place and apply to every provider.
 pub trait HidProvider {
-    /// Which mechanism this is, for reporting and for tests of the chain.
+    /// Which mechanism this is.
     fn kind(&self) -> ProviderKind;
 
-    /// Asks for the cursor to be at a position on the host desktop.
+    /// Moves the cursor to a position on the host desktop.
     fn mouse_move(&mut self, position: DesktopPoint);
 
-    /// Asks for the cursor to move by a displacement, clamped to the desktop.
+    /// Moves the cursor by a displacement, clamped to the desktop bounds.
     fn mouse_move_rel(&mut self, delta: DesktopVector);
 
     fn send_button(&mut self, button: PointerButton, down: bool);
 
     fn wheel(&mut self, delta: WheelDelta);
 
-    /// Tells the provider how large the host desktop's bounding box is.
+    /// Sets the host desktop's bounding box on the provider.
     ///
-    /// Recomputed whenever a monitor is added, removed, or moved. Neither
-    /// provider needs anything recreated for it: uinput's device spans a fixed
-    /// normalised range, and `zwlr_virtual_pointer_v1` takes the extent on every
-    /// call.
+    /// Recomputed whenever a monitor is added, removed, or moved. Nothing is
+    /// recreated for either provider: uinput's device spans a fixed normalised
+    /// range, and `zwlr_virtual_pointer_v1` takes the extent on every call.
     fn set_desktop_extent(&mut self, extent: DesktopExtent);
 
-    /// Tells the provider where the host desktop's bounding box begins.
+    /// Sets where the host desktop's bounding box begins.
     ///
     /// Not always the origin: a monitor placed to the left of the primary one
     /// has a negative logical position, and the bounding box starts there.
@@ -100,16 +81,18 @@ pub trait HidProvider {
     /// [`ProviderError`] when the key events this implies could not be sent.
     fn set_modifiers(&mut self, modifiers: KeyModifiers) -> Result<(), ProviderError>;
 
+    /// Sends a key press or release.
+    ///
     /// # Errors
     ///
     /// [`ProviderError`] when the event could not be sent.
     fn send_key(&mut self, key: VirtualKey, down: bool) -> Result<(), ProviderError>;
 
-    /// Tells the host which layout the keycodes should be read under.
+    /// Uploads a keymap to the provider for interpreting keycodes.
     ///
-    /// A no-op on uinput, and correctly so: keycodes injected there are below
-    /// the display server, which applies its own layout. Only
-    /// [`wl_virtual::WlVirtualProvider`] can carry one.
+    /// A no-op on uinput: keycodes injected there bypass the display server,
+    /// which applies its own layout. Only [`wl_virtual::WlVirtualProvider`] can
+    /// carry a keymap.
     ///
     /// # Errors
     ///
@@ -121,15 +104,15 @@ pub trait HidProvider {
     /// # Errors
     ///
     /// [`ProviderError`] when the batch could not be sent.
-    /// [`ProviderError::is_fatal`] distinguishes a provider that is finished
-    /// from one that failed once.
+    /// [`ProviderError::is_fatal`] is false for a failure that the next call
+    /// might not repeat, and true for one that would repeat every frame.
     fn commit(&mut self) -> Result<(), ProviderError>;
 }
 
 /// Everything the chain needs to try each mechanism.
 ///
-/// Every field is a parameter rather than something read from the environment,
-/// because this is a library: the entry point resolves `WAYLAND_DISPLAY`,
+/// Every field is a parameter, never something read from the environment:
+/// this is a library, so the entry point resolves `WAYLAND_DISPLAY`,
 /// `XDG_RUNTIME_DIR`, and the user's configuration, and passes the result here.
 #[derive(Clone, Debug, Default)]
 pub struct HidConfig {
@@ -139,9 +122,8 @@ pub struct HidConfig {
     /// host Wayland session to reach.
     ///
     /// `None` is why [`ProviderError::NotConfigured`] exists: on a machine with
-    /// no Wayland socket, "no socket was supplied" is a more useful thing to
-    /// report than a connect error against a path that was never going to be
-    /// there.
+    /// no Wayland socket, the error reports that no socket was supplied and
+    /// does not attempt to connect to a path that does not exist.
     pub wl_virtual: Option<WlVirtualConfig>,
 }
 
@@ -159,12 +141,11 @@ impl HidConfig {
     }
 }
 
-/// The provider lunette settled on, and what it took to get there.
+/// The provider in use and the failures recorded while selecting it.
 ///
-/// Owns the provider rather than exposing it, so that a fatal error has one
-/// place to be handled: a host compositor that goes away degrades the session to
-/// the dummy provider with a logged reason, which is the behaviour WayVR gets by
-/// panicking instead (`wl_virtual.rs:146`, `:176`, `:199`, `:204`).
+/// Owns the provider and does not expose it, so a fatal error has one place to
+/// be handled: a host compositor that goes away degrades the session to the
+/// dummy provider with a logged reason.
 pub struct HostInput {
     provider: Box<dyn HidProvider>,
     kind: ProviderKind,
@@ -180,9 +161,9 @@ impl HostInput {
 
     /// Every mechanism that was tried and failed, in the order they were tried.
     ///
-    /// Not empty does not mean broken: uinput failing and `wl_virtual` working
-    /// is a working session, and the failure is still worth showing to a user
-    /// who expected uinput.
+    /// A non-empty list does not imply a fault: if uinput failed and
+    /// `wl_virtual` works, the session works, and the failed attempt is shown
+    /// to a user who expected uinput.
     #[must_use]
     pub fn failures(&self) -> &[ProviderFailure] {
         &self.failures
@@ -195,10 +176,10 @@ impl HostInput {
             .then(|| NoHostInput::from_failures(self.failures.clone()))
     }
 
-    /// Tells the provider where the host desktop is and how large it is.
+    /// Sets the host desktop's position and size on the provider.
     ///
-    /// Called on every output change. The layout is rebuilt rather than updated
-    /// in place, and the provider takes the new origin and extent without
+    /// Called on every output change. The layout is rebuilt from scratch each
+    /// time, and the provider takes the new origin and extent without
     /// anything being recreated: uinput's device spans a fixed normalised range
     /// and `zwlr_virtual_pointer_v1` takes the extent on every call.
     pub fn set_desktop(&mut self, layout: &DesktopLayout) {
@@ -215,9 +196,9 @@ impl HostInput {
     /// Sends the frame's accumulated input, degrading if the provider is gone.
     ///
     /// A non-fatal failure is logged and the provider kept: one refused write
-    /// does not mean the device is finished. A fatal one replaces the provider
-    /// with the dummy, because the alternative is reporting the same
-    /// disconnection every frame for the rest of the session.
+    /// does not mean the device is finished. A fatal failure replaces the
+    /// provider with the dummy. The dummy swallows the write, so the session
+    /// does not report the same disconnection every frame.
     pub fn commit(&mut self) {
         let Err(error) = self.provider.commit() else {
             return;
@@ -241,8 +222,8 @@ impl HostInput {
 /// Opens the first provider in the configured order that works.
 ///
 /// Always returns a [`HostInput`]: when nothing opens, the dummy does, and
-/// [`HostInput::unreachable`] is what says so. A session with no host input is
-/// still a session.
+/// [`HostInput::unreachable`] reports that. The session continues without
+/// host input.
 #[must_use]
 pub fn open(config: &HidConfig) -> HostInput {
     let selected = select(
@@ -268,8 +249,8 @@ pub fn open(config: &HidConfig) -> HostInput {
 
 /// Opens one mechanism.
 ///
-/// The imperative half of the chain. [`select`] decides the order and records
-/// the failures; this decides nothing.
+/// The imperative half of the chain: [`select`] resolves the provider order and
+/// records the failures; [`open_one`] opens the requested mechanism.
 fn open_one(kind: ProviderKind, config: &HidConfig) -> Result<Box<dyn HidProvider>, ProviderError> {
     match kind {
         ProviderKind::Uinput => UinputProvider::open(&config.uinput)
@@ -284,8 +265,8 @@ fn open_one(kind: ProviderKind, config: &HidConfig) -> Result<Box<dyn HidProvide
             WlVirtualProvider::open(wl_virtual)
                 .map(|provider| Box::new(provider) as Box<dyn HidProvider>)
         }
-        // Unreachable through `select`, which appends the dummy itself rather
-        // than asking for it, and which strips it from any configured order.
+        // Unreachable through `select`, which supplies the dummy itself without
+        // asking for it, and strips it from any configured order.
         ProviderKind::Dummy => Ok(Box::new(DummyProvider)),
     }
 }
@@ -364,7 +345,7 @@ mod tests {
 
     #[test]
     fn a_host_session_ending_degrades_to_the_dummy_rather_than_aborting() {
-        // The behaviour WayVR gets by panicking on flush and roundtrip.
+        // WayVR panics on flush and roundtrip failures; lunette degrades.
         let recording = Recording::new();
         let mut input = host(
             Box::new(recording.disconnecting_provider("broken pipe")),

@@ -1,23 +1,22 @@
 //! The output enumeration against a real Wayland compositor.
 //!
-//! `lunette_capture::monitor::outputs` is unit-tested over its pure accumulator,
-//! which covers every decision it makes but nothing about the protocol exchange
-//! that feeds it. This is the other half: a real `wl_registry`, a real
-//! `wl_output`, real events over a real socket, and the roster that comes out.
+//! `lunette_capture::monitor::outputs` is unit-tested over its pure
+//! accumulator, which covers every decision it makes but nothing about the
+//! protocol exchange that feeds it. These tests are the other half: a real
+//! `wl_registry`, a real `wl_output`, real events over a real socket, and the
+//! roster that comes out.
 //!
-//! The compositor is lunette's own. It needs no graphics device — its buffer
-//! importer is a fake — no XR runtime, no display, and no listening socket, so
-//! this runs on a machine at a bare TTY.
+//! The compositor is lunette's own. Its buffer importer is a fake, so it
+//! requires no graphics device, no XR runtime, no display, and no listening
+//! socket. The tests run on a machine at a bare TTY.
 //!
-//! # Which side is on which thread
-//!
-//! `TestCompositor` is driven by the test stepping it, and the enumeration's two
-//! round trips block until the compositor answers. So the enumeration goes on a
-//! thread of its own and the test steps the compositor until it finishes.
-//!
-//! The client end of the pair is put back into blocking mode for that reason:
-//! `TestCompositor::connect` sets it non-blocking because its usual caller lives
-//! on the compositor's own thread, and that is exactly what is not true here.
+//! Threading: `TestCompositor` is driven by the test stepping it, and the
+//! enumeration's two round trips block until the compositor answers. The
+//! enumeration runs on a thread of its own, and the test steps the compositor
+//! until the thread finishes. The client end of the pair is put back into
+//! blocking mode for that reason: `TestCompositor::connect` sets it
+//! non-blocking because its usual caller runs on the compositor's own thread,
+//! which is not the case here.
 
 #![expect(
     clippy::expect_used,
@@ -40,9 +39,9 @@ use pretty_assertions::assert_eq;
 
 /// How long the compositor is stepped before the exchange is called stuck.
 ///
-/// A deadline on a condition, not a wait for a duration: the loop below steps
-/// until the enumeration finishes, and this only bounds how long a broken
-/// exchange hangs the suite.
+/// A deadline on a condition, not a wait for a duration. The loop later steps
+/// until the enumeration finishes; this bounds how long a broken exchange
+/// hangs the suite.
 const DEADLINE: Duration = Duration::from_secs(10);
 
 #[test]
@@ -57,8 +56,7 @@ fn the_compositors_only_output_is_enumerated_as_one_monitor() {
 
 #[test]
 fn the_monitors_resolution_is_the_mode_the_compositor_set() {
-    // `lunette-v1.AC3.1` is about this number: what a mirrored monitor reports
-    // has to be the resolution of the output behind it.
+    // A mirrored monitor reports the resolution of the output behind it.
     let (roster, _) = enumerate(config(PixelSize::new(2560, 1440)));
 
     assert_eq!(
@@ -70,8 +68,8 @@ fn the_monitors_resolution_is_the_mode_the_compositor_set() {
 
 #[test]
 fn a_mode_change_is_carried_through_to_the_roster() {
-    // Two runs against two configurations rather than one assertion against a
-    // constant, so the test fails if the size is being invented rather than read.
+    // Two separate runs against two configurations. A single assertion
+    // against a constant would pass even if the size were invented.
     let (small, _) = enumerate(config(PixelSize::new(1280, 720)));
     let (large, _) = enumerate(config(PixelSize::new(3840, 2160)));
 
@@ -81,9 +79,9 @@ fn a_mode_change_is_carried_through_to_the_roster() {
 
 #[test]
 fn the_logical_size_is_derived_when_the_compositor_offers_no_xdg_output() {
-    // lunette's compositor advertises no `zxdg_output_manager_v1`, so this
-    // exercises the fallback against a real compositor rather than a hand-built
-    // set of events: the logical size comes from `wl_output.mode` divided by
+    // lunette's compositor advertises no `zxdg_output_manager_v1`. The
+    // fallback runs against a real compositor, with no hand-built set of
+    // events: the logical size comes from `wl_output.mode` divided by
     // `wl_output.scale`, which is one here.
     let (roster, logical_geometry) = enumerate(config(PixelSize::new(2560, 1440)));
 
@@ -97,9 +95,8 @@ fn the_logical_size_is_derived_when_the_compositor_offers_no_xdg_output() {
 
 #[test]
 fn an_unrotated_output_reaches_the_roster_unrotated() {
-    // The compositor sets `Transform::Normal`, and the value has to survive the
-    // trip rather than being defaulted at the far end — which is what it was
-    // doing before the enumeration existed.
+    // The compositor sets `Transform::Normal`, and the roster must report it
+    // unchanged; the far end does not default it.
     let (roster, _) = enumerate(CompositorConfig::default());
 
     assert_eq!(roster.monitors()[0].transform(), SurfaceTransform::Normal);
@@ -107,8 +104,8 @@ fn an_unrotated_output_reaches_the_roster_unrotated() {
 
 #[test]
 fn an_output_name_that_is_not_a_connector_is_not_stored_as_one() {
-    // The compositor names its output `lunette-0`, which is not a DRM connector
-    // type, so the monitor is identified by its descriptor instead.
+    // The compositor names its output `lunette-0`, which is not a DRM
+    // connector type; the monitor is identified by its descriptor.
     let (roster, _) = enumerate(CompositorConfig::default());
 
     assert_eq!(roster.monitors()[0].name().connector(), None);
@@ -132,8 +129,8 @@ fn config(size: PixelSize) -> CompositorConfig {
 
 /// Runs the enumeration against a compositor built from `config`.
 ///
-/// Returns the roster and whether logical geometry was reported rather than
-/// derived, which is the second thing every caller here wants to know.
+/// Returns the roster and whether logical geometry was reported or derived;
+/// every caller here checks the second value to see which path ran.
 fn enumerate(config: CompositorConfig) -> (Roster, bool) {
     let mut compositor = TestCompositor::with_config(config);
     let (stream, _client) = compositor.connect();

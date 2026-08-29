@@ -1,10 +1,10 @@
 //! Linux-only: the command line, and the one operation that does not start a
 //! session.
 //!
-//! Parsing lives here rather than in `main` so that the arguments LÖVR is handed
-//! are what remains after lunette has taken its own. `boot` builds Lua's `arg`
-//! table from them, and a flag meant for lunette appearing there would reach a
-//! configuration that has no idea what it is.
+//! Parsing happens here, not in `main`, so the arguments handed to LÖVR are
+//! what remains after lunette removes its own. `boot` builds Lua's `arg`
+//! table from them. A flag meant for lunette left in the arguments reaches a
+//! configuration not written to handle it.
 
 use std::{
     ffi::OsString,
@@ -16,7 +16,7 @@ use std::{
 use clap::Parser;
 use lunette::aliases;
 
-/// What lunette was asked to do.
+/// What the user asked lunette to do.
 #[derive(Debug, Parser)]
 #[command(
     name = "lunette",
@@ -24,17 +24,18 @@ use lunette::aliases;
     version
 )]
 pub struct Cli {
-    /// What to do instead of running a session.
+    /// What lunette does when it does not start a session.
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// Load the configuration from this directory instead of searching for one.
+    /// Load the configuration from this directory without searching for
+    /// one.
     ///
     /// The search path is `$XDG_CONFIG_HOME/lunette`, then
     /// `$HOME/.config/lunette`, then the system directory. Naming a directory
-    /// here is how a session is pointed at a configuration without setting
-    /// `$XDG_CONFIG_HOME`, which everything lunette spawns would otherwise
-    /// inherit and look for its own configuration under.
+    /// here points a session at a configuration without setting
+    /// `$XDG_CONFIG_HOME`; everything lunette spawns would otherwise inherit
+    /// it and look for its own configuration under it.
     #[arg(long, value_name = "DIR")]
     pub config_path: Option<PathBuf>,
 
@@ -53,7 +54,8 @@ pub struct Cli {
 pub enum Command {
     /// Typecheck a configuration and the standard library it uses.
     Check {
-        /// The files to check. Defaults to the configuration directory's own.
+        /// The files to check. Defaults to the files in the configuration
+        /// directory.
         #[arg(value_name = "FILE")]
         roots: Vec<PathBuf>,
 
@@ -61,7 +63,7 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         definitions: Option<PathBuf>,
 
-        /// Typecheck with the old solver rather than the current one.
+        /// Typecheck with the old solver, not the current one.
         #[arg(long)]
         old_solver: bool,
     },
@@ -69,16 +71,16 @@ pub enum Command {
 
 /// Copies `source` to `destination`, refusing to overwrite anything.
 ///
-/// Refusing rather than merging is the point: the file this writes is one the
-/// user is about to edit, and a copy landing on top of an edited configuration
-/// would destroy the work it was meant to start.
+/// The function refuses to overwrite, because the file it writes is one
+/// the user is about to edit. A copy that replaces an edited configuration
+/// destroys the user's edits.
 ///
-/// The `.luaurc` is written rather than copied, and it names `standard_library`
-/// by an absolute path. The one in the source tree resolves its aliases
-/// relative to itself, which is true only where it sits; a copy of it beside a
-/// user's configuration would name a directory that is not there, and every
-/// `require '@mullion/…'` would fail to resolve for the checker and for their
-/// editor.
+/// The `.luaurc` is written from `standard_library`, not copied, and it
+/// names `standard_library` by an absolute path. The file in the source
+/// tree resolves its aliases relative to itself; copied beside a user's
+/// configuration, it names a directory that is not there, and every
+/// `require '@mullion/…'` fails to resolve for the checker and for the
+/// user's editor.
 pub fn dump(
     source: &Path,
     destination: &Path,
@@ -105,14 +107,14 @@ pub fn dump(
         .map_err(|error| DumpError::Write(destination.to_owned(), error))?;
 
     for entry in entries {
-        // One level deep. The default configuration is a flat directory of Lua
-        // files, and a recursive copy would be machinery for a case that does
-        // not exist yet.
+        // Only regular files are copied. The default configuration is a
+        // flat directory of Lua files.
         if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
             continue;
         }
-        // Written below against this installation rather than copied from a
-        // tree whose relative paths do not survive the move.
+        // The `.luaurc` is written after the loop, not copied. Its aliases
+        // must name `standard_library` by an absolute path; the source
+        // file's aliases resolve relative to the source tree.
         if entry.file_name() == ALIAS_FILE {
             continue;
         }
@@ -138,11 +140,13 @@ const ALIAS_FILE: &str = ".luaurc";
 /// Why a configuration could not be written.
 #[derive(Debug)]
 pub enum DumpError {
-    /// The installed default configuration is not where it should be.
+    /// The path to the installed default configuration does not point at a
+    /// configuration directory.
     NoDefault(PathBuf),
     /// The default configuration could not be read.
     Read(PathBuf, io::Error),
-    /// Something is already there, and a copy would overwrite it.
+    /// Something already exists where a copy would go, and the copy is
+    /// refused.
     Exists(PathBuf),
     /// The copy could not be written.
     Write(PathBuf, io::Error),
@@ -194,8 +198,8 @@ mod tests {
 
     use super::*;
 
-    /// Builds a default configuration directory with the `.luaurc` a source
-    /// tree carries, whose relative aliases are true only where it sits.
+    /// Builds a default configuration directory carrying the `.luaurc` a
+    /// source tree has, whose aliases resolve relative to the source tree.
     fn source() -> TempDir {
         let directory = TempDir::new().expect("a temporary directory");
         fs::write(directory.path().join("main.lua"), "-- main\n").expect("main.lua");

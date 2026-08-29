@@ -3,61 +3,59 @@
 --
 -- The native layer pushes flat events through LÖVR's queue, and
 -- docs/lua-api.md#events states that turning those into per-object
--- notification is Lua's job. This is that layer, and it is the whole of it: a
--- handler is a function, a signal is a string, and an object is anything that
--- can key a table.
+-- notification is Lua's job. This module does that. A handler is a function, a
+-- signal is a string, and an object is anything that can key a table.
 --
--- Two things about identity, both of which decide how a caller uses this:
+-- Two facts about identity determine how a caller uses signals:
 --
--- A native handle is not a usable key. docs/lua-api.md#handles gives a window's
--- identity as `win.id`, and every read that produces a handle produces a fresh
--- one, so two reads of the same window are two different Lua values and would
--- be two different keys here. A caller wanting per-window signals emits on its
--- own object — a panel — or on a table it keys by `win.id` itself.
+-- A native handle is not a usable key. docs/lua-api.md#handles gives a
+-- window's identity as `win.id`, and every read that produces a handle
+-- produces a fresh one, so two reads of the same window are two different Lua
+-- values and would be two different keys here. A caller that wants per-window
+-- signals emits on its own object (a panel) or on a table it keys by `win.id`
+-- itself.
 --
 -- The registry holds objects weakly, so a connection is not the reason an
--- object is still reachable. That is not the whole story, because Lua 5.1 has
--- no ephemeron tables: a handler connected with `connect` is held strongly, so
--- a handler closing over the object it is connected to keeps that object alive
--- through the registry's own value. `weakConnect` is what a caller reaches for
--- when that matters, and a panel connecting to something that outlives it is
--- exactly the case.
+-- object is still reachable. Lua 5.1 has no ephemeron tables: a handler
+-- connected with `connect` is held strongly, so a handler closing over the
+-- object it is connected to keeps that object alive through the registry's
+-- own value. A caller uses `weakConnect` when that matters. A panel connecting
+-- to something that outlives it is that case.
 
 local teardown = require '@mullion/teardown'
 
 local signal = {}
 
--- A handler, parameterised by what it is connected to: `connect` infers it from
--- the object, so a handler's first parameter is the object's own type and not a
--- value the checker has stopped looking at.
+-- A handler, parameterised by what it is connected to. `connect` infers that
+-- type from the object.
 type Handler<T> = (object: T, ...any) -> ()
 
--- A connection: the handler to call, nil once the handler it held weakly has
--- been collected.
+-- A connection. The handler is nil once the weakly-held one has been
+-- collected.
 type Record = {
-  -- The registry spans every object, so what it holds is the erased form.
+  -- The registry spans every object, so it holds the erased form.
   handler: Handler<any>?,
 }
 -- The registry, as `{ [object] = { [name] = { Record, ... } } }`.
 type Records = { Record }
 type ByName = { [string]: Records }
 
--- Declared here and defined below the public API, so that the file reads
--- surface-first. `function name()` assigns to the local when one is in scope,
--- so none of these becomes a global.
+-- Declared here and defined below the public API, so the public API appears
+-- first. `function name()` assigns to the local when one is in scope, so none
+-- of these becomes a global.
 local newRecord, recordsFor, prune
 
 -- Every connection, as `{ [object] = { [name] = { record, ... } } }`.
 --
--- Weak keys, per the note above. Rebuilt rather than appended to when the
--- module is loaded, which is what makes a soft reload — which discards the Lua
--- state and re-runs this file — leave no connections behind.
+-- Weak keys, per the note above. The module body re-runs on a soft reload,
+-- so this rebuilds and no connection survives one.
 local connections: { [unknown]: ByName } = setmetatable({}, { __mode = 'k' })
 
 -- The name a property's change is announced under.
 --
--- awesome spells it `property::<key>` and configurations written against it
--- read the same way here, which is worth more than a spelling of lunette's own.
+-- awesome uses the property name `property::<key>`, and that spelling matches
+-- the existing configurations, so it is worth keeping over a spelling of
+-- lunette's own.
 function signal.propertyName(key: string): string
   if type(key) ~= 'string' then
     error('mullion.signal: a property is named by a string, not a ' .. type(key), 2)
@@ -69,16 +67,16 @@ end
 --
 -- The handler is called as `handler(object, ...)` with whatever `emit` was
 -- given, in the order the connections were made. The registry holds it
--- strongly; see `weakConnect` for when that is the wrong thing.
+-- strongly; `weakConnect` covers the case where that is wrong.
 --
 -- Connecting the same handler twice connects it twice, and it is then called
--- twice. That is deliberate: deduplicating would make `disconnect` ambiguous
--- about which of the two it removed.
+-- twice. Deduplicating would make `disconnect` ambiguous about which of the
+-- two it removed.
 function signal.connect<T>(object: T, name: string, handler: Handler<T>)
   -- `create` is true, so the list is guaranteed to exist.
   local records: Records = assert(recordsFor(object, name, true))
-  -- Pruned on every connect, so that a signal connected and dropped
-  -- repeatedly does not grow a list of records whose handlers have gone.
+  -- Pruned on every connect, so a signal connected and dropped repeatedly
+  -- does not grow a list of records whose handlers have been collected.
   prune(records)
   records[#records + 1] = newRecord(handler, false)
 end
@@ -87,13 +85,13 @@ end
 --
 -- When nothing else references the handler it is collected, and the connection
 -- goes with it. A panel connecting to a signal on something that outlives the
--- panel uses this, so that dropping the panel drops the connection rather than
--- leaving the panel reachable from a registry nobody is looking at.
+-- panel uses this, so dropping the panel drops the connection and does not
+-- leave the panel reachable through the registry's value.
 --
--- The handler has to be referenced from somewhere, then. A closure written
--- directly into this call is unreachable the moment the call returns and may be
--- collected before it is ever invoked, so a caller stores it — usually on the
--- object it belongs to — and passes that.
+-- The handler has to be referenced from somewhere. A closure written
+-- directly into this call is unreachable the moment the call returns and may
+-- be collected before it is ever invoked, so a caller stores it (usually on
+-- the object it belongs to) and passes that.
 function signal.weakConnect<T>(object: T, name: string, handler: Handler<T>)
   -- `create` is true, so the list is guaranteed to exist.
   local records: Records = assert(recordsFor(object, name, true))
@@ -105,7 +103,7 @@ end
 --
 -- Returns whether one was found. Disconnecting something that was never
 -- connected is not an error: a teardown path that runs after the object has
--- already dropped its connections should not have to ask first.
+-- already dropped its connections does not need to check first.
 function signal.disconnect<T>(object: T, name: string, handler: Handler<T>): boolean
   local records = recordsFor(object, name, false)
   if not records then
@@ -137,13 +135,13 @@ end
 -- Calls every handler connected to `name` on `object`, as `handler(object,
 -- ...)`.
 --
--- Emitting a signal nothing is connected to does nothing, which is what makes a
--- signal cheap enough to emit unconditionally.
+-- Emitting a signal nothing is connected to does nothing. That property makes
+-- a signal cheap enough to emit unconditionally.
 --
 -- An error a handler raises propagates, per CONTRIBUTING.md's rule against
 -- swallowing one to keep a frame alive. The remaining handlers do not run;
--- reporting and continuing is `lovr.errhand`'s job, at the callback boundary,
--- and doing it here as well would report the same error twice and hide which
+-- reporting and continuing is `lovr.errhand`'s job, at the callback boundary.
+-- Reporting here as well would report the same error twice and hide which
 -- handler stopped the emission.
 function signal.emit(object: unknown, name: string, ...)
   local records = recordsFor(object, name, false)
@@ -152,9 +150,9 @@ function signal.emit(object: unknown, name: string, ...)
   end
 
   -- Snapshotted, because a handler is free to connect or disconnect while it
-  -- runs and iterating the live list would then skip or repeat one. The
-  -- snapshot is of this instant: a handler connected during the emission is
-  -- not called by it.
+  -- runs; iterating the live list would then skip or repeat one. The snapshot
+  -- is of this instant: a handler connected during the emission is not called
+  -- by it.
   local handlers: { Handler<any> } = {}
   local count = 0
   for index = 1, #records do
@@ -173,9 +171,9 @@ end
 -- How many live connections `name` has on `object`.
 --
 -- Collected weak connections are not counted, and are pruned as a side effect
--- of the count. Written for the specs and for the reload check
--- CONTRIBUTING.md's teardown rule asks for, both of which need to assert that
--- nothing accumulated.
+-- of the count. Written for the specs and for the reload check in
+-- CONTRIBUTING.md's teardown rule, both of which need to assert that nothing
+-- accumulated.
 function signal.connectionCount(object: unknown, name: string): number
   local records = recordsFor(object, name, false)
   if not records then
@@ -187,13 +185,13 @@ end
 
 -- Sets `object[key]` and emits `property::<key>` when the value changed.
 --
--- This is the property-change mechanism: a setter calls this instead of
--- assigning, and every interested party hears about it without polling each
+-- This is the property-change mechanism: a setter calls this in place of
+-- assigning, and every interested party receives it without polling each
 -- frame. The signal carries the new value and the old one, in that order.
 --
 -- A value equal to the one already there emits nothing and returns false, so a
 -- setter called every frame with the same number is silent.
--- `object` is `any` rather than a type parameter: this reads and writes
+-- `object` is `any` and not a type parameter: this reads and writes
 -- `object[key]` for a key the caller names, which no parameterised shape
 -- describes.
 function signal.setProperty(object: any, key: string, value: any): boolean
@@ -210,8 +208,8 @@ end
 
 -- Discards every connection.
 --
--- Registered below with `mullion.teardown`, so that a soft reload does not
--- leave the old state's handlers connected to objects the new one is about to
+-- Registered below with `mullion.teardown`, so a soft reload does not leave
+-- the old state's handlers connected to objects the new one is about to
 -- reach.
 function signal.teardown(): ()
   connections = setmetatable({}, { __mode = 'k' })
@@ -221,9 +219,9 @@ end
 -- collected handler leaves a record whose `handler` is nil and which `prune`
 -- then drops.
 --
--- A weak-valued record rather than the weak-keyed table of handlers awesome
--- uses, because the records are an ordered list: handlers run in the order they
--- were connected, and a table keyed by handler has no order to run in.
+-- The record is weak-valued; awesome uses a weak-keyed table of handlers.
+-- The records are an ordered list: handlers run in the order they were
+-- connected, and a table keyed by handler has no order to run in.
 function newRecord(handler: Handler<any>, weak: boolean): Record
   if type(handler) ~= 'function' then
     error('mullion.signal: a handler is a function, not a ' .. type(handler), 3)
@@ -280,8 +278,8 @@ function prune(records: Records)
   end
 end
 
--- Registered by name, so that a module body running a second time — which is
--- what a soft reload does — leaves one hook rather than two.
+-- Registered by name, so a module body running a second time (a soft reload)
+-- leaves one hook and not two.
 teardown.register('mullion.signal', signal.teardown)
 
 return signal

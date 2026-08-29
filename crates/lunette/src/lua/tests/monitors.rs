@@ -1,10 +1,9 @@
 //! `lunette.monitors()` and the monitor handle, against a recording registry.
 //!
 //! The lifecycle's own transitions belong to `lunette-capture`, which exercises
-//! them against the scripted portal. What is under test here is the projection:
-//! that a handle reads through on every access, that a detached monitor goes
-//! inert rather than raising, and that mirroring and dismissing reach the
-//! registry once each.
+//! them against the scripted portal. The projection is that a handle reads
+//! through on every access, that a detached monitor goes inert and does not
+//! raise, and that mirroring and dismissing reach the registry once each.
 
 use std::cell::RefCell;
 
@@ -27,7 +26,7 @@ use crate::{
     mirrors::{MirrorRegistry, MonitorState},
 };
 
-/// A registry over a fixed set of monitors, recording what it was asked.
+/// A registry over a fixed set of monitors, recording every request it receives.
 #[derive(Debug, Default)]
 pub(super) struct FakeMirrors {
     states: RefCell<Vec<MonitorState>>,
@@ -35,7 +34,7 @@ pub(super) struct FakeMirrors {
     calls: RefCell<Vec<Call>>,
 }
 
-/// One thing the registry was asked to do.
+/// One call the registry records.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Call {
     Mirror(MonitorKey),
@@ -102,10 +101,10 @@ impl MirrorRegistry for FakeMirrors {
     }
 }
 
-/// A host desktop that records what reached it instead of driving one.
+/// A host desktop that records the events that reach it. None are injected.
 ///
-/// The `HidProvider` is the seam onto the machine lunette runs on, so the
-/// routing is exercised against a recorder rather than against `/dev/uinput`.
+/// The `HidProvider` is the seam onto the machine lunette runs on. The routing
+/// is exercised against a recorder; `/dev/uinput` is not used.
 #[derive(Debug, Default)]
 pub(super) struct RecordingHost {
     events: RefCell<Vec<HostEvent>>,
@@ -405,9 +404,10 @@ fn a_pointer_to_a_host_sink_reaches_the_provider_and_not_the_compositor() {
         host.events(),
         vec![HostEvent::Pointer {
             monitor: key(1),
-            // The monitor is 3840 by 2160, so the middle of it is the middle of
-            // its surface. The provider knows only the desktop's bounding box;
-            // turning that back into a position is the mapping's job.
+            // The monitor is 3840 by 2160, so the middle of the panel is the
+            // middle of its surface. The provider receives the desktop's
+            // bounding box, and the mapping turns the hit back into a position
+            // on the desktop.
             hit: PanelPoint::CENTRE,
         }],
     );
@@ -453,8 +453,8 @@ fn a_pointer_to_a_window_sink_reaches_the_compositor_and_not_the_provider() {
 
 #[test]
 fn two_sinks_in_different_domains_route_independently_in_one_frame() {
-    // The thing WayVR's global `InputFocus` cannot express: two hands pointing
-    // at two kinds of surface at the same time.
+    // WayVR's global `InputFocus` cannot express two pointers aimed at two
+    // kinds of surface at the same time.
     let (session, _mirrors, host) = mirrored_session(
         vec![window(1, "htop", "st", PixelSize::new(800, 600))],
         FakeMirrors::one(),
@@ -532,8 +532,8 @@ fn an_unplugged_monitors_sink_goes_inert_rather_than_raising() {
 
 #[test]
 fn a_coordinate_that_is_not_a_number_raises_on_a_host_sink_too() {
-    // The rule is the sink's, not the compositor's: a NaN is a defect in the
-    // caller's maths wherever the input was going.
+    // The sink validates the coordinate before routing it. A NaN is a defect
+    // in the caller's maths wherever the input is going.
     let (session, _mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
     let lua = lua(&session);
 

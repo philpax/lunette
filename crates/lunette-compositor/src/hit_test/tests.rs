@@ -1,9 +1,5 @@
-//! The hit test over synthetic surface trees.
-//!
-//! Every case here is pure geometry: no client, no display, and no graphics
-//! device, which is the whole reason [`super::HitContext`] is generic over what
-//! identifies a surface. A surface is a name, a rectangle, and an optional
-//! input region.
+//! The tests use `&'static str` in place of Wayland surfaces, so the hit-test
+//! geometry runs without a client, display, or graphics device.
 
 use pretty_assertions::assert_eq;
 use smithay::{
@@ -13,7 +9,6 @@ use smithay::{
 
 use super::*;
 
-/// A surface named `name`, of `size`, at `origin`, accepting input everywhere.
 fn surface(name: &'static str, origin: (f64, f64), size: (u32, u32)) -> HitSurface<&'static str> {
     HitSurface {
         surface: name,
@@ -23,7 +18,6 @@ fn surface(name: &'static str, origin: (f64, f64), size: (u32, u32)) -> HitSurfa
     }
 }
 
-/// A surface with no buffer, as a container subsurface has.
 fn bufferless(name: &'static str, origin: (f64, f64)) -> HitSurface<&'static str> {
     HitSurface {
         surface: name,
@@ -33,7 +27,6 @@ fn bufferless(name: &'static str, origin: (f64, f64)) -> HitSurface<&'static str
     }
 }
 
-/// An input region built from additive rectangles, in surface-local pixels.
 fn region(rects: &[(i32, i32, i32, i32)]) -> RegionAttributes {
     RegionAttributes {
         rects: rects
@@ -83,10 +76,6 @@ fn a_point_in_an_empty_window_lands_on_the_toplevel() {
 
 #[test]
 fn a_popup_left_out_of_the_context_claims_nothing() {
-    // What [`super::context`] does with a popup that has not answered its
-    // configure: it never enters the tree, so the point falls through to the
-    // window. Stated here as well as over a client, because it is the whole
-    // observable consequence of that exclusion.
     let covering = vec![surface("popup", (0.0, 0.0), (100, 100))];
     let with_it = context(Vec::new(), vec![covering]);
     let without_it = context(Vec::new(), Vec::new());
@@ -172,7 +161,8 @@ fn a_subsurface_receives_the_point_in_its_own_coordinates() {
 
 #[test]
 fn overlapping_surfaces_resolve_top_most_first() {
-    // Collected bottom-most first, so the later entry is the one on top.
+    // `collect_tree` stores surfaces bottom-most first, and hit testing
+    // searches in reverse.
     let context = context(
         vec![
             surface("below", (0.0, 0.0), (50, 50)),
@@ -302,8 +292,8 @@ fn a_point_outside_every_popup_falls_through_to_the_window() {
 
 #[test]
 fn a_popup_reaching_past_the_window_still_receives() {
-    // The client area is 100 by 100; the popup hangs off the right edge, which
-    // is the case that makes popups worth testing before the bounds check.
+    // Popup lookup precedes the client-area bounds check because a popup
+    // can extend beyond the toplevel.
     let context = context(
         Vec::new(),
         vec![vec![surface("menu", (80.0, 10.0), (40, 40))]],
@@ -322,7 +312,8 @@ fn a_popup_reaching_past_the_window_still_receives() {
 
 #[test]
 fn a_nested_popup_wins_over_the_one_that_opened_it() {
-    // smithay reports popup trees deepest first, and the order is preserved.
+    // `PopupManager::popups_for_surface` supplies trees deepest first, so
+    // the first match wins.
     let context = context(
         Vec::new(),
         vec![
@@ -352,8 +343,8 @@ fn a_nested_popup_wins_over_the_one_that_opened_it() {
 
 #[test]
 fn within_one_popup_tree_the_last_accepting_surface_wins() {
-    // Collected bottom-to-top, so a subsurface committed over the popup's own
-    // content is the one that receives.
+    // Each tree stores surfaces bottom-most first, and `popup_at` searches
+    // in reverse.
     let context = context(
         Vec::new(),
         vec![vec![
@@ -380,8 +371,7 @@ fn within_one_popup_tree_the_last_accepting_surface_wins() {
 
 #[test]
 fn a_popup_surface_with_no_buffer_but_an_input_region_still_receives() {
-    // The difference between the two acceptance rules, and the reason both are
-    // ported: a client may set an input region on a surface it has not drawn.
+    // An explicit input region lets a popup claim input without a buffer.
     let mut invisible = bufferless("invisible", (10.0, 10.0));
     invisible.input = Some(region(&[(0, 0, 20, 20)]));
     let context = context(Vec::new(), vec![vec![invisible]]);

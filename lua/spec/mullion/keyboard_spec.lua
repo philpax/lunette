@@ -1,13 +1,13 @@
 -- Covers lua/mullion/keyboard.lua.
 --
--- The seat is a fake carrying a small invented keymap. The real one answers
--- from libxkbcommon, and a spec asserting what it said would be asserting Phase
--- 5's work rather than this module's — and would say nothing about the thing
--- worth checking here, which is that the legends and the keycodes come from
--- whatever keymap the seat has rather than from a table of this module's own.
+-- The seat is a fake carrying a small invented keymap. The native seat
+-- compiles its keymap with libxkbcommon. A spec asserting that keymap's
+-- contents would test the native layer, not this module. The legends and the
+-- keycodes come from whatever keymap the seat has, not from a table of this
+-- module's own.
 --
--- So the fake layout is deliberately not QWERTY. A keyboard that hardcoded one
--- would pass every case that asked "is this key an A" and fail every case here.
+-- The fake layout is not QWERTY. A keyboard that hardcoded QWERTY would pass
+-- every case that checks whether a key is an A and fail every case here.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -26,16 +26,16 @@ local sequence = fixture.sequence
 local lastCall = fixture.lastCall
 local TOLERANCE = fixture.TOLERANCE
 
--- The keycodes the invented layout below binds. Physical positions, which is
--- what an evdev keycode is: the middle row's first three keys and the number
--- row's first key.
+-- The evdev keycodes the invented layout binds. An evdev keycode names a
+-- physical position: the middle row's first three keys and the number row's
+-- first key.
 local A_KEY = 30
 local S_KEY = 31
 local D_KEY = 32
 local ONE_KEY = 2
 
--- A layout in which those four keys type something no real layout puts there,
--- so that a legend copied from a hardcoded QWERTY table would be visibly wrong.
+-- The four keys type characters no real layout puts there. A legend copied
+-- from a hardcoded QWERTY table is then visibly wrong.
 local LAYOUT = {
   [A_KEY] = { plain = 'q', shifted = 'Q' },
   [S_KEY] = { plain = 'w', shifted = 'W' },
@@ -43,7 +43,6 @@ local LAYOUT = {
   [ONE_KEY] = { plain = '7', shifted = '&' },
 }
 
--- Whether a modifier array holds `name`.
 local function holds(modifiers, name)
   for _, held in ipairs(modifiers or {}) do
     if held == name then
@@ -53,7 +52,7 @@ local function holds(modifiers, name)
   return false
 end
 
--- A seat answering from LAYOUT, recording what it was told.
+-- A seat that reads LAYOUT and records every call made against it.
 local function newSeat()
   local seat = { focused = {}, dead = false }
 
@@ -70,14 +69,15 @@ local function newSeat()
     return holds(modifiers, 'shift') and binding.shifted or binding.plain
   end
 
-  -- A keysym for every physical key, as a real keymap has: most positions bind
-  -- something even when it types no text.
+  -- Returns a keysym for every physical key. A real keymap binds most
+  -- positions even when the key types no text.
   function seat:symbolFor(code)
     return 0xff00 + code
   end
 
-  -- The reverse lookup, over the same table, preferring the unshifted binding
-  -- as the real one prefers the fewest modifiers.
+  -- The reverse lookup, over the same table. The unshifted binding is tried
+  -- first, and the seat's own strokeFor returns the stroke with the fewest
+  -- modifiers.
   function seat:strokeFor(character)
     for code, binding in pairs(LAYOUT) do
       if binding.plain == character then
@@ -95,8 +95,8 @@ local function newSeat()
   return seat
 end
 
--- A keyboard over a seat and a sink of this case's own, so that a case does not
--- depend on what the last one clicked.
+-- A keyboard over a seat and a sink of this case's own. A case then does not
+-- depend on what the previous case clicked.
 local function newKeyboard(options)
   options = options or {}
   local seat = options.seat or newSeat()
@@ -110,13 +110,13 @@ local function newKeyboard(options)
   return created, seat, sink
 end
 
--- Starts a case with nothing left over.
+-- Starts a case with no state left over.
 local function fresh()
   keyboard.teardown()
   interaction.teardown()
 end
 
--- The key of a given keycode, out of what `keys` produced.
+-- The key with the given code, from what `keys` produced.
 local function keyFor(keys, code)
   for _, key in ipairs(keys) do
     if key.code == code then
@@ -148,7 +148,7 @@ spec('a key with no binding falls back to its own label', function()
   fresh()
   local created = newKeyboard()
 
-  -- Space is in the matrix and not in the invented layout, and it carries a
+  -- Space is in the matrix and not in the invented layout. It carries a
   -- label because no character would read as one.
   local labelled
   for _, key in ipairs(created:keys()) do
@@ -186,7 +186,7 @@ spec('a sticky modifier applies to the next key and then clears', function()
 
   expect.truthy(holds(sink.calls[1].arguments[1], 'shift'), 'the modifiers the key was sent under')
   expect.falsy(holds(created:modifiers(), 'shift'), 'shift after the key')
-  -- The client is told the modifiers went, or it holds shift for everything
+  -- The trailing modifiers call reports no shift, or the client holds shift for everything
   -- typed afterwards.
   expect.equal(sequence(sink), 'modifiers,key,key,modifiers', 'what the sink was told')
   expect.falsy(holds(sink.calls[4].arguments[1], 'shift'), 'the modifiers afterwards')
@@ -259,9 +259,9 @@ spec('a run of characters the layout cannot express goes in one call', function(
   fresh()
   local created, _, sink = newKeyboard()
 
-  -- One keymap upload rather than three. docs/lua-api.md says typeText
-  -- generates a keymap, uploads it, types, and puts the client's own back, so
-  -- a call per character would swap the client's keymap three times.
+  -- One keymap upload. docs/lua-api.md states that typeText
+  -- generates a keymap, uploads it, types, and puts the client's own back. A
+  -- call per character would swap the client's keymap three times.
   created:typeText 'üöß'
 
   local calls = 0
@@ -298,8 +298,8 @@ spec('a multi-byte character the layout does bind is one stroke', function()
   fresh()
   local created, _, sink = newKeyboard()
 
-  -- The invented layout puts é on a key, so this must not be split into bytes
-  -- and must not be routed to typeText.
+  -- The invented layout binds é to a key. The character must not split into
+  -- bytes and must not route to typeText.
   created:typeText 'é'
 
   expect.equal(sequence(sink), 'modifiers,key,key,modifiers', 'what was sent')
@@ -318,8 +318,9 @@ spec('a ray hits the key it is pointed at', function()
   local created = newKeyboard { pose = poseAt(0, 0, -1) }
 
   local wanted = keyFor(created:keys(), A_KEY)
-  -- The key's centre, in the keyboard's own plane: its geometry runs from the
-  -- top-left with y downwards, and the plane's y runs upwards from the middle.
+  -- The key's centre, in the keyboard's own plane. The geometry runs from
+  -- the top-left with y downwards, and the plane's y runs upwards from the
+  -- middle.
   local x = wanted.x + wanted.width / 2 - created.width / 2
   local y = created.height / 2 - (wanted.y + wanted.height / 2)
 
@@ -341,8 +342,8 @@ spec('a ray between two keys still hits one', function()
   local created = newKeyboard { pose = poseAt(0, 0, -1) }
 
   local first = keyFor(created:keys(), A_KEY)
-  -- Exactly on the boundary between this key and the next, where the drawn gap
-  -- is. A laser is not precise enough for a gap to be a miss.
+  -- Exactly on the boundary between this key and the next, where the drawn
+  -- gap is. A ray is not precise enough for the gap to miss.
   local x = first.x + first.width - created.width / 2
   local y = created.height / 2 - (first.y + first.height / 2)
 
@@ -372,7 +373,7 @@ spec('drawing puts a plane and a legend behind every key', function()
 
   local keys = #created:keys()
   expect.truthy(keys > 0, 'keys')
-  -- One plane per key, and one behind the lot of them.
+  -- One plane per key plus one behind all of them.
   expect.equal(pass.planes, keys + 1, 'planes drawn')
   expect.equal(pass.texts, keys, 'legends drawn')
 end)
@@ -407,9 +408,9 @@ spec('a key that types nothing falls back to its keysym', function()
   fresh()
   local created, seat = newKeyboard()
 
-  -- The invented layout binds no character to the top-left key, and a real one
+  -- The invented layout binds no character to the top-left key. A real one
   -- binds a keysym to nearly every position. A blank key looks broken; the
-  -- number at least says which key it is.
+  -- number identifies the key.
   local key = keyFor(created:keys(), 41)
   expect.equal(key.legend, string.format('0x%x', seat:symbolFor(41)), "the key's legend")
 end)
@@ -420,8 +421,8 @@ spec('a keyboard with nothing focused draws blank legends rather than raising', 
 
   local key = keyFor(created:keys(), A_KEY)
   expect.equal(key.legend, '', "the key's legend")
-  -- The labelled keys still have theirs: a label is this module's own and needs
-  -- no keymap.
+  -- The labelled keys still have theirs. A label is this module's own and
+  -- needs no keymap.
   expect.equal(keyFor(created:keys(), keycodes.SPACE).legend, 'space', 'the space legend')
 end)
 
@@ -457,8 +458,8 @@ spec('teardown destroys every keyboard', function()
 end)
 
 spec('two pointers each keep their own highlighted key', function()
-  -- One shared value would let whichever hand was read last erase the other's
-  -- highlight, so only one key would ever light up with two hands aiming.
+  -- A shared value would let the last pointer read erase the other's
+  -- highlight. One key would light up with two hands aiming.
   local created = keyboard.new {}
   local keys = created:keys()
 

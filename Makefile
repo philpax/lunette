@@ -1,9 +1,8 @@
 # Building and installing lunette.
 #
-# Cargo builds the binary; this exists for the part Cargo does not do, which is
-# putting the runtime files where a session that did not build in place can find
-# them. docs/build-and-development.md states the paths, and this is what
-# realises them.
+# Cargo builds the binary. The install step puts the runtime files where a
+# session that did not build in place can find them. docs/build-and-development.md
+# states the paths, and the install targets realise them.
 #
 # Three sets ship:
 #
@@ -15,9 +14,9 @@
 #
 # PREFIX and SYSCONFDIR reach the binary as LUNETTE_PREFIX and
 # LUNETTE_SYSCONFDIR, which crates/lunette/src/main.rs reads through
-# `option_env!` and compiles in as the defaults it resolves against. That is why
-# a build and the install that follows it have to be told the prefix once, here,
-# rather than twice.
+# `option_env!` and compiles in as the defaults it resolves against. The
+# build and the install that follows it must be told the prefix once, here,
+# not twice.
 #
 # DESTDIR is honoured for staged installs, per the GNU conventions: it prefixes
 # every destination and is never compiled into anything.
@@ -54,18 +53,19 @@ all: build
 build:
 	$(CARGO) build --profile $(PROFILE) --workspace
 
-# The standing checks CONTRIBUTING.md lists, in the order .github/workflows/ci.yml
-# runs them. Each is its own target so that a failure can be repeated on its own.
+# `check` runs the standing checks CONTRIBUTING.md lists, in the order
+# .github/workflows/ci.yml runs them. Each check is its own target; a failure
+# can be repeated on its own.
 check: check-format check-rust check-definitions check-luau
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
 	stylua --check lua etc/xdg/lunette
 
-# Split in two because clippy and the tests share no artifacts — clippy builds
-# through RUSTC_WORKSPACE_WRAPPER and keeps its own — so CI runs the halves as
-# separate jobs at the same time. `check-rust` runs both, which is what a
-# contributor wants.
+# The target splits in two because clippy and the tests share no artifacts.
+# The clippy build runs through RUSTC_WORKSPACE_WRAPPER and produces its own
+# artifact set. CI runs the halves as separate jobs at the same time.
+# `check-rust` runs both.
 check-rust: check-clippy check-test
 
 check-clippy:
@@ -76,31 +76,31 @@ check-test:
 	$(CARGO) test --workspace
 	$(CARGO) test --workspace --no-default-features
 
-# Both generated files are checked in — the LOVR definitions from lovr-docs, and
-# the `lunette` module from the Rust registration surface — so a stale artifact is
-# a failure rather than something to notice later.
+# Both generated files are checked in: the LOVR definitions from lovr-docs,
+# and the `lunette` module from the Rust registration surface. A stale
+# artifact fails the `--check` run, and is not left to surface later.
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 
-# `lua/spec/suite.lua` and `lua/spec/expect.lua` are in: they are ordinary
-# modules. The specs themselves and `lua/spec/runner.lua` are not; see
-# CONTRIBUTING.md.
+# The check includes `lua/spec/suite.lua` and `lua/spec/expect.lua`, which
+# are ordinary modules. The spec files and `lua/spec/runner.lua` are not
+# included; see CONTRIBUTING.md.
 check-luau:
 	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
 
 install: install-binary install-lua install-config
 
-# The LOVR libraries are found rather than named, because cmake stages them under
-# a directory whose name carries a Cargo metadata hash. `liblovr.so` is the one
-# fixed point in that tree, so its directory is what the search returns.
+# The LOVR libraries are found, not named, because cmake stages them under a
+# directory whose name carries a Cargo metadata hash. `liblovr.so` is the one
+# stable name in that tree; the search returns the directory that contains it.
 #
-# They are installed flat. `liblovr.so` is linked with an rpath of
-# `$$ORIGIN/bin:$$ORIGIN`, and the binary with one that reaches this directory,
-# so a flat directory resolves for both without a nested `bin` inside a `lib`.
+# They are installed flat. `liblovr.so` has an rpath of `$$ORIGIN/bin:$$ORIGIN`,
+# and the binary has one that reaches this directory. The flat layout then
+# resolves for both and needs no nested `bin` inside a `lib` directory.
 #
-# The newest is taken, not the first: a tree that has been built under two sets
-# of build-script inputs holds one staged directory per fingerprint, and the one
-# the build above produced is the one just written.
+# The newest is taken, not the first. A tree built under two sets of
+# build-script inputs holds one staged directory per fingerprint, and the
+# newest directory holds the current build's output.
 lovr_build := $(shell find $(build_dir)/build -maxdepth 4 -name liblovr.so -printf '%T@ %h\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
 
 install-binary: build
@@ -112,14 +112,14 @@ install-binary: build
 	$(INSTALL_PROGRAM) $(lovr_build)/liblovr.so $(libdir)/liblovr.so
 	$(INSTALL_PROGRAM) $(lovr_build)/bin/* $(libdir)/
 
-# `lua/spec/` is deliberately not installed: the tests cover the standard library
-# and are not part of it.
+# `lua/spec/` is not installed: the tests cover the standard library and are
+# not part of it.
 #
-# The tree is walked rather than listed, so a module added under a new
-# subdirectory is installed without this rule being remembered. A file the rule
-# missed resolves in the working tree — where LUNETTE_STDLIB_PATH points during
-# development — and is absent from an installed session, which is the worst shape
-# a defect can take.
+# The tree is walked, not listed. A module added under a new subdirectory
+# installs without an edit to this rule. A file the rule misses resolves in
+# the working tree, where LUNETTE_STDLIB_PATH points during development, and
+# is absent from an installed session. The defect appears only in an installed
+# session and nowhere in the working tree.
 install-lua:
 	@set -e; \
 	cd lua && find mullion -type f -name '*.lua' | while read -r file; do \

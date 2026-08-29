@@ -7,13 +7,14 @@ local signal = require '@mullion/signal'
 
 local spec = suite.new 'mullion.signal'
 
--- A fresh object to hang signals on. Signals are keyed by identity, so every
--- case gets its own and nothing a case connects reaches another.
+-- A fresh object for each case. The registry keys connections by the object,
+-- and a connection in one case does not affect another.
 local function object()
   return {}
 end
 
--- Records what a handler was called with, and returns the handler and the log.
+-- The handler records the arguments of every call. The function returns the
+-- handler and the log.
 local function recorder()
   local calls = {}
   return function(...)
@@ -110,9 +111,12 @@ spec('a handler disconnecting another during an emission still runs it', functio
   signal.connect(target, 'moved', second)
   signal.emit(target, 'moved')
 
-  -- The snapshot was taken before the first handler ran, so the second is
-  -- called this time and not the next. Asserting both halves, because a
-  -- snapshot that was never taken would pass the second on its own.
+  -- emit makes a copy of the handler list and runs the handlers from the
+  -- copy. The first emission makes the copy with the second in it, so the
+  -- second runs and the disconnect has not happened yet. The next emission
+  -- does not call it. The next emission is the same with and without the
+  -- copy; without it, the second does not run during the first emission,
+  -- and the first assertion fails.
   expect.equal(#secondCalls, 1, 'calls during the emission that disconnected it')
 
   signal.emit(target, 'moved')
@@ -204,10 +208,10 @@ spec('a connection does not keep its object alive', function()
   local target = object()
   local watch = setmetatable({ target }, { __mode = 'v' })
 
-  -- The handler must not close over `target`: Lua 5.1 has no ephemeron
-  -- tables, so a strongly held handler that captured its own object would
-  -- keep the registry's key reachable. That is the limitation weakConnect
-  -- exists for, and it is documented at the module head.
+  -- The handler does not close over `target`. Lua 5.1 has no ephemeron
+  -- tables, and a handler connected with `connect` that closes over its
+  -- object keeps the registry key reachable. weakConnect covers that case,
+  -- and the module header states the limitation.
   signal.connect(target, 'moved', function() end)
   target = nil
   collectgarbage()

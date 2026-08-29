@@ -1,22 +1,24 @@
 -- The fake `lunette` the laser specs run against, and the module under test.
 --
--- The laser's one native call is `lunette.newSeat`, and the real one asks the
--- compositor for a seat with a keyboard and a pointer. A spec asserting what
--- came back would be asserting Phase 5's work rather than this module's, and a
--- spec run that created seats would leave them behind. So the fake is installed
--- into `package.loaded` before `mullion.laser` is required — which is what the
--- module captures — and `package.loaded['@lunette']` is put back afterwards, so
--- nothing else in the run sees it.
+-- The laser's one native call is `lunette.newSeat`.
+-- The production `lunette.newSeat` creates a seat in the compositor.
+-- The seat has a keyboard and a pointer.
+-- A spec that asserts the returned seat would test the compositor's work, not
+-- the laser module's. A spec run that creates a seat leaves it in the
+-- compositor. The fixture installs the fake into `package.loaded` and then
+-- requires `mullion.laser`. The module's require of `@lunette` returns the
+-- fake. The fixture restores `package.loaded['@lunette']` afterwards. A later
+-- require of `@lunette` resolves to the production module.
 --
--- Not a spec file: the runner collects `*_spec.lua` and this is not one, so it
--- runs no cases of its own.
+-- The runner collects `*_spec.lua`, and the fixture is not one. It runs no
+-- cases of its own.
 
 local fixture = {}
 
--- Declared here and defined below, so the surface reads first.
+-- Forward-declared so the fixture surface appears first.
 local newSeat
 
--- Every seat the fake has handed out, newest last.
+-- Every seat the fake created, newest last.
 fixture.seats = {}
 
 local previousLunette = package.loaded['@lunette']
@@ -29,13 +31,13 @@ package.loaded['@mullion/laser'] = nil
 fixture.laser = require '@mullion/laser'
 package.loaded['@lunette'] = previousLunette
 
--- Forgets the seats a previous case caused.
+-- Empties the seats earlier cases created.
 function fixture.reset()
   fixture.laser.teardown()
   fixture.seats = {}
 end
 
--- A seat that records what it was asked, and whether it was destroyed.
+-- A seat that records its name and options, and whether something destroyed it.
 function newSeat(name, options)
   local seat = {
     name = name,

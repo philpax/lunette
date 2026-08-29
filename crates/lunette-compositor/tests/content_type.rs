@@ -1,14 +1,15 @@
-//! What a client says it is drawing, and what reaches Lua.
+//! Exercises `wp_content_type_v1` through a real `wayland-client` connection.
+//! The suite covers the protocol's `None` default and every non-default variant
+//! in lunette's closed set, and verifies that committed client state reaches the
+//! window snapshot.
 //!
-//! `wp_content_type_v1` is a hint and nothing more. There is no handler trait,
-//! no events, and no way to ask; a client sets a value or it does not. Adoption
-//! is thin and inconsistent, so a client playing video may report nothing at
-//! all — which is why the compositor reports the hint rather than acting on it,
-//! and `mullion.pacing` combines it with a commit-rate heuristic to decide what
-//! is exempt from throttling.
+//! The tests use the in-process compositor seam, not direct state mutation.
+//! The harness follows configure-before-buffer ordering and retains each
+//! surface's content-type object for the surface lifetime.
 //!
-//! Driven over a real `wayland-client`: the whole subject is a value arriving
-//! on the wire and being promoted at a commit.
+//! `wp_content_type_v1` is a client-provided hint, not a detector. The compositor
+//! reports it without applying rendering policy; Lua combines it with other
+//! signals.
 
 #![expect(
     clippy::expect_used,
@@ -27,7 +28,6 @@ use wayland_client::protocol::wl_surface::WlSurface;
 
 use crate::harness::{only_window, with_one_window};
 
-/// The window's surface, which is what a content type is set on.
 fn surface(client: &TestClient) -> WlSurface {
     client
         .surface()
@@ -73,9 +73,7 @@ fn the_hint_takes_effect_at_the_commit_and_not_before() {
     let (mut compositor, mut client) = with_one_window();
     let surface = surface(&client);
 
-    // Set but not committed. `wp_content_type_v1` is double-buffered like
-    // everything else a client sets, so a compositor reading the pending value
-    // would describe a state the client has not asked for yet.
+    // The pending value moves into effect only when the surface commits.
     client.set_content_type(&mut compositor, &surface, ContentType::Video, false);
     assert_eq!(
         only_window(&compositor).content_type,
@@ -95,8 +93,7 @@ fn a_client_taking_the_hint_back_reports_none_again() {
     client.set_content_type(&mut compositor, &surface, ContentType::Video, true);
     assert_eq!(only_window(&compositor).content_type, ContentType::Video);
 
-    // A video player that stopped playing. The value is a hint the client
-    // maintains, not a property it sets once.
+    // A client can replace the hint after a commit; it is not one-time.
     client.set_content_type(&mut compositor, &surface, ContentType::None, true);
     assert_eq!(only_window(&compositor).content_type, ContentType::None);
 }

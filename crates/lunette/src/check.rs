@@ -1,9 +1,8 @@
 //! Linux-only: `lunette check`, and how a diagnostic is drawn.
 //!
-//! Diagnostics go to stderr as their own report rather than through `tracing`.
-//! A type error is a compiler diagnostic, not a line about how the program is
-//! getting on, and a timestamp and level in front of one only obscure the file
-//! and position an editor is looking for.
+//! Diagnostics go to stderr as their own report, outside `tracing`.
+//! A type error is a compiler diagnostic. A timestamp and level in front of
+//! one obscure the file and position an editor is looking for.
 
 use std::{
     collections::HashMap,
@@ -23,9 +22,9 @@ const INSTALLED_DEFINITIONS: &str = "share/lunette/definitions.luau";
 
 /// The definitions to check against, or nothing and the reason.
 ///
-/// Refusing is the point. Without them every `lovr` global is unknown and every
-/// LÖVR type is undeclared, so a run against no definitions reports hundreds of
-/// diagnostics that say nothing about the files being checked.
+/// Without them every `lovr` global is unknown and every LÖVR type is undeclared.
+/// A check against none reports hundreds of diagnostics that do not reflect the
+/// files checked. The function returns nothing when no definitions resolve.
 fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
     if let Some(path) = named {
         if path.is_file() {
@@ -49,8 +48,8 @@ fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
 
 /// Typechecks `roots`, drawing what it found.
 ///
-/// A root that was not read fails the run on its own: a check that passes
-/// because it silently skipped its input is the failure this guards against.
+/// A root that is not read fails the run on its own. A pass that silently
+/// skips its input reports a clean result for a file it never reads.
 pub fn run(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> ExitCode {
     if roots.is_empty() {
         error!("check: no files were named");
@@ -95,7 +94,7 @@ pub fn run(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> E
 /// Draws each diagnostic against the source it came from.
 ///
 /// A file that cannot be read falls back to the plain one-line form, so a
-/// diagnostic is never lost to a failure in the drawing of it.
+/// diagnostic is not lost to a failure in drawing it.
 fn draw(diagnostics: &[Diagnostic]) {
     let mut sources = Sources::default();
     let colour = io::stderr().is_terminal();
@@ -127,10 +126,10 @@ fn draw(diagnostics: &[Diagnostic]) {
 /// The character range `diagnostic` covers, clamped to the source it is drawn
 /// on.
 ///
-/// Character rather than byte offsets: ariadne indexes a `Source` by character,
-/// so a byte offset reads too far by however many multi-byte characters precede
-/// it. A position past the end — a diagnostic with no location, which is how a
-/// definitions failure arrives — collapses onto the end rather than panicking.
+/// ariadne indexes a `Source` by character, so the offsets count characters.
+/// A byte offset reads too far by however many multi-byte characters precede
+/// it. A definitions failure arrives with no location, so its position is past
+/// the end of the source and collapses onto it without panicking.
 fn span_of(text: &str, diagnostic: &Diagnostic) -> Range<usize> {
     let starts = line_starts(text);
     let characters = text.chars().count();

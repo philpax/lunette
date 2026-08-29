@@ -1,12 +1,9 @@
-//! Linux-only: what opens a PipeWire stream on a node the portal granted.
+//! Linux-only: opens PipeWire streams for nodes granted by the portal.
 //!
-//! Opening one spawns PipeWire's own thread and connects to a real node, so the
-//! lifecycle above reaches it through a seam rather than calling
-//! [`CaptureStream::start`] directly. The production implementation is
-//! [`PipewireSource`]; the tests substitute
-//! [`crate::mirror::fake::RecordingSource`], which is why the transitions in
-//! [`crate::mirror`] are exercised without PipeWire, without a portal, and
-//! without a display.
+//! [`CaptureStream`] owns the PipeWire thread for each stream. The source stays
+//! behind a trait so lifecycle tests can use
+//! [`crate::mirror::fake::RecordingSource`] without PipeWire, a portal, or a
+//! display.
 
 use tracing::debug;
 
@@ -15,25 +12,22 @@ use crate::{
     stream::{CaptureStream, CapturedFrame, DrmFormat, FrameCounts},
 };
 
-/// One monitor's frames, as the lifecycle consumes them.
+/// A monitor's captured frames and lifecycle controls.
 ///
-/// Stopping is dropping. There is no `stop` method because there is no state a
-/// stopped stream should still be able to answer from: releasing the value
-/// stops PipeWire's thread and closes the descriptors, which is what
-/// `lunette-v1.AC3.5` asks for and what a `pause` deliberately does not do.
+/// Dropping the stream stops PipeWire and releases its descriptors. Pausing
+/// stops production while retaining the stream for a panel that is temporarily
+/// out of view; dismissal drops it instead.
 pub trait MonitorStream {
-    /// The newest frame produced since the last call, discarding older ones.
+    /// Returns the newest frame since the previous call and discards older frames.
     fn latest(&mut self) -> Option<CapturedFrame>;
 
-    /// What this stream has done with the frames it produced.
+    /// Returns counts of delivered, dropped, and refused frames.
     fn counts(&self) -> FrameCounts;
 
-    /// Stops the stream producing, keeping everything it holds.
-    ///
-    /// For a panel that is temporarily out of view. A dismissed monitor is
-    /// dropped instead.
+    /// Stops production without releasing the stream.
     fn pause(&mut self);
 
+    /// Resumes production after [`Self::pause`].
     fn resume(&mut self);
 }
 
@@ -55,36 +49,29 @@ impl MonitorStream for CaptureStream {
     }
 }
 
-/// What opens a stream on a granted node.
+/// Opens monitor streams for nodes granted by the portal.
 ///
-/// Dyn-safe, and boxing the stream rather than carrying it as an associated
-/// type: the lifecycle holds one of these behind a `Box`, and an associated
-/// type would make that impossible without a second parameter on every type
-/// that owns a lifecycle.
+/// The lifecycle stores implementations as `Box<dyn MonitorStreams>`, so this
+/// trait must remain object-safe.
 pub trait MonitorStreams {
-    /// Connects to `node` and starts delivering frames.
+    /// Opens `node` and begins delivering frames, using `name` for logging.
     ///
-    /// `name` is the monitor's identity, for the stream's own logging.
+    /// Returns `None` when the source is not ready. The lifecycle retains the
+    /// monitor as wanted and retries from [`MirrorSet::poll`].
     ///
-    /// `None` when the source cannot open a stream yet, which is
-    /// [`NoStreams`]'s only answer and is a real state at startup: a PipeWire
-    /// stream negotiates against the DRM formats the importer accepts, and
-    /// those are not known until LOVR has created a graphics device. The
-    /// lifecycle keeps the monitor wanted and asks again on the next
-    /// [`MirrorSet::poll`], which is how the compositor's deferred start works
-    /// too.
+    /// A PipeWire stream negotiates against the DRM formats accepted by the
+    /// importer. The entry point supplies those formats after device initialization,
+    /// so opening is deferred until then.
     ///
     /// [`MirrorSet::poll`]: crate::mirror::MirrorSet::poll
     fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>>;
 }
 
-/// A source that cannot open a stream yet.
+/// A source that is not ready to open streams.
 ///
-/// What [`MirrorSet`] is built with, and what it keeps until the entry point
-/// installs a [`PipewireStreams`] through [`MirrorSet::set_streams`]. A mirror
-/// asked for before then is remembered rather than refused, so a configuration
-/// that mirrors a monitor from `lovr.load` does not have to know when the
-/// graphics device appeared.
+/// [`MirrorSet`] uses this source until the entry point installs a
+/// [`PipewireStreams`] through [`MirrorSet::set_streams`]. Monitors requested
+/// before then remain wanted and open on a later poll after device initialization.
 ///
 /// [`MirrorSet`]: crate::mirror::MirrorSet
 /// [`MirrorSet::set_streams`]: crate::mirror::MirrorSet::set_streams
@@ -102,11 +89,11 @@ impl MonitorStreams for NoStreams {
     }
 }
 
-/// The production source: one PipeWire stream per granted node.
+/// The production source, with one PipeWire stream per granted node.
 ///
-/// Holds the DRM formats the importer accepts, because this crate must not
-/// depend on a graphics API and so cannot decide them. The entry point asks the
-/// device and passes the answer in.
+/// Stores the DRM formats accepted by the importer. The entry point obtains
+/// them from the graphics device because this crate does not depend on a graphics
+/// API.
 #[derive(Clone, Debug)]
 pub struct PipewireStreams {
     formats: Vec<DrmFormat>,

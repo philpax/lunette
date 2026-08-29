@@ -1,9 +1,6 @@
-//! A client's life through the public API: connect, map, retitle, disappear.
-//!
-//! These drive a real `wayland-client` over a socket pair rather than calling
-//! the handlers, because what needs establishing is that a client speaking the
-//! protocol gets what it expects. See `tests/harness/mod.rs` for why none of it
-//! needs a GPU.
+//! These tests use a real `wayland-client` over an in-process socket pair instead
+//! of calling handlers directly. The fake buffer importer keeps the protocol
+//! tests independent of a graphics device.
 
 #[allow(
     dead_code,

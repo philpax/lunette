@@ -1,20 +1,20 @@
 -- Drawing a keyboard: a plate, a plane per key, and a legend on each.
 --
--- `Pass:plane` and `Pass:text` and nothing else, which is what makes it worth
--- keeping apart from the object that decides what to draw. It takes the keys
--- and the state to colour them by rather than the keyboard itself, so it holds
--- no opinion about where either came from.
+-- The drawing uses `Pass:plane` and `Pass:text`, and nothing else. It takes
+-- the keys and the state to colour them by, not the keyboard, and does not
+-- depend on where either came from. The keyboard object stays separate,
+-- because the drawing needs no pass method beyond the two.
 --
 -- Everything is placed relative to a pose. The key geometry runs from the
--- board's top-left with y downwards and a plane's own y runs upwards from its
--- middle, which is the conversion each key's transform carries.
+-- board's top-left with y downwards. A plane's own y runs upwards from its
+-- middle, and each key's transform performs the conversion.
 
 local layout = require '@mullion/keyboard/layout'
 
 local draw = {}
 
 -- The colours and depths a keyboard is drawn with. `mullion.keyboard`'s `Style`
--- carries the measurements as well, and answers this by being a superset.
+-- carries the measurements as well and is a superset of this type.
 export type Appearance = {
   read gap: number,
   read plateDepth: number,
@@ -40,7 +40,7 @@ export type KeyState = {
 -- Draws the plate, then every key, then the legends.
 --
 -- `width` and `height` are the board's extent in metres, as
--- `layout.extentOf` answers it.
+-- `layout.extentOf` returns.
 function draw.keyboard(
   pass: Pass,
   pose: Mat4,
@@ -52,9 +52,9 @@ function draw.keyboard(
 ): ()
   local color = style.plateColor
   pass:setColor(color[1], color[2], color[3], color[4])
-  -- The extent rides in the transform's scale. `luax_readmat4` consumes a whole
-  -- `Mat4` and reads the argument after it as the draw style, so a plane placed
-  -- by matrix takes its size from that matrix and not from two more arguments.
+  -- The plate's size comes from the transform's scale. `luax_readmat4`
+  -- consumes a whole `Mat4` and reads the argument after it as the draw style,
+  -- so a plane placed by a matrix takes its size from that matrix.
   local plate: Mat4 = lovr.math.newMat4()
   plate:set(pose)
   plate:translate(0, 0, -style.plateDepth)
@@ -69,8 +69,8 @@ function draw.keyboard(
     if state.held(key) then
       keyColor = style.heldColor
     end
-    -- After the held colour, so the key being aimed at reads as the one under
-    -- consideration even when it is a modifier that is already down.
+    -- The hover colour is applied after the held colour. The key being aimed
+    -- at keeps its highlight even when it is a modifier that is already down.
     if state.hovered(key) then
       keyColor = style.hoverColor
     end

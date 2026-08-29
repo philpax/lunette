@@ -1,37 +1,12 @@
-//! The compositor thread, its event loop, and the transports it is reached by.
+//! The compositor owns the Wayland display and smithay state on a dedicated thread.
 //!
-//! Everything the compositor owns is built inside the spawned closure, because
-//! `calloop::EventLoop` is not `Send` and cannot be handed across a thread
-//! boundary after construction. What crosses instead is the far end of three
-//! transports: a bounded command channel down, a bounded event channel up, and
-//! an [`ArcSwap`] the compositor republishes a whole [`Snapshot`] into once per
-//! tick.
-//!
-//! Both channels are bounded, so neither direction can hide a backlog. The two
-//! directions handle a full channel differently, and the asymmetry is the whole
-//! of what stops them deadlocking.
-//!
-//! The compositor's [`EventSender::send`] waits for room. A dropped
-//! `WindowClosed` leaves the main thread holding a handle that never dies,
-//! which is worse than a stall, so no event is ever discarded.
-//!
-//! The main thread's [`CommandSender::try_send`] never waits. It is the only
-//! way to queue a command, and a full queue comes back as
-//! [`TrySendError::Full`] carrying the command that was not sent. If it waited
-//! too, the pair would deadlock: the compositor fills the event channel inside
-//! a dispatch callback — one client can commit hundreds of times in a batch —
-//! and blocks there without draining commands, while the main thread, having
-//! already drained this frame's events, blocks filling the command channel.
-//! Neither could then reach the call that would free the other. With the main
-//! thread unable to block, it always returns to the frame loop and drains
-//! events, which is what releases the compositor.
-//!
-//! # How much is wired up
-//!
-//! The loop dispatches clients, drains commands, answers frame callbacks,
-//! publishes snapshots, and flushes. Every global is advertised, and
-//! [`crate::state`] serves them. [`crate::protocol`] records which commands
-//! have handlers and which are still inert.
+//! `calloop::EventLoop` is not `Send`, so the compositor constructs all of its
+//! state inside that thread. The main thread sends commands through a bounded,
+//! nonblocking channel. The compositor sends events through a bounded channel
+//! and waits for capacity so state-changing events are not discarded. A
+//! blocking command send could deadlock when dispatch emits events before it
+//! drains commands. Snapshots cross the boundary as immutable values published
+//! through an [`ArcSwap`].
 
 use std::{
     error::Error,
@@ -60,35 +35,15 @@ use crate::{
     surface::BufferImporter,
 };
 
-/// How many commands may be queued before a sender waits.
-///
-/// A frame's worth of Lua mutations is a handful; this leaves room for a burst
-/// — a configuration that opens a dozen windows at once — without letting an
-/// unresponsive compositor accumulate work indefinitely.
 pub(crate) const COMMAND_CAPACITY: usize = 256;
-
-/// How many events may be queued before the compositor waits.
-///
-/// Larger than the command capacity because a single client can produce many
-/// events in one dispatch batch, and the main thread only drains once a frame.
 pub(crate) const EVENT_CAPACITY: usize = 1024;
-
-/// How many host clipboard reports may be queued before one is discarded.
-///
-/// A report is a copy on the host desktop, or a paste of lunette's own
-/// selection. Neither happens in bursts, so the bound is small; it exists so a
-/// compositor that has stopped dispatching cannot make the host worker grow a
-/// queue of descriptors.
 pub(crate) const HOST_SELECTION_CAPACITY: usize = 32;
 
 const THREAD_NAME: &str = "lunette-compositor";
 
-/// Starts the compositor thread.
+/// Starts the compositor thread and waits for construction to report its result.
 ///
-/// The returned handle owns the only command sender, so dropping it stops the
-/// thread. Construction happens on the new thread and its outcome is reported
-/// back, so a failure to build the event loop or the display surfaces here
-/// rather than as a thread that quietly is not running.
+/// Dropping the returned handle closes the command channel and stops the thread.
 pub fn spawn(
     config: CompositorConfig,
     socket: WaylandSocket,
@@ -105,11 +60,11 @@ pub fn spawn(
     )
 }
 
-/// Starts the compositor thread against spawner and `/proc` implementations of
-/// the caller's choosing.
+/// Starts the compositor thread with injected process-spawning and
+/// process-inspection seams.
 ///
-/// The two seams exist for tests, which must not fork and must not read the
-/// real `/proc`. Production calls [`spawn`], which supplies the real ones.
+/// Production uses the system spawner and `/proc` inspector. Tests inject
+/// fakes so they do not fork processes or read the host's `/proc`.
 pub fn spawn_with(
     config: CompositorConfig,
     socket: Option<WaylandSocket>,
@@ -162,13 +117,11 @@ pub fn spawn_with(
             drop(thread.join());
             Err(error)
         }
-        // The thread aborts the process rather than unwinding, so this arm is
-        // reachable only if `run` returns without reporting, which it cannot.
         Err(mpsc::RecvError) => Err(StartError::NoStartupReport),
     }
 }
 
-/// The main thread's end of a running compositor.
+/// The main-thread endpoints for a compositor thread.
 #[derive(Debug)]
 pub struct CompositorHandle {
     commands: CommandSender,
@@ -193,12 +146,6 @@ impl CompositorHandle {
         &self.snapshots
     }
 
-    /// Assembles a handle over channels whose far ends the caller owns.
-    ///
-    /// For [`crate::testing`], which builds a thread that is not a compositor so
-    /// that a caller's behaviour against one that never answers can be driven.
-    /// Production reaches a handle only through [`spawn_with`], which is the one
-    /// place able to promise that the thread on the other end is running `run`.
     #[cfg(any(test, feature = "test-fakes"))]
     pub(crate) fn from_parts(
         commands: CommandSender,
@@ -216,9 +163,7 @@ impl CompositorHandle {
 
     /// Stops the compositor and waits for the thread to finish.
     ///
-    /// Clients are disconnected as the display drops. Dropping the handle
-    /// without calling this also stops the thread, because closing the command
-    /// channel is itself a stop, but nothing then waits for it.
+    /// Dropping the handle also stops the thread, but does not wait for it.
     pub fn shutdown(self) -> Result<(), ShutdownError> {
         let Self {
             commands,
@@ -227,11 +172,7 @@ impl CompositorHandle {
             thread,
         } = self;
 
-        // Best effort, and enough on its own only when there is room. A refused
-        // or disconnected send is not a failure to stop: dropping the sender
-        // below closes the channel, which the loop reads as a stop, and
-        // dropping the receiver releases a compositor waiting to report an
-        // event so it can reach that close.
+        // Dropping the receivers lets a blocked event send observe shutdown.
         if let Err(error) = commands.try_send(Command::Shutdown) {
             debug!(%error, "asking the compositor to stop by closing its command channel");
         }
@@ -243,20 +184,14 @@ impl CompositorHandle {
     }
 }
 
-/// The main thread's end of the command channel.
 #[derive(Clone, Debug)]
 pub struct CommandSender {
     pub(crate) queue: calloop::channel::SyncSender<Command>,
 }
 
 impl CommandSender {
-    /// Queues a command, returning it if there is no room.
-    ///
-    /// The only way to queue one, and it never waits. A caller that blocked
-    /// here could deadlock against a compositor blocked reporting an event;
-    /// this module's documentation sets out the cycle. The command comes back
-    /// rather than being dropped, so the decision to discard it is the
-    /// caller's, and a full queue is a report rather than a silent loss.
+    /// Attempts to queue a command without waiting. Returns the unsent command if the channel is full
+    /// or disconnected.
     pub fn try_send(&self, command: Command) -> Result<(), TrySendError> {
         self.queue.try_send(command).map_err(|error| match error {
             mpsc::TrySendError::Full(command) => TrySendError::Full(command),
@@ -265,32 +200,21 @@ impl CommandSender {
     }
 }
 
-/// The main thread's end of the event channel.
 #[derive(Debug)]
 pub struct EventReceiver {
     pub(crate) queue: mpsc::Receiver<Event>,
 }
 
 impl EventReceiver {
-    /// Takes every event queued so far, without waiting for more.
-    ///
-    /// Called once at frame start, immediately before the snapshot is read, so
-    /// a consumer of an event sees a snapshot that already accounts for it.
     pub fn drain(&self) -> mpsc::TryIter<'_, Event> {
         self.queue.try_iter()
     }
 
     /// Waits up to `timeout` for one event.
     ///
-    /// The only blocking read in the protocol, and it exists for one caller:
-    /// the restart quiesce, which must not destroy the graphics device until
-    /// the compositor has said it has let go of it.
-    ///
-    /// It does not reintroduce the cycle this module's documentation describes.
-    /// The deadlock there needs both directions to wait; a caller of this is by
-    /// construction *receiving*, so a compositor blocked in [`EventSender::send`]
-    /// is released by the very call that is waiting on it. A caller must still
-    /// reach the command channel only through [`CommandSender::try_send`].
+    /// This is the only blocking protocol operation. Command sends stay
+    /// nonblocking because the compositor can block here while dispatch is
+    /// waiting to drain its command channel.
     pub fn wait(&self, timeout: Duration) -> Result<Event, WaitError> {
         self.queue
             .recv_timeout(timeout)
@@ -301,12 +225,12 @@ impl EventReceiver {
     }
 }
 
-/// Why waiting for an event produced none.
+/// Why an event wait did not return an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WaitError {
-    /// Nothing arrived within the bound. The compositor may still be working.
+    /// No event arrived before the timeout. The compositor may still be running.
     TimedOut,
-    /// The compositor thread is gone, so nothing will ever arrive.
+    /// The compositor thread is gone, so no event can arrive.
     Disconnected,
 }
 
@@ -322,26 +246,18 @@ impl fmt::Display for WaitError {
 
 impl Error for WaitError {}
 
-/// The compositor thread's end of the event channel.
 #[derive(Debug)]
 pub(crate) struct EventSender {
     pub(crate) queue: mpsc::SyncSender<Event>,
 }
 
 impl EventSender {
-    /// Reports an event, waiting for room if the channel is full.
-    ///
-    /// This is the side that waits, because an event has nowhere else to go: a
-    /// dropped one leaves the main thread's model of the compositor
-    /// permanently wrong. The wait ends when the main thread next drains, and
-    /// it always reaches that drain because nothing it does on the command
-    /// channel can block.
+    /// Sends an event, waiting for capacity so state-changing events are not discarded.
     pub(crate) fn send(&self, event: Event) -> Result<(), Disconnected> {
         self.queue.send(event).map_err(|_| Disconnected)
     }
 }
 
-/// Creates the snapshot slot and its two ends.
 pub(crate) fn snapshot_channel() -> (SnapshotPublisher, SnapshotReader) {
     let latest = Arc::new(ArcSwap::from_pointee(Snapshot::default()));
     (
@@ -353,11 +269,7 @@ pub(crate) fn snapshot_channel() -> (SnapshotPublisher, SnapshotReader) {
     )
 }
 
-/// The compositor thread's end of the snapshot slot.
-///
-/// Owning the generation counter here, rather than accepting one from the
-/// caller, is what makes the counter monotonic by construction: there is one
-/// publisher, and it is the only thing that can stamp a snapshot.
+/// Publishes immutable snapshots and advances their generation counter.
 #[derive(Debug)]
 pub(crate) struct SnapshotPublisher {
     latest: Arc<ArcSwap<Snapshot>>,
@@ -365,7 +277,6 @@ pub(crate) struct SnapshotPublisher {
 }
 
 impl SnapshotPublisher {
-    /// Replaces the published snapshot with a newer generation.
     pub(crate) fn publish(&mut self, parts: SnapshotParts) {
         let SnapshotParts {
             windows,
@@ -385,10 +296,6 @@ impl SnapshotPublisher {
     }
 }
 
-/// Everything a snapshot is assembled from, minus the generation.
-///
-/// A struct rather than four positional arguments: they are all lists of
-/// similar shape, so transposing two would compile and publish nonsense.
 pub(crate) struct SnapshotParts {
     pub(crate) windows: Vec<WindowSnapshot>,
     pub(crate) processes: Vec<ProcessSnapshot>,
@@ -396,49 +303,32 @@ pub(crate) struct SnapshotParts {
     pub(crate) seats: Vec<SeatSnapshot>,
 }
 
-/// The main thread's end of the snapshot slot.
 #[derive(Clone, Debug)]
 pub struct SnapshotReader {
     latest: Arc<ArcSwap<Snapshot>>,
 }
 
 impl SnapshotReader {
-    /// Takes the latest snapshot, which the caller then holds for the frame.
-    ///
-    /// Reading twice within a frame can otherwise straddle a publication and
-    /// answer two different questions about the same instant.
+    /// Loads an immutable snapshot. The returned value remains consistent while newer snapshots publish.
     #[must_use]
     pub fn load(&self) -> Arc<Snapshot> {
         self.latest.load_full()
     }
 }
 
-/// What a panic on the compositor thread does to the process.
+/// Selects the process behavior when the compositor thread panics.
 ///
-/// The choice is the caller's rather than this crate's. `std::panic::set_hook`
-/// is process-global, so a library that installs one takes over the behaviour
-/// of every consumer, the test harness included; instead the policy is offered
-/// here and the binary states which one it wants.
-///
-/// [`crate::thread::abort_on_panic`] is the implementation of the first, and is
-/// public so a consumer that spawns its own compositor-adjacent thread can
-/// apply the same rule to it.
+/// The binary supplies this policy. This crate does not install a process-global panic hook.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PanicPolicy {
-    /// Abort the process. What `crates/lunette/src/frame.rs` asks for: a
-    /// compositor thread that unwinds leaves the Wayland socket held by a
-    /// process that no longer services it, and leaves the main thread reading a
-    /// snapshot that will never change again.
+    /// Aborts so a panicking thread cannot leave its Wayland socket and stale snapshot available.
     #[default]
     Abort,
-    /// Let the thread unwind and leave the process running. For a test harness,
-    /// which reports a panicking thread rather than being killed by it.
+    /// Lets the thread unwind so its join handle reports the panic.
     Unwind,
 }
 
-/// Runs `body`, aborting the process if it panics.
-///
-/// A wrapper rather than a panic hook, for the reason [`PanicPolicy`] records.
+/// Runs `body` and aborts the process if it unwinds, without installing a global panic hook.
 pub fn abort_on_panic<R>(name: &'static str, body: impl FnOnce() -> R) -> R {
     let guard = AbortGuard { name };
     let value = body();
@@ -459,12 +349,9 @@ impl Drop for AbortGuard {
     }
 }
 
-/// Everything `run` needs to build the compositor, bundled so the thread body
-/// takes one argument rather than six.
 pub(crate) struct Ingredients {
     pub(crate) config: CompositorConfig,
-    /// Absent only in a test, which connects clients over a socket pair rather
-    /// than through a bound socket.
+    /// `None` lets logic-headless tests insert clients over an in-process socket pair.
     pub(crate) socket: Option<WaylandSocket>,
     pub(crate) importer: Box<dyn BufferImporter>,
     pub(crate) spawner: Box<dyn ProcessSpawner>,
@@ -474,7 +361,6 @@ pub(crate) struct Ingredients {
     pub(crate) snapshots: SnapshotPublisher,
 }
 
-/// Builds the compositor, reports whether it started, and then runs it.
 fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>) {
     let (mut event_loop, mut data) = match build(ingredients) {
         Ok(built) => {
@@ -489,13 +375,9 @@ fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>)
 
     info!("compositor thread running");
 
-    // No timeout: with every source registered up front there is nothing to do
-    // between events, and waking on a timer would burn a wakeup per tick for a
-    // compositor that is usually idle.
     let outcome = event_loop.run(None, &mut data, |data| {
-        // After the dispatch rather than before: a client that destroyed a
-        // buffer did so during it, and this is where the import holding that
-        // buffer's image becomes collectable.
+        // Sweep after dispatch so imports whose buffers were destroyed
+        // during dispatch can be collected.
         data.state.sweep_imports();
         data.state.send_frame_callbacks();
         data.state.publish_if_dirty();
@@ -507,8 +389,8 @@ fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>)
     match outcome {
         Ok(()) => info!("compositor thread stopped"),
         Err(error) => {
-            // The same reasoning as the panic policy: a loop that stopped
-            // dispatching leaves a socket held and a snapshot frozen.
+            // A failed loop leaves the Wayland socket and stale snapshot
+            // owned by this process.
             error!(%error, "compositor event loop failed; aborting the process");
             std::process::abort();
         }
@@ -532,12 +414,10 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
     let event_loop = CompositorLoop::try_new().map_err(StartError::CreateEventLoop)?;
     let handle = event_loop.handle();
 
-    // Mutable because reaching the backend for its poll handle takes the
-    // display by mutable reference.
     let mut display = Display::<CompositorState>::new().map_err(StartError::CreateDisplay)?;
 
-    // Level triggered: a dispatch that leaves requests unread is woken again
-    // rather than waiting for the next byte to arrive.
+    // Level-triggered readiness dispatches again while a client still has
+    // unread requests.
     let poll_fd = display
         .backend()
         .poll_fd()
@@ -572,8 +452,7 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
         .insert_source(host_reports, |event, _metadata, data: &mut LoopData| {
             match event {
                 calloop::channel::Event::Msg(report) => data.state.host_selection(report),
-                // The host worker stopped without reporting why, which is what a
-                // panic there looks like from here.
+                // Treat a closed host channel as a lost selection source.
                 calloop::channel::Event::Closed => {
                     data.state.host_selection(HostEvent::Lost {
                         reason: "the host clipboard worker stopped".to_owned(),
@@ -614,25 +493,18 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
         },
     });
 
-    // Published before the caller is told the thread started, so a caller that
-    // reads a snapshot immediately after `spawn` sees a real one — with the
-    // output already described — rather than the empty placeholder.
+    // Publish before acknowledging startup so readers never observe the
+    // placeholder as initial state.
     state.publish_if_dirty();
 
     Ok((event_loop, LoopData { display, state }))
 }
 
-/// What the event loop's callbacks are handed.
-///
-/// The display and the state are separate fields of one owner because
-/// `dispatch_clients` takes the state by mutable reference while borrowing the
-/// display, so a single struct holding both cannot be passed to it.
 pub(crate) struct LoopData {
     pub(crate) display: Display<CompositorState>,
     pub(crate) state: CompositorState,
 }
 
-/// The channel's other end is gone, so the message cannot be delivered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Disconnected;
 
@@ -644,20 +516,16 @@ impl fmt::Display for Disconnected {
 
 impl Error for Disconnected {}
 
-/// Why a command could not be queued without waiting.
-///
-/// Carries the command back rather than dropping it, and so is no more
-/// cloneable than [`Command`] is.
+/// A command that `CommandSender::try_send` did not queue.
 #[derive(Debug)]
 pub enum TrySendError {
-    /// The channel is full. The command is returned unsent.
+    /// The bounded command channel has no capacity; the command is returned unsent.
     Full(Command),
-    /// The compositor thread is gone. The command is returned unsent.
+    /// The compositor thread has disconnected; the command is returned unsent.
     Disconnected(Command),
 }
 
 impl TrySendError {
-    /// The command that was not sent.
     #[must_use]
     pub fn into_command(self) -> Command {
         match self {
@@ -682,7 +550,6 @@ impl fmt::Display for TrySendError {
 
 impl Error for TrySendError {}
 
-/// Why the compositor thread could not be started.
 #[derive(Debug)]
 pub enum StartError {
     SpawnThread(io::Error),
@@ -728,7 +595,6 @@ impl Error for StartError {
     }
 }
 
-/// Why the compositor thread could not be stopped cleanly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShutdownError {
     ThreadPanicked,
@@ -770,10 +636,7 @@ mod tests {
         .expect("the compositor thread starts")
     }
 
-    /// Long enough that a loaded machine does not fail the test, short enough
-    /// that a genuine hang is reported rather than waited on for ever. Nothing
-    /// here waits for a duration; this is only the point at which waiting for a
-    /// condition is declared a failure.
+    // The bound applies to condition waits, not to a fixed sleep.
     const DEADLINE: Duration = Duration::from_secs(5);
 
     #[derive(Debug, PartialEq, Eq)]
@@ -782,7 +645,6 @@ mod tests {
         Sent,
     }
 
-    /// A publication carrying only the outputs a test cares about.
     fn parts(outputs: Vec<OutputSnapshot>) -> SnapshotParts {
         SnapshotParts {
             windows: Vec::new(),
@@ -933,8 +795,6 @@ mod tests {
         let snapshots = compositor.snapshots().clone();
         drop(compositor);
 
-        // The reader outlives the thread and keeps answering with the last
-        // snapshot, which is what a dead-handle read depends on.
         assert_eq!(snapshots.load().generation.get(), 1);
     }
 
@@ -946,16 +806,12 @@ mod tests {
             window: crate::protocol::WindowId::new(1).expect("non-zero"),
         };
 
-        // Offer commands until the queue refuses one, or until well past its
-        // capacity, which happens when the loop is draining as fast as the test
-        // fills. Either outcome is a live loop.
         let mut offered = 0;
         while commands.try_send(unhandled()).is_ok() && offered < COMMAND_CAPACITY * 2 {
             offered += 1;
         }
         assert!(offered > 0, "the queue refused every command");
 
-        // Room reappears only because the loop took something off the queue.
         let deadline = Instant::now() + DEADLINE;
         while commands.try_send(unhandled()).is_err() {
             assert!(

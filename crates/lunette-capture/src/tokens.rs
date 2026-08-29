@@ -1,13 +1,13 @@
 //! The restore tokens that let a later session skip the portal's dialog.
 //!
 //! A ScreenCast restore token is single-use. The portal invalidates the one it
-//! was given and returns a **new** one in every `Start` response, so a client
-//! that stores only the first token has restore on the second run and a prompt
-//! on the third. [`TokenStore::record`] is therefore called after every grant,
-//! not only when nothing was stored.
+//! was given and returns a new one in every `Start` response. A client that
+//! stores only the first token has restore on the second run and a prompt on
+//! the third. [`TokenStore::record`] is called after every grant, not only when
+//! nothing was stored.
 //!
-//! The store is keyed by [`MonitorKey`], so a token follows the monitor rather
-//! than the port it was plugged into.
+//! The store is keyed by [`MonitorKey`], so a token follows the monitor, not
+//! the port it was plugged into.
 //!
 //! # The file, and the versions of it
 //!
@@ -17,15 +17,14 @@
 //! - A new lunette reading an old file gets `#[serde(default)]` for the fields
 //!   that did not exist.
 //! - An old lunette reading a new file gets [`Loaded::FromTheFuture`], which
-//!   carries no [`TokenStore`] at all. That is the case worth designing for:
-//!   rewriting a file whose fields this version cannot represent would drop
-//!   them, corrupting the file rather than failing on it. There is no store to
-//!   render, and [`Loaded::for_session`] mints no [`TokenFile`] for it either —
-//!   so a caller holds nothing [`write`] would accept, and the rule cannot be
-//!   lost to a later refactor that stops matching on the variant.
-//! - Anything else in the file is refused rather than ignored
-//!   (`deny_unknown_fields`), so a typo is reported instead of silently
-//!   discarding a token on the next write.
+//!   carries no [`TokenStore`] at all. Rewriting a file whose fields this
+//!   version cannot represent would drop them and corrupt the file, so there
+//!   is no store to render and [`Loaded::for_session`] mints no [`TokenFile`]
+//!   for it either. A caller then holds nothing [`write`] would accept, and
+//!   the rule cannot be lost to a later refactor that stops matching on the
+//!   variant.
+//! - Anything else in the file is an error (`deny_unknown_fields`); a typo is
+//!   reported, and a token is not silently discarded on the next write.
 //!
 //! Losing this file costs one portal dialog. It is not worth a repair path.
 
@@ -140,14 +139,14 @@ impl TokenStore {
     /// The response's token replaces whatever was held, because the one that
     /// was offered has just been spent. A response carrying no token means the
     /// backend did not persist the session, so the held token is spent and
-    /// useless: the entry is dropped rather than left to fail silently on the
+    /// useless. The entry is dropped; keeping it would fail silently on the
     /// next launch.
     ///
     /// The granted mode is stored, never the requested one. Backends may
     /// downgrade, and xdg-desktop-portal-wlr does (`screencast.c:171-181`), so
     /// storing what was asked for produces a record that lies about what the
-    /// next run will do. [`GrantedPersistMode::Unstated`] stores nothing rather
-    /// than guessing.
+    /// next run will do.
+    /// [`GrantedPersistMode::Unstated`] stores nothing.
     pub fn record(
         &mut self,
         monitor: MonitorKey,
@@ -208,9 +207,9 @@ impl TokenStore {
 
 /// What reading the file produced.
 ///
-/// The variants are not interchangeable, and that is the point: only
-/// [`Self::Store`] and [`Self::Absent`] carry a [`TokenStore`], so a file this
-/// version cannot represent has nothing that could be rendered back over it.
+/// The variants are not interchangeable. Only [`Self::Store`] and
+/// [`Self::Absent`] carry a [`TokenStore`], so a file this version cannot
+/// represent has nothing that could be rendered back over it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Loaded {
     /// The file parsed.
@@ -248,11 +247,10 @@ impl Loaded {
 /// A file this version of lunette may render its tokens over.
 ///
 /// Minted only by [`Loaded::for_session`], which mints none for a file a later
-/// lunette wrote, and consumed only by [`write`]. Together those two make the
-/// version rule structural rather than remembered: rewriting such a file would
-/// drop the fields this version does not know about, corrupting it rather than
-/// failing on it, and there is no value in the program that would let a caller
-/// do it.
+/// lunette wrote, and consumed only by [`write`]. Together the two make the
+/// version rule structural, not a matter of remembering. Rewriting such a file
+/// would drop the fields this version does not know about and corrupt it, and
+/// there is no value in the program that would let a caller do it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TokenFile(PathBuf);
 
@@ -289,13 +287,14 @@ pub fn read(path: &Path) -> Result<Loaded, TokenStoreError> {
 
 /// Writes the store to the file, replacing whatever was there.
 ///
-/// Through a sibling temporary file and a rename, so an interrupted write
-/// leaves the previous tokens rather than a truncated file. The cost of losing
-/// the file is one portal dialog, but the cost of half a file is a parse error
-/// on every launch until the user finds and deletes it.
+/// The write goes through a sibling temporary file and a rename, so an
+/// interrupted write leaves the previous tokens, not a truncated file. The
+/// cost of losing the file is one portal dialog, but the cost of half a file
+/// is a parse error on every launch until the user finds and deletes it.
 ///
-/// A [`TokenFile`] rather than a path, so a file written by a later lunette
-/// cannot be passed here: [`Loaded::for_session`] mints none for that case.
+/// The function takes a [`TokenFile`], not a path, so a file written by a
+/// later lunette cannot be passed here: [`Loaded::for_session`] mints none for
+/// that case.
 ///
 /// # Errors
 ///
@@ -307,11 +306,11 @@ pub fn write(file: &TokenFile, store: &TokenStore) -> Result<(), TokenStoreError
     let scratch = path.with_extension("toml.new");
 
     replace_durably(&scratch, path, text.as_bytes()).map_err(|cause| {
-        // The scratch is removed rather than left beside the real file: it has
-        // the state directory's own name with another extension, and a caller
-        // that sees the write fail has no way to know it is there to clean up.
-        // A removal that itself fails changes nothing worth reporting over the
-        // failure that is already being returned.
+        // The scratch is removed. It has the state directory's own name with
+        // another extension, and a caller that sees the write fail has no way
+        // to know it is there to clean up. A removal that itself fails changes
+        // nothing worth reporting over the failure that is already being
+        // returned.
         drop(fs::remove_file(&scratch));
         TokenStoreError::Write {
             path: path.display().to_string(),
@@ -325,9 +324,9 @@ pub fn write(file: &TokenFile, store: &TokenStore) -> Result<(), TokenStoreError
 /// The rename is atomic, but only with respect to data the filesystem has
 /// already recorded. Without the flush before it, a crash shortly after the
 /// rename can leave the new name pointing at a file whose contents never
-/// arrived — which is the truncated file the rename exists to rule out, reached
-/// by another route. The directory is flushed afterwards for the same reason:
-/// the rename is a change to the directory, not to either file.
+/// arrived. That is the truncated file the rename exists to rule out, reached
+/// by another route. The directory is flushed afterwards for the same reason.
+/// The rename is a change to the directory, not to either file.
 ///
 /// A directory that cannot be opened is not reported. The data is on disk and
 /// the rename has been made; there is nothing a caller could do with the
@@ -351,9 +350,9 @@ fn replace_durably(scratch: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> 
 
 /// The file's shape.
 ///
-/// `deny_unknown_fields` on both this and [`Entry`]: a field neither knows is a
-/// typo or a stale name, and ignoring it would discard a token on the next
-/// write. A file from a later version never reaches here — [`TokenStore::parse`]
+/// `deny_unknown_fields` on both this and [`Entry`]: a field neither knows is
+/// a typo or a stale name, and ignoring it would discard a token on the next
+/// write. A file from a later version never reaches here. [`TokenStore::parse`]
 /// checks the version first.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -377,8 +376,8 @@ struct Entry {
 impl Entry {
     /// A total order over keys, for a file that does not churn.
     ///
-    /// Built from the variant and its rendering rather than from [`Ord`],
-    /// because [`MonitorKey`] deliberately has none: ordering identities is a
+    /// Built from the variant and its rendering, not from [`Ord`], because
+    /// [`MonitorKey`] deliberately has none. Ordering identities is a
     /// presentation concern, and giving the type an `Ord` invites somebody to
     /// compare two identities with it.
     fn sort_key(&self) -> (u8, String) {
@@ -507,8 +506,8 @@ mod tests {
 
     #[test]
     fn a_descriptor_holding_the_format_s_own_punctuation_survives_the_round_trip() {
-        // The reason this is a serialised format rather than a line of text:
-        // a make and model are whatever the monitor's EDID says.
+        // A make and model are whatever the monitor's EDID says, which is why
+        // this is a serialised format and not a line of text.
         let awkward = MonitorKey::Descriptor(
             MonitorName::new(
                 None,
@@ -553,8 +552,8 @@ mod tests {
 
     #[test]
     fn a_file_from_a_later_version_is_not_read_and_cannot_be_written_back() {
-        // The case that corrupts rather than fails: an old writer rendering its
-        // own fields over a newer file drops everything it does not know about.
+        // This case corrupts, not fails. An old writer rendering its own
+        // fields over a newer file drops everything it does not know about.
         // There is no store in this variant, so there is nothing to render.
         let loaded = parsed(
             "version = 2\n\
@@ -726,9 +725,9 @@ mod tests {
 
     #[test]
     fn each_session_offers_the_token_the_previous_one_returned() {
-        // The whole point of the store, driven through the portal seam rather
-        // than asserted on the store alone: session two must offer what session
-        // one returned, and session three must offer what session two did.
+        // This is the store's purpose, driven through the portal seam and not
+        // asserted on the store alone. Session two must offer what session one
+        // returned, and session three must offer what session two did.
         let mut portal = FakePortal::new();
         for text in ["from-first", "from-second"] {
             portal.will_grant(SessionResponse {
@@ -783,8 +782,8 @@ mod tests {
 
     #[test]
     fn a_descriptor_key_is_written_as_the_text_a_user_would_recognise() {
-        // The rendered form is read by whoever has to delete this file, so it
-        // is worth stating rather than leaving to serde's defaults.
+        // The rendered form is read by whoever has to delete this file. The
+        // format is stated explicitly, not left to serde's defaults.
         let mut store = TokenStore::new();
         store.record(
             descriptor("X24"),

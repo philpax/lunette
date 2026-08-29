@@ -1,19 +1,20 @@
--- A pose as a string, and back.
+-- The module encodes a pose as a string and decodes a string into a pose.
 --
 -- The per-window property store takes a number, a string, or a boolean and
--- refuses a table (docs/lua-api.md#per-window-properties). A table would hold
--- Lua values, which is the same problem the store exists to solve one level
--- down, so a caller wanting structure encodes it and knows that it did. This is
--- that encoding, in one place, because the store is not the only thing that
--- wants it: a saved arrangement on disk is the same sixteen numbers.
+-- refuses a table (docs/lua-api.md#per-window-properties). The store keeps
+-- arbitrary Lua values out, and a table as a property value would put them
+-- in. A caller who needs structure encodes it into a string first.
 --
--- Sixteen elements rather than a position and an orientation, because a pose
--- may carry a scale and a decomposition would quietly drop it. Nine significant
--- digits, which is enough to bring a 32-bit float back unchanged, so the
--- round-trip is exact rather than nearly.
+-- This module is that encoding, in one place. The property store and a saved
+-- arrangement on disk share the same sixteen-number form.
 --
--- This module holds no state and starts nothing, so it registers no teardown
--- hook: there is nothing a reload could leave behind.
+-- The format uses sixteen elements, not a position and an orientation,
+-- because a pose may carry a scale and a decomposition would drop it. Nine
+-- significant digits return a 32-bit float to its original value, so the
+-- round-trip is exact.
+--
+-- This module holds no state and starts nothing. It has no teardown hook: a
+-- reload has nothing to discard.
 
 local pose = {}
 
@@ -32,10 +33,10 @@ end
 
 -- What `encode` wrote, as a fresh `Mat4`, or nothing.
 --
--- Anything that is not sixteen finite numbers answers nothing rather than a
--- partly-filled matrix. What is being read outlives the Lua state that wrote
--- it, and a configuration that wrote the key itself is as likely a source as
--- this module is.
+-- Anything that is not sixteen finite numbers returns nothing, and no
+-- partly-filled matrix is returned. A stored value persists after the Lua
+-- state that wrote it is gone, and a configuration that sets the key directly
+-- is as likely a source as this module is.
 function pose.decode(text: boolean | number | string | nil): Mat4?
   if type(text) ~= 'string' then
     return nil
@@ -50,9 +51,9 @@ function pose.decode(text: boolean | number | string | nil): Mat4?
       return nil
     end
     local number = tonumber(word)
-    -- An infinity or a nan places a panel nowhere, and it would come back after
-    -- every reload. nan is caught by comparing it with itself, which is the one
-    -- comparison it fails.
+    -- An infinity or a nan places a panel nowhere, and the value stays in the
+    -- store across reloads. A nan is not equal to itself, so `number ~= number`
+    -- catches it.
     if not number or number ~= number or number == math.huge or number == -math.huge then
       return nil
     end

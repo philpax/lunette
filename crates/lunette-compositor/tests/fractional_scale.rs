@@ -1,16 +1,19 @@
-//! What a client is told about the scale of the output it is on.
+//! Exercises the client-visible output-scale protocols over a real
+//! `wayland-client` connection.
 //!
-//! Driven over a real `wayland-client`, because the whole subject is what
-//! arrives on the wire: `wp_fractional_scale_v1.preferred_scale` in 120ths,
-//! `wl_surface.preferred_buffer_scale` as a whole number, and the toplevel
-//! configure that carries the matching logical size. None of the three is
-//! observable from the compositor's own side.
+//! Clients bind `wp_fractional_scale_manager_v1` at version 1 and request
+//! `wp_fractional_scale_v1` objects. The compositor reports the preferred
+//! fractional scale in 120ths, the preferred buffer scale as an integer, and
+//! the matching logical size in an xdg-toplevel configure. The integer scale is
+//! the ceiling of the fractional scale for clients without fractional-scale
+//! support; the logical size uses the fractional scale.
 //!
-//! The three travel together on purpose. A client renders at the fractional
-//! scale, sets an integer `wl_surface.set_buffer_scale`, and corrects the
-//! result with `wp_viewport.set_destination`; given only some of the three it
-//! produces sharp content at the wrong size, which reads as a bug in the client
-//! rather than as a missing configure in the compositor.
+//! `TestCompositor` runs the real display and handlers on the calling thread.
+//! The harness connects over `UnixStream::pair()` and uses a recording importer
+//! in place of a graphics device. The driver records protocol events in arrival
+//! order. `open_toplevel` completes the initial configure handshake before a
+//! test attaches a buffer, and `TestClient` retains fractional-scale objects for
+//! their surface lifetime.
 
 #![expect(
     clippy::expect_used,
@@ -31,7 +34,6 @@ use lunette_compositor::{
 };
 use pretty_assertions::assert_eq;
 
-/// The identifier the main thread would mint for the first Lua-created output.
 const SECOND_OUTPUT: OutputId = match OutputId::new(2) {
     Some(output) => output,
     None => unreachable!(),
@@ -45,8 +47,6 @@ fn mode(width: u32, height: u32, scale: f64) -> OutputMode {
     }
 }
 
-/// A compositor whose default output has the named scale, and a client on it
-/// with a mapped toplevel.
 fn with_scaled_output(scale: f64) -> (TestCompositor, TestClient) {
     let mut compositor = TestCompositor::new();
     compositor.send(Command::ReconfigureOutput {
@@ -78,9 +78,6 @@ fn the_manager_is_advertised_and_a_client_can_obtain_a_fractional_scale() {
 
 #[test]
 fn the_preferred_scale_arrives_in_120ths() {
-    // 1.5 is 180 in the protocol's own unit, and the unit is the reason
-    // `crates/lunette/src/scale.rs` keeps its ladder in 120ths rather than as
-    // floats.
     let (mut compositor, mut client) = with_scaled_output(1.5);
     let surface = client.surface().expect("a toplevel was opened").clone();
 
@@ -94,8 +91,7 @@ fn the_preferred_scale_arrives_in_120ths() {
 
 #[test]
 fn a_scale_that_is_not_a_whole_number_of_120ths_is_rounded() {
-    // A ninth of one is 13.33 in 120ths. The protocol carries a `uint`, so a
-    // compositor either rounds or lies about the unit.
+    // Smithay rounds `scale * 120.0` to the protocol's unsigned integer.
     let (mut compositor, mut client) = with_scaled_output(1.0 + 1.0 / 9.0);
     let surface = client.surface().expect("a toplevel was opened").clone();
 
@@ -109,10 +105,8 @@ fn a_scale_that_is_not_a_whole_number_of_120ths_is_rounded() {
 
 #[test]
 fn the_scale_set_before_the_object_existed_is_replayed_on_creation() {
-    // The surface is created, mapped, and settled long before the client asks
-    // for its fractional scale. Setting the preferred scale at surface creation
-    // is what avoids a first frame at the wrong one, and this is the property
-    // that makes pre-setting safe.
+    // The surface has already committed a buffer when the client creates the
+    // fractional-scale object, so the first event must replay the stored scale.
     let (mut compositor, mut client) = with_scaled_output(2.0);
     client.attach_buffer(&mut compositor, PixelSize::new(640, 480));
     client.settle_quiet(&mut compositor);
@@ -128,17 +122,15 @@ fn the_scale_set_before_the_object_existed_is_replayed_on_creation() {
 
 #[test]
 fn raising_the_output_scale_tells_the_client_to_render_sharper() {
-    // `lunette-v1.AC2.5`, as far as the compositor's side of it reaches: the
-    // client is told the new fractional scale, the new whole-number scale, and
-    // the logical size that goes with them.
+    // Reconfiguration derives the fractional scale, integer buffer scale, and
+    // logical configure from the same output mode.
     let (mut compositor, mut client) = with_scaled_output(1.0);
     let surface = client.surface().expect("a toplevel was opened").clone();
     let surface_id = client.surface_id().expect("a toplevel was opened");
 
     let fractional = client.request_fractional_scale(&surface);
-    // Larger than the logical bounds the doubled scale will leave, so the
-    // configure that follows has a visible number in it rather than the size the
-    // window already had.
+    // This buffer exceeds the 1280x720 bounds at scale 2.0, which makes the new
+    // logical configure observable.
     client.attach_buffer(&mut compositor, PixelSize::new(1600, 900));
     client.settle_quiet(&mut compositor);
 
@@ -160,8 +152,6 @@ fn raising_the_output_scale_tells_the_client_to_render_sharper() {
         Some(&2),
         "the whole-number scale a client without the fractional protocol renders at"
     );
-    // 2560x1440 at scale two is 1280x720 logical, so the 1600x900 window is
-    // pulled in rather than left overhanging the output it is on.
     assert_eq!(
         client.driver().toplevel_size,
         Some((1280, 720)),
@@ -171,9 +161,8 @@ fn raising_the_output_scale_tells_the_client_to_render_sharper() {
 
 #[test]
 fn a_reconfigure_that_leaves_the_scale_alone_sends_no_new_preferred_scale() {
-    // A client re-rendering its whole surface because its refresh rate changed
-    // is exactly the waste discrete steps and hysteresis exist to avoid, and
-    // `set_preferred_scale` sending only on a change is what delivers it.
+    // Smithay suppresses `preferred_scale` when the stored fractional scale is
+    // unchanged, even when another output property changes.
     let (mut compositor, mut client) = with_scaled_output(1.5);
     let surface = client.surface().expect("a toplevel was opened").clone();
 
@@ -200,9 +189,6 @@ fn a_reconfigure_that_leaves_the_scale_alone_sends_no_new_preferred_scale() {
 
 #[test]
 fn the_preferred_buffer_scale_is_the_ceiling_of_the_fractional_one() {
-    // 1.5 rounds up to 2, not down to 1. Rounding down would tell a client its
-    // monitor is unscaled and leave it rendering at half the density the
-    // fractional scale asked for.
     let (mut compositor, mut client) = with_scaled_output(1.5);
     let surface_id = client.surface_id().expect("a toplevel was opened");
     client.settle_quiet(&mut compositor);
@@ -212,8 +198,6 @@ fn the_preferred_buffer_scale_is_the_ceiling_of_the_fractional_one() {
 
 #[test]
 fn a_client_on_another_output_is_unaffected_by_a_reconfigure() {
-    // Two outputs are the point: with one, a scale sent to everybody and a scale
-    // sent to the right client are the same picture.
     let mut compositor = TestCompositor::new();
     compositor.send(Command::CreateOutput {
         output: SECOND_OUTPUT,

@@ -1,15 +1,7 @@
-//! The virtual monitors clients are shown, and what changing one means.
+//! Coordinates virtual outputs and propagates their modes and scales to clients.
 //!
-//! [`crate::output::OutputRegistry`] owns the `wl_output` globals and the modes;
-//! this is what the compositor does around them. Creating and destroying an
-//! output is a global going up or coming down, and reconfiguring one is a fanout
-//! nothing else performs: the registry sends `wl_output.mode`, and every surface
-//! on that output is owed a `wl_surface.preferred_buffer_scale`, a fractional
-//! preference, and a toplevel configure at the matching logical size. A client
-//! told its monitor changed and not told its own new scale renders sharp content
-//! at the wrong size.
-//!
-//! Split out of `compositor.rs` as a self-contained concern.
+//! [`crate::output::OutputRegistry`] owns the `wl_output` globals and modes. This
+//! module sends the corresponding surface scales and toplevel configures.
 
 use smithay::{
     reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
@@ -28,11 +20,8 @@ use crate::{
 };
 
 impl CompositorState {
-    /// Creates a virtual monitor and advertises its global.
-    ///
-    /// A duplicate identifier is reported and dropped rather than replacing the
-    /// output that holds it: the clients already bound to that one would be
-    /// silently reconfigured to a mode nobody asked them to take.
+    /// Rejects a duplicate identifier. Replacing the existing output would
+    /// silently reconfigure its bound clients.
     pub(super) fn create_output(&mut self, output: OutputId, mode: OutputMode) {
         match self.outputs.create(&self.display, output, mode) {
             Ok(()) => {
@@ -43,12 +32,9 @@ impl CompositorState {
         }
     }
 
-    /// Changes an output's mode, and tells everything on it.
-    ///
-    /// The `wl_output` events are the registry's; the per-surface scales and the
-    /// toplevel configures are [`CompositorState::rescale_output`]'s. A client
-    /// told its monitor changed and not told its own new scale keeps rendering
-    /// at the old one.
+    /// Updates the registry, surface scales, and toplevel configures together.
+    /// A client that receives only the registry event keeps rendering at the old
+    /// scale.
     pub(super) fn reconfigure_output(&mut self, output: OutputId, mode: OutputMode) {
         match self.outputs.reconfigure(output, mode) {
             Ok(()) => {
@@ -59,11 +45,7 @@ impl CompositorState {
         }
     }
 
-    /// Withdraws an output and moves everything that was on it to the default.
-    ///
-    /// The default output is refused. It is what a client that was assigned no
-    /// output is shown, and every adopted client is one of those, so a session
-    /// without it has clients that can see no monitor at all.
+    /// Refuses to withdraw the default output because unassigned clients use it.
     pub(super) fn destroy_output(&mut self, output: OutputId) {
         if output == DEFAULT_OUTPUT {
             debug!("the default output cannot be destroyed; a client assigned none needs it");
@@ -82,32 +64,15 @@ impl CompositorState {
         self.touch();
     }
 
-    /// Moves the clients, surfaces, and windows of a withdrawn output onto the
-    /// default one.
-    ///
-    /// [`ClientState::sees_output`] answers `assigned == output` and nothing
-    /// else rewrites an assignment, so a client left naming an output that no
-    /// longer exists matches no surviving global and holds no `wl_output` for
-    /// the rest of its life. That is exactly the state
-    /// [`CompositorState::destroy_output`] refuses to create for the default
-    /// output, reached by another route. It is also a divergence rather than
-    /// only an absence: [`CompositorState::mode_of`] and
-    /// [`CompositorState::output_bounds`] fall back to the default on their
-    /// own, so the compositor would configure the client for one monitor while
-    /// the client saw none.
-    ///
-    /// Clearing the assignment is not enough by itself. `can_view` is consulted
-    /// at registry advertisement and at bind and nowhere else, so the default
-    /// global has to be withdrawn and advertised again for a client that has
-    /// already read the registry to be offered it.
+    /// Reassigns clients, surfaces, and windows from a withdrawn output to the
+    /// default. The default global is re-advertised when client assignments
+    /// change, so clients that already read the registry can see it.
     fn adopt_orphans(&mut self, withdrawn: OutputId, orphaned: &[WlSurface]) {
         self.assignments
             .retain(|_, assigned| *assigned != withdrawn);
 
-        // Collected before any of them is looked up, because `with_all_clients`
-        // runs its closure while holding the backend's own lock and
-        // `get_client_data` takes the same one
-        // (`wayland-backend/src/rs/server_impl/handle.rs:145-146`).
+        // Collect clients before looking up client data. Both operations acquire
+        // the backend lock, so nesting them would deadlock.
         let backend = self.display.backend_handle();
         let mut connected = Vec::new();
         backend.with_all_clients(|client| connected.push(client));
@@ -140,18 +105,9 @@ impl CompositorState {
         self.rescale_output(DEFAULT_OUTPUT);
     }
 
-    /// Tells everything on an output that its mode changed.
-    ///
-    /// Three things travel together, and a client that gets only some of them
-    /// renders at the wrong size: the scales, through
-    /// [`CompositorState::send_surface_scale`]; the size limits, which are
-    /// clamped against the output and so move with it; and a configure at the
-    /// new logical bounds.
-    ///
-    /// Each window is reconfigured at the size it last committed, clamped into
-    /// the new bounds. So an output that shrank — which is what raising the
-    /// scale of a fixed resolution does — pulls its windows in, and an output
-    /// that grew leaves them where Lua put them.
+    /// Updates surface scales, size limits, and toplevel configures together.
+    /// Windows keep their committed size when it fits the new bounds and are
+    /// clamped when it does not.
     pub(super) fn rescale_output(&mut self, output: OutputId) {
         for surface in self.outputs.surfaces_on(output) {
             self.send_surface_scale(&surface);
@@ -165,9 +121,8 @@ impl CompositorState {
         }
     }
 
-    /// The mode an output is advertising, or the default output's when it has
-    /// been destroyed, which is the fallback [`CompositorState::output_bounds`]
-    /// takes for the same reason.
+    /// Returns the mode for `output`, falling back to the default output and then
+    /// to the configured output mode.
     pub(super) fn mode_of(&self, output: OutputId) -> OutputMode {
         self.outputs
             .get(output)
@@ -175,19 +130,12 @@ impl CompositorState {
             .map_or(self.config.output, OutputEntry::mode)
     }
 
-    /// The output a surface's client is shown, which is the one it was assigned
-    /// or the default when it was assigned none.
     pub(super) fn output_of(&self, surface: &WlSurface) -> OutputId {
         assigned_output(surface).unwrap_or(DEFAULT_OUTPUT)
     }
 
-    /// The logical size a window on `output` is configured against.
-    ///
-    /// A window whose client was assigned no output is bounded by the default
-    /// one, which is also the output that client is shown. So is a window whose
-    /// assigned output has since been destroyed: the bounds have to be some
-    /// size, and the one every unassigned client is already using is the least
-    /// surprising.
+    /// Returns logical bounds for `output`, falling back to the default output and
+    /// then to the configured output size.
     pub(super) fn output_bounds(&self, output: OutputId) -> Size<i32, Logical> {
         self.outputs
             .get(output)
@@ -198,38 +146,25 @@ impl CompositorState {
             )
     }
 
-    /// The logical size a surface's client is configured against.
+    /// Returns the logical bounds used to configure a surface's client.
     ///
-    /// For the paths that hold a surface and no window: a toplevel being
-    /// created, a popup being constrained, a fullscreen request.
+    /// An unassigned client, or one whose assigned output is unavailable, uses
+    /// the default output's bounds.
     pub(super) fn surface_bounds(&self, surface: &WlSurface) -> Size<i32, Logical> {
         self.output_bounds(self.output_of(surface))
     }
 
-    /// Tells one surface the scale of the output its client is shown.
+    /// Sends both scale representations. The matching logical size is sent
+    /// separately as an xdg-toplevel configure. The fractional scale uses exact
+    /// 120ths; the integer scale uses the ceiling for clients without the
+    /// fractional-scale protocol.
     ///
-    /// Both numbers, because a client is owed both. `wp_fractional_scale_v1`
-    /// carries the exact scale in 120ths, which is what a client renders at;
-    /// `wl_surface.preferred_buffer_scale` carries the whole number a client
-    /// without the fractional protocol renders at, and it is the ceiling rather
-    /// than the floor so that a client on a 1.5 scale is not told its monitor is
-    /// unscaled. The matching logical size travels separately, as an xdg-toplevel
-    /// configure; sending a scale without one produces sharp content at the
-    /// wrong size, which reads as a bug in the client.
+    /// Smithay replays a preferred scale set before the client creates its
+    /// `wp_fractional_scale_v1` object, so pre-setting it prevents the first
+    /// frame from using the wrong scale.
     ///
-    /// Set whether or not the client has asked for a `wp_fractional_scale_v1`
-    /// yet. smithay replays a pre-set value when the object is created
-    /// (`fractional_scale/mod.rs:160-166`), so pre-setting is what avoids a
-    /// first frame at the wrong scale.
-    ///
-    /// # Thread affinity
-    ///
-    /// `with_fractional_scale` inserts into the surface's user data with the
-    /// non-threadsafe `get_or_insert` (`fractional_scale/mod.rs:253-263`), which
-    /// records the calling thread and answers `None` to every other one — so a
-    /// second thread would insert a second entry and the two would diverge in
-    /// silence. Everything here runs on the compositor thread, which is the only
-    /// thing that dispatches [`CompositorState`].
+    /// Smithay stores fractional-scale state in thread-affine surface data, so this
+    /// method runs on the compositor thread alone.
     pub(super) fn send_surface_scale(&self, surface: &WlSurface) {
         let mode = self.mode_of(self.output_of(surface));
 
@@ -246,17 +181,13 @@ impl CompositorState {
         });
     }
 
-    /// Tells a newly created surface which output it is on and at what scale.
+    /// Assigns the surface's output before advertising its scale.
     pub(super) fn send_initial_surface_state(&mut self, surface: &WlSurface) {
         self.outputs.enter(surface, self.output_of(surface));
         self.send_surface_scale(surface);
     }
 }
 
-/// Converts a pixel size to smithay's logical coordinate space.
-///
-/// The two are the same at scale one, which is the only scale Phase 2 uses;
-/// Phase 8 is what makes the distinction real.
 pub(super) fn logical_size(size: PixelSize) -> Size<i32, Logical> {
     #[expect(
         clippy::cast_possible_wrap,
@@ -265,7 +196,6 @@ pub(super) fn logical_size(size: PixelSize) -> Size<i32, Logical> {
     Size::new(size.width as i32, size.height as i32)
 }
 
-/// The output a surface's client was assigned, if it was assigned one.
 fn assigned_output(surface: &WlSurface) -> Option<OutputId> {
     surface.client()?.get_data::<ClientState>()?.output()
 }

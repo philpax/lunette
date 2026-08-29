@@ -1,18 +1,16 @@
--- A session that runs until lunctl tells it to stop.
+-- A session that runs until lunctl sets the `stop` global.
 --
--- Everything a chunk reads is a global, because that is what a chunk can reach:
--- `lunctl` evaluates in the main state, and a local in this file is not in it.
+-- `lunctl` evaluates chunks in the main state, where a chunk reaches globals
+-- and not this file's locals. Anything a chunk should reach is a global.
 
--- A global, not a local: a chunk is evaluated in the main state and cannot
--- see this file's locals, so anything a chunk should reach is reached this way.
 lunette = require '@lunette'
 
 answer = 42
 title = 'a terminal'
 nested = { count = 2, names = { 'a', 'b' } }
 
--- A bound on the run, so a test whose lunctl never connects ends with a status
--- of its own rather than hanging until the harness gives up.
+-- A bound on the run: a test whose lunctl never connects quits with its own
+-- status before the harness times out.
 local LIMIT = 60
 local started = lovr.timer.getTime()
 
