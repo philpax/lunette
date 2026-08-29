@@ -14,7 +14,7 @@ use crate::{
     texture::FrameGeneration,
 };
 
-/// One claim on a layer, minted by the pool and named by Lua afterwards.
+/// One claim on a layer. The pool creates it, and Lua names it afterwards.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClaimId(NonZeroU64);
 
@@ -31,21 +31,21 @@ impl fmt::Display for ClaimId {
     }
 }
 
-/// How badly Lua wants this claim served, relative to the others.
+/// Where this claim ranks for service, relative to the others.
 ///
-/// The number is Lua's and the pool never invents it. Focus, gaze, distance, a
-/// rule ranking video above a terminal, and hysteresis to stop grants flapping
-/// are all cases of Lua computing a different one.
+/// The value comes from Lua and the pool never computes it. Focus, gaze,
+/// distance, a rule ranking video above a terminal, and hysteresis to stop
+/// grants oscillating are all cases of Lua computing a different value.
 #[derive(Clone, Copy, Debug)]
 pub struct Priority(f64);
 
 impl Priority {
     /// Rejects a priority that is not a number.
     ///
-    /// A NaN would make the ranking's ordering intransitive, and the sort it
-    /// feeds would then produce a different result for the same set depending
-    /// on the order it happened to be in — which is the one thing a
-    /// deterministic assignment must not do.
+    /// A NaN would make the ranking's ordering intransitive, and the sort
+    /// that consumes it would then produce a different result for the same
+    /// set depending on the order of the input. A deterministic assignment
+    /// must not do that.
     #[must_use]
     pub fn new(priority: f64) -> Option<Self> {
         (!priority.is_nan()).then_some(Self(priority))
@@ -73,9 +73,10 @@ impl PartialOrd for Priority {
 
 impl Ord for Priority {
     /// Total, because [`Priority::new`] has already refused the one value
-    /// `f64`'s own ordering is partial over. `total_cmp` rather than the
-    /// derived comparison so that `-0.0` and `0.0` do not compare equal under
-    /// `PartialEq` while ordering differently, which would break `Ord`'s
+    /// `f64`'s own ordering is partial over. This implementation uses
+    /// `total_cmp` and not the derived comparison, because the derived
+    /// comparison would make `-0.0` and `0.0` equal under `PartialEq` while
+    /// `total_cmp` orders them differently. That mismatch breaks `Ord`'s
     /// contract.
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.total_cmp(&other.0)
@@ -84,35 +85,35 @@ impl Ord for Priority {
 
 /// How many of the runtime's layer slots lunette will spend.
 ///
-/// Deliberately far below what the runtime reports. Monado does not implement
-/// `XR_ERROR_LAYER_LIMIT_EXCEEDED` at all — the specification requires it and a
-/// grep across the session and compositor sources finds no check — so a count
-/// past the limit is an out-of-bounds write into a fixed array rather than an
-/// error. And under `XR_EXTX_overlay` that array is shared: every client
-/// session's layers are concatenated into one accumulator with no aggregate
-/// cap, so lunette can overflow it while individually under its own limit,
-/// because it cannot see what the primary application is submitting.
+/// The budget is far below what the runtime reports. Monado does not implement
+/// `XR_ERROR_LAYER_LIMIT_EXCEEDED`; the specification requires it, and the
+/// session and compositor sources contain no check for it. A count past the
+/// limit is an out-of-bounds write into a fixed array, not an error. Under
+/// `XR_EXTX_overlay` that array is shared: every client session's layers
+/// concatenate into one accumulator with no aggregate cap, so lunette can
+/// overflow it while individually under its own limit, because it cannot
+/// observe what the primary application submits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LayerBudget {
     slots: u32,
 }
 
 impl LayerBudget {
-    /// The most slots lunette asks for however generous the runtime is.
+    /// The most slots lunette requests, however generous the runtime is.
     ///
-    /// Twelve is what milestone 0 submitted for sixty frames without trouble,
-    /// against a reported limit of 128. That was Monado carrying a real
-    /// compositor, where 128 is `XRT_MAX_LAYERS` rather than anything about the
-    /// hardware. The number is not universal: the same Monado headless with the
-    /// null compositor reports a limit of zero and serves no quad layer at all.
-    /// `docs/2026-08-06-milestone-0-findings.md` records both.
+    /// Twelve is the number of layers submitted for sixty frames without
+    /// trouble, against a reported limit of 128. The 128 is `XRT_MAX_LAYERS`
+    /// in Monado with a real compositor, not a property of the hardware. The
+    /// same Monado headless with the null compositor reports a limit of zero
+    /// and serves no quad layer. `docs/2026-08-06-milestone-0-findings.md`
+    /// records both limits.
     pub const CEILING: u32 = 12;
 
-    /// The fraction of the runtime's limit lunette is willing to be.
+    /// The fraction of the runtime's limit lunette takes.
     ///
-    /// A quarter leaves the primary application three, which is more than any
-    /// ordinary one uses, and it is the whole of the margin against an overflow
-    /// nothing else checks for.
+    /// Taking a quarter leaves the primary application three quarters, more
+    /// than any ordinary application uses. The quarter is the whole margin
+    /// against an overflow nothing else checks for.
     pub const SHARE: u32 = 4;
 
     #[must_use]
@@ -135,14 +136,13 @@ impl LayerBudget {
 
 /// What a frame boundary changed, for the caller to report to Lua.
 ///
-/// The pool decides; firing `lovr.lunlayergranted` and `lovr.lunlayerrevoked`
-/// is the Lua surface's business.
+/// The pool produces this; the Lua surface fires `lovr.lunlayergranted` and
+/// `lovr.lunlayerrevoked`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PoolOutcome {
-    /// Claims that now hold a layer and did not before.
+    /// Claims whose layer becomes granted at this boundary.
     pub granted: Vec<ClaimId>,
-    /// Claims that held a layer, had been reported granted, and no longer hold
-    /// one.
+    /// Claims that lose a granted layer at this boundary.
     pub revoked: Vec<ClaimId>,
 }
 
@@ -153,33 +153,33 @@ impl PoolOutcome {
     }
 }
 
-/// What the pool knows about one claim.
+/// The pool's record of one claim.
 ///
-/// Read together rather than field by field, because a handle refreshing itself
-/// wants a consistent answer: a claim revoked between two reads would otherwise
+/// Read the fields together, not one by one, because a handle refreshing
+/// itself needs a consistent answer: a claim revoked between two reads would
 /// report granted with the size of a layer it no longer holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClaimState {
     pub key: LayerKey,
     pub priority: Priority,
     /// Whether the claim holds a layer that has been reported granted. False
-    /// while a newly created layer awaits its first blit: nothing has told Lua
-    /// about that one, and it is not submittable yet.
+    /// while a newly created layer awaits its first blit: no grant has been
+    /// reported to Lua for that layer, and it is not submittable yet.
     pub granted: bool,
 }
 
-/// A pool of `Layer` objects and the claims contending for them.
+/// A pool of `Layer` objects, and the claims requesting them.
 ///
 /// # What is recycled
 ///
 /// Whole `Layer` objects, not their swapchains. `struct Layer` embeds its
 /// `Swapchain` by value, `lovrLayerDestroy` calls `xrDestroySwapchain` inline,
 /// every swapchain function is `static`, and nothing exposes
-/// `quad.subImage.swapchain` — so a swapchain cannot be moved from one layer to
-/// another. It does not need to be: everything a panel varies (pose, metre
-/// dimensions, curve, colour, viewport, origin) has a setter and lives outside
-/// `LayerInfo`, so a layer of a given [`LayerKey`] serves any panel wanting that
-/// key, and keeping the layer alive keeps its swapchain alive.
+/// `quad.subImage.swapchain`, so a swapchain cannot be moved from one layer to
+/// another. No move is needed: everything a panel varies (pose, metre
+/// dimensions, curve, colour, viewport, origin) has a setter and is not part
+/// of `LayerInfo`, so a layer of a given [`LayerKey`] serves any panel with
+/// that key, and a layer kept in the pool keeps its swapchain.
 #[derive(Debug)]
 pub struct LayerPool<B: LayerBackend> {
     backend: B,
@@ -187,17 +187,16 @@ pub struct LayerPool<B: LayerBackend> {
     free: Vec<FreeLayer<B::Layer>>,
     claims: Vec<Claim<B::Layer>>,
     next_claim: u64,
-    /// The frame the most recent [`LayerPool::resolve`] ran for, which is what
-    /// a layer freed between boundaries is counted idle from.
+    /// The frame the most recent [`LayerPool::resolve`] ran for. A layer
+    /// freed between boundaries is counted idle from that frame.
     resolved: FrameGeneration,
-    /// Which session the previous [`LayerPool::resolve`] found, if it found
-    /// one.
+    /// The session found by the previous [`LayerPool::resolve`], if any.
     ///
-    /// Losing one is a transition rather than a state: the layers are given up
-    /// once, at the boundary that observes the loss, and the boundaries that
-    /// follow it have nothing left to give up. Held as an identity rather than
-    /// a flag so that a session replaced between two boundaries is such a
-    /// transition too.
+    /// Losing the session is a transition, not a state: the layers are given
+    /// up once, at the boundary that observes the loss, and the boundaries
+    /// that follow it have nothing left to give up. The field holds an
+    /// identity, not a flag, so a session replaced between two boundaries is
+    /// also such a transition.
     session: SessionPresence,
 }
 
@@ -206,28 +205,29 @@ impl<B: LayerBackend> LayerPool<B> {
     ///
     /// One, because `lovrLayerCreate` is synchronous and ends in
     /// `xrWaitSwapchainImage` with `XR_INFINITE_DURATION` inside a retry loop
-    /// that has no escape. A claim that cannot be served this frame is not
+    /// that cannot exit. A claim that cannot be served this frame is not
     /// granted this frame, and the panel renders as an in-scene quad until it
-    /// is — which is the degradation path exhaustion already takes, so this
-    /// needs no separate mechanism.
+    /// is. Exhaustion causes the same degradation, so the limit needs no
+    /// separate mechanism.
     pub const CREATIONS_PER_FRAME: usize = 1;
 
     /// How long a free layer is kept before being destroyed, in frames.
     ///
-    /// Frames rather than wall-clock so the policy is deterministic and
-    /// testable. Ten seconds at ninety hertz: long enough that a panel demoted
-    /// and promoted as the user looks around never pays for an allocation, and
-    /// short enough that a layer nothing has wanted for that long is not worth
-    /// its swapchain images.
+    /// Counting frames, not wall-clock, keeps the policy deterministic and
+    /// testable. Ten seconds at ninety hertz. A panel demoted and promoted as
+    /// the user looks around reuses a layer within that window and allocates
+    /// nothing; a layer idle for longer is destroyed along with its swapchain
+    /// images.
     pub const IDLE_FRAMES_BEFORE_DESTROY: u64 = 900;
 
     #[must_use]
     pub fn new(backend: B) -> Self {
         Self {
-            // Re-read at every resolve rather than only here. There is usually
-            // no session at construction, so the limit is zero, and it becomes
-            // real without anything having to notice — which is also how the
-            // pool comes back after a session is lost and rebuilt.
+            // The budget is re-read at every resolve; the value set here is
+            // provisional. There is usually no session at construction, so
+            // the limit is zero then, and the next resolve corrects it with
+            // no other step. The same re-read restores the budget after a
+            // session is lost and the pool is rebuilt.
             budget: LayerBudget::from_runtime_limit(backend.layer_limit()),
             session: backend.session(),
             backend,
@@ -240,9 +240,9 @@ impl<B: LayerBackend> LayerPool<B> {
 
     /// Registers a claim, to be ranked at the next frame boundary.
     ///
-    /// Never granted here. A grant landing mid-frame would change a panel's
-    /// realisation between its `lovr.update` and its `lovr.draw`, which is the
-    /// class of inconsistency the snapshot model exists to prevent.
+    /// Never grants here. A grant landing mid-frame would change a panel's
+    /// realisation between its `lovr.update` and its `lovr.draw`. That is the
+    /// class of inconsistency the snapshot model prevents.
     pub fn claim(&mut self, key: LayerKey, priority: Priority) -> ClaimId {
         let id = ClaimId(NonZeroU64::new(self.next_claim).unwrap_or(NonZeroU64::MIN));
         self.next_claim = self.next_claim.saturating_add(1);
@@ -260,7 +260,7 @@ impl<B: LayerBackend> LayerPool<B> {
 
     /// Changes a claim's ranking, taking effect at the next frame boundary.
     ///
-    /// Reports whether the claim is still known.
+    /// Reports whether the claim is still registered.
     pub fn set_priority(&mut self, claim: ClaimId, priority: Priority) -> bool {
         let Some(entry) = self.claims.iter_mut().find(|entry| entry.id == claim) else {
             return false;
@@ -271,9 +271,9 @@ impl<B: LayerBackend> LayerPool<B> {
 
     /// Withdraws a claim, returning any layer it held to the free list.
     ///
-    /// Reports whether the claim was known. No revocation is recorded: the
-    /// caller asked for this, and telling Lua that what it just dropped has
-    /// been taken away would be noise.
+    /// Reports whether the claim is registered. No revocation is recorded:
+    /// the caller asked for this withdrawal, and reporting the revocation of
+    /// a layer the caller has dropped would be redundant.
     pub fn release_claim(&mut self, claim: ClaimId) -> bool {
         let Some(index) = self.claims.iter().position(|entry| entry.id == claim) else {
             return false;
@@ -286,15 +286,15 @@ impl<B: LayerBackend> LayerPool<B> {
         true
     }
 
-    /// Records that a claim's layer has had its first blit issued.
+    /// Records the first blit issued for a claim's layer.
     ///
-    /// Until this happens the layer's swapchain has no released image, and
+    /// Until then the layer's swapchain has no released image, and
     /// `xrEndFrame` answers `XR_ERROR_LAYER_INVALID` for a layer that
     /// references one. `lovrLayerCreate` acquires an image at the end for
-    /// exactly this reason, but acquiring is not releasing, and release happens
-    /// only inside `lovrHeadsetSubmit`.
+    /// this reason, but acquiring is not releasing: release happens inside
+    /// `lovrHeadsetSubmit` and in no other call.
     ///
-    /// Reports whether the claim holds a layer at all.
+    /// Reports whether the claim holds a layer.
     pub fn note_blit_issued(&mut self, claim: ClaimId) -> bool {
         let Some(held) = self
             .claims
@@ -314,13 +314,13 @@ impl<B: LayerBackend> LayerPool<B> {
     /// Assigns layers to the highest-priority claims that fit the budget.
     ///
     /// Runs once, at a frame boundary. The order is revoke, then serve, then
-    /// promote, then sweep: revoking first is what lets a layer freed by one
-    /// claim be reused by another in the same boundary with no allocation.
+    /// promote, then sweep: revoking first lets a layer freed by one claim be
+    /// reused by another in the same boundary with no allocation.
     ///
     /// This is also where a session the pool's layers no longer belong to is
-    /// observed, because it is the one call the pool makes at every boundary
-    /// and the layers must be given up before anything asks the backend to do
-    /// something with one. See [`LayerPool::session_lost`].
+    /// detected, because this is the call the pool makes at every boundary,
+    /// and a layer must be given up before any backend call uses it. See
+    /// [`LayerPool::session_lost`].
     pub fn resolve(&mut self, now: FrameGeneration) -> PoolOutcome {
         self.resolved = now;
 
@@ -333,18 +333,19 @@ impl<B: LayerBackend> LayerPool<B> {
             (SessionPresence::Present(before), SessionPresence::Present(after))
                 if before != after =>
             {
-                // A stop and a start inside one Lua callback. Both boundaries
-                // around it see a session, and only the identity says it is not
-                // the one the pool's layers belong to. Given up here for the
-                // same reason a loss gives them up, and the new session is
-                // served from the boundary after this one — which is what an
-                // absence the pool comes back from already does.
+                // A stop and a start inside one Lua callback. Both adjacent
+                // boundaries report a session, and the identity differs from
+                // the one the pool's layers belong to. The layers are
+                // discarded for the same reason a loss discards them, and the
+                // new session is served from the boundary after this one. A
+                // session appearing after an absence is served from the
+                // boundary that reports it.
                 info!(%before, %after, "the xr session was replaced; every layer the pool held is given up");
                 return self.session_lost();
             }
             // Nothing can be ranked, created, or submitted without a session,
-            // so this returns before the budget is read: the limit is answered
-            // off the system, which outlives the session, and acting on it here
+            // so this returns before the budget is read. The limit comes from
+            // the system, which outlives the session, and acting on it here
             // would spend a budget against swapchains that no longer exist.
             (SessionPresence::Absent, SessionPresence::Absent) => return PoolOutcome::default(),
             (
@@ -384,12 +385,12 @@ impl<B: LayerBackend> LayerPool<B> {
                 continue;
             }
 
-            // Checked here rather than assumed, because the whole of the
-            // pool's arithmetic is wrong for such a layer and nothing else
-            // would notice. `lovrSwapchainAcquire` answers "Static Layers can
-            // only be updated once" on the second acquire of an immutable
-            // swapchain, so the blit path would silently stop updating a layer
-            // the pool went on granting and recycling.
+            // Checked at serve time, because the pool's arithmetic is wrong
+            // for such a layer and no other check detects it.
+            // `lovrSwapchainAcquire` answers "Static Layers can only be
+            // updated once" on the second acquire of an immutable swapchain,
+            // so the blit path would stop updating a layer the pool continues
+            // to grant and recycle.
             if key.properties().immutable {
                 warn!(
                     %key,
@@ -405,8 +406,8 @@ impl<B: LayerBackend> LayerPool<B> {
             created += 1;
 
             let Some(layer) = self.backend.create(key) else {
-                // A runtime that refuses refuses on every frame that retries,
-                // so reporting each attempt buries every other line.
+                // A runtime that refuses does so on every frame that retries,
+                // so reporting each attempt repeats the warning every frame.
                 if !self.claims[index].refusal_reported {
                     self.claims[index].refusal_reported = true;
                     warn!(
@@ -440,22 +441,22 @@ impl<B: LayerBackend> LayerPool<B> {
     /// Discards every layer the pool holds, because the session that owned
     /// their swapchains is gone.
     ///
-    /// Called by [`LayerPool::resolve`], at the first frame boundary that finds
-    /// the session [`SessionPresence::Absent`] or finds a different one in its
-    /// place. This is a teardown lunette observes rather than one it performs:
-    /// a restart is the other case, and it runs [`LayerPool::shutdown`] while
-    /// the session still exists.
+    /// Called by [`LayerPool::resolve`] at the first frame boundary where the
+    /// session is [`SessionPresence::Absent`], or a different session than
+    /// the pool records. This is a teardown lunette observes and does not
+    /// perform: a restart is the other case, and it runs
+    /// [`LayerPool::shutdown`] while the session still exists.
     ///
-    /// `lovrHeadsetStop` releases every layer and zeroes the layer count before
-    /// `xrDestroySession`, so nothing the pool holds names anything afterwards,
-    /// granted or free. The state is discarded rather than reconciled: no
-    /// layer, and no key, survives a session.
+    /// `lovrHeadsetStop` releases every layer and zeroes the layer count
+    /// before `xrDestroySession`, so nothing the pool holds references
+    /// anything afterwards, granted or free. The state is discarded, not
+    /// reconciled: no layer and no key survives a session.
     ///
-    /// The claims themselves survive holding nothing, and are re-evaluated
-    /// against the new session at the first boundary after it comes up. Every
-    /// claim that had been reported granted is reported revoked here, so Lua
-    /// falls back to in-scene quads by the path exhaustion already defines and
-    /// never holds a `Layer` that names a destroyed swapchain.
+    /// The claims are retained empty and re-evaluated against the new session
+    /// at the first boundary after it comes up. Every claim holding a granted
+    /// layer is reported revoked here, so Lua falls back to in-scene quads by
+    /// the path exhaustion already defines, and never holds a `Layer` that
+    /// references a destroyed swapchain.
     fn session_lost(&mut self) -> PoolOutcome {
         let mut outcome = PoolOutcome::default();
 
@@ -474,9 +475,9 @@ impl<B: LayerBackend> LayerPool<B> {
             self.backend.abandon(entry.layer);
         }
 
-        // Not cosmetic: the budget is otherwise the old session's until the
-        // next resolve re-reads it, and anything asking in between would be
-        // told the pool can hold layers it has just given up.
+        // Without this, the budget stays the old session's until the next
+        // resolve re-reads it. A caller in between would read a budget that
+        // still counts the layers the pool discarded.
         self.budget = LayerBudget::from_runtime_limit(0);
 
         outcome
@@ -484,8 +485,8 @@ impl<B: LayerBackend> LayerPool<B> {
 
     /// Destroys every layer the pool holds, while the session still exists.
     ///
-    /// The orderly counterpart to [`LayerPool::session_lost`], for a teardown
-    /// lunette is performing rather than observing.
+    /// The counterpart to [`LayerPool::session_lost`], for a teardown lunette
+    /// performs and does not observe.
     pub fn shutdown(&mut self) {
         for claim in &mut self.claims {
             if let Some(held) = claim.held.take() {
@@ -503,14 +504,14 @@ impl<B: LayerBackend> LayerPool<B> {
     /// after it. `shutdown` gives up the layers while the XR session that owns
     /// their swapchains still exists; this gives up the claims, which are
     /// identifiers held by handles in a Lua state that is about to be closed.
-    /// Kept, they would contend for the next session's budget on behalf of
-    /// panels that no longer exist, and never be released — nothing in the new
-    /// state knows their identifiers.
+    /// Kept, they would occupy the next session's budget for panels that no
+    /// longer exist, and nothing would release them, because no handle in the
+    /// new state holds their identifiers.
     ///
-    /// A claim still holding a layer is returned to the free list rather than
+    /// A claim still holding a layer is returned to the free list, not
     /// dropped, so a caller that reaches here without having destroyed the
-    /// layers first leaks nothing. In the restart path there are none: the
-    /// shutdown that precedes this took them all.
+    /// layers first leaks nothing. In the restart path none remain: the
+    /// shutdown that precedes this destroys them all.
     pub fn forget_claims(&mut self) {
         for claim in std::mem::take(&mut self.claims) {
             if let Some(held) = claim.held {
@@ -521,8 +522,8 @@ impl<B: LayerBackend> LayerPool<B> {
 
     /// The layer a claim holds, whether or not it has been reported granted.
     ///
-    /// The blit path wants this rather than [`LayerPool::submitted`]: a layer
-    /// awaiting its first blit is precisely the one that needs blitting.
+    /// The blit path uses this and not [`LayerPool::submitted`], because a
+    /// layer awaiting its first blit is the layer that needs blitting.
     #[must_use]
     pub fn layer(&self, claim: ClaimId) -> Option<&B::Layer> {
         self.claims
@@ -532,9 +533,9 @@ impl<B: LayerBackend> LayerPool<B> {
             .map(|held| &held.layer)
     }
 
-    /// What the pool knows about a claim, or `None` if it knows nothing about
-    /// it — which is what a released claim, and a claim from a Lua state that
-    /// has been reloaded away, both look like.
+    /// The pool's record of a claim, or `None` if it holds no record of it.
+    /// A released claim and a claim from a Lua state that has been reloaded
+    /// away both produce `None`.
     #[must_use]
     pub fn state(&self, claim: ClaimId) -> Option<ClaimState> {
         let entry = self.claims.iter().find(|entry| entry.id == claim)?;
@@ -548,14 +549,14 @@ impl<B: LayerBackend> LayerPool<B> {
         })
     }
 
-    /// The layer a claim has been reported granted, which is the only one Lua
-    /// may be handed.
+    /// The layer a claim has been reported granted. Lua may be handed this
+    /// layer and no other.
     ///
     /// [`LayerPool::layer`] answers with a layer awaiting its first blit too,
-    /// because that is precisely the layer the blit path is looking for.
-    /// Offering that one to Lua would hand out a `Layer` whose swapchain has
-    /// never released an image, before `lovr.lunlayergranted` has said the
-    /// claim holds anything.
+    /// because that is the layer the blit path looks for. Offering that layer
+    /// to Lua hands out a `Layer` whose swapchain has never released an
+    /// image, before `lovr.lunlayergranted` reports that the claim holds
+    /// anything.
     #[must_use]
     pub fn granted_layer(&self, claim: ClaimId) -> Option<&B::Layer> {
         let held = self
@@ -567,15 +568,14 @@ impl<B: LayerBackend> LayerPool<B> {
         (held.state == HeldState::Granted).then_some(&held.layer)
     }
 
-    /// Every claim holding a layer, in the order the claims were made.
+    /// Every claim holding a layer, in registration order.
     pub fn held(&self) -> impl Iterator<Item = (ClaimId, &B::Layer)> {
         self.claims
             .iter()
             .filter_map(|entry| Some((entry.id, &entry.held.as_ref()?.layer)))
     }
 
-    /// The layers to hand `lovrHeadsetSetLayers`, in the order the claims were
-    /// made.
+    /// The layers to hand `lovrHeadsetSetLayers`, in registration order.
     ///
     /// A layer awaiting its first blit is absent, because submitting one whose
     /// swapchain has never released an image is `XR_ERROR_LAYER_INVALID`.
@@ -590,12 +590,12 @@ impl<B: LayerBackend> LayerPool<B> {
     ///
     /// Runs once a frame, after the blit. Skipping a copy does not mean
     /// skipping the submit: the runtime re-composites an unchanged layer from
-    /// the image it last released, which costs it nothing, while leaving the
-    /// layer out of the list makes its panel disappear.
+    /// the image it last released, at no cost, while leaving the layer out of
+    /// the list makes its panel disappear.
     ///
-    /// `scene` travels with the list rather than being set separately, because
-    /// `lovrHeadsetSetLayers` is the only call that carries it and a second
-    /// call would be a second last-call-wins list.
+    /// `scene` is set with the list, not separately, because
+    /// `lovrHeadsetSetLayers` carries `scene` and no other call does, and a
+    /// second call would be a second last-call-wins list.
     ///
     /// Reports whether the runtime accepted the list.
     pub fn submit(&mut self, scene: SceneRendering) -> bool {
@@ -614,7 +614,7 @@ impl<B: LayerBackend> LayerPool<B> {
     /// stereo layer as two.
     ///
     /// A layer awaiting its first blit is counted although it is not yet
-    /// submitted: its slot is spoken for, and not counting it would let the
+    /// submitted: its slot is reserved, and not counting it would let the
     /// pool grant past the budget for a frame.
     #[must_use]
     pub fn held_slots(&self) -> u32 {
@@ -639,14 +639,14 @@ impl<B: LayerBackend> LayerPool<B> {
     /// The claims that fit the budget, highest priority first, as indices into
     /// `self.claims`.
     ///
-    /// A claim that does not fit stops the walk rather than being stepped over.
+    /// A claim that does not fit ends the walk; the walk does not skip it.
     /// Filling the remaining slot with a lower-priority claim would let a
-    /// one-slot claim jump a two-slot one indefinitely, which is a starvation
-    /// bug dressed as an optimisation.
+    /// one-slot claim overtake a two-slot one indefinitely. That is a
+    /// starvation bug.
     fn rank(&self) -> Vec<usize> {
         let mut order: Vec<usize> = (0..self.claims.len()).collect();
-        // Stable, so equal priorities keep the order the claims were made in
-        // and grants do not churn between frames.
+        // Stable, so equal priorities keep registration order and grants do
+        // not churn between frames.
         order.sort_by(|left, right| {
             self.claims[*right]
                 .priority
@@ -668,13 +668,12 @@ impl<B: LayerBackend> LayerPool<B> {
 
     /// Takes a matching layer off the free list, most recently freed first.
     ///
-    /// The layer comes back as [`HeldState::AwaitingFirstBlit`] however far
-    /// along it was when it was freed. Its swapchain still holds the pixels the
-    /// previous claim put there, and a claim on a window that has committed
-    /// nothing — or whose client has just died — has no blit to overwrite them
-    /// with, so granting on reuse would submit one window's content inside
-    /// another window's panel. The cost is one frame of grant latency on a
-    /// reuse, and no allocation, which is what the recycling is for.
+    /// The layer comes back as [`HeldState::AwaitingFirstBlit`]; the pool
+    /// discards its prior progress. The swapchain still holds the previous
+    /// claim's pixels. A claim on a window that has committed nothing, or
+    /// whose client has died, has no blit to overwrite them, so granting on
+    /// reuse would submit one window's content inside another window's panel.
+    /// The cost is one frame of grant latency on a reuse, and no allocation.
     fn take_free(&mut self, key: LayerKey) -> Option<Held<B::Layer>> {
         let index = self.free.iter().rposition(|entry| entry.key == key)?;
         let entry = self.free.swap_remove(index);
@@ -684,15 +683,15 @@ impl<B: LayerBackend> LayerPool<B> {
         })
     }
 
-    /// Returns a layer to the free list rather than destroying it.
+    /// Returns a layer to the free list, and does not destroy it.
     ///
-    /// This is the recycling, and it is the whole reason a revoke is cheap. The
-    /// pool keeps its own reference to every layer here, granted or free, and
-    /// that reference is load-bearing rather than redundant:
-    /// `lovrHeadsetSetLayers` releases the list it holds before retaining the
-    /// new one, so a layer reachable only through `state.layers` is destroyed
-    /// during a call that revokes and re-grants it — and destruction calls
-    /// `xrDestroySwapchain` inline.
+    /// This is the recycling, and it is the whole reason a revoke is cheap.
+    /// The pool keeps its own reference to every layer here, granted or free,
+    /// and that reference is load-bearing: `lovrHeadsetSetLayers` releases
+    /// the list it holds before retaining the new one, so a layer with no
+    /// reference besides `state.layers` is destroyed during a call that
+    /// revokes and re-grants it, and destruction calls `xrDestroySwapchain`
+    /// inline.
     fn release_layer(&mut self, key: LayerKey, held: Held<B::Layer>) {
         self.free.push(FreeLayer {
             key,
@@ -701,12 +700,12 @@ impl<B: LayerBackend> LayerPool<B> {
         });
     }
 
-    /// Destroys the free layers nothing has wanted for long enough.
+    /// Destroys the free layers nothing has used for long enough.
     ///
-    /// The only place [`LayerBackend::destroy`] is called during a session, and
-    /// it runs at the end of a resolve so that a layer freed here is destroyed
-    /// no earlier than [`LayerPool::IDLE_FRAMES_BEFORE_DESTROY`] boundaries
-    /// after the last submit that named it.
+    /// The sole call to [`LayerBackend::destroy`] in the frame loop; it runs
+    /// at the end of a resolve. A layer freed here is destroyed no earlier
+    /// than [`LayerPool::IDLE_FRAMES_BEFORE_DESTROY`] boundaries after the
+    /// last submit that named it.
     fn sweep(&mut self, now: FrameGeneration) {
         let mut kept = Vec::with_capacity(self.free.len());
         for entry in std::mem::take(&mut self.free) {
@@ -728,10 +727,10 @@ struct Claim<L> {
     key: LayerKey,
     priority: Priority,
     held: Option<Held<L>>,
-    /// Whether this claim's refusal has been reported, so a runtime that
-    /// refuses is described once rather than on every frame for the rest of
-    /// the session. Cleared when a session goes away, because the next one
-    /// answers the question afresh.
+    /// Whether this claim's refusal has been reported. A runtime that refuses
+    /// is described once, not on every frame for the rest of the session.
+    /// Cleared when a session goes away, so the next session's refusal is
+    /// reported too.
     refusal_reported: bool,
 }
 
@@ -744,10 +743,10 @@ struct Held<L> {
 
 /// A layer nobody holds.
 ///
-/// How far along it was when it was freed is deliberately not carried. The
-/// layer's swapchain holds the previous claim's pixels, so the next claim to
-/// take it starts at [`HeldState::AwaitingFirstBlit`] and has to have its own
-/// copy issued before anything is submitted; see [`LayerPool::take_free`].
+/// The layer's prior progress is not carried. The swapchain holds the
+/// previous claim's pixels, so the next claim to take it starts at
+/// [`HeldState::AwaitingFirstBlit`] and issues its own copy before anything
+/// is submitted; see [`LayerPool::take_free`].
 #[derive(Debug)]
 struct FreeLayer<L> {
     key: LayerKey,
@@ -759,11 +758,11 @@ struct FreeLayer<L> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeldState {
     /// Created and never written. Submitting it is `XR_ERROR_LAYER_INVALID`,
-    /// and Lua has not been told the claim was granted.
+    /// and the claim is not reported granted.
     AwaitingFirstBlit,
-    /// Written, and promoted at the next boundary. The promotion waits for a
-    /// boundary rather than happening in the blit so that every grant Lua
-    /// hears about lands where every other mutation does.
+    /// Written, and promoted at the next boundary. The promotion happens at
+    /// the boundary, not in the blit, so every grant reported to Lua takes
+    /// effect with every other mutation.
     FirstBlitIssued,
     /// Reported to Lua and included in the submitted list.
     Granted,

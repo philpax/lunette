@@ -7,39 +7,41 @@
 //! # The predicate
 //!
 //! A surface's texture is replaced when its client commits a new buffer, and
-//! nothing else changes what a copy would produce. So the question is whether
-//! the texture behind a claim is the one that was last copied, which
-//! [`SurfaceCommit`] answers exactly: the texture ledger stamps every install,
-//! the ledger here records what it last copied, and a copy happens when the two
-//! differ.
+//! nothing else changes what a copy would produce. The decision is whether the
+//! texture behind a claim changed since the last copy into it. The texture
+//! ledger stamps every install, the ledger here records what it last copied,
+//! and a copy happens when the two differ. [`SurfaceCommit`] is the counter
+//! both sides store.
 //!
-//! Damage rectangles are deliberately not consulted. smithay tracks them, but
-//! `DamageSnapshot::add` increments its counter only when a commit posted a
-//! rectangle that was not empty — so a client attaching a new buffer and posting
-//! no damage leaves the counter where it was while the pixels under it changed.
-//! Counting installs has no such hole. The copy is whole-surface either way:
-//! `lovrTextureCopy` takes a rectangle, but a partial copy would leave the rest
-//! of the swapchain image holding an older frame, because the swapchain rotates
-//! and the image acquired this frame is not the one written last frame.
+//! Damage rectangles are not consulted. smithay tracks them, but
+//! `DamageSnapshot::add` increments its counter when a commit posted a
+//! rectangle that was not empty. A client that attaches a new buffer and posts
+//! no damage leaves the counter unchanged while the surface's pixels change.
+//! Counting installs does not miss that case. The copy is whole-surface either
+//! way: `lovrTextureCopy` takes a rectangle, but a partial copy would leave the
+//! rest of the swapchain image holding an older frame, because the swapchain
+//! rotates and the image acquired this frame is not the image written last
+//! frame.
 //!
-//! # What a stale claim costs
+//! # Cost of a stale claim
 //!
-//! Nothing. A claim whose source has not committed since its last copy — which
-//! `docs/rendering.md` calls a stale claim — reaches [`Decision::Skip`] before
-//! anything touches the device: no `lovrLayerGetTexture`, so no
-//! `lovrSwapchainAcquire` and no `xrWaitSwapchainImage`, and no copy recorded
-//! into LÖVR's stream. That is the whole of the saving, and it is why the
-//! decision is taken from two counters rather than from anything the layer
-//! itself has to be asked for.
+//! A stale claim costs nothing. A claim whose source has not committed since
+//! its last copy (`docs/rendering.md` calls it a stale claim) reaches
+//! [`Decision::Skip`] before anything touches the device: no
+//! `lovrLayerGetTexture`, no `lovrSwapchainAcquire`, no `xrWaitSwapchainImage`,
+//! and no copy recorded into LÖVR's stream. Those skipped calls are the whole
+//! of the saving. The two counters carry the whole decision, and the layer
+//! itself is not consulted.
 //!
-//! # What is not skipped
+//! # The submit
 //!
-//! The submit. Every grantable layer goes to the runtime every frame, copied
-//! into or not: `xrEndFrame` re-composites from the image the swapchain last
-//! released, which costs nothing, whereas leaving a layer out of the list makes
-//! its panel disappear rather than hold still.
-//! [`LayerPool::submit`](crate::layers::LayerPool::submit) is what does that, and
-//! it runs whatever this module decided.
+//! The submit is not skipped. Every grantable layer goes to the runtime every
+//! frame, copied into or not: `xrEndFrame` re-composites from the image the
+//! swapchain last released, which costs nothing. Leaving a layer out of the
+//! list makes its panel disappear. Including it re-composites the panel from
+//! the same image, so the panel stays unchanged.
+//! [`LayerPool::submit`](crate::layers::LayerPool::submit) performs the submit
+//! and runs whatever this module decided.
 
 use std::{collections::HashMap, fmt};
 
@@ -53,11 +55,10 @@ use crate::{
 
 /// The seam between the blit decision and LÖVR.
 ///
-/// The decision is arithmetic over two counters; acquiring a layer's swapchain
-/// image and recording a copy into it are not, and are the whole of what is
-/// behind this trait. The production implementation is
-/// [`crate::layers::LovrBlits`]; the tests answer with a counter, and so run with
-/// no XR runtime and no device.
+/// The decision is arithmetic over two counters. Acquiring a layer's swapchain
+/// image and recording a copy into it are not, and this trait is all of that
+/// work. The production implementation is [`crate::layers::LovrBlits`]; the
+/// tests answer with a counter and run with no XR runtime and no device.
 pub trait LayerBlitter {
     /// A layer the pool holds.
     type Layer;
@@ -67,22 +68,23 @@ pub trait LayerBlitter {
     /// Acquires the layer's swapchain image for this frame.
     ///
     /// `lovrLayerGetTexture` calls `lovrSwapchainAcquire`, and the release at
-    /// the end of every submit sets the swapchain's index back to `~0`, so a
-    /// call in a later frame genuinely re-acquires and may answer with a
-    /// different image. That is why the caller wraps the result in a
-    /// [`LayerTexture`], which carries the frame it was obtained in.
+    /// the end of every submit sets the swapchain's index back to `~0`. A call
+    /// in a later frame re-acquires and may answer with a different image. The
+    /// caller wraps the result in a [`LayerTexture`] to record the frame it was
+    /// obtained in.
     ///
-    /// `None` when the runtime refused. An immutable layer asked for a second
-    /// image is one such case, and the reason the pool never creates one.
+    /// `None` when the runtime refused. A second acquire on an immutable layer
+    /// is one such case, and the reason the pool never creates immutable
+    /// layers.
     fn acquire(&mut self, layer: &Self::Layer) -> Option<Self::Texture>;
 
     /// Whether the device can copy `source` into `destination`.
     ///
     /// Their formats ordinarily differ: a layer's swapchain image is
     /// `FORMAT_RGBA8` with sRGB, and a window arriving as `Argb8888` or
-    /// `Xrgb8888` imports as `FORMAT_BGRA8` without. `lovrTextureCopy` degrades
-    /// to `lovrTextureBlit` in that case, which needs `GPU_FEATURE_BLIT` on both
-    /// formats.
+    /// `Xrgb8888` imports as `FORMAT_BGRA8` without sRGB. `lovrTextureCopy`
+    /// degrades to `lovrTextureBlit` in that case, which needs
+    /// `GPU_FEATURE_BLIT` on both formats.
     fn can_copy(&self, source: &Self::Texture, destination: &Self::Texture) -> bool;
 
     /// Records the copy, reporting whether LÖVR accepted it.
@@ -91,14 +93,14 @@ pub trait LayerBlitter {
 
 /// A layer's swapchain image, as acquired in one frame.
 ///
-/// The same hazard `window:getTexture()` carries, and the same treatment. A
-/// swapchain hands out a different image each time it is acquired, and it is
-/// re-acquired on the first ask of every frame — so a handle kept from an
-/// earlier frame names an image the runtime has since composited from and handed
-/// back. Copying into it produces content from the wrong frame, intermittently,
-/// which is among the hardest things to diagnose from a headset. The generation
-/// travels with the handle and is checked at every use rather than being
-/// documented and hoped for.
+/// A swapchain returns a different image each time it is acquired. The blit
+/// path re-acquires it, at most once per frame, so a handle kept from an
+/// earlier frame names an image the runtime has since composited from and
+/// returned. Copying into it produces content from the wrong frame,
+/// intermittently, which is among the hardest things to diagnose from a
+/// headset. `window:getTexture()` carries the same hazard and gets the same
+/// treatment. The generation travels with the handle and is checked at every
+/// use, so a stale image is refused where it is used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerTexture<T> {
     texture: T,
@@ -114,11 +116,12 @@ impl<T> LayerTexture<T> {
         }
     }
 
-    /// The image, if this is still the frame it was acquired in.
+    /// The image, when it is still from the frame this call runs in.
     ///
     /// # Errors
     ///
-    /// See [`StaleLayerTexture`].
+    /// Returns [`StaleLayerTexture`] when the handle comes from an earlier
+    /// frame. The caller must re-acquire the image for the current frame.
     pub fn get(&self, current: FrameGeneration) -> Result<&T, StaleLayerTexture> {
         if self.generation == current {
             Ok(&self.texture)
@@ -136,7 +139,7 @@ impl<T> LayerTexture<T> {
     }
 }
 
-/// A layer's swapchain image, used in a frame after the one that acquired it.
+/// A layer's swapchain image, used in a frame after the frame that acquired it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StaleLayerTexture {
     pub obtained: FrameGeneration,
@@ -163,38 +166,39 @@ pub enum Blitted {
     /// The source has been replaced since the last copy, and the copy was
     /// recorded.
     Copied,
-    /// The source is the one that was last copied. This is the whole of the
+    /// The source has not changed since the last copy. This is the whole of the
     /// damage skipping: no acquire, no copy, and the runtime re-composites the
     /// layer from the image it last released.
     Unchanged,
-    /// The claim's source has no texture — it has never committed a buffer, or
+    /// The claim's source has no texture: it has never committed a buffer, or
     /// its client is gone.
     NoSource,
-    /// The layer's swapchain image could not be acquired.
+    /// The layer's swapchain image could not be acquired for this frame.
     NotAcquired,
-    /// The device cannot copy this source into a layer, so the claim never
-    /// becomes grantable and the panel renders as an in-scene quad.
+    /// The device cannot copy this source into a layer. The claim never
+    /// becomes grantable, and the panel renders as an in-scene quad.
     Unsupported,
     /// LÖVR refused the copy it was asked to record.
     Refused,
 }
 
 impl Blitted {
-    /// Whether a copy was recorded, which is what makes a newly created layer
-    /// grantable.
+    /// Whether a copy was recorded. A newly created layer becomes grantable
+    /// after a copy is recorded into it.
     #[must_use]
     pub const fn copied(self) -> bool {
         matches!(self, Self::Copied)
     }
 
-    /// Whether this is worth a line every frame it happens.
+    /// Whether the outcome is worth a line every frame it happens.
     ///
-    /// True only for the outcomes a later frame can answer differently. A
-    /// device that cannot blit answers the same way for the rest of the
-    /// session and its claim is never granted, so it is never dropped from the
-    /// pool's held list either — reporting [`Blitted::Unsupported`] here would
-    /// be ninety identical lines a second for as long as the claim lives.
-    /// [`BlitLedger`] reports that one once per claim instead.
+    /// True for the outcomes a later frame can answer differently, and false
+    /// for the rest. A device that cannot blit answers the same way for the
+    /// rest of the session, and its claim is never granted, so it is never
+    /// dropped from the pool's held list either. Reporting
+    /// [`Blitted::Unsupported`] here would be ninety identical lines a second
+    /// for as long as the claim exists. [`BlitLedger`] reports that outcome
+    /// once per claim.
     #[must_use]
     pub const fn worth_reporting_every_frame(self) -> bool {
         matches!(self, Self::NotAcquired | Self::Refused)
@@ -203,22 +207,23 @@ impl Blitted {
 
 /// What the blit path decided about one claim, before anything was recorded.
 ///
-/// Separate from performing it so that the decision is a pure function of two
-/// counters: recording a copy needs a device and deciding does not.
+/// The decision is a pure function of two counters: recording a copy needs a
+/// device, and deciding does not. Keeping the decision separate from
+/// performing it preserves that purity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decision {
-    /// Copy, and record this as the source that was copied.
+    /// Copy the source, and record this commit as the last-copied source.
     Copy(SurfaceCommit),
     /// Leave the layer as it is, for this reason.
     Skip(Blitted),
 }
 
-/// Whether a claim's layer wants the copy this frame.
+/// Whether a claim's layer takes the copy this frame.
 ///
-/// `last` is what the claim last had copied into it and `source` is what its
-/// surface holds now. The two absent cases are the ones that are not "the same
-/// texture as last time": a claim nothing has been copied into, and a surface
-/// with no texture.
+/// `last` is the commit the claim most recently copied into its layer, and
+/// `source` is the commit its surface holds now. The two cases where a side is
+/// absent are not cases of the same texture as last time: a claim nothing has
+/// been copied into, and a surface with no texture.
 #[must_use]
 pub fn decide(last: Option<SurfaceCommit>, source: Option<SurfaceCommit>) -> Decision {
     let Some(current) = source else {
@@ -236,15 +241,16 @@ pub fn decide(last: Option<SurfaceCommit>, source: Option<SurfaceCommit>) -> Dec
 /// frame acquired for it.
 ///
 /// The acquired images are cached because acquiring is an FFI call a frame may
-/// make more than once. The cache is also what makes [`LayerTexture`]'s
-/// generation load-bearing rather than decorative: an entry outlives the frame
-/// that put it there, and has to be refused rather than reused.
+/// make more than once. The cache also makes [`LayerTexture`]'s generation
+/// load-bearing, not decorative: an entry remains after the frame that created
+/// it, and must be refused, not reused.
 #[derive(Debug)]
 pub struct BlitLedger<T> {
     copied: HashMap<ClaimId, SurfaceCommit>,
     acquired: HashMap<ClaimId, LayerTexture<T>>,
-    /// Claims whose source the device cannot copy into a layer, so the refusal
-    /// is reported once rather than on every frame for the rest of the session.
+    /// Claims whose source the device cannot copy into a layer. The refusal
+    /// recurs every frame for the rest of the session, and is reported once
+    /// per claim.
     reported: Vec<ClaimId>,
 }
 
@@ -266,15 +272,17 @@ impl<T> BlitLedger<T> {
 
     /// Copies into every layer the pool holds whose source has changed.
     ///
-    /// Every claim holding a layer is considered, not only the grantable ones: a
-    /// layer awaiting its first copy is precisely the one that needs it, since
-    /// `xrEndFrame` answers `XR_ERROR_LAYER_INVALID` for a layer whose swapchain
-    /// has never released an image. A copy is what makes such a layer grantable,
-    /// which is why [`LayerPool::note_blit_issued`] is called from here.
+    /// Every claim holding a layer is considered, including the ones that are
+    /// not yet grantable. A layer awaiting its first copy is exactly the case
+    /// that needs the copy: `xrEndFrame` answers `XR_ERROR_LAYER_INVALID` for
+    /// a layer whose swapchain has never released an image. A copy makes such
+    /// a layer grantable, and [`LayerPool::note_blit_issued`] is called from
+    /// here for that reason.
     ///
-    /// `source` maps a claim onto the surface whose pixels it carries. The pool
-    /// does not know that — a layer of a given key serves any source wanting
-    /// that key — and neither does this ledger, so it arrives as a function.
+    /// `source` maps a claim onto the surface whose pixels it carries. The
+    /// pool does not hold that mapping: a layer of a given key serves any
+    /// source with that key. This ledger does not hold it either, so `source`
+    /// arrives as a function.
     pub fn run<B, S>(
         &mut self,
         pool: &mut LayerPool<B>,
@@ -316,9 +324,9 @@ impl<T> BlitLedger<T> {
 
     /// Forgets every claim not in `held`.
     ///
-    /// Both maps are keyed by claim, and a claim that lost its layer must not
-    /// keep the counter it last had copied: the layer it holds next comes off
-    /// the free list, and that layer's swapchain holds whatever its previous
+    /// Both maps are keyed by claim. A claim that lost its layer must not keep
+    /// the counter it last had copied: the next layer it holds comes off the
+    /// free list, and that layer's swapchain holds whatever its previous
     /// holder put there.
     pub fn forget_absent(&mut self, held: &[ClaimId]) {
         self.copied.retain(|claim, _| held.contains(claim));
@@ -392,9 +400,9 @@ impl<T> BlitLedger<T> {
     /// Puts this frame's swapchain image for `claim` in the cache, reporting
     /// whether there is one.
     ///
-    /// An entry from an earlier frame is discarded rather than reused: the
-    /// runtime has composited from that image and handed it back, so a copy into
-    /// it lands nowhere the next `xrEndFrame` looks.
+    /// An entry from an earlier frame is discarded, not reused: the runtime
+    /// has composited from that image and returned it, and the next
+    /// `xrEndFrame` does not look at it.
     fn acquire<S>(
         &mut self,
         blitter: &mut S,
@@ -464,12 +472,13 @@ mod tests {
     #[derive(Debug)]
     struct FakeLayer(u64);
 
-    /// A pool backend that hands out numbered layers and records each submitted
+    /// A pool backend that allocates numbered layers and stores each submitted
     /// list.
     #[derive(Debug)]
     struct FakeLayers {
         next: u64,
-        /// What the runtime reports, not what the pool will spend.
+        /// What the runtime reports as the layer limit. The pool spends a
+        /// fraction of it.
         limit: u32,
         /// Shared with the harness, because the pool owns the backend and an
         /// accessor through the pool would be production code only tests call.
@@ -483,8 +492,8 @@ mod tests {
             self.limit
         }
 
-        /// The same session throughout. These tests are about the blit, and a
-        /// pool with no session holds nothing to blit into.
+        /// The session stays the same in every test. A pool with no session
+        /// holds nothing to blit into.
         fn session(&self) -> SessionPresence {
             SessionPresence::Present(SessionId::new(1).expect("one is not zero"))
         }
@@ -506,12 +515,12 @@ mod tests {
         fn abandon(&mut self, _layer: Self::Layer) {}
     }
 
-    /// A blitter that counts what it was asked to do.
+    /// A blitter that records each acquire and each copy it performs.
     #[derive(Debug)]
     struct FakeBlitter {
         acquires: Cell<u64>,
         copies: RefCell<Vec<(u64, u64)>>,
-        /// Which swapchain image the next acquire hands out. The harness bumps
+        /// Which swapchain image the next acquire returns. The harness bumps
         /// it each frame, because a real swapchain rotates.
         image: Cell<u64>,
         supported: Cell<bool>,
@@ -555,7 +564,7 @@ mod tests {
     /// A runtime limit generous enough that nothing here contends for slots.
     const GENEROUS: u32 = 128;
 
-    /// A pool, a texture ledger, and a blit ledger, driven one frame at a time.
+    /// A pool, a texture ledger, and a blit ledger, stepped one frame at a time.
     struct Harness {
         pool: LayerPool<FakeLayers>,
         blitter: FakeBlitter,
@@ -643,8 +652,8 @@ mod tests {
                 self.frame,
             );
 
-            // What the flag carries is the pool's business, and its own tests
-            // cover it. Here every frame draws a scene.
+            // The submit flag is the pool's concern, and the pool's own tests
+            // cover it. Every frame here draws a scene.
             self.pool.submit(SceneRendering::Drawn);
             report
         }
@@ -653,7 +662,7 @@ mod tests {
             self.blitter.copies.borrow().len()
         }
 
-        /// The most recent list handed to the runtime.
+        /// The most recent list given to the runtime.
         fn last_submitted(&self) -> Vec<u64> {
             self.submitted.borrow().last().cloned().unwrap_or_default()
         }
@@ -665,7 +674,7 @@ mod tests {
 
     #[test]
     fn a_source_that_has_not_changed_is_not_copied_again() {
-        // lunette-v1.AC7.2.
+        // A source that has committed again is copied again.
         let mut harness = Harness::new();
         let claim = harness.claim(surface(1));
         harness.commit(surface(1));
@@ -725,9 +734,9 @@ mod tests {
 
     #[test]
     fn a_recycled_layer_is_not_submitted_until_the_new_claim_has_been_copied_into_it() {
-        // The layer's swapchain still holds the previous claimant's window.
-        // Submitting it for a claim whose own source has committed nothing puts
-        // one window's pixels inside another window's panel, for as long as the
+        // The recycled layer still holds the first claim's window. Submitting
+        // it for a claim whose own source has committed nothing puts one
+        // window's pixels inside another window's panel, for as long as the
         // new source stays sourceless.
         let mut harness = Harness::with_limit(LayerBudget::SHARE);
         let first = harness.claim(surface(1));
@@ -760,8 +769,8 @@ mod tests {
 
     #[test]
     fn a_frame_that_skips_the_copy_still_submits_the_layer() {
-        // Leaving an unchanged layer out of the list makes its panel disappear
-        // rather than hold still.
+        // An unchanged layer still goes into the submitted list. Leaving it out
+        // makes its panel disappear, and the skip applies to the copy only.
         let mut harness = Harness::new();
         let claim = harness.claim(surface(1));
         harness.commit(surface(1));
@@ -776,8 +785,8 @@ mod tests {
     fn a_stale_claim_asks_the_device_for_nothing_at_all() {
         // The saving is the acquire as much as the copy. `lovrLayerGetTexture`
         // calls `lovrSwapchainAcquire`, which waits on the image the runtime
-        // hands back, so a skip that still acquired would pay most of the cost
-        // it was meant to avoid.
+        // returns. A skip that still acquired would pay most of the cost it
+        // avoids.
         let mut harness = Harness::new();
         harness.claim(surface(1));
         harness.commit(surface(1));
@@ -793,9 +802,9 @@ mod tests {
 
     #[test]
     fn a_run_of_frames_copies_once_per_commit_and_submits_on_every_one() {
-        // The two halves of the rule, over an arbitrary schedule rather than a
-        // pair of frames: a copy happens exactly when the source committed, and
-        // the submitted list is the same whether the frame copied or not.
+        // The two halves of the rule, over an arbitrary schedule: a copy
+        // happens exactly when the source committed, and the submitted list
+        // is the same whether the frame copied or not.
         const COMMITTING: [bool; 16] = [
             true, false, false, true, true, false, false, false, true, false, true, true, false,
             false, false, false,
@@ -862,8 +871,8 @@ mod tests {
     #[test]
     fn a_device_that_cannot_blit_is_reported_once_rather_than_on_every_frame() {
         // The claim is never granted, so it is never dropped from the pool's
-        // held list, so this outcome recurs for as long as the claim lives. The
-        // ledger's own report is the once-per-claim one.
+        // held list, so this outcome recurs for as long as the claim exists.
+        // The ledger's own report is the once-per-claim one.
         assert!(!Blitted::Unsupported.worth_reporting_every_frame());
         assert!(!Blitted::NoSource.worth_reporting_every_frame());
         assert!(Blitted::NotAcquired.worth_reporting_every_frame());
@@ -883,8 +892,8 @@ mod tests {
 
     #[test]
     fn each_frame_copies_into_the_image_that_frame_acquired() {
-        // The swapchain rotates, so an image cached from an earlier frame names
-        // one the runtime has already composited from and handed back.
+        // The swapchain rotates, so an image cached from an earlier frame
+        // names one the runtime has already composited from and returned.
         let mut harness = Harness::new();
         harness.claim(surface(1));
 
@@ -934,8 +943,10 @@ mod tests {
 
     #[test]
     fn a_surface_forgotten_and_committed_again_is_copied_rather_than_skipped() {
-        // A per-surface counter would restart here, and the repeat would read as
-        // "nothing has changed" while the texture underneath is a new one.
+        // The copied counter is keyed by claim, so the forget drops it along
+        // with the claim. A per-surface counter would restart on the next
+        // commit, and the repeat would read as "nothing has changed" while the
+        // texture underneath is a new one.
         let mut harness = Harness::new();
         let claim = harness.claim(surface(1));
         harness.commit(surface(1));
