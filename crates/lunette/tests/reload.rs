@@ -1,28 +1,28 @@
-//! The soft reload, driven by doing one.
+//! The soft reload, exercised by performing one.
 //!
-//! `lunette-v1.AC5.4` is about a reload applying an edited configuration without
-//! disconnecting any client, and about teardown hooks running so that timers and
-//! signal connections do not accumulate. Neither half can be established by
-//! asserting a flag, so this file establishes them by reloading.
+//! The reload applies an edited configuration without disconnecting any
+//! client, and the teardown hooks run and prevent timers and signal
+//! connections from accumulating. Neither half can be established by asserting
+//! a flag, so the tests establish both by reloading.
 //!
-//! The two halves need different apparatus and are both here.
+//! The two halves need different test apparatus.
 //!
-//! The first drives the real binary against a fixture configuration, the way
-//! `exit_status.rs` does and for the same reason: the module has to be the one
+//! The first half runs the lunette binary against a fixture configuration, as
+//! `exit_status.rs` does and for the same reason: the module must be the one
 //! the host registered, the standard library the one the host mounted, and
 //! `main.lua` the file `boot.lua` resolved. A unit test on a Lua state a test
-//! built has none of those. The fixtures switch the audio, graphics, and headset
-//! modules off and open no window, so no display, no XR runtime, and no sound
-//! device is needed, and each run points `XDG_DATA_HOME` at a temporary
-//! directory of its own.
+//! built has none of those. The fixtures switch the audio, graphics, and
+//! headset modules off and open no window, so no display, no XR runtime, and
+//! no sound device is needed, and each run points `XDG_DATA_HOME` at a
+//! temporary directory of its own.
 //!
-//! The second connects a real Wayland client to lunette's own compositor and
-//! reloads while it is connected. What it establishes is narrow and worth
-//! stating: not that the reload knows about the client, but that it does not
-//! touch it. A reload is confined to one Lua state, the compositor thread and
-//! every connection it holds live in Rust, and `docs/architecture.md` records
-//! the rule that makes that safe — Rust holds no long-lived reference into Lua.
-//! This is what would fail if a later change reached across that line.
+//! The second half connects a real Wayland client to lunette's own compositor
+//! and reloads while it is connected. The second half establishes a narrow
+//! property: the reload does not touch the client. A reload is confined to
+//! one Lua state, the compositor thread and every connection it holds are in
+//! Rust, and `docs/architecture.md` records the rule behind the separation:
+//! Rust holds no long-lived reference into Lua. A later change that reaches
+//! across that line fails this test.
 
 #![expect(
     clippy::expect_used,
@@ -39,21 +39,22 @@ use mlua::{Function, Lua, Table};
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
-/// Ten reloads in one session, each one asserting what the last left behind.
+/// Ten reloads in one session, each asserting the state the previous reload
+/// left.
 ///
 /// The fixture checks that `lovr.*` survives, that `boot.lua`'s own callback
 /// defaults survive, that a callback the configuration stopped defining stops
-/// being called, that the standard library's modules are re-required, and that
-/// the teardown registry holds the same hooks after the tenth reload as after
-/// the first. It quits 9 when every one of those held, and with a distinct
-/// status for each that did not.
+/// being called, that the standard library's modules are re-required, and
+/// that the teardown registry holds the same hooks after the tenth reload as
+/// after the first. The fixture quits 9 when every check holds and with a
+/// distinct status for each check that does not.
 #[test]
 fn ten_reloads_leave_the_session_where_one_does() {
     assert_exit_status("reload", 9);
 }
 
-/// A reload whose configuration raises reports it and leaves the session
-/// running, rather than falling into safe mode.
+/// A reload whose configuration raises reports the error and leaves the
+/// session running; it does not enter safe mode.
 ///
 /// Safe mode is for a `main.lua` that fails to load at startup. Conflating the
 /// two would replace a working session with the fallback over a typo the user
@@ -84,8 +85,8 @@ fn a_connected_client_does_not_notice_a_reload() {
     let lua = configured_state();
     lunette::reload::reload(&lua, &|| ()).expect("the reload succeeds");
 
-    // The client is still able to speak, and the compositor still answers: a
-    // disconnected client's next round trip is what would fail here.
+    // The client still communicates, and the compositor still responds. A
+    // disconnected client's next round trip would fail at this point.
     client.set_title(&mut compositor, "still here");
     client.settle(&mut compositor, |_| true);
 
@@ -106,16 +107,16 @@ fn a_connected_client_does_not_notice_a_reload() {
     );
 }
 
-/// A Lua state with the scaffolding `boot.lua` leaves and a `main` module that
-/// runs, so the reload above is a whole reload rather than one that fails at its
-/// last step.
+/// A Lua state with the scaffolding `boot.lua` leaves and a `main` module
+/// that runs. A reload on this state is a whole reload and does not fail at
+/// its last step.
 ///
-/// `main` arrives through `package.preload` rather than through a file, because
-/// this case is about the compositor and not about the filesystem. The `require`
-/// here therefore honours `preload` and caches into `loaded`, as Lua's does: one
-/// that only read `loaded` would answer nil for the module a reload is meant to
-/// run, and the last step of the reload would do nothing while the test still
-/// passed.
+/// `main` arrives through `package.preload` and not through a file, because
+/// this case is about the compositor and not about the filesystem. The
+/// `require` here honours `preload` and caches into `loaded`, as Lua's
+/// require does. A require that only read `loaded` would answer nil for the
+/// module a reload runs, the last step of the reload would do nothing, and
+/// the test would still pass.
 fn configured_state() -> Lua {
     let lua = Lua::new();
     lua.load(
@@ -153,11 +154,12 @@ fn configured_state() -> Lua {
     lua
 }
 
-/// Runs the binary against the named fixture and asserts the status it exited
-/// with.
+/// Runs the binary against the named fixture and asserts the status it
+/// exited with.
 ///
-/// The child's stderr and stdout are quoted on failure: the fixtures print which
-/// assertion did not hold, and a Lua error arrives on stderr and nowhere else.
+/// The child's stderr and stdout are quoted on failure. The fixtures print
+/// which assertion did not hold, and a Lua error arrives on stderr and
+/// nowhere else.
 fn assert_exit_status(fixture: &str, expected: i32) {
     let directory = fixture_directory(fixture);
     assert!(
@@ -166,23 +168,23 @@ fn assert_exit_status(fixture: &str, expected: i32) {
     );
 
     // Per run, for the reason `exit_status.rs` records: `boot.lua` creates
-    // `$XDG_DATA_HOME/LOVR/<identity>` on every run, and two runs sharing a leaf
-    // race to create it.
+    // `$XDG_DATA_HOME/LOVR/<identity>` on every run, and two runs sharing a
+    // leaf race to create it.
     let data_directory = match TempDir::with_prefix("lunette-reload-") {
         Ok(directory) => directory,
         Err(error) => panic!("a temporary data directory could not be created: {error}"),
     };
 
     let run = Command::new(env!("CARGO_BIN_EXE_lunette"))
-        // Removed for the reason `HOME` is: a developer's shell exports it to
-        // point a session at the working copy, and a fixture that is mislaid
+        // Removed for the same reason as `HOME`: a developer's shell exports
+        // it to point a session at the working copy, and a mislaid fixture
         // would otherwise load the shipped configuration and pass confusingly.
         .env_remove("LUNETTE_CONFIG_PATH")
         .env("XDG_CONFIG_HOME", &directory)
         .env("XDG_DATA_HOME", data_directory.path())
-        // Removed so that the developer's own configuration cannot be reached
-        // if the fixture is ever mislaid, which would turn a missing fixture
-        // into a confusing pass.
+        // Removed to keep the run from reaching the developer's own
+        // configuration when the fixture is mislaid. A missing fixture would
+        // otherwise pass confusingly.
         .env_remove("HOME")
         .env("LUNETTE_STDLIB_PATH", standard_library())
         .output();
@@ -207,9 +209,9 @@ fn fixture_directory(fixture: &str) -> PathBuf {
         .join(fixture)
 }
 
-/// The `lua/` directory of the working tree this test was built from, which is
-/// what the run mounts: the fixture requires the standard library as it is, not
-/// a copy assembled for it.
+/// The `lua/` directory of the working tree this test is built from. The run
+/// mounts it: the fixture requires the standard library as it is, not as a
+/// copy assembled for it.
 fn standard_library() -> PathBuf {
     // `crates/lunette` up two levels to the workspace root.
     let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) else {

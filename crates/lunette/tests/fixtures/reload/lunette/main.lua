@@ -1,19 +1,19 @@
--- Ten soft reloads, from inside a real session.
+-- Ten soft reloads, from inside a session.
 --
 -- `lunette.reload()` runs the standard library's teardown hooks, clears
 -- `package.loaded` for the user's and the standard library's namespaces, clears
 -- the callbacks this file owns, and runs this file again. Everything asserted
--- here is about that, and none of it is observable from a unit test on a Lua
--- state a test built: the module has to be the one the host registered, the
--- standard library has to be the one the host mounted, and `main.lua` has to be
--- the file boot.lua resolved.
+-- here concerns those effects, and none of it is observable from a unit test on
+-- a Lua state a test built: the module has to be the one the host registered,
+-- the standard library has to be the one the host mounted, and `main.lua` has
+-- to be the file boot.lua resolved.
 --
--- Globals survive a soft reload — the Lua state is not closed, only the
--- configuration's modules and callbacks go — which is what lets one file drive
--- several reloads and compare what it saw across them.
+-- Globals survive a soft reload: the Lua state stays open, and the reload
+-- removes the configuration's modules and callbacks. One file can drive several
+-- reloads and compare what it saw across them.
 --
--- Each failure quits with its own status, so the run says which assertion did
--- not hold rather than only that one did not.
+-- Each failure quits with its own status, so the run reports which assertion
+-- did not hold. A shared status would not name the failed assertion.
 
 local lunette = require '@lunette'
 
@@ -25,11 +25,13 @@ require '@mullion/rules'
 require '@mullion/signal'
 require '@mullion/tag'
 
--- How many reloads this fixture performs. Ten, because AC5.4 is about
--- accumulation and one reload cannot show that nothing accumulates.
+-- How many reloads this fixture performs. Ten: the accumulation under test
+-- shows only across several reloads, and one reload cannot show that nothing
+-- accumulates.
 local RELOADS = 10
 
--- How many times this file has been run by a reload rather than by boot.lua.
+-- How many times this file has been run by a reload. The initial run by
+-- boot.lua is not counted.
 reloads = reloads or 0
 
 -- What the first run saw, to compare every later run against.
@@ -40,9 +42,9 @@ panelTables = panelTables or {}
 panelTables[#panelTables + 1] = panel
 
 if reloads == 0 then
-  -- Defined by the first run alone, which stands in for a callback the user
-  -- deleted from their configuration between two reloads. A reload that left it
-  -- bound would keep calling code that is no longer in the file.
+  -- Defined by the first run alone. It models a callback the user deleted
+  -- from their configuration between two reloads: a reload that left it bound
+  -- would keep calling code that is no longer in the file.
   function lovr.lunwindowopened() end
 end
 
@@ -78,9 +80,9 @@ function lovr.load()
   end
 end
 
--- The reload is asked for from here rather than from `lovr.load`, which is where
--- a key binding would ask for it: `lovr.load` is called by the reload itself, so
--- a configuration reloading from it would be reloading from inside a reload,
+-- The reload is initiated from here, not from `lovr.load`, where a key binding
+-- would ask for it. `lovr.load` is called by the reload itself, so a
+-- configuration reloading from it would be reloading from inside a reload,
 -- which is refused.
 function lovr.update()
   if reloads >= RELOADS then

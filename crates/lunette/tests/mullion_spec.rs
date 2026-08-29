@@ -1,18 +1,17 @@
 //! Linux-only: runs the `lua/spec/` suite, which covers the `mullion` standard
 //! library.
 //!
-//! The workspace's checks compile Rust and the standard library is Lua, so
-//! without this the specs would be a thing somebody had to remember to run. It
-//! is a `cargo test` so that they run with everything else.
+//! The workspace's checks compile Rust, and the standard library is Lua.
+//! Without the `cargo test` the specs would need a manual run; with it they
+//! run with everything else.
 //!
-//! It spawns the real binary rather than a standalone interpreter, for two
-//! reasons: the devshell ships no LuaJIT, and the tree the specs are required
-//! through is LÖVR's virtual filesystem rather than the process's, so a bare
-//! interpreter would be resolving a different set of paths than a session does.
-//! The fixture switches off the audio, graphics, and headset modules and opens
-//! no window, so no display, no XR runtime, and no sound device are needed;
-//! nothing here sleeps or touches the network, and every directory it writes is
-//! a temporary one it removes.
+//! The test spawns the real binary because the devshell ships no LuaJIT and
+//! because the specs are required through LÖVR's virtual filesystem, not the
+//! process's. A standalone interpreter would resolve a different set of paths
+//! than a session does. The fixture switches off the audio, graphics, and
+//! headset modules and opens no window; no display, no XR runtime, and no
+//! sound device are needed. The test neither sleeps nor touches the network,
+//! and every directory it writes is a temporary one it removes.
 
 use std::{
     path::{Path, PathBuf},
@@ -21,7 +20,7 @@ use std::{
 
 use tempfile::TempDir;
 
-/// The status the fixture quits with when every case passed.
+/// The fixture quits with this status when every case passes.
 const PASSED: i32 = 9;
 
 #[test]
@@ -37,11 +36,11 @@ fn every_mullion_spec_passes() {
     );
 }
 
-/// The `lua/` directory of the working tree this test was built from, which is
-/// what the run mounts: the specs cover the tree as it is installed, not a copy
+/// The `lua/` directory of the working tree the test was built from. The run
+/// mounts it, and the specs cover the tree as installed, with no copy
 /// assembled for them.
 fn repository_standard_library() -> PathBuf {
-    // `crates/lunette` up two levels to the workspace root.
+    // `crates/lunette` is two levels below the workspace root.
     let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) else {
         panic!("the workspace root could not be derived from the manifest directory");
     };
@@ -54,13 +53,12 @@ fn repository_standard_library() -> PathBuf {
     lua
 }
 
-/// What one run of the suite reported.
 struct Outcome {
     status: Option<i32>,
-    /// The runner's own report, which names every failing case.
+    /// The runner's report, which names every failing case.
     stdout: String,
-    /// A Lua error that stopped the run before the report was printed says so
-    /// here and nowhere else.
+    /// A Lua error that stops the run before the report is printed appears in
+    /// this field and nowhere else.
     stderr: String,
 }
 
@@ -69,30 +67,30 @@ fn run() -> Outcome {
         .join("tests")
         .join("fixtures")
         .join("mullion-spec");
-    // Checked before the run, so that a mislaid fixture fails as itself rather
-    // than as boot.lua's "no main.lua" path.
+    // Checked before the run. A mislaid fixture then fails as itself, and
+    // boot.lua's "no main.lua" path never runs.
     assert!(
         directory.join("lunette").join("main.lua").is_file(),
         "the mullion-spec fixture is missing its main.lua"
     );
 
-    // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and fails
-    // the boot when it cannot. A temporary one per run also removes the
-    // dependency on `HOME`, which is unset below.
+    // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and
+    // fails the boot when it cannot. A temporary directory per run also
+    // removes the dependency on `HOME`, which the command unsets.
     let data_directory = match TempDir::with_prefix("lunette-mullion-spec-data-") {
         Ok(directory) => directory,
         Err(error) => panic!("a temporary data directory could not be created: {error}"),
     };
 
     let output = Command::new(env!("CARGO_BIN_EXE_lunette"))
-        // The fixture directory holds a `lunette` subdirectory, which is what
-        // `$XDG_CONFIG_HOME/lunette` resolves to. `HOME` is removed so that the
-        // developer's own configuration cannot be reached if the fixture is ever
-        // mislaid, which would otherwise turn a missing fixture into a confusing
-        // pass.
-        // Removed for the reason `HOME` is: a developer's shell exports it to
-        // point a session at the working copy, and a fixture that is mislaid
-        // would otherwise load the shipped configuration and pass confusingly.
+        // The fixture directory holds a `lunette` subdirectory, and
+        // `$XDG_CONFIG_HOME/lunette` resolves to it. `HOME` is removed; a
+        // mislaid fixture would otherwise reach the developer's own
+        // configuration and pass confusingly.
+        // `LUNETTE_CONFIG_PATH` is removed for the same reason: a developer's
+        // shell exports it to point a session at the working copy, and a
+        // mislaid fixture would otherwise load the shipped configuration and
+        // pass confusingly.
         .env_remove("LUNETTE_CONFIG_PATH")
         .env("XDG_CONFIG_HOME", &directory)
         .env("XDG_DATA_HOME", data_directory.path())

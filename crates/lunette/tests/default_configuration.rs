@@ -1,36 +1,37 @@
 //! Linux-only: the shipped default configuration compiles under the Luau the
 //! session runs it on.
 //!
-//! `etc/xdg/lunette/` is what a user with no configuration of their own gets, so
-//! a syntax error in it reaches every fresh installation as a failed boot. It is
-//! data rather than code as far as Cargo is concerned, and nothing else in the
-//! workspace would look at it.
+//! `etc/xdg/lunette/` is what a user with no configuration of their own gets,
+//! so a syntax error in it reaches every fresh installation as a failed boot.
+//! Cargo treats the directory as data, not code, and nothing else in the
+//! workspace examines it.
 //!
-//! This compiles the two files and no more. Running them needs a compositor, a
-//! graphics device, and a headset, so what they do is a human gate; what is
-//! checked here is that they parse, that they parse under Luau rather than
-//! under some other Lua, and that the callbacks the session calls are the ones
-//! they define.
+//! The tests compile the two files and no more. Running the configuration
+//! needs a compositor, a graphics device, and a headset, so its behaviour is
+//! verified by a human. The tests check that the files parse, that they parse
+//! under Luau and not under some other Lua, and that the callbacks the session
+//! calls are the ones they define.
 
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-// Unused as a name, and load-bearing as a link. The Lua this compiles under is
-// the one `lunette-lovr` builds, and rustc emits its link flags only for a
-// crate the binary actually depends on — so a test that never named `lunette`
-// would link no Lua at all and fail with undefined symbols rather than with a
+// The name is unused but load-bearing as a link. The Lua these files compile
+// under is the one `lunette-lovr` builds, and rustc emits its link flags only
+// for a crate the binary actually depends on. A test that never named
+// `lunette` would link no Lua and fail with undefined symbols, not with a
 // verdict.
 use lunette as _;
 use lunette_compositor::protocol::KeyModifier;
 
-/// An mlua state with LÖVR's fork library set opened on it, the way the real
-/// session state has it (the session handlers and `mullion` read `package`).
+/// Returns an mlua state with LÖVR's fork library set opened on it, the way
+/// the real session state opens it (the session handlers and `mullion` read
+/// `package`).
 fn session_lua() -> mlua::Lua {
     let lua = mlua::Lua::new();
-    // SAFETY: the state is not mid-call; opening libraries is what production
-    // does before any chunk runs.
+    // SAFETY: the state is not mid-call; production opens libraries before any
+    // chunk runs.
     unsafe {
         lua.exec_raw_lua(|raw| mlua::ffi::luaL_openlibs(raw.state()));
     }
@@ -40,13 +41,14 @@ use mlua::{Function, Lua, Table};
 
 /// The callbacks `main.lua` is expected to leave on `lovr`.
 ///
-/// Named rather than counted: a configuration that stopped drawing would still
-/// define some callbacks, and the gate this stands in for is that a terminal
+/// The names are enumerated one by one, not counted. A configuration that
+/// stopped drawing would still define some callbacks, so a count would not
+/// catch the regression. Each named callback is required for a terminal that
 /// appears and can be pointed at.
 const CALLBACKS: &[&str] = &["load", "update", "draw", "quit", "keypressed"];
 
-/// The events the shipped configuration subscribes to. Not `lovr` callbacks any
-/// more: a subscription is a call, so what this checks is that the call was
+/// The events the shipped configuration subscribes to. These are not `lovr`
+/// callbacks: a subscription is a call, so the test checks that the call was
 /// made, which the stub records.
 const SUBSCRIPTIONS: &[&str] = &["onWindowOpened", "onWindowClosed", "onProcessExited"];
 
@@ -70,10 +72,10 @@ fn the_default_configuration_compiles() {
 /// The chunk defines the callbacks the session calls, and defines them on
 /// `lovr`.
 ///
-/// It runs against a `lovr` and a `require` that answer with empty tables, so
+/// It runs against a `lovr` and a `require` that return empty tables, so
 /// nothing past the assignments themselves is exercised: the module bodies are
-/// never reached and no compositor is spoken to. A callback the configuration
-/// stopped defining is the defect this catches.
+/// never reached and no compositor is contacted. The defect this catches is a
+/// callback the configuration stopped defining.
 #[test]
 fn the_default_configuration_defines_the_callbacks_the_session_calls() {
     let lua = session_lua();
@@ -121,17 +123,17 @@ fn the_default_configuration_defines_the_callbacks_the_session_calls() {
 
 /// `lovr.load` runs against the real standard library.
 ///
-/// The stub run above deliberately reaches no module body, which leaves the one
-/// place every `mullion` call in this configuration lives — `lovr.load` — with
-/// no coverage at all. A configuration that passed the wrong kind of value to a
-/// module would compile, define its callbacks, and raise on the first frame of
-/// every fresh installation, which is the exact case safe mode exists for.
+/// The stub run above reaches no module body, which leaves `lovr.load`, the
+/// place where every `mullion` call in this configuration occurs, with no
+/// coverage. A configuration that passed the wrong kind of value to a module
+/// would compile, define its callbacks, and raise on the first frame of every
+/// fresh installation. That is the case safe mode exists for.
 ///
-/// So this one resolves `require` through the repository's `lua/` tree and runs
-/// the callback. The only fakes are the two things a module reaches the outside
-/// world through: `lunette`, whose real seat and spawn calls want a compositor,
-/// and `lovr`, whose filesystem here holds no saved arrangement. Everything
-/// between them is the code a session runs.
+/// This test resolves `require` through the repository's `lua/` tree and runs
+/// the callback. The only fakes are the two things a module reaches the
+/// outside world through: `lunette`, whose real seat and spawn calls need a
+/// compositor, and `lovr`, whose filesystem here holds no saved arrangement.
+/// Everything between them is the code a session runs.
 #[test]
 fn the_default_configuration_loads_against_the_standard_library() {
     let lua = session_lua();
@@ -158,8 +160,8 @@ fn the_default_configuration_loads_against_the_standard_library() {
         panic!("lovr.load raised: {error}");
     }
 
-    // The arrangement source is what `lovr.load` had to reach `mullion.persist`
-    // to register, so its absence would mean the callback ran and did nothing.
+    // `lovr.load` reaches `mullion.persist` to register the arrangement source;
+    // its absence would mean the callback ran and did nothing.
     let registered: bool = match lua
         .load("local rules = require '@mullion/rules'\nfor _, source in ipairs(rules.sources()) do\n  if source.name == 'mullion.persist' then return true end\nend\nreturn false")
         .eval()
@@ -172,9 +174,9 @@ fn the_default_configuration_loads_against_the_standard_library() {
         "lovr.load should register the saved arrangement as a rules source"
     );
 
-    // The store source is the other half, and the one AC5.4 rests on: without
-    // it a reload places every surviving window by rule and a hand-arranged
-    // workspace comes back scrambled.
+    // The store source is also required. Without it, a reload places every
+    // surviving window by rule and a hand-arranged workspace comes back
+    // scrambled.
     let sources: Vec<String> = match lua
         .load(
             "local rules = require '@mullion/rules'\nlocal names = {}\nfor _, source in \
@@ -198,17 +200,18 @@ fn the_default_configuration_loads_against_the_standard_library() {
 
 /// A `lovr` global and a `require` that answer with fresh empty tables.
 ///
-/// Every field read of one of those tables answers `nil`, which is enough for a
-/// chunk whose top level only requires modules and assigns callbacks. A chunk
-/// that started calling into a module at load time would fail here, and that is
-/// the right report: doing so at load time is what this configuration must not
-/// do, because the graphics module and the compositor do not exist yet.
+/// Every field read of one of those tables returns `nil`, which is enough for
+/// a chunk whose top level does nothing but require modules and assign
+/// callbacks. A chunk that started calling into a module at load time would
+/// fail here, and that is the right report: the configuration must not call
+/// into a module at load time, because the graphics module and the compositor
+/// do not exist yet.
 fn stub_environment(lua: &Lua) -> mlua::Result<Table> {
     let lovr = lua.create_table()?;
     lua.globals().set("lovr", &lovr)?;
-    // A `require` answering an empty table is enough for every module the
+    // A `require` returning an empty table is enough for every module the
     // configuration reaches except `lunette`, whose subscriptions it calls at
-    // the top level rather than only from inside a callback.
+    // the top level, not from inside a callback.
     let subscribed = lua.create_table()?;
     lua.globals().set("subscribed", &subscribed)?;
     lua.globals().set(
@@ -233,17 +236,18 @@ fn stub_environment(lua: &Lua) -> mlua::Result<Table> {
     Ok(lovr)
 }
 
-/// A `lovr` global and a `require` that resolve the real standard library.
+/// Builds a `lovr` global and a `require` that resolve the real standard
+/// library.
 ///
 /// `require` is left alone and `package.path` is pointed at the repository's
-/// `lua/` tree instead, so the modules that load are the installed ones. Two
-/// fakes stand in for the outside world, and nothing else is stubbed:
+/// `lua/` tree instead, so the modules that load are the installed ones.
+/// Two fakes represent the outside world, and nothing else is stubbed:
 ///
-/// - `lunette`, whose `newSeat` and `spawn` want a compositor. A seat that
-///   answered nothing would be a laser holding nil, so the fake answers the
+/// - `lunette`, whose `newSeat` and `spawn` need a compositor. A seat that
+///   returns nothing would hold a nil laser handle, so the fake returns the
 ///   shape the real one does.
-/// - `lovr`, whose `filesystem` holds no saved arrangement, which is what a
-///   fresh installation has.
+/// - `lovr`, whose `filesystem` holds no saved arrangement. A fresh
+///   installation has none.
 fn session_environment(lua: &Lua) -> mlua::Result<Table> {
     let package: Table = lua.globals().get("package")?;
     let root = standard_library();
@@ -252,11 +256,11 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
         format!("{root}/?.lua;{root}/?/init.lua", root = root.display()),
     )?;
 
-    // The standard-library loader, in Rust: LÖVR's production loader reads the
-    // mounted virtual filesystem, which this test has no `lovr.filesystem` for.
-    // The same shape — resolve `?.lua` against `package.path`, read the file,
-    // load it — is what makes `require 'mullion.adopt'` resolve here the way
-    // the session's does.
+    // The standard-library loader, in Rust. LÖVR's production loader reads the
+    // mounted virtual filesystem, which this test has no `lovr.filesystem`
+    // for. The same shape, resolving `?.lua` against `package.path`, reading
+    // the file, and loading it, makes `require 'mullion.adopt'` resolve here
+    // the way the session resolves it.
     let loaders: Table = package.get("loaders")?;
     let path_loader =
         lua.create_function(|lua, name: String| -> mlua::Result<mlua::MultiValue> {
@@ -285,7 +289,7 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
     loaders.set(2, path_loader)?;
 
     let lunette = lua.create_table()?;
-    // Each records that it was called and answers a cancel function, which is
+    // Each records that it is called and returns a cancel function, which is
     // the shape the real module has.
     let subscribed = lua.create_table()?;
     for name in [
@@ -309,9 +313,9 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
         )?;
     }
     lua.globals().set("subscribed", subscribed)?;
-    // The real names rather than a list written out here: this table is a fake
-    // of lunette's own module, and a fake that invents values is a test that
-    // passes against an API nothing has.
+    // The names are the real ones from `KeyModifier::NAMES`, not a list written
+    // out here. This table is a fake of lunette's own module, and a fake that
+    // invents values is a test that passes against an API nothing has.
     lunette.set(
         "modifierNames",
         lua.create_function(|_, ()| Ok(KeyModifier::NAMES.to_vec()))?,
@@ -340,8 +344,9 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
             Ok(process)
         })?,
     )?;
-    // Empty, which is what a session that has just started has: the adoption
-    // this drives is for the windows a *reload* found already open.
+    // The table is empty, matching a session that has been freshly started.
+    // The adoption this fake serves is for the windows a reload found already
+    // open.
     lunette.set(
         "windows",
         lua.create_function(|lua, ()| lua.create_table())?,
@@ -364,8 +369,8 @@ fn session_environment(lua: &Lua) -> mlua::Result<Table> {
     Ok(lovr)
 }
 
-/// Where the shipped configuration is, in the working tree this test was built
-/// from.
+/// Returns where the shipped configuration is, in the working tree that built
+/// the test.
 fn configuration_directory() -> PathBuf {
     workspace_root().join("etc").join("xdg").join("lunette")
 }
@@ -376,7 +381,7 @@ fn standard_library() -> PathBuf {
 }
 
 fn workspace_root() -> PathBuf {
-    // `crates/lunette` up two levels to the workspace root.
+    // `crates/lunette` up two levels is the workspace root.
     let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) else {
         panic!("the workspace root could not be derived from the manifest directory");
     };
