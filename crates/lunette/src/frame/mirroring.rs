@@ -1,11 +1,9 @@
-//! Linux-only: the frame's half of mirroring the user's own screens.
+//! Linux: the frame's half of mirroring the user's own screens.
 //!
-//! [`crate::mirrors`] owns the portal exchange and the capture streams; this is
-//! what the frame loop does around them each frame — attaching newly enumerated
-//! outputs, persisting the restore tokens a stream answers with, importing the
-//! frames that arrived, and dropping what a stopped stream left behind.
-//!
-//! Split out of `mod.rs` as a self-contained concern.
+//! [`crate::mirrors`] owns the portal exchange and the capture streams. The
+//! frame loop does its work around them each frame: attaching newly enumerated
+//! outputs, persisting the restore tokens a stream returns, importing the
+//! frames that arrived, and dropping what remains after a stream stops.
 
 use lunette_capture::{mirror::PipewireStreams, monitor::MonitorKey, tokens};
 use lunette_compositor::protocol::ImportedBuffer;
@@ -18,13 +16,14 @@ use crate::{
 };
 
 impl FrameDriver {
-    /// Reads what the host compositor has said about its outputs, and applies it.
+    /// Reads the outputs the host compositor reported, and applies them.
     ///
-    /// Both consumers are updated together and from the one roster: the mirror
-    /// lifecycle, so a monitor that has gone loses its stream, and the pointer
-    /// mapping, so the desktop's bounding box follows the monitor that moved.
-    /// Splitting them would let the two disagree about what is attached, which
-    /// is how a pointer ends up on a screen that is no longer there.
+    /// Both consumers update together from the one roster. The mirror lifecycle
+    /// follows the roster, so a monitor that has gone loses its stream. The
+    /// pointer mapping follows it, so the desktop's bounding box tracks the
+    /// monitor that moved. Updating the two separately lets them disagree about
+    /// what is attached, so a pointer can land on a screen that is no longer
+    /// there.
     pub(super) fn attach_outputs(&mut self) {
         let Some(host) = &mut self.host else {
             return;
@@ -44,8 +43,8 @@ impl FrameDriver {
 
     /// Writes the portal's restore tokens when a grant has changed them.
     ///
-    /// Best-effort, and reported rather than fatal: the cost of failing is one
-    /// dialog on the next run, which is not worth ending a session over.
+    /// Best-effort: a failure is reported with a warning, costs one dialog on
+    /// the next run, and does not end the session.
     pub(super) fn persist_tokens(&mut self) {
         let Some(host) = &self.host else {
             return;
@@ -72,8 +71,8 @@ impl FrameDriver {
 
     /// Turns each mirror's newest frame into the texture Lua samples.
     ///
-    /// The frames arrive as plain descriptors from PipeWire's own thread, and
-    /// every Vulkan import in the process happens here, on the main thread,
+    /// The frames arrive as plain descriptors from PipeWire's own thread. Every
+    /// Vulkan import in the process runs in this method, on the main thread,
     /// through the same dmabuf path a client's buffer takes.
     pub(super) fn import_capture_frames(&mut self) {
         let (Some(host), Some(graphics)) = (
@@ -85,10 +84,10 @@ impl FrameDriver {
 
         for (monitor, frame) in host.mirrors.take_frames() {
             let size = frame.format().size;
-            // Read before the import, because the importer needs it: the image
-            // a monitor's texture wraps is the one entry its buffer retention
-            // must not release, and releasing it would free the image out from
-            // under a live view.
+            // Read this first, because the importer requires it. The
+            // image a monitor's texture wraps is the entry its buffer
+            // retention must not release; releasing it would free an image a
+            // live view still names.
             let installed = self
                 .session
                 .with_monitor_textures(|textures| textures.image(&monitor));
@@ -101,18 +100,17 @@ impl FrameDriver {
                 }
             };
 
-            // The importer answers a recurring PipeWire buffer with the image it
-            // already made, and PipeWire cycles a small fixed pool — so after
-            // the first few frames this is the branch that runs, and wrapping
-            // the image again would allocate a texture over memory a texture
-            // already covers.
+            // The importer returns the image it already made for a recurring
+            // PipeWire buffer. PipeWire cycles a small fixed pool, so after the
+            // first few frames this branch runs. Wrapping the image again would
+            // allocate a texture over memory a texture already covers.
             if installed == Some(image.image) {
                 continue;
             }
 
-            // SAFETY: this is the frame thread and LÖVR's graphics module is
-            // initialised, because the device the import ran against is the one
-            // LÖVR created. The handle names an image the arena holds.
+            // SAFETY: this runs on the frame thread, and LÖVR's graphics module
+            // is initialised, because the import runs against the device LÖVR
+            // created. The handle names an image the arena holds.
             let texture = match unsafe { LovrTexture::import(&image) } {
                 Ok(texture) => texture,
                 Err(error) => {
@@ -140,16 +138,16 @@ impl FrameDriver {
     /// Releases the texture of every monitor whose mirror has stopped.
     ///
     /// `monitor:dismiss()` tears the stream down from Lua, and nothing after
-    /// that refreshes what the texture holds. Leaving it would leave a panel
-    /// showing whatever the screen last displayed, which is worse than showing
-    /// nothing because it looks live.
+    /// that refreshes what the texture holds. Leaving it leaves a panel showing
+    /// whatever the screen last displayed; the picture looks live though
+    /// nothing updates it.
     ///
-    /// A paused mirror keeps its texture on purpose: pausing is for a panel that
-    /// has left the user's view, and resuming it is meant to cost nothing.
+    /// A paused mirror keeps its texture: pausing is for a panel that has left
+    /// the user's view, and resuming it is meant to cost nothing.
     ///
-    /// Driven from everything lunette holds for a monitor rather than from the
-    /// texture ledger alone, for the reason [`stopped_monitors`] gives: a
-    /// monitor can retain capture buffers while holding no texture at all.
+    /// Uses everything lunette holds for a monitor, not the texture ledger
+    /// alone, for the reason [`stopped_monitors`] states: a monitor can retain
+    /// capture buffers while holding no texture.
     pub(super) fn drop_stopped_mirrors(&mut self) {
         let holding = self
             .session
@@ -163,8 +161,9 @@ impl FrameDriver {
 
         let stopped = {
             let mirrors = self.session.mirrors();
-            // `None` is a monitor that has been unplugged, which stops
-            // producing for the same reason and is answered the same way.
+            // `mirrors.state` returns `None` for an unplugged monitor; such
+            // a monitor never produces again and receives the same handling
+            // as a dismissed mirror.
             stopped_monitors(holding, retaining, |monitor| {
                 mirrors.state(monitor).is_some_and(|state| state.mirrored)
             })
@@ -177,15 +176,15 @@ impl FrameDriver {
 
     /// Drops everything held for a monitor that is no longer producing frames.
     ///
-    /// The texture first and the retained capture buffers second, in that order.
-    /// Releasing the texture is what puts LÖVR's view of the image into its own
-    /// morgue; dropping the buffers is what lets the image behind it be retired
-    /// and, two frames later, destroyed. The other order frees an image a live
-    /// view still names.
+    /// The texture comes first, the retained capture buffers second. Releasing
+    /// the texture puts LÖVR's view of the image into its own morgue; the
+    /// buffers keep the image behind it alive, and dropping them lets the image
+    /// be retired and, two frames later, destroyed. The other order frees an
+    /// image a live view still names.
     ///
-    /// The buffers have to be dropped here and not left to the process exit:
-    /// the retained `Dmabuf` is a strong reference, so nothing else ever makes
-    /// the importer's cache entry collectable, and a dismissed screen would keep
+    /// The buffers must be dropped here, not left to the process exit. The
+    /// retained `Dmabuf` is a strong reference, so nothing else makes the
+    /// importer's cache entry collectable, and a dismissed screen would keep
     /// its image and its imported memory for the rest of the session.
     fn forget_monitor_texture(&mut self, monitor: &MonitorKey) {
         let released = self
@@ -200,11 +199,11 @@ impl FrameDriver {
         }
     }
 
-    /// Tells monitor capture which DRM formats the new device can import.
+    /// Sends monitor capture the DRM formats the new device can import.
     ///
-    /// Re-run for every device rather than once at startup: a capture stream
-    /// negotiates against what the importer accepts, and that is a property of a
-    /// particular device.
+    /// Runs again for every device, not once at startup. A capture stream
+    /// negotiates against what the importer accepts, and that is a property of
+    /// a particular device.
     pub(super) fn negotiate_capture_formats(&self, device: &GraphicsDevice) {
         let Some(host) = &self.host else {
             return;

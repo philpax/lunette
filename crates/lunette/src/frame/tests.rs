@@ -1,10 +1,10 @@
-//! What one compositor event asks of the texture ledger, what the ledger does
-//! with it, which monitors the sweep for stopped mirrors releases, and the order
-//! the device teardown gives up what it holds.
+//! Which ledger change each compositor event produces, which monitors the
+//! sweep for stopped mirrors releases, and the order in which the device
+//! teardown releases what it holds.
 //!
-//! Every case here is a pure mapping, a ledger operation, or a recorded call
-//! sequence, so none of it needs a graphics device: the texture is a counter and
-//! the teardown target is a list.
+//! Every case is a pure mapping, a ledger operation, or a recorded call
+//! sequence. None needs a graphics device: the texture is a counter and the
+//! teardown target is a list.
 
 #![expect(
     clippy::expect_used,
@@ -27,8 +27,8 @@ use crate::{
     texture::{FrameGeneration, TextureDescription, TextureLedger, TextureRef, TextureUnavailable},
 };
 
-/// A texture that is a counter, so the ledger's bookkeeping can be
-/// exercised without a graphics device.
+/// A texture that is a counter, so the ledger's bookkeeping runs without a
+/// graphics device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Counted(u64);
 
@@ -63,10 +63,10 @@ fn monitor(index: u32) -> MonitorKey {
 
 #[test]
 fn a_surface_going_away_takes_its_texture_out_of_the_ledger() {
-    // The regression: every `wl_surface` mints an identifier and can hold
-    // a texture, and only a toplevel is ever reported closed. A popup or a
-    // cursor surface that was never forgotten left a texture naming an
-    // image the compositor had already retired.
+    // The regression: every `wl_surface` creates an identifier and can hold
+    // a texture, but the compositor reports closures for toplevels. A popup
+    // or cursor surface is never reported closed, so a texture it holds
+    // would name an image the compositor has already retired.
     assert_eq!(
         ledger_change(
             &Event::SurfaceGone {
@@ -226,11 +226,11 @@ fn a_stabilised_copy_is_offered_a_barrier_alongside_its_source() {
 
 #[test]
 fn a_monitor_that_retains_buffers_but_holds_no_texture_is_still_swept() {
-    // The regression: the sweep read only the texture ledger, and a monitor
-    // whose frames import as images but whose textures the device refuses is
-    // never in it. Every frame retained a buffer, the dismissal released
-    // nothing, and the dmabuf descriptors and their imported memory stayed for
-    // the rest of the process.
+    // The regression: the sweep reads the texture ledger, and a monitor whose
+    // frames import as images but whose textures the device refuses is never
+    // in it. Every frame retains a buffer, the dismissal releases nothing,
+    // and the dmabuf descriptors and their imported memory stay for the rest
+    // of the process.
     assert_eq!(
         stopped_monitors(vec![], vec![monitor(1)], |_| false),
         vec![monitor(1)],
@@ -247,8 +247,8 @@ fn a_monitor_holding_a_texture_with_nothing_retained_is_swept() {
 
 #[test]
 fn a_monitor_that_is_still_mirroring_keeps_what_it_holds() {
-    // Neither the texture nor the retained buffers go while frames are still
-    // arriving, and a paused mirror is still mirroring.
+    // Neither the texture nor the retained buffers are released while frames
+    // are still arriving, and a paused mirror is still mirroring.
     assert_eq!(
         stopped_monitors(vec![monitor(1)], vec![monitor(1)], |_| true),
         Vec::new(),
@@ -258,7 +258,7 @@ fn a_monitor_that_is_still_mirroring_keeps_what_it_holds() {
 #[test]
 fn a_monitor_named_by_both_is_released_once() {
     // `forget_monitor_texture` is idempotent, but a repeat would log a second
-    // release for buffers already gone.
+    // release for buffers already released.
     assert_eq!(
         stopped_monitors(vec![monitor(1)], vec![monitor(1)], |_| false),
         vec![monitor(1)],
@@ -312,8 +312,8 @@ fn teardown_hands_back_every_texture_once() {
     );
 }
 
-/// One step of the device teardown, so that the order can be compared rather
-/// than described.
+/// One documented step of the device teardown, so the tests can compare the
+/// ordered steps as values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     DestroyLayers,
@@ -324,12 +324,12 @@ enum Step {
     GiveUpImages(Disposal),
 }
 
-/// A teardown target that records what it was asked to do, in order.
+/// A teardown target that records each step it runs, in order.
 ///
-/// The real target is `FrameDriver`, whose steps each need an XR session, a
-/// graphics device, or both. What is under test is not what a step does — the
-/// pool, the ledger, and the arena each have their own cases — but the order
-/// they are asked in, and that is a property of `tear_down_device` alone.
+/// The production target is `FrameDriver`, whose steps each need an XR
+/// session, a graphics device, or both. The order in which the steps run is
+/// the property under test, and that property belongs to `tear_down_device`.
+/// The pool, the ledger, and the arena each have their own cases.
 #[derive(Debug, Default)]
 struct Recorder(Vec<Step>);
 
@@ -365,11 +365,11 @@ fn torn_down(disposal: Disposal) -> Vec<Step> {
     recorder.0
 }
 
-/// The ordering `crate::restart` documents, which reordering produces a
-/// use-after-free on the GPU rather than a failure anything reports. A layer is
-/// destroyed by `xrDestroySwapchain` and so goes while the XR session lives; a
-/// released texture retires LÖVR's image view, which has to happen before the
-/// image it names is given up.
+/// The ordering `crate::restart` documents. A reordering produces a
+/// use-after-free on the GPU, and nothing reports it. A layer is destroyed by
+/// `xrDestroySwapchain` and so goes while the XR session is active. Releasing
+/// a texture retires LÖVR's image view, and the image it names is not given
+/// up before the view retires.
 #[test]
 fn the_device_teardown_destroys_layers_then_releases_textures_then_gives_up_the_images() {
     assert_eq!(
@@ -385,10 +385,10 @@ fn the_device_teardown_destroys_layers_then_releases_textures_then_gives_up_the_
     );
 }
 
-/// The restart the compositor did not acknowledge, and the session ending, run
-/// the same teardown. The regression: the failed-quiesce path took a shortcut
-/// that skipped the claims, leaving the next session's layer budget spoken for
-/// by panels from a Lua state that had been closed.
+/// The restart the compositor does not acknowledge, and the session ending,
+/// run the same teardown. The regression: the failed-quiesce path skips the
+/// claims, and the next session's layer budget remains reserved by panels
+/// from a closed Lua state.
 #[test]
 fn a_teardown_that_stops_the_compositor_gives_up_everything_the_restart_does() {
     let abandoning = torn_down(Disposal::Abandon);

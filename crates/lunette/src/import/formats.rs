@@ -1,24 +1,24 @@
 //! Which client pixel formats lunette can import, and how each is spelled.
 //!
-//! Three vocabularies meet here. A client names its buffer with a DRM fourcc, a
-//! Vulkan image is created with a `VkFormat`, and LÖVR wraps that image with a
-//! `TextureFormat`. This module is the single place the three are related, so a
-//! mismatch between them is one edit to correct rather than three to find.
+//! Three vocabularies describe a client buffer. The client names its buffer
+//! with a DRM fourcc, Vulkan creates the image with a `VkFormat`, and LÖVR
+//! attaches a `TextureFormat` to the image. The module is the single place
+//! the three are related, so a mismatch between them is one edit to correct.
 //!
-//! Everything below is a pure function of plain data. The device queries that
-//! narrow the table to what the hardware will actually accept live in
-//! [`crate::import::device`], because they need a device and these do not.
+//! Each function in this module is pure: it takes data in, returns data out,
+//! and performs no I/O. The `format_properties` queries that narrow the table
+//! to what the hardware accepts are in [`crate::import::device`], because
+//! they need a device and these do not.
 //!
 //! # The X variants
 //!
-//! `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` have no alpha channel: the fourth
-//! component is undefined padding. Vulkan has no matching format, so each maps
-//! to the alpha-carrying format with the same component order, and whatever the
-//! client left in the padding byte arrives as alpha. [`Alpha::Opaque`] records
-//! that, and a consumer must force alpha to one rather than sampling it. WayVR
-//! maps the same six fourccs (`dmabuf.rs:406-413`) without recording the
-//! distinction, which is why its X-format content renders with arbitrary
-//! transparency.
+//! `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` have no alpha channel; the fourth
+//! component is undefined padding. Vulkan has no matching format for these
+//! fourccs, so each maps to the alpha-carrying format with the same component
+//! order, and the value a client leaves in the padding byte arrives as alpha.
+//! [`Alpha::Opaque`] records the distinction. WayVR's `fourcc_to_vk`
+//! (`graphics/dmabuf.rs`) maps the same six fourccs without recording the
+//! distinction, so its X-format content renders with arbitrary transparency.
 
 use ash::vk;
 use lunette_lovr::raw::{TextureFormat, TextureFormat_FORMAT_BGRA8, TextureFormat_FORMAT_RGBA8};
@@ -27,7 +27,7 @@ use smithay::backend::allocator::{Format, Fourcc, Modifier};
 /// Whether a format's fourth component carries alpha or padding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Alpha {
-    /// The fourth component is alpha, and is sampled.
+    /// The fourth component is alpha, and a consumer samples it.
     Present,
     /// The fourth component is undefined padding, and a consumer forces it to
     /// one. Sampling it renders the surface with arbitrary transparency.
@@ -39,19 +39,19 @@ pub enum Alpha {
 pub struct FormatMapping {
     pub fourcc: Fourcc,
     pub vulkan: vk::Format,
-    /// LÖVR's `TextureFormat`, which `convertFormat` (`gpu_vk.c:4374-4387`)
-    /// turns back into [`FormatMapping::vulkan`]. The two have to agree: LÖVR
-    /// takes an imported image's format on trust and has no way to detect a
-    /// mismatch.
+    /// LÖVR's `TextureFormat`, which `convertFormat` (`gpu_vk.c`) maps back to
+    /// [`FormatMapping::vulkan`]. The two must agree. LÖVR accepts the
+    /// imported image's format without checking it against the image's Vulkan
+    /// format, so a mismatch goes undetected.
     pub texture: TextureFormat,
     pub alpha: Alpha,
 }
 
 /// The formats lunette imports, in the order they are advertised.
 ///
-/// The same six WayVR covers (`dmabuf.rs:406-413`). Multi-plane YUV is a
-/// recorded gap rather than an oversight: importing it needs a per-plane
-/// binding path this design does not have.
+/// WayVR imports the same six fourccs. Multi-plane YUV is not imported,
+/// because importing it needs a per-plane binding path the design does not
+/// have.
 pub const SUPPORTED: [FormatMapping; 6] = [
     FormatMapping {
         fourcc: Fourcc::Argb8888,
@@ -99,11 +99,11 @@ pub fn mapping_for(fourcc: Fourcc) -> Option<FormatMapping> {
 
 /// Keeps the modifiers backed by a single plane, in the order reported.
 ///
-/// A modifier whose layout spans several planes needs one memory allocation per
-/// plane and `VkBindImagePlaneMemoryInfo` to bind them, which is the disjoint
-/// path this design rejects. Filtering here means such a modifier is never
-/// advertised, so a client does not choose one and then have its buffer
-/// refused. WayVR applies the same filter at `dmabuf.rs:384`.
+/// A modifier whose layout spans several planes needs one memory allocation
+/// per plane and `VkBindImagePlaneMemoryInfo` to bind them; the design rejects
+/// that disjoint path. Filtering means such a modifier is never advertised,
+/// so a client does not choose one and then have its buffer refused. WayVR's
+/// `get_drm_formats` (`graphics/dmabuf.rs`) applies the same filter.
 #[must_use]
 pub fn single_plane_modifiers(properties: &[vk::DrmFormatModifierPropertiesEXT]) -> Vec<Modifier> {
     properties
@@ -113,15 +113,16 @@ pub fn single_plane_modifiers(properties: &[vk::DrmFormatModifierPropertiesEXT])
         .collect()
 }
 
-/// The entries advertised for one fourcc, given the modifiers that survived
+/// The entries advertised for one fourcc, given the modifiers that pass
 /// filtering.
 ///
-/// [`Modifier::Invalid`] is always present. It is how a client asks for an
-/// implicit modifier — the driver picks the layout and neither side names it —
-/// and dropping it turns away every client that does not negotiate explicitly.
-/// WayVR adds it unconditionally for the same reason (`dmabuf.rs:393-397`).
-/// Duplicates are removed rather than advertised twice, because a driver may
-/// report the same modifier under more than one plane count.
+/// [`Modifier::Invalid`] is always present. A client uses it to request an
+/// implicit modifier: the driver picks the layout, and neither side names it.
+/// Without it, a client that does not negotiate explicitly cannot import its
+/// buffer. WayVR adds it unconditionally for the same reason in
+/// `get_drm_formats` (`graphics/dmabuf.rs`). Each modifier is advertised
+/// once, because a driver may report the same modifier under more than one
+/// plane count.
 #[must_use]
 pub fn advertise(fourcc: Fourcc, usable: &[Modifier]) -> Vec<Format> {
     let mut modifiers = Vec::with_capacity(usable.len() + 1);
@@ -140,12 +141,11 @@ pub fn advertise(fourcc: Fourcc, usable: &[Modifier]) -> Vec<Format> {
         .collect()
 }
 
-/// LÖVR's `FORMAT_RGB10A2`, which `convertFormat` spells
-/// `VK_FORMAT_A2B10G10R10_UNORM_PACK32` (`gpu_vk.c:4387`).
+/// LÖVR's `FORMAT_RGB10A2`, which `convertFormat` (`gpu_vk.c`) maps to
+/// `VK_FORMAT_A2B10G10R10_UNORM_PACK32`.
 ///
-/// Named here rather than imported because bindgen emits it as a bare constant
-/// whose name repeats the enum, and the three uses read better against one
-/// local name.
+/// Bindgen emits it as a bare constant whose name repeats the enum. The local
+/// name is the short form the table entries use.
 const RGB10A2: TextureFormat = lunette_lovr::raw::TextureFormat_FORMAT_RGB10A2;
 
 #[cfg(test)]
@@ -220,8 +220,8 @@ mod tests {
 
     #[test]
     fn the_component_order_is_not_transposed() {
-        // The one mapping error that produces a plausible-looking image with
-        // red and blue exchanged, and it is invisible in greyscale content.
+        // A transposed component mapping produces a plausible-looking image
+        // with red and blue exchanged. Greyscale content does not reveal it.
         assert_eq!(
             mapping_for(Fourcc::Argb8888).expect("supported").vulkan,
             vk::Format::B8G8R8A8_UNORM,
