@@ -1,8 +1,8 @@
-//! `lunette.newOutput`, the output handle, and the unit conversion at its edge.
+//! `lunette.newOutput`, the output handle, and the unit conversion at the Lua boundary.
 //!
-//! Everything here runs with a Lua state and no compositor: what a queued
-//! command carries is what the compositor would be asked for, and the frame's
-//! snapshot is what a handle reads back.
+//! These tests run with a Lua state and no compositor. A queued command
+//! records the request the compositor would receive, and a handle reads its
+//! values back from the frame's snapshot.
 
 use lunette_compositor::protocol::{
     OutputId, OutputMode, OutputScale, OutputSnapshot, RefreshRate,
@@ -31,7 +31,8 @@ fn with_outputs(outputs: Vec<OutputSnapshot>) -> Arc<Snapshot> {
     })
 }
 
-/// The only command the session queued, or a failure naming what was there.
+/// The single command the session queued. A different number of queued
+/// commands fails the assertion, naming the set.
 fn only_command(session: &TestSession) -> Command {
     let mut commands = session.flush();
     assert_eq!(
@@ -53,14 +54,15 @@ fn creating_an_output_asks_the_compositor_for_the_mode_that_was_named() {
          return out.id",
     );
 
-    // One past the default output, which already holds the first identifier.
+    // The default output already holds the first identifier, so the first
+    // output the call creates takes the second.
     assert_eq!(id, 2);
     match only_command(&session) {
         Command::CreateOutput { output, mode } => {
             assert_eq!(output, output_id(2));
             assert_eq!(mode.size, PixelSize::new(1920, 1080));
             assert_eq!(mode.scale.get(), 1.5);
-            // Hertz in Lua, millihertz on the wire.
+            // Lua takes hertz; the wire carries millihertz.
             assert_eq!(mode.refresh.millihertz(), 90_000);
         }
         other => panic!("expected a create, found {other:?}"),
@@ -110,7 +112,7 @@ fn a_handle_reports_the_mode_it_was_asked_for_before_the_compositor_answers() {
 
     assert_eq!((width, height), (1920, 1080));
     assert_eq!(scale, 2.0);
-    // Hertz, not the millihertz the protocol carries.
+    // The handle reports hertz; the wire carries millihertz.
     assert_eq!(refresh, 144.0);
 }
 
@@ -187,8 +189,9 @@ fn every_method_answers_false_on_an_output_that_is_gone() {
     let session = session(Vec::new());
     let lua = lua(&session);
 
-    // The handle names an output the compositor has not created, which is
-    // indistinguishable from one it has destroyed.
+    // The handle names an output the compositor has not created. A caller
+    // cannot distinguish that state from a destroyed output, and the methods
+    // answer false for both.
     let (destroyed, remoded): (bool, bool) = run(
         &lua,
         "local out = lunette.newOutput{ width = 800, height = 600 }
@@ -318,8 +321,8 @@ fn a_spawn_output_naming_another_handle_kind_is_refused() {
     let session = session(Vec::new());
     let lua = lua(&session);
 
-    // A seat is userdata with a handle metafield, so it reaches the borrow
-    // rather than the type check above. The borrow is what refuses it.
+    // A seat is userdata with a handle metafield, so it passes the type check
+    // and the borrow refuses it.
     let message = error(
         &lua,
         "lunette.spawn{ argv = { 'foot' }, output = lunette.newSeat('left') }",
@@ -342,8 +345,9 @@ fn the_scale_ladder_reaches_lua_as_the_one_the_layer_pool_keys_on() {
         .map(|step| f64::from(step.in_120ths()) / f64::from(crate::scale::ScaleStep::DENOMINATOR))
         .collect();
     assert_eq!(steps, expected);
-    // The two ends the ladder declares, so a change to one that forgets the
-    // other is caught here rather than by a panel allocating per frame.
+    // The assertions pin the two ends the ladder declares. A change to one end
+    // that does not update the other fails this test at the point where a
+    // per-frame panel allocation would encounter the mismatch.
     assert_eq!(steps.first(), Some(&1.0));
     assert_eq!(steps.last(), Some(&3.0));
 }
@@ -353,8 +357,8 @@ fn each_call_for_the_ladder_answers_with_its_own_table() {
     let session = session(Vec::new());
     let lua = lua(&session);
 
-    // A configuration that writes into what it was handed must not change what
-    // the next caller reads.
+    // A configuration that writes into the table it receives must not change
+    // the values the next caller reads.
     let untouched: f64 = run(
         &lua,
         "local first = lunette.scaleSteps()

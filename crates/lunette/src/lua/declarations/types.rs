@@ -1,16 +1,16 @@
-//! The markers that stand for a Luau type with no Rust type behind it.
+//! Nil and Textured are the two markers that stand for a Luau type no value
+//! carries.
 //!
 //! Everything else comes from [`lunette_luau`]: the leaves, the containers, and
-//! the tuples are stated once there, and a handle states its own name through
-//! the [`Typed`] impl its `handle!` block generates. What is left here is the
-//! two places a declaration names a type that no value ever has.
+//! the tuples are stated once there, and a handle's name comes from the
+//! [`Typed`] impl that its `handle!` block generates.
 
 use lunette_luau::{Type, Typed};
 
 use crate::lua::declarations::{AliasSpec, Aliased};
 
-/// A value Lua never receives, for the arm of a discriminated handle that
-/// carries none.
+/// A value Lua never receives. It is the type of the arm of a
+/// discriminated handle that carries none.
 #[derive(Clone, Copy, Debug)]
 pub struct Nil;
 
@@ -38,10 +38,9 @@ impl Aliased for Textured {
               receiver on both.",
         name: Self::luau,
         definition: |handles| {
-            // Read off the declarations: a handle carries pixels exactly when
-            // one of its methods names this as its receiver, which is what
-            // `getTexture` does. A third such handle joins the union by
-            // declaring that method.
+            // A handle carries pixels exactly when one of its methods names
+            // this as its receiver, as `getTexture` does. A third such handle
+            // joins the union by declaring that method.
             let marker = Textured::luau();
             Type::Union(
                 handles

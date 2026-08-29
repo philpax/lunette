@@ -1,9 +1,8 @@
 //! `lunette.claimLayer`, the `Claim` handle, and where a grant lands.
 //!
-//! The registry under test is the production one over [`FakeLayers`], so the
-//! ranking, the budget, and the free list are the pool's real decisions rather
-//! than a rehearsal of them. What the fake stands in for is the `Layer` itself,
-//! which Lua receives as a number.
+//! The registry under test is the production one over [`FakeLayers`]. The
+//! ranking, the budget, and the free list are the pool's own decisions. The
+//! fake replaces the `Layer` itself, which Lua receives as a number.
 
 use std::rc::Rc;
 
@@ -20,7 +19,7 @@ use crate::{
     scene::SceneRendering,
 };
 
-/// A `Layer` that is a number, which is enough to tell one from another and
+/// A `Layer` that is a number, enough to distinguish one from another and
 /// from `false`.
 #[derive(Debug)]
 pub(crate) struct FakeLayer(i64);
@@ -31,12 +30,12 @@ impl LuaLayer for FakeLayer {
     }
 }
 
-/// Hands out layers numbered from one, so that a second allocation is visible
-/// from Lua as a different number.
+/// Layers are numbered from one. A second allocation is visible from Lua as a
+/// different number.
 #[derive(Debug)]
 pub(crate) struct FakeLayers {
-    /// What the runtime reports, which is not what the pool will spend:
-    /// [`LayerBudget::from_runtime_limit`] takes a quarter of it.
+    /// The runtime limit. The pool spends a quarter of it:
+    /// [`LayerBudget::from_runtime_limit`] divides the limit by four.
     limit: u32,
     created: i64,
 }
@@ -54,8 +53,8 @@ impl LayerBackend for FakeLayers {
         self.limit
     }
 
-    /// The same session throughout. Nothing here is about a session going away
-    /// or being replaced; the pool's own tests cover both.
+    /// The same session throughout. Session teardown and replacement are
+    /// covered by the pool's own tests.
     fn session(&self) -> SessionPresence {
         SessionPresence::Present(SessionId::new(1).expect("one is not zero"))
     }
@@ -65,8 +64,8 @@ impl LayerBackend for FakeLayers {
         Some(FakeLayer(self.created))
     }
 
-    /// Nothing here reads the submitted list; what these tests are about is
-    /// what Lua is told, and the pool's own tests cover the list itself.
+    /// The fake does not read the submitted list. These tests assert what Lua
+    /// is told; the pool's own tests cover the list itself.
     fn submit(&mut self, _layers: &[&Self::Layer], _scene: SceneRendering) -> bool {
         true
     }
@@ -79,7 +78,7 @@ impl LayerBackend for FakeLayers {
 /// The runtime limit that leaves the pool exactly one slot to spend.
 ///
 /// [`LayerBudget::SHARE`] is the divisor, so four is the smallest limit that
-/// yields a budget at all.
+/// yields a budget.
 pub(crate) const ONE_SLOT: u32 = LayerBudget::SHARE;
 
 /// The runtime limit that leaves the pool two slots.
@@ -90,7 +89,7 @@ pub(crate) const TWO_SLOTS: u32 = 2 * LayerBudget::SHARE;
 /// A newly created layer is not grantable until its first blit has been issued,
 /// because `xrEndFrame` answers `XR_ERROR_LAYER_INVALID` for a layer whose
 /// swapchain has never released an image. This stands in for the blit path,
-/// which is what calls `note_blit_issued` in a running session.
+/// which calls `note_blit_issued` in a running session.
 pub(crate) fn settle(session: &TestSession, registry: &Rc<PoolRegistry<FakeLayers>>) {
     for _ in 0..4 {
         session.resolve_layers();
@@ -351,8 +350,8 @@ fn a_priority_that_cannot_be_ordered_is_refused() {
     let lua = lua(&session);
 
     // A NaN would make the ranking intransitive, so the same set of claims
-    // could be assigned differently depending on the order it happened to be
-    // in — which is the one thing a deterministic assignment must not do.
+    // could be assigned differently depending on the order of evaluation.
+    // A deterministic assignment must not allow that.
     let message = error(
         &lua,
         "lunette.claimLayer{
@@ -403,7 +402,7 @@ fn a_regranted_claim_reuses_the_layer_rather_than_allocating() {
 }
 
 /// The claim is on a `FakeTexture` session, so this asserts the pool's own
-/// arithmetic rather than the Lua surface's.
+/// arithmetic, not the Lua surface's.
 #[test]
 fn the_pool_never_holds_more_layers_than_the_budget() {
     let (session, registry, _) = claimed(ONE_SLOT, &[(1, 3.0), (2, 2.0), (3, 1.0)]);

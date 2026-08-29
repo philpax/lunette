@@ -1,9 +1,9 @@
-//! `lunette.spawn` and the handle it answers with.
+//! `lunette.spawn` and the handle it returns.
 //!
-//! The handle comes back before the compositor has seen the request, so it
+//! The handle comes back before the compositor has seen the request. It
 //! describes a process that does not exist yet: `alive` is false until the
-//! snapshot lists it, and a spawn that fails outright is reported through
-//! `lovr.lunprocessexited` rather than by the call raising.
+//! snapshot lists it. A spawn that fails to start is reported through
+//! `lovr.lunprocessexited`; the call does not raise.
 
 use std::ffi::OsStr;
 

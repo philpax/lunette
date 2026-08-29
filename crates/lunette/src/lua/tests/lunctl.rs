@@ -1,9 +1,10 @@
 //! What `lunctl` gets back when a chunk returns the session's own handles.
 //!
-//! The serialiser's own tests use a fake handle, because what they are about is
-//! the tagging convention. These use the real ones, against a real snapshot, so
-//! that a handle type registered without its tag — or with the wrong one — fails
-//! here rather than at a shell prompt.
+//! The serialiser's own tests use a fake handle, because they exercise the
+//! tagging convention. These tests use the real handles against a real
+//! snapshot. A handle type registered without its tag, or with the wrong one,
+//! fails in these tests. At a shell prompt the same mistake appears as a
+//! `lunctl` error.
 
 use lunette_compositor::protocol::PixelSize;
 use pretty_assertions::assert_eq;
@@ -57,8 +58,8 @@ fn a_window_handle_serialises_as_its_kind_and_id() {
     );
 }
 
-/// The userdata is minted fresh on every read, so two reads of one window are
-/// two objects. The id is what makes them the same window on the wire.
+/// The userdata is created fresh on every read, so two reads of one window are
+/// two objects. The id carries the window's identity on the wire.
 #[test]
 fn two_reads_of_one_window_agree_on_the_wire() {
     let values = returned("return lunette.windows()[1], lunette.windows()[1]", 1);
@@ -156,8 +157,8 @@ fn a_nested_table_of_windows_survives_the_wire() {
     );
 }
 
-/// A texture is a LÖVR object with no wire form. Refusing it is what keeps the
-/// protocol from the `tostring` fallback the design rejects.
+/// A texture is a LÖVR object with no wire form. Refusing it keeps the
+/// protocol from the `tostring` fallback that the design rejects.
 #[test]
 fn a_chunk_returning_something_unrepresentable_is_told_so() {
     let session = session(vec![window(1, "a terminal", "org.example.Term", size())]);

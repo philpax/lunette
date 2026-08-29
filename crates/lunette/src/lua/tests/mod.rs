@@ -1,13 +1,12 @@
 //! The module's conversion of a snapshot into Lua, exercised without a
 //! graphics device.
 //!
-//! A texture here is an integer, which is what the generic on [`Session`] is
-//! for. Everything else — the handles, the dead-handle rule, the mutation
-//! queue, the argument checking — is the production code path.
-//!
-//! The handles and the mutation queue are here; [`events`] holds the delivery
-//! of `lovr.lun*` callbacks, which needs a poll loop the rest of the surface
-//! does not.
+//! A texture here is an integer. The generic on [`Session`] carries the
+//! texture type, and the tests instantiate it as a plain number. Everything
+//! else is the production code path: the handles, the dead-handle rule, the
+//! mutation queue, and the argument checking. The [`events`] module holds the
+//! delivery of `lovr.lun*` callbacks, which requires a poll loop the rest of
+//! this module does not.
 
 #![expect(
     clippy::expect_used,
@@ -64,20 +63,20 @@ impl LuaTexture for FakeTexture {
 }
 
 impl CopyableTexture for FakeTexture {
-    /// Offset rather than equal, so that Lua can tell a stabilised copy from
-    /// the imported texture it was made from.
+    /// Offset not equal, so a stabilised copy reads different from the
+    /// imported texture it was made from.
     fn allocate_copy(&self) -> Option<Self> {
         Some(Self(self.0 + STABLE_OFFSET))
     }
 
-    /// The copy itself is `texture.rs`'s to exercise; what matters here is that
-    /// Lua is handed the same texture every time it asks.
+    /// The copy itself is `texture.rs`'s to exercise. Lua receives the same
+    /// texture every time it asks.
     fn copy_to(&self, _: &Self) -> bool {
         true
     }
 }
 
-/// How far a stabilised copy's number sits from its source's.
+/// How far a stabilised copy's number is from its source's.
 const STABLE_OFFSET: i64 = 1000;
 
 type TestSession = Rc<Session<FakeTexture>>;
@@ -122,18 +121,19 @@ fn snapshot(windows: Vec<WindowSnapshot>, processes: Vec<ProcessSnapshot>) -> Ar
     })
 }
 
-/// A session at the first frame, holding `windows`.
+/// A session at the first frame, holding the given windows.
 fn session(windows: Vec<WindowSnapshot>) -> TestSession {
     recording_session(windows).0
 }
 
-/// A session whose pushed events can be replayed, for the tests that need to.
+/// A session whose pushed events can be replayed.
 fn recording_session(windows: Vec<WindowSnapshot>) -> (TestSession, RecordingEventSink) {
     let (session, sink, _) = layered_session(windows, GENEROUS_LAYER_LIMIT);
     (session, sink)
 }
 
-/// A session whose pool is reachable, for the tests that drive frame boundaries.
+/// A session whose pool is reachable, for the tests that drive frame
+/// boundaries.
 ///
 /// `limit` is what the runtime reports, not what the pool will spend.
 fn layered_session(
@@ -176,16 +176,15 @@ fn mirrored_session(
     (session, monitors, host)
 }
 
-/// A runtime limit generous enough that the pool is never the reason a test
-/// fails, for the tests that are not about layers.
+/// A runtime limit generous enough that the pool is never what makes a test
+/// fail, for the tests that are not about layers.
 const GENEROUS_LAYER_LIMIT: u32 = 128;
 
-/// A Lua state with the module installed and `lunette` already required, which
-/// is the state a `main.lua` runs in.
+/// A Lua state with the module installed and `lunette` already required, the
+/// state a `main.lua` runs in.
 ///
-/// The `lovr` table and its `handlers` are what `boot.lua:340-345` leaves
-/// behind, reproduced here because the module's event dispatchers are installed
-/// into them.
+/// The `lovr` table and its `handlers` are what `boot.lua` leaves behind. The
+/// module's event dispatchers are installed into them.
 fn lua(session: &TestSession) -> Lua {
     let lua = crate::test_lua::session_lua();
     install(&lua, session).expect("the module installs");
@@ -200,9 +199,9 @@ fn lua(session: &TestSession) -> Lua {
 
 /// Runs `boot.lua`'s poll loop over what the session pushed.
 ///
-/// `vendor/lovr/etc/boot.lua:193-198` reads a name and up to four payload
-/// values out of `lovr.event.poll` and calls `lovr.handlers[name]` with them.
-/// A `lun*` event carries no payload values, so the call takes none.
+/// `vendor/lovr/etc/boot.lua` reads a name and up to four payload values out of
+/// `lovr.event.poll` and calls `lovr.handlers[name]` with them. A `lun*` event
+/// carries no payload values, so the call takes none.
 fn poll(lua: &Lua, sink: &RecordingEventSink) {
     let handlers: Table = lua
         .globals()
@@ -339,9 +338,9 @@ fn a_coordinate_that_is_not_a_number_is_reported() {
     assert!(session.flush().is_empty());
 }
 
-/// AC5.5's entry point. A restart is asked for through LÖVR's own event, which
-/// `vendor/lovr/etc/boot.lua:196` reads out of the queue at the end of the
-/// frame, so what this checks is that the call reaches that function.
+/// A restart is asked for through LÖVR's own event. `vendor/lovr/etc/boot.lua`
+/// reads it out of the queue at the end of the frame, so what this checks is
+/// that the call reaches that function.
 #[test]
 fn a_restart_is_asked_for_through_lovrs_own_event() {
     let session = session(Vec::new());
@@ -362,8 +361,8 @@ fn a_restart_is_asked_for_through_lovrs_own_event() {
 }
 
 /// Nothing is performed by the call, so a configuration that asks twice in one
-/// frame is asking for the same restart twice rather than recursing the way a
-/// reload from inside a reload would.
+/// frame asks for the same restart twice. There is no re-entry guard, because
+/// the event is read after the frame.
 #[test]
 fn a_restart_asked_for_twice_is_not_refused() {
     let session = session(Vec::new());
@@ -383,8 +382,8 @@ fn a_restart_asked_for_twice_is_not_refused() {
     );
 }
 
-/// A LÖVR without the event module is a broken build rather than a mistake in
-/// the configuration, so it is reported as such instead of as a nil call.
+/// A LÖVR without the event module is a broken build, not a mistake in the
+/// configuration, so it is reported as such instead of as a nil call.
 #[test]
 fn a_restart_with_no_event_module_is_reported() {
     let session = session(Vec::new());
@@ -442,10 +441,10 @@ fn the_module_exposes_only_what_this_phase_implements() {
 
 #[test]
 fn the_shipped_configuration_is_valid_lua() {
-    // The one thing about `etc/xdg/lunette/main.lua` that can be checked
-    // without a graphics device and an XR runtime. It is the configuration a
-    // fresh installation runs, so a syntax error in it is a broken build that
-    // nothing else in the suite would notice.
+    // The shipped configuration's one checkable property without a graphics
+    // device and an XR runtime. It is the configuration a fresh installation
+    // runs, so a syntax error in it is a broken build that nothing else in the
+    // suite would notice.
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../etc/xdg/lunette/main.lua"

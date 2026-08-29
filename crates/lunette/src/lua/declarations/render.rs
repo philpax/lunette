@@ -1,4 +1,4 @@
-//! Writing `lua/lunette/init.luau` out.
+//! Rendering `lua/lunette/init.luau`.
 //!
 //! The output is already StyLua-formatted, because `stylua --check lua` is one
 //! of the standing checks.
@@ -27,8 +27,6 @@ pub fn render() -> String {
     let mut out = String::from(HEADER);
     let items = surface();
 
-    // The aliases say what they are and what they mean where their Rust types
-    // are; this only says which to emit, and leaving one out does not typecheck.
     let handles: Vec<&Handle> = items
         .iter()
         .filter_map(|item| match item {
@@ -61,8 +59,8 @@ enum Item {
     Record(Record),
 }
 
-/// Everything below the aliases, in the order the file states it: a handle
-/// beside the option table its constructor takes.
+/// Everything below the aliases, in the order the file states it: each handle
+/// appears next to the option table its constructor takes.
 fn surface() -> Vec<Item> {
     let mut items = vec![
         Item::Handle(collect::<Sink<NullTexture>>()),
@@ -80,11 +78,12 @@ fn surface() -> Vec<Item> {
         Item::Handle(collect::<Claim<NullTexture>>()),
         Item::Record(ErrorEvent::RECORD),
     ];
-    // The tables the `lovr.lun*` callbacks are called with. They are exported
-    // from the module rather than declared beside the callbacks, because a
-    // definitions file declares globals and cannot name a module's types: the
-    // handles a payload carries are `Window` and `Claim`, which exist only
-    // here. `docs/lua-api.md` records what that means for a configuration.
+    // The tables the `lovr.lun*` callbacks are called with are exported from
+    // the module; the callbacks do not declare them, because a definitions
+    // file declares globals and cannot name a module's types. The handles a
+    // payload carries are `Window` and `Claim`, which the definitions file
+    // alone declares. `docs/lua-api.md` records what that means for a
+    // configuration.
     items.extend(payload_records().into_iter().map(Item::Record));
     items
 }
@@ -103,11 +102,11 @@ const HEADER: &str = "\
 
 const FOOTER: &str = "return (nil :: any) :: Lunette\n";
 
-/// Where a comment wraps, which is where the prose in the tree already sits.
+/// Where a comment wraps, at the width the prose in the tree already uses.
 const COLUMNS: usize = 80;
 
-/// Renders one `export type`, naming it by the type the Rust side declares
-/// itself as rather than by a second spelling written here.
+/// Renders one `export type`, named by the type the Rust side declares itself
+/// as.
 fn render_alias(out: &mut String, alias: &AliasSpec, handles: &[&Handle]) {
     out.push('\n');
     render_doc(out, alias.doc, "");
@@ -119,8 +118,6 @@ fn render_alias(out: &mut String, alias: &AliasSpec, handles: &[&Handle]) {
     );
 }
 
-/// Renders a handle as one table, or as the arms of a discriminated union and
-/// the intersection that joins them.
 fn render_handle(out: &mut String, handle: &Handle) {
     let name = handle.spec.name;
     let discriminated = !handle.spec.variants.is_empty();
@@ -160,7 +157,7 @@ fn render_handle(out: &mut String, handle: &Handle) {
     }
 }
 
-/// What one arm says about a field, where the arms disagree.
+/// The type one arm assigns to a field whose arms disagree.
 fn arm_type(field: &Property, arm: usize) -> Option<String> {
     match &field.ty {
         PropertyType::Same(_) => None,
@@ -193,8 +190,8 @@ fn render_module(out: &mut String) {
 
 /// Writes prose as Lua comments at `indent`, wrapped to [`COLUMNS`].
 ///
-/// A declaration states its prose as one line; the wrapping is decided here, so
-/// reflowing the file is not an edit to every declaration in it.
+/// A declaration states its prose as one line. The wrapping happens at render
+/// time, so reflowing the file is not an edit to every declaration in it.
 fn render_doc(out: &mut String, doc: &str, indent: &str) {
     let width = COLUMNS.saturating_sub(indent.len() + "-- ".len());
     let mut line = String::new();

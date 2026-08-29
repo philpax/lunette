@@ -1,11 +1,9 @@
 //! The forms a surface is declared in.
 //!
-//! [`handle!`] states a handle: its prose, its properties, and its methods,
-//! each with the closure that answers it. [`module!`] does the same for the
-//! module table, and [`record!`] for a table of plain fields. Every Luau type
-//! is derived from the Rust one through
-//! [`Typed`](crate::lua::declarations::Typed), and every parameter name
-//! is the binding its body uses.
+//! [`handle!`] declares a handle, [`module!`] the module table, and [`record!`]
+//! a table of plain fields. Every Luau type derives from the Rust type through
+//! [`Typed`](crate::lua::declarations::Typed). Every parameter name is the
+//! binding its body uses.
 
 /// Declares a handle, registering it with mlua and describing it to the
 /// checker.
@@ -25,10 +23,10 @@
 /// }
 /// ```
 ///
-/// `method name(lua, this: Textured, …)` names a receiver wider than the
-/// handle, for a method reached through a union. `field name(…) -> Ty as [A,
-/// B]` gives a field one type per arm, for the one field a single getter serves
-/// two views of.
+/// `method name(lua, this: Textured, …)` names a receiver wider than the handle,
+/// for a method reached through a union.
+/// `field name(…) -> Ty as [A, B]` gives a field one type per arm, for the one
+/// field a single getter serves two views of.
 macro_rules! handle {
     (
         $(#[doc = $doc:literal])*
@@ -141,16 +139,14 @@ macro_rules! handle {
 /// }
 /// ```
 ///
-/// The session is an `&Rc<Session<T>>` the closure holds a clone of, which is
-/// the only thing any of them captures.
+/// Each function takes the session as an `&Rc<Session<T>>`. The closure it
+/// builds holds a clone of the `Rc` and captures nothing else.
 macro_rules! module {
     ($(
         $(#[doc = $doc:literal])*
         fn $name:ident($lua:ident, $session:ident
             $(, $argument:ident : $argument_ty:ty)* $(,)?) -> $returns:ty $body:block
     )*) => {
-        /// The module's whole surface: what each function is called, what its
-        /// type is, and how it is built.
         pub(crate) fn module_functions<T: $crate::lua::LuaTexture>() -> Vec<ModuleFunction<T>> {
             vec![$(
                 ModuleFunction {
