@@ -1,9 +1,9 @@
 //! Linux-only: the process handle `lunette.spawn` returns.
 //!
-//! The handle exists before the process does. `lunette.spawn` queues a request
-//! and returns in the same call, so the identifier is minted on this side and
-//! the compositor is told to use it — which is why [`Process`] can describe
-//! something the compositor has not heard of yet.
+//! The handle exists before the process does. `lunette.spawn` mints the
+//! identifier, queues a spawn request, and returns in the same call.
+//! The request carries the identifier to the compositor. [`Process`] can
+//! describe a process the compositor does not track yet.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -34,13 +34,6 @@ impl<T> Process<T> {
         }
     }
 
-    /// Brings the cache up to date, reporting whether the process is running.
-    ///
-    /// False in three different situations, and deliberately not distinguished
-    /// here: the request has not reached the compositor yet, the process has
-    /// ended, and the process never started. The last two are told apart by
-    /// `lovr.lunprocessexited`, which carries the outcome; a handle field
-    /// cannot, because a handle has no way to say "not yet".
     fn refresh(&self) -> bool {
         let snapshot = self.session.snapshot();
         let Some(process) = snapshot
@@ -56,7 +49,7 @@ impl<T> Process<T> {
     }
 }
 
-/// The last thing each field of a process was known to be.
+/// The last known value of each field of a process.
 #[derive(Clone, Copy, Debug)]
 struct Known {
     pid: Option<Pid>,
@@ -73,21 +66,28 @@ impl From<&ProcessSnapshot> for Known {
 }
 
 handle! {
-    /// A process lunette started, or adopted from outside. The handle exists before the process does: `lunette.spawn` queues a request and returns in the same call.
+    /// A process lunette started, or adopted from outside. The handle exists
+    /// before the process does: `lunette.spawn` queues a request and returns
+    /// in the same call.
     Process<T: LuaTexture> = HandleKind::Process;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-    /// False in three situations this deliberately does not distinguish: the request has not reached the compositor, the process has ended, and the process never started. `lovr.lunprocessexited` tells the last two apart.
+    /// False in three situations this field does not distinguish: the request
+    /// has not reached the compositor, the process has ended, and the process
+    /// never started. The caller distinguishes the last two by the outcome
+    /// `lovr.lunprocessexited` carries. A handle field cannot represent
+    /// "not yet".
     field alive(_lua, this) -> bool { Ok(this.refresh()) }
 
-    /// Absent until the child has been forked, and for an adopted process whose pid could not be read.
+    /// Absent until the child is forked, and for an adopted process whose pid cannot be read.
     field pid(_lua, this) -> Option<i32> {
         this.refresh();
         Ok(this.known.borrow().pid.map(Pid::get))
     }
 
-    /// Whether the process connected from outside rather than being spawned.
+    /// Whether the process connected from outside. An external process has no
+    /// spawn request from lunette.
     field external(_lua, this) -> bool {
         this.refresh();
         Ok(this.known.borrow().external)

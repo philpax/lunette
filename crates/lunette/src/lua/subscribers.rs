@@ -1,12 +1,7 @@
 //! Who is listening for each event.
 //!
-//! lunette's events used to be delivered to `lovr.lunwindowopened` and its
-//! siblings, which gave each event exactly one handler for the whole session.
-//! That is one slot for every listener there could be, so a library taking it
-//! took it from the configuration: `mullion.panel` polled a claim rather than
-//! handling the grant, and `mullion.error` had to call whatever handler it had
-//! displaced. Listeners are peers here, and a subscription is a ticket rather
-//! than a name nobody else may use.
+//! One event has any number of listeners. The registry assigns each
+//! subscription a ticket, and a listener cancels by that ticket.
 
 use std::collections::HashMap;
 
@@ -14,12 +9,11 @@ use mlua::Function;
 
 use crate::events::EventName;
 
-/// A ticket naming one subscription, so it can be cancelled without the holder
-/// having to identify itself by the function it registered.
+/// A ticket naming one subscription, so a listener can cancel it without
+/// identifying itself by the function it registered.
 ///
 /// Comparing functions would not do it: the same closure may be subscribed
-/// twice, deliberately, and two subscriptions of one function are two
-/// listeners.
+/// twice, and two subscriptions of one function are two listeners.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SubscriptionId(u64);
 
@@ -62,8 +56,6 @@ impl Subscribers {
             .unwrap_or_default()
     }
 
-    /// Forgets everyone. The identifiers keep climbing, so a ticket from before
-    /// a reload cannot name a subscription made after it.
     pub fn clear(&mut self) {
         self.listeners.clear();
     }
@@ -77,8 +69,8 @@ impl Subscribers {
 mod tests {
     use super::*;
 
-    /// A `Function` needs a state, and these cases are about the bookkeeping
-    /// rather than the calling, so the state is the smallest one that hands out
+    /// A `Function` needs a state. These cases test the bookkeeping, and no
+    /// handler is called, so the state is the smallest one that creates
     /// functions.
     fn handler(lua: &mlua::Lua) -> Function {
         lua.create_function(|_, ()| Ok(()))
@@ -134,8 +126,8 @@ mod tests {
         assert!(subscribers.listeners(name()).is_empty());
     }
 
-    /// The case a reload leaves behind: a configuration holds a ticket, the
-    /// reload forgets every listener, and the configuration cancels afterwards.
+    /// The reload case: a configuration still holds a ticket, the reload
+    /// clears every listener, and the configuration cancels afterwards.
     #[test]
     fn a_ticket_from_before_a_reload_cancels_nothing_after_it() {
         let lua = mlua::Lua::new();

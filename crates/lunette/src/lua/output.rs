@@ -1,16 +1,16 @@
-//! Linux-only: the output handle Lua holds.
+//! Linux: the output handle Lua holds.
 //!
 //! An output is a virtual monitor lunette shows to the clients assigned to it.
-//! WayVR has one shared output for everything, which means one scale factor for
-//! every application and a client querying its display getting an answer
-//! unrelated to the panel it is on; `docs/compositor.md` states why lunette
-//! rejects that.
+//! WayVR has one shared output for everything. Every application gets the
+//! same scale factor, and a client querying its display gets an answer
+//! unrelated to the panel it is on. `docs/compositor.md` states why lunette
+//! does not use one shared output.
 //!
 //! # Units
 //!
-//! `refresh` is hertz here and millihertz on the wire, because hertz is what a
-//! user writes and millihertz is what `wl_output.mode` carries. The conversion
-//! happens in this module and nowhere else.
+//! `refresh` is hertz in Lua and millihertz on the wire. A user writes hertz and
+//! `wl_output.mode` carries millihertz. The module converts between the two;
+//! no other code does.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -29,13 +29,13 @@ use crate::{
     },
 };
 
-/// One virtual monitor, as Lua holds it.
+/// An output is one virtual monitor, as Lua holds it.
 #[derive(Debug)]
 pub struct Output<T> {
     id: OutputId,
     session: Rc<Session<T>>,
-    /// The mode this output was last asked for, which is also what it reports
-    /// before the compositor has created it and after it has gone.
+    /// The output reports the mode most recently requested
+    /// while the compositor has not created the output and after the output has gone.
     mode: RefCell<OutputMode>,
 }
 
@@ -48,17 +48,16 @@ impl<T> Output<T> {
         }
     }
 
-    /// The compositor's identifier, for the calls that name an output.
     pub(crate) const fn id(&self) -> OutputId {
         self.id
     }
 
     /// Brings the cache up to date, reporting whether the output exists now.
     ///
-    /// False both before the compositor has created the output and after it has
-    /// been destroyed. The two are indistinguishable from here and a caller
-    /// treats them the same way: nothing can be shown on an output that is not
-    /// there.
+    /// It is false while the compositor has not created the output and after the
+    /// compositor has destroyed it. A caller cannot distinguish the two states
+    /// and treats them the same way. Nothing can be shown on an output that is
+    /// not there.
     fn refresh(&self) -> bool {
         let snapshot = self.session.snapshot();
         let Some(current) = snapshot
@@ -74,7 +73,7 @@ impl<T> Output<T> {
 }
 
 handle! {
-    /// One virtual monitor, which the clients assigned to it lay out against.
+    /// A virtual monitor that the clients assigned to it lay out against.
     Output<T: LuaTexture> = HandleKind::Output;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
@@ -96,29 +95,33 @@ handle! {
         Ok(this.mode.borrow().scale.get())
     }
 
-    /// Hertz, not the millihertz the protocol carries.
+    /// The refresh rate in hertz. The protocol carries millihertz.
     field refresh(_lua, this) -> f64 {
         this.refresh();
         Ok(hertz(this.mode.borrow().refresh))
     }
 
-    /// Changes the mode, keeping the fields the table does not name. Clients reallocate and re-lay-out in response, so a caller that changes this continuously will see them struggle.
+    /// Changes the mode, keeping the fields the table does not name. Clients
+    /// reallocate and re-lay-out in response. A caller that changes the mode
+    /// continuously makes clients do so continuously.
     method setMode(_lua, this, mode: Options<SetMode>) -> bool { set_mode(this, &mode) }
 
-    /// Withdraws the output's `wl_output` global. The output every session starts with is refused, because a client assigned no output is shown it.
+    /// Withdraws the output's `wl_output` global. The output every session
+    /// starts with is refused. A client assigned no output is shown it.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 }
 
 /// `lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }`.
 ///
-/// The handle comes back before the compositor has made the output, so
-/// `output.dead` is true in the frame that created it — the same rule
-/// `lunette.newSeat` and `lunette.spawn` follow.
+/// The call returns the handle while the compositor has not made the output.
+/// `output.dead` is true in the frame that created the handle.
+/// `lunette.newSeat` and `lunette.spawn` follow the same rule.
 ///
 /// # Errors
 ///
-/// If a dimension is not a whole pixel count, the scale or refresh rate is not
-/// finite and positive, or an option is not one this call takes.
+/// The call fails when a dimension is not a whole pixel count, when the scale
+/// or refresh rate is not finite and positive, or when an option is not one
+/// this call takes.
 pub(crate) fn new_output<T: LuaTexture>(
     session: &Rc<Session<T>>,
     options: &Options<NewOutput>,
@@ -141,7 +144,7 @@ pub(crate) fn new_output<T: LuaTexture>(
 ///
 /// # Errors
 ///
-/// If the table could not be built.
+/// The call fails if the table could not be built.
 pub(crate) fn outputs<T: LuaTexture>(
     _lua: &Lua,
     session: &Rc<Session<T>>,
@@ -156,9 +159,9 @@ pub(crate) fn outputs<T: LuaTexture>(
 
 /// `output:setMode{ … }`: changes the mode, keeping the fields not named.
 ///
-/// Clients reallocate and re-lay-out in response, so a caller that changes this
-/// continuously will see them struggle. `mullion` moves between discrete steps
-/// with hysteresis for that reason.
+/// Clients reallocate and re-lay-out in response. A caller that changes the
+/// mode continuously makes clients do so continuously. `mullion` moves between
+/// discrete steps with hysteresis because of that.
 fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> mlua::Result<bool> {
     let current = *output.mode.borrow();
     let mode = read_mode(options.table(), Some(current))?;
@@ -177,10 +180,10 @@ fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> ml
 /// `output:destroy()`: withdraws the output's `wl_output` global.
 ///
 /// The output every session starts with is refused, as the default seat is. A
-/// client that was assigned no output is shown it, and every client adopted from
-/// outside lunette is one of those, so a session without it has clients that can
-/// see no monitor at all. The compositor refuses it too; the check is here as
-/// well so a configuration is told rather than left reading the log.
+/// client assigned no output is shown it, and every client adopted from
+/// outside lunette is one of those. A session without it has clients that can
+/// see no monitor. The compositor refuses it too. This check reports the
+/// refusal directly. A configuration does not read the log to learn it.
 fn destroy<T: LuaTexture>(output: &Output<T>) -> bool {
     if output.id == DEFAULT_OUTPUT {
         return false;
@@ -197,10 +200,11 @@ fn destroy<T: LuaTexture>(output: &Output<T>) -> bool {
 
 /// The mode an option table describes.
 ///
-/// `current` supplies the fields the table does not name, so `setMode{ scale =
-/// 2 }` changes the scale and nothing else. Absent for a creation, where width
-/// and height are required and the other two take a default: a monitor with no
-/// size means nothing, and a monitor with no stated refresh rate is a 60Hz one.
+/// `current` supplies the fields the table does not name. `setMode{ scale = 2 }`
+/// changes the scale and nothing else. `current` is absent for a creation,
+/// where width and height are required and the other two fields take a default.
+/// A monitor with no size means nothing, and a monitor with no stated refresh
+/// rate is a 60Hz one.
 fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<OutputMode> {
     let held = current.map(|current| current.size);
     let width = options
@@ -243,7 +247,8 @@ fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<Outpu
 }
 
 record! {
-    /// What `output:setMode` changes. Every field is optional: what is left out keeps the value the output already has.
+    /// What `output:setMode` changes. Every field is optional. A field left
+    /// out keeps the value the output already has.
     options SetMode as OutputMode {
         width: Option<f64>,
         height: Option<f64>,
@@ -253,7 +258,9 @@ record! {
 }
 
 record! {
-    /// What `lunette.newOutput` takes. The size is required, because there is no previous mode to take it from and a client cannot lay out against an output with no size.
+    /// What `lunette.newOutput` takes. The size is required. There is no
+    /// previous mode to take it from, and a client cannot lay out against an
+    /// output with no size.
     options NewOutput as OutputOptions {
         width: f64,
         height: f64,
@@ -268,11 +275,10 @@ const DEFAULT_SCALE: OutputScale = OutputScale::ONE;
 /// The refresh rate an output that names none takes.
 const DEFAULT_REFRESH: RefreshRate = RefreshRate::from_millihertz(60_000);
 
-/// A refresh rate in hertz as the millihertz the protocol carries.
+/// Converts the refresh rate in hertz to the millihertz the protocol carries.
 fn millihertz(hertz: f64) -> mlua::Result<RefreshRate> {
     let scaled = hertz * 1_000.0;
-    // The bound is what makes the cast exact: a finite value in `1 ..= u32::MAX`
-    // is representable in both.
+    // The bound makes the cast exact. A finite value in `1 ..= u32::MAX` is representable in both.
     if !(scaled.is_finite() && scaled >= 1.0 && scaled <= f64::from(u32::MAX)) {
         return Err(mlua::Error::runtime(format!(
             "lunette: {hertz} is not a refresh rate; a rate is finite and at least one millihertz"
@@ -287,7 +293,7 @@ fn millihertz(hertz: f64) -> mlua::Result<RefreshRate> {
     Ok(RefreshRate::from_millihertz(scaled.round() as u32))
 }
 
-/// A refresh rate in millihertz as the hertz Lua reads.
+/// Converts the refresh rate in millihertz to the hertz Lua reads.
 fn hertz(refresh: RefreshRate) -> f64 {
     f64::from(refresh.millihertz()) / 1_000.0
 }
