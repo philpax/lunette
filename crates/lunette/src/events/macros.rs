@@ -1,23 +1,19 @@
 //! The form an event is declared in.
 //!
-//! An event was three statements: a name in the list the dispatcher installs
-//! from, an arm building its payload, and a declaration of what that payload
-//! holds. The first two agreed because they were edited together; the third was
-//! `any`, so nothing was declared and nothing could disagree.
-//!
-//! [`events!`] takes one declaration per event and generates all three. The
-//! field a handler reads and the expression that fills it are one line, and the
-//! type that line carries is what the checker is told.
+//! [`events!`] takes one declaration per event and generates the name the
+//! dispatcher installs, the arm that builds the payload, and the declaration of
+//! what the payload holds. The field a handler reads and the expression that
+//! fills it are one line. The checker reads the type that line carries.
 //!
 //! # What a payload field's type annotates
 //!
-//! The annotation is the type the *declaration* renders, and the expression
-//! beside it produces the value. They are written together and read together,
-//! but the compiler does not tie them: a payload is a Lua table, so the
-//! expression only has to be convertible, and the handles are generic over the
-//! texture while a rendered declaration names one. `Window<NullTexture>` is
-//! therefore what a field carrying a window is annotated with, whatever texture
-//! the session actually holds.
+//! The annotation is the type the declaration renders, and the expression
+//! beside it produces the value. The compiler does not require the two to
+//! match: a payload is a Lua table, so the expression must be convertible to
+//! Lua, and the handles are generic over the texture while a rendered
+//! declaration names one. [`Window<NullTexture>`](crate::Window) is the
+//! annotation for a field carrying a window, whatever texture the session
+//! holds.
 
 /// Declares every `lun*` event: its name, the variant it is built from, and the
 /// fields its payload carries.
@@ -25,18 +21,13 @@
 /// Generates `EVENT_NAMES`, the payload builder, and a [`Record`] per event for
 /// the declarations.
 ///
-/// ```text
-/// events! {
-///     /// A toplevel was mapped.
-///     WINDOW_OPENED = lunwindowopened(_lua, session)
-///         as WindowOpenedEvent via onWindowOpened
-///         from LuaEvent::WindowOpened { window } =>
-///     {
-///         /// The window that opened.
-///         window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
-///     }
-/// }
-/// ```
+/// The contract at the invocation site must hold:
+///
+/// - the `as` name is the declaration the payload is rendered as;
+/// - the `via` name is the function a listener subscribes through, and the name
+///   a raised handler is reported under;
+/// - a field never uses a value the declaration's type cannot hold, because the
+///   checker reads that type.
 ///
 /// [`Record`]: crate::lua::declarations::Record
 macro_rules! events {
@@ -59,7 +50,7 @@ macro_rules! events {
             pub(crate) const $constant: EventName = event_name(stringify!($name));
         )+
 
-        /// Which function a listener for this event subscribed through, for
+        /// The function a listener for this event subscribed through, for
         /// naming the handler that raised.
         fn registrar(name: EventName) -> &'static str {
             match name.as_str() {
@@ -72,7 +63,7 @@ macro_rules! events {
         /// installed in.
         pub const EVENT_NAMES: &[EventName] = &[$($constant),+];
 
-        /// The single table a `lun*` handler is called with.
+        /// The one table a `lun*` handler is called with.
         fn payload<T: LuaTexture>(
             lua: &::mlua::Lua,
             session: &::std::rc::Rc<Session<T>>,
@@ -132,9 +123,9 @@ macro_rules! events {
 
         /// The module functions a configuration subscribes through.
         ///
-        /// One per event, rather than one taking a name: a function per event
-        /// is what lets the handler's own parameter be typed, and a name would
-        /// be a string the checker could not hold to the set.
+        /// One per event. A function per event lets the handler's own parameter
+        /// be typed; a single function taking a name would pass a string the
+        /// checker could not hold to the set.
         pub(crate) fn subscription_functions<T: $crate::lua::LuaTexture>()
         -> Vec<$crate::lua::ModuleFunction<T>> {
             vec![$(

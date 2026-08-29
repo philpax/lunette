@@ -1,17 +1,18 @@
 //! Whether a string can be written as a Lua name.
 //!
-//! Two callers need the same answer for the same reason. `crate::control::serialise`
-//! renders a path as `.title` where it can and as `['with space']` where it
-//! cannot, and `lunctl` renders a table key the same two ways. Both promise that
-//! what they print is what a reader would have written, so a name that is not a
-//! name has to be spelled as a subscript in both.
+//! Two callers need the same answer for the same reason.
+//! `crate::control::serialise` renders a path as `.title` where it can and as
+//! `['with space']` where it cannot.
+//! `lunctl` renders a table key the same two ways.
+//! Both print what a reader would write, so a string that is not a name is
+//! spelled as a subscript in both.
 //!
-//! A reserved word is not a name. `{ end = 1 }` is a syntax error, so a renderer
-//! that treated `end` as a name would print something that does not parse — which
-//! is the promise `lunctl`'s output makes and the reason the list below is
-//! checked against the interpreter rather than trusted.
+//! A reserved word is not a name. `{ end = 1 }` is a syntax error, so a
+//! renderer that treats `end` as a name prints output that does not parse.
+//! The keyword list is checked against the interpreter because the output
+//! must parse.
 
-/// Whether `name` can be written bare, as `name = ` rather than as `['name'] = `.
+/// Whether `name` can be written bare as `name = ` or must be written as `['name'] = `.
 #[must_use]
 pub fn is_identifier(name: &str) -> bool {
     !name.is_empty()
@@ -22,11 +23,11 @@ pub fn is_identifier(name: &str) -> bool {
         && !KEYWORDS.contains(&name)
 }
 
-/// The words LuaJIT reserves, which are Lua 5.1's.
+/// LuaJIT reserves the Lua 5.1 words.
 ///
-/// `goto` is deliberately absent. LuaJIT 2.1 lexes it as a name outside
-/// statement position, so `{ goto = 1 }` parses, and the test below holds the
-/// list to what the interpreter this build links actually refuses.
+/// `goto` is not listed. LuaJIT 2.1 lexes it as a name outside statement
+/// position, so `{ goto = 1 }` parses, and a test in this module checks the
+/// list against the linked interpreter.
 const KEYWORDS: [&str; 21] = [
     "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in", "local",
     "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
@@ -36,12 +37,12 @@ const KEYWORDS: [&str; 21] = [
 mod tests {
     use super::*;
 
-    /// The oracle: the interpreter decides, and this list has to agree with it.
+    /// The interpreter is the reference. The list must agree with it.
     ///
     /// A hand-written keyword list drifts from the language it describes. This
-    /// asks LuaJIT to parse `{ name = 1 }` for every candidate and requires the
-    /// same answer, so a reserved word added or removed by a LuaJIT bump is a
-    /// failure here rather than output that does not parse.
+    /// test loads `{ name = 1 }` for every candidate and requires the same
+    /// answer, so a reserved word added or removed by a LuaJIT bump changes the
+    /// outcome from unparseable output to a test failure.
     #[test]
     fn the_keyword_list_agrees_with_the_interpreter() {
         let lua = crate::test_lua::session_lua();

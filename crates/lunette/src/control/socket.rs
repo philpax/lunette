@@ -1,38 +1,38 @@
 //! Linux-only: binding the control socket, and the directory that secures it.
 //!
-//! The socket evaluates arbitrary Lua in the user's session, so reaching it is
+//! The socket evaluates arbitrary Lua in the user's session. Reaching it is
 //! equivalent to reaching everything the user can reach
-//! ([the Lua API](../../../docs/lua-api.md#lunctl)). Filesystem permissions are
-//! the whole of the boundary — there is no authentication behind them — which is
-//! why this module spends its effort on them.
+//! ([the Lua API](../../../docs/lua-api.md#lunctl)). Filesystem permissions
+//! are the whole of the boundary. There is no authentication behind them.
 //!
-//! # Why a private directory rather than a mode on the socket
+//! # Private directory for the socket
 //!
-//! `UnixListener::bind` creates the inode with `0777 & ~umask` and offers no
-//! pre-creation hook. The three obvious fixes are mostly wrong:
+//! `UnixListener::bind` creates the inode with `0777 & ~umask` and has no
+//! pre-creation hook. Three ways to narrow a listener's mode after the bind
+//! fail:
 //!
-//! - **`fchmod` on the listener fd does nothing on Linux.** The descriptor
-//!   refers to the socket object, not to the filesystem inode. The call succeeds
-//!   and changes nothing, which is worse than failing.
-//! - **Binding and then `set_permissions`** leaves a window in which the socket
-//!   is world-accessible, and a connection accepted in that window stays valid
+//! - `fchmod` on the listener fd changes nothing on Linux. The descriptor
+//!   refers to the socket object, not to the filesystem inode. The call
+//!   succeeds without effect.
+//! - Binding and then `set_permissions` leaves a window in which the socket
+//!   is world-accessible. A connection accepted in that window stays valid
 //!   after the mode is corrected.
-//! - **`umask`** is process-global and not thread-safe. Another thread creating
+//! - `umask` is process-global and not thread-safe. Another thread creating
 //!   a file concurrently would get the wrong mode.
 //!
-//! So the socket is bound inside a directory this creates at 0700. The directory
-//! mode closes the race completely: no other uid can traverse into it whatever
-//! the socket's own mode says. The socket is then set 0600 as well, which is
-//! defence in depth rather than the mechanism.
+//! The bind creates a private directory at 0700 and binds the socket inside
+//! it. No other uid can traverse the directory regardless of the socket's
+//! own mode. The socket is then set 0600 as well. The directory mode is the
+//! boundary; the socket mode is a second layer of it.
 //!
-//! That is why the documented path is `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`
-//! and not a socket sitting directly in the runtime directory.
+//! The documented path is `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`. The
+//! socket is bound inside the private directory, not directly in the runtime
+//! directory.
 //!
 //! # Never a network address
 //!
-//! [`ControlSocket`] holds a [`UnixListener`], and nothing here accepts a host or
-//! a port. There is no configuration that makes this listen on a network
-//! address, which is what `lunette-v1.AC8.2` asks for.
+//! [`ControlSocket`] holds a [`UnixListener`]. The module accepts no host
+//! or port. No configuration makes the socket listen on a network address.
 
 use std::{
     error::Error,
@@ -52,9 +52,9 @@ pub const DIRECTORY_NAME: &str = "lunette";
 /// The socket's own name, inside [`DIRECTORY_NAME`].
 ///
 /// One per user session. A second lunette on the same runtime directory is
-/// refused rather than given a second number: two sessions competing for one
-/// headset is not a configuration worth supporting, and a `lunctl` that had to
-/// guess which one it reached would be worse than one that cannot start.
+/// refused, not given a second number. Two sessions competing for one headset
+/// is not a configuration worth supporting, and a `lunctl` that reaches the
+/// wrong session is worse than one that cannot start.
 pub const SOCKET_NAME: &str = "lunette-0.sock";
 
 /// The mode the private directory is created with, and required to have.
@@ -63,10 +63,10 @@ const DIRECTORY_MODE: u32 = 0o700;
 /// The mode the socket is set to once it is bound.
 const SOCKET_MODE: u32 = 0o600;
 
-/// The permission bits that must be clear on anything the socket lives under.
+/// The permission bits that must be clear on every directory in the socket's path.
 const OTHERS: u32 = 0o077;
 
-/// A bound control socket, and the path it unlinks when it goes.
+/// A bound control socket, and the path it unlinks on drop.
 #[derive(Debug)]
 pub struct ControlSocket {
     listener: UnixListener,
@@ -74,12 +74,12 @@ pub struct ControlSocket {
 }
 
 impl ControlSocket {
-    /// Creates the private directory under `runtime_directory` and binds inside
-    /// it.
+    /// Creates the private directory under `runtime_directory` and binds the
+    /// socket inside it.
     ///
-    /// `runtime_directory` is `$XDG_RUNTIME_DIR`, resolved by the entry point:
-    /// `CONTRIBUTING.md` keeps environment access there, and the validation
-    /// below needs a path rather than a variable name in any case.
+    /// The entry point resolves `runtime_directory` from `$XDG_RUNTIME_DIR`.
+    /// `CONTRIBUTING.md` confines environment reads to the entry point, and
+    /// the validation functions take a path, not an environment variable.
     ///
     /// # Errors
     ///
@@ -87,9 +87,10 @@ impl ControlSocket {
     /// by anyone else; if the private directory cannot be created or secured; if
     /// another lunette is already listening; or if the bind itself fails.
     pub fn bind(runtime_directory: &Path) -> Result<Self, BindError> {
-        // Checked rather than trusted. The XDG specification mandates 0700 and
-        // user ownership, and a specification is not an enforcement: a runtime
-        // directory anyone can traverse silently undoes everything below it.
+        // The XDG specification mandates 0700 and user ownership, but a
+        // specification is not enforcement. A runtime directory anyone can
+        // traverse exposes everything inside it, so the call verifies both
+        // conditions.
         private_directory(runtime_directory, Created::No)?;
 
         let directory = runtime_directory.join(DIRECTORY_NAME);
@@ -116,13 +117,10 @@ impl ControlSocket {
             cause,
         })?;
 
-        // After the bind, and deliberately not `fchmod` on the listener's
-        // descriptor: for a socket the descriptor refers to the socket object
-        // rather than to the inode, so `fchmod` would succeed and change
-        // nothing. This is a path-based call for that reason. It is also not
-        // what secures the socket — the 0700 directory above is — so the window
-        // between the bind and this line is not a window anyone can reach
-        // through.
+        // For a socket, the descriptor refers to the socket object, not to
+        // the inode, so `fchmod` on it succeeds and changes nothing. The call
+        // sets the mode by path. The directory mode keeps the socket
+        // unreachable until the call narrows it.
         fs::set_permissions(&path, fs::Permissions::from_mode(SOCKET_MODE)).map_err(|cause| {
             BindError::Mode {
                 path: path.clone(),
@@ -140,7 +138,6 @@ impl ControlSocket {
         &self.path
     }
 
-    /// The listener, for the thread that accepts on it.
     #[must_use]
     pub(crate) fn listener(&self) -> &UnixListener {
         &self.listener
@@ -148,11 +145,10 @@ impl ControlSocket {
 }
 
 impl Drop for ControlSocket {
-    /// Unlinks the socket, so the next session does not have to decide whether
-    /// it is stale.
+    /// Unlinks the socket, so the next bind finds no file at the path.
     ///
-    /// Best-effort: a session killed outright leaves the file behind anyway, and
-    /// [`clear_stale`] is what handles that case.
+    /// Best-effort. A session that exits without the unlink leaves the file
+    /// behind; [`clear_stale`] removes it on the next bind.
     fn drop(&mut self) {
         if let Err(error) = fs::remove_file(&self.path) {
             debug!(path = %self.path.display(), %error, "the control socket could not be unlinked");
@@ -244,13 +240,12 @@ impl Error for BindError {
     }
 }
 
-/// Whether the directory being checked is one this process just created.
-///
-/// A directory lunette created is narrowed back to 0700 when its mode is wrong,
-/// because the only way it can be wrong is a `umask` this process does not
-/// control. One lunette did not create is reported instead: silently changing
-/// the mode of `$XDG_RUNTIME_DIR` would be lunette deciding something about the
-/// user's session that is not lunette's to decide.
+/// Whether this bind created the directory being checked. How a wrong
+/// mode is handled depends on it: a created directory is narrowed back
+/// to 0700; an existing one is reported. A `umask` outside the process's
+/// control can make a created directory's mode wrong. Changing the mode
+/// of `$XDG_RUNTIME_DIR` would alter part of the user's session that
+/// this process does not own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Created {
     Yes,
@@ -287,10 +282,10 @@ fn private_directory(path: &Path, created: Created) -> Result<(), BindError> {
         });
     }
 
-    // `DirBuilder::mode` is masked by `umask`, so a session with a permissive
-    // umask can produce a directory wider than asked for. Narrowing it is safe
-    // here and only here: this directory is lunette's own, and it holds nothing
-    // but the socket.
+    // `DirBuilder::mode` is masked by `umask`, so a permissive umask can
+    // produce a directory wider than the mode the process requested.
+    // Narrowing the mode is safe for a directory this process created;
+    // such a directory holds nothing but the socket.
     fs::set_permissions(path, fs::Permissions::from_mode(DIRECTORY_MODE)).map_err(|cause| {
         BindError::Mode {
             path: path.to_owned(),
@@ -299,13 +294,13 @@ fn private_directory(path: &Path, created: Created) -> Result<(), BindError> {
     })
 }
 
-/// Removes a socket left behind by a crashed session, and only that.
+/// Removes a socket left behind by a crashed session, and nothing else.
 ///
-/// Unlinking unconditionally would let a second instance silently steal a
-/// running instance's path, and the symptom is `lunctl` talking to the wrong
-/// session — which looks like nothing at all until an assertion fails somewhere
-/// unrelated. So the check is a connection attempt: a refusal means nothing is
-/// accepting and the file is stale.
+/// Unlinking unconditionally would let a second instance take a running
+/// instance's path. `lunctl` would then talk to the wrong session. No
+/// visible failure appears until an assertion fails elsewhere.
+/// The check is a connection attempt. A refusal means nothing is accepting
+/// connections on the path, and the file is stale.
 fn clear_stale(path: &Path) -> Result<(), BindError> {
     if !path.exists() {
         return Ok(());
@@ -347,10 +342,9 @@ mod tests {
     /// A runtime directory of the shape the XDG specification requires.
     ///
     /// Binding a real socket is the narrow exception `CONTRIBUTING.md` records
-    /// for the compositor's listener, and it applies for the same reason here:
-    /// the listener, its mode, and its path selection are what is under test,
-    /// and none of them can be exercised over a `UnixStream::pair`. Every bind
-    /// is inside a per-test temporary directory.
+    /// for the compositor's listener, and it applies for the same reason: mode
+    /// and path selection of a listener cannot be exercised over a
+    /// `UnixStream::pair`. Every bind is inside a per-test temporary directory.
     fn runtime() -> TempDir {
         let directory = TempDir::new().expect("a temporary directory can be created");
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700))
@@ -364,8 +358,8 @@ mod tests {
 
     #[test]
     fn the_directory_is_0700_and_the_socket_is_0600() {
-        // The security property `lunette-v1.AC8.2` states. The directory mode is
-        // what makes it enforceable; the socket mode is defence in depth.
+        // The directory mode enforces the security property; the socket
+        // mode is a second layer.
         let runtime = runtime();
 
         let socket = ControlSocket::bind(runtime.path()).expect("it binds");
@@ -386,8 +380,8 @@ mod tests {
         );
     }
 
-    /// Nothing here accepts a host or a port. The type is the guarantee, and
-    /// this asserts that what was bound really is a filesystem path.
+    /// The type is the guarantee: no host and no port. The test asserts that
+    /// the bound listener has a filesystem path.
     #[test]
     fn the_listener_is_on_a_path_and_not_on_an_address() {
         let runtime = runtime();
@@ -411,8 +405,8 @@ mod tests {
 
     #[test]
     fn a_private_directory_left_too_wide_is_narrowed_rather_than_refused() {
-        // A session with a permissive umask produces one, and it is lunette's
-        // own directory holding nothing but the socket.
+        // A permissive umask produces such a directory. It is this process's
+        // own directory and holds nothing but the socket.
         let runtime = runtime();
         let directory = runtime.path().join(DIRECTORY_NAME);
         fs::create_dir(&directory).expect("it can be created");
@@ -455,14 +449,15 @@ mod tests {
         let path = {
             let socket = ControlSocket::bind(runtime.path()).expect("it binds");
             let path = socket.path().to_owned();
-            // The listener goes, and the file is put back, which is what a
-            // session killed outright leaves behind.
+            // The control socket's drop unlinks the file, then a bare
+            // listener recreates it. A session that exits without the
+            // unlink leaves the same shape.
             drop(socket);
             UnixListener::bind(&path).expect("a bare socket can be made");
             path
         };
-        // Dropping the listener above closes it without unlinking, leaving a
-        // socket inode nothing is accepting on.
+        // The dropped listener has closed without unlinking, so the path still
+        // exists and no process accepts connections on it.
         assert!(path.exists());
 
         let socket = ControlSocket::bind(runtime.path()).expect("the stale socket is replaced");
@@ -472,8 +467,8 @@ mod tests {
 
     #[test]
     fn a_plain_file_where_the_socket_goes_is_removed() {
-        // Not a socket at all, which `connect` reports as a refusal rather than
-        // as a live listener.
+        // Not a socket. `connect` reports that as a refusal, not as a live
+        // listener.
         let runtime = runtime();
         let directory = runtime.path().join(DIRECTORY_NAME);
         fs::create_dir(&directory).expect("it can be created");

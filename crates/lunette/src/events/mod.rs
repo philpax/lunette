@@ -1,56 +1,56 @@
-//! Linux-only: turning what the compositor reports into `lovr.lun*` callbacks.
+//! Linux-only: turns what the compositor reports into `lovr.lun*` callbacks.
 //!
 //! Eight of the nine events `docs/lua-api.md` specifies are delivered from
 //! here. `lunerror` is the ninth and is not one of them: it is not pushed onto
-//! LÖVR's queue at all, because an error is reported where it happened rather
-//! than a frame later. [`crate::callback_error`] is where it is emitted from.
+//! LÖVR's queue, because an error is reported where it happens. Queued
+//! delivery would arrive a frame later. [`crate::callback_error`] emits it.
 //!
 //! Six of the eight are the compositor's, and are drained from its channel at
 //! frame start. The two layer events are lunette's own: nothing outside the
-//! process decides them, and [`crate::lua::Session::resolve_layers`] pushes them
-//! at the boundary the grant or revocation actually lands on.
+//! process generates them, and [`crate::lua::Session::resolve_layers`] pushes
+//! them at the boundary where the grant or revocation takes effect.
 //!
-//! # Why the compositor thread does not push these itself
+//! # Delivery from the frame thread
 //!
 //! `lovrEventPush` takes the event module's own lock, so any thread may call
 //! it. Nothing but the frame thread does. Events are drained from the channel
 //! at frame start, immediately after [`Session::begin`] has installed the
 //! snapshot they belong with, so a handler reading `lunette.windows()` sees a
-//! snapshot that already accounts for the event it was handed. A push from the
-//! compositor thread would arrive whenever the compositor happened to reach it,
-//! and a handler could then be given a window the frame's snapshot has never
-//! heard of.
+//! snapshot that already includes the window the event names. The compositor
+//! thread would push when it reaches the event in its own loop, which need not
+//! align with a frame; a handler could then be given a window the frame's
+//! snapshot does not contain.
 //!
-//! # Two limits `CustomEvent` imposes
+//! # Limits `CustomEvent` imposes
 //!
-//! The name is `char name[32]` (`event.h:102-106`), so it caps at 31 bytes and
-//! a NUL. `l_event.c:165` copies the name in with no bound of its own, so a
-//! longer one would be a buffer overrun rather than a truncation; [`EventName`]
-//! is where that is refused, at compile time for the names below.
+//! The name is `char name[32]` (`event.h`), so it caps at 31 bytes and a NUL.
+//! `l_event.c` copies the name in with no bound of its own, so a longer one
+//! overruns the buffer, with no truncation; [`EventName`] refuses it at
+//! compile time for the names below.
 //!
-//! `boot.lua:193` unpacks four payload arguments and dispatches them at `:198`,
-//! so at most four values reach a handler. Every `lun*` event therefore carries
-//! exactly one table, even the events with a single field: the shape is then
-//! the same across every phase, and a field added later is not a change to the
-//! callback's signature.
+//! `boot.lua` unpacks four payload arguments and dispatches them, so at most
+//! four values reach a handler. Every `lun*` event carries exactly one table,
+//! even the events with a single field: the shape is the same across
+//! callbacks, and a field added later is not a change to the callback's
+//! signature.
 //!
-//! # Why a dispatcher sits in front of the handler
+//! # Dispatcher between the queue and the handler
 //!
-//! `boot.lua:345` sets `lovr.handlers = setmetatable({}, { __index = lovr })`,
-//! so pushing `lunwindowopened` would call `lovr.lunwindowopened` with nothing
-//! installed here at all. Two things make that insufficient.
+//! `boot.lua` sets `lovr.handlers = setmetatable({}, { __index = lovr })`, so
+//! pushing `lunwindowopened` would call `lovr.lunwindowopened` with nothing
+//! installed here. Two things make direct delivery insufficient.
 //!
 //! A `CustomEvent` carries `Variant`s, and a `Variant` holds numbers, strings,
-//! tables, and LÖVR objects — not a window handle, which is an mlua userdata.
-//! The payload table is therefore built at dispatch time, on this side, where
-//! the handles can be made.
+//! tables, and LÖVR objects. A window handle is an mlua userdata, and a
+//! `Variant` cannot hold it. The payload table is built at dispatch time, on
+//! the native side, where the handles can be made.
 //!
-//! And an error raised by a handler dispatched straight from `boot.lua`'s poll
+//! An error raised by a handler dispatched straight from `boot.lua`'s poll
 //! loop unwinds the loop, so the rest of the frame's events are never
 //! delivered. The dispatcher calls the handler through mlua, which is a
-//! protected call, and hands what comes back to [`crate::callback_error`]. The
-//! error panel, the rate limiting, and the wording of a report are
-//! `mullion.error`'s, and that module is where they are decided.
+//! protected call, and passes what comes back to [`crate::callback_error`].
+//! The error panel, the rate limiting, and the wording of a report belong to
+//! `mullion.error`, and that module defines them.
 
 mod macros;
 
@@ -78,33 +78,33 @@ use crate::{
 
 /// A report the Lua configuration is given a callback for.
 ///
-/// Plain data, and a projection of [`CompositorEvent`] rather than a rename of
-/// it: the compositor reports things Lua has no callback for — a surface being
-/// damaged, a buffer being imported — and those are the frame loop's business
-/// alone.
+/// A projection of [`CompositorEvent`]: the compositor reports things Lua has
+/// no callback for, such as a damaged surface or an imported buffer, and the
+/// frame loop handles those alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LuaEvent {
     /// `lovr.lunwindowopened{ window = … }`.
     WindowOpened { window: WindowId },
     /// `lovr.lunwindowclosed{ window = … }`. The handle is already dead by the
-    /// time the handler runs, because the snapshot it reads no longer lists the
-    /// window.
+    /// time the handler runs, because the snapshot the handler reads no longer
+    /// lists the window.
     WindowClosed { window: WindowId },
     /// `lovr.luntitlechanged{ window = …, title = … }`.
     TitleChanged { window: WindowId, title: String },
     /// `lovr.lunmonitoradded{ id = …, monitor = … }`.
     ///
-    /// One of the *host's* screens, not a compositor output: the identity is the
-    /// key `lunette-capture` resolved, and the handle is what
-    /// `lunette.monitors()` hands out. Pushed by the frame loop whenever the
-    /// mirror lifecycle reports a monitor it had not seen, which includes every
-    /// monitor present when lunette started.
+    /// One of the host's screens, distinct from a compositor output: the
+    /// identity is the key `lunette-capture` resolved, and the handle is the
+    /// object `lunette.monitors()` returns. Pushed by the frame loop whenever
+    /// the mirror lifecycle reports a monitor for the first time, including
+    /// every monitor present when lunette started.
     MonitorAdded { monitor: MonitorKey },
     /// `lovr.lunprocessexited{ process = …, outcome = …, … }`.
     ///
-    /// The only report a caller of `lunette.spawn` gets for a program that
-    /// never started, which is why the outcome travels with it rather than
-    /// being reduced to an exit code.
+    /// The one report a caller of `lunette.spawn` gets for a program that
+    /// never started. The outcome travels with the event, because the report
+    /// must state why the program did not start and an exit code cannot hold
+    /// that reason.
     ProcessExited {
         process: ProcessId,
         outcome: ProcessOutcome,
@@ -117,15 +117,17 @@ pub enum LuaEvent {
     },
     /// `lovr.lunlayergranted{ claim = …, layer = … }`.
     ///
-    /// The layer travels alongside the claim although `claim.layer` reads it
-    /// too, because the event is about the panel gaining one and a handler that
-    /// does nothing else should not have to go looking.
+    /// The layer travels alongside the claim even though `claim.layer` exposes
+    /// the same value. The event reports that the panel gained a layer, and
+    /// the payload carries the layer so a handler does not have to read it
+    /// from the claim.
     LayerGranted { claim: ClaimId },
     /// `lovr.lunlayerrevoked{ claim = … }`.
     ///
     /// No layer, because there is none: the claim holds nothing by the time the
-    /// handler runs, which is what the event reports. The claim itself is alive
-    /// and takes a layer again as soon as one frees and nothing outranks it.
+    /// handler runs, and the event reports that fact. The claim stays alive and
+    /// receives a layer again when a layer becomes free and nothing outranks
+    /// the claim.
     LayerRevoked { claim: ClaimId },
 }
 
@@ -145,11 +147,11 @@ impl LuaEvent {
         }
     }
 
-    /// Which compositor reports Lua is given a callback for.
+    /// Which compositor reports become Lua callbacks.
     ///
-    /// The match is exhaustive so that a variant added to the protocol has to
-    /// be given an answer here, rather than silently becoming an event the
-    /// configuration never hears about.
+    /// The match is exhaustive. A variant added to the protocol must be given
+    /// an answer here; an unanswered variant would never reach the
+    /// configuration.
     #[must_use]
     pub fn from_compositor(event: &CompositorEvent) -> Option<Self> {
         match event {
@@ -176,20 +178,19 @@ impl LuaEvent {
                 stream: *stream,
                 bytes: bytes.clone(),
             }),
-            // All three are the frame loop's: one decides whether a stabilised
-            // copy is refreshed, one becomes a texture, and one releases it
-            // again. None of them is something the configuration can act on —
-            // a surface is not a window, and a window going away has its own
-            // event.
+            // All three belong to the frame loop: one refreshes a stabilised
+            // copy, one becomes a texture, and one releases it again. The
+            // configuration cannot act on any of them. A surface is not a
+            // window, and a window closing has its own event.
             CompositorEvent::SurfaceDamaged { .. }
             | CompositorEvent::BufferImported { .. }
             | CompositorEvent::SurfaceGone { .. } => None,
-            // The restart handshake's two halves. Neither reaches Lua: the Lua
-            // state that asked for the restart is gone by the time the first
-            // arrives, and the state that replaces it observes the outcome as
-            // windows with textures again rather than as an event. `lunette`
-            // driving its own graphics device is mechanism, and mechanism does
-            // not need a policy hook.
+            // The restart handshake has two halves. Neither reaches Lua: the
+            // Lua state that requested the restart is gone when the first half
+            // arrives, and the state that replaces it receives the outcome as
+            // windows with textures again; no event is delivered. lunette
+            // owning its own graphics device is mechanism, and mechanism has
+            // no policy hook.
             CompositorEvent::GraphicsReleased | CompositorEvent::GraphicsAdopted { .. } => None,
         }
     }
@@ -197,28 +198,26 @@ impl LuaEvent {
 
 /// The name a `lun*` event is pushed under, short enough to fit `CustomEvent`.
 ///
-/// A borrowed `&'static str` rather than the C array: the array is what LÖVR
-/// wants, and is built on the way out by [`EventName::to_c_name`], but every
-/// name in the program is a literal and carrying it as one keeps the Rust side
-/// comparable, printable, and usable as a Lua key without a conversion.
+/// Stored as a borrowed `&'static str`. `CustomEvent` carries a C array, built
+/// by [`EventName::to_c_name`] at the boundary. Every name in the program is a
+/// literal, and carrying it as one keeps the Rust side comparable, printable,
+/// and usable as a Lua key without a conversion.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EventName(&'static str);
 
 impl EventName {
     /// Accepts a name that fits `CustomEvent.name`.
     ///
-    /// `const` so that [`event_name`] can refuse an overlong name while the
-    /// program is being compiled, which is the only moment at which refusing it
-    /// costs nothing.
+    /// `const`, so [`event_name`] can refuse an overlong name during
+    /// compilation, the point where refusal costs nothing.
     #[must_use]
     pub const fn new(name: &'static str) -> Option<Self> {
         if name.len() >= CUSTOM_EVENT_NAME_CAPACITY {
             return None;
         }
 
-        // An embedded NUL would terminate the name early on the way through the
-        // C array, so `lovr.handlers` would be indexed by a prefix of what was
-        // asked for.
+        // An embedded NUL terminates the name early in the C array, so
+        // `lovr.handlers` would be indexed by a prefix of the name.
         let bytes = name.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
@@ -238,9 +237,9 @@ impl EventName {
 
     /// The NUL-terminated array `CustomEvent.name` is.
     ///
-    /// The remaining bytes stay zero rather than being left undefined, so two
-    /// events with the same name produce byte-identical structures and a reader
-    /// of a core dump is not shown the tail of an earlier name.
+    /// The remaining bytes stay zero, so two events with the same name produce
+    /// byte-identical structures, and a reader of a core dump is not shown the
+    /// tail of an earlier name.
     #[must_use]
     fn to_c_name(self) -> [c_char; CUSTOM_EVENT_NAME_CAPACITY] {
         let mut name = [0; CUSTOM_EVENT_NAME_CAPACITY];
@@ -265,35 +264,36 @@ impl fmt::Display for EventName {
 
 /// Where a pushed event is delivered.
 ///
-/// The seam is here because `lovrEventPush` needs LÖVR's event module to have
-/// been initialised, which happens inside `boot.lua`. Everything above it — the
-/// queue, the payload, the dispatch, the handler — is exercised against
-/// [`RecordingEventSink`] with no LÖVR at all.
+/// The seam exists because `lovrEventPush` requires LÖVR's event module to be
+/// initialised, which happens inside `boot.lua`. The queue, the payload, the
+/// dispatch, and the handler are all exercised against [`RecordingEventSink`]
+/// without LÖVR.
 pub trait EventSink: fmt::Debug {
-    /// Announces that an event of this name is waiting to be dispatched.
+    /// Announces that an event of this name is pending dispatch.
     fn push(&self, name: EventName);
 }
 
-/// Pushes onto LÖVR's own event queue, so that `lun*` callbacks interleave with
-/// `lovr.keypressed` and the rest in the order they were produced.
+/// Pushes onto LÖVR's own event queue, so `lun*` callbacks interleave with
+/// `lovr.keypressed` and the rest in the order they are produced.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LovrEventSink;
 
 impl EventSink for LovrEventSink {
-    /// Builds the `CustomEvent` `l_event.c:162-179` builds, with no payload.
+    /// Builds the `CustomEvent` `l_event.c` builds, with no payload.
     ///
-    /// No payload for a reason worth stating. `l_lovrEventPoll` destroys each
-    /// `Variant` of a custom event but never frees the array holding them
-    /// (`l_event.c:139-145`), so every event carrying one leaks the allocation
-    /// for the life of the process. A count of zero and a null pointer avoid
-    /// that entirely, and nothing is lost: the payload is built from Rust at
-    /// dispatch time, so the only thing a `Variant` could have carried across
-    /// is the identity of the event — which [`EventQueue`] already knows, since
-    /// LÖVR's queue and its own are both first-in-first-out.
+    /// No payload, because `l_lovrEventPoll` destroys each `Variant` of a
+    /// custom event but never frees the array holding them (`l_event.c`). An
+    /// event that carries a payload leaks the allocation for the life of the
+    /// process; a count of zero and a null pointer avoid the leak. Nothing is
+    /// lost: the payload is built from Rust at dispatch time, and a `Variant`
+    /// could carry the identity of the event across, which [`EventQueue`]
+    /// already holds, because LÖVR's queue and its own are both
+    /// first-in-first-out.
     fn push(&self, name: EventName) {
         // SAFETY: zero is a valid `Event`: `EventType` is a C enum whose first
         // variant is zero, and every member of `EventData` is a plain
-        // aggregate. Both fields are overwritten before the value is used.
+        // aggregate. Both fields are overwritten at construction, and the
+        // value is used afterwards.
         let mut event: LovrEvent = unsafe { mem::zeroed() };
         event.type_ = EventType_EVENT_CUSTOM;
         event.data.custom = CustomEvent {
@@ -304,8 +304,8 @@ impl EventSink for LovrEventSink {
 
         // SAFETY: the event is a self-contained value with no pointer into
         // Rust's memory, and `lovrEventPush` takes it by value under the event
-        // module's own lock. The module is initialised by `boot.lua` before any
-        // frame runs, which is before anything reaches this.
+        // module's own lock. The module is initialised by `boot.lua` during
+        // startup, and this code runs at frame start, after that.
         unsafe { lovrEventPush(event) };
     }
 }
@@ -315,12 +315,13 @@ impl EventSink for LovrEventSink {
 /// One entry is added for every push, and taken back when `boot.lua` reaches
 /// the matching event in its poll loop. Both queues are first-in-first-out and
 /// nothing else pushes a `lun*` name, so the first pending event of a name is
-/// always the one being dispatched.
+/// the one dispatched.
 ///
-/// An entry that is never taken — `lovr.event.clear()` from a handler discards
-/// the rest of the frame's queue — is dropped at the start of the next frame
-/// rather than being carried forward, so a discarded event cannot be delivered
-/// against a snapshot from a later frame.
+/// An entry that is never taken is dropped at the start of the next frame. A
+/// handler can call `lovr.event.clear()`, which discards the rest of the
+/// frame's queue; those entries are then never taken. The drop prevents a
+/// discarded event from being delivered against a snapshot from a later
+/// frame.
 #[derive(Debug, Default)]
 pub(crate) struct EventQueue {
     pending: VecDeque<LuaEvent>,
@@ -344,9 +345,10 @@ impl EventQueue {
 /// Installs the dispatcher for every `lun*` event this build delivers.
 ///
 /// Called when the module is built, which is the first `require('lunette')`.
-/// That is late enough for `lovr.handlers` to exist — `boot.lua:345` creates it
-/// before `main.lua` runs — and it is the only moment at which the module is
-/// known to be wanted at all.
+/// `lovr.handlers` exists by then: `boot.lua` creates it, then runs
+/// `main.lua`. The first `require` is also the earliest point at which the
+/// module is known to be in use; nothing earlier indicates that the
+/// configuration needs it.
 ///
 /// # Errors
 ///
@@ -368,14 +370,14 @@ pub(crate) fn install_dispatchers<T: LuaTexture>(
 
 /// Where an error raised inside a listener is offered.
 ///
-/// Not one of the events below: nothing pushes it through the queue, because it
-/// is raised on the way out of a dispatch rather than reported by the
-/// compositor. It shares the registry so that subscribing to it is the same
-/// mechanism as subscribing to anything else.
+/// `lunerror` is not pushed through the queue: it is raised on the way out of a
+/// dispatch, not reported by the compositor. It shares the registry, so
+/// subscribing to it uses the same mechanism as subscribing to any other
+/// event.
 pub const ERROR: EventName = event_name("lunerror");
 
 events! {
-    /// A toplevel was mapped and is in this frame's snapshot.
+    /// A toplevel maps, and this frame's snapshot includes it.
     WINDOW_OPENED = lunwindowopened(_lua, session) as WindowOpenedEvent via onWindowOpened
         from LuaEvent::WindowOpened { window } =>
     {
@@ -383,8 +385,9 @@ events! {
         window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
     }
 
-    /// A toplevel went away. The handle is already dead, because the snapshot the
-    /// handler reads no longer lists the window; it still reports what it last knew.
+    /// A toplevel closes. The handle is already dead, because the snapshot the
+    /// handler reads no longer lists the window; the handle still reports the
+    /// window's last title, size, and identifier.
     WINDOW_CLOSED = lunwindowclosed(_lua, session) as WindowClosedEvent via onWindowClosed
         from LuaEvent::WindowClosed { window } =>
     {
@@ -392,83 +395,84 @@ events! {
         window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
     }
 
-    /// A toplevel changed its title.
+    /// A toplevel changes its title.
     TITLE_CHANGED = luntitlechanged(_lua, session) as TitleChangedEvent via onTitleChanged
         from LuaEvent::TitleChanged { window, title } =>
     {
         /// The window whose title changed.
         window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
-        /// The new title. Also readable as `event.window.title`; carried here because
-        /// the callback is about the change, and a handler diffing against what it
-        /// stored needs the new value in hand.
+        /// The new title. Also readable as `event.window.title`; duplicated in
+        /// the payload because the callback reports a change, and a handler
+        /// comparing against a stored value needs the new value without a
+        /// further read of the window.
         title: String = title.as_str(),
     }
 
-    /// One of the host's screens appeared, which includes every screen attached when
-    /// lunette started.
+    /// A host screen appears. The event includes every screen attached at
+    /// lunette startup.
     MONITOR_ADDED = lunmonitoradded(_lua, session) as MonitorAddedEvent via onMonitorAdded
         from LuaEvent::MonitorAdded { monitor } =>
     {
-        /// What `lunette-capture` resolved the screen by.
+        /// The key `lunette-capture` identifies the screen by.
         id: String = monitor.to_string(),
         /// The handle, while the screen is still attached. A screen unplugged between
-        /// the report and the dispatch has nothing left to hand over but its name.
+        /// the report and the dispatch has no handle; the payload carries its name.
         monitor: Option<Monitor<NullTexture>> = session
             .mirrors()
             .state(monitor)
             .map(|state| Monitor::new(Rc::clone(session), state)),
     }
 
-    /// A spawned process ended, or never started.
+    /// A spawned process ends, or never starts.
     PROCESS_EXITED = lunprocessexited(_lua, session) as ProcessExitedEvent via onProcessExited
         from LuaEvent::ProcessExited { process, outcome } =>
     {
-        /// The process that ended.
+        /// The process that ends.
         process: Process<NullTexture> = Process::new(Rc::clone(session), *process),
-        /// Which of the three fields below this event carries. A string rather than the
-        /// presence of a field, so a handler reads it once instead of testing each in
-        /// turn, and a spawn that failed is not mistaken for an exit with no code.
+        /// Which of the three fields below the event carries. A string, where
+        /// field presence would force a handler to test each field in turn, and a
+        /// failed spawn is not mistaken for an exit with no code.
         outcome: OutcomeName = OutcomeName(outcome.clone()),
         /// The status it exited with.
         code: Option<i32> = outcome.code(),
-        /// The signal that killed it.
+        /// The signal that terminates the process.
         signal: Option<u32> = outcome.signal().map(SignalNumber::get),
-        /// What failed, for a program that never ran.
+        /// What failed, for a program that never started.
         message: Option<String> = outcome.message(),
     }
 
-    /// A spawned process wrote to one of its captured streams.
+    /// A spawned process writes to one of its captured streams.
     PROCESS_OUTPUT = lunprocessoutput(lua, session) as ProcessOutputEvent via onProcessOutput
         from LuaEvent::ProcessOutput { process, stream, bytes } =>
     {
         /// The process that wrote.
         process: Process<NullTexture> = Process::new(Rc::clone(session), *process),
-        /// Which stream it wrote to.
+        /// Which stream the process writes to.
         stream: StreamName = StreamName(*stream),
-        /// What it wrote. A Lua string is a byte string, so a child that wrote
-        /// something that is not UTF-8 arrives intact and decoding stays the
-        /// configuration's decision.
+        /// The bytes written. A Lua string is a byte string, so non-UTF-8
+        /// output arrives intact; decoding remains the configuration's
+        /// decision.
         text: String = lua.create_string(bytes)?,
     }
 
-    /// A claim was given a composition layer, and the panel holding it should draw
-    /// onto the layer rather than as an in-scene quad.
+    /// A claim receives a composition layer, and the panel holding it draws
+    /// onto the layer.
     LAYER_GRANTED = lunlayergranted(lua, session) as LayerGrantedEvent via onLayerGranted
         from LuaEvent::LayerGranted { claim } =>
     {
-        /// The claim that was granted.
+        /// The claim that received the layer.
         claim: Claim<NullTexture> = Claim::new(Rc::clone(session), *claim),
-        /// The layer it now holds. Never cached across frames: what it names goes away
-        /// on revoke.
+        /// The layer it holds. Not kept across frames: the layer it names goes
+        /// away on revoke.
         layer: GrantedLayer = session.claims().push_layer(lua, *claim)?,
     }
 
-    /// A claim lost its layer to a higher-priority one, and the panel holding it
-    /// should draw as an in-scene quad until it is granted again.
+    /// A claim loses its layer to a higher-priority claim, and the panel
+    /// holding it draws as an in-scene quad until a layer is granted again.
     LAYER_REVOKED = lunlayerrevoked(_lua, session) as LayerRevokedEvent via onLayerRevoked
         from LuaEvent::LayerRevoked { claim } =>
     {
-        /// The claim that was revoked.
+        /// The claim that lost the layer.
         claim: Claim<NullTexture> = Claim::new(Rc::clone(session), *claim),
     }
 }
@@ -476,7 +480,7 @@ events! {
 /// Names an event, refusing one that does not fit `CustomEvent.name`.
 ///
 /// The panic is evaluated while the program is compiled, so a name too long for
-/// the array is a build failure rather than a buffer overrun in `memcpy`.
+/// the array fails the build; `memcpy` never receives an overlong name.
 const fn event_name(name: &'static str) -> EventName {
     match EventName::new(name) {
         Some(name) => name,
@@ -491,18 +495,17 @@ const CUSTOM_EVENT_NAME_CAPACITY: usize = 32;
 
 /// Hands one event to the configuration's handler.
 ///
-/// Takes no arguments, because the event carries none: the pending queue is
-/// what says which window opened, and the payload table is built here so that
-/// it can hold handles a `Variant` could not.
+/// Takes no arguments, because the event carries none: the pending queue names
+/// the window that opened, and the payload table is built here because it can
+/// hold handles a `Variant` could not.
 fn dispatch<T: LuaTexture>(
     lua: &Lua,
     session: &Rc<Session<T>>,
     name: EventName,
 ) -> mlua::Result<()> {
-    // Absent when something else pushed this name — `lovr.event.push` is
-    // reachable from Lua — or when a handler cleared the queue and the entry
-    // outlived the event. Neither is an error; there is simply nothing to
-    // report.
+    // Absent when something else pushed this name, such as `lovr.event.push`
+    // from Lua, or when a handler cleared the queue and the entry outlived the
+    // event. Neither case is an error, and neither has anything to report.
     let Some(event) = session.take_event(name) else {
         return Ok(());
     };
@@ -515,15 +518,15 @@ fn dispatch<T: LuaTexture>(
     let payload = payload(lua, session, &event)?;
 
     // Every listener is called, including the ones after a listener that
-    // raised. They subscribed independently and one of them failing is not a
-    // reason the next does not hear about the event.
+    // raised. The listeners subscribed independently, and one failing does not
+    // stop the next from hearing the event.
     //
     // mlua calls through `lua_pcall` with `luaL_traceback` as the message
-    // handler, so an error arrives here with its traceback rather than unwinding
-    // `boot.lua`'s poll loop and taking the frame's remaining events with it.
-    // `crate::callback_error` is what happens to it next: the rate limiting, the
-    // wording, and the panel are `mullion.error`'s, and this is the boundary
-    // that hands the error over.
+    // handler, so an error arrives with its traceback, and `boot.lua`'s poll
+    // loop is not unwound; the frame's remaining events are still delivered.
+    // [`crate::callback_error`] handles the error from here: the rate
+    // limiting, the wording, and the panel belong to `mullion.error`, and this
+    // is the boundary that hands the error over.
     for handler in listeners {
         if let Err(error) = handler.call::<()>(payload.clone()) {
             report(
@@ -538,7 +541,7 @@ fn dispatch<T: LuaTexture>(
     Ok(())
 }
 
-/// The `lovr.handlers` table `boot.lua:345` installs.
+/// The `lovr.handlers` table `boot.lua` installs.
 fn handlers_table(lua: &Lua) -> mlua::Result<Table> {
     let lovr = lua.globals().get::<Option<Table>>("lovr")?.ok_or_else(|| {
         mlua::Error::runtime(
@@ -555,12 +558,12 @@ fn handlers_table(lua: &Lua) -> mlua::Result<Table> {
     })
 }
 
-/// Records what it was pushed, standing in for LÖVR's event queue.
+/// Records the names pushed to it, in place of LÖVR's event queue.
 ///
 /// The recorded names are what a test replays through `lovr.handlers` to
 /// reproduce `boot.lua`'s poll loop, so the dispatch under test is the
-/// production one. Shared rather than owned, so that the copy handed to the
-/// session and the copy the test reads are the same recorder.
+/// production one. Shared, so the copy handed to the session and the copy the
+/// test reads are the same recorder.
 #[cfg(test)]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RecordingEventSink {
@@ -569,7 +572,7 @@ pub(crate) struct RecordingEventSink {
 
 #[cfg(test)]
 impl RecordingEventSink {
-    /// The names pushed since the last call, in the order they were pushed.
+    /// The names pushed since the last call, in push order.
     pub(crate) fn take(&self) -> Vec<EventName> {
         mem::take(&mut self.pushed.borrow_mut())
     }

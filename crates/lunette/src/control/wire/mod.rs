@@ -1,22 +1,23 @@
 //! What travels over the control socket, in both directions.
 //!
 //! A request carries a Lua chunk. A reply carries either the values the chunk
-//! returned or the reason it produced none. Both are length-prefixed frames, so
-//! a reader knows how much to expect before it starts and a partial write is
-//! detectable rather than being taken for a short chunk.
+//! returned or the reason it produced none. Both are length-prefixed frames.
+//! The prefix encodes the body length. A partial write leaves a frame shorter
+//! than the length in its prefix, and a reader detects that shortfall as a
+//! truncated frame.
 //!
 //! # The value tree
 //!
-//! [`Value`] is a tagged tree, which is what lets `lunctl` print a nested table
-//! rather than the `tostring` fallback awesome's remote control resorts to
-//! ([the Lua API](../../../docs/lua-api.md#lunctl)). Every node says what it is,
-//! so nothing has to be inferred from its shape.
+//! [`Value`] is a tagged tree. `lunctl` prints a nested table from the tag;
+//! awesome's remote control falls back to `tostring`
+//! ([the Lua API](../../../docs/lua-api.md#lunctl)). The tag on each node
+//! names what the node is, and nothing is inferred from its shape.
 //!
 //! A table carries its array part and its other entries separately, because
 //! `{1, 2, x = 3}` is one Lua value with no single equivalent in a format that
-//! has only lists or only objects. A key is a [`Key`] rather than a [`Value`],
-//! which is what makes a table-valued key — something the serialiser refuses —
-//! unrepresentable here rather than merely rejected on the way in.
+//! cannot mix lists and objects. Keys are [`Key`] values. The [`Key`] type has
+//! no table variant; a table-valued key, which the serialiser refuses, cannot
+//! occur in the tree.
 //!
 //! A handle is a kind and an identifier, never a pointer.
 //! `crate::control::serialise` states why an address would be wrong.
@@ -24,12 +25,12 @@
 //! # Versioning
 //!
 //! Every frame begins with [`PROTOCOL_VERSION`], at a fixed offset that will not
-//! move. `lunctl` and lunette ship together, so a mismatch means one of them was
-//! replaced under a running session; the peer answers
-//! [`Reply::Incompatible`] rather than trying to parse a body it does not know
-//! the shape of. Bump the version when a tag's meaning changes or a field is
-//! added, not when the first caller depends on it — an old reader that guessed
-//! at a new body would report a value nobody sent.
+//! move. `lunctl` and lunette ship together, and a mismatch arises when one end
+//! is replaced under a running session. The peer answers [`Reply::Incompatible`]
+//! and does not parse a body of unknown shape. Bump the version when a tag's
+//! meaning changes or a field is added, not when the first caller depends on
+//! it. An old reader that guessed at a new body would report a value nobody
+//! sent.
 
 use std::{
     error::Error,
@@ -43,24 +44,26 @@ use lunette_luau::closed_set;
 /// The version every frame in this build carries.
 ///
 /// Version 2 is version 1 plus [`Reply::Oversized`] and [`Reply::Malformed`]. A
-/// version 1 reader has no tag for either and reports one as a peer speaking a
-/// later protocol, which is why adding them is a bump rather than an extension.
+/// version 1 reader has no tag for either. Adding a reply requires a bump:
+/// without one, a version 1 reader would reach the new tag and report a peer
+/// using a later protocol against a matching version prefix.
 pub const PROTOCOL_VERSION: u8 = 2;
 
 /// The largest frame either side will write or accept.
 ///
-/// A cap rather than a stream, because the whole value tree is built in memory
-/// before it is written and a reader that trusted a length prefix would allocate
-/// whatever a peer claimed. Eight mebibytes is far more than a session
-/// inspection produces and far less than a denial of service.
+/// A frame is fully buffered, not streamed. The whole value tree is built in
+/// memory, and the write follows. A reader that trusted the length prefix
+/// would allocate whatever size the prefix announces. Eight mebibytes exceeds
+/// what a session inspection produces, and it bounds the allocation an
+/// oversized announcement can force.
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// How deep a value tree may nest, on the wire and in the serialiser.
 ///
-/// `vendor/lovr/src/api/api.c:561`'s `luax_checkvariant` uses the same figure
-/// for the same reason, and it is the precedent this follows. The decoder
-/// enforces it as well as the encoder's producer, because a decoder that trusted
-/// its input would overflow the stack on a hostile frame.
+/// `luax_checkvariant` in `vendor/lovr/src/api/api.c` uses the same figure for
+/// the same reason. The decoder enforces it as well as the encoder's producer,
+/// because a decoder that trusted its input would overflow the stack on a
+/// hostile frame.
 pub const MAX_DEPTH: usize = 128;
 
 /// A Lua value, as one side of the socket describes it to the other.
@@ -70,10 +73,10 @@ pub enum Value {
     Boolean(bool),
     /// A number that is whole and fits an `i64`.
     Integer(i64),
-    /// Every other number, including infinities and NaN, carried by its bits so
-    /// that what arrives is what was sent.
+    /// Every other number, including infinities and NaN, carried by its bits.
+    /// The value arrives unchanged.
     Float(f64),
-    /// Lua strings are byte strings, so this is not required to be UTF-8.
+    /// Lua strings are byte strings; this is not required to be UTF-8.
     String(Vec<u8>),
     Table(TableValue),
     Handle(Handle),
@@ -84,19 +87,19 @@ pub enum Value {
 pub struct TableValue {
     /// The contiguous run of integer keys from 1, in order. A `nil` hole ends
     /// it, and the entries past the hole are in [`Self::entries`] under their
-    /// integer keys — the length operator is not consulted, because a table with
-    /// a hole gives it no single answer.
+    /// integer keys. The length operator is not used; a table with a hole has
+    /// no well-defined length.
     pub array: Vec<Value>,
     /// Everything else, in the order `next` produced it. Lua gives a hash part
-    /// no order of its own, so this order is reproducible within one traversal
-    /// and is not promised across two.
+    /// no order of its own; one traversal reproduces this order, and a later
+    /// traversal may differ.
     pub entries: Vec<(Key, Value)>,
 }
 
 /// What a table entry may be keyed by.
 ///
-/// A closed set rather than a [`Value`], so that a key the serialiser refuses —
-/// a table, a function, a handle — cannot be written at all.
+/// Keys form a closed set, separate from [`Value`]. The serialiser refuses a
+/// table, a function, or a handle as a key, and the type cannot express one.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Key {
     Boolean(bool),
@@ -105,21 +108,21 @@ pub enum Key {
     String(Vec<u8>),
 }
 
-/// A native handle, as an identifier rather than as an object.
+/// A native handle, as an identifier, never as an object.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Handle {
     pub kind: HandleKind,
-    /// The identity the session keys this handle on, or `None` for a handle that
-    /// has none — a sink onto a mirrored monitor is named by its monitor rather
-    /// than by an identifier of its own.
+    /// The identity the session keys this handle on, or `None` for a handle
+    /// that has none. A sink onto a mirrored monitor is named by its monitor,
+    /// not by an identifier of its own.
     pub id: Option<HandleId>,
 }
 
 closed_set! {
     /// Which of the native handle types a [`Handle`] refers to.
     ///
-    /// A closed set, so a handle type added without a wire tag is a compilation
-    /// failure here rather than a string nobody recognises at the other end.
+    /// A closed set. A handle type added without a wire tag is a compilation
+    /// failure here; a string would arrive unrecognised at the other end.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum HandleKind {
         Window = "window",
@@ -133,11 +136,12 @@ closed_set! {
 }
 
 impl HandleKind {
-    /// The byte this kind travels as.
+    /// The tag byte for this kind on the wire.
     ///
-    /// Written out rather than taken from the position in [`HandleKind::ALL`]:
-    /// the tag is a wire format, and deriving it from declaration order would
-    /// make reordering the variants a silent protocol break.
+    /// The tags are written out, not derived from the position in
+    /// [`HandleKind::ALL`]. The tag is a wire format, and deriving it from
+    /// declaration order would make reordering the variants a silent protocol
+    /// break.
     const fn tag(self) -> u8 {
         match self {
             Self::Window => 0,
@@ -152,10 +156,9 @@ impl HandleKind {
 
     /// The kind a tag refers to.
     ///
-    /// Searched rather than matched, so that the mapping is stated once. A
-    /// second match here would carry a wildcard, and a kind missing from it
-    /// would arrive as an unrecognised tag rather than as a compilation
-    /// failure.
+    /// The mapping is searched, not matched, so it is stated once. A second
+    /// match here would carry a wildcard; a kind missing from it would arrive
+    /// as an unrecognised tag, and the compiler would not catch the omission.
     fn from_tag(tag: u8) -> Option<Self> {
         Self::ALL.iter().copied().find(|kind| kind.tag() == tag)
     }
@@ -165,7 +168,7 @@ impl HandleKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HandleId {
     Number(i64),
-    /// A monitor's saved identity, which is a string rather than a number.
+    /// A monitor's saved identity, which is a string, not a number.
     Text(Vec<u8>),
 }
 
@@ -182,45 +185,47 @@ impl fmt::Display for HandleId {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reply {
     /// The chunk ran and returned these values, in order. A chunk returning
-    /// nothing returns an empty list, which is not the same as returning `nil`.
+    /// nothing returns an empty list; an empty list is not the same as
+    /// returning `nil`.
     Returned(Vec<Value>),
     /// The chunk did not compile.
     LoadError(String),
     /// The chunk compiled and raised.
     RuntimeError(String),
-    /// The chunk exceeded the wall-clock budget and was abandoned.
+    /// The chunk ran past the wall-clock budget; the session abandoned it.
     Abandoned { after: Duration },
     /// The chunk returned a value that cannot be put on the wire.
     Unrepresentable(String),
-    /// The queue toward the session was full. The chunk was never evaluated.
+    /// The queue toward the session is full; the chunk did not run.
     Busy,
     /// The session did not answer within the reply bound. Whether the chunk ran
-    /// is unknown, which is the honest thing to say rather than guessing.
+    /// is unknown, and the reply states the uncertainty.
     Unanswered,
     /// The chunk ran, and what it returned is larger than one frame carries.
     ///
-    /// Distinct from [`Self::Unrepresentable`], which is about a value with no
-    /// wire form at all: this one has a form, and there is too much of it. The
-    /// alternative — closing the connection — reaches the client as an
-    /// end-of-file it can only report as a session it could not reach, which is
-    /// a lie about a session that is running and a chunk that succeeded.
+    /// Distinct from [`Self::Unrepresentable`], which is about a value with
+    /// no wire form. Here the answer has a form, and the amount exceeds one
+    /// frame. Closing the connection would reach the client as an end-of-file;
+    /// the client can report that as an unreachable session, misstating a
+    /// running session and a successful chunk.
     Oversized {
-        /// How large the answer was, in bytes.
+        /// The size of the answer, in bytes.
         length: u64,
     },
     /// The request could not be read: not valid UTF-8, or larger than one frame
-    /// carries. The chunk was never evaluated.
+    /// carries. The chunk did not run.
     Malformed(String),
-    /// The two ends speak different protocol versions.
+    /// The two ends use different protocol versions.
     ///
-    /// Named by role rather than by point of view. A reader that finds a version
-    /// it does not know builds one of these too, and `expected`/`found` would
-    /// mean the opposite there — which is how the message came to be printed
-    /// backwards.
+    /// The fields are named by role, not by runtime position. A reader that
+    /// finds a version it has no tag for builds one of these replies too. The
+    /// found version is the session's, and the local version is the client's.
+    /// Field names fixed to one point of view would print the message
+    /// backwards for the other side.
     Incompatible {
-        /// What the session speaks.
+        /// The version the session carries.
         session: u8,
-        /// What the client speaks.
+        /// The version the client carries.
         client: u8,
     },
 }
@@ -236,17 +241,17 @@ pub fn write_request(writer: &mut impl Write, chunk: &str) -> Result<(), WireErr
     write_frame(writer, &body)
 }
 
-/// Reads one request frame, answering the chunk it carries.
+/// Reads one request frame, returning the chunk it carries.
 ///
-/// The version is returned alongside rather than checked here, because a caller
-/// that finds a mismatch answers [`Reply::Incompatible`] and a caller that
-/// cannot read the frame at all has nothing to answer.
+/// The version is returned with the chunk, not checked here. A caller that
+/// finds a mismatch answers [`Reply::Incompatible`]; a caller that cannot read
+/// the frame has nothing to answer.
 ///
 /// # Errors
 ///
 /// If the frame is truncated, oversized, or the chunk is not valid UTF-8. Lua
 /// source is bytes as far as the interpreter is concerned, but a chunk arriving
-/// over a socket in some other encoding is a mistake worth reporting rather than
+/// over a socket in some other encoding is a mistake worth reporting, not
 /// compiling.
 pub fn read_request(reader: &mut impl Read) -> Result<Request, WireError> {
     let body = read_frame(reader)?;
@@ -255,7 +260,7 @@ pub fn read_request(reader: &mut impl Read) -> Result<Request, WireError> {
     Ok(Request { version, chunk })
 }
 
-/// A chunk as it arrived, with the version the sender wrote.
+/// The chunk as it arrived, with the version the sender wrote.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     pub version: u8,
@@ -283,8 +288,8 @@ pub fn read_reply(reader: &mut impl Read) -> Result<Reply, WireError> {
     let body = read_frame(reader)?;
     let (&version, rest) = body.split_first().ok_or(WireError::Truncated)?;
     if version != PROTOCOL_VERSION {
-        // The reader of a reply is the client, so the version it found is the
-        // session's and its own is the client's.
+        // The client reads a reply, so the version found in it is the
+        // session's, and the client's own is the local one.
         return Ok(Reply::Incompatible {
             session: version,
             client: PROTOCOL_VERSION,
@@ -302,9 +307,9 @@ pub fn read_reply(reader: &mut impl Read) -> Result<Reply, WireError> {
 /// Why a frame could not be written or understood.
 #[derive(Debug)]
 pub enum WireError {
-    /// The peer closed, or the frame ended mid-value.
+    /// The peer closed the connection, or the frame ended mid-value.
     Truncated,
-    /// The frame claimed a length past [`MAX_FRAME`].
+    /// The frame declared a length that exceeds [`MAX_FRAME`].
     TooLarge {
         length: usize,
     },
@@ -317,7 +322,7 @@ pub enum WireError {
     TooDeep {
         limit: usize,
     },
-    /// The frame decoded, and had bytes left over.
+    /// The frame decoded, and bytes remained after the value.
     Trailing,
     /// A chunk that is not valid UTF-8.
     NotUtf8,
@@ -365,12 +370,12 @@ impl From<io::Error> for WireError {
     }
 }
 
-/// Writes a length-prefixed body.
+/// Writes one body behind a length prefix.
 fn write_frame(writer: &mut impl Write, body: &[u8]) -> Result<(), WireError> {
     if body.len() > MAX_FRAME {
         return Err(WireError::TooLarge { length: body.len() });
     }
-    // The cast is exact: `MAX_FRAME` is well inside `u32`.
+    // The cast is exact; the cap keeps `MAX_FRAME` below `u32`'s range.
     let length = body.len() as u32;
     writer.write_all(&length.to_le_bytes())?;
     writer.write_all(body)?;
@@ -378,7 +383,7 @@ fn write_frame(writer: &mut impl Write, body: &[u8]) -> Result<(), WireError> {
     Ok(())
 }
 
-/// Reads a length-prefixed body.
+/// Reads one length-prefixed body.
 fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, WireError> {
     let mut length = [0u8; 4];
     match reader.read_exact(&mut length) {
@@ -394,9 +399,9 @@ fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, WireError> {
         return Err(WireError::TooLarge { length });
     }
 
-    // Allocated against the announced length, which the cap above has already
-    // bounded: a reader that trusted the prefix outright would allocate whatever
-    // a peer claimed.
+    // The allocation is bounded by the cap above, which checked the announced
+    // length; trusting the prefix outright would allocate whatever a peer
+    // claimed.
     let mut body = vec![0u8; length];
     match reader.read_exact(&mut body) {
         Ok(()) => Ok(body),
@@ -509,9 +514,8 @@ fn encode_value(out: &mut Vec<u8>, value: &Value) {
         }
         Value::Float(number) => {
             out.push(VALUE_FLOAT);
-            // The bits rather than a rendering, so that an infinity and a NaN
-            // arrive as themselves rather than as whatever a text form rounds
-            // them to.
+            // The bits, not a rendering. An infinity and a NaN arrive
+            // unchanged; a text form would round them to something else.
             out.extend_from_slice(&number.to_bits().to_le_bytes());
         }
         Value::String(bytes) => {
@@ -567,7 +571,7 @@ fn decode_value(cursor: &mut Cursor<'_>, depth: usize) -> Result<Value, WireErro
                 array.push(decode_value(cursor, depth + 1)?);
             }
             let count = cursor.count()?;
-            // A key and a value, so two bytes at the very least.
+            // A key and a value follow, so an entry is at least two bytes.
             let mut entries = Vec::with_capacity(cursor.at_most(count, 2));
             for _ in 0..count {
                 let key = decode_key(cursor)?;
@@ -629,9 +633,9 @@ fn decode_key(cursor: &mut Cursor<'_>) -> Result<Key, WireError> {
 }
 
 fn encode_count(out: &mut Vec<u8>, count: usize) {
-    // Saturating rather than wrapping. A count past `u32` cannot arise from a
-    // tree that fits `MAX_FRAME`, and truncating one would describe a shorter
-    // sequence than follows it.
+    // Saturating, not wrapping. A count past `u32` cannot arise from a tree
+    // that fits `MAX_FRAME`; truncation would describe a shorter sequence
+    // than the body contains.
     let count = u32::try_from(count).unwrap_or(u32::MAX);
     out.extend_from_slice(&count.to_le_bytes());
 }
@@ -656,12 +660,12 @@ impl<'a> Cursor<'a> {
         self.at == self.bytes.len()
     }
 
-    /// How many of `count` items could possibly follow, at `each` bytes apiece.
+    /// How many items the remaining bytes can hold.
     ///
-    /// A reserved capacity is taken from a length prefix a peer wrote, so it is
-    /// clamped against what is left of the frame rather than against
-    /// [`MAX_FRAME`]: an eight-byte frame announcing `u32::MAX` values would
-    /// otherwise reserve four billion slots before the truncation was noticed.
+    /// The count comes from a length prefix a peer wrote, so the capacity is
+    /// clamped against the bytes left in the frame, not against
+    /// [`MAX_FRAME`]. An eight-byte frame announcing `u32::MAX` values would
+    /// otherwise reserve four billion slots and fail on the truncated read.
     /// The bound is exact, because no encoded item is shorter than `each`.
     fn at_most(&self, count: usize, each: usize) -> usize {
         count.min((self.bytes.len() - self.at) / each)

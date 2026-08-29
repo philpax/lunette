@@ -1,5 +1,5 @@
-//! The wire format's own cases: what round-trips, and what a hostile or
-//! mismatched frame is answered with.
+//! The wire format's cases: what round-trips, and what a decoder answers
+//! a malformed or mismatched frame with.
 
 use std::collections::HashSet;
 
@@ -34,8 +34,8 @@ fn a_nested_table_round_trips() {
 
 #[test]
 fn a_mixed_array_and_hash_table_keeps_both_parts() {
-    // `{1, 2, x = 3}`, which has no equivalent in a format with only lists
-    // or only objects.
+    // A format whose values are lists or objects has no equivalent for
+    // `{1, 2, x = 3}`.
     let reply = Reply::Returned(vec![Value::Table(TableValue {
         array: vec![Value::Integer(1), Value::Integer(2)],
         entries: vec![(Key::String(b"x".to_vec()), Value::Integer(3))],
@@ -97,8 +97,8 @@ fn every_handle_kind_has_a_distinct_tag_and_name() {
 
 #[test]
 fn a_nan_and_the_infinities_arrive_as_themselves() {
-    // The bits are what is written, so a value with no faithful text form
-    // is not silently rounded into one.
+    // A float travels as its IEEE 754 bits. A value with no faithful text
+    // form keeps its exact bits.
     let mut buffer = Vec::new();
     let reply = Reply::Returned(vec![
         Value::Float(f64::NAN),
@@ -169,8 +169,8 @@ fn a_request_round_trips() {
 
 #[test]
 fn a_frame_from_another_protocol_version_is_named_rather_than_parsed() {
-    // The version byte is at a fixed offset that will not move, so a peer
-    // from either side of a change can always read it.
+    // The version byte is at a fixed offset, so a peer from either side of
+    // a change can read it.
     let mut buffer = Vec::new();
     write_reply(&mut buffer, &Reply::Busy).expect("the reply fits a frame");
     buffer[4] = PROTOCOL_VERSION.wrapping_add(1);
@@ -178,16 +178,16 @@ fn a_frame_from_another_protocol_version_is_named_rather_than_parsed() {
     assert_eq!(
         read_reply(&mut buffer.as_slice()).expect("the version is still readable"),
         Reply::Incompatible {
-            // The reader of a reply is the client, so the version in the
-            // frame is the session's whichever side wrote it.
+            // The reader of a reply is the client. The frame version is
+            // the session's; the constant is the client's.
             session: PROTOCOL_VERSION.wrapping_add(1),
             client: PROTOCOL_VERSION,
         }
     );
 }
 
-/// The frame is refused before it is written, so nothing reaches the peer
-/// and the caller has something to say instead of a closed connection.
+/// The frame is refused at the start of writing. Nothing reaches the
+/// peer, and the caller receives an error it can report.
 #[test]
 fn a_reply_larger_than_a_frame_is_refused_before_any_of_it_is_written() {
     let mut buffer = Vec::new();
@@ -202,8 +202,8 @@ fn a_reply_larger_than_a_frame_is_refused_before_any_of_it_is_written() {
     );
 }
 
-/// A count is a peer's claim about what follows, and reserving against it
-/// would let eight bytes ask for four billion slots.
+/// A count prefix comes from the peer. Reserving its full value would
+/// allocate four billion slots for an eight-byte frame.
 #[test]
 fn a_count_past_what_the_frame_holds_reserves_only_what_could_follow() {
     let mut body = vec![PROTOCOL_VERSION, REPLY_RETURNED];
@@ -214,9 +214,9 @@ fn a_count_past_what_the_frame_holds_reserves_only_what_could_follow() {
     let error = read_reply(&mut buffer.as_slice()).expect_err("nothing follows the count");
     assert!(matches!(error, WireError::Truncated), "{error}");
 
-    // The clamp itself, which is what the frame above would otherwise
-    // defeat: no value is shorter than a byte, so a count larger than the
-    // bytes left cannot describe what follows.
+    // The clamp the frame above would otherwise defeat. No value is
+    // shorter than a byte, so a count past the bytes left cannot describe
+    // what follows.
     let cursor = Cursor::new(&[0u8; 4]);
     assert_eq!(cursor.at_most(usize::MAX, 1), 4);
     assert_eq!(cursor.at_most(usize::MAX, 2), 2);
@@ -264,8 +264,8 @@ fn a_tag_this_build_does_not_know_is_refused() {
     );
 }
 
-/// A hostile frame must not recurse until the stack runs out, so the cap
-/// belongs to the decoder as much as to the producer.
+/// The decoder stops recursion at the depth cap, so a malformed frame
+/// cannot exhaust the stack. The producer enforces the same cap.
 #[test]
 fn a_frame_nesting_past_the_cap_is_refused_rather_than_overflowing() {
     let mut body = vec![PROTOCOL_VERSION, REPLY_RETURNED];

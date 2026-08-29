@@ -21,20 +21,20 @@ fn process_id(raw: u64) -> ProcessId {
     ProcessId::new(raw).expect("non-zero")
 }
 
-/// The longest name `CustomEvent.name` can carry: 31 bytes and the NUL.
+/// The longest name `CustomEvent.name` can carry is 31 bytes and the NUL.
 const LONGEST: &str = "lunabcdefghijklmnopqrstuvwxyz01";
 
-/// The checked-in module declarations, embedded rather than read, so the test
-/// needs no filesystem and cannot pass against a stale copy on disk.
+/// The test embeds the checked-in module declarations. It needs no filesystem
+/// and cannot pass against a stale copy on disk.
 const DECLARATIONS: &str = include_str!("../../../../lua/lunette/init.luau");
 
 /// Every event this build delivers can be subscribed to, and the subscription
 /// is declared.
 ///
-/// Both come from one declaration, so this cannot fail through the two parting;
-/// what it catches is an event whose declaration was written and whose file was
-/// not regenerated, which `make check-definitions` reports and this reports at
-/// the point a reader is looking at the events.
+/// Both come from one declaration, so they cannot diverge. The test catches an
+/// event whose declaration exists and whose generated file omits it.
+/// `make check-definitions` reports the same gap, and the test reports it
+/// where a reader looks at the events.
 #[test]
 fn every_event_this_build_delivers_can_be_subscribed_to() {
     let functions = subscription_functions::<crate::lua::declarations::NullTexture>();
@@ -99,9 +99,9 @@ fn a_name_too_long_for_the_array_is_refused() {
     let overlong = format!("{LONGEST}x");
     assert_eq!(overlong.len(), CUSTOM_EVENT_NAME_CAPACITY);
 
-    // `EventName::new` takes a `&'static str`, and the check is on the
-    // length, so leaking one byte of test string is the cheapest way to
-    // state the boundary from both sides.
+    // `EventName::new` takes a `&'static str`, and its check is on the
+    // length. Leaking the test string supplies that lifetime; the constructor
+    // refuses this length, one byte past the longest accepted name.
     assert_eq!(EventName::new(String::leak(overlong)), None);
 }
 
