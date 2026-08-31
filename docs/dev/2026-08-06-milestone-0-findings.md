@@ -442,7 +442,7 @@ The headset is a Bigscreen Beyond on Monado in service mode, 3561x3561 per eye a
 | A1 | AC9.2 | Pass. The tests pass in both feature configurations, with no formatting diff and no clippy warning. |
 | A2 | AC9.4 | Pass. The compositor tests pass with no Vulkan ICD visible, and the crate's tree carries no `lunette-lovr` and no GPU crate. |
 | A3 | AC9.3 | Pass, after one correction. The headerless files and `PROVENANCE.md` reconcile exactly. The LÖVR patches add no file and modify only existing MIT-licensed ones. `CREDITS.md` said LÖVR is linked statically, which it is not. |
-| A4 | AC9.1 | The offline build passes, measured with the local checkout substituted for `vendor/lovr`. The publication half is now unblocked: see [the submodule, now published](#the-submodule-now-published). Re-run the whole step against a clean clone to close it. |
+| A4 | AC9.1 | Pass. A fresh recursive clone from GitHub at `256418467aa9e941d6978c58f34fb50e489a6406` initialized all 23 recursive submodules at their pinned commits. `nix develop --offline --command cargo build` completed in a separate network namespace where a direct TCP connection failed with `ENETUNREACH`. |
 | C1 | AC5.5 | Pass, after a fix. The restart segfaulted against a live session; see [the restart that faulted](#the-restart-that-faulted). Numbers below. |
 | C2 | — | Void, not taken. It read a layer limit of zero as the null compositor refusing layers, and that zero was the absent session. It needs monado restarted with `XRT_COMPOSITOR_NULL=1`. |
 | D3 | AC2.2 | Fails as written. The layer is not visibly sharper; see [D3](#d3-and-a-layer-that-is-not-visibly-sharper). The recorded facts are below. |
