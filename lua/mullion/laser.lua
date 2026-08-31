@@ -1,6 +1,6 @@
 -- One laser per hand, each with a seat of its own.
 --
--- This is the half of docs/stdlib.md's tier 2 that touches the outside world.
+-- This is the half of docs/dev/stdlib.md's tier 2 that touches the outside world.
 -- A laser reads a hand's pointer device, owns the seat that hand's input is
 -- delivered through, hands a frame of input to a `mullion.interaction` pointer,
 -- and draws the beam. Everything that decides what the input means is in
@@ -13,7 +13,7 @@
 -- controller is held at an angle.
 --
 -- One seat per hand, because a `wl_seat` carries one pointer and one keyboard
--- (docs/input.md#seats). Two hands sharing a seat is WayVR's arrangement:
+-- (docs/dev/input.md#seats). Two hands sharing a seat is WayVR's arrangement:
 -- pointing the off hand at a window takes hover from the main hand. Two seats
 -- make dragging a slider with one hand while scrolling with the other possible.
 --

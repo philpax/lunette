@@ -1,7 +1,7 @@
 -- Every module is safe to require twice.
 --
 -- A soft reload discards the Lua state and runs every module body again
--- (docs/lua-api.md#reload). CONTRIBUTING.md makes a module that leaks a
+-- (docs/dev/lua-api.md#reload). CONTRIBUTING.md makes a module that leaks a
 -- timer, a signal connection, or a teardown hook across a reload a defect.
 -- The check walks the tree, requires every module twice, and counts what
 -- accumulated. The suite catches the leak; review does not have to notice

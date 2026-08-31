@@ -17,7 +17,7 @@
 --
 -- `mullion.interaction` re-exports every type here, so `interaction.Surface`
 -- and `interaction.Pointer` remain the names the rest of the tree and
--- docs/stdlib.md use.
+-- docs/dev/stdlib.md use.
 
 local lunette = require '@lunette'
 

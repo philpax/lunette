@@ -3,7 +3,7 @@
 //! # Between frames, on the thread that owns the state
 //!
 //! A chunk runs on the main thread between two frames, never concurrently with
-//! `lovr.update` or `lovr.draw` ([the Lua API](../../../docs/lua-api.md#lunctl)).
+//! `lovr.update` or `lovr.draw` ([the Lua API](../../../docs/dev/lua-api.md#lunctl)).
 //! The control thread never touches a `Lua`, so no other thread races the chunk
 //! and it can touch the same state a callback touches. `crate::boot` makes the
 //! call in the gap between `FrameDriver::end_frame` and the next `begin_frame`.
@@ -13,7 +13,7 @@
 //! [`evaluate`] hands the chunk's results to a closure and drops them before it
 //! returns. Rust never holds a Lua value past the call that produced it, so a
 //! soft reload can discard the state without anything left dangling.
-//! `docs/architecture.md` records the rule.
+//! `docs/dev/architecture.md` records the rule.
 //!
 //! # Best-effort budget
 //!
@@ -34,14 +34,14 @@
 //! a count hook plus `jit.off`, because compiled traces do not call debug
 //! hooks; Luau in LÖVR's build has no codegen (`Luau.CodeGen` is
 //! `EXCLUDE_FROM_ALL`), so the interrupt is the entire mechanism.
-//! `docs/lua-api.md` records the change.
+//! `docs/dev/lua-api.md` records the change.
 //!
 //! A hard bound would need a watchdog outside Lua. The chunk holds the Lua
 //! thread, so a watchdog cannot stop the run without aborting the process.
 //! Aborting turns a bad `lunctl` command into a crash that takes every
 //! connected client with it. The crash is worse than the hang the advisory
 //! bound prevents.
-//! `docs/lua-api.md` records the reasoning.
+//! `docs/dev/lua-api.md` records the reasoning.
 //!
 //! # Load errors and runtime errors
 //!
@@ -394,7 +394,7 @@ impl Overrun {
 
 /// Gives `function` an environment in which a module resolves by its own name.
 ///
-/// `docs/lua-api.md` documents `lunctl 'return #lunette.windows()'`. A
+/// `docs/dev/lua-api.md` documents `lunctl 'return #lunette.windows()'`. A
 /// configuration reaches the API through `local lunette = require '@lunette'`, so
 /// the name is a local and is not a global anywhere. Without this, every
 /// documented example indexes a nil.
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn a_chunk_reaches_a_preloaded_module_by_its_bare_name() {
-        // Every example in docs/lua-api.md takes this form.
+        // Every example in docs/dev/lua-api.md takes this form.
         let lua = with_preloaded_module();
 
         assert_eq!(
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn a_name_a_chunk_sets_is_visible_to_the_next_chunk() {
-        // docs/lua-api.md's `$(lunctl 'return win.title')` reads what an earlier
+        // docs/dev/lua-api.md's `$(lunctl 'return win.title')` reads what an earlier
         // chunk stored.
         let lua = crate::test_lua::session_lua();
 

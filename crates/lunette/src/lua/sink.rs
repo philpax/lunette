@@ -2,7 +2,7 @@
 //!
 //! A sink takes pixel coordinates. Everything above it, the ray, the plane
 //! intersection, and the conversion from a surface hit to a pixel, belongs to
-//! Lua. `docs/input.md` puts the native boundary exactly here for that reason:
+//! Lua. `docs/dev/input.md` puts the native boundary exactly here for that reason:
 //! Rust has no scene model, so any input method works without a change on this
 //! side.
 //!
@@ -23,7 +23,7 @@
 //! # What the host cannot do
 //!
 //! Every host sink shares one cursor and one keyboard focus, because the host
-//! has one of each. `docs/host-desktop.md` records why lunette exposes that
+//! has one of each. `docs/dev/host-desktop.md` records why lunette exposes that
 //! limitation. A key sent to a host sink reaches whatever the host compositor
 //! currently focuses. A host key is translated under the layout of the seat it
 //! addresses and reaches the host through `HidProvider::send_key`.
@@ -36,7 +36,7 @@
 //!
 //! Every method takes an optional trailing seat. Absent means the default
 //! seat, the seat a configuration that never calls `lunette.newSeat` has. A
-//! host sink ignores the argument, as `docs/lua-api.md` records: the host has
+//! host sink ignores the argument, as `docs/dev/lua-api.md` records: the host has
 //! one cursor and one keyboard focus however many hands point at it.
 
 use std::rc::Rc;
@@ -301,7 +301,7 @@ handle! {
 ///
 /// A configuration that never calls `lunette.newSeat` addresses the default
 /// seat by leaving the argument off. This keeps the single-handed examples in
-/// `docs/input.md` correct.
+/// `docs/dev/input.md` correct.
 fn seat_of<T: LuaTexture>(seat: Option<&Seat<T>>) -> SeatId {
     seat.map_or(DEFAULT_SEAT, Seat::id)
 }
@@ -465,7 +465,7 @@ fn key_pressed<T>(sink: &Sink<T>, seat: SeatId, key: Keycode, pressed: bool) -> 
 /// `sink:modifiers(names, seat)`: replaces the modifiers held on this sink.
 ///
 /// Modifiers are explicit state: the caller names them with `sink:modifiers`,
-/// they are not synthesised keypresses. `docs/input.md` requires that on the
+/// they are not synthesised keypresses. `docs/dev/input.md` requires that on the
 /// window side, and the host provider already implements it on the other.
 fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) -> bool {
     match &sink.target {
@@ -492,7 +492,7 @@ fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) ->
 ///
 /// The method is stateful: it generates and uploads a temporary keymap, so it
 /// must not be interleaved with `sink:key` on the same seat. It exists for
-/// text the active layout may not express, in the roles `docs/input.md`
+/// text the active layout may not express, in the roles `docs/dev/input.md`
 /// records: clipboard-less paste, dictation, and `lunctl` running a command
 /// in a terminal.
 ///

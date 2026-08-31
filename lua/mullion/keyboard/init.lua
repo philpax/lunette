@@ -1,6 +1,6 @@
 -- A virtual keyboard, using the seat's own keymap.
 --
--- The keyboard is docs/stdlib.md's tier 2, the last item on its minimum
+-- The keyboard is docs/dev/stdlib.md's tier 2, the last item on its minimum
 -- viable line. It can type into the focused sink. What is drawn on a key
 -- comes from `seat:characterFor`, and what a key sends comes from the same
 -- keycode the legend is read for. The module stores no layout.
@@ -15,11 +15,11 @@
 -- as a lock.
 --
 -- Modifier state replaces the held set: `sink:modifiers` sets it, as
--- docs/input.md#keyboard describes, and no key event is sent. A client that
+-- docs/dev/input.md#keyboard describes, and no key event is sent. A client that
 -- queries the state reads the set the sink holds.
 --
 -- The drawing uses `Pass:plane` and `Pass:text`. It does not include the
--- widget toolkit that docs/stdlib.md defers and records as possibly a
+-- widget toolkit that docs/dev/stdlib.md defers and records as possibly a
 -- separate library.
 
 local lunette = require '@lunette'
@@ -465,7 +465,7 @@ end
 --
 -- Every character the layout binds goes down the ordinary path, so nothing
 -- about the client's keymap changes. A run of characters it does not bind goes
--- to `sink:typeText` in one call, which docs/lua-api.md describes as generating
+-- to `sink:typeText` in one call, which docs/dev/lua-api.md describes as generating
 -- a temporary keymap, uploading it, typing against it, and putting the
 -- client's own back. A call per character would swap the keymap once per
 -- character.
@@ -473,7 +473,7 @@ end
 -- The two paths are not interleaved within one character. Each call is
 -- queued in order, and each `typeText` restores the keymap before the next
 -- command is acted on, so a sequence alternating between them is well
--- defined. docs/lua-api.md warns against a key held down across one, which
+-- defined. docs/dev/lua-api.md warns against a key held down across one, which
 -- this never does.
 function methods.typeText(self: Keyboard, text: string)
   local seat, sink = self.target()

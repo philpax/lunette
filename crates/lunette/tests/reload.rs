@@ -20,7 +20,7 @@
 //! and reloads while it is connected. The second half establishes a narrow
 //! property: the reload does not touch the client. A reload is confined to
 //! one Lua state, the compositor thread and every connection it holds are in
-//! Rust, and `docs/architecture.md` records the rule behind the separation:
+//! Rust, and `docs/dev/architecture.md` records the rule behind the separation:
 //! Rust holds no long-lived reference into Lua. A later change that reaches
 //! across that line fails this test.
 

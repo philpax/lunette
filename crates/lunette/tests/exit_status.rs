@@ -7,7 +7,7 @@
 //! every exit, silently.
 //!
 //! The test spawns the real binary. CONTRIBUTING.md's testing conventions
-//! and `docs/build-and-development.md` record the exception to the "no real
+//! and `docs/dev/build-and-development.md` record the exception to the "no real
 //! subprocesses" rule: the exit status is an observable property of the
 //! process, not a value any function returns. `boot::run` produces an
 //! `ExitCode`, which is opaque and has no accessor, and the path that

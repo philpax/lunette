@@ -36,7 +36,7 @@ Two subsystems are already per-seat and need no work:
 - **Selections.** `set_data_device_focus(dh, seat, client)`, `set_data_device_selection(dh, seat, mimes, data)`, `current_data_device_selection_userdata(seat)`, and `clear_data_device_selection(dh, seat)` (`src/wayland/selection/data_device/mod.rs:244`, `:264`, `:343`, `:364`), with primary-selection mirrors at `.../primary_selection/mod.rs:158`, `:178`, `:256`, `:277`. Storage lives in `Seat::user_data()`. A `zwlr_data_control` client picks its own seat through `get_data_device { seat }` (`wlr_data_control/mod.rs:198-231`).
 - **Popup grabs.** `PopupManager::grab_popup<D>(root, popup, seat, serial)` (`src/desktop/wayland/popup/manager.rs:58-64`), whose comment at `:99-101` states the seat is the primary store, via `seat.user_data().insert_if_missing(PopupGrabInner::default)`. `PopupManager` itself is shared and tracks only the popup tree plus a grab cleanup list, so the single instance from Phase 2 stays correct.
 
-`docs/input.md:41` cautions about per-seat popup grabs. The caution is right and the library already handles it.
+`docs/dev/input.md:41` cautions about per-seat popup grabs. The caution is right and the library already handles it.
 
 The one genuinely shared item is `SelectionHandler::SelectionUserData`, a single associated type for the whole compositor (`comp.rs:363`) — meaning one representation of selection data across all seats, which is fine.
 
@@ -54,7 +54,7 @@ One `SerialCounter` (`client.rs:41`) is shared between keyboard and pointer. Ser
 
 Note `mod.rs:1128-1148`: keyboard focus is driven implicitly by pointer motion. With two seats that heuristic becomes per-seat policy, and by the mechanism-in-Rust rule it belongs in Lua rather than being reimplemented natively.
 
-`docs/input.md:30` names the limitation directly — "WayVR sidesteps this with a single seat, where the pointer last used to click takes precedence" — and the investigation confirms it.
+`docs/dev/input.md:30` names the limitation directly — "WayVR sidesteps this with a single seat, where the pointer last used to click takes precedence" — and the investigation confirms it.
 
 ### libxkbcommon is not thread-safe, and that shapes `typeText`
 
@@ -71,19 +71,19 @@ Related API: `set_xkb_config` (`:827`), `modifier_state() -> ModifiersState` (`:
 
 Nothing in WayVR generates a keymap for arbitrary text, and nothing saves or restores one. What exists is forward-only and for rendering key legends: `XkbKeymap::label_for_key` (`subsystem/hid/mod.rs:344-357`, via `xkb::State::new` and `key_get_utf8`) and an AltGr probe (`:359-386`).
 
-`docs/input.md:52` asks for "keysym-for-keycode-under-modifiers, the layout list, and reverse `keysym → (keycode, modifiers)` lookup". Only the forward direction exists. The reverse lookup is new, and it is what makes `typeText` possible: build it by enumerating keycodes across modifier combinations and inverting the resulting map.
+`docs/dev/input.md:52` asks for "keysym-for-keycode-under-modifiers, the layout list, and reverse `keysym → (keycode, modifiers)` lookup". Only the forward direction exists. The reverse lookup is new, and it is what makes `typeText` possible: build it by enumerating keycodes across modifier combinations and inverting the resulting map.
 
-The technique at `docs/input.md:58-62` — synthesise a keymap mapping spare keycodes to the required keysyms, upload it, drive key events, restore — must be built from scratch.
+The technique at `docs/dev/input.md:58-62` — synthesise a keymap mapping spare keycodes to the required keysyms, upload it, drive key events, restore — must be built from scratch.
 
 ### Modifiers are faked as keycodes
 
 `set_modifiers` (`mod.rs:1215-1226`) diffs an old and new `u8` bitmask and synthesises press and release of a representative key per bit through a `MODS_TO_KEYS` table. There is no direct modifier injection.
 
-Smithay owns the authoritative `ModifiersState` inside `KbdInternal`, updated by `KeyboardHandle::input`. WayVR's parallel `cur_modifiers` is a shadow of it. `docs/input.md:51` asks for "explicit modifier state", which means driving smithay's state through `with_xkb_state` rather than faking keypresses. That is new.
+Smithay owns the authoritative `ModifiersState` inside `KbdInternal`, updated by `KeyboardHandle::input`. WayVR's parallel `cur_modifiers` is a shadow of it. `docs/dev/input.md:51` asks for "explicit modifier state", which means driving smithay's state through `with_xkb_state` rather than faking keypresses. That is new.
 
 Key events go through `client.rs:229-245`: `seat_keyboard.input(..., Keycode::new(virtual_key), state, serial, time, |_,_,_| FilterResult::Forward)`. The filter always forwards, so the compositor never intercepts a binding — correct for lunette, where binding policy is Lua's.
 
-Key repeat is set at seat construction (`mod.rs:262`, delay 200, rate 50). `docs/input.md:56` moves it to Lua, so `add_keyboard` takes a policy-supplied value.
+Key repeat is set at seat construction (`mod.rs:262`, delay 200, rate 50). `docs/dev/input.md:56` moves it to Lua, so `add_keyboard` takes a policy-supplied value.
 
 ### `hit_test.rs` sheds most of its bulk
 
@@ -100,7 +100,7 @@ Input-region testing has two variants that differ meaningfully. `surface_accepts
 1. `RenderedSurface.image: Arc<vulkano::image::view::ImageView>` (`:15`, `:36`), read at `:210-219`, `:274-278`, and `:329`. **Only the size is ever used for hit-testing** — the handle rides along purely so the renderer can reuse the struct. Split `RenderedSurface` into a geometry-only hit-test type and a separate render list. This is what keeps `lunette-compositor` free of a GPU dependency, which AC9.4 depends on.
 2. `PointerHit` from `crate::backend::input` (`:19`, defined `backend/input.rs:358-364` as `{ pointer, overlay: OverlayID, mode: PointerMode, primary, uv }`), appearing in `WvrHitTarget::Panel` (`:43`) and in `transformed_uv_from_hit`/`panel_hit_from_hit`/`hit_target` (`:79`, `:95-103`, `:139`). This drags XR overlay identity and pointer modes into the compositor.
 
-Under `docs/input.md:5-7` — "The native layer's primitive is a pixel-space event sink. The Rust code has no knowledge of the 3D scene" — Lua supplies pixel coordinates directly. So the whole `PointerHit`, UV, `mouse_transform`, and panel layer disappears. lunette wants `hit_target_at(client_pos: Vec2)` (`:105`) without the `mouse_transform` inverse at `:106-109`.
+Under `docs/dev/input.md:5-7` — "The native layer's primitive is a pixel-space event sink. The Rust code has no knowledge of the 3D scene" — Lua supplies pixel coordinates directly. So the whole `PointerHit`, UV, `mouse_transform`, and panel layer disappears. lunette wants `hit_target_at(client_pos: Vec2)` (`:105`) without the `mouse_transform` inverse at `:106-109`.
 
 Do not port `BORDER_SIZE` (`:23`) or `BAR_SIZE` (`:24`). Those are WayVR's titlebar chrome constants; lunette's chrome is mullion's, in Lua.
 
@@ -128,9 +128,9 @@ So WayVR does not bridge. It has one direction, for one clipboard, of one MIME t
 
 ### The seat-to-host clipboard mapping was unspecified
 
-`docs/input.md` never mentions clipboard. Its only adjacent reference is `:43`, pointing at `host-desktop.md#the-input-domain-leak` for the single-host-seat constraint.
+`docs/dev/input.md` never mentions clipboard. Its only adjacent reference is `:43`, pointing at `host-desktop.md#the-input-domain-leak` for the single-host-seat constraint.
 
-With one seat per hand, each seat owns a clipboard and a primary selection, while the host has exactly one of each. Decided on 2026-08-06: **one designated bridge seat.** A single seat is bridged to the host; other seats keep independent selections that stay inside lunette. Lua chooses which seat is bridged, so the policy stays out of Rust. Task 7 records this in `docs/decisions.md` and `docs/input.md`.
+With one seat per hand, each seat owns a clipboard and a primary selection, while the host has exactly one of each. Decided on 2026-08-06: **one designated bridge seat.** A single seat is bridged to the host; other seats keep independent selections that stay inside lunette. Lua chooses which seat is bridged, so the policy stays out of Rust. Task 7 records this in `docs/dev/decisions.md` and `docs/dev/input.md`.
 
 ---
 
@@ -164,7 +164,7 @@ Serials are effectively global in smithay, so the shared counter at `client.rs:4
 
 **Step 4: `lunette.newSeat`**
 
-`docs/input.md:26-41` specifies the API. Each seat gets independent pointer position, focus, and keyboard state.
+`docs/dev/input.md:26-41` specifies the API. Each seat gets independent pointer position, focus, and keyboard state.
 
 The collapse-to-one-seat mode at `:39` is Lua policy over this primitive, not a native mode. Similarly, WayVR's implicit focus-follows-pointer heuristic (`mod.rs:1128-1148`) does not port: focus policy is Lua's, and Rust only applies what Lua asks for.
 
@@ -196,7 +196,7 @@ Split `RenderedSurface` (`hit_test.rs:33-39`). Hit-testing needs `surface`, `sur
 
 This is not cosmetic. `lunette-compositor` must not depend on a GPU crate, or AC9.4's GPU-free test suite becomes impossible, and `CONTRIBUTING.md:32` states the rule.
 
-Drop `PointerHit` (`:19`) entirely, along with `WvrHitTarget::Panel` (`:43`), `transformed_uv_from_hit` (`:79`), `panel_hit_from_hit` (`:95`), `mouse_transform`, and `uv_range`. Under `docs/input.md:5-7` Lua supplies pixel coordinates, so the UV and panel layer has no purpose. Keep `hit_target_at(client_pos)` (`:105`) without the `mouse_transform` inverse at `:106-109`.
+Drop `PointerHit` (`:19`) entirely, along with `WvrHitTarget::Panel` (`:43`), `transformed_uv_from_hit` (`:79`), `panel_hit_from_hit` (`:95`), `mouse_transform`, and `uv_range`. Under `docs/dev/input.md:5-7` Lua supplies pixel coordinates, so the UV and panel layer has no purpose. Keep `hit_target_at(client_pos)` (`:105`) without the `mouse_transform` inverse at `:106-109`.
 
 Do not port `BORDER_SIZE` (`:23`) or `BAR_SIZE` (`:24`) — WayVR titlebar chrome, replaced by mullion in Phase 6.
 
@@ -256,7 +256,7 @@ Cache the current keymap string per seat when uploading. `KeyboardHandle` offers
 
 **Step 2: Real modifier state**
 
-Do not port `set_modifiers` (`mod.rs:1215-1226`), which diffs a `u8` bitmask and synthesises a representative keypress per bit through `MODS_TO_KEYS`. `docs/input.md:51` asks for explicit modifier state; drive smithay's authoritative `ModifiersState` through `with_xkb_state` instead. Faking modifiers as keypresses misreports state to clients that query it and produces spurious key events.
+Do not port `set_modifiers` (`mod.rs:1215-1226`), which diffs a `u8` bitmask and synthesises a representative keypress per bit through `MODS_TO_KEYS`. `docs/dev/input.md:51` asks for explicit modifier state; drive smithay's authoritative `ModifiersState` through `with_xkb_state` instead. Faking modifiers as keypresses misreports state to clients that query it and produces spurious key events.
 
 **Step 3: Key events**
 
@@ -264,11 +264,11 @@ Do not port `set_modifiers` (`mod.rs:1215-1226`), which diffs a `u8` bitmask and
 
 **Step 4: Key repeat from Lua**
 
-WayVR fixes repeat at seat construction (`mod.rs:262`, delay 200, rate 50). `docs/input.md:56` moves it to Lua, so `add_keyboard` takes a policy-supplied value with a documented default.
+WayVR fixes repeat at seat construction (`mod.rs:262`, delay 200, rate 50). `docs/dev/input.md:56` moves it to Lua, so `add_keyboard` takes a policy-supplied value with a documented default.
 
 **Step 5: Expose the keymap for querying**
 
-`docs/input.md:50-52` requires keysym-for-keycode-under-modifiers, the layout list, and reverse `keysym → (keycode, modifiers)` lookup.
+`docs/dev/input.md:50-52` requires keysym-for-keycode-under-modifiers, the layout list, and reverse `keysym → (keycode, modifiers)` lookup.
 
 WayVR has only forward lookup, and only for rendering key legends (`subsystem/hid/mod.rs:344-357`). Build the reverse map by enumerating keycodes across modifier combinations and inverting the result. Task 5 depends on it.
 
@@ -297,24 +297,24 @@ Phase 4 built the host provider chain's keyboard half and reached none of it: `S
 
 **Files:**
 - Modify: `crates/lunette/src/lua/sink.rs`
-- Modify: `docs/lua-api.md`
+- Modify: `docs/dev/lua-api.md`
 
 **Step 1: The surface**
 
-`sink:key(keycode, pressed)`, explicit modifier state, the layout list, forward lookup, and reverse lookup, per `docs/input.md:50-52`. `docs/input.md` describes these but names none of them, so give each a concrete name here.
+`sink:key(keycode, pressed)`, explicit modifier state, the layout list, forward lookup, and reverse lookup, per `docs/dev/input.md:50-52`. `docs/dev/input.md` describes these but names none of them, so give each a concrete name here.
 
 The reverse lookup is what lets mullion's virtual keyboard in Phase 6 render correct legends and produce correct keycodes without reimplementing xkb in Lua.
 
-**Two further sink methods, neither currently documented anywhere in `docs/`:**
+**Two further sink methods, neither currently documented anywhere in `docs/dev/`:**
 
-- **`sink:scroll(dx, dy)`.** The documented sink surface is pointer, button, key, and `typeText` only. Tier 2 of the standard library requires scroll (`docs/stdlib.md:17`), and the compositor already has the plumbing — WayVR's `send_pointer_axis_wheel_raw` and `send_pointer_axis_wheel_accumulated` (`client.rs:372`, `:408`). Expose both the raw and accumulated forms, since discrete and smooth scroll sources differ and collapsing them loses information clients use.
+- **`sink:scroll(dx, dy)`.** The documented sink surface is pointer, button, key, and `typeText` only. Tier 2 of the standard library requires scroll (`docs/dev/stdlib.md:17`), and the compositor already has the plumbing — WayVR's `send_pointer_axis_wheel_raw` and `send_pointer_axis_wheel_accumulated` (`client.rs:372`, `:408`). Expose both the raw and accumulated forms, since discrete and smooth scroll sources differ and collapsing them loses information clients use.
 - **A hover-versus-focus primitive.** Tier 2 needs hover feedback distinct from focus, and it is currently unclear whether focus is implied by `sink:pointer`. Make it explicit: entering and leaving a sink is a separate operation from moving within it, so Lua can highlight a hovered panel without stealing focus from another. Being implicit here would force mullion to infer focus from pointer motion, which is exactly the heuristic Task 1 removes from the compositor.
 
 All of these are API defects under `CONTRIBUTING.md:62` — mullion may use only the public API, and it cannot be written without them.
 
 **Step 2: Update the documentation**
 
-`docs/lua-api.md` is normative and this adds surface to it. Update it in the same change, per `CONTRIBUTING.md`.
+`docs/dev/lua-api.md` is normative and this adds surface to it. Update it in the same change, per `CONTRIBUTING.md`.
 
 **Step 3: Test**
 
@@ -325,7 +325,7 @@ The snapshot-to-Lua conversion with a Lua state and no GPU: the layout list is r
 **Step 4: Commit**
 
 ```bash
-git add crates/lunette/src/lua/sink.rs docs/lua-api.md
+git add crates/lunette/src/lua/sink.rs docs/dev/lua-api.md
 git commit -m "feat: expose keymap queries to lua"
 ```
 <!-- END_TASK_4 -->
@@ -344,7 +344,7 @@ Entirely new work. Nothing in WayVR generates a keymap for arbitrary text or sav
 
 For the requested text, resolve each character to a keysym, then use Task 3's reverse lookup to find those the active layout can already express. Only the remainder needs a temporary keymap.
 
-Text the active layout can express entirely should take the ordinary path and upload nothing. `docs/input.md:58-62` frames the temporary keymap as the technique for what the layout cannot express, not as the default.
+Text the active layout can express entirely should take the ordinary path and upload nothing. `docs/dev/input.md:58-62` frames the temporary keymap as the technique for what the layout cannot express, not as the default.
 
 **Step 2: Chunk to fit the spare keycode range**
 
@@ -442,11 +442,11 @@ git commit -m "feat(compositor): bridge clipboard and primary selection both way
 
 **Files:**
 - Modify: `crates/lunette-compositor/src/selection/mod.rs`
-- Modify: `docs/input.md`, `docs/decisions.md`
+- Modify: `docs/dev/input.md`, `docs/dev/decisions.md`
 
 **Step 1: The mapping**
 
-With one seat per hand, each seat owns a clipboard and a primary selection, while the host has exactly one of each. `docs/input.md` never addresses this; its only adjacent note is `:43`.
+With one seat per hand, each seat owns a clipboard and a primary selection, while the host has exactly one of each. `docs/dev/input.md` never addresses this; its only adjacent note is `:43`.
 
 Decided on 2026-08-06: **one designated bridge seat.** Exactly one seat is bridged to the host in both directions. Other seats keep independent selections that stay inside lunette. Lua chooses which seat is bridged, so policy stays out of Rust.
 
@@ -458,7 +458,7 @@ Changing the bridge seat takes effect at the next frame boundary, like every oth
 
 **Step 3: Document it**
 
-Add the mapping to `docs/input.md`, which is normative and currently silent on clipboard. Add a paragraph to `docs/decisions.md` recording the decision and the reasoning: last-writer-wins across seats races on two hands copying in quick succession, and the winner is timing-dependent.
+Add the mapping to `docs/dev/input.md`, which is normative and currently silent on clipboard. Add a paragraph to `docs/dev/decisions.md` recording the decision and the reasoning: last-writer-wins across seats races on two hands copying in quick succession, and the winner is timing-dependent.
 
 **Step 4: Test**
 
@@ -469,7 +469,7 @@ The bridge seat receives host selections and pushes its own; a non-bridge seat d
 **Step 5: Commit**
 
 ```bash
-git add crates/lunette-compositor/src/selection/mod.rs docs/
+git add crates/lunette-compositor/src/selection/mod.rs docs/dev/
 git commit -m "feat(compositor): bridge one designated seat to the host clipboard"
 ```
 <!-- END_TASK_7 -->
@@ -520,7 +520,7 @@ Only if the check suite produced changes.
 ## Deliberately not in this phase
 
 - Focus policy. WayVR's focus-follows-pointer heuristic (`mod.rs:1128-1148`) does not port; focus is Lua's decision over the native primitive.
-- The collapse-to-one-seat mode (`docs/input.md:39`), which is Lua policy over this phase's multi-seat primitive.
+- The collapse-to-one-seat mode (`docs/dev/input.md:39`), which is Lua policy over this phase's multi-seat primitive.
 - Panel chrome. `BORDER_SIZE` and `BAR_SIZE` (`hit_test.rs:23-24`) are WayVR's titlebar; mullion owns chrome in Phase 6.
 - The virtual keyboard, which consumes this phase's keymap queries — Phase 6.
 - Drag and drop (`host-desktop.md:66`).

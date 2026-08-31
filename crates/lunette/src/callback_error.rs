@@ -1,7 +1,7 @@
 //! Linux-only: what happens to an error raised inside a configuration's
 //! callback.
 //!
-//! [The Lua API](../../../docs/lua-api.md#errors) says the callback boundary
+//! [The Lua API](../../../docs/dev/lua-api.md#errors) says the callback boundary
 //! logs, notifies every `lunette.onError` listener, draws a panel, and
 //! rate-limits identical errors. The native side implements the first two. The
 //! limiter, the wording of a report, and the panel are policy in

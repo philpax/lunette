@@ -10,11 +10,11 @@ The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code.
 
 ## Current status
 
-The workspace builds, links LÖVR, and opens a window running a Lua configuration. Nothing above that exists yet: no compositor, no capture, no standard library. The first milestone is a vertical slice whose purpose is de-risking two specific unknowns; see [docs/roadmap.md](docs/roadmap.md).
+The workspace builds, links LÖVR, and opens a window running a Lua configuration. Nothing above that exists yet: no compositor, no capture, no standard library. The first milestone is a vertical slice whose purpose is de-risking two specific unknowns; see [docs/dev/roadmap.md](docs/dev/roadmap.md).
 
 ## Repository layout
 
-The layout is recorded in [docs/build-and-development.md](docs/build-and-development.md). In summary:
+The layout is recorded in [docs/dev/build-and-development.md](docs/dev/build-and-development.md). In summary:
 
 ```
 crates/lunette/                       the binaries: lunette and lunctl, Lua injection, frame orchestration
@@ -31,7 +31,7 @@ etc/xdg/lunette/                      the default configuration
 vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
 vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
-docs/                                 the design specification
+docs/dev/                             the design specification
 inspiration/                          reference checkouts, gitignored
 ```
 
@@ -39,7 +39,7 @@ inspiration/                          reference checkouts, gitignored
 
 ## Documentation
 
-`docs/` is the design specification, not a description of the code. It is normative. A change that alters behaviour described there updates the relevant document in the same change.
+`docs/dev/` is the design specification, not a description of the code. It is normative. A change that alters behaviour described there updates the relevant document in the same change.
 
 A document that has decisions, known gaps, or deliberately-open questions about its own subject records them in a `Decisions`, `Known gaps`, or `Deliberately left open` section at its end. A decision carries the reasoning that produced it and, where an alternative was rejected, what it was and why; a change that reverses one updates that section and states why. This exists so that settled questions are not reopened by accident, and it puts each decision beside its subject, so a reader of the document sees what shaped it. Facts that belong to no one document, such as licensing, are in [CREDITS.md](CREDITS.md).
 
@@ -57,7 +57,7 @@ Vendored code is exempt from the house style in this document until it is rewrit
 
 `vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a readable series. Its own `deps/` are nested submodules, so clone recursively.
 
-Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths, with one exception: a patch that fixes an upstream defect changes the path it fixes, and says in its message which defect and why the fix belongs upstream rather than here. Each patch is shaped as an upstream pull request. The patch set is listed in [docs/lovr-integration.md](docs/lovr-integration.md), which also records what has been proposed and what has not.
+Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths, with one exception: a patch that fixes an upstream defect changes the path it fixes, and says in its message which defect and why the fix belongs upstream rather than here. Each patch is shaped as an upstream pull request. The patch set is listed in [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md), which also records what has been proposed and what has not.
 
 Three more forks carry patches the same way: `philpax/lovr-docs` on `lunette`, for the API metadata and its Luau generator; `philpax/mlua` on `lunette`, for the Luau ABI the LÖVR fork presents; and `philpax/luau` on `lunette/luau-bump`, which sits beneath `vendor/lovr` as its `deps/luau`. A change to any of them is a commit in the submodule, pushed to the fork, and the pointer bumped here in the same change; a pointer that names an unpushed commit fails every clone but the one it was made on. The recorded URLs are HTTPS so an anonymous clone resolves. A checkout that pushes repoints `origin` at the fork over SSH and keeps the original as `upstream`, which is what makes a rebase onto upstream reachable from the same checkout; in `deps/luau` the parent it was forked from, `bjornbytes/luau`, is a third remote named `lovr`.
 

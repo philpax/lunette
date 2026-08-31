@@ -2,13 +2,13 @@
 -- notification built on them.
 --
 -- The native layer pushes flat events through LÖVR's queue, and
--- docs/lua-api.md#events states that turning those into per-object
+-- docs/dev/lua-api.md#events states that turning those into per-object
 -- notification is Lua's job. This module does that. A handler is a function, a
 -- signal is a string, and an object is anything that can key a table.
 --
 -- Two facts about identity determine how a caller uses signals:
 --
--- A native handle is not a usable key. docs/lua-api.md#handles gives a
+-- A native handle is not a usable key. docs/dev/lua-api.md#handles gives a
 -- window's identity as `win.id`, and every read that produces a handle
 -- produces a fresh one, so two reads of the same window are two different Lua
 -- values and would be two different keys here. A caller that wants per-window

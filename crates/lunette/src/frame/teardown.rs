@@ -88,7 +88,7 @@ impl FrameDriver {
     /// compositor running with no device.
     ///
     /// [`ImageArena::abandon_all`] records why the images are forgotten, and
-    /// `docs/rendering.md` records what that costs.
+    /// `docs/dev/rendering.md` records what that costs.
     ///
     /// [`ImageArena::abandon_all`]: crate::import::ImageArena::abandon_all
     fn abandon_images(&mut self) {

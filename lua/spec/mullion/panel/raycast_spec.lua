@@ -145,7 +145,7 @@ spec('takes its ray as a pair of vectors', function()
   expect.near(y, 300, TOLERANCE, 'y')
 end)
 
--- `rayQuadHit` is the name docs/stdlib.md gives the intersection. A
+-- `rayQuadHit` is the name docs/dev/stdlib.md gives the intersection. A
 -- configuration written against `panel.rayQuadHit` breaks silently if the
 -- re-export is dropped in a later split. Nothing else in the tree would
 -- notice.

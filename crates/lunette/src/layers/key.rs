@@ -85,7 +85,7 @@ impl LayerProperties {
     /// The cost is that a translucent client is composited opaque while it
     /// holds a layer. A translucent panel renders as an in-scene quad, where
     /// the shader path resolves alpha. Lua chooses between sharpness and
-    /// translucency by claiming a layer or not. `docs/rendering.md` records
+    /// translucency by claiming a layer or not. `docs/dev/rendering.md` records
     /// this.
     pub const PANEL: Self = Self {
         stereo: false,

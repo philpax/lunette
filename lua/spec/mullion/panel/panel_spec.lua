@@ -257,7 +257,7 @@ spec('a re-grant after a revocation sets the viewport again', function()
   claims[1]:revoke()
   created:update()
   -- A revoked claim takes a layer again as soon as one frees
-  -- (docs/lua-api.md#layer-claims). The new layer is not the old one, and the
+  -- (docs/dev/lua-api.md#layer-claims). The new layer is not the old one, and the
   -- viewport set on the old layer does not carry over. A re-grant sets it
   -- again.
   local layer = claims[1]:grant(1024, 1024)
@@ -324,7 +324,7 @@ end)
 
 -- A source reporting `opaque` has a padding byte where alpha would be, and
 -- most clients leave it at zero. A panel that sampled it would draw the window
--- fully invisible. docs/rendering.md#alpha makes the consumer responsible for
+-- fully invisible. docs/dev/rendering.md#alpha makes the consumer responsible for
 -- forcing it to one. The opaque shader performs that step on the quad path.
 spec('an opaque source is drawn through the opaque shader, which is then cleared', function()
   fresh()

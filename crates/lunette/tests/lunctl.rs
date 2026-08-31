@@ -298,7 +298,7 @@ fn the_socket_is_0600_inside_a_0700_directory_and_is_not_a_network_address() {
     );
 }
 
-/// `docs/lua-api.md` requires the switch; a user who wants no evaluation
+/// `docs/dev/lua-api.md` requires the switch; a user who wants no evaluation
 /// endpoint gets none.
 #[test]
 fn the_disable_switch_leaves_no_socket_to_connect_to() {

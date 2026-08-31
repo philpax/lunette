@@ -1,6 +1,6 @@
 -- The arc layout: panels on a curve around the user, facing inwards.
 --
--- docs/stdlib.md's tier 3 minimum-viable line requires one layout function
+-- docs/dev/stdlib.md's tier 3 minimum-viable line requires one layout function
 -- that arranges the current tag's panels in an arc at a comfortable radius.
 -- The module is that function and is the whole of the tier's geometry.
 --
@@ -11,7 +11,7 @@
 -- more. A layout a configuration writes is exactly as capable as this one, so
 -- the standard library is replaceable one module at a time.
 --
--- `mullion.layout.arc` is one of the two module paths docs/lua-api.md attests,
+-- `mullion.layout.arc` is one of the two module paths docs/dev/lua-api.md attests,
 -- and it is attested as a call: `mullion.layout.arc(mullion.tag.current())`.
 -- The module is callable, and `apply` is the same function under a name.
 --

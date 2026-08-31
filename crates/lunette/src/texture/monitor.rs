@@ -91,7 +91,7 @@ impl<T> MonitorTextures<T> {
     /// No frame generation is checked, unlike the surface ledger's `lookup`.
     /// The one caller builds and consumes the answer inside a single Lua call.
     /// The value it hands on is LOVR's own `Texture` object, not a reference
-    /// this type could invalidate. `docs/lua-api.md` prescribes the rule:
+    /// this type could invalidate. `docs/dev/lua-api.md` prescribes the rule:
     /// never cache the result across a frame.
     #[must_use]
     pub fn texture(&self, monitor: &MonitorKey) -> Option<&T> {

@@ -26,7 +26,7 @@ Host desktop capture: PipeWire through the xdg-desktop-portal ScreenCast interfa
 
 lunette dynamically links a fork of LÖVR, carried as the `vendor/lovr` submodule, and uses it for rendering, the OpenXR session, spatialised audio, and the Lua runtime.
 
-Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relicensing them would make them unmergeable by the project they are written for. Each patch is narrow, additive, and shaped as an upstream pull request; the set is listed in [docs/lovr-integration.md](docs/lovr-integration.md#the-patch-set).
+Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relicensing them would make them unmergeable by the project they are written for. Each patch is narrow, additive, and shaped as an upstream pull request; the set is listed in [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md#the-patch-set).
 
 ## awesome
 

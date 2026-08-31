@@ -65,4 +65,4 @@ The result is a window manager in which a window is not a distinct object type. 
 9. [Audio](audio.md) — per-application spatialisation, deferred but specified.
 10. [Build and development](build-and-development.md) — repository layout, build system, Nix, development loop, and testing.
 11. [Roadmap](roadmap.md) — milestones in order, and the purpose of each.
-12. [Credits](../CREDITS.md) — whose work lunette is built on, under what licence, and how each project is used. Each document records the decisions and the gaps of its own subject.
+12. [Credits](../../CREDITS.md) — whose work lunette is built on, under what licence, and how each project is used. Each document records the decisions and the gaps of its own subject.

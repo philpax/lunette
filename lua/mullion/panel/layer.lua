@@ -3,7 +3,7 @@
 -- This module holds a claim against the fixed-size pool, aligns the claim
 -- with the source, and applies the granted layer. `mullion.panel` holds the
 -- pose, the size, and the source. The runtime grants and revokes claims on
--- frame boundaries, never mid-frame (docs/lua-api.md#layer-claims), so this
+-- frame boundaries, never mid-frame (docs/dev/lua-api.md#layer-claims), so this
 -- module reads `claim.granted` each update and does not handle
 -- `lunette.onLayerGranted`.
 --
@@ -106,7 +106,7 @@ function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number): b
   end
 
   -- The viewport is set on every grant and on every resize
-  -- (docs/rendering.md#the-layer-pool). The size ladder quantises upwards, so
+  -- (docs/dev/rendering.md#the-layer-pool). The size ladder quantises upwards, so
   -- the layer is usually larger than the source and the blit lands at the
   -- layer's origin. The viewport excludes the margin. Without the viewport
   -- the whole layer composites. The blit clears the margin, so it draws as

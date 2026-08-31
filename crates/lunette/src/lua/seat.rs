@@ -4,12 +4,12 @@
 //! two seats, and the protocol offers nothing else. WayVR has one seat, so
 //! pointing the off hand at a window takes hover from the main hand.
 //! `lunette.newSeat` is the primitive that removes that limit.
-//! `docs/input.md:39` describes the collapse-to-one-seat mode; that mode is
+//! `docs/dev/input.md:39` describes the collapse-to-one-seat mode; that mode is
 //! Lua policy, not a mode in this module.
 //!
 //! # Keymap queries
 //!
-//! `docs/input.md:47-54` records the problem. Wayland clients want
+//! `docs/dev/input.md:47-54` records the problem. Wayland clients want
 //! an xkb keymap plus raw keycodes and do their own keysym translation, so
 //! anything that draws a keyboard must look up what a key means. The three
 //! queries are the layout list, forward lookup, and reverse lookup. They
@@ -323,7 +323,7 @@ fn set_focus<T: LuaTexture>(seat: &Seat<T>, sink: Option<&Sink<T>>) -> mlua::Res
 /// Passing `false` on a seat that is not the bridged one does nothing, so a
 /// configuration can call it without asking which seat holds the bridge.
 ///
-/// `docs/input.md` records why the mapping is one designated seat, not
+/// `docs/dev/input.md` records why the mapping is one designated seat, not
 /// last-writer-wins across all of them.
 fn set_clipboard_bridge<T>(seat: &Seat<T>, bridged: bool) -> bool {
     if !seat.refresh() {

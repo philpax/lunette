@@ -82,7 +82,7 @@ fn surface() -> Vec<Item> {
     // the module; the callbacks do not declare them, because a definitions
     // file declares globals and cannot name a module's types. The handles a
     // payload carries are `Window` and `Claim`, which the definitions file
-    // alone declares. `docs/lua-api.md` records what that means for a
+    // alone declares. `docs/dev/lua-api.md` records what that means for a
     // configuration.
     items.extend(payload_records().into_iter().map(Item::Record));
     items

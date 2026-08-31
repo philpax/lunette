@@ -106,7 +106,7 @@ Restore is best-effort and does not guarantee the prompt is skipped. xdg-desktop
 
 `HidProvider: Sync + Send` (`wayvr/src/subsystem/hid/provider/mod.rs:8`) has ten methods: `mouse_move`, `mouse_move_rel`, `send_button`, `wheel`, `set_desktop_extent`, `set_desktop_origin`, `set_modifiers`, `send_key`, `set_keymap`, `commit`. Pointer and button calls only accumulate; `commit` is called once per frame.
 
-**There is no ordered fallback.** `HidWrapper::new` (`subsystem/input.rs:22-41`) matches a config enum and calls exactly one initialiser; on failure it installs `DummyProvider` and shows a toast. It does not try `wl_virtual` after uinput fails. `docs/host-desktop.md:37` — "uinput is tried first because it works regardless of the host compositor" — describes behaviour that does not exist.
+**There is no ordered fallback.** `HidWrapper::new` (`subsystem/input.rs:22-41`) matches a config enum and calls exactly one initialiser; on failure it installs `DummyProvider` and shows a toast. It does not try `wl_virtual` after uinput fails. `docs/dev/host-desktop.md:37` — "uinput is tried first because it works regardless of the host compositor" — describes behaviour that does not exist.
 
 **uinput.** Two `/dev/uinput` handles, one keyboard and one mouse. The mouse declares `EV_ABS` on `ABS_X`/`ABS_Y` with `min=0, max=32768, resolution=10` (`MOUSE_EXTENT = 32768.0`, `hid/mod.rs:40`), `EV_REL` for hi-res wheels, and `EV_KEY` for three buttons. The mapping is global, not per-monitor (`uinput.rs:124`):
 
@@ -128,9 +128,9 @@ The portal request fires from `ScreenCastBackend::init` (`pw.rs:156-176`) at scr
 
 Dismissal maps only to visibility: `after_input` calls `resume`/`pause` when alpha crosses 0.05 (`backend/openxr/overlay.rs:208-223`). PipeWire honours pause by deactivating the stream (`pipewire/capture.rs:144`), but **`pause()` is an empty no-op in `wlr_screencopy.rs:140`, `xshm.rs:164`, and `wlr_dmabuf.rs:105`** — those backends merely stop being asked. There is no API to stop a capture and release the session.
 
-`docs/host-desktop.md:27` promises capture "can be stopped from Lua… no ongoing cost". That is new work, and AC3.5 depends on it.
+`docs/dev/host-desktop.md:27` promises capture "can be stopped from Lua… no ongoing cost". That is new work, and AC3.5 depends on it.
 
-### Other gaps against `docs/host-desktop.md`
+### Other gaps against `docs/dev/host-desktop.md`
 
 - `:21` `ext-image-copy-capture-v1`: absent from wlx-capture. Upstream work, out of scope for v1.
 - `:39` libei / RemoteDesktop: no trace in the tree. Out of scope; recorded in the design as deferred.
@@ -250,9 +250,9 @@ git commit -m "feat(capture): identify monitors by descriptor with connector fal
 **Verifies:** `lunette-v1.AC3.4` (by correcting it).
 
 **Files:**
-- Modify: `docs/design-plans/2026-08-05-lunette-v1.md`
-- Modify: `docs/host-desktop.md`
-- Modify: `docs/decisions.md`
+- Modify: `docs/dev/design-plans/2026-08-05-lunette-v1.md`
+- Modify: `docs/dev/host-desktop.md`
+- Modify: `docs/dev/decisions.md`
 
 **Step 1: Restate the criterion**
 
@@ -262,13 +262,13 @@ AC3.4 currently reads:
 
 The mechanism is wrong; the outcome is right. Restate it in terms of the outcome: monitors identify themselves without the user selecting screens in a prescribed order, and that identity survives a restart. Keep both outcome clauses — they are what the criterion is for, and both are achievable.
 
-**Step 2: Correct `docs/host-desktop.md:17`**
+**Step 2: Correct `docs/dev/host-desktop.md:17`**
 
 It claims lunette implements `mapping_id`-based identification with manual mapping as a fallback. Replace with the geometry-correlation mechanism, noting that `mapping_id` is used opportunistically when a backend supplies a real connector name.
 
 **Step 3: Record the decision**
 
-Add a paragraph to `docs/decisions.md` under "Recorded decisions", in the surrounding style. It must carry the evidence, because `mapping_id` looks like exactly the right tool and someone will propose it again:
+Add a paragraph to `docs/dev/decisions.md` under "Recorded decisions", in the surrounding style. It must carry the evidence, because `mapping_id` looks like exactly the right tool and someone will propose it again:
 
 - Introduced in ScreenCast v5 to match libei regions, not to name outputs.
 - xdg-desktop-portal-wlr sets it to the connector name (`screencast.c:666-668`) — the case that makes it look right.
@@ -280,13 +280,13 @@ Also record the ceiling: serial is unavailable over `wl_output`, so lunette's id
 
 **Step 4: Verify**
 
-Run: `rg -n 'mapping_id' docs/`
+Run: `rg -n 'mapping_id' docs/dev/`
 Expected: matches only in `decisions.md` and in the opportunistic-use sentence in `host-desktop.md`, never as the stated mechanism.
 
 **Step 5: Commit**
 
 ```bash
-git add docs/
+git add docs/dev/
 git commit -m "docs: restate monitor identity in terms of outcome, not mapping_id"
 ```
 <!-- END_TASK_3 -->
@@ -399,7 +399,7 @@ Port WayVR's shape (`subsystem/hid/provider/mod.rs:8`): `mouse_move`, `mouse_mov
 
 **Step 2: Implement the ordered fallback**
 
-This is new work. WayVR has no fallback chain — `HidWrapper::new` (`subsystem/input.rs:22-41`) matches a config enum, calls one initialiser, and installs a dummy on failure. `docs/host-desktop.md:37` describes a chain that does not exist.
+This is new work. WayVR has no fallback chain — `HidWrapper::new` (`subsystem/input.rs:22-41`) matches a config enum, calls one initialiser, and installs a dummy on failure. `docs/dev/host-desktop.md:37` describes a chain that does not exist.
 
 Try uinput first, then `wl_virtual`, then a dummy. uinput first because it works under any compositor and under X11; `wl_virtual` second because it is wlroots-only — **KWin and mutter do not implement it and have no plans to**. A configuration switch overrides the order for users who want a specific provider.
 
@@ -475,7 +475,7 @@ A non-rectangular arrangement leaves dead zones inside the bounding box. Clamp t
 
 Whether mutter maps a bare `ABS_X`/`ABS_Y` uinput device across the whole layout or onto a single monitor is **unverified**. wlroots spans the layout unless `wlr_cursor_map_to_output` is used, which is opt-in. GNOME may treat an absolute device as tablet-like and bind it to one display.
 
-Record it as a known unknown in `docs/host-desktop.md` and verify on GNOME during Task 10 rather than assuming. If it does bind to one monitor, `wl_virtual` is unavailable there too and the honest answer for GNOME is the libei path, which is out of scope for v1.
+Record it as a known unknown in `docs/dev/host-desktop.md` and verify on GNOME during Task 10 rather than assuming. If it does bind to one monitor, `wl_virtual` is unavailable there too and the honest answer for GNOME is the libei path, which is out of scope for v1.
 
 **Step 6: Test**
 
@@ -509,7 +509,7 @@ The first request may prompt, so it must not happen on a frame-critical path. Re
 
 **Step 2: Stop for real**
 
-`docs/host-desktop.md:27` promises capture can be stopped from Lua with no ongoing cost, and AC3.5 requires it. WayVR cannot: dismissal only maps to visibility (`backend/openxr/overlay.rs:208-223`), and `pause()` is an **empty no-op** in `wlr_screencopy.rs:140`, `xshm.rs:164`, and `wlr_dmabuf.rs:105`. Only the PipeWire backend honours it, by deactivating the stream (`pipewire/capture.rs:144`).
+`docs/dev/host-desktop.md:27` promises capture can be stopped from Lua with no ongoing cost, and AC3.5 requires it. WayVR cannot: dismissal only maps to visibility (`backend/openxr/overlay.rs:208-223`), and `pause()` is an **empty no-op** in `wlr_screencopy.rs:140`, `xshm.rs:164`, and `wlr_dmabuf.rs:105`. Only the PipeWire backend honours it, by deactivating the stream (`pipewire/capture.rs:144`).
 
 Since lunette uses the PipeWire backend, pause is real. But pause is not stop: dismissing a monitor should tear the stream down and drop its resources, keeping the portal session so that re-adding does not re-prompt. Distinguish the two explicitly — `pause` for a temporarily invisible panel, `stop` for a dismissed monitor.
 
@@ -521,7 +521,7 @@ Re-adding a dismissed monitor restarts capture from the retained session and its
 
 `lunette.monitors()`, returning monitor handles, alongside the mirror and dismiss operations on each. Handles follow the standard rules: inert when dead, no raising.
 
-`lunette.monitors()` is not documented anywhere in `docs/` today, even though `lovr.lunmonitoradded` is (`docs/lua-api.md:32`) — there is an event announcing monitors and no way to enumerate them. Phase 6's tier 1 requires creating a panel from a monitor, and by `CONTRIBUTING.md:62` mullion may use only the public API. Document `lunette.monitors()` and the monitor handle's fields, including its identity from Task 2 and its pixel dimensions, in `docs/lua-api.md` in this task.
+`lunette.monitors()` is not documented anywhere in `docs/dev/` today, even though `lovr.lunmonitoradded` is (`docs/dev/lua-api.md:32`) — there is an event announcing monitors and no way to enumerate them. Phase 6's tier 1 requires creating a panel from a monitor, and by `CONTRIBUTING.md:62` mullion may use only the public API. Document `lunette.monitors()` and the monitor handle's fields, including its identity from Task 2 and its pixel dimensions, in `docs/dev/lua-api.md` in this task.
 
 **Step 5: Test**
 
@@ -554,7 +554,7 @@ This is new work. WayVR has only a global binary `InputFocus { PhysicalScreen, W
 
 **Step 2: Make it a type, not a flag**
 
-An enum on the sink, so routing is an exhaustive match and a new domain cannot be silently unhandled. `docs/host-desktop.md:49` also requires Lua to be able to query it.
+An enum on the sink, so routing is an exhaustive match and a new domain cannot be silently unhandled. `docs/dev/host-desktop.md:49` also requires Lua to be able to query it.
 
 **Step 3: Keyboard focus**
 
@@ -604,12 +604,12 @@ Test pointer mapping under GNOME specifically. It is unverified whether mutter m
 
 **Step 5: Record the findings**
 
-Append to `docs/2026-08-06-milestone-0-findings.md`: which portal backend was tested and what it put in `mapping_id`; whether restore actually avoided a prompt on the second run; whether the uinput mapping was correct on a scaled or rotated display; and the GNOME result.
+Append to `docs/dev/2026-08-06-milestone-0-findings.md`: which portal backend was tested and what it put in `mapping_id`; whether restore actually avoided a prompt on the second run; whether the uinput mapping was correct on a scaled or rotated display; and the GNOME result.
 
 **Step 6: Commit**
 
 ```bash
-git add docs/2026-08-06-milestone-0-findings.md
+git add docs/dev/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record monitor mirroring findings"
 ```
 <!-- END_TASK_10 -->

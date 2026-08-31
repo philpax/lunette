@@ -336,7 +336,7 @@ fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> 
 /// The rate is a ceiling, and the floor is approximately 1 Hz, not zero: a
 /// client answered no frame callbacks at all stops pumping its event loop and
 /// stops answering input with it, so a rate below the floor is paced at the
-/// floor. `docs/rendering.md` records why. Assigning a rate to a window is
+/// floor. `docs/dev/rendering.md` records why. Assigning a rate to a window is
 /// policy that belongs in `mullion`.
 ///
 /// `false` on a dead handle, like every other mutation here.

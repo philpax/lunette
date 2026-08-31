@@ -1,31 +1,31 @@
 -- Panels: a pixel source bound to a pose and a size in metres.
 --
--- docs/stdlib.md's tier 1. A panel binds a window or a monitor to a place in
+-- docs/dev/stdlib.md's tier 1. A panel binds a window or a monitor to a place in
 -- the world, renders on a composition layer or as an in-scene quad, turns a
 -- ray hit into a pixel coordinate, and draws chrome around it.
 --
--- It is not a privileged object. docs/stdlib.md states that a panel is an
+-- It is not a privileged object. docs/dev/stdlib.md states that a panel is an
 -- abstraction over the primitives and that windows and sinks are usable without
 -- one, so everything here is limited to what a configuration could call:
 -- `lunette.claimLayer`, the source's own fields, and LÖVR.
 --
--- Both realisations are live from the start. docs/rendering.md describes the
+-- Both realisations are live from the start. docs/dev/rendering.md describes the
 -- in-scene quad as the fallback. The fallback is not a degraded mode. A claim
 -- is revoked whenever a higher-priority one arrives at capacity, so a panel
 -- that draws nothing while it holds no claim would disappear.
 --
 -- Grants and revocations happen on frame boundaries and never mid-frame
--- (docs/lua-api.md#layer-claims), so `update` reads `claim.granted` and does
+-- (docs/dev/lua-api.md#layer-claims), so `update` reads `claim.granted` and does
 -- not handle `lunette.onLayerGranted`. The handling stays on one code path.
 -- `lunette.onLayerGranted` stays free for a configuration to use; the callback
 -- namespace belongs to the configuration, and a library claim would occupy it.
 --
 -- A monitor panel never claims a layer. `lunette.claimLayer` takes `window`
--- and no other argument (docs/lua-api.md#layer-claims), so a mirrored screen
+-- and no other argument (docs/dev/lua-api.md#layer-claims), so a mirrored screen
 -- has no way to request a layer and draws as a quad. The absence of a claim
 -- path is a native API gap, not a decision of the module.
 -- The ray-quad intersection is in `mullion.panel.raycast` and is re-exported
--- here as `panel.rayQuadHit`, the name docs/stdlib.md uses. The intersection is
+-- here as `panel.rayQuadHit`, the name docs/dev/stdlib.md uses. The intersection is
 -- pure arithmetic over a matrix; the panel module holds claims, sources, and
 -- draw calls. The split keeps each file within the size threshold.
 
@@ -133,7 +133,7 @@ panel.STYLE = {
 
 -- The priority a panel claims a layer with when its options give none.
 --
--- A single number, because ranking is the configuration's: docs/lua-api.md
+-- A single number, because ranking is the configuration's: docs/dev/lua-api.md
 -- states that lunette assigns no priority itself. Focus, gaze, and distance
 -- are cases of a configuration computing a different one.
 panel.DEFAULT_PRIORITY = 10
@@ -147,7 +147,7 @@ panel.DEFAULT_HEIGHT = 0.8
 -- imported as the alpha-carrying format with the same component order. The
 -- client's padding byte arrives as alpha. Most renderers leave that byte at
 -- zero, so sampling it draws the window fully invisible. `source.opaque`
--- indicates the byte carries no meaning. docs/rendering.md#alpha directs a
+-- indicates the byte carries no meaning. docs/dev/rendering.md#alpha directs a
 -- consumer to force alpha to one, not sample it. This shader is that consumer.
 panel.OPAQUE_FRAGMENT = [[
   vec4 lovrmain() {
@@ -201,7 +201,7 @@ end
 -- creates a fresh handle on every call, so a panel's handle and a later
 -- enumeration's handle are two tables describing one window and do not compare
 -- equal. The identifier is stable, and it is stable across a soft reload too
--- (docs/lua-api.md#per-window-properties), which makes re-adoption possible.
+-- (docs/dev/lua-api.md#per-window-properties), which makes re-adoption possible.
 --
 -- A linear scan serves a session with tens of panels, not thousands. An index
 -- would add bookkeeping that every destroy must maintain.
@@ -402,7 +402,7 @@ function methods.draw(self: Panel, pass: Pass)
 
   -- Read each frame alongside the texture, not cached: `opaque` is a property
   -- of the buffer and changes when the client renegotiates its format
-  -- (docs/rendering.md#alpha).
+  -- (docs/dev/rendering.md#alpha).
   local shader = opaqueShaderFor(self)
   if shader then
     pass:setShader(shader)
@@ -422,8 +422,8 @@ function methods.draw(self: Panel, pass: Pass)
   pass:setBlendMode('alpha', 'alphamultiply')
 end
 
--- A border and a title. Not a widget layer: docs/stdlib.md defers 2D widgets,
--- and docs/stdlib.md records the toolkit as possibly a separate library
+-- A border and a title. Not a widget layer: docs/dev/stdlib.md defers 2D widgets,
+-- and docs/dev/stdlib.md records the toolkit as possibly a separate library
 -- entirely, so this stays within `Pass:plane` and `Pass:text`.
 function methods.drawChrome(self: Panel, pass: Pass)
   local style = panel.STYLE
@@ -459,7 +459,7 @@ end
 -- out of the list.
 --
 -- Releasing is explicit, because nothing releases a claim when its handle is
--- collected (docs/lua-api.md#layer-claims). A configuration that drops a panel
+-- collected (docs/dev/lua-api.md#layer-claims). A configuration that drops a panel
 -- without destroying it holds a layer out of the pool until the session ends.
 function methods.destroy(self: Panel): boolean
   if self.dead then

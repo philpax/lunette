@@ -1,6 +1,6 @@
 -- The error handler.
 --
--- docs/lua-api.md#errors places this in mullion and states the reason:
+-- docs/dev/lua-api.md#errors places this in mullion and states the reason:
 -- `lovr.errhand` is overridable, so a configuration can replace this handler
 -- wholesale. The native layer keeps one failure path of its own, safe mode,
 -- which starts when `main.lua` cannot load.
@@ -15,7 +15,7 @@
 -- contributions. A session that never installs it keeps the log and its own
 -- subscribers, and has no limiter, because the limiter is part of this module.
 --
--- The panel that docs/lua-api.md#errors describes is `mullion.error.panel`,
+-- The panel that docs/dev/lua-api.md#errors describes is `mullion.error.panel`,
 -- which wraps `errors.report`. Installing it from here would force a session
 -- without a graphics module to load a module that needs a `Pass`; a report is
 -- a string, and drawing one needs a `Pass`. The panel stays separate.

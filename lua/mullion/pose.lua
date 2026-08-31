@@ -1,7 +1,7 @@
 -- The module encodes a pose as a string and decodes a string into a pose.
 --
 -- The per-window property store takes a number, a string, or a boolean and
--- refuses a table (docs/lua-api.md#per-window-properties). The store keeps
+-- refuses a table (docs/dev/lua-api.md#per-window-properties). The store keeps
 -- arbitrary Lua values out, and a table as a property value would put them
 -- in. A caller who needs structure encodes it into a string first.
 --

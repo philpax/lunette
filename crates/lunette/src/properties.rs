@@ -1,14 +1,14 @@
 //! Per-window state that outlives the Lua state.
 //!
 //! A soft reload discards the Lua state and re-runs `main.lua`
-//! (`docs/architecture.md`); anything the standard library must remember
+//! (`docs/dev/architecture.md`); anything the standard library must remember
 //! across a reload cannot be kept in Lua. State a rule can derive comes back
 //! when the rules re-run; a pose the user placed by hand, a size they
 //! dragged, a tag they assigned by hand do not. This store holds those.
 //!
 //! # `win.userdata`
 //!
-//! `docs/architecture.md` gives windows a `userdata` field, the obvious place
+//! `docs/dev/architecture.md` gives windows a `userdata` field, the obvious place
 //! for per-window state. It holds a Lua value, and a Lua value does not
 //! survive its state being discarded. `userdata` is for state that is worth
 //! keeping for the rest of the session and worth losing on a reload; this
@@ -29,7 +29,7 @@
 //! those outlive the window manager's own process, and skips or alters rule
 //! application at startup when any are present. lunette has no X server, and
 //! this is the adaptation: a native store that outlives the Lua state for the
-//! same reason. `docs/lua-api.md` records the choice.
+//! same reason. `docs/dev/lua-api.md` records the choice.
 //!
 //! Writing any of this to disk, to survive a full restart, belongs to the
 //! standard library, not to this module. This store is live state, keyed by

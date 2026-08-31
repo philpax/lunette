@@ -3,7 +3,7 @@
 //! An output is a virtual monitor lunette shows to the clients assigned to it.
 //! WayVR has one shared output for everything. Every application gets the
 //! same scale factor, and a client querying its display gets an answer
-//! unrelated to the panel it is on. `docs/compositor.md` states why lunette
+//! unrelated to the panel it is on. `docs/dev/compositor.md` states why lunette
 //! does not use one shared output.
 //!
 //! # Units

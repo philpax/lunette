@@ -1,6 +1,6 @@
 -- Tags: named groups of panels, and which of them the user is looking at.
 --
--- docs/stdlib.md's tier 3, the part that determines what is shown. A tag has a
+-- docs/dev/stdlib.md's tier 3, the part that determines what is shown. A tag has a
 -- name, an index, a selected flag, and a layout attached, and a panel belongs
 -- to a set of tags, not to one workspace.
 --
@@ -17,7 +17,7 @@
 -- needed to remove it; `panels` compacts. A tag holding a destroyed panel
 -- between one call and the next costs a table entry.
 --
--- `mullion.tag.current` is one of the two module paths docs/lua-api.md
+-- `mullion.tag.current` is one of the two module paths docs/dev/lua-api.md
 -- attests. The name is fixed. It answers the selected tags, not one tag,
 -- because selection is multi.
 

@@ -2,7 +2,7 @@
 //! load.
 //!
 //! The native layer owns one failure path
-//! ([the Lua API](../../../docs/lua-api.md#errors)). That path produces safe mode:
+//! ([the Lua API](../../../docs/dev/lua-api.md#errors)). That path produces safe mode:
 //! a laser, one panel, a terminal, and a reload key. Safe mode shows the cause of the
 //! failure and lets the user recover from inside the headset without taking it off to
 //! edit a file.
@@ -28,13 +28,13 @@
 //! `lovr.load` that raises is caught by the wrapper and replaced with safe mode, while
 //! every other callback reports through [`crate::callback_error`]. `lovr.load` is where a
 //! configuration builds the state its later callbacks assume, and a session whose
-//! `lovr.load` raises halfway cannot run those callbacks. `docs/lua-api.md` records the
+//! `lovr.load` raises halfway cannot run those callbacks. `docs/dev/lua-api.md` records the
 //! boundary.
 //!
 //! Everything after `lovr.load` (`lovr.update`, `lovr.draw`, the `lun*`
 //! callbacks) runs inside the frame loop, after the wrapper has returned it, so a
 //! runtime error in one of them does not reach the wrapper. The distinction is
-//! described in [the Lua API](../../../docs/lua-api.md#errors): a runtime error in
+//! described in [the Lua API](../../../docs/dev/lua-api.md#errors): a runtime error in
 //! a callback of a configuration that started goes to [`crate::callback_error`],
 //! and a reload that fails leaves the previous session running
 //! ([`crate::reload`]).

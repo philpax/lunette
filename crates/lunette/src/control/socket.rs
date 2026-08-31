@@ -2,7 +2,7 @@
 //!
 //! The socket evaluates arbitrary Lua in the user's session. Reaching it is
 //! equivalent to reaching everything the user can reach
-//! ([the Lua API](../../../docs/lua-api.md#lunctl)). Filesystem permissions
+//! ([the Lua API](../../../docs/dev/lua-api.md#lunctl)). Filesystem permissions
 //! are the whole of the boundary. There is no authentication behind them.
 //!
 //! # Private directory for the socket

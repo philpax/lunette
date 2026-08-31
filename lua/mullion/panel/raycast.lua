@@ -6,7 +6,7 @@
 --
 -- A configuration can use the intersection on its own, for a quad that is
 -- not a panel. `mullion.panel` re-exports `hit` as `panel.rayQuadHit`, the
--- name docs/stdlib.md uses.
+-- name docs/dev/stdlib.md uses.
 
 local raycast = {}
 
@@ -26,7 +26,7 @@ type Quad = {
 -- LÖVR provides no ray-plane intersection. `Mat4` has no intersection
 -- method, and LÖVR's raycasts operate in the physics world and need a
 -- collider; a panel has no collider. The standard library provides the
--- intersection, as docs/input.md records.
+-- intersection, as docs/dev/input.md records.
 --
 -- `quad` has `pose`, a `Mat4`; `width` and `height` in metres;
 -- `pixelWidth` and `pixelHeight`; and `backFace`, which allows a hit from

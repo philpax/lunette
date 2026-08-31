@@ -6,7 +6,7 @@
 
 **Tech Stack:** LÖVR layer API, OpenXR quad composition layers, smithay's `RendererSurfaceState` damage tracking.
 
-**Scope:** Phase 3 of 8 from `docs/design-plans/2026-08-05-lunette-v1.md`.
+**Scope:** Phase 3 of 8 from `docs/dev/design-plans/2026-08-05-lunette-v1.md`.
 
 **Codebase verified:** 2026-08-05.
 
@@ -279,13 +279,13 @@ git commit -m "feat: add the composition layer pool"
 **Verifies:** `lunette-v1.AC2.4` (by correcting the documents that describe it).
 
 **Files:**
-- Modify: `docs/rendering.md`
-- Modify: `docs/design-plans/2026-08-05-lunette-v1.md`
-- Modify: `docs/decisions.md`
+- Modify: `docs/dev/rendering.md`
+- Modify: `docs/dev/design-plans/2026-08-05-lunette-v1.md`
+- Modify: `docs/dev/decisions.md`
 
-Task 2 recycles whole `Layer` objects on a key that deliberately excludes format. `docs/rendering.md` still says something else, and `docs/` is normative — a change that alters behaviour described there updates the document in the same change.
+Task 2 recycles whole `Layer` objects on a key that deliberately excludes format. `docs/dev/rendering.md` still says something else, and `docs/dev/` is normative — a change that alters behaviour described there updates the document in the same change.
 
-**Step 1: Correct `docs/rendering.md:43`**
+**Step 1: Correct `docs/dev/rendering.md:43`**
 
 It currently states: "Rust owns the pool instead, and recycles swapchains by `(width, height, format)`."
 
@@ -293,7 +293,7 @@ Neither half of the mechanism survives investigation. `struct Layer` embeds its 
 
 Rewrite it for what Task 2 builds: Rust owns the pool and recycles whole `Layer` objects, keyed on the properties `LayerInfo` makes immutable — width, height, stereo, immutable, transparent, filter. Say that format is absent because there is exactly one, so a reader does not take the omission for an oversight.
 
-**Step 2: Correct `docs/rendering.md:41`**
+**Step 2: Correct `docs/dev/rendering.md:41`**
 
 It describes the layer list as "per-frame, global, last-call-wins". The first is wrong: `lovrHeadsetSetLayers` retains the list in `state.layers` and it **persists across frames** (`headset.c:2759-2781`, read back by `lovrHeadsetGetLayers`). It does not need setting every frame.
 
@@ -307,22 +307,22 @@ Restate in terms of what is reused — a revoked **layer** — and drop format f
 
 **Step 4: Record the decision**
 
-Add a paragraph to `docs/decisions.md` under "Recorded decisions", in the surrounding style. Record that the recycling unit is the `Layer`, not the swapchain, with the reason — LÖVR gives no way to detach one from the other, and patching `struct Layer` to allow it would mean splitting `Swapchain` into a refcounted object and rewriting `subImage` on both the quad and cylinder structs, since `lovrLayerSetCurve` copies between them (`headset.c:3253-3305`).
+Add a paragraph to `docs/dev/decisions.md` under "Recorded decisions", in the surrounding style. Record that the recycling unit is the `Layer`, not the swapchain, with the reason — LÖVR gives no way to detach one from the other, and patching `struct Layer` to allow it would mean splitting `Swapchain` into a refcounted object and rewriting `subImage` on both the quad and cylinder structs, since `lovrLayerSetCurve` copies between them (`headset.c:3253-3305`).
 
 This belongs in the record because "recycle the swapchain" is the obvious framing and someone will propose it again. It is also worth recording that the design's original framing was not wrong about the goal, only about the unit.
 
 **Step 5: Verify**
 
-Run: `rg -n 'recycles swapchains|per-frame, global' docs/`
+Run: `rg -n 'recycles swapchains|per-frame, global' docs/dev/`
 Expected: no matches.
 
-Run: `rg -n 'width, height, and format' docs/design-plans/`
+Run: `rg -n 'width, height, and format' docs/dev/design-plans/`
 Expected: no matches.
 
 **Step 6: Commit**
 
 ```bash
-git add docs/
+git add docs/dev/
 git commit -m "docs: restate layer recycling in terms of layers, not swapchains"
 ```
 <!-- END_TASK_3 -->
@@ -369,17 +369,17 @@ git commit -m "feat: rebuild the layer pool on session loss"
 **Files:**
 - Create: `crates/lunette/src/lua/claim.rs`
 - Modify: `crates/lunette/src/lua/mod.rs`
-- Modify: `docs/lua-api.md`
+- Modify: `docs/dev/lua-api.md`
 
 **Step 1: The API**
 
 `lunette.claimLayer` takes a source, a requested size, and a scalar priority, and returns a `Claim` handle. A granted claim exposes a real LÖVR `Layer` userdata — not a wrapper, so Lua uses the documented `Layer` methods directly. `claim:setPriority(n)` adjusts the ranking without recreating the claim.
 
-`docs/rendering.md:47-50` describes claim semantics but names no function, so nothing in `docs/` currently tells a configuration author how to obtain a claim. Document `lunette.claimLayer`, `claim:setPriority`, and the `Claim` handle's fields in `docs/lua-api.md` in this task. Phase 6's panels choose between a layer and an in-scene quad, and by `CONTRIBUTING.md:62` mullion may use only the public API — an undocumented constructor makes tier 1 unwritable.
+`docs/dev/rendering.md:47-50` describes claim semantics but names no function, so nothing in `docs/dev/` currently tells a configuration author how to obtain a claim. Document `lunette.claimLayer`, `claim:setPriority`, and the `Claim` handle's fields in `docs/dev/lua-api.md` in this task. Phase 6's panels choose between a layer and an in-scene quad, and by `CONTRIBUTING.md:62` mullion may use only the public API — an undocumented constructor makes tier 1 unwritable.
 
 **Step 2: Ranking**
 
-Rust sorts by the Lua-supplied priority and assigns the top N deterministically. It does not invent the ranking; ranking is application knowledge and belongs to Lua. This split is a recorded decision in `docs/decisions.md` and was revisited once during design, so do not re-litigate it in code.
+Rust sorts by the Lua-supplied priority and assigns the top N deterministically. It does not invent the ranking; ranking is application knowledge and belongs to Lua. This split is a recorded decision in `docs/dev/decisions.md` and was revisited once during design, so do not re-litigate it in code.
 
 Sort stably, so equal priorities do not reorder between frames and cause grants to churn.
 
@@ -564,7 +564,7 @@ Check it under Monado in service mode. Overlay sessions do not work in monolithi
 
 **Step 4: Record the layer findings**
 
-Append to `docs/2026-08-06-milestone-0-findings.md`:
+Append to `docs/dev/2026-08-06-milestone-0-findings.md`:
 
 - The value of `maxLayerCount` Monado reported, and the conservative cap chosen against it.
 - Free-list hit rate in ordinary use, and whether the size ladder's steps were the right ones.
@@ -574,7 +574,7 @@ Append to `docs/2026-08-06-milestone-0-findings.md`:
 **Step 5: Commit**
 
 ```bash
-git add docs/2026-08-06-milestone-0-findings.md
+git add docs/dev/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record layer pool findings"
 ```
 <!-- END_TASK_9 -->

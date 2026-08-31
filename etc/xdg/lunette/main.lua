@@ -2,7 +2,7 @@
 --
 -- lunette loads this session when the user has no configuration of their own.
 -- It is also the worked example every new user reads, so it stays small:
--- docs/stdlib.md's tier 4 requires a terminal on a panel, a laser, and a
+-- docs/dev/stdlib.md's tier 4 requires a terminal on a panel, a laser, and a
 -- reload key, and a large default configuration would raise the expected size
 -- of a configuration.
 --
@@ -136,7 +136,7 @@ local unplaced = {}
 --
 -- A global. A soft reload discards the configuration's locals along with
 -- everything else the session loaded, and keeps globals
--- (docs/lua-api.md#reload): a local here would be nil again on every reload,
+-- (docs/dev/lua-api.md#reload): a local here would be nil again on every reload,
 -- and the session would open another terminal each time the user presses F5.
 -- Checking whether any panels exist does not work: a user who closed every
 -- window and then reloaded would get a fresh one. Written through `_G` so the
@@ -264,7 +264,7 @@ function lovr.load()
 
   -- A restart closes the Lua state, so the global below is gone even though
   -- the windows from the previous session are not
-  -- (docs/architecture.md#survival-across-lifecycle-events). Anything to adopt
+  -- (docs/dev/architecture.md#survival-across-lifecycle-events). Anything to adopt
   -- is a terminal this configuration already opened, so the guard is restored
   -- from what survived, not from what is remembered.
   if #adopted > 0 then

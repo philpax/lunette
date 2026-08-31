@@ -43,9 +43,9 @@ This is the phase's hardest fact and the design does not mention it.
 
 So every dmabuf-imported `VkImage` and every `VkDeviceMemory` the compositor thread owns becomes a dangling handle, and `vkDestroyDevice` will abort or leak if they are still live. Phase 2 Task 10 established that lunette owns those objects, not LÖVR — `gpu_texture_destroy` returns early on `imported`.
 
-**AC5.5 is still achievable**, because the compositor never speaks Vulkan to its clients. It imports fds. The Wayland socket, the client connections, and the `wl_buffer` state all live in Rust, outside the Lua state, and are untouched by any of this. `docs/architecture.md:58` records the enabling rule: Rust holds no long-lived references into Lua.
+**AC5.5 is still achievable**, because the compositor never speaks Vulkan to its clients. It imports fds. The Wayland socket, the client connections, and the `wl_buffer` state all live in Rust, outside the Lua state, and are untouched by any of this. `docs/dev/architecture.md:58` records the enabling rule: Rust holds no long-lived references into Lua.
 
-What it needs is an explicit two-phase teardown across the thread boundary, decided on 2026-08-06 and built in Tasks 3 and 4. `docs/lovr-integration.md:74` says "imported textures die and re-import", which is correct but reads as a passive consequence rather than a protocol that must be driven.
+What it needs is an explicit two-phase teardown across the thread boundary, decided on 2026-08-06 and built in Tasks 3 and 4. `docs/dev/lovr-integration.md:74` says "imported textures die and re-import", which is correct but reads as a passive consequence rather than a protocol that must be driven.
 
 **Ordering matters.** lunette's teardown must run *before* `luax_close`, driven from `lovr.restart` or immediately before the step function returns `'restart'`. Registering it as another `luax_atexit` finalizer would be wrong: the chain is a linked list with no ordering guarantee relative to graphics, and `graphics.c:891-894` carries LÖVR's own comment that the headset-versus-graphics teardown ordering "is really hacky". Do not add to that.
 
@@ -55,13 +55,13 @@ The cookie arrives in the new state as `arg.restart` (`main.c:40-42`). It is a s
 
 ### Reload must not clear `lovr.*`
 
-`docs/lua-api.md:62`: reload "clears `package.loaded` for user and standard-library namespaces and re-runs `main.lua`. The LÖVR modules, XR session, GPU objects, compositor, and clients all remain running."
+`docs/dev/lua-api.md:62`: reload "clears `package.loaded` for user and standard-library namespaces and re-runs `main.lua`. The LÖVR modules, XR session, GPU objects, compositor, and clients all remain running."
 
 The scope is user and standard-library namespaces. Clearing `lovr.*` would make the next `require 'lovr.graphics'` re-run module initialisation against a live graphics module.
 
-`docs/lua-api.md:64` names the hazards: "timers, signal connections, coroutines, and stashed handles", with mullion providing the teardown hook that soft reload calls — built in Phase 6 Task 4.
+`docs/dev/lua-api.md:64` names the hazards: "timers, signal connections, coroutines, and stashed handles", with mullion providing the teardown hook that soft reload calls — built in Phase 6 Task 4.
 
-One hazard the specification does not name: `main.lua` defines the user's LÖVR callbacks (`docs/lua-api.md:18`), so a re-run that leaves a stale `lovr.draw` from a callback the user has since deleted keeps calling it. Reset the user callbacks as part of the clear.
+One hazard the specification does not name: `main.lua` defines the user's LÖVR callbacks (`docs/dev/lua-api.md:18`), so a re-run that leaves a stale `lovr.draw` from a callback the user has since deleted keeps calling it. Reset the user callbacks as part of the clear.
 
 ### The chunk budget cannot be strict under LuaJIT
 
@@ -100,7 +100,7 @@ Unlink a stale socket only after confirming nothing is listening on it, or two i
 
 Two limits follow:
 
-- **Four payload arguments.** `docs/lua-api.md:42` states it: "boot.lua's poll loop unpacks four arguments, so richer payloads travel as a table."
+- **Four payload arguments.** `docs/dev/lua-api.md:42` states it: "boot.lua's poll loop unpacks four arguments, so richer payloads travel as a table."
 - **Event names are capped at 31 characters plus a NUL** — `CustomEvent.name` is `char name[32]` (`event.h:102-106`). Every `lun*` name planned fits, but the limit is worth knowing before someone invents a longer one.
 
 `'quit'` and `'restart'` are intercepted before dispatch and are reserved.
@@ -111,11 +111,11 @@ Native code pushes by building a `CustomEvent` and calling `lovrEventPush`, exac
 
 Reference cycles recurse infinitely without a seen-set. Shared subtables get duplicated by a naive tree serialiser. Table and function keys have no stable representation. Mixed array and hash parts have no JSON equivalent. `nil` holes change `#t`. NaN and infinity, and integer-versus-float precision, need decided answers. `__index` and `__pairs` metamethods can hide or fabricate fields. Functions, coroutines, and userdata are unrepresentable outright.
 
-`CONTRIBUTING.md` is explicit that silently dropping content you cannot represent is a correctness bug, not a convenience. So the serialiser **errors** on an unrepresentable value rather than falling back to `tostring` — which is precisely what `docs/lua-api.md:97` criticises awesome for.
+`CONTRIBUTING.md` is explicit that silently dropping content you cannot represent is a correctness bug, not a convenience. So the serialiser **errors** on an unrepresentable value rather than falling back to `tostring` — which is precisely what `docs/dev/lua-api.md:97` criticises awesome for.
 
 LÖVR's own `luax_checkvariant` (`api.c:561`) handles nested tables to depth 128 with a cycle check at `:562`, which is a reasonable precedent for the caps.
 
-Handles serialise as a tagged node carrying the Rust-side generational id that already backs them (`docs/architecture.md:48`). **Not `tostring(table)` addresses** — those are reused after collection, so an id could silently refer to a different object.
+Handles serialise as a tagged node carrying the Rust-side generational id that already backs them (`docs/dev/architecture.md:48`). **Not `tostring(table)` addresses** — those are reused after collection, so an id could silently refer to a different object.
 
 ### awesome-client, for shape only
 
@@ -123,9 +123,9 @@ Handles serialise as a tagged node carrying the Rust-side generational id that a
 
 Worth taking as shape: the three CLI modes, returning the *list* of results rather than a single value, and treating a load error and a runtime error as distinguishable outcomes.
 
-Worth rejecting: the transport, the `tostring` fallback, and that it is enabled unconditionally by `require("awful")` with no timeout, no depth limit, and no authentication beyond session-bus reachability. `docs/lua-api.md:96` requires lunette to have a switch that disables it.
+Worth rejecting: the transport, the `tostring` fallback, and that it is enabled unconditionally by `require("awful")` with no timeout, no depth limit, and no authentication beyond session-bus reachability. `docs/dev/lua-api.md:96` requires lunette to have a switch that disables it.
 
-awesome is GPL-2 and lunette GPL-3-only, so no code is taken (`docs/decisions.md:11`, `:13`).
+awesome is GPL-2 and lunette GPL-3-only, so no code is taken (`docs/dev/decisions.md:11`, `:13`).
 
 ---
 
@@ -145,23 +145,23 @@ Call Phase 6 Task 4's registry before touching anything else. Hooks run in rever
 
 **Step 2: Clear the right namespaces**
 
-`package.loaded` for **user and standard-library namespaces only**. `docs/lua-api.md:62` scopes it that way, and the reason is concrete: clearing `lovr.*` would make the next `require 'lovr.graphics'` re-run module initialisation against a live graphics module.
+`package.loaded` for **user and standard-library namespaces only**. `docs/dev/lua-api.md:62` scopes it that way, and the reason is concrete: clearing `lovr.*` would make the next `require 'lovr.graphics'` re-run module initialisation against a live graphics module.
 
 Enumerate what to clear by prefix rather than by exclusion list, so a module added later is covered by default and `lovr.*` is never at risk.
 
 **Step 3: Reset user callbacks**
 
-`main.lua` defines `lovr.draw`, `lovr.update`, and the `lovr.lun*` handlers (`docs/lua-api.md:18`). Re-running it redefines the ones it still defines — but a callback the user *deleted* from their config stays bound to the old function and keeps being called.
+`main.lua` defines `lovr.draw`, `lovr.update`, and the `lovr.lun*` handlers (`docs/dev/lua-api.md:18`). Re-running it redefines the ones it still defines — but a callback the user *deleted* from their config stays bound to the old function and keeps being called.
 
 Clear the user-settable callbacks before the re-run. The specification does not say this; it follows from `main.lua` owning them, and omitting it produces a reload that silently keeps executing deleted code.
 
 **Step 4: Re-run `main.lua`**
 
-Through the same path Phase 1 established. A failure here does **not** fall into safe mode — safe mode is for load failure at startup (`docs/lua-api.md:76`). A reload that fails leaves the session running and reports the error, because the user has a working session in front of them and can fix the file and reload again.
+Through the same path Phase 1 established. A failure here does **not** fall into safe mode — safe mode is for load failure at startup (`docs/dev/lua-api.md:76`). A reload that fails leaves the session running and reports the error, because the user has a working session in front of them and can fix the file and reload again.
 
 **Step 5: Nothing native restarts**
 
-LÖVR modules, the XR session, GPU objects, the compositor thread, and every client keep running. `docs/lua-api.md:62` calls it "effectively instant, with no visual disruption", and that is the whole point of soft reload existing alongside restart.
+LÖVR modules, the XR session, GPU objects, the compositor thread, and every client keep running. `docs/dev/lua-api.md:62` calls it "effectively instant, with no visual disruption", and that is the whole point of soft reload existing alongside restart.
 
 **Step 6: Test**
 
@@ -236,7 +236,7 @@ It acknowledges over the event channel when done. The main thread blocks on that
 
 Only its GPU state dies. The Wayland display, the listening socket, every client connection, and the `wl_buffer` state all stay exactly as they are.
 
-This is what makes AC5.5 possible at all, and it works because the compositor never speaks Vulkan to a client — it imports fds. `docs/architecture.md:58` records the rule that makes it safe: Rust holds no long-lived references into Lua, so nothing it owns is invalidated by the Lua state going away.
+This is what makes AC5.5 possible at all, and it works because the compositor never speaks Vulkan to a client — it imports fds. `docs/dev/architecture.md:58` records the rule that makes it safe: Rust holds no long-lived references into Lua, so nothing it owns is invalidated by the Lua state going away.
 
 Retain the dmabufs themselves. Task 4 re-imports from them, and they are the reason clients do not need to redraw.
 
@@ -325,11 +325,11 @@ git commit -m "feat: re-import client buffers after restart"
 
 **Files:**
 - Create: `crates/lunette/src/control/mod.rs`, `socket.rs`
-- Modify: `docs/lua-api.md`, `docs/design-plans/2026-08-05-lunette-v1.md`
+- Modify: `docs/dev/lua-api.md`, `docs/dev/design-plans/2026-08-05-lunette-v1.md`
 
 **Step 0: Correct the documented path**
 
-`docs/lua-api.md:80` and the design plan (line 325) both give the socket as `$XDG_RUNTIME_DIR/lunette-0.sock`. Step 1 moves it into a 0700 directory, so it becomes `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`.
+`docs/dev/lua-api.md:80` and the design plan (line 325) both give the socket as `$XDG_RUNTIME_DIR/lunette-0.sock`. Step 1 moves it into a 0700 directory, so it becomes `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`.
 
 Update both, and record why in a sentence: the directory mode is what makes the 0600 requirement enforceable, because `fchmod` on a socket fd does nothing on Linux. Anyone reading the documented path and reproducing it without the directory would reintroduce the race.
 
@@ -357,11 +357,11 @@ A crashed instance leaves the file behind. Unlink it only after confirming nothi
 
 **Step 4: Never a network address**
 
-`docs/lua-api.md:99` and AC8.2 both require it. There is no configuration that makes this listen on a network address; the type is a Unix listener and nothing accepts a host or port.
+`docs/dev/lua-api.md:99` and AC8.2 both require it. There is no configuration that makes this listen on a network address; the type is a Unix listener and nothing accepts a host or port.
 
 **Step 5: A switch to disable it**
 
-`docs/lua-api.md:96` requires one. Default it on — the whole point is in-headset iteration — but a user who wants no evaluation endpoint must be able to have none.
+`docs/dev/lua-api.md:96` requires one. Default it on — the whole point is in-headset iteration — but a user who wants no evaluation endpoint must be able to have none.
 
 **Step 6: Bounded work**
 
@@ -390,11 +390,11 @@ git commit -m "feat: add the lunctl control socket"
 
 **Files:**
 - Create: `crates/lunette/src/control/eval.rs`
-- Modify: `docs/design-plans/2026-08-05-lunette-v1.md`, `docs/decisions.md`
+- Modify: `docs/dev/design-plans/2026-08-05-lunette-v1.md`, `docs/dev/decisions.md`
 
 **Step 1: Between frames, on the Lua thread**
 
-Chunks evaluate on the main thread between frames, never concurrently with `lovr.update` or `lovr.draw`. That is what makes it safe for a chunk to touch the same state a callback touches, and `docs/lua-api.md:95` specifies it.
+Chunks evaluate on the main thread between frames, never concurrently with `lovr.update` or `lovr.draw`. That is what makes it safe for a chunk to touch the same state a callback touches, and `docs/dev/lua-api.md:95` specifies it.
 
 **Step 2: `jit.off`, then the count hook**
 
@@ -408,7 +408,7 @@ Even with `jit.off` the budget is advisory. An `error()` raised from a hook can 
 
 Decided on 2026-08-06: best-effort, documented honestly. A hard bound needs a watchdog outside Lua, and since the chunk holds the Lua thread the only thing a watchdog could do is abort the process — turning a bad `lunctl` command into a crash that takes every running client with it, which is worse than the hang it prevents.
 
-Restate AC8.2's first clause in the design plan as best-effort, and record the reasoning in `docs/decisions.md` with the LuaJIT specifics, so the limitation is understood as a runtime property rather than an oversight.
+Restate AC8.2's first clause in the design plan as best-effort, and record the reasoning in `docs/dev/decisions.md` with the LuaJIT specifics, so the limitation is understood as a runtime property rather than an oversight.
 
 **Step 4: Distinguish load from runtime errors**
 
@@ -427,7 +427,7 @@ Cover: a chunk returning multiple values returns all; a load error is distinguis
 **Step 7: Commit**
 
 ```bash
-git add crates/lunette/src/control/eval.rs docs/
+git add crates/lunette/src/control/eval.rs docs/dev/
 git commit -m "feat: evaluate lunctl chunks under a best-effort budget"
 ```
 <!-- END_TASK_6 -->
@@ -446,17 +446,17 @@ Each node carries its type: nil, boolean, number, string, table, handle, or erro
 
 **Step 2: Handles as opaque ids**
 
-`{tag = "handle", kind = "window", id = <n>}`, where the id is the Rust-side generational id already backing the handle (`docs/architecture.md:48`).
+`{tag = "handle", kind = "window", id = <n>}`, where the id is the Rust-side generational id already backing the handle (`docs/dev/architecture.md:48`).
 
 **Not `tostring(table)` addresses.** Those are reused after collection, so an id could silently come to refer to a different object — the kind of bug that appears only under memory pressure.
 
-`docs/lua-api.md:97` names this as an improvement over awesome, which falls back to `tostring` for anything that is not a boolean or a number.
+`docs/dev/lua-api.md:97` names this as an improvement over awesome, which falls back to `tostring` for anything that is not a boolean or a number.
 
 **Step 3: Error rather than drop**
 
 Functions, coroutines, and userdata are unrepresentable. Table and function keys have no stable representation.
 
-**Error on each, naming the path to the offending value.** `CONTRIBUTING.md` is explicit that silently dropping content you cannot represent is a correctness bug, not a convenience. A `tostring` fallback is exactly the failure `docs/lua-api.md:97` criticises.
+**Error on each, naming the path to the offending value.** `CONTRIBUTING.md` is explicit that silently dropping content you cannot represent is a correctness bug, not a convenience. A `tostring` fallback is exactly the failure `docs/dev/lua-api.md:97` criticises.
 
 **Step 4: Decide the awkward cases**
 
@@ -547,7 +547,7 @@ Build a `CustomEvent` and call `lovrEventPush`, as `l_event.c:162-179` does from
 Two limits apply to every `lun*` event, not only this one:
 
 - **Names cap at 31 characters plus a NUL** (`event.h:102-106`, `char name[32]`). Everything planned fits; the limit is recorded so a longer name is not invented later and truncated silently.
-- **Only four payload arguments reach the handler** (`boot.lua:193`, `:198`). Payloads travel as a single table, per `docs/lua-api.md:42`.
+- **Only four payload arguments reach the handler** (`boot.lua:193`, `:198`). Payloads travel as a single table, per `docs/dev/lua-api.md:42`.
 
 `'quit'` and `'restart'` are intercepted before dispatch and are reserved.
 
@@ -557,7 +557,7 @@ An error in a callback does not end the frame or the session. Report it and carr
 
 **Step 4: Rate limiting and the panel are mullion's**
 
-Phase 6 Task 4 built the rate-limited handler and `docs/lua-api.md:74` says the handler is mullion code so it stays replaceable. This task provides the native side: the `xpcall` wrapping and the event.
+Phase 6 Task 4 built the rate-limited handler and `docs/dev/lua-api.md:74` says the handler is mullion code so it stays replaceable. This task provides the native side: the `xpcall` wrapping and the event.
 
 Do not duplicate rate limiting natively. Two rate limiters with different keys produce confusing gaps.
 
@@ -587,7 +587,7 @@ git commit -m "feat: catch callback errors and report them through lunerror"
 
 When `main.lua` fails to load, run Phase 6 Task 12's embedded chunk instead.
 
-This is the one failure path native owns (`docs/lua-api.md:76`). Everything else is Lua's, because `lovr.errhand` is overridable and the standard library must be replaceable.
+This is the one failure path native owns (`docs/dev/lua-api.md:76`). Everything else is Lua's, because `lovr.errhand` is overridable and the standard library must be replaceable.
 
 **Step 2: Load failure only**
 
@@ -627,7 +627,7 @@ git commit -m "feat: fall back to safe mode when main.lua fails to load"
 
 **Step 1: The end-to-end shell tests**
 
-`docs/build-and-development.md:71` describes them: "a shell script that spawns a client, evaluates Lua to assert state, and tears down."
+`docs/dev/build-and-development.md:71` describes them: "a shell script that spawns a client, evaluates Lua to assert state, and tears down."
 
 Drive `lunctl` to spawn a client, assert it appears in `lunette.windows()`, assert its properties, and tear down. Exit codes from Task 8 are what makes assertion possible.
 
@@ -654,12 +654,12 @@ All five commands from `CONTRIBUTING.md:171-175`, inside `nix develop`.
 
 **Step 5: Record the restart findings**
 
-Append to `docs/2026-08-06-milestone-0-findings.md`: whether the quiesce covered every GPU object, whether re-import succeeded for every retained dmabuf, whether any client noticed, and how long the restart took end to end.
+Append to `docs/dev/2026-08-06-milestone-0-findings.md`: whether the quiesce covered every GPU object, whether re-import succeeded for every retained dmabuf, whether any client noticed, and how long the restart took end to end.
 
 **Step 6: Commit**
 
 ```bash
-git add tests/e2e/ docs/2026-08-06-milestone-0-findings.md
+git add tests/e2e/ docs/dev/2026-08-06-milestone-0-findings.md
 git commit -m "test: drive lunctl end to end"
 ```
 <!-- END_TASK_11 -->

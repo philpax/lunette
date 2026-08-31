@@ -4,7 +4,7 @@
 -- so this rate sets what a hidden panel costs. `window:setFrameRate(hz)` is the
 -- mechanism; the per-window rate is policy, and the pacer selects it.
 --
--- docs/rendering.md states two defaults that are easy to get wrong. The floor
+-- docs/dev/rendering.md states two defaults that are easy to get wrong. The floor
 -- is approximately 1 Hz, not zero; the native layer enforces the floor, so a
 -- rate below it is paced at the floor. Video is exempt: a throttled video
 -- player stutters visibly, and the stutter costs more than the frames the

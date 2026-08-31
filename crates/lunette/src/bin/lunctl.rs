@@ -1,7 +1,7 @@
 //! Linux-only: `lunctl`, the client for lunette's control socket.
 //!
 //! Sends a Lua chunk to the running session and prints what came back
-//! ([the Lua API](../../../docs/lua-api.md#lunctl)). Three modes exist,
+//! ([the Lua API](../../../docs/dev/lua-api.md#lunctl)). Three modes exist,
 //! matching awesome-client: a chunk as an argument, a chunk on standard input,
 //! and an interactive prompt when standard input is a terminal.
 //!

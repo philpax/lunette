@@ -39,7 +39,7 @@
 //! option, a coordinate that is not a number. A race with a client that has
 //! exited does not raise: a dead handle answers `false` and reads its
 //! last-known values. Taking the session down over a window closing half a
-//! frame early is worse than doing nothing. `docs/lua-api.md` records that
+//! frame early is worse than doing nothing. `docs/dev/lua-api.md` records that
 //! choice.
 //!
 //! Raising is safe: `boot.lua` runs every callback under `xpcall`, and the

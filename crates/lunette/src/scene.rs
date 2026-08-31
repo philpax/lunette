@@ -2,7 +2,7 @@
 //! not to.
 //!
 //! An overlay whose panels are all on composition layers has nothing left to
-//! put in a projection layer. `docs/rendering.md` calls that skipping the
+//! put in a projection layer. `docs/dev/rendering.md` calls that skipping the
 //! projection layer, and the name understates what is skipped.
 //!
 //! # What `setLayers{ main = false }` saves
@@ -25,13 +25,13 @@
 //! `vendor/lovr/etc/boot.lua` calls `lovr.headset.getPass()` unconditionally,
 //! before it has looked at whether `lovr.draw` exists, and `lovr.mirror`
 //! calls `lovr.headset.getTexture()` for the desktop window. lunette runs
-//! that loop unmodified; `docs/lovr-integration.md` records keeping LÖVR's
+//! that loop unmodified; `docs/dev/lovr-integration.md` records keeping LÖVR's
 //! `lovr.run`. The two calls are wrapped: while the scene is skipped each
 //! answers nothing, `boot.lua` then gets no headset pass, and `lovr.draw` is
 //! not called.
 //!
 //! The XR frame is submitted either way. `lovr.headset.submit()` is outside the
-//! branch, and `docs/rendering.md` is explicit that an overlay submits every
+//! branch, and `docs/dev/rendering.md` is explicit that an overlay submits every
 //! cycle. Leaving the runtime's frame loop would also leave the composition
 //! layers unsubmitted.
 //!

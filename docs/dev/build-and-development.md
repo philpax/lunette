@@ -22,7 +22,7 @@ lunette/
   vendor/lovr/                    submodule → LÖVR with lunette's patch branch (recursive)
   vendor/lovr-docs/               submodule → the API metadata and its Luau generator, on lunette's branch
   vendor/mlua/                    submodule → mlua with lunette's Luau ABI patches
-  docs/                           this
+  docs/dev/                           this
   inspiration/                    reference checkouts, gitignored
 ```
 
@@ -99,7 +99,7 @@ End-to-end testing runs via `lunctl`, and it is Rust rather than a shell script.
 
 The half that is not covered is a client: a session with `modules.graphics = false` never lends a device to the compositor thread, so the thread does not start and nothing can connect to the Wayland socket it would serve. Spawning a client and asserting it appears in `lunette.windows()` therefore needs the GPU-headless tier above, and until that exists it is a human gate rather than a test. `crates/lunette-compositor/tests/` covers the client half against the compositor in-process, which is the same protocol traffic without the frame loop under it.
 
-The standing checks are listed in [CONTRIBUTING.md](../CONTRIBUTING.md) and run via `make check`. `lunette check` is one of them, which typechecks the standard library and the shipped configuration in strict mode, catching a local referenced before its declaration and an accidental global before a session sees them.
+The standing checks are listed in [CONTRIBUTING.md](../../CONTRIBUTING.md) and run via `make check`. `lunette check` is one of them, which typechecks the standard library and the shipped configuration in strict mode, catching a local referenced before its declaration and an accidental global before a session sees them.
 
 ## Decisions
 

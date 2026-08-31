@@ -20,7 +20,7 @@ The absence of a validation layer matters for how the results below should be re
 
 ## The check suite
 
-All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `nix develop`.
+All five commands from [CONTRIBUTING.md](../../CONTRIBUTING.md) pass, run inside `nix develop`.
 
 | Command | Result |
 |---|---|
@@ -30,7 +30,7 @@ All five commands from [CONTRIBUTING.md](../CONTRIBUTING.md) pass, run inside `n
 | `cargo test --workspace` | 1136 passed, 0 failed, 0 ignored |
 | `cargo test --workspace --no-default-features` | 1136 passed, 0 failed, 0 ignored |
 
-The 1136 are 522 in `lunette`, 17 in the `lunctl` binary target, 27 in the `lunette` binary target, 3 in `tests/default_configuration.rs`, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 9 in `tests/lunctl.rs`, 1 in `tests/mullion_spec.rs`, 3 in `tests/reload.rs`, 3 in `tests/safe_mode.rs`, 4 in `tests/standard_library.rs`, 239 in `lunette-capture`, 189 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, 20 in `tests/clipboard.rs`, 5 in `tests/content_type.rs`, 8 in `tests/fractional_scale.rs`, 8 in `tests/frame_pacing.rs`, 17 in `tests/outputs.rs`, 8 in `tests/pointer_routing.rs`, 7 in `tests/restart.rs`, 14 in `tests/seats.rs`, 6 in `tests/surface_routing.rs`, and 11 in `tests/type_text.rs`. The compositor's 299 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../CONTRIBUTING.md) requires of `lunette-compositor`, and they are re-run with no Vulkan ICD visible at the end of each phase to keep it that way. The count is the whole workspace as it stands, so it grew past milestone 0: everything under `layers::` and `lua::tests::layers` is 74 of it, of which the composition-layer work under [composition layers](#composition-layers) is the 61 that phase added — later phases put tests in the same modules, so the module total and the phase's contribution are no longer the same number. The monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 239 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`, the keyboard, seat, and clipboard work under [keyboard, seats, and clipboard](#keyboard-seats-and-clipboard) is 157 of it, the standard library under [the mullion standard library](#the-mullion-standard-library) is the 69 the workspace grew by after that, the reload, `lunctl`, and error-handling work is the 164 after that, and the outputs, scale, and pacing work under [outputs, scale, and pacing](#outputs-scale-and-pacing) is the 115 after that. The remaining 8 are the review fixes that followed it: `lunette.restart()`, the layer pool observing a lost session, and the pool telling a session from the one that replaced it. The single test in `tests/mullion_spec.rs` runs the Lua cases, which are not counted in the 1136.
+The 1136 are 522 in `lunette`, 17 in the `lunctl` binary target, 27 in the `lunette` binary target, 3 in `tests/default_configuration.rs`, 3 in `tests/exit_status.rs`, 6 in `tests/host_outputs.rs`, 9 in `tests/lunctl.rs`, 1 in `tests/mullion_spec.rs`, 3 in `tests/reload.rs`, 3 in `tests/safe_mode.rs`, 4 in `tests/standard_library.rs`, 239 in `lunette-capture`, 189 in `lunette-compositor`, 6 in `tests/client_lifecycle.rs`, 20 in `tests/clipboard.rs`, 5 in `tests/content_type.rs`, 8 in `tests/fractional_scale.rs`, 8 in `tests/frame_pacing.rs`, 17 in `tests/outputs.rs`, 8 in `tests/pointer_routing.rs`, 7 in `tests/restart.rs`, 14 in `tests/seats.rs`, 6 in `tests/surface_routing.rs`, and 11 in `tests/type_text.rs`. The compositor's 299 run with no graphics device and no XR runtime, which is the separation [CONTRIBUTING.md](../../CONTRIBUTING.md) requires of `lunette-compositor`, and they are re-run with no Vulkan ICD visible at the end of each phase to keep it that way. The count is the whole workspace as it stands, so it grew past milestone 0: everything under `layers::` and `lua::tests::layers` is 74 of it, of which the composition-layer work under [composition layers](#composition-layers) is the 61 that phase added — later phases put tests in the same modules, so the module total and the phase's contribution are no longer the same number. The monitor-mirroring work under [monitor mirroring and host input](#monitor-mirroring-and-host-input) is the 239 in `lunette-capture` plus the 6 in `tests/host_outputs.rs`, the keyboard, seat, and clipboard work under [keyboard, seats, and clipboard](#keyboard-seats-and-clipboard) is 157 of it, the standard library under [the mullion standard library](#the-mullion-standard-library) is the 69 the workspace grew by after that, the reload, `lunctl`, and error-handling work is the 164 after that, and the outputs, scale, and pacing work under [outputs, scale, and pacing](#outputs-scale-and-pacing) is the 115 after that. The remaining 8 are the review fixes that followed it: `lunette.restart()`, the layer pool observing a lost session, and the pool telling a session from the one that replaced it. The single test in `tests/mullion_spec.rs` runs the Lua cases, which are not counted in the 1136.
 
 Two test binaries print xkbcommon compilation errors to stderr and still pass. The errors come from the negative cases — a keymap string that is not a keymap, and a layout name no `xkeyboard-config` carries — which are `a_layout_that_does_not_exist_is_refused_rather_than_silently_defaulted` and `text_that_is_not_a_keymap_is_refused` in `keymap.rs`, and the refused-layout case again in `tests/seats.rs`. libxkbcommon writes to stderr through its own log handler before returning the failure lunette then asserts on, and suppressing it would mean installing a process-global handler for the benefit of three tests.
 
@@ -38,13 +38,13 @@ No dependency in the tree names `async-std` or `ashpd`: `cargo tree | rg -c 'asy
 
 ## Provenance
 
-Every file in `crates/lunette-compositor/src/` either carries the WayVR header or is lunette's own. The check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/`, compared against the list of original files in [crates/lunette-compositor/PROVENANCE.md](../crates/lunette-compositor/PROVENANCE.md). Twenty-six files are headerless and all twenty-six are on that list.
+Every file in `crates/lunette-compositor/src/` either carries the WayVR header or is lunette's own. The check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/`, compared against the list of original files in [crates/lunette-compositor/PROVENANCE.md](../../crates/lunette-compositor/PROVENANCE.md). Twenty-six files are headerless and all twenty-six are on that list.
 
 The list went stale once, between the file-size sweep that split six oversized files and the phases that followed it, and the check named eleven files the list did not. `PROVENANCE.md` now records a verdict per file for the three method groups carved out of the header-carrying `state/compositor.rs`: `state/processes.rs` took `accept_connection` and `cleanup_clients` with it and carries the header, and `state/outputs.rs` and `state/pacing.rs` do not, because virtual monitors and frame pacing have no upstream counterpart. `CompositorState::millis` is the one thing in the latter that does, and it is a contrast rather than a port — WayVR reads a wall clock, lunette an `Instant`, and Wayland's timestamps must be monotonic.
 
 `vendor/lovr` carries three patches on top of upstream `fdf1669f`, touching `src/core/gpu.h`, `src/core/gpu_vk.c`, `src/modules/graphics/graphics.c`, and `src/modules/graphics/graphics.h`. None adds a file. Upstream carries per-file copyright headers only under `src/lib/`, which is its own vendored third-party code, so the four patched files inherit the repository's MIT `LICENSE` and a per-file header would be a departure from upstream rather than a match to it.
 
-[CREDITS.md](../CREDITS.md) records the licences: WayVR GPL-3.0-only with `wayvr-ipc` MIT, LÖVR MIT, awesome GPL-2.0 for ideas only.
+[CREDITS.md](../../CREDITS.md) records the licences: WayVR GPL-3.0-only with `wayvr-ipc` MIT, LÖVR MIT, awesome GPL-2.0 for ideas only.
 
 ## The LÖVR Vulkan patch
 
@@ -337,7 +337,7 @@ Three checks in the suite are about the suite rather than about a module. `mulli
 
 ### The standard library uses only the public API
 
-The check is a grep against `docs/lua-api.md`. `mullion` reaches for `lunette.claimLayer` and `lunette.newSeat` and nothing else on the root, and for `claim.granted`, `claim.width`, `claim.height`, `claim.layer`, `claim:release`, `seat:setFocus`, `seat:strokeFor`, `seat:symbolFor`, `seat:characterFor`, `seat:destroy`, `seat.dead`, `sink:pointer`, `sink:button`, `sink:leave`, `sink:scroll`, `sink:key`, `sink:modifiers`, `sink:typeText`, `win:getTexture`, `win:getProperty`, `win:setProperty`, `win.width`, `win.height`, `win.opaque`, `win.title`, `win.appId`, `win.id`, `win.dead`, `win.sink`, `monitor.name`, and `monitor:mirror`. Every one of those is documented. No private path was used and none was wanted.
+The check is a grep against `docs/dev/lua-api.md`. `mullion` reaches for `lunette.claimLayer` and `lunette.newSeat` and nothing else on the root, and for `claim.granted`, `claim.width`, `claim.height`, `claim.layer`, `claim:release`, `seat:setFocus`, `seat:strokeFor`, `seat:symbolFor`, `seat:characterFor`, `seat:destroy`, `seat.dead`, `sink:pointer`, `sink:button`, `sink:leave`, `sink:scroll`, `sink:key`, `sink:modifiers`, `sink:typeText`, `win:getTexture`, `win:getProperty`, `win:setProperty`, `win.width`, `win.height`, `win.opaque`, `win.title`, `win.appId`, `win.id`, `win.dead`, `win.sink`, `monitor.name`, and `monitor:mirror`. Every one of those is documented. No private path was used and none was wanted.
 
 ### The file-size check
 
@@ -355,11 +355,11 @@ There is no per-monitor property store, and the sharp form of that is not "monit
 
 `lunette.claimLayer` takes `window` and nothing else, so a monitor panel never gets a composition layer. That is the exact case native-resolution compositing exists for: a mirrored 4K screen resampled into lunette's own render target is what a layer would avoid.
 
-Per-callback errors reached nothing but the log. `crates/lunette/src/events.rs` reported a `lun*` handler's error with Rust's `error!` and dropped it, while `docs/lua-api.md` promised that path logs, emits `lovr.lunerror`, and rate-limits. Closed under [reload, `lunctl`, and error handling](#reload-lunctl-and-error-handling).
+Per-callback errors reached nothing but the log. `crates/lunette/src/events.rs` reported a `lun*` handler's error with Rust's `error!` and dropped it, while `docs/dev/lua-api.md` promised that path logs, emits `lovr.lunerror`, and rate-limits. Closed under [reload, `lunctl`, and error handling](#reload-lunctl-and-error-handling).
 
-Native handles are not identity-stable. Every read produces a fresh userdata, so two reads of the same window are two different Lua values, and identity is `win.id` rather than the handle. `docs/lua-api.md` says handles have "stable identity", which is true of the window and not of the value. `mullion.signal` holds its registry weakly and keys on the caller's own object for that reason, and the callers key by `win.id` where they have to.
+Native handles are not identity-stable. Every read produces a fresh userdata, so two reads of the same window are two different Lua values, and identity is `win.id` rather than the handle. `docs/dev/lua-api.md` says handles have "stable identity", which is true of the window and not of the value. `mullion.signal` holds its registry weakly and keys on the caller's own object for that reason, and the callers key by `win.id` where they have to.
 
-Two smaller documentation gaps stand with them: `lunette.windows()` is used throughout the documents and has no entry in the Handles section of `docs/lua-api.md`, and the type of `win.id` is unstated.
+Two smaller documentation gaps stand with them: `lunette.windows()` is used throughout the documents and has no entry in the Handles section of `docs/dev/lua-api.md`, and the type of `win.id` is unstated.
 
 ### One policy call made rather than specified
 
@@ -373,7 +373,7 @@ Safe mode had never been triggered. Its chunk was run against a fake `lunette` o
 
 `lunette.reload` did not exist, so the reload key in both configurations reported that it was not implemented. Closed by phase 7's first subcomponent; both call sites now call it.
 
-Feel is untuned. Every constant that decides how interaction feels — the grab dead zone, the reach, the scroll scale, the haptic strength, the arc's radius and step — is a named value in one table per module, and every one of them is a first guess. `docs/stdlib.md` says this tier is tuning-heavy and that feel accounts for most of the work, and none of that work has been done.
+Feel is untuned. Every constant that decides how interaction feels — the grab dead zone, the reach, the scroll scale, the haptic strength, the arc's radius and step — is a named value in one table per module, and every one of them is a first guess. `docs/dev/stdlib.md` says this tier is tuning-heavy and that feel accounts for most of the work, and none of that work has been done.
 
 ## Reload, `lunctl`, and error handling
 
@@ -411,7 +411,7 @@ That gating uncovered something the plan did not anticipate. `boot.lua:218` read
 
 ### The plan's claim about the run loop, which was wrong
 
-`phase_08.md` states that "lunette owns its own run loop and must skip that call itself". It does not: `crates/lunette-lovr/build.rs` stages `vendor/lovr/etc/boot.lua` verbatim and `crates/lunette/src/boot.rs` runs it, so `lovr.run` is LÖVR's own — which is what `docs/lovr-integration.md` says lunette keeps. The wrap of `package.preload['lovr.headset']` is what replaces the loop change the plan assumed.
+`phase_08.md` states that "lunette owns its own run loop and must skip that call itself". It does not: `crates/lunette-lovr/build.rs` stages `vendor/lovr/etc/boot.lua` verbatim and `crates/lunette/src/boot.rs` runs it, so `lovr.run` is LÖVR's own — which is what `docs/dev/lovr-integration.md` says lunette keeps. The wrap of `package.preload['lovr.headset']` is what replaces the loop change the plan assumed.
 
 ### The file-size check
 
@@ -618,7 +618,7 @@ None of the five has been performed, and none of them can be performed on the ma
 None of the four has been performed, and none of them can be performed on the machine this document records: they need a headset, two hands, and an XR runtime, and this machine has a bare TTY. They are phase 6's acceptance criteria, all four human gates, and the first three are `lunette-v1.AC5.1`, `AC5.2`, and `AC5.3` in order.
 
 - The default configuration spawns a terminal onto a panel at the pose and metre size it specifies (AC5.1). The parts have each been observed separately in earlier phases — a terminal appears in `lunette.windows()` with a matching texture, and a quad is drawn and screenshotted from the simulator — and the panel abstraction over them has been exercised only against fakes. What has not happened is a person looking at a panel and reading the terminal on it.
-- Panels can be grabbed and moved, and the placement feels right. This is the tuning pass, and it is the one gate that is not a yes-or-no question: the constants under `interaction.TUNING`, `laser.STYLE`, and `arc.TUNING` are first guesses, and the point of the gate is to replace them with numbers somebody has used. Grab-to-resize was deferred until after it, for the reason `docs/stdlib.md` gives.
+- Panels can be grabbed and moved, and the placement feels right. This is the tuning pass, and it is the one gate that is not a yes-or-no question: the constants under `interaction.TUNING`, `laser.STYLE`, and `arc.TUNING` are first guesses, and the point of the gate is to replace them with numbers somebody has used. Grab-to-resize was deferred until after it, for the reason `docs/dev/stdlib.md` gives.
 - A rule matching on `appId` places a named application without further scripting (AC5.2). The matching, the layering of two rules, the lazy evaluation of a function-valued property, and the composition of the rules table with the restore source are all covered by specs over synthetic window tables. What has not happened is a real application opening and landing where the rule said.
 - An arrangement survives a restart (AC5.3). The file round-trips, a stale entry is skipped and reported while the rest restores, an absent file yields defaults, and a file from a later version is left alone rather than rewritten — all against a fake filesystem. What has not happened is a session being quit and started again with a real save directory under it. This gate is also the one that would show whether the shipped configuration writes at the right moments: it saves when a panel is dropped and when the session quits, and a session that is killed rather than quit keeps only what a drop wrote.
 

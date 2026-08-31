@@ -1,7 +1,7 @@
 -- Adopt the windows already open when the current Lua state started.
 --
 -- A soft reload discards the configuration's modules and callbacks and runs
--- `main.lua` again (docs/lua-api.md#reload). The compositor, the clients, and
+-- `main.lua` again (docs/dev/lua-api.md#reload). The compositor, the clients, and
 -- their windows are untouched by the reload, but the new Lua state has no
 -- record of them, and `lunette.onWindowOpened` has already run for every one.
 -- A configuration that places windows through that callback alone ends the

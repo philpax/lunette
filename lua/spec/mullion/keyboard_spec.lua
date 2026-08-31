@@ -259,7 +259,7 @@ spec('a run of characters the layout cannot express goes in one call', function(
   fresh()
   local created, _, sink = newKeyboard()
 
-  -- One keymap upload. docs/lua-api.md states that typeText
+  -- One keymap upload. docs/dev/lua-api.md states that typeText
   -- generates a keymap, uploads it, types, and puts the client's own back. A
   -- call per character would swap the client's keymap three times.
   created:typeText 'üöß'

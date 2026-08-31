@@ -19,7 +19,7 @@
 //! A host can re-announce a selection that lunette publishes. While lunette owns
 //! a selection, the worker discards that announcement and does not proxy its
 //! source back to lunette's clients. The protocols do not order source
-//! cancellation and replacement announcements; `docs/input.md` records the
+//! cancellation and replacement announcements; `docs/dev/input.md` records the
 //! resulting echo-handling choice.
 
 mod objects;

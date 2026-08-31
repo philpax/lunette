@@ -487,7 +487,7 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 /// directory `lovr.filesystem.setIdentity` establishes. That directory is
 /// mounted ahead of everything else when `conf.saveprecedence` is left at
 /// LÖVR's default of true, letting a write there shadow a standard-library
-/// module by name; the shipped `conf.lua` turns it off, and `docs/stdlib.md`
+/// module by name; the shipped `conf.lua` turns it off, and `docs/dev/stdlib.md`
 /// records why.
 ///
 /// A directory that does not exist fails to mount and is reported. That is

@@ -1,6 +1,6 @@
 -- Which scale an output is set to, chosen from discrete steps with hysteresis.
 --
--- docs/compositor.md states the policy: the standard library uses discrete
+-- docs/dev/compositor.md states the policy: the standard library uses discrete
 -- scale steps with hysteresis and never adjusts continuously. This is Lua
 -- policy, and it is tunable. Rust advertises `wp_fractional_scale_v1` and
 -- lets Lua choose the number; mullion.scale is where the number is chosen.

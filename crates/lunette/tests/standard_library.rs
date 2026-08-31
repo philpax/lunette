@@ -61,7 +61,7 @@ fn the_repository_standard_library_resolves() {
 
 /// A standard library that is not installed is not a boot failure.
 ///
-/// `docs/lua-api.md` makes a configuration that never mentions `mullion` a
+/// `docs/dev/lua-api.md` makes a configuration that never mentions `mullion` a
 /// supported configuration, so a missing mount leaves the session running, and
 /// `require` reports it.
 #[test]

@@ -6,7 +6,7 @@
 
 **Tech Stack:** Rust 2024, cmake 0.1.58, bindgen, mlua 0.12 with mlua-sys `external`, Nix flake devshell, LÖVR at `v0.19.0-131-gfdf1669f`.
 
-**Scope:** Phase 1 of 8 from `docs/design-plans/2026-08-05-lunette-v1.md`.
+**Scope:** Phase 1 of 8 from `docs/dev/design-plans/2026-08-05-lunette-v1.md`.
 
 **Codebase verified:** 2026-08-05.
 
@@ -24,7 +24,7 @@ This is an infrastructure phase. It builds no functionality, so every task state
 
 ## Verified starting state
 
-The repository contains 17 tracked files, all Markdown: `CONTRIBUTING.md`, its two symlinks `AGENTS.md` and `CLAUDE.md` (mode `120000`, same blob), and 14 documents under `docs/`. Branch `main`, working tree clean, **no git remote configured**.
+The repository contains 17 tracked files, all Markdown: `CONTRIBUTING.md`, its two symlinks `AGENTS.md` and `CLAUDE.md` (mode `120000`, same blob), and 14 documents under `docs/dev/`. Branch `main`, working tree clean, **no git remote configured**.
 
 None of the following exist and all must be created: `Cargo.toml`, `flake.nix`, `rustfmt.toml`, root `.gitignore`, `.gitmodules`, `crates/`, `lua/`, `vendor/`. The only `.gitignore` present is `inspiration/.gitignore`, containing `*`.
 
@@ -121,7 +121,7 @@ Add `wayland` and `wayland-protocols` for the compositor crate in Phase 2.
 
 The devshell must also export `LUNETTE_JOLTPHYSICS_SRC`, pointing at a `fetchFromGitHub` of JoltPhysics. The revision is the one `vendor/lovr/deps/joltc/CMakeLists.txt` declares in its `FetchContent_Declare(JoltPhysics ...)` block. Read that file after Task 3 completes and pin the revision it names, with its hash. Until then the export is a placeholder; Task 5's verification is what proves it correct.
 
-This phase ships a devshell only. There is no package output — `docs/build-and-development.md:33` currently promises one, and Task 9 narrows that claim.
+This phase ships a devshell only. There is no package output — `docs/dev/build-and-development.md:33` currently promises one, and Task 9 narrows that claim.
 
 **Step 2: Verify operationally**
 
@@ -150,7 +150,7 @@ git commit -m "build: add nix devshell"
 
 **Step 1: Add the submodule**
 
-The submodule tracks upstream `bjornbytes/lovr`, with lunette's patches on a local `lunette` branch. `docs/lovr-integration.md:5` and `CONTRIBUTING.md:52` both currently claim it points at a lunette-owned fork; that fork does not exist, and the repository has no git remote at all. Task 9 corrects both documents. Repointing the submodule at a lunette-owned fork is a pre-push task, recorded in the design at line 354, and is not part of this phase.
+The submodule tracks upstream `bjornbytes/lovr`, with lunette's patches on a local `lunette` branch. `docs/dev/lovr-integration.md:5` and `CONTRIBUTING.md:52` both currently claim it points at a lunette-owned fork; that fork does not exist, and the repository has no git remote at all. Task 9 corrects both documents. Repointing the submodule at a lunette-owned fork is a pre-push task, recorded in the design at line 354, and is not part of this phase.
 
 ```bash
 git submodule add https://github.com/bjornbytes/lovr.git vendor/lovr
@@ -494,13 +494,13 @@ git commit -m "feat: add a default main.lua"
 **Verifies:** None (infrastructure).
 
 **Files:**
-- Modify: `docs/lovr-integration.md`
-- Modify: `docs/build-and-development.md`
+- Modify: `docs/dev/lovr-integration.md`
+- Modify: `docs/dev/build-and-development.md`
 - Modify: `CONTRIBUTING.md`
 
-`docs/` is normative. Three of the five patches it documents are obsolete under this design, and both it and `CONTRIBUTING.md` describe a static link that this phase replaces with a dynamic one. Leaving that in place means the specification contradicts the code from the first commit.
+`docs/dev/` is normative. Three of the five patches it documents are obsolete under this design, and both it and `CONTRIBUTING.md` describe a static link that this phase replaces with a dynamic one. Leaving that in place means the specification contradicts the code from the first commit.
 
-**Step 1: Rewrite the patch set in `docs/lovr-integration.md`**
+**Step 1: Rewrite the patch set in `docs/dev/lovr-integration.md`**
 
 Delete three patches and renumber the remainder.
 
@@ -510,14 +510,14 @@ Delete three patches and renumber the remainder.
 
 The surviving set is three patches, matching the design at lines 243, 244, and 269: Vulkan device extensions for external memory; `gpu_import_acquire`/`gpu_import_release`; and configurable `MAX_LAYERS`. Patch 2 as currently written describes foreign image import and stays, renumbered.
 
-**Step 2: Fix the remaining factual errors in `docs/lovr-integration.md`**
+**Step 2: Fix the remaining factual errors in `docs/dev/lovr-integration.md`**
 
 - `:5` — "pointing at the lunette fork" becomes a submodule tracking upstream `bjornbytes/lovr` with patches on a local `lunette` branch, noting the repoint to a lunette-owned fork as a pre-push task.
 - `:7` — the `deps/` list is incomplete. `.gitmodules` also declares `deps/lua`, `deps/luau`, `plugins/lua-enet`, and `plugins/lovr-http`.
 - `:9` — "lunette forks LÖVR rather than carrying a patch series" contradicts the design's requirement at line 354 that patches stay MIT and upstreamable. Reword to describe the branch as carrying an upstreamable patch series.
 - `:55` — `boot.lua:171` is stale; the line is `etc/boot.lua:176` at this revision.
 
-**Step 3: Correct `docs/build-and-development.md`**
+**Step 3: Correct `docs/dev/build-and-development.md`**
 
 - `:25` — the paragraph asserting that LÖVR links statically and that this removes rpath handling, a `.so` in lockstep, and a cross-submodule ABI surface is now false in every clause. Rewrite it for dynamic linking, naming the five shared libraries, and record the rpath strategy Task 5 implements.
 - `:29` — "LÖVR's vendored dependencies are used as upstream intends" no longer holds: JoltPhysics is prefetched out of band and injected through `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS`. Say so, and say why (offline builds).
@@ -537,7 +537,7 @@ The surviving set is three patches, matching the design at lines 243, 244, and 2
 
 **Step 5: Verify**
 
-Run: `rg -n 'statically links|LOVR_BUILD_STATIC|boot\.lua:171' docs/ CONTRIBUTING.md`
+Run: `rg -n 'statically links|LOVR_BUILD_STATIC|boot\.lua:171' docs/dev/ CONTRIBUTING.md`
 Expected: no matches.
 
 Run: `rg -n 'There is no code yet|intended checks' CONTRIBUTING.md`
@@ -546,7 +546,7 @@ Expected: no matches.
 **Step 6: Commit**
 
 ```bash
-git add docs/lovr-integration.md docs/build-and-development.md CONTRIBUTING.md
+git add docs/dev/lovr-integration.md docs/dev/build-and-development.md CONTRIBUTING.md
 git commit -m "docs: correct the build and patch-set documentation"
 ```
 <!-- END_TASK_9 -->
@@ -558,9 +558,9 @@ git commit -m "docs: correct the build and patch-set documentation"
 
 **Files:**
 - Modify: `CONTRIBUTING.md` (the testing conventions block at `:295-300`)
-- Modify: `docs/decisions.md` (the "Recorded decisions" section)
+- Modify: `docs/dev/decisions.md` (the "Recorded decisions" section)
 
-This resolves a genuine contradiction, decided by the maintainer on 2026-08-05. `CONTRIBUTING.md:299` states that tests must be deterministic with "no real subprocesses, no real filesystem, no wall-clock sleeps, no network". But `docs/build-and-development.md:67` and the design's Phase 2 gate at line 256 both specify logic-headless tests using a `smithay-client-toolkit` client "against a real socket" — and a Wayland listening socket is both a filesystem object and a socket. Phase 2 cannot be written until this is settled, and `docs/decisions.md` currently records nothing about testing at all.
+This resolves a genuine contradiction, decided by the maintainer on 2026-08-05. `CONTRIBUTING.md:299` states that tests must be deterministic with "no real subprocesses, no real filesystem, no wall-clock sleeps, no network". But `docs/dev/build-and-development.md:67` and the design's Phase 2 gate at line 256 both specify logic-headless tests using a `smithay-client-toolkit` client "against a real socket" — and a Wayland listening socket is both a filesystem object and a socket. Phase 2 cannot be written until this is settled, and `docs/dev/decisions.md` currently records nothing about testing at all.
 
 Investigation for Phase 2 established that the conflict is almost entirely avoidable. `wayland_client::Connection::from_socket(UnixStream)` and `DisplayHandle::insert_client(UnixStream, ...)` both accept a stream directly, so a test can create a `UnixStream::pair()` and give one end to each side. That path binds nothing, touches no filesystem, and reads no environment variable. It is the default for every compositor test.
 
@@ -578,17 +578,17 @@ Also record that `Connection::connect_to_env()` must never be used in tests. It 
 
 **Step 2: Record the decision**
 
-Add a paragraph to `docs/decisions.md` under "Recorded decisions". Match the surrounding style: one paragraph, a declarative first sentence naming the decision, then its reasoning. Record that compositor tests connect over a socketpair by default, and that only the listener's own tests bind a real socket. That section exists so settled questions are not reopened by accident, which is exactly the risk here — `docs/build-and-development.md:67` says "a real socket", and without this entry someone will read that as licence to bind one everywhere.
+Add a paragraph to `docs/dev/decisions.md` under "Recorded decisions". Match the surrounding style: one paragraph, a declarative first sentence naming the decision, then its reasoning. Record that compositor tests connect over a socketpair by default, and that only the listener's own tests bind a real socket. That section exists so settled questions are not reopened by accident, which is exactly the risk here — `docs/dev/build-and-development.md:67` says "a real socket", and without this entry someone will read that as licence to bind one everywhere.
 
 **Step 3: Verify**
 
-Run: `rg -n 'socketpair|UnixStream::pair' CONTRIBUTING.md docs/decisions.md`
+Run: `rg -n 'socketpair|UnixStream::pair' CONTRIBUTING.md docs/dev/decisions.md`
 Expected: matches in both files.
 
 **Step 4: Commit**
 
 ```bash
-git add CONTRIBUTING.md docs/decisions.md
+git add CONTRIBUTING.md docs/dev/decisions.md
 git commit -m "docs: record the compositor testing carve-out"
 ```
 <!-- END_TASK_10 -->
@@ -643,7 +643,7 @@ git commit -m "style: apply nightly rustfmt"
 - `nix develop` followed by `cargo build` succeeds from a clean recursive clone, with no network access during the cmake step.
 - The binary opens a LÖVR window and runs a `main.lua` that draws text.
 - All five check commands from `CONTRIBUTING.md:171-175` pass.
-- `docs/` no longer describes a static link or the three obsolete patches, and the testing carve-out is recorded in `docs/decisions.md`.
+- `docs/dev/` no longer describes a static link or the three obsolete patches, and the testing carve-out is recorded in `docs/dev/decisions.md`.
 
 ## Deliberately not in this phase
 
@@ -652,4 +652,4 @@ git commit -m "style: apply nightly rustfmt"
 - `t.headset.overlay` and any XR session configuration — Phase 2.
 - Repointing `vendor/lovr` at a lunette-owned fork — a pre-push task recorded in the design at line 354. The repository has no git remote yet, so there is nothing to point at.
 
-  This is genuinely outside every phase, which means it currently has no owner. Task 9 records it in `docs/lovr-integration.md` as an explicit pre-push step rather than leaving it implicit, so it is not discovered at the moment of the first push.
+  This is genuinely outside every phase, which means it currently has no owner. Task 9 records it in `docs/dev/lovr-integration.md` as an explicit pre-push step rather than leaving it implicit, so it is not discovered at the moment of the first push.

@@ -10,7 +10,7 @@
 //! That geometry match is the portable mechanism, and it is what wlx-overlay-s
 //! does. `mapping_id` is read opportunistically and takes precedence where it
 //! is a real connector name, but it cannot be the mechanism: two of the three
-//! portal backends do not supply a usable one. `docs/host-desktop.md` records
+//! portal backends do not supply a usable one. `docs/dev/host-desktop.md` records
 //! the evidence.
 //!
 //! The correlation is pure computation over plain data. Nothing here touches

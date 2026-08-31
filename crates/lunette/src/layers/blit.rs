@@ -26,7 +26,7 @@
 //! # Cost of a stale claim
 //!
 //! A stale claim costs nothing. A claim whose source has not committed since
-//! its last copy (`docs/rendering.md` calls it a stale claim) reaches
+//! its last copy (`docs/dev/rendering.md` calls it a stale claim) reaches
 //! [`Decision::Skip`] before anything touches the device: no
 //! `lovrLayerGetTexture`, no `lovrSwapchainAcquire`, no `xrWaitSwapchainImage`,
 //! and no copy recorded into LÖVR's stream. Those skipped calls are the whole

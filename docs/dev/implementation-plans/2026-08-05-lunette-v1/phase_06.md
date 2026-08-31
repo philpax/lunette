@@ -6,7 +6,7 @@
 
 **Tech Stack:** LuaJIT (Lua 5.1 syntax), LÖVR's `Pass` and `lovr.headset` APIs, `lovr.filesystem` for persistence.
 
-**Scope:** Phase 6 of 8. `docs/stdlib.md` is deliberately provisional, so this phase implements each tier's minimum-viable line rather than its full description. See the scope note below.
+**Scope:** Phase 6 of 8. `docs/dev/stdlib.md` is deliberately provisional, so this phase implements each tier's minimum-viable line rather than its full description. See the scope note below.
 
 **Codebase verified:** 2026-08-06.
 
@@ -23,7 +23,7 @@
 
 ## Scope: the minimum-viable lines are the contract
 
-`docs/stdlib.md:5` disclaims its own tier descriptions:
+`docs/dev/stdlib.md:5` disclaims its own tier descriptions:
 
 > Nothing here is settled… What follows describes the intended tiers and the minimum viable version of each, not a committed API surface. Concrete signatures land once the thing has been used.
 
@@ -40,15 +40,15 @@ Two consequences, both decided on 2026-08-06:
 
 That deferral contradicts the design plan, which lists grab-to-resize in Phase 6's components (line 311) and requires "panels can be grabbed and resized" in its "Done when" (line 317). **Task 6 amends the design plan** rather than leaving the two documents disagreeing — a phase file quietly narrowing a criterion the design still states is how a gap becomes invisible.
 
-**Chrome is not a widget layer.** Tier 1 names "chrome" (`:9`), but `stdlib.md:41-47` defers 2D widgets to "a thin immediate-mode helper over LÖVR's `Pass`, not a widget toolkit", and `docs/decisions.md:69` records the toolkit as deferred and possibly a separate library. So chrome here is a handful of `Pass:plane` and `Pass:text` calls. The virtual keyboard sits on the same boundary and is held to the same limit.
+**Chrome is not a widget layer.** Tier 1 names "chrome" (`:9`), but `stdlib.md:41-47` defers 2D widgets to "a thin immediate-mode helper over LÖVR's `Pass`, not a widget toolkit", and `docs/dev/decisions.md:69` records the toolkit as deferred and possibly a separate library. So chrome here is a handful of `Pass:plane` and `Pass:text` calls. The virtual keyboard sits on the same boundary and is held to the same limit.
 
 ## Facts established by investigation
 
 ### `win.userdata` cannot carry state across a reload
 
-`docs/architecture.md:41` gives windows a `userdata` field, which looks like the natural place for mullion's per-window state. It is not.
+`docs/dev/architecture.md:41` gives windows a `userdata` field, which looks like the natural place for mullion's per-window state. It is not.
 
-`docs/architecture.md:83` states the Lua state is discarded on soft reload. A `userdata` field holding a Lua table is holding a value from that state, so it does not survive. Anything mullion needs after a reload — a hand-placed pose, a manual size, a tag assignment made by hand rather than by rule — must live outside Lua.
+`docs/dev/architecture.md:83` states the Lua state is discarded on soft reload. A `userdata` field holding a Lua table is holding a value from that state, so it does not survive. Anything mullion needs after a reload — a hand-placed pose, a manual size, a tag assignment made by hand rather than by rule — must live outside Lua.
 
 This is why Task 1 exists, and it constrains its design: the store holds plain scalars and strings, never Lua tables, or it reintroduces the same problem one level down.
 
@@ -56,16 +56,16 @@ This is why Task 1 exists, and it constrains its design: the store holds plain s
 
 `CONTRIBUTING.md:62` is explicit: "The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path."
 
-Investigation found six things this phase needs that `docs/` does not document. Decided on 2026-08-06 to fix each in the phase that builds it, so this phase consumes a complete surface. The amendments are already in place:
+Investigation found six things this phase needs that `docs/dev/` does not document. Decided on 2026-08-06 to fix each in the phase that builds it, so this phase consumes a complete surface. The amendments are already in place:
 
 - **Source pixel dimensions** (`win.width`, `win.height`) — Phase 2, Task 11. Tier 1 cannot convert a ray hit to pixel coordinates without them.
-- **`lunette.claimLayer` and `claim:setPriority`** — Phase 3, Task 5. `docs/rendering.md:47-50` described claim semantics but named no function, so layer-versus-quad realisation was unwritable.
+- **`lunette.claimLayer` and `claim:setPriority`** — Phase 3, Task 5. `docs/dev/rendering.md:47-50` described claim semantics but named no function, so layer-versus-quad realisation was unwritable.
 - **`lunette.monitors()`** — Phase 4, Task 8. `lovr.lunmonitoradded` was documented (`lua-api.md:32`) with no way to enumerate.
 - **`sink:scroll`, in raw and accumulated forms** — Phase 5, Task 4. Tier 2 requires scroll and the plumbing already exists in WayVR (`client.rs:372`, `:408`).
 - **A hover-versus-focus primitive** — Phase 5, Task 4. Without it, mullion must infer focus from pointer motion, which is the heuristic Phase 5 deliberately removes from the compositor.
-- **Named keymap queries** — Phase 5, Task 4. `docs/input.md:50-52` described them without naming them.
+- **Named keymap queries** — Phase 5, Task 4. `docs/dev/input.md:50-52` described them without naming them.
 
-Signals and ray-quad intersection are correctly mullion's own work, not gaps. `docs/lua-api.md:44` says signals are pure Lua over flat events, and `docs/input.md:18-22` says mullion ships the quad intersection.
+Signals and ray-quad intersection are correctly mullion's own work, not gaps. `docs/dev/lua-api.md:44` says signals are pure Lua over flat events, and `docs/dev/input.md:18-22` says mullion ships the quad intersection.
 
 ### A layer is usually larger than its source, and the margin is the panel's to exclude
 
@@ -73,7 +73,7 @@ Phase 3's size ladder quantises upwards, so a claim for an 800x600 window is ser
 
 Phase 3 put a floor under that rather than leaving it to this phase: the blit clears the destination before a copy that would not cover it, so the margin composites as transparent black instead of as uninitialised memory. The floor is a safety property, not a layout one — it makes the margin blank, not correct.
 
-`claim.width` and `claim.height` report the layer's dimensions rather than the size asked for, and `docs/lua-api.md` documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. Phase 3 considered enforcing it in the pool and did not: the viewport is one of the per-panel properties that make a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would take away the mechanism a panel needs to place a source inside a larger layer at all.
+`claim.width` and `claim.height` report the layer's dimensions rather than the size asked for, and `docs/dev/lua-api.md` documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. Phase 3 considered enforcing it in the pool and did not: the viewport is one of the per-panel properties that make a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would take away the mechanism a panel needs to place a source inside a larger layer at all.
 
 This phase owns it. A panel that drives the layer path sets the viewport to the source's pixel extent every time it is granted a layer, and again whenever the source resizes.
 
@@ -81,7 +81,7 @@ This phase owns it. A panel that drives the layer path sets the viewport to the 
 
 `Mat4`'s method table (`src/api/l_math_mat4.c:442-465`) has no intersection method. The only raycasts in LÖVR are physics: `World:raycast` (`src/api/l_physics_world.c:362`) and `Shape:raycast` (`l_physics_shapes.c:361`), both segment-based and both requiring a physics world and a collider — which a panel is not.
 
-So mullion does the maths. The idiomatic form is to invert the panel's pose matrix, transform the ray origin and direction into panel space, solve for the plane at z=0, and bound the result to ±size/2. `docs/input.md:22` confirms mullion ships this.
+So mullion does the maths. The idiomatic form is to invert the panel's pose matrix, transform the ray origin and direction into panel space, solve for the plane at z=0, and bound the result to ±size/2. `docs/dev/input.md:22` confirms mullion ships this.
 
 ### The LÖVR API mullion draws on
 
@@ -93,22 +93,22 @@ So mullion does the maths. The idiomatic form is to invert the panel's pose matr
 
 ### Sequencing: teardown and error handling belong here
 
-`docs/roadmap.md:25-26` places the standard library at step 4 and reload, `lunctl`, and error handling at step 5. But two requirements pull parts of step 5 forward:
+`docs/dev/roadmap.md:25-26` places the standard library at step 4 and reload, `lunctl`, and error handling at step 5. But two requirements pull parts of step 5 forward:
 
 - `CONTRIBUTING.md:65`: "Every module is safe to `require` twice, and registers a teardown hook."
-- `docs/lua-api.md:74`: the error handler "is `mullion` code".
+- `docs/dev/lua-api.md:74`: the error handler "is `mullion` code".
 
 So this phase ships the teardown-hook registry and the `lovr.errhand` replacement. Phase 7 builds the reload mechanism that calls them. Designing the registry here with its caller arriving later is the correct split, not an inversion.
 
 ### Module naming is a documentation change
 
-Only two module paths are attested anywhere in `docs/`: `mullion.layout.arc` and `mullion.tag.current`, both from a single example at `docs/lua-api.md:86`. `docs/stdlib.md` names no files and prescribes no module structure at all.
+Only two module paths are attested anywhere in `docs/dev/`: `mullion.layout.arc` and `mullion.tag.current`, both from a single example at `docs/dev/lua-api.md:86`. `docs/dev/stdlib.md` names no files and prescribes no module structure at all.
 
-Every other name this phase introduces is new. `docs/` is normative, so choosing them is a documentation change and `docs/stdlib.md` is updated in the same change.
+Every other name this phase introduces is new. `docs/dev/` is normative, so choosing them is a documentation change and `docs/dev/stdlib.md` is updated in the same change.
 
 ### awesome, for shape only
 
-`docs/decisions.md:11` and `:13` record that awesome is GPL-2, lunette is GPL-3-only, and awesome's code therefore cannot enter the project. `docs/stdlib.md:27` adds that its layout algorithms are two-dimensional and would be reimplemented regardless.
+`docs/dev/decisions.md:11` and `:13` record that awesome is GPL-2, lunette is GPL-3-only, and awesome's code therefore cannot enter the project. `docs/dev/stdlib.md:27` adds that its layout algorithms are two-dimensional and would be reimplemented regardless.
 
 **No awesome code is copied.** What follows is the shape of its designs, which is not copyrightable and is worth learning from.
 
@@ -127,13 +127,13 @@ Every other name this phase introduces is new. `docs/` is normative, so choosing
 **Files:**
 - Create: `crates/lunette/src/properties.rs`
 - Modify: `crates/lunette/src/lua/window.rs`
-- Modify: `docs/lua-api.md`, `docs/decisions.md`
+- Modify: `docs/dev/lua-api.md`, `docs/dev/decisions.md`
 
-The only native task in this phase. It exists because a soft reload discards the Lua state (`docs/architecture.md:83`), so anything mullion must remember across one cannot live in Lua.
+The only native task in this phase. It exists because a soft reload discards the Lua state (`docs/dev/architecture.md:83`), so anything mullion must remember across one cannot live in Lua.
 
 **Step 1: Why `userdata` will not do**
 
-`docs/architecture.md:41` gives windows a `userdata` field, which looks like the obvious place. It holds a Lua value, and Lua values do not survive the state being discarded. State derivable from rules comes back when rules re-run; a hand-placed pose does not.
+`docs/dev/architecture.md:41` gives windows a `userdata` field, which looks like the obvious place. It holds a Lua value, and Lua values do not survive the state being discarded. State derivable from rules comes back when rules re-run; a hand-placed pose does not.
 
 Record this in the module documentation. `userdata` remains useful for within-session state and should not be removed — the two have different lifetimes and both are wanted.
 
@@ -151,11 +151,11 @@ Persisting the store to disk across a full restart is Task 10's concern, not thi
 
 **Step 4: Stable window identity**
 
-Lua re-associating with its windows after a reload depends on `WindowId` being stable across one. It is — the compositor thread is not restarted by a soft reload — but nothing currently states it. Say so in `docs/lua-api.md`, because the whole reload story rests on it and it is not self-evident.
+Lua re-associating with its windows after a reload depends on `WindowId` being stable across one. It is — the compositor thread is not restarted by a soft reload — but nothing currently states it. Say so in `docs/dev/lua-api.md`, because the whole reload story rests on it and it is not self-evident.
 
 **Step 5: Document it**
 
-`docs/lua-api.md` gains the store's surface. `docs/decisions.md` gains a paragraph recording why a native store exists at all when `userdata` appears to serve, since the two look redundant to anyone who has not hit the reload case.
+`docs/dev/lua-api.md` gains the store's surface. `docs/dev/decisions.md` gains a paragraph recording why a native store exists at all when `userdata` appears to serve, since the two look redundant to anyone who has not hit the reload case.
 
 Note the lineage: this is awesome's X-properties mechanism adapted to a compositor with no X server. awesome persists per-client state in properties on the window because they outlive the window manager's own process; lunette's store outlives the Lua state for the same reason.
 
@@ -168,7 +168,7 @@ Cover: a value set before a simulated Lua-state teardown is readable after; a ta
 **Step 7: Commit**
 
 ```bash
-git add crates/lunette/src/properties.rs crates/lunette/src/lua/window.rs docs/
+git add crates/lunette/src/properties.rs crates/lunette/src/lua/window.rs docs/dev/
 git commit -m "feat: add a per-window property store that survives reload"
 ```
 <!-- END_TASK_1 -->
@@ -187,7 +187,7 @@ Nothing yet makes `require 'mullion'` resolve. Phase 1 Task 7 deferred mounting 
 
 **Step 1: Mount the search path**
 
-`docs/build-and-development.md:41-49` gives the resolution order, and `docs/lovr-integration.md:53` names the mechanism: `lovr.filesystem.setSource`, `mount`, and `setRequirePath`.
+`docs/dev/build-and-development.md:41-49` gives the resolution order, and `docs/dev/lovr-integration.md:53` names the mechanism: `lovr.filesystem.setSource`, `mount`, and `setRequirePath`.
 
 The standard library mounts **read-only** from `$PREFIX/share/lunette/lua`, overridable by `LUNETTE_STDLIB_PATH`. Read-only matters: a configuration that can overwrite the standard library it is running on top of can make a session unbootable in a way a reload cannot fix.
 
@@ -207,8 +207,8 @@ Mount before `main.lua` runs. A configuration's first line may be `require 'mull
 
 Phase 1 deliberately narrowed the flake to a devshell with no package output, which was right for a phase that shipped no runtime files. This phase ships two sets that must land somewhere:
 
-- `lua/mullion/` to `$PREFIX/share/lunette/lua/` (`docs/stdlib.md:3`).
-- `etc/xdg/lunette/main.lua` and `conf.lua` to `$SYSCONFDIR/xdg/lunette/` (`docs/lua-api.md:20`, design plan line 311).
+- `lua/mullion/` to `$PREFIX/share/lunette/lua/` (`docs/dev/stdlib.md:3`).
+- `etc/xdg/lunette/main.lua` and `conf.lua` to `$SYSCONFDIR/xdg/lunette/` (`docs/dev/lua-api.md:20`, design plan line 311).
 
 Add an install rule and a flake package output producing both alongside the binary. Without it the mount path in Step 1 points at an empty directory on any machine that did not build in place.
 
@@ -244,7 +244,7 @@ git commit -m "feat: mount and install the mullion standard library"
 
 **Step 1: The surface**
 
-`connect`, `disconnect`, `emit`, and `weakConnect`. `docs/lua-api.md:44` estimates roughly a hundred lines for this, which is about right.
+`connect`, `disconnect`, `emit`, and `weakConnect`. `docs/dev/lua-api.md:44` estimates roughly a hundred lines for this, which is about right.
 
 **Step 2: `weakConnect` is not optional**
 
@@ -295,7 +295,7 @@ git commit -m "feat(mullion): add signals with weak connections"
 **Files:**
 - Create: `lua/mullion/teardown.lua`, `lua/mullion/error.lua`
 
-Sequenced here rather than in Phase 7 because `CONTRIBUTING.md:65` requires every module to register a teardown hook — so the registry must exist before the first module does — and `docs/lua-api.md:74` says the error handler is mullion code.
+Sequenced here rather than in Phase 7 because `CONTRIBUTING.md:65` requires every module to register a teardown hook — so the registry must exist before the first module does — and `docs/dev/lua-api.md:74` says the error handler is mullion code.
 
 **Step 1: The registry**
 
@@ -360,7 +360,7 @@ Handle the degenerate cases explicitly: a ray parallel to the plane has no inter
 
 Claim a layer through `lunette.claimLayer` with a Lua-chosen priority. When granted, drive the returned `Layer` with `setPose`, `setDimensions`, and friends. When revoked — `lovr.lunlayerrevoked` — fall back to drawing an in-scene quad with `Pass:plane` and a material bound to the source's texture.
 
-Both paths must be live from the start. `docs/rendering.md` treats in-scene as the fallback, not as a degraded mode, and AC2.3 requires the panel to keep rendering after revocation.
+Both paths must be live from the start. `docs/dev/rendering.md` treats in-scene as the fallback, not as a degraded mode, and AC2.3 requires the panel to keep rendering after revocation.
 
 Set the viewport on every grant, to the source's pixel extent within the layer `claim.width` by `claim.height` describes. A layer is usually larger than its source, and the blit's clear only makes the margin blank rather than making the panel the right shape; the reasoning is above, under [a layer is usually larger than its source](#a-layer-is-usually-larger-than-its-source-and-the-margin-is-the-panels-to-exclude). A test covers it: a granted claim whose source is smaller than its layer sets a viewport matching the source.
 
@@ -400,7 +400,7 @@ git commit -m "feat(mullion): add panels over windows and monitors"
 
 **Files:**
 - Create: `lua/mullion/laser.lua`, `lua/mullion/interaction.lua`
-- Modify: `docs/design-plans/2026-08-05-lunette-v1.md`, `docs/stdlib.md`
+- Modify: `docs/dev/design-plans/2026-08-05-lunette-v1.md`, `docs/dev/stdlib.md`
 
 The minimum-viable set from `stdlib.md:21`: one laser per hand, hover highlight, trigger-to-click, grab-to-move, and keyboard typing into the focused sink. Plus scroll, which `stdlib.md:17` includes and Phase 5 now exposes.
 
@@ -408,7 +408,7 @@ The minimum-viable set from `stdlib.md:21`: one laser per hand, hover highlight,
 
 Grab-to-resize is deferred, per the scope note. The design plan still lists it in Phase 6's components (line 311) and requires "panels can be grabbed and resized" in its "Done when" (line 317).
 
-Edit both to match: remove resize from the component list and narrow the criterion to grabbed and moved. Record the reason — `stdlib.md:21`'s minimum-viable line omits it, and `:19` makes feel the bulk of the work, so resize is better tuned after move than alongside it. Note it in `docs/stdlib.md` as deferred rather than dropped, since it remains in tier 2's description.
+Edit both to match: remove resize from the component list and narrow the criterion to grabbed and moved. Record the reason — `stdlib.md:21`'s minimum-viable line omits it, and `:19` makes feel the bulk of the work, so resize is better tuned after move than alongside it. Note it in `docs/dev/stdlib.md` as deferred rather than dropped, since it remains in tier 2's description.
 
 Do this first, so the rest of the task is written against a design that agrees with it.
 
@@ -420,7 +420,7 @@ Do this first, so the rest of the task is written against a design that agrees w
 
 Each laser drives its own seat from Phase 5. Hover and focus are per-seat, so two hands genuinely work independently.
 
-The collapse-to-one-seat mode `docs/input.md:39` mentions is Lua policy over this, and can wait until someone wants it.
+The collapse-to-one-seat mode `docs/dev/input.md:39` mentions is Lua policy over this, and can wait until someone wants it.
 
 **Step 3: Hover versus focus**
 
@@ -472,7 +472,7 @@ Use Phase 5's explicit modifier state rather than synthesising modifier keypress
 
 **Step 3: Text the layout cannot express**
 
-Route through `sink:typeText` rather than trying to synthesise keycodes in Lua. `docs/input.md:58-62` is explicit that the technique requires generating and uploading a temporary keymap and cannot be implemented in Lua.
+Route through `sink:typeText` rather than trying to synthesise keycodes in Lua. `docs/dev/input.md:58-62` is explicit that the technique requires generating and uploading a temporary keymap and cannot be implemented in Lua.
 
 **Step 4: Draw it minimally**
 
@@ -506,7 +506,7 @@ Follow awesome's shape, not its code: a tag is an object with a name, an index, 
 
 The set is what makes "show this panel on two tags" expressible without special-casing, and multi-select is what makes viewing two tags at once possible. A single-current-workspace model cannot be widened into either later without breaking every caller.
 
-`mullion.tag.current` is one of only two module paths `docs/` attests (`docs/lua-api.md:86`), so that name is fixed.
+`mullion.tag.current` is one of only two module paths `docs/dev/` attests (`docs/dev/lua-api.md:86`), so that name is fixed.
 
 **Step 2: One arc layout**
 
@@ -556,7 +556,7 @@ The `appId` rules table is one source. Task 10's saved-layout restore is another
 
 **Step 3: No awesome code**
 
-awesome is GPL-2 and lunette GPL-3-only, so its code cannot enter this project (`docs/decisions.md:11`, `:13`). Only the design shape is taken, which is not copyrightable. Write it fresh, and do not consult its source while writing this file.
+awesome is GPL-2 and lunette GPL-3-only, so its code cannot enter this project (`docs/dev/decisions.md:11`, `:13`). Only the design shape is taken, which is not copyrightable. Write it fresh, and do not consult its source while writing this file.
 
 **Step 4: Apply on open**
 
@@ -637,11 +637,11 @@ Resist adding more. The default configuration is read by every new user as the w
 
 **Step 2: Where it ships**
 
-`$SYSCONFDIR/xdg/lunette`, per `docs/lua-api.md:20` and the design at line 311. Phase 1 established the config directory resolution; this replaces the placeholder written there.
+`$SYSCONFDIR/xdg/lunette`, per `docs/dev/lua-api.md:20` and the design at line 311. Phase 1 established the config directory resolution; this replaces the placeholder written there.
 
 **Step 3: A config need not use mullion**
 
-`docs/lua-api.md:22`: "A config that never mentions `mullion` is a supported configuration." The default one does use it, but nothing in the loading path may assume that.
+`docs/dev/lua-api.md:22`: "A config that never mentions `mullion` is a supported configuration." The default one does use it, but nothing in the loading path may assume that.
 
 **Step 4: Verify**
 
@@ -667,11 +667,11 @@ git commit -m "feat: ship a default configuration built on mullion"
 
 Decided on 2026-08-06: safe mode is a short Lua string compiled into the binary.
 
-`docs/lua-api.md:76` says "The native layer owns exactly one failure path", which implies embedded, and the reasoning holds up. Safe mode exists for when `main.lua` fails to load. mullion may be *why* it failed — a broken standard library, a missing install, a bad `LUNETTE_STDLIB_PATH`. So safe mode **must not `require 'mullion'`**, and uses only the `lunette` API.
+`docs/dev/lua-api.md:76` says "The native layer owns exactly one failure path", which implies embedded, and the reasoning holds up. Safe mode exists for when `main.lua` fails to load. mullion may be *why* it failed — a broken standard library, a missing install, a bad `LUNETTE_STDLIB_PATH`. So safe mode **must not `require 'mullion'`**, and uses only the `lunette` API.
 
 **Step 2: What it does**
 
-A laser, one panel, a terminal, and a reload key (`docs/lua-api.md:76`). Enough to see something, fix the configuration from inside the headset, and reload — rather than removing the headset to edit a file.
+A laser, one panel, a terminal, and a reload key (`docs/dev/lua-api.md:76`). Enough to see something, fix the configuration from inside the headset, and reload — rather than removing the headset to edit a file.
 
 This duplicates a little of Task 11's default configuration. That duplication is the price of it always working, and it should be noted at both sites so neither is "simplified" by pointing at the other.
 
@@ -718,7 +718,7 @@ For each mullion module: `require` it twice and assert no duplicate signal conne
 
 **Step 5: Confirm mullion uses only the public API**
 
-Grep the standard library for anything not in `docs/lua-api.md`. `CONTRIBUTING.md:62` makes a private path a defect in the API, not an acceptable shortcut, and this is the check that keeps it honest.
+Grep the standard library for anything not in `docs/dev/lua-api.md`. `CONTRIBUTING.md:62` makes a private path a defect in the API, not an acceptable shortcut, and this is the check that keeps it honest.
 
 **Step 6: The human gates**
 
@@ -747,7 +747,7 @@ Only if the check suite produced changes.
 ## Deliberately not in this phase
 
 - **Grab-to-resize.** In tier 2's description (`stdlib.md:17`) but not its minimum-viable line (`:21`). Deferred until move has been tuned in a headset.
-- **A 2D widget toolkit.** `stdlib.md:41-47` and `docs/decisions.md:69` defer it, possibly to a separate library. Chrome and the keyboard stay within `Pass:plane` and `Pass:text`.
+- **A 2D widget toolkit.** `stdlib.md:41-47` and `docs/dev/decisions.md:69` defer it, possibly to a separate library. Chrome and the keyboard stay within `Pass:plane` and `Pass:text`.
 - **Further layouts** — wall grid, stack, follow-head-with-lag (`stdlib.md:25`). One arc is the minimum viable set.
 - **The reload mechanism itself.** This phase ships the teardown registry and the error handler; Phase 7 builds the caller and the safe-mode trigger.
 - **Per-panel output scale**, which changes a panel's requested size — Phase 8.

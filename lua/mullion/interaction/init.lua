@@ -1,6 +1,6 @@
 -- Interaction: what a pointer is over, what it clicks, and what it holds.
 --
--- docs/stdlib.md's tier 2, minus the device and minus the drawing. It takes a
+-- docs/dev/stdlib.md's tier 2, minus the device and minus the drawing. It takes a
 -- frame of input and a list of panels and resolves which panel is hovered,
 -- which sink the pixel goes to, when a click becomes a focus change, and where
 -- a grabbed panel ends up. `mullion.laser` is the shell that reads
@@ -10,7 +10,7 @@
 -- and no global; every input arrives as an argument, and the specs move a
 -- pointer through a grab with no headset present.
 --
--- Hover and focus are separate, as docs/input.md#seats keeps them separate in
+-- Hover and focus are separate, as docs/dev/input.md#seats keeps them separate in
 -- the compositor. A hover sends `sink:pointer` and sends `sink:leave` to
 -- whatever it left; a click calls `seat:setFocus`, and hover does not. The
 -- native layer has no focus-from-motion heuristic by design. Adding one would
@@ -37,7 +37,7 @@ local metatable = { __index = methods }
 
 -- Re-exported from `mullion.interaction.types`, which holds the vocabulary so
 -- a lower tier can name `Surface` without requiring this module. These are
--- the names the rest of the tree and docs/stdlib.md use.
+-- the names the rest of the tree and docs/dev/stdlib.md use.
 export type Tuning = types.Tuning
 export type Input = types.Input
 export type Surface = types.Surface
@@ -61,7 +61,7 @@ local focusedSeat: lunette.Seat?, focusedSink: lunette.Sink?
 
 -- Everything the feel of a pointer is tuned by, in one table.
 --
--- docs/stdlib.md says this tier is tuning-heavy and that feel accounts for most
+-- docs/dev/stdlib.md says this tier is tuning-heavy and that feel accounts for most
 -- of the work. A tuning pass edits this table; it does not require searching
 -- through functions for a number. A caller wanting different numbers for one
 -- pointer passes its own table as `options.tuning` and leaves this one alone.

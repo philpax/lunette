@@ -1,6 +1,6 @@
 -- The floating error panel.
 --
--- `docs/lua-api.md#errors` requires three things at the callback boundary: a
+-- `docs/dev/lua-api.md#errors` requires three things at the callback boundary: a
 -- log line, `lunette.onError`, and a panel. The first two are `mullion.error`'s.
 -- This is the third, and it is separate for two reasons. Drawing requires a
 -- `Pass`, and `mullion.error` is loaded by sessions that have no graphics

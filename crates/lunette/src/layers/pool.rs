@@ -105,7 +105,7 @@ impl LayerBudget {
     /// trouble, against a reported limit of 128. The 128 is `XRT_MAX_LAYERS`
     /// in Monado with a real compositor, not a property of the hardware. The
     /// same Monado headless with the null compositor reports a limit of zero
-    /// and serves no quad layer. `docs/2026-08-06-milestone-0-findings.md`
+    /// and serves no quad layer. `docs/dev/2026-08-06-milestone-0-findings.md`
     /// records both limits.
     pub const CEILING: u32 = 12;
 

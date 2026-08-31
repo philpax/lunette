@@ -114,7 +114,7 @@
             # Anchored at the repository root rather than at the working
             # directory: the path is taken as it stands, so `nix develop` from a
             # crate directory would otherwise point it at a `lua` beside that
-            # crate. `docs/build-and-development.md` records why there is no
+            # crate. `docs/dev/build-and-development.md` records why there is no
             # `./lua` fallback that would make the variable unnecessary.
             # The configuration a session run from here loads, for the same
             # reason: a working copy is not on the search path. `--config-path`

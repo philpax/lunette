@@ -1,6 +1,6 @@
 //! Linux-only: turns what the compositor reports into `lovr.lun*` callbacks.
 //!
-//! Eight of the nine events `docs/lua-api.md` specifies are delivered from
+//! Eight of the nine events `docs/dev/lua-api.md` specifies are delivered from
 //! here. `lunerror` is the ninth and is not one of them: it is not pushed onto
 //! LÖVR's queue, because an error is reported where it happens. Queued
 //! delivery would arrive a frame later. [`crate::callback_error`] emits it.

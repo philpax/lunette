@@ -1,6 +1,6 @@
 -- Rules: what a window should look like, decided ahead of drawing.
 --
--- docs/stdlib.md's tier 3: the module that implements window placement. The
+-- docs/dev/stdlib.md's tier 3: the module that implements window placement. The
 -- minimum-viable line requires a rules table matched on `appId`. This module
 -- provides that table, and a saved arrangement composes as a separate source
 -- beside it.
@@ -19,7 +19,7 @@
 -- selects between them.
 --
 -- This module takes no `lovr.lun*` callback. The callback namespace belongs
--- to the configuration (docs/stdlib.md). `lunette.onWindowOpened` calls
+-- to the configuration (docs/dev/stdlib.md). `lunette.onWindowOpened` calls
 -- `place`.
 
 local lunette = require '@lunette'

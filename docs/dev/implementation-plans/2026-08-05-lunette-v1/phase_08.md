@@ -45,7 +45,7 @@ That third one matters: a client that guesses a global name it was never adverti
 
 **`can_view` is only re-evaluated at advertisement and bind.** Once a client has bound a `wl_output`, changing its assigned set retracts nothing. Retraction needs `DisplayHandle::disable_global` then `remove_global` (`display.rs:143`, `:159`), and re-advertisement needs a fresh `create_global`.
 
-Decided on 2026-08-06: assign at spawn, which is the common case and what `docs/compositor.md:65`'s `lunette.spawn{ output = out }` already implies. Reassigning a running client destroys and recreates the global, which the client experiences as a monitor unplug and replug. Document that, because a toolkit may move windows in response and the user should know why.
+Decided on 2026-08-06: assign at spawn, which is the common case and what `docs/dev/compositor.md:65`'s `lunette.spawn{ output = out }` already implies. Reassigning a running client destroys and recreates the global, which the client experiences as a monitor unplug and replug. Document that, because a toolkit may move windows in response and the user should know why.
 
 Note also that `Output::create_global` stores a single handle on the output (`mod.rs:206`), so there is one `Output` per global — a filtered design still creates one global per output, not one per client.
 
@@ -76,13 +76,13 @@ WayVR's own mechanism is better suited. It intercepts frame callbacks at commit 
 
 Phase 3 already recorded that this does not conflict with damage skipping: damage lives in `RendererSurfaceState`, callbacks in `SurfaceAttributes`, and callbacks accumulate across commits rather than being replaced — so withholding them is safe and loses nothing.
 
-**The floor is approximately 1 Hz, not zero** (`docs/rendering.md:72`). A client that never receives a frame callback stops pumping its event loop and stops responding to input, which looks like a hang. AC7.3 requires the client to keep processing input, so the floor is the mechanism that satisfies it.
+**The floor is approximately 1 Hz, not zero** (`docs/dev/rendering.md:72`). A client that never receives a frame callback stops pumping its event loop and stops responding to input, which looks like a hang. AC7.3 requires the client to keep processing input, so the floor is the mechanism that satisfies it.
 
 ### Video exemption
 
 smithay 0.7 supports `wp_content_type_v1` at `src/wayland/content_type/mod.rs`: `ContentTypeState::new::<D>(&DisplayHandle)` (`:159`), `delegate_content_type!`, and a per-surface double-buffered `ContentTypeSurfaceCachedState` read at commit through `states.cached_state.get::<ContentTypeSurfaceCachedState>().current().content_type()` (`:85-94`). Variants are `None`, `Photo`, `Video`, and `Game`, defaulting to `None` (`:96-102`). There is no handler trait and no events — it is purely a client hint.
 
-Adoption is thin and inconsistent, so the hint alone is not a reliable video detector. Expose it to Lua as an enum and let Lua combine it with a commit-rate heuristic. `docs/rendering.md:73` says video is exempt by default; the native layer supplies the signal, Lua decides what counts.
+Adoption is thin and inconsistent, so the hint alone is not a reliable video detector. Expose it to Lua as an enum and let Lua combine it with a commit-rate heuristic. `docs/dev/rendering.md:73` says video is exempt by default; the native layer supplies the signal, Lua decides what counts.
 
 ### Skipping the projection layer costs nothing unless `getPass` is skipped
 
@@ -94,7 +94,7 @@ At submit (`headset.c:3047-3077`), a false value simply means the `XrComposition
 
 Stock `etc/boot.lua:215` calls `lovr.headset.getPass()` **unconditionally**, before checking whether `lovr.draw` exists. lunette owns its own run loop and must skip that call itself. `lovrSwapchainRelease` is a no-op when nothing was acquired (`headset.c:3567`), so the release at `:3031-3032` costs nothing either way.
 
-Remaining per-frame cost with everything skipped: the three OpenXR frame calls, pose prediction and update, and the quad-layer blits. `docs/rendering.md:75` is explicit that lunette always submits an XR frame — only its own scene rendering stops.
+Remaining per-frame cost with everything skipped: the three OpenXR frame calls, pose prediction and update, and the quad-layer blits. `docs/dev/rendering.md:75` is explicit that lunette always submits an XR frame — only its own scene rendering stops.
 
 ### WayVR precedent: none
 
@@ -112,17 +112,17 @@ This phase is greenfield on every count, with the per-surface callback map as th
 
 **Files:**
 - Create: `crates/lunette-compositor/src/output.rs`
-- Modify: `crates/lunette/src/lua/mod.rs`, `docs/lua-api.md`
+- Modify: `crates/lunette/src/lua/mod.rs`, `docs/dev/lua-api.md`
 
 **Step 1: The signature**
 
-`docs/compositor.md:18-22` gives it exactly: `lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }`. Four named fields, no name, no physical size, no transform.
+`docs/dev/compositor.md:18-22` gives it exactly: `lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }`. Four named fields, no name, no physical size, no transform.
 
 **Refresh is in hertz in Lua and millihertz in smithay.** Convert at the boundary and nowhere else. A field that is hertz in one layer and millihertz in another is the kind of thing that produces a 90000 Hz output and a very confused client.
 
 **Step 2: Replace the shared output**
 
-`docs/compositor.md:24` rejects WayVR's single shared output (`mod.rs:209`) explicitly. Phase 2 created one output to get clients running; this replaces it with Lua-created ones.
+`docs/dev/compositor.md:24` rejects WayVR's single shared output (`mod.rs:209`) explicitly. Phase 2 created one output to get clients running; this replaces it with Lua-created ones.
 
 **Step 3: One `Output` per global**
 
@@ -130,7 +130,7 @@ This phase is greenfield on every count, with the per-surface callback map as th
 
 **Step 4: Document it**
 
-`docs/lua-api.md` gains `lunette.newOutput` and the output handle. `docs/compositor.md:18-22` already describes it; the API reference should not be the one place it is missing.
+`docs/dev/lua-api.md` gains `lunette.newOutput` and the output handle. `docs/dev/compositor.md:18-22` already describes it; the API reference should not be the one place it is missing.
 
 **Step 5: Test**
 
@@ -141,7 +141,7 @@ Cover: an output is created with the requested dimensions; refresh converts to m
 **Step 6: Commit**
 
 ```bash
-git add crates/lunette-compositor/src/output.rs crates/lunette/src/lua/mod.rs docs/
+git add crates/lunette-compositor/src/output.rs crates/lunette/src/lua/mod.rs docs/dev/
 git commit -m "feat(compositor): create virtual outputs from lua"
 ```
 <!-- END_TASK_1 -->
@@ -170,9 +170,9 @@ Put the assigned-output set in the per-client `ClientState` — Phase 2 already 
 
 **Step 3: Assign at spawn**
 
-`docs/compositor.md:65` already spells it: `lunette.spawn{ output = out }`. The assignment is made before the client connects, so the set is populated by the time the client's first registry advertisement runs.
+`docs/dev/compositor.md:65` already spells it: `lunette.spawn{ output = out }`. The assignment is made before the client connects, so the set is populated by the time the client's first registry advertisement runs.
 
-`docs/compositor.md:26` states the default policy: one output per spawned application, with the standard library choosing. The rationale is at the same line — a client enumerating other windows' monitors confuses toolkits.
+`docs/dev/compositor.md:26` states the default policy: one output per spawned application, with the standard library choosing. The rationale is at the same line — a client enumerating other windows' monitors confuses toolkits.
 
 **Step 4: Reassignment recreates the global**
 
@@ -180,7 +180,7 @@ Put the assigned-output set in the per-client `ClientState` — Phase 2 already 
 
 Reassignment therefore does `disable_global` then `remove_global` (`display.rs:143`, `:159`) and a fresh `create_global`. The client sees a monitor unplug and replug.
 
-Document that in `docs/compositor.md`. A toolkit may move or resize windows in response, and a user who reassigns an output and watches their windows jump should be able to find out why.
+Document that in `docs/dev/compositor.md`. A toolkit may move or resize windows in response, and a user who reassigns an output and watches their windows jump should be able to find out why.
 
 **Step 5: Bind-time enforcement is the real boundary**
 
@@ -254,7 +254,7 @@ git commit -m "feat(compositor): advertise fractional scale to clients"
 
 **Step 1: Policy in Lua**
 
-`docs/compositor.md:34`: "The standard library uses discrete scale steps with hysteresis rather than continuous adjustment. This is Lua policy, and it is tunable."
+`docs/dev/compositor.md:34`: "The standard library uses discrete scale steps with hysteresis rather than continuous adjustment. This is Lua policy, and it is tunable."
 
 Rust advertises; Lua decides. Continuous adjustment would make a client re-render on every centimetre of head movement.
 
@@ -308,11 +308,11 @@ Owning the type is worth more than reusing forty lines.
 
 **Step 2: `surface:setFrameRate(hz)`**
 
-The native mechanism, per `docs/rendering.md:63`. Rate policy — visibility, gaze, distance, focus, whether a game is running — is Lua's (`:68`).
+The native mechanism, per `docs/dev/rendering.md:63`. Rate policy — visibility, gaze, distance, focus, whether a game is running — is Lua's (`:68`).
 
 **Step 3: The floor is 1 Hz, not zero**
 
-`docs/rendering.md:72`: "The floor is approximately 1 Hz, not zero."
+`docs/dev/rendering.md:72`: "The floor is approximately 1 Hz, not zero."
 
 A client receiving no frame callbacks stops pumping its event loop and stops responding to input, which is indistinguishable from a hang. AC7.3 requires the client to keep processing input while throttled, and the floor is what delivers that. A zero rate would satisfy the first half of AC7.3 and fail the second.
 
@@ -356,7 +356,7 @@ Surface it to Lua as a closed set of values, not a string. A recognised closed s
 
 Adoption of `wp_content_type_v1` is thin and inconsistent — a client playing video may set nothing at all. So the hint is a strong signal, not a detector.
 
-`docs/rendering.md:73` says video is exempt by default. The native layer supplies the hint; Lua combines it with a commit-rate heuristic and decides. Putting the heuristic in Rust would be policy in the mechanism layer, which `CONTRIBUTING.md:63` forbids.
+`docs/dev/rendering.md:73` says video is exempt by default. The native layer supplies the hint; Lua combines it with a commit-rate heuristic and decides. Putting the heuristic in Rust would be policy in the mechanism layer, which `CONTRIBUTING.md:63` forbids.
 
 **Step 4: Test**
 
@@ -383,7 +383,7 @@ git commit -m "feat: exempt video surfaces from throttling"
 
 **Step 1: Extend the predicate to stale claims**
 
-Phase 3 Task 7 established the `CommitCounter` comparison. `docs/rendering.md:55` extends it: "Stale claims skip their blit."
+Phase 3 Task 7 established the `CommitCounter` comparison. `docs/dev/rendering.md:55` extends it: "Stale claims skip their blit."
 
 A claim whose source has not committed since its last blit does not re-blit, and the layer is still submitted — the runtime re-composites from the most recently released swapchain image, which the OpenXR specification guarantees.
 
@@ -431,13 +431,13 @@ So the common steady state — every panel on a layer, nothing else in the scene
 
 **Step 3: Still submit a frame**
 
-`docs/rendering.md:75`: lunette always submits an XR frame; only its own scene rendering is skipped. `xrWaitFrame`, `xrBeginFrame`, and `xrEndFrame` run every cycle regardless.
+`docs/dev/rendering.md:75`: lunette always submits an XR frame; only its own scene rendering is skipped. `xrWaitFrame`, `xrBeginFrame`, and `xrEndFrame` run every cycle regardless.
 
 Not submitting would drop lunette out of the runtime's frame loop and lose the layers along with the scene.
 
 **Step 4: What remains**
 
-Three OpenXR frame calls, pose prediction and update, and the quad-layer blits — themselves damage-gated by Task 7. Record this in `docs/rendering.md` so "skips scene rendering" is not read as "costs nothing".
+Three OpenXR frame calls, pose prediction and update, and the quad-layer blits — themselves damage-gated by Task 7. Record this in `docs/dev/rendering.md` so "skips scene rendering" is not read as "costs nothing".
 
 **Step 5: Test**
 
@@ -487,12 +487,12 @@ Split on a seam, not at the line count. A cohesive single-concern file slightly 
 
 **Step 4: Record the findings**
 
-Append to `docs/2026-08-06-milestone-0-findings.md`: which clients honoured `wp_fractional_scale_v1` and which ignored it; whether any client set `wp_content_type_v1`; whether the scale ladder's steps were the right ones in practice; and the measured cost of an idle frame with scene rendering skipped.
+Append to `docs/dev/2026-08-06-milestone-0-findings.md`: which clients honoured `wp_fractional_scale_v1` and which ignored it; whether any client set `wp_content_type_v1`; whether the scale ladder's steps were the right ones in practice; and the measured cost of an idle frame with scene rendering skipped.
 
 **Step 5: Commit**
 
 ```bash
-git add docs/2026-08-06-milestone-0-findings.md
+git add docs/dev/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record output, scale, and pacing findings"
 ```
 <!-- END_TASK_9 -->
@@ -510,7 +510,7 @@ git commit -m "docs: record output, scale, and pacing findings"
 
 ## Deliberately not in this phase
 
-- Output transform and physical size. `docs/compositor.md:18-22` specifies four fields; adding more is a design change, not an implementation detail.
+- Output transform and physical size. `docs/dev/compositor.md:18-22` specifies four fields; adding more is a design change, not an implementation detail.
 - Per-output refresh as anything but advertisement. Lua sets the rate; the compositor advertises it.
 - A native video detector. The hint is exposed; the heuristic is Lua's, per the mechanism-and-policy split.
 - `ext-image-copy-capture-v1` and libei, both recorded as out of scope in Phase 4.

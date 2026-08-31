@@ -1,7 +1,7 @@
 -- The mullion standard library.
 --
 -- mullion is policy written in Lua over the `lunette` native API. It uses
--- nothing outside docs/lua-api.md. lunette is mechanism; mullion is policy.
+-- nothing outside docs/dev/lua-api.md. lunette is mechanism; mullion is policy.
 -- A configuration may use any part of the library, or none of it.
 --
 -- `require '@mullion'` resolves to the root module through the mount in

@@ -12,7 +12,7 @@
 //! it. [`LayerPool`] sorts by that number, stably, and assigns the top N.
 //! The caller supplies the ranking: focus, gaze, distance, a rule putting
 //! video above a terminal, hysteresis to stop grant oscillation. lunette adds
-//! no ranking of its own. `docs/rendering.md` records that split.
+//! no ranking of its own. `docs/dev/rendering.md` records that split.
 //!
 //! # Grant timing
 //!
@@ -26,7 +26,7 @@
 //!
 //! A claim is dead once the pool no longer holds it. `claim:release()` is the
 //! sole operation that does this. Revocation does not end it.
-//! `docs/rendering.md` records that the standard library falls back to an
+//! `docs/dev/rendering.md` records that the standard library falls back to an
 //! in-scene quad on revoke and upgrades back when a layer returns to the
 //! pool. A handle that becomes inert at revocation cannot carry that later
 //! upgrade. Revocation removes the `Layer`: `claim.granted` is false and

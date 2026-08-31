@@ -242,7 +242,7 @@ spec('a module body running twice leaves one hook, not two', function()
   fresh()
 
   -- A soft reload drops `package.loaded` and re-runs the configuration
-  -- (docs/lua-api.md#reload), so a module body runs a second time against a
+  -- (docs/dev/lua-api.md#reload), so a module body runs a second time against a
   -- registry that may still hold what the first run put there. Registering by
   -- name leaves one hook. This spec runs last, so no later case reads the
   -- fresh module table it leaves behind.

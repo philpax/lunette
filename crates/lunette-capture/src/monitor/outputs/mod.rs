@@ -25,7 +25,7 @@
 //! `wl_output.name`, added in `wl_output` version 4, whose documented content is
 //! the connector name: `DP-1`, `HDMI-A-1`, `eDP-1`. Both wlroots and mutter
 //! send it. That is a strictly better source than the portal's `mapping_id`,
-//! which `docs/host-desktop.md` records as unusable: `mapping_id` is a real
+//! which `docs/dev/host-desktop.md` records as unusable: `mapping_id` is a real
 //! connector name on xdg-desktop-portal-wlr only, a random UUID on GNOME, and
 //! absent on KDE. The name still goes through [`ConnectorName::parse`]: a
 //! compositor is free to put anything there, and a name that is not a connector

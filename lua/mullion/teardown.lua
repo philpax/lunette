@@ -1,7 +1,7 @@
 -- The teardown registry.
 --
 -- A soft reload discards the Lua state and re-runs the configuration
--- (docs/lua-api.md#reload). Timers, signal connections, coroutines, and
+-- (docs/dev/lua-api.md#reload). Timers, signal connections, coroutines, and
 -- stashed handles from the state being discarded outlive it unless something
 -- takes them down, and CONTRIBUTING.md makes a module that leaks one across a
 -- reload a defect. A module registers a hook, and reload runs them.

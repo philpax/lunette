@@ -6,7 +6,7 @@
 
 **Tech Stack:** smithay 0.7.0 (`default-features = false`), ash 0.38.0+1.3.281, arc-swap, calloop 0.14, smithay-client-toolkit 0.21.1 (dev only), xwayland-satellite.
 
-**Scope:** Phase 2 of 8 from `docs/design-plans/2026-08-05-lunette-v1.md`.
+**Scope:** Phase 2 of 8 from `docs/dev/design-plans/2026-08-05-lunette-v1.md`.
 
 **Codebase verified:** 2026-08-05.
 
@@ -184,7 +184,7 @@ Record the upstream commit per file. WayVR has no release tags in this checkout,
 
 **Step 3: Write `CREDITS.md`**
 
-Record WayVR (GPL-3.0-only, compositor ported, formerly WlxOverlay-S), LÖVR (MIT, linked and patched), and wlx-capture (GPL-3.0-only, git-pinned dependency, arriving in Phase 4). `docs/decisions.md` already carries the licensing table and the paragraph on why WayVR's contribution is not incidental; `CREDITS.md` is the user-facing form of the same facts and must not contradict it.
+Record WayVR (GPL-3.0-only, compositor ported, formerly WlxOverlay-S), LÖVR (MIT, linked and patched), and wlx-capture (GPL-3.0-only, git-pinned dependency, arriving in Phase 4). `docs/dev/decisions.md` already carries the licensing table and the paragraph on why WayVR's contribution is not incidental; `CREDITS.md` is the user-facing form of the same facts and must not contradict it.
 
 State that patches under `vendor/lovr` are MIT, matching upstream, so they remain upstreamable.
 
@@ -529,7 +529,7 @@ git commit -m "feat(compositor): port the client socket and spawn xwayland-satel
 **Files:**
 - Create: `crates/lunette/src/import/mod.rs`, `device.rs`, `dmabuf.rs`, `formats.rs`
 
-This lives in `crates/lunette`, not `crates/lunette-compositor`. The compositor crate must not gain a GPU dependency — that separation is what keeps the test suite runnable without a GPU (AC9.4), and it is stated in `docs/architecture.md:77` and `CONTRIBUTING.md:32`.
+This lives in `crates/lunette`, not `crates/lunette-compositor`. The compositor crate must not gain a GPU dependency — that separation is what keeps the test suite runnable without a GPU (AC9.4), and it is stated in `docs/dev/architecture.md:77` and `CONTRIBUTING.md:32`.
 
 **Step 1: Wrap LÖVR's handles**
 
@@ -654,7 +654,7 @@ Call the Task 3 acquire wrapper before any read of the imported texture in a fra
 
 **Step 5: Dead handles**
 
-After a client exits, the handle reports `dead == true`, reads return last-known values, and every method returns `false` without raising. This is a recorded decision in `docs/decisions.md` — inert rather than raising, because a race taking down the session is worse.
+After a client exits, the handle reports `dead == true`, reads return last-known values, and every method returns `false` without raising. This is a recorded decision in `docs/dev/decisions.md` — inert rather than raising, because a race taking down the session is worse.
 
 **Step 6: Test**
 
@@ -687,7 +687,7 @@ Install through mlua's `Lua::get_or_init_from_ptr` on LÖVR's state, before `boo
 
 Phase 2 exposes `lunette.spawn`, `lunette.windows`, `Window:getTexture`, `Sink:pointer`, and `Sink:button`. `lunette.windows()` reads the latest snapshot; mutations queue during Lua callbacks and flush once at frame end.
 
-A window handle also exposes its **pixel dimensions**, `win.width` and `win.height`. These are not in the design's component list and are not currently documented anywhere in `docs/`, but Phase 6's panels cannot convert a ray hit to pixel coordinates without them, and `CONTRIBUTING.md:62` forbids mullion reaching past the public API. Document them in `docs/lua-api.md` alongside `win.title` and `win.appId` in this task, since that file is normative.
+A window handle also exposes its **pixel dimensions**, `win.width` and `win.height`. These are not in the design's component list and are not currently documented anywhere in `docs/dev/`, but Phase 6's panels cannot convert a ray hit to pixel coordinates without them, and `CONTRIBUTING.md:62` forbids mullion reaching past the public API. Document them in `docs/dev/lua-api.md` alongside `win.title` and `win.appId` in this task, since that file is normative.
 
 Rust holds no long-lived reference into Lua. That is a design prohibition, and it is what makes the soft reload in Phase 7 possible.
 
@@ -718,11 +718,11 @@ git commit -m "feat: expose the lunette lua module"
 - Create: `crates/lunette/src/events.rs`
 - Modify: `crates/lunette/src/lua/mod.rs`
 
-Task 4 declares the `Event` variants and Task 11 exposes the handles, but nothing yet turns a compositor event into a Lua callback. Without this, `docs/lua-api.md:29-34` specifies nine `lun*` events and lunette delivers none of them — and Phase 6's rules, which hook window-opened to place a newly spawned application (AC5.2), have nothing to hook.
+Task 4 declares the `Event` variants and Task 11 exposes the handles, but nothing yet turns a compositor event into a Lua callback. Without this, `docs/dev/lua-api.md:29-34` specifies nine `lun*` events and lunette delivers none of them — and Phase 6's rules, which hook window-opened to place a newly spawned application (AC5.2), have nothing to hook.
 
 **Step 1: The events this phase owns**
 
-Six of the nine, all normatively specified at `docs/lua-api.md:29-34`:
+Six of the nine, all normatively specified at `docs/dev/lua-api.md:29-34`:
 
 - `lunwindowopened`, `lunwindowclosed`, `luntitlechanged` — from the compositor's window lifecycle.
 - `lunprocessexited`, `lunprocessoutput` — from Task 6's process management. `lunprocessexited` is how a spawn failure reaches Lua (AC1.4).
@@ -739,7 +739,7 @@ Build a `CustomEvent` and call `lovrEventPush`, as `l_event.c:162-179` does from
 **Step 3: Two limits on every `lun*` event**
 
 - **Names cap at 31 characters plus a NUL** — `CustomEvent.name` is `char name[32]` (`event.h:102-106`). Every name planned fits; the limit is recorded here because it applies to all nine and a longer name would be silently truncated.
-- **Only four payload arguments reach the handler** (`boot.lua:193`, dispatched at `:198`). `docs/lua-api.md:42` states the consequence: richer payloads travel as a single table. Use a table for every `lun*` event, even one-argument ones, so the shape is uniform across phases and adding a field later is not a breaking change.
+- **Only four payload arguments reach the handler** (`boot.lua:193`, dispatched at `:198`). `docs/dev/lua-api.md:42` states the consequence: richer payloads travel as a single table. Use a table for every `lun*` event, even one-argument ones, so the shape is uniform across phases and adding a field later is not a breaking change.
 
 `'quit'` and `'restart'` are intercepted before dispatch and are reserved.
 
@@ -769,11 +769,11 @@ git commit -m "feat: deliver compositor events to lua"
 **Files:**
 - Modify: `crates/lunette/src/lua/window.rs`, `src/texture.rs`
 
-Three pieces of documented surface that Task 4 declares in the protocol or that `docs/` specifies, and that nothing else in the plan builds.
+Three pieces of documented surface that Task 4 declares in the protocol or that `docs/dev/` specifies, and that nothing else in the plan builds.
 
 **Step 1: `win:close()` and `win:resize(w, h)`**
 
-Both are specified at `docs/lua-api.md:54-55`. Task 4 declares the matching `Command::CloseWindow` and `Command::ConfigureWindow` variants and notes them as unhandled — this is where they become handled.
+Both are specified at `docs/dev/lua-api.md:54-55`. Task 4 declares the matching `Command::CloseWindow` and `Command::ConfigureWindow` variants and notes them as unhandled — this is where they become handled.
 
 `win:close()` sends the xdg-toplevel close request. It is a request, not a kill: a client may ignore it or show a save prompt. Say so, because a Lua author will expect the window to disappear.
 
@@ -783,9 +783,9 @@ Both follow the dead-handle rule: after the client exits they return `false` wit
 
 **Step 2: `surface:stabilize()`**
 
-`docs/rendering.md:23` gives it a section and `CONTRIBUTING.md:67` instructs its use — "Use `surface:stabilize()` when a persistent texture is genuinely wanted" — so a Lua author following the house rules will call it. Phase 6's panel implementation does.
+`docs/dev/rendering.md:23` gives it a section and `CONTRIBUTING.md:67` instructs its use — "Use `surface:stabilize()` when a persistent texture is genuinely wanted" — so a Lua author following the house rules will call it. Phase 6's panel implementation does.
 
-It allocates a lunette-owned texture and copies the imported buffer into it each frame the source is damaged, returning a texture whose identity is stable across frames. That is the opt-in against the zero-copy default, which `docs/decisions.md` records as a deliberate trade: zero-copy is cheaper and matches what other compositors do, with the stabilising copy available when a caller genuinely needs a persistent handle.
+It allocates a lunette-owned texture and copies the imported buffer into it each frame the source is damaged, returning a texture whose identity is stable across frames. That is the opt-in against the zero-copy default, which `docs/dev/decisions.md` records as a deliberate trade: zero-copy is cheaper and matches what other compositors do, with the stabilising copy available when a caller genuinely needs a persistent handle.
 
 Use `lovrTextureCopy` (`graphics.h:258`) — already public, already taking `state.lock`, already emitting `syncStream` barriers. Phase 3 Task 7 reuses the same call for its layer blits, so there is one copy mechanism in the codebase rather than two.
 
@@ -830,7 +830,7 @@ No patch is required for either.
 
 **Step 4: Verify**
 
-These require a headset and an XR runtime, so they are human-verified, not automated. Recorded as such in `test-requirements.md`, which sits alongside these phase files in `docs/implementation-plans/2026-08-05-lunette-v1/` and is produced by the planning process, not by any phase.
+These require a headset and an XR runtime, so they are human-verified, not automated. Recorded as such in `test-requirements.md`, which sits alongside these phase files in `docs/dev/implementation-plans/2026-08-05-lunette-v1/` and is produced by the planning process, not by any phase.
 
 - Run under Monado with another OpenXR application holding the primary session. Expected: lunette runs alongside it rather than failing to create a session.
 - Expected: lunette's content composites over the other application, and undrawn areas are transparent.
@@ -900,7 +900,7 @@ git commit -m "test: add logic-headless compositor tests"
 **Verifies:** All Phase 2 criteria, observationally.
 
 **Files:**
-- Create: `docs/2026-08-06-milestone-0-findings.md`
+- Create: `docs/dev/2026-08-06-milestone-0-findings.md`
 
 **Step 1: Run the check suite**
 
@@ -911,7 +911,7 @@ All five commands from `CONTRIBUTING.md:171-175`, inside `nix develop`.
 Run: `rg -L 'Ported from WayVR' crates/lunette-compositor/src/`
 Expected: no output. Every file in that crate is either ported and headed, or original.
 
-Confirm `vendor/lovr` patches carry MIT headers matching upstream, and that `CREDITS.md` agrees with `docs/decisions.md`'s licensing table.
+Confirm `vendor/lovr` patches carry MIT headers matching upstream, and that `CREDITS.md` agrees with `docs/dev/decisions.md`'s licensing table.
 
 **Step 3: The human gates**
 
@@ -936,7 +936,7 @@ An honest negative finding here is worth more than a passing gate. If the approa
 **Step 5: Commit**
 
 ```bash
-git add docs/2026-08-06-milestone-0-findings.md
+git add docs/dev/2026-08-06-milestone-0-findings.md
 git commit -m "docs: record milestone 0 findings"
 ```
 <!-- END_TASK_16 -->
@@ -950,7 +950,7 @@ git commit -m "docs: record milestone 0 findings"
 - The same build runs as an overlay under Monado alongside another OpenXR application, compositing over it with undrawn areas transparent.
 - Every ported file carries a provenance header, `CREDITS.md` exists, and `vendor/lovr` patches are MIT.
 - All five check commands pass.
-- `docs/2026-08-06-milestone-0-findings.md` records what the three Vulkan unknowns actually did.
+- `docs/dev/2026-08-06-milestone-0-findings.md` records what the three Vulkan unknowns actually did.
 
 ## Deliberately not in this phase
 

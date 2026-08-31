@@ -1,6 +1,6 @@
 -- Arrangements that remain after the process ends.
 --
--- This is the part of docs/stdlib.md's tier 3 that remains after a restart. The
+-- This is the part of docs/dev/stdlib.md's tier 3 that remains after a restart. The
 -- native property store keeps live per-window state across a soft reload, which
 -- discards the Lua state and keeps the compositor. The module persists
 -- arrangements across a hard restart, which discards the compositor too. The
@@ -339,7 +339,7 @@ end
 -- Each window takes the next unused entry for its `appId`, and the assignment
 -- is kept by `win.id`, so resolving the same window twice does not consume two.
 -- `win.id` is stable for a window's whole life and across a soft reload
--- (docs/lua-api.md#per-window-properties) and names nothing across a restart,
+-- (docs/dev/lua-api.md#per-window-properties) and names nothing across a restart,
 -- so the file is keyed on `appId`, not on `win.id`.
 --
 -- `file` is an arrangement, a load, or nothing, per `persist.arrangementOf`.

@@ -8,7 +8,7 @@
 //! used as keys have no wire form. Each raises an error naming the path to the
 //! offending value. `CONTRIBUTING.md` calls dropping content that cannot be
 //! represented a correctness bug, and [the Lua API]
-//! (../../../docs/lua-api.md#lunctl) criticises awesome's remote control for
+//! (../../../docs/dev/lua-api.md#lunctl) criticises awesome's remote control for
 //! its `tostring` fallback. A chunk can remove an unrepresentable value before
 //! returning it.
 //!
@@ -34,13 +34,13 @@
 //!   and `__pairs` can hide fields that do. A wire format whose contents
 //!   depend on which metamethods a caller installed is not an inspection tool.
 //!
-//! `docs/lua-api.md` records these choices as decisions, not as implementation
+//! `docs/dev/lua-api.md` records these choices as decisions, not as implementation
 //! details.
 //!
 //! # Handles are identifiers, never addresses
 //!
 //! A handle serialises as its kind and the identity the session keys it on
-//! (`docs/architecture.md`). The identity is not `tostring(handle)`. Addresses
+//! (`docs/dev/architecture.md`). The identity is not `tostring(handle)`. Addresses
 //! are reused after collection, so an id derived from one can come to refer to
 //! a different object. The failure occurs when memory pressure makes the
 //! allocator reuse the address. The identity is not the userdata's either,
@@ -302,7 +302,7 @@ fn convert_table(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError
 
 fn table_body(walk: &mut Walk, table: &Table) -> Result<Value, SerialiseError> {
     // `Table::pairs` traverses with `lua_next`, which is raw. `__pairs` is
-    // not consulted, and `__index` cannot fabricate an entry. `docs/lua-api.md`
+    // not consulted, and `__index` cannot fabricate an entry. `docs/dev/lua-api.md`
     // records this as a decision.
     let mut pairs = Vec::new();
     for pair in table.pairs::<LuaValue, LuaValue>() {

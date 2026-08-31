@@ -583,7 +583,7 @@ const XDG_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 ///
 /// `lunctl` is equivalent to root access on the user's session, so an
 /// evaluation endpoint must be possible to leave out. `off` is the only value
-/// that disables it; `docs/lua-api.md` states the rest.
+/// that disables it; `docs/dev/lua-api.md` states the rest.
 const LUNETTE_CONTROL: &str = "LUNETTE_CONTROL";
 
 /// The XDG base directory for what a program records, not what it receives.

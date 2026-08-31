@@ -1,7 +1,7 @@
 # Building and installing lunette.
 #
 # Cargo builds the binary. The install step puts the runtime files where a
-# session that did not build in place can find them. docs/build-and-development.md
+# session that did not build in place can find them. docs/dev/build-and-development.md
 # states the paths, and the install targets realise them.
 #
 # Three sets ship:

@@ -536,6 +536,6 @@ fn a_dispatcher_is_installed_for_every_event_the_module_can_push() {
             "lunwindowclosed".to_owned(),
             "lunwindowopened".to_owned(),
         ],
-        "a name here is what `docs/lua-api.md` promises a configuration can hook"
+        "a name here is what `docs/dev/lua-api.md` promises a configuration can hook"
     );
 }

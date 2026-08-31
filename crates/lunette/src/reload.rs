@@ -4,7 +4,7 @@
 //! anything native. It runs the standard library's teardown hooks, drops
 //! `package.loaded` for the user's and the standard library's namespaces,
 //! clears the callbacks `main.lua` owns, and runs `main.lua` again
-//! ([the Lua API](../../../docs/lua-api.md#reload)).
+//! ([the Lua API](../../../docs/dev/lua-api.md#reload)).
 //!
 //! LÖVR's modules, the XR session, the graphics device, the compositor thread,
 //! and every connected client keep running throughout. The reload touches
@@ -41,7 +41,7 @@
 //! # Reload failure
 //!
 //! A `main.lua` that fails to load at startup produces safe mode
-//! ([the Lua API](../../../docs/lua-api.md#errors)). A reload that fails does
+//! ([the Lua API](../../../docs/dev/lua-api.md#errors)). A reload that fails does
 //! not: the user has a working session in front of them. Replacing it with
 //! the fallback over a typo they can fix and reload again is worse than
 //! reporting the error. [`reload`] returns the error, the session keeps
@@ -220,7 +220,7 @@ const USER_CALLBACKS: &[&str] = &[
 /// What lunette's own callbacks are named with.
 ///
 /// Handlers are cleared by prefix, not by name. The prefix is reserved for
-/// lunette (`docs/lua-api.md#events`), and a handler for an event a later
+/// lunette (`docs/dev/lua-api.md#events`), and a handler for an event a later
 /// phase delivers is as much the configuration's as `lovr.lunwindowopened`
 /// is. The dispatchers sit on `lovr.handlers`, not on `lovr`, so the prefix
 /// match reaches the configuration's handlers and not the module's own.
