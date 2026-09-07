@@ -313,6 +313,9 @@ fn generate_bindings(
         .allowlist_function("os_destroy")
         // The step loop calls this once per frame (`vendor/lovr/src/main.c`).
         .allowlist_function("os_sleep")
+        // Whether GLFW has an open window. False when GLFW never initialised
+        // (no `DISPLAY`) or when the window was never created.
+        .allowlist_function("os_window_is_open")
         .allowlist_function("lovrSetLogCallback")
         // Reference counting. Every LOVR object is owned through these.
         // Calling a `lovr*Destroy` directly bypasses the count. `lovrRelease`

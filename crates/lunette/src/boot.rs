@@ -293,6 +293,7 @@ unsafe fn run_steps(
     cookie: &mut raw::Variant,
     lua_handle: &Lua,
 ) -> Outcome {
+    let mut first_frame = true;
     loop {
         // The frame's snapshot and the frame's events are installed together,
         // before `boot.lua` polls, so a `lun*` handler reads a snapshot that
@@ -334,6 +335,31 @@ unsafe fn run_steps(
 
         match step {
             Step::Continue => {
+                if first_frame {
+                    first_frame = false;
+                    // SAFETY: reads `glfwState.window` and
+                    // `lovrHeadsetGetSessionGeneration`; no Lua state involved.
+                    let has_window = unsafe { raw::os_window_is_open() };
+                    let has_session = unsafe { raw::lovrHeadsetGetSessionGeneration() } != 0;
+                    debug!(has_window, has_session, "first frame completed");
+                    if !has_window && !has_session {
+                        error!(
+                            "no display and no XR runtime: \
+                             the session has nothing to present"
+                        );
+                        // Before the state closes, because closing it destroys
+                        // the graphics module and the device the compositor
+                        // borrowed.
+                        driver.shutdown();
+                        clear_log_callback();
+                        lua_handle.exec_raw_lua(|raw| raw.mark_closed());
+                        unsafe { raw::luax_close(state.cast()) };
+                        return Outcome::Exit {
+                            status: FAILURE_STATUS,
+                        };
+                    }
+                }
+
                 // Between two frames. `lovr.update` and `lovr.draw` have both
                 // finished and the next frame has not begun, so a chunk
                 // touching the same state a callback touches has nobody to
