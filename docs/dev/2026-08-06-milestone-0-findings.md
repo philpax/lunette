@@ -211,7 +211,7 @@ The size ladder quantises upwards, so an 800x600 window is served by a 1024x1024
 
 The blit clears the destination before a copy that does not cover it, so what composites is transparent black. The clear costs a full-image clear on each frame that copies into an oversized layer, and only such a copy pays it.
 
-That is a safety floor rather than the layout answer. `claim.width` and `claim.height` report the layer's dimensions, and [lua-api.md](lua-api.md) documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. The pool deliberately does not set the viewport itself: it is one of the per-panel properties that let a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would remove the mechanism a panel needs to place a source inside a larger layer. Phase 6 writes mullion's panel and owns that, and it is recorded in [phase 6](implementation-plans/2026-08-05-lunette-v1/phase_06.md) as a fact the panel is built against.
+That is a safety floor rather than the layout answer. `claim.width` and `claim.height` report the layer's dimensions, and [lua-api.md](lua-api.md) documents them as the numbers a caller needs for `layer:setViewport`. Nothing enforces the call. The pool deliberately does not set the viewport itself: it is one of the per-panel properties that let a layer of a given key serve any panel wanting that key, so setting it from underneath Lua would remove the mechanism a panel needs to place a source inside a larger layer. `mullion.panel` is built against this: it sets the viewport on each frame from the claim's reported dimensions.
 
 ### A recycled layer is not granted until it has been copied into
 
@@ -427,9 +427,7 @@ Every acceptance criterion of this phase is a human gate, and none was performed
 
 ## Outstanding
 
-Group A, C1, E1, D13, and D3's recorded half have been taken; see [what the test plan has returned](#what-the-test-plan-has-returned) below. C2 was attempted and is void. The rest of groups B and D are untouched.
-
-[The human test plan](test-plans/2026-08-05-lunette-v1.md) is the procedure for all of them, grouped by what each needs — a repository, a desktop session, a GPU, or the headset powered on. Results come back here.
+Some steps have been taken; see [what has been returned](#what-the-test-plan-has-returned) below. The remaining verification is tracked in issues #1 (desktop session), #2 (headset), #3 (null compositor layers), #20 through #24. Results come back here.
 
 ### What the test plan has returned
 
@@ -575,7 +573,7 @@ A chunk now runs in an environment that resolves a module by its own name, globa
 
 ### The two human gates
 
-Neither gate has been performed. Both are in [phase 2](implementation-plans/2026-08-05-lunette-v1/phase_02.md) as acceptance criteria, and neither is automatable.
+Neither gate has been performed, and neither is automatable.
 
 The first gate is that a terminal spawned by lunette appears on a quad in the desktop simulator and responds to a click. Its constituent parts have each been observed: the terminal appears in `lunette.windows()` at 800x600 with a matching texture, it is drawn on a quad and screenshotted from the simulator, and a Lua-issued click is reported by the child at the right coordinates. What has not happened is a person looking at the quad and clicking it. The parts passing separately is not the gate.
 
@@ -601,7 +599,7 @@ None of the five has been performed, and none of them can be performed on the ma
 - Monitors are selected once, in one dialog, in any order, and reattach correctly after a restart (AC3.4). The second run is the half that matters: whether the stored restore token avoided a second prompt is unanswered, and it is unanswerable without a first grant.
 - Dismissing a mirror stops its stream, and re-adding it restarts capture without re-prompting (AC3.5). The decisions are tested against a fake portal; the stream actually stopping is not.
 
-The four questions [phase 4](implementation-plans/2026-08-05-lunette-v1/phase_04.md) asks to be recorded are the same four, restated: which portal backend was tested and what it put in `mapping_id`, whether restore avoided a prompt on the second run, whether the uinput mapping was correct on a scaled or rotated display, and the GNOME result. All four are open. What is known about the backend without a grant is under [the portal on this machine](#the-portal-on-this-machine).
+Four questions remain open and are the same four restated: which portal backend was tested and what it put in `mapping_id`, whether restore avoided a prompt on the second run, whether the uinput mapping was correct on a scaled or rotated display, and the GNOME result. What is known about the backend without a grant is under [the portal on this machine](#the-portal-on-this-machine). Issue #1 tracks these.
 
 ### The five keyboard, seat, and clipboard gates
 
