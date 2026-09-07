@@ -337,12 +337,32 @@ unsafe fn run_steps(
             Step::Continue => {
                 if first_frame {
                     first_frame = false;
-                    // SAFETY: reads `glfwState.window` and
-                    // `lovrHeadsetGetSessionGeneration`; no Lua state involved.
+
+                    // The GLFW spam this guards against happens only when the
+                    // headset module is loaded: `boot.lua` calls
+                    // `lovr.simulate` when `lovr.headset` is non-nil and
+                    // inactive, and `lovr.simulate` calls `getViewAngles`,
+                    // which reaches GLFW. When the module is off,
+                    // `lovr.headset` is nil and the path is never taken.
+                    //
+                    // SAFETY: reads two fields from the `lovr` global table
+                    // on `state`, which is the main state and is live. The
+                    // two values are popped before any further Lua call.
+                    let headset_loaded = unsafe {
+                        lua::lua_getglobal(state, c"lovr".as_ptr());
+                        lua::lua_getfield(state, -1, c"headset".as_ptr());
+                        let loaded = lua::lua_type(state, -1) != lua::LUA_TNIL;
+                        lua::lua_pop(state, 2);
+                        loaded
+                    };
+
                     let has_window = unsafe { raw::os_window_is_open() };
                     let has_session = unsafe { raw::lovrHeadsetGetSessionGeneration() } != 0;
-                    debug!(has_window, has_session, "first frame completed");
-                    if !has_window && !has_session {
+                    debug!(
+                        has_window,
+                        has_session, headset_loaded, "first frame completed"
+                    );
+                    if !has_window && headset_loaded && !has_session {
                         error!(
                             "no display and no XR runtime: \
                              the session has nothing to present"
