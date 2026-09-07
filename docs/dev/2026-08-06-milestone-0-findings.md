@@ -427,7 +427,7 @@ Every acceptance criterion of this phase is a human gate, and none was performed
 
 ## Outstanding
 
-Some steps have been taken; see [what has been returned](#what-the-test-plan-has-returned) below. The remaining verification is tracked in issues #1 (desktop session), #2 (headset), #3 (null compositor layers), #20 through #24. Results come back here.
+Some steps have been taken; see [what has been returned](#what-the-test-plan-has-returned) below. The remaining verification is tracked in issues #25–#27 (desktop session), #28–#30 (headset), #3 (null compositor layers), #20 through #24. Results come back here.
 
 ### What the test plan has returned
 
@@ -599,7 +599,7 @@ None of the five has been performed, and none of them can be performed on the ma
 - Monitors are selected once, in one dialog, in any order, and reattach correctly after a restart (AC3.4). The second run is the half that matters: whether the stored restore token avoided a second prompt is unanswered, and it is unanswerable without a first grant.
 - Dismissing a mirror stops its stream, and re-adding it restarts capture without re-prompting (AC3.5). The decisions are tested against a fake portal; the stream actually stopping is not.
 
-Four questions remain open and are the same four restated: which portal backend was tested and what it put in `mapping_id`, whether restore avoided a prompt on the second run, whether the uinput mapping was correct on a scaled or rotated display, and the GNOME result. What is known about the backend without a grant is under [the portal on this machine](#the-portal-on-this-machine). Issue #1 tracks these.
+Four questions remain open and are the same four restated: which portal backend was tested and what it put in `mapping_id`, whether restore avoided a prompt on the second run, whether the uinput mapping was correct on a scaled or rotated display, and the GNOME result. What is known about the backend without a grant is under [the portal on this machine](#the-portal-on-this-machine). Issues #25 and #26 track these.
 
 ### The five keyboard, seat, and clipboard gates
 
