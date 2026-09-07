@@ -438,12 +438,12 @@ pub(crate) fn decode_hex(encoded: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
-    #[allow(clippy::chunks_exact_to_as_chunks)]
-    encoded
-        .chunks_exact(2)
-        .map(|pair| {
-            let high = (pair[0] as char).to_digit(16)?;
-            let low = (pair[1] as char).to_digit(16)?;
+    let (pairs, _) = encoded.as_chunks::<2>();
+    pairs
+        .iter()
+        .map(|&[hi, lo]| {
+            let high = (hi as char).to_digit(16)?;
+            let low = (lo as char).to_digit(16)?;
             u8::try_from(high * 16 + low).ok()
         })
         .collect()
