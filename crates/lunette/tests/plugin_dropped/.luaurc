@@ -1,0 +1,10 @@
+{
+  "languageMode": "strict",
+  "aliases": {
+    "lunette": "../../../../lua/lunette",
+    "lunette-plugin": "../../../../lua/lunette-plugin",
+    "lunette-contracts": "../../../../lua/lunette-contracts",
+    "lunette-plugins": "../../../../lua/lunette-plugins",
+    "mullion": "../../../../lua/mullion"
+  }
+}
