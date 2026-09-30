@@ -40,6 +40,9 @@ use std::{
 use mlua::{Lua, Table};
 use tracing::{error, info};
 
+#[cfg(test)]
+mod tests;
+
 /// The aggregator script, and the directory the script and its documents are read from.
 const AGGREGATOR: &str = "vendor/lovr-docs/api/main.lua";
 const API_ROOT: &str = "vendor/lovr-docs/api";

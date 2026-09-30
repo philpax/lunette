@@ -135,7 +135,7 @@ end
 
 export type AudioModule = {
   getDevice: (type: AudioType?) -> (string?, userdata?),
-  getDevices: (type: AudioType?) -> {},
+  getDevices: (type: AudioType?) -> { read ["[].id"]: userdata, read ["[].name"]: string, read ["[].default"]: boolean },
   getOrientation: () -> (number, number, number, number),
   getPose: () -> (number, number, number, number, number, number, number),
   getPosition: () -> (number, number, number),
@@ -148,9 +148,9 @@ export type AudioModule = {
     & ((modelData: ModelData, material: AudioMaterial | {AudioMaterial} | nil | nil) -> AudioMesh)
     & ((mesh: Mesh, material: AudioMaterial | {AudioMaterial} | nil | nil) -> AudioMesh),
   newSource:
-    & ((file: string | Blob, options: {}?) -> Source)
-    & ((sound: Sound, options: {}?) -> Source)
-    & ((stream: Sound, options: {}?) -> Source),
+    & ((file: string | Blob, options: { read decode: boolean?, read spatial: boolean?, read pitchable: boolean? }?) -> Source)
+    & ((sound: Sound, options: { read decode: boolean?, read spatial: boolean?, read pitchable: boolean? }?) -> Source)
+    & ((stream: Sound, options: { read decode: boolean?, read spatial: boolean?, read pitchable: boolean? }?) -> Source),
   setDevice: (type: AudioType?, id: userdata?, stream: AudioStream | boolean | nil, mode: AudioShareMode?) -> boolean,
   setHRTF:
     & ((file: string | Blob) -> ())
@@ -355,7 +355,7 @@ declare extern type ModelData extends Object with
   function getHeight(self, mesh: number, part: number): number
   function getImage(self, index: number): Image
   function getImageCount(self): number
-  function getMaterial(self, material: string | number): {}
+  function getMaterial(self, material: string | number): { read color: {number}, read glow: {number}, read uvShift: {number}, read uvScale: {number}, read metalness: number, read roughness: number, read clearcoat: number, read clearcoatRoughness: number, read occlusionStrength: number, read normalScale: number, read alphaCutoff: number, read texture: number | nil, read glowTexture: number | nil, read occlusionTexture: number | nil, read metalnessTexture: number | nil, read roughnessTexture: number | nil, read clearcoatTexture: number | nil, read normalTexture: number | nil }
   function getMaterialCount(self): number
   function getMaterialName(self, index: number): string
   function getMeshBlendShapeCount(self, mesh: number): number
@@ -836,7 +836,7 @@ export type WrapMode =
 declare extern type Buffer extends Object with
   function clear(self, offset: number?, extent: number?, value: number?)
   function getData(self, index: number?, count: number?): {}
-  function getFormat(self): {}
+  function getFormat(self): { read ["[].name"]: string, read ["[].type"]: any, read ["[].offset"]: number, read ["[].length"]: number, read ["[].stride"]: number }
   function getLength(self): number
   function getSize(self): number
   function getStride(self): number
@@ -885,7 +885,7 @@ declare extern type Mesh extends Object with
   function getMaterial(self): Material
   function getVertexBuffer(self): Buffer
   function getVertexCount(self): number
-  function getVertexFormat(self): {}
+  function getVertexFormat(self): { read ["[][1]"]: string, read ["[][2]"]: DataType, read ["[][3]"]: number }
   function getVertexStride(self): number
   function getVertices(self, index: number?, count: number?): {{number}}
   function setBaseVertex(self, offset: number?)
@@ -1022,7 +1022,7 @@ declare extern type Pass extends Object with
   function fill(self, texture: Texture?)
   function fill(self)
   function finishTally(self): number
-  function getCanvas(self): {}
+  function getCanvas(self): { read depth: any, read samples: number }
   function getCanvas(self)
   function getClear(self): {}
   function getDimensions(self): (number, number)
@@ -1030,7 +1030,7 @@ declare extern type Pass extends Object with
   function getLabel(self): string?
   function getProjection(self, view: number): (number, number, number, number)
   function getProjection(self, view: number, matrix: Mat4): Mat4
-  function getStats(self): {}
+  function getStats(self): { read draws: number, read computes: number, read drawsCulled: number, read cpuMemoryReserved: number, read cpuMemoryUsed: number, read submitTime: number, read gpuTime: number }
   function getTallyBuffer(self): (Buffer, number)
   function getViewCount(self): number
   function getViewPose(self, view: number): (number, number, number, number, number, number, number)
@@ -1083,7 +1083,7 @@ declare extern type Pass extends Object with
   function setBlendState(self, index: number, opColor: BlendOp, opAlpha: BlendOp, srcColor: BlendFactor, srcAlpha: BlendFactor, dstColor: BlendFactor, dstAlpha: BlendFactor)
   function setBlendState(self, index: number)
   function setCanvas(self, ...: Texture)
-  function setCanvas(self, canvas: {})
+  function setCanvas(self, canvas: { read depth: any?, read samples: number? })
   function setCanvas(self)
   function setClear(self, hex: number)
   function setClear(self, r: number, g: number, b: number, a: number?)
@@ -1229,10 +1229,10 @@ export type GraphicsModule = {
   compileShader: (stage: ShaderStage, source: string | Blob) -> Blob,
   getBackgroundColor: () -> (number, number, number, number),
   getDefaultFont: () -> Font,
-  getDevice: () -> {},
-  getFeatures: () -> {},
-  getLimits: () -> {},
-  getStats: () -> {},
+  getDevice: () -> { read id: number, read vendor: number, read name: string, read renderer: string, read subgroupSize: number, read discrete: boolean },
+  getFeatures: () -> { read textureBC: boolean, read textureASTC: boolean, read wireframe: boolean, read depthClamp: boolean, read depthResolve: boolean, read raytracing: boolean, read indirectDrawFirstInstance: boolean, read float64: boolean, read int64: boolean, read int16: boolean, read cubic: boolean },
+  getLimits: () -> { read textureSize2D: number, read textureSize3D: number, read textureSizeCube: number, read textureLayers: number, read renderSize: {}, read uniformBuffersPerStage: number, read storageBuffersPerStage: number, read sampledTexturesPerStage: number, read storageTexturesPerStage: number, read samplersPerStage: number, read resourcesPerShader: number, read uniformBufferRange: number, read storageBufferRange: number, read uniformBufferAlign: number, read storageBufferAlign: number, read vertexAttributes: number, read vertexBufferStride: number, read vertexShaderOutputs: number, read clipDistances: number, read cullDistances: number, read clipAndCullDistances: number, read workgroupCount: {}, read workgroupSize: {}, read totalWorkgroupSize: number, read computeSharedMemory: number, read indirectDrawCount: number, read instances: number, read anisotropy: number, read pointSize: number },
+  getStats: () -> { read bufferMemory: number, read textureMemory: number, read memoryBudget: number, read memoryUsage: number },
   getWindowPass: () -> Pass?,
   isFormatSupported: (format: TextureFormat, ...TextureFeature) -> (boolean, boolean),
   isHDR: () -> boolean,
@@ -1240,41 +1240,41 @@ export type GraphicsModule = {
   newBuffer:
     & ((size: number) -> Buffer)
     & ((blob: Blob?) -> Buffer)
-    & ((format: {} | DataType, length: number?) -> Buffer)
-    & ((format: {} | DataType, data: {} | Blob | nil) -> Buffer),
+    & ((format: { read layout: DataLayout?, read stride: number? } | DataType, length: number?) -> Buffer)
+    & ((format: { read layout: DataLayout?, read stride: number? } | DataType, data: {} | Blob | nil) -> Buffer),
   newFont:
     & ((file: string | Blob, size: number?, spread: number?) -> Font)
     & ((file: string | Blob, atlas: Image?, spread: number?) -> Font)
     & ((size: number?, spread: number?) -> Font)
     & ((rasterizer: Rasterizer, spread: number?) -> Font),
-  newMaterial: (properties: {}) -> Material,
+  newMaterial: (properties: { read color: {number}?, read glow: {number}?, read uvShift: {number}?, read uvScale: {number}?, read metalness: number?, read roughness: number?, read clearcoat: number?, read clearcoatRoughness: number?, read occlusionStrength: number?, read normalScale: number?, read alphaCutoff: number?, read texture: Texture?, read glowTexture: Texture?, read metalnessTexture: Texture?, read roughnessTexture: Texture?, read clearcoatTexture: Texture?, read occlusionTexture: Texture?, read normalTexture: Texture? }) -> Material,
   newMesh:
-    & ((count: number, options: {}?) -> Mesh)
-    & ((vertices: {}, options: {}?) -> Mesh)
-    & ((blob: Blob, options: {}?) -> Mesh)
-    & ((format: {}, count: number, options: {}?) -> Mesh)
-    & ((format: {}, vertices: {}, options: {}?) -> Mesh)
-    & ((format: {}, blob: Blob, options: {}?) -> Mesh)
+    & ((count: number, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
+    & ((vertices: {}, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
+    & ((blob: Blob, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
+    & ((format: {}, count: number, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
+    & ((format: {}, vertices: {}, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
+    & ((format: {}, blob: Blob, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
     & ((buffer: Buffer) -> Mesh),
   newModel:
-    & ((file: string | Blob, options: {}?) -> Model)
-    & ((modelData: ModelData, options: {}?) -> Model),
+    & ((file: string | Blob, options: { read mipmaps: boolean?, read materials: boolean?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Model)
+    & ((modelData: ModelData, options: { read mipmaps: boolean?, read materials: boolean?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Model),
   newPass:
     & ((...Texture) -> Pass)
-    & ((canvas: {}) -> Pass),
-  newRaytracer: (capacity: number, options: {}?) -> Raytracer,
-  newSampler: (parameters: {}) -> Sampler,
+    & ((canvas: { read depth: { read format: TextureFormat?, read texture: Texture }, read samples: number? }) -> Pass),
+  newRaytracer: (capacity: number, options: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }?) -> Raytracer,
+  newSampler: (parameters: { read filter: FilterMode | {FilterMode} | nil, read wrap: WrapMode | {WrapMode} | nil, read compare: CompareMode?, read anisotropy: number?, read mipmaprange: {}? }) -> Sampler,
   newShader:
-    & ((vertex: string | DefaultShader | Blob, fragment: string | DefaultShader | Blob, options: {}?) -> Shader)
-    & ((compute: string | Blob, options: {}?) -> Shader)
-    & ((defaultshader: DefaultShader, options: {}?) -> Shader),
+    & ((vertex: string | DefaultShader | Blob, fragment: string | DefaultShader | Blob, options: { read flags: {}?, read label: string?, read raw: boolean? }?) -> Shader)
+    & ((compute: string | Blob, options: { read flags: {}?, read label: string?, read raw: boolean? }?) -> Shader)
+    & ((defaultshader: DefaultShader, options: { read flags: {}?, read label: string?, read raw: boolean? }?) -> Shader),
   newTexture:
-    & ((file: string | Blob, options: {}?) -> Texture)
-    & ((width: number, height: number, options: {}?) -> Texture)
-    & ((width: number, height: number, layers: number, options: {}?) -> Texture)
-    & ((image: string, options: {}?) -> Texture)
-    & ((images: {string | Blob | Image}, options: {}?) -> Texture),
-  newTextureView: (parent: Texture, options: {}?) -> Texture,
+    & ((file: string | Blob, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
+    & ((width: number, height: number, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
+    & ((width: number, height: number, layers: number, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
+    & ((image: string, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
+    & ((images: {string | Blob | Image}, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture),
+  newTextureView: (parent: Texture, options: { read type: TextureType?, read layer: number?, read layercount: number?, read mipmap: number?, read mipmapcount: number?, read label: string? }?) -> Texture,
   present: () -> (),
   setBackgroundColor:
     & ((r: number, g: number, b: number, a: number?) -> ())
@@ -1410,7 +1410,7 @@ export type HeadsetModule = {
   getDisplayHeight: () -> number,
   getDisplayWidth: () -> number,
   getDriver: () -> string,
-  getFeatures: () -> {},
+  getFeatures: () -> { read battery: boolean, read overlay: boolean, read proximity: boolean, read passthrough: boolean, read refreshRate: boolean, read depthSubmission: boolean, read eyeTracking: boolean, read handTracking: boolean, read handTrackingElbow: boolean, read keyboardTracking: boolean, read viveTrackers: boolean, read handModel: boolean, read controllerModel: boolean, read controllerSkeleton: boolean, read cubeBackground: boolean, read equirectBackground: boolean, read layerColor: boolean, read layerCurve: boolean, read layerDepthTest: boolean, read layerFilter: boolean },
   getFoveation: () -> (FoveationLevel, boolean),
   getHands: () -> {Device},
   getLayers: () -> {Layer},
@@ -1451,10 +1451,10 @@ export type HeadsetModule = {
     & ((model: Model) -> boolean),
   isVisible: () -> boolean,
   newLayer:
-    & ((width: number, height: number, options: {}?) -> Layer)
-    & ((texture: Texture, options: {}?) -> Layer)
-    & ((image: Image, options: {}?) -> Layer)
-    & ((images: {}, options: {}?) -> Layer),
+    & ((width: number, height: number, options: { read stereo: boolean?, read static: boolean?, read transparent: boolean?, read filter: boolean? }?) -> Layer)
+    & ((texture: Texture, options: { read stereo: boolean?, read static: boolean?, read transparent: boolean?, read filter: boolean? }?) -> Layer)
+    & ((image: Image, options: { read stereo: boolean?, read static: boolean?, read transparent: boolean?, read filter: boolean? }?) -> Layer)
+    & ((images: {}, options: { read stereo: boolean?, read static: boolean?, read transparent: boolean?, read filter: boolean? }?) -> Layer),
   newModel:
     & ((key: lightuserdata) -> Model?)
     & ((device: Device?) -> Model?),
@@ -1840,7 +1840,7 @@ declare extern type World extends Object with
   function disableCollisionBetween(self, tag1: string, tag2: string)
   function enableCollisionBetween(self, tag1: string, tag2: string)
   function getAngularDamping(self): (number, number)
-  function getCallbacks(self): {}
+  function getCallbacks(self): ({ read filter: (() -> ())?, read enter: (() -> ())?, read exit: (() -> ())?, read contact: (() -> ())? })
   function getColliderCount(self): number
   function getColliders(self): {Collider}
   function getGravity(self): (number, number, number)
@@ -1897,7 +1897,7 @@ declare extern type World extends Object with
   function raycast(self, x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, filter: string?): (Collider, Shape, number, number, number, number, number, number, number | nil)
   function raycast(self, origin: vector, endpoint: vector, filter: string?): (Collider, Shape, number, number, number, number, number, number, number | nil)
   function setAngularDamping(self, damping: number, threshold: number?)
-  function setCallbacks(self, callbacks: {})
+  function setCallbacks(self, callbacks: { read filter: (() -> ())?, read enter: (() -> ())?, read exit: (() -> ())?, read contact: (() -> ())? })
   function setGravity(self, xg: number, yg: number, zg: number)
   function setGravity(self, gravity: vector)
   function setLinearDamping(self, damping: number, threshold: number?)
@@ -2015,7 +2015,7 @@ export type PhysicsModule = {
     & ((scale: number, heightmap: Image, stretch: number?) -> TerrainShape)
     & ((scale: number, callback: (x: number, z: number) -> (), samples: number?) -> TerrainShape),
   newWeldJoint: (colliderA: Collider?, colliderB: Collider) -> WeldJoint,
-  newWorld: (settings: {}?) -> World,
+  newWorld: (settings: { read tags: {}?, read staticTags: {}?, read maxColliders: number?, read threadSafe: boolean?, read allowSleep: boolean?, read stabilization: number?, read maxOverlap: number?, read restitutionThreshold: number?, read velocitySteps: number?, read positionSteps: number? }?) -> World,
 }
 
 export type MouseMode =
@@ -2044,7 +2044,7 @@ export type SystemModule = {
   isWindowFullscreen: () -> boolean,
   isWindowOpen: () -> boolean,
   isWindowVisible: () -> boolean,
-  openWindow: (options: {}) -> (),
+  openWindow: (options: { read width: number?, read height: number?, read fullscreen: boolean?, read resizable: boolean?, read title: string?, read icon: string? }) -> (),
   pollEvents: (timeout: number?) -> (),
   requestPermission: (permission: Permission) -> (),
   setClipboardText: (text: string) -> (),
@@ -2133,12 +2133,14 @@ export type VectorModule = {
   unpack: (v: vector) -> (number, number, number),
 }
 
+export type LovrConfiguration = { version: string, identity: string, saveprecedence: boolean, modules: { audio: boolean, data: boolean, event: boolean, graphics: boolean, headset: boolean, math: boolean, physics: boolean, system: boolean, task: boolean, thread: boolean, timer: boolean }, audio: { debug: boolean, samplerate: number?, read start: boolean, write start: boolean?, read reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }, write reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }? }, graphics: { debug: boolean, vsync: boolean, stencil: boolean, antialias: boolean, lowpower: boolean, hdr: boolean, shadercache: boolean }, headset: { connect: boolean, start: boolean, debug: boolean, read supersample: boolean, write supersample: boolean | number | nil, seated: boolean, read mask: boolean, write mask: boolean?, read antialias: boolean, write antialias: boolean?, stencil: boolean, read dynamicresolution: boolean, write dynamicresolution: boolean?, submitdepth: boolean, read overlay: boolean, write overlay: boolean | number, read controllerskeleton: "none" | "controller" | "natural", write controllerskeleton: "none" | "controller" | "natural" | nil, extensions: {string}? }, math: { globals: boolean }, thread: { read workers: number, write workers: number? }, read window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }, write window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }? }
+
 declare lovr: {
   getVersion: () -> (number, number, number, string, string),
 
-  conf: ((t: {}) -> ())?,
+  conf: ((t: LovrConfiguration) -> ())?,
   draw: ((pass: Pass) -> boolean?)?,
-  errhand: ((message: string) -> () -> any?)?,
+  errhand: ((message: string) -> (() -> any)?)?,
   filechanged: ((path: string, action: FileAction, oldpath: string?) -> ())?,
   focus: ((focused: boolean, display: DisplayType) -> ())?,
   keypressed: ((key: KeyCode, scancode: number, isrepeat: boolean) -> ())?,

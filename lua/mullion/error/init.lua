@@ -161,7 +161,7 @@ local limiter: Limiter = errors.newLimiter()
 -- held at install time.
 local installed = false
 local cancelSubscription: (() -> ())? = nil
-local previousHandler: ((string) -> () -> any)? = nil
+local previousHandler: ((string) -> (() -> any)?)? = nil
 
 -- The key an error is rate-limited under.
 --
@@ -223,7 +223,7 @@ function errors.install(clock: (() -> number)?): boolean
   -- and the handler below needs a non-nil source to call.
   local source: () -> number = clock or defaultClock
 
-  lovr.errhand = function(message: string): () -> any
+  lovr.errhand = function(message: string): (() -> any)?
     errors.handle(message, debug.traceback('', 2), source())
     if previousHandler then
       return previousHandler(message)
