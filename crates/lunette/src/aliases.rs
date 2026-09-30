@@ -325,6 +325,11 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         destination: "definitions.luau",
         required: true,
     },
+    InstallArtifact {
+        source: "etc/lunette/installed.luaurc",
+        destination: "lua/.luaurc",
+        required: true,
+    },
 ];
 
 /// Returns the canonical install artifact manifest.
@@ -578,6 +583,11 @@ mod tests {
                     destination: "definitions.luau",
                     required: true,
                 },
+                InstallArtifact {
+                    source: "etc/lunette/installed.luaurc",
+                    destination: "lua/.luaurc",
+                    required: true,
+                },
             ]
         );
         assert!(
@@ -589,6 +599,10 @@ mod tests {
             artifact.source.ends_with(".lua")
                 || artifact.source.ends_with(".luau")
                 || artifact.source.starts_with("lua/")
+                || artifact.source == "etc/lunette/installed.luaurc"
+        }));
+        assert!(INSTALL_ARTIFACTS.iter().all(|artifact| {
+            !artifact.source.contains("probe") && !artifact.source.starts_with("crates/")
         }));
     }
 

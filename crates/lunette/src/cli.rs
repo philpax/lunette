@@ -7,6 +7,7 @@
 //! configuration not written to handle it.
 
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     fmt::{self, Display, Formatter},
     fs, io,
@@ -69,6 +70,22 @@ pub enum Command {
     },
 }
 
+/// Files that make up the shipped default configuration, relative to its root.
+///
+/// Keep this inventory explicit: adding a configuration file must be a
+/// deliberate packaging change, not an accidental consequence of a tree walk.
+const CONFIG_ARTIFACTS: &[&str] = &[
+    "main.lua",
+    "conf.lua",
+    "desktop/base.lua",
+    "desktop/callbacks.lua",
+    "desktop/errors.lua",
+    "desktop/input.lua",
+    "desktop/keyboard.lua",
+    "desktop/logging.lua",
+    "desktop/policy.lua",
+];
+
 /// Copies `source` to `destination`, refusing to overwrite anything.
 ///
 /// The function refuses to overwrite, because the file it writes is one
@@ -90,36 +107,30 @@ pub fn dump(
         return Err(DumpError::NoDefault(source.to_owned()));
     }
 
-    let entries = fs::read_dir(source)
-        .map_err(|error| DumpError::Read(source.to_owned(), error))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| DumpError::Read(source.to_owned(), error))?;
+    let entries = read_config_entries(source)?;
+    validate_config_entries(&entries)?;
 
-    let mut written = Vec::with_capacity(entries.len());
-    for entry in &entries {
-        let target = destination.join(entry.file_name());
-        if target.exists() {
-            return Err(DumpError::Exists(target));
-        }
+    let targets = CONFIG_ARTIFACTS
+        .iter()
+        .map(|artifact| destination.join(artifact))
+        .chain(std::iter::once(destination.join(ALIAS_FILE)))
+        .collect::<Vec<_>>();
+    if let Some(existing) = targets.iter().find(|target| target.exists()) {
+        return Err(DumpError::Exists(existing.clone()));
     }
 
     fs::create_dir_all(destination)
         .map_err(|error| DumpError::Write(destination.to_owned(), error))?;
 
-    for entry in entries {
-        // Only regular files are copied. The default configuration is a
-        // flat directory of Lua files.
-        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
-            continue;
+    let mut written = Vec::with_capacity(targets.len());
+    for artifact in CONFIG_ARTIFACTS {
+        let source_path = source.join(artifact);
+        let target = destination.join(artifact);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| DumpError::Write(parent.to_owned(), error))?;
         }
-        // The `.luaurc` is written after the loop, not copied. Its aliases
-        // must name `standard_library` by an absolute path; the source
-        // file's aliases resolve relative to the source tree.
-        if entry.file_name() == ALIAS_FILE {
-            continue;
-        }
-        let target = destination.join(entry.file_name());
-        fs::copy(entry.path(), &target).map_err(|error| DumpError::Write(target.clone(), error))?;
+        fs::copy(&source_path, &target).map_err(|error| DumpError::Write(target.clone(), error))?;
         written.push(target);
     }
 
@@ -132,6 +143,74 @@ pub fn dump(
     written.push(target);
 
     Ok(written)
+}
+
+/// Collects source paths and their filesystem kinds without following links.
+fn read_config_entries(source: &Path) -> Result<Vec<(PathBuf, ConfigEntryKind)>, DumpError> {
+    let mut entries = Vec::new();
+    let mut pending = vec![source.to_owned()];
+    while let Some(directory) = pending.pop() {
+        let children =
+            fs::read_dir(&directory).map_err(|error| DumpError::Read(directory.clone(), error))?;
+        for child in children {
+            let child = child.map_err(|error| DumpError::Read(directory.clone(), error))?;
+            let path = child.path();
+            let relative = path
+                .strip_prefix(source)
+                .map_err(|_| DumpError::Unsupported(path.clone()))?
+                .to_owned();
+            let file_type = child
+                .file_type()
+                .map_err(|error| DumpError::Read(path.clone(), error))?;
+            let kind = if file_type.is_dir() {
+                pending.push(path);
+                ConfigEntryKind::Directory
+            } else if file_type.is_file() {
+                ConfigEntryKind::File
+            } else {
+                ConfigEntryKind::Unsupported
+            };
+            entries.push((relative, kind));
+        }
+    }
+    Ok(entries)
+}
+
+/// The filesystem shapes accepted beneath the shipped configuration root.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConfigEntryKind {
+    Directory,
+    File,
+    Unsupported,
+}
+
+/// Checks the filesystem inventory against the declared shipped artifacts.
+fn validate_config_entries(entries: &[(PathBuf, ConfigEntryKind)]) -> Result<(), DumpError> {
+    let expected = CONFIG_ARTIFACTS
+        .iter()
+        .map(PathBuf::from)
+        .collect::<BTreeSet<_>>();
+    let mut found = BTreeSet::new();
+    for (path, kind) in entries {
+        if path == Path::new(ALIAS_FILE) && *kind == ConfigEntryKind::File {
+            continue;
+        }
+        match kind {
+            ConfigEntryKind::File if expected.contains(path) => {
+                found.insert(path.clone());
+            }
+            ConfigEntryKind::Directory
+                if expected.iter().any(|artifact| artifact.starts_with(path)) => {}
+            ConfigEntryKind::Directory => return Err(DumpError::Unsupported(path.clone())),
+            ConfigEntryKind::File | ConfigEntryKind::Unsupported => {
+                return Err(DumpError::Unsupported(path.clone()));
+            }
+        }
+    }
+    if let Some(missing) = expected.difference(&found).next() {
+        return Err(DumpError::Missing(missing.clone()));
+    }
+    Ok(())
 }
 
 /// What Luau reads a directory's aliases from.
@@ -148,6 +227,10 @@ pub enum DumpError {
     /// Something already exists where a copy would go, and the copy is
     /// refused.
     Exists(PathBuf),
+    /// A declared default-configuration file is absent.
+    Missing(PathBuf),
+    /// A filesystem entry is not represented by the shipped artifact manifest.
+    Unsupported(PathBuf),
     /// The copy could not be written.
     Write(PathBuf, io::Error),
 }
@@ -170,6 +253,16 @@ impl Display for DumpError {
                 "dump-config: {} already exists, and a copy would replace it",
                 path.display()
             ),
+            Self::Missing(path) => write!(
+                formatter,
+                "dump-config: the declared default-configuration file {} is missing",
+                path.display()
+            ),
+            Self::Unsupported(path) => write!(
+                formatter,
+                "dump-config: the default configuration contains unsupported content at {}",
+                path.display()
+            ),
             Self::Write(path, error) => write!(
                 formatter,
                 "dump-config: {} could not be written: {error}",
@@ -183,7 +276,7 @@ impl std::error::Error for DumpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Read(_, error) | Self::Write(_, error) => Some(error),
-            Self::NoDefault(_) | Self::Exists(_) => None,
+            Self::NoDefault(_) | Self::Exists(_) | Self::Missing(_) | Self::Unsupported(_) => None,
         }
     }
 }
@@ -202,14 +295,89 @@ mod tests {
     /// source tree has, whose aliases resolve relative to the source tree.
     fn source() -> TempDir {
         let directory = TempDir::new().expect("a temporary directory");
-        fs::write(directory.path().join("main.lua"), "-- main\n").expect("main.lua");
-        fs::write(directory.path().join("conf.lua"), "-- conf\n").expect("conf.lua");
+        for artifact in CONFIG_ARTIFACTS {
+            let path = directory.path().join(artifact);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("artifact directory");
+            }
+            fs::write(&path, format!("-- {artifact}\n")).expect("configuration artifact");
+        }
         fs::write(
             directory.path().join(".luaurc"),
             aliases::luaurc("../../../lua"),
         )
         .expect("a source .luaurc");
         directory
+    }
+
+    #[test]
+    fn config_artifact_manifest_names_the_shipped_files() {
+        assert_eq!(
+            CONFIG_ARTIFACTS,
+            &[
+                "main.lua",
+                "conf.lua",
+                "desktop/base.lua",
+                "desktop/callbacks.lua",
+                "desktop/errors.lua",
+                "desktop/input.lua",
+                "desktop/keyboard.lua",
+                "desktop/logging.lua",
+                "desktop/policy.lua",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_manifest_accepts_exact_files_and_their_parent_directory() {
+        let entries = [
+            (PathBuf::from("desktop"), ConfigEntryKind::Directory),
+            (PathBuf::from("main.lua"), ConfigEntryKind::File),
+            (PathBuf::from("conf.lua"), ConfigEntryKind::File),
+            (PathBuf::from("desktop/base.lua"), ConfigEntryKind::File),
+            (
+                PathBuf::from("desktop/callbacks.lua"),
+                ConfigEntryKind::File,
+            ),
+            (PathBuf::from("desktop/errors.lua"), ConfigEntryKind::File),
+            (PathBuf::from("desktop/input.lua"), ConfigEntryKind::File),
+            (PathBuf::from("desktop/keyboard.lua"), ConfigEntryKind::File),
+            (PathBuf::from("desktop/logging.lua"), ConfigEntryKind::File),
+            (PathBuf::from("desktop/policy.lua"), ConfigEntryKind::File),
+        ];
+        assert!(validate_config_entries(&entries).is_ok());
+    }
+
+    #[test]
+    fn the_manifest_rejects_missing_and_unsupported_content() {
+        let missing = [(PathBuf::from("main.lua"), ConfigEntryKind::File)];
+        assert!(matches!(
+            validate_config_entries(&missing),
+            Err(DumpError::Missing(_))
+        ));
+
+        let mut unsupported = CONFIG_ARTIFACTS
+            .iter()
+            .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
+            .collect::<Vec<_>>();
+        unsupported.push((PathBuf::from("desktop/extra.lua"), ConfigEntryKind::File));
+        assert!(matches!(
+            validate_config_entries(&unsupported),
+            Err(DumpError::Unsupported(path)) if path == Path::new("desktop/extra.lua")
+        ));
+
+        let mut symlink = CONFIG_ARTIFACTS
+            .iter()
+            .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
+            .collect::<Vec<_>>();
+        symlink.push((
+            PathBuf::from("desktop/link.lua"),
+            ConfigEntryKind::Unsupported,
+        ));
+        assert!(matches!(
+            validate_config_entries(&symlink),
+            Err(DumpError::Unsupported(path)) if path == Path::new("desktop/link.lua")
+        ));
     }
 
     #[test]
@@ -245,10 +413,13 @@ mod tests {
 
         dump(source.path(), &destination, Path::new("/somewhere/lua")).expect("the copy");
 
-        assert_eq!(
-            fs::read_to_string(destination.join("main.lua")).expect("main.lua"),
-            "-- main\n"
-        );
+        for artifact in CONFIG_ARTIFACTS {
+            assert_eq!(
+                fs::read_to_string(destination.join(artifact)).expect("configuration artifact"),
+                format!("-- {artifact}\n")
+            );
+        }
+        assert!(destination.join(".luaurc").is_file());
     }
 
     #[test]

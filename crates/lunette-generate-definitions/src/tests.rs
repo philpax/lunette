@@ -2,6 +2,23 @@
 
 use mlua::{Function, Lua, Table};
 
+use super::ALIAS_FILES;
+
+#[test]
+fn installed_lua_root_metadata_is_strict_relative_and_excludes_specs() {
+    let generated = ALIAS_FILES
+        .iter()
+        .find(|(path, _, _)| *path == "etc/lunette/installed.luaurc")
+        .map(|(_, root, render)| (*root, render(root)));
+    assert_eq!(
+        generated,
+        Some((
+            ".",
+            "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"mullion\": \"./mullion\"\n  }\n}\n".to_owned(),
+        ))
+    );
+}
+
 #[test]
 fn nested_input_schemas_preserve_optional_fields_arrays_and_functions() -> mlua::Result<()> {
     let generated = generate(

@@ -1,9 +1,9 @@
 //! Linux-only: the soft reload.
 //!
 //! `lunette.reload()` applies an edited configuration without disturbing
-//! anything native. It runs the standard library's teardown hooks, drops
-//! `package.loaded` for the user's and the standard library's namespaces,
-//! clears the callbacks `main.lua` owns, and runs `main.lua` again
+//! anything native. It retires the plugin runtime, drops `package.loaded` for
+//! the user's and the standard library's namespaces, clears the callbacks
+//! `main.lua` owns, resets the plugin epoch, and runs `main.lua` again
 //! ([the Lua API](../../../docs/dev/lua-api.md#reload)).
 //!
 //! LÖVR's modules, the XR session, the graphics device, the compositor thread,
@@ -52,11 +52,13 @@ use std::{cell::Cell, error::Error, fmt};
 use mlua::{Function, Lua, Table, Value};
 use tracing::{info, warn};
 
+use crate::plugin::host;
+
 /// Applies the configuration on disk to the running session.
 ///
-/// The steps run in the order the module documentation gives them. The first
-/// three are best-effort: a hook raising does not stop the rest, and that is
-/// the teardown registry's own contract.
+/// The steps run in the order the module documentation gives them. Plugin
+/// shutdown callback failures are reported, and cleanup continues. Errors
+/// clearing callbacks or loaded modules stop the reload.
 ///
 /// # Errors
 ///
@@ -70,8 +72,11 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
     // recurse until the stack runs out. A stack overflow takes every connected
     // client down with the process.
     let _guard = ReloadGuard::acquire().ok_or(ReloadError::Reentered)?;
+    if host::callback_active(lua) {
+        return Err(ReloadError::CallbackActive);
+    }
 
-    run_teardown_hooks(lua, "reload");
+    host::shutdown(lua, "reload");
 
     let globals = lua.globals();
     // Subscriptions go with the callbacks: a listener the previous
@@ -80,6 +85,7 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
     forget_subscriptions();
     clear_user_callbacks(&globals).map_err(ReloadError::State)?;
     clear_loaded_modules(&globals).map_err(ReloadError::State)?;
+    host::reset_epoch(lua).map_err(ReloadError::State)?;
     run_configuration(&globals)?;
 
     info!("the configuration was reloaded");
@@ -110,6 +116,8 @@ pub(crate) fn reload_from_lua(
 pub enum ReloadError {
     /// A reload was asked for while one was running.
     Reentered,
+    /// A reload was asked for from inside a plugin callback.
+    CallbackActive,
     /// The Lua state could not be read or written where the clearing needs it.
     State(mlua::Error),
     /// `main.lua` raised.
@@ -125,6 +133,8 @@ impl fmt::Display for ReloadError {
                 "reload: a reload cannot be asked for from inside one; a configuration that \
                  reloads as it loads would never finish loading",
             ),
+            Self::CallbackActive => formatter
+                .write_str("reload: a reload cannot be asked for from inside a plugin callback"),
             Self::State(error) => write!(
                 formatter,
                 "reload: the lua state could not be cleared: {error}"
@@ -142,7 +152,7 @@ impl fmt::Display for ReloadError {
 impl Error for ReloadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Reentered => None,
+            Self::Reentered | Self::CallbackActive => None,
             Self::State(error) | Self::Configuration(error) | Self::Load(error) => Some(error),
         }
     }
@@ -225,57 +235,6 @@ const USER_CALLBACKS: &[&str] = &[
 /// is. The dispatchers sit on `lovr.handlers`, not on `lovr`, so the prefix
 /// match reaches the configuration's handlers and not the module's own.
 const EVENT_PREFIX: &str = "lun";
-
-/// The module the teardown registry sits in.
-///
-/// Reached through `package.loaded`; it is not `require`d. A configuration
-/// that never mentions `mullion` is supported, and requiring the module here
-/// would load the standard library into a session that had gone without it.
-const TEARDOWN_MODULE: &str = "@mullion/teardown";
-
-/// Runs the standard library's teardown hooks, reporting failures and
-/// continuing.
-///
-/// Timers, signal connections, coroutines, and stashed handles from the
-/// configuration being discarded outlive it unless something takes them down.
-/// The registry is `mullion`'s, and its contract is that one hook's failure
-/// does not stop the next: reload has to complete either way, and a
-/// half-torn-down state is worse than a reported failure.
-///
-/// A restart runs it for a different reason. A reload keeps the Lua state, so
-/// a handle the configuration holds survives and the hooks release what would
-/// otherwise be held twice. A restart closes the state, so every handle in it
-/// goes at once while the compositor object each one named stays; the next
-/// configuration finds the names taken. `crate::boot` is the other caller,
-/// and `context` is what its warnings say.
-pub fn run_teardown_hooks(lua: &Lua, context: &str) {
-    match teardown_failures(lua) {
-        Ok(failures) if failures.is_empty() => (),
-        Ok(failures) => warn!(
-            "{context}: {} teardown hook(s) failed and the {context} continued: {}",
-            failures.len(),
-            failures.join(", ")
-        ),
-        Err(error) => warn!("{context}: the teardown registry could not be run: {error}"),
-    }
-}
-
-/// The names of the hooks that raised, or an empty list.
-fn teardown_failures(lua: &Lua) -> mlua::Result<Vec<String>> {
-    let loaded: Table = lua.globals().get::<Table>("package")?.get("loaded")?;
-    let Some(module) = loaded.get::<Option<Table>>(TEARDOWN_MODULE)? else {
-        return Ok(Vec::new());
-    };
-    let Some(run) = module.get::<Option<Function>>("run")? else {
-        return Ok(Vec::new());
-    };
-
-    let mut names = Vec::new();
-    for failure in run.call::<Table>(())?.sequence_values::<Table>() {
-        names.push(failure?.get::<Option<String>>("name")?.unwrap_or_default());
-    }
-    Ok(names)
-}
 
 /// Clears the `lovr` fields `main.lua` owns.
 ///
@@ -457,55 +416,6 @@ mod tests {
             .expect("the configuration is reachable");
     }
 
-    /// A teardown registry with the contract `@mullion/teardown` has: hooks keyed
-    /// by name, run in reverse registration order, emptied by a run, and rebuilt
-    /// empty when the module body runs again.
-    ///
-    /// The real one is Lua in `lua/mullion/teardown.lua` and is exercised by its
-    /// own spec. What these cases need is a record of when a hook ran relative
-    /// to the clearing, and a count that outlives the module the reload
-    /// discards. `hooksRun` is a global for that second reason, and a reload
-    /// does not clear globals.
-    const TEARDOWN: &str = r"
-      hooksRun = {}
-      package.preload['@mullion/teardown'] = function()
-        local teardown = { hooks = {}, order = {} }
-        function teardown.register(name, run)
-          if teardown.hooks[name] == nil then
-            teardown.order[#teardown.order + 1] = name
-          end
-          teardown.hooks[name] = run
-        end
-        function teardown.pending()
-          local names = {}
-          for index = #teardown.order, 1, -1 do
-            names[#names + 1] = teardown.order[index]
-          end
-          return names
-        end
-        function teardown.run()
-          local names, hooks = teardown.pending(), teardown.hooks
-          teardown.hooks, teardown.order = {}, {}
-          local failures = {}
-          for _, name in ipairs(names) do
-            local ok, message = pcall(hooks[name])
-            hooksRun[#hooksRun + 1] = name
-            if not ok then
-              failures[#failures + 1] = { name = name, message = message }
-            end
-          end
-          return failures
-        end
-        return teardown
-      end
-    ";
-
-    fn install_teardown(lua: &Lua) {
-        lua.load(TEARDOWN)
-            .exec()
-            .expect("the teardown registry loads");
-    }
-
     fn run(lua: &Lua, chunk: &str) {
         lua.load(chunk).exec().expect("the chunk runs");
     }
@@ -554,115 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn teardown_hooks_run_before_anything_is_cleared() {
-        let lua = state(
-            r"
-              local teardown = require '@mullion/teardown'
-              teardown.register('a.module', function()
-                -- What the hook can still see is the point: a hook that ran
-                -- after the clearing would tear down a state that had already been
-                -- dismantled.
-                sawModule = package.loaded['a.module'] ~= nil
-                sawCallback = lovr.update ~= nil
-              end)
-              function lovr.update() end
-            ",
-        );
-        install_teardown(&lua);
-        run(
-            &lua,
-            "require 'main' package.loaded['a.module'] = { name = 'a' }",
-        );
-
-        reload(&lua, &|| ()).expect("the reload succeeds");
-
-        assert!(
-            lua.load("return sawModule and sawCallback")
-                .eval::<bool>()
-                .expect("the hook ran"),
-            "the hook should have run before the modules and callbacks were cleared"
-        );
-        assert_eq!(
-            number(&lua, "#hooksRun"),
-            1,
-            "the hook should have run exactly once"
-        );
-    }
-
-    /// The registry's contract is that one hook raising does not stop the rest.
-    /// This is its only caller.
-    #[test]
-    fn a_hook_that_raises_does_not_stop_the_reload() {
-        let lua = state("runs.main = runs.main + 1");
-        install_teardown(&lua);
-        run(
-            &lua,
-            r"
-              local teardown = require '@mullion/teardown'
-              teardown.register('second', function() secondRan = true end)
-              teardown.register('first', function() error('deliberate') end)
-            ",
-        );
-
-        reload(&lua, &|| ()).expect("a failing hook does not fail the reload");
-
-        assert!(
-            lua.load("return secondRan")
-                .eval::<bool>()
-                .expect("readable"),
-            "the hook that ran after the one that raised should still have run"
-        );
-        assert_eq!(number(&lua, "runs.main"), 1, "main.lua should have run");
-    }
-
-    /// The restart's half of the registry. `crate::boot` runs the hooks and
-    /// nothing else: the state it would clear is about to be closed, and the
-    /// hooks release something native that has to be released before the
-    /// handles holding it go.
-    #[test]
-    fn a_restart_runs_the_hooks_without_clearing_the_state() {
-        let lua = state(
-            r"
-              local teardown = require '@mullion/teardown'
-              teardown.register('a.module', function() released = true end)
-              function lovr.update() end
-            ",
-        );
-        install_teardown(&lua);
-        run(
-            &lua,
-            "require 'main' package.loaded['a.module'] = { name = 'a' }",
-        );
-
-        run_teardown_hooks(&lua, "restart");
-
-        assert!(
-            lua.load("return released")
-                .eval::<bool>()
-                .expect("the hook ran"),
-            "the hook should have run, because a restart is the case where nothing else releases what it holds"
-        );
-        assert!(
-            lua.load("return lovr.update ~= nil and package.loaded['a.module'] ~= nil")
-                .eval::<bool>()
-                .expect("the state is readable"),
-            "a restart should not clear the callbacks or the modules a reload clears: the state is \
-             closed a moment later, so clearing them is work with no observer"
-        );
-    }
-
-    /// The same tolerance a reload has, at the other entry point. Both
-    /// `lovr.filechanged` and `lunette.restart` ask for a restart, and neither
-    /// is refusable by a configuration that never loaded the standard library.
-    #[test]
-    fn a_restart_with_no_teardown_registry_runs_the_hooks_it_has() {
-        let lua = state("runs.main = runs.main + 1");
-
-        run_teardown_hooks(&lua, "restart");
-    }
-
-    #[test]
-    fn a_configuration_with_no_teardown_registry_reloads() {
+    fn a_configuration_without_plugin_runtime_reloads() {
         let lua = state("runs.main = runs.main + 1");
 
         reload(&lua, &|| ()).expect("a session without mullion reloads");
@@ -834,33 +636,18 @@ mod tests {
         );
     }
 
-    /// Ten reloads leave the registry the size one reload leaves it. Hooks and
-    /// the connections they stand for do not accumulate.
+    /// Repeated reloads rebuild the configuration without retaining the old
+    /// module callbacks or package entries.
     #[test]
-    fn ten_reloads_accumulate_no_teardown_hooks() {
-        let lua = state(
-            "local teardown = require '@mullion/teardown'
-             teardown.register('@mullion/panel', function() end)
-             teardown.register('@mullion/signal', function() end)",
-        );
-        install_teardown(&lua);
-
+    fn ten_reloads_rebuild_the_configuration() {
+        let lua = state("runs.main = runs.main + 1");
         run(&lua, "require 'main'");
 
         for _ in 0..10 {
             reload(&lua, &|| ()).expect("the reload succeeds");
-            assert_eq!(
-                number(&lua, "#require('@mullion/teardown').pending()"),
-                2,
-                "the registry should hold one hook per module, however many reloads have run"
-            );
         }
 
-        assert_eq!(
-            number(&lua, "#hooksRun"),
-            20,
-            "each reload should have run each of the two hooks once"
-        );
+        assert_eq!(number(&lua, "runs.main"), 11);
     }
 
     /// A configuration that reloads as it loads would recurse until the stack

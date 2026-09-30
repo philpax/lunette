@@ -33,6 +33,7 @@
 //! See [`install_standard_library_mount`].
 
 use std::{
+    cell::RefCell,
     env,
     ffi::{CStr, OsString, c_int},
     mem,
@@ -49,7 +50,7 @@ use lunette::{
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install_on_state},
-    reload::run_teardown_hooks,
+    plugin::host,
     safe_mode,
     texture::LovrTexture,
 };
@@ -305,35 +306,6 @@ unsafe fn run_steps(
         // loop closes it before returning.
         let step = unsafe { step(thread) };
 
-        // Before `end_frame`, because the hooks make their releases as ordinary
-        // Lua mutations and `end_frame` delivers a frame's mutations to the
-        // compositor. Run from the arm below they would be made against a
-        // frame nothing sends, and the seats would survive after all.
-        //
-        // A restart closes the Lua state while the compositor keeps running, so
-        // every seat, pointer, and output the configuration created outlives the
-        // handle that could destroy it. The next configuration requests a seat
-        // by the name the last one used and receives a taken error, which
-        // raises inside `lovr.load` and leaves the new session with no
-        // configuration. `crate::reload::run_teardown_hooks` records why
-        // this is the restart's problem and not the reload's.
-        if matches!(step, Step::Restart) {
-            run_teardown_hooks(lua_handle, "restart");
-            // The session outlives the Lua state, and a listener is an
-            // `mlua::Function` belonging to the state about to close. Left in
-            // place, the next session dispatches its first event into freed
-            // memory, producing a segmentation fault. The reload clears them
-            // for the milder version of the same reason: there the functions
-            // are still callable, and calling a previous configuration's
-            // listener is wrong.
-            session.clear_subscribers();
-        }
-
-        // Before the branch, so a session ending still delivers the
-        // mutations its last frame made. A `win:close()` from a quit handler is
-        // one case.
-        driver.end_frame();
-
         match step {
             Step::Continue => {
                 if first_frame {
@@ -363,23 +335,25 @@ unsafe fn run_steps(
                         has_window,
                         has_session, headset_loaded, "first frame completed"
                     );
-                    if !has_window && headset_loaded && !has_session {
+                    if let Some(terminal) = first_frame_terminal(FirstFrameState {
+                        has_window,
+                        headset_loaded,
+                        has_session,
+                    }) {
                         error!(
                             "no display and no XR runtime: \
                              the session has nothing to present"
                         );
-                        // Before the state closes, because closing it destroys
-                        // the graphics module and the device the compositor
-                        // borrowed.
-                        driver.shutdown();
-                        clear_log_callback();
-                        lua_handle.exec_raw_lua(|raw| raw.mark_closed());
-                        unsafe { raw::luax_close(state.cast()) };
-                        return Outcome::Exit {
-                            status: FAILURE_STATUS,
-                        };
+                        return finish_terminal(
+                            state, thread, session, driver, cookie, lua_handle, terminal,
+                        );
                     }
                 }
+
+                // A normal frame ends after Lua has run. Terminal frames use
+                // `finish_terminal`, which performs the same flush only after
+                // runtime callbacks and subscribers have been retired.
+                driver.end_frame();
 
                 // Between two frames. `lovr.update` and `lovr.draw` have both
                 // finished and the next frame has not begun, so a chunk
@@ -400,52 +374,130 @@ unsafe fn run_steps(
                 unsafe { raw::os_sleep(0.0) };
             }
             Step::Restart => {
-                // Before the cookie is read and long before `luax_close`. The
-                // ordering is what keeps this path correct.
-                // `luax_close` runs LÖVR's finalizer chain, which reaches
-                // `gpu_destroy` (`vkDeviceWaitIdle`, `vkDestroyDevice`,
-                // `vkDestroyInstance`) and `lovrHeadsetDestroy`'s
-                // `xrDestroySession`. Every imported image, every allocation
-                // behind one, and every composition layer was created against
-                // those. `crate::restart` sets out the sequence this executes; it
-                // is not a `luax_atexit` finalizer, and that module records why.
-                driver.quiesce();
+                return finish_terminal(
+                    state,
+                    thread,
+                    session,
+                    driver,
+                    cookie,
+                    lua_handle,
+                    Terminal::Restart,
+                );
+            }
+            Step::Exit { status } => {
+                return finish_terminal(
+                    state,
+                    thread,
+                    session,
+                    driver,
+                    cookie,
+                    lua_handle,
+                    Terminal::Exit { status },
+                );
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FirstFrameState {
+    has_window: bool,
+    headset_loaded: bool,
+    has_session: bool,
+}
+
+/// Chooses the terminal action when the first frame has no display or XR session.
+fn first_frame_terminal(state: FirstFrameState) -> Option<Terminal> {
+    if !state.has_window && state.headset_loaded && !state.has_session {
+        Some(Terminal::Exit {
+            status: FAILURE_STATUS,
+        })
+    } else {
+        None
+    }
+}
+
+/// The native action taken after the runtime and final frame have retired.
+#[derive(Clone, Copy, Debug)]
+enum Terminal {
+    /// Keep the compositor and client graph while replacing the Lua state.
+    Restart,
+    /// Stop the compositor and finish the process.
+    Exit { status: u8 },
+}
+
+/// Retires the live Lua runtime and closes one terminal session.
+///
+/// The production terminal order is owned by [`host::terminal_shutdown`]. This
+/// function supplies the boot session's concrete subscriber, frame, native, and
+/// external-state operations to that shared sequence.
+fn finish_terminal(
+    state: *mut lua::lua_State,
+    thread: *mut lua::lua_State,
+    session: &Rc<Session<LovrTexture>>,
+    driver: &mut FrameDriver,
+    cookie: &mut raw::Variant,
+    lua_handle: &Lua,
+    terminal: Terminal,
+) -> Outcome {
+    let driver = RefCell::new(driver);
+    host::terminal_shutdown(
+        || host::shutdown(lua_handle, "terminal shutdown"),
+        || session.clear_subscribers(),
+        || driver.borrow_mut().end_frame(),
+        || match terminal {
+            Terminal::Restart => {
+                driver.borrow_mut().quiesce();
                 // SAFETY: `boot.lua` leaves the cookie at index 2 of the thread
                 // when it yields "restart"; `src/main.c:68` reads it there.
                 unsafe {
                     raw::luax_checkvariant(thread.cast(), 2, cookie);
                     // An object cookie holds a reference counted by the state
                     // that is about to close, so it cannot cross the restart.
-                    // `src/main.c:69` drops it the same way.
                     if cookie.__bindgen_anon_1.type_ == raw::VariantType_TYPE_OBJECT {
                         *cookie = mem::zeroed();
                     }
                 }
-                clear_log_callback();
-                // The state is about to close; mark it so mlua ValueRefs
-                // dropped during `luax_close`'s finalizer GC skip the freed
-                // ref thread.
-                lua_handle.exec_raw_lua(|raw| raw.mark_closed());
-                // SAFETY: no Lua value obtained above outlives this call.
-                unsafe { raw::luax_close(state.cast()) };
-                return Outcome::Restart;
             }
-            Step::Exit { status } => {
-                // Before the state closes, because closing it destroys the
-                // graphics module and the device the compositor borrowed.
-                driver.shutdown();
-                clear_log_callback();
-                // The state is about to close; mark it so mlua ValueRefs
-                // dropped during `luax_close`'s finalizer GC skip the freed
-                // ref thread.
-                lua_handle.exec_raw_lua(|raw| raw.mark_closed());
-                // `src/main.c:23` closes the thread while the state stays
-                // open on this path, which LÖVR resolves back to the main state.
-                //
-                // SAFETY: no Lua value obtained above outlives this call.
-                unsafe { raw::luax_close(thread.cast()) };
-                return Outcome::Exit { status };
-            }
+            Terminal::Exit { .. } => driver.borrow_mut().shutdown(),
+        },
+        || {
+            // SAFETY: every prior phase has retired Lua callbacks, flushed the
+            // frame, and quiesced or stopped native users of the state.
+            unsafe {
+                close_lua_state(
+                    state,
+                    thread,
+                    lua_handle,
+                    matches!(terminal, Terminal::Exit { .. }),
+                )
+            };
+        },
+    );
+
+    match terminal {
+        Terminal::Restart => Outcome::Restart,
+        Terminal::Exit { status } => Outcome::Exit { status },
+    }
+}
+
+/// Clears callbacks and closes the external LÖVR state after native teardown.
+unsafe fn close_lua_state(
+    state: *mut lua::lua_State,
+    thread: *mut lua::lua_State,
+    lua_handle: &Lua,
+    close_thread: bool,
+) {
+    clear_log_callback();
+    lua_handle.exec_raw_lua(|raw| raw.mark_closed());
+    // SAFETY: no Lua value obtained above outlives this call. Normal exit
+    // closes the boot coroutine while the main state stays open; restart closes
+    // the main state after the coroutine has already returned.
+    unsafe {
+        if close_thread {
+            raw::luax_close(thread.cast());
+        } else {
+            raw::luax_close(state.cast());
         }
     }
 }
@@ -923,6 +975,39 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn first_frame_without_display_or_xr_selects_failure_exit() {
+        for has_window in [false, true] {
+            for headset_loaded in [false, true] {
+                for has_session in [false, true] {
+                    let terminal = first_frame_terminal(FirstFrameState {
+                        has_window,
+                        headset_loaded,
+                        has_session,
+                    });
+
+                    let should_exit = !has_window && headset_loaded && !has_session;
+                    match terminal {
+                        Some(Terminal::Exit { status }) => {
+                            assert!(
+                                should_exit,
+                                "unexpected failure exit for {has_window}, {headset_loaded}, {has_session}"
+                            );
+                            assert_eq!(status, FAILURE_STATUS);
+                        }
+                        None => assert!(
+                            !should_exit,
+                            "missing failure exit for {has_window}, {headset_loaded}, {has_session}"
+                        ),
+                        Some(Terminal::Restart) => {
+                            panic!("first-frame validation cannot request restart")
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn entries(config_directory: &str, user_arguments: &[&str]) -> Vec<OsString> {
         arg_entries(

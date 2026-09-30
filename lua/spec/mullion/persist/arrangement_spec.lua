@@ -1,326 +1,359 @@
--- Covers the arrangement half of lua/mullion/persist/init.lua: the entries a set
--- of panels is captured as, the panels an arrangement is restored onto, and the
--- `mullion.rules` source it is installed as.
---
--- The other half, `spec/mullion/persist/file_spec.lua`, covers the file on disk,
--- the load, and the save. The split follows the module's own seam: one half is
--- arrangements and panels, the other is bytes and a filesystem.
---
--- The fakes both halves build are `spec.mullion.persist.fixture`, which requires
--- the panel fixture, so `mullion.persist` loads the `mullion.panel` that holds
--- the fake `lunette`.
-
+-- Captures and restores through neutral services and activation-scoped bindings.
 local expect = require '@spec/expect'
-local fixture = require '@spec/mullion/persist/fixture'
 local suite = require '@spec/suite'
-
+local plugin = require '@lunette-plugin'
+local lunette = require '@lunette'
+local panelsContract = require '@lunette-contracts/panels'
+local tagsContract = require '@lunette-contracts/tags'
+local rulesContract = require '@lunette-contracts/rules'
 local persist = require '@mullion/persist'
 local pose = require '@mullion/pose'
-local rules = require '@mullion/rules'
-local tag = require '@mullion/tag'
 
 local spec = suite.new 'mullion.persist.arrangement'
+local TOLERANCE = 1e-5
 
-local TOLERANCE = fixture.TOLERANCE
-local reset = fixture.reset
-local newEntry = fixture.newEntry
-local newWindowPanel = fixture.newWindowPanel
-local newMonitorPanel = fixture.newMonitorPanel
+local function entry(overrides)
+  local value = {
+    kind = 'window',
+    key = 'terminal',
+    slot = 1,
+    pose = '1 0 0 0 0 1 0 0 0 0 1 0 1 1.5 -2 1',
+    width = 1.2,
+    height = 0.7,
+    tags = { 'main' },
+  }
+  for key, replacement in pairs(overrides or {}) do
+    value[key] = replacement
+  end
+  return value
+end
 
-spec('capture keys a window on its appId and a slot', function()
-  reset()
-  local first = newWindowPanel('terminal', { id = 1, pose = lovr.math.newMat4():translate(1, 0, 0) })
-  local second = newWindowPanel('terminal', { id = 2 })
-  local other = newWindowPanel('browser', { id = 1 })
+local function withServices(entries, run)
+  local previousClaimLayer = lunette.claimLayer
+  lunette.claimLayer = function(options)
+    local claim = { dead = false, granted = false, layer = false, width = options.width, height = options.height }
+    function claim:release()
+      if self.dead then
+        return false
+      end
+      self.dead = true
+      return true
+    end
+    return claim
+  end
 
-  local entries = persist.entries(persist.capture { first, second, other })
+  local runtime
+  local ok, failure = pcall(function()
+    local reports = {}
+    local state = persist.new {
+      filesystem = {
+        read = function()
+          return persist.render(persist.newFile(entries or {}))
+        end,
+        write = function()
+          return true
+        end,
+        getSaveDirectory = function()
+          return '/save'
+        end,
+      },
+      report = function(message)
+        reports[#reports + 1] = message
+      end,
+    }
+    runtime = plugin.runtime()
+    for _, name in ipairs { 'panels', 'tags', 'rules' } do
+      runtime:use(require('@lunette-plugins/' .. name), {}):enable()
+    end
+    local context, panels, tags, rules
+    runtime
+      :use(
+        plugin.define(
+          function(value)
+            return value
+          end,
+          { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
+          {},
+          function(current)
+            context = current
+            panels = current:require(panelsContract.capability)
+            tags = current:require(tagsContract.capability)
+            rules = current:require(rulesContract.capability)
+          end
+        ),
+        {}
+      )
+      :enable()
+    expect.truthy(context and context:active(), 'the initialized consumer')
+    run(state, context, panels, tags, rules, reports)
+  end)
+  local closeOk, closeFailure = true, nil
+  if runtime then
+    closeOk, closeFailure = pcall(function()
+      runtime:close()
+    end)
+  end
+  lunette.claimLayer = previousClaimLayer
+  if not ok then
+    error(failure)
+  end
+  if not closeOk then
+    error(closeFailure)
+  end
+end
 
-  expect.equal(#entries, 3, 'the entries')
-  expect.equal(entries[1].key, 'terminal', 'the first key')
-  expect.equal(entries[1].slot, 1, 'the first slot')
-  expect.equal(entries[2].slot, 2, 'the second slot')
-  expect.equal(entries[3].key, 'browser', 'the third key')
-  expect.equal(entries[3].slot, 1, 'the third slot')
+local function window(appId, id)
+  return { appId = appId, id = id or 1, dead = false, width = 800, height = 600, opaque = false }
+end
+local function monitor(id)
+  return { id = id, dead = false, width = 1920, height = 1080 }
+end
+
+spec('native claim method is restored when service work raises', function()
+  local nativeClaimLayer = lunette.claimLayer
+  expect.raises(function()
+    withServices(nil, function()
+      error 'fixture: service work failed'
+    end)
+  end, 'fixture: service work failed', 'the original failure')
+  expect.equal(lunette.claimLayer, nativeClaimLayer, 'the native method')
+end)
+
+spec('capture keys windows on application identity and ordered slots', function()
+  withServices(nil, function(state, context, panels, tags)
+    panels:fromWindow(context, window('terminal', 1))
+    panels:fromWindow(context, window('terminal', 2))
+    panels:fromWindow(context, window('browser', 3))
+    local captured = persist.entries(state:capture(panels, tags))
+    expect.equal(#captured, 3, 'the entries')
+    expect.equal(captured[1].key, 'terminal', 'the first key')
+    expect.equal(captured[1].slot, 1, 'the first slot')
+    expect.equal(captured[2].slot, 2, 'the second slot')
+    expect.equal(captured[3].key, 'browser', 'the third key')
+    expect.equal(captured[3].slot, 1, 'the third slot')
+  end)
 end)
 
 spec('capture keys a monitor on its saved identity', function()
-  reset()
-  local screen = newMonitorPanel 'Acme X24 on DP-1'
-
-  local entries = persist.entries(persist.capture { screen })
-
-  expect.equal(entries[1].kind, 'monitor', 'the kind')
-  expect.equal(entries[1].key, 'Acme X24 on DP-1', 'the key')
+  withServices(nil, function(state, context, panels, tags)
+    panels:fromMonitor(context, monitor 'fixture.monitor')
+    local captured = persist.entries(state:capture(panels, tags))
+    expect.equal(captured[1].kind, 'monitor', 'the kind')
+    expect.equal(captured[1].key, 'fixture.monitor', 'the identity')
+  end)
 end)
 
-spec('capture records the tags a panel is on', function()
-  reset()
-  local main = tag.new 'main'
-  local side = tag.new 'side'
-  local created = newWindowPanel 'terminal'
-  main:add(created)
-  side:add(created)
-
-  local entries = persist.entries(persist.capture { created })
-
-  expect.equal(table.concat(entries[1].tags, ','), 'main,side', 'the tags')
+spec('capture records pose, metre size, and ordered tag membership', function()
+  withServices(nil, function(state, context, panels, tags)
+    local panel = panels:fromWindow(context, window 'terminal', {
+      pose = lovr.math.newMat4():translate(2, 3, -4),
+      width = 1.6,
+      height = 0.9,
+    })
+    tags:new(context, 'main'):add(panel)
+    tags:new(context, 'side'):add(panel)
+    local captured = persist.entries(state:capture(panels, tags))[1]
+    expect.equal(captured.pose, pose.encode(panel.pose), 'the pose')
+    expect.near(captured.width, 1.6, TOLERANCE, 'the width')
+    expect.near(captured.height, 0.9, TOLERANCE, 'the height')
+    expect.equal(table.concat(captured.tags, ','), 'main,side', 'the tags')
+  end)
 end)
 
-spec('a source with no identity is reported rather than saved', function()
-  reset()
-  local nameless = newWindowPanel 'terminal'
-  -- A window also carries an `id`. A key that used it would name the
-  -- compositor's identifier, which names nothing after a restart.
-  nameless.source.appId = nil
-
-  local entries = persist.entries(persist.capture { nameless })
-
-  expect.equal(#entries, 0, 'the entries')
-  expect.equal(#fixture.reported, 1, 'the reports')
-  expect.truthy(fixture.reported[1]:find 'no identity', 'what was reported')
+spec('sources with no stable identity are reported rather than saved', function()
+  withServices(nil, function(state, context, panels, tags, _rules, reports)
+    panels:fromWindow(context, window(nil))
+    panels:fromMonitor(context, monitor(8))
+    expect.equal(#persist.entries(state:capture(panels, tags)), 0, 'the entries')
+    expect.equal(#reports, 2, 'the reports')
+    expect.truthy(reports[1]:find('no identity', 1, true), 'the report')
+  end)
 end)
 
-spec('a destroyed panel is not captured', function()
-  reset()
-  local created = newWindowPanel 'terminal'
-  created:destroy()
-
-  expect.equal(#persist.entries(persist.capture { created }), 0, 'the entries')
+spec('destroyed panels and dead sources are not captured', function()
+  withServices(nil, function(state, context, panels, tags)
+    panels:fromWindow(context, window 'terminal'):destroy()
+    local source = window('browser', 2)
+    panels:fromWindow(context, source)
+    source.dead = true
+    expect.equal(#persist.entries(state:capture(panels, tags)), 0, 'the entries')
+  end)
 end)
 
-spec('restore puts a monitor panel back and reports what did not match', function()
-  reset()
-  local file = persist.newFile {
-    newEntry {
+spec('binding restores a monitor and reports unmatched entries', function()
+  withServices({
+    entry {
       kind = 'monitor',
-      key = 'Acme X24 on DP-1',
+      key = 'fixture.monitor',
       pose = pose.encode(lovr.math.newMat4():translate(-1, 2, -3)),
       tags = {},
     },
-    newEntry { kind = 'monitor', key = 'a screen that is unplugged', tags = {} },
-  }
-  local screen = newMonitorPanel 'Acme X24 on DP-1'
-
-  local restored, stale = persist.restore(file, { screen })
-
-  expect.equal(#restored, 1, 'the panels restored')
-  local x, y, z = screen.pose:getPosition()
-  expect.near(x, -1, TOLERANCE, 'x')
-  expect.near(y, 2, TOLERANCE, 'y')
-  expect.near(z, -3, TOLERANCE, 'z')
-  expect.near(screen.width, 1.2, TOLERANCE, 'the metre width')
-  expect.equal(#stale, 1, 'the stale entries')
-  expect.equal(stale[1].key, 'a screen that is unplugged', 'the stale key')
-  expect.equal(#fixture.reported, 1, 'the reports')
-  expect.truthy(fixture.reported[1]:find 'nothing matched', 'what was reported')
+    entry { kind = 'monitor', key = 'unplugged', tags = {} },
+  }, function(state, context, panels, tags, rules, reports)
+    local panel = panels:fromMonitor(context, monitor 'fixture.monitor')
+    state:bind(context, panels, tags, rules)
+    local x, y, z = panel.pose:getPosition()
+    expect.near(x, -1, TOLERANCE, 'x')
+    expect.near(y, 2, TOLERANCE, 'y')
+    expect.near(z, -3, TOLERANCE, 'z')
+    expect.near(panel.width, 1.2, TOLERANCE, 'the width')
+    expect.equal(#reports, 1, 'the reports')
+    expect.truthy(reports[1]:find('unplugged', 1, true), 'the unmatched identity')
+  end)
 end)
 
-spec('restore puts a panel back on the tags it was on', function()
-  reset()
-  local file = persist.newFile { newEntry { kind = 'monitor', key = 'a screen', tags = { 'main' } } }
-  local screen = newMonitorPanel 'a screen'
-
-  persist.restore(file, { screen })
-
-  local main = tag.find 'main'
-  expect.truthy(main, 'the tag the entry named')
-  expect.equal(main:has(screen), true, 'membership')
+spec('binding restores membership on existing and newly created tags', function()
+  withServices(
+    { entry { kind = 'monitor', key = 'fixture.monitor', tags = { 'main', 'side' } } },
+    function(state, context, panels, tags, rules)
+      local panel = panels:fromMonitor(context, monitor 'fixture.monitor')
+      local main = tags:new(context, 'main')
+      state:bind(context, panels, tags, rules)
+      expect.equal(tags:find 'main', main, 'the existing tag')
+      expect.truthy(main:has(panel), 'existing membership')
+      expect.truthy(tags:find('side'):has(panel), 'created membership')
+    end
+  )
 end)
 
-spec('restore skips an entry whose pose is not sixteen numbers', function()
-  reset()
-  local file = persist.newFile { newEntry { kind = 'monitor', key = 'a screen', pose = 'over there', tags = {} } }
-  local screen = newMonitorPanel 'a screen'
-
-  local restored, stale = persist.restore(file, { screen })
-
-  expect.equal(#restored, 0, 'the panels restored')
-  expect.equal(#stale, 1, 'the stale entries')
+spec('binding skips invalid poses and reports them without partial resize', function()
+  withServices(
+    { entry { kind = 'monitor', key = 'fixture.monitor', pose = 'over there', width = 8, tags = {} } },
+    function(state, context, panels, tags, rules, reports)
+      local panel = panels:fromMonitor(context, monitor 'fixture.monitor', { width = 1 })
+      state:bind(context, panels, tags, rules)
+      expect.near(panel.width, 1, TOLERANCE, 'the unchanged size')
+      expect.equal(#reports, 2, 'invalid pose and unmatched reports')
+    end
+  )
 end)
 
-spec('a destroyed panel takes no slot from a live one', function()
-  reset()
-  -- The dead panel is first, so a restore that counted it would give the live
-  -- one slot two and leave the entry unmatched.
-  local file = persist.newFile {
-    newEntry { kind = 'monitor', key = 'a screen', slot = 1, tags = {} },
-  }
-  local gone = newMonitorPanel 'a screen'
-  gone:destroy()
-  local screen = newMonitorPanel 'a screen'
-
-  local restored, stale = persist.restore(file, { gone, screen })
-
-  expect.equal(#restored, 1, 'the panels restored')
-  expect.equal(restored[1], screen, 'the panel restored')
-  expect.equal(#stale, 0, 'the stale entries')
+spec('dead sources take no saved slot from a live panel', function()
+  withServices(
+    { entry { kind = 'monitor', key = 'fixture.monitor', tags = {} } },
+    function(state, context, panels, tags, rules, reports)
+      local gone = monitor 'fixture.monitor'
+      panels:fromMonitor(context, gone)
+      gone.dead = true
+      local live = panels:fromMonitor(context, monitor 'fixture.monitor')
+      state:bind(context, panels, tags, rules)
+      expect.near(live.width, 1.2, TOLERANCE, 'the first slot restored')
+      expect.equal(#reports, 0, 'the unmatched reports')
+    end
+  )
 end)
 
-spec('apply refuses a destroyed panel', function()
-  reset()
-  -- `apply` refuses a destroyed panel, and `restore` skips one. A configuration
-  -- applying an entry calls `apply` directly, and a panel can be destroyed
-  -- between the two calls.
-  local screen = newMonitorPanel 'a screen'
-  screen:destroy()
-
-  expect.equal(persist.apply(newEntry { kind = 'monitor', key = 'a screen', tags = {} }, screen), false, 'the outcome')
+spec('source keys cannot collide by concatenating an identity and a slot', function()
+  local resolve = persist.source(persist.newFile {
+    entry { key = 'a1', slot = 1, width = 2 },
+    entry { key = 'a', slot = 11, width = 1 },
+  })
+  expect.near(resolve(window('a1', 1)).width, 2, TOLERANCE, 'the noncolliding width')
 end)
 
-spec('apply reports a size it cannot put back', function()
-  reset()
-  -- The contract makes `setSize` optional, so a surface can be movable and not
-  -- resizable. The pose goes back and the size cannot. A silently dropped size
-  -- returns a panel in the right place at the wrong size. The restored
-  -- arrangement does not match the saved one.
-  local moved = { setPose = function() end }
-
-  local outcome = persist.apply(newEntry { kind = 'window', key = 'terminal', tags = {} }, moved)
-
-  expect.equal(outcome, true, 'the outcome, because the pose went back')
-  expect.equal(#fixture.reported, 1, 'the reports')
-  expect.truthy(fixture.reported[1]:find 'cannot be resized', 'what was reported')
-end)
-
-spec('a key running into a slot does not collide with another entry', function()
-  reset()
-  -- Without a separator between the parts, the lookup for 'a' at slot 11 equals
-  -- the lookup for 'a1' at slot 1, and the second window would then be placed
-  -- where the eleventh entry is.
-  -- The colliding entry is written second, and a concatenating lookup returns it
-  -- for the a1 window.
-  local file = persist.newFile {
-    newEntry { key = 'a1', slot = 1, width = 2 },
-    newEntry { key = 'a', slot = 11, width = 1 },
-  }
-  local resolve = persist.source(file)
-
-  expect.near(resolve({ appId = 'a1', id = 1 }).width, 2, TOLERANCE, 'the width of the a1 window')
-end)
-
-spec('the restore source gives a window the properties it was saved with', function()
-  reset()
-  local file = persist.newFile { newEntry() }
-  local resolve = persist.source(file)
-
-  local properties = resolve { appId = 'terminal', id = 7 }
-
+spec('source answers a window with its saved pose, size, and tags', function()
+  local file = persist.newFile { entry() }
+  local properties = persist.source(file)(window 'terminal')
   expect.equal(properties.pose, persist.entries(file)[1].pose, 'the pose')
   expect.near(properties.width, 1.2, TOLERANCE, 'the width')
   expect.equal(properties.tags[1], 'main', 'the tag')
 end)
 
-spec('the restore source gives each window of one appId its own entry', function()
-  reset()
-  local file = persist.newFile {
-    newEntry { slot = 1, width = 1 },
-    newEntry { slot = 2, width = 2 },
-  }
-  local resolve = persist.source(file)
-
-  expect.near(resolve({ appId = 'terminal', id = 1 }).width, 1, TOLERANCE, 'the first window')
-  expect.near(resolve({ appId = 'terminal', id = 2 }).width, 2, TOLERANCE, 'the second window')
-  expect.falsy(resolve { appId = 'terminal', id = 3 }, 'a third window with no entry left')
+spec('source gives each window its own slot and answers repeated windows consistently', function()
+  local resolve = persist.source(persist.newFile { entry { width = 1 }, entry { slot = 2, width = 2 } })
+  expect.near(resolve(window('terminal', 1)).width, 1, TOLERANCE, 'the first slot')
+  expect.near(resolve(window('terminal', 1)).width, 1, TOLERANCE, 'the repeated slot')
+  expect.near(resolve(window('terminal', 2)).width, 2, TOLERANCE, 'the second slot')
+  expect.falsy(resolve(window('terminal', 3)), 'the exhausted slots')
 end)
 
-spec('the restore source answers the same window the same entry twice', function()
-  reset()
-  local file = persist.newFile {
-    newEntry { slot = 1, width = 1 },
-    newEntry { slot = 2, width = 2 },
-  }
-  local resolve = persist.source(file)
-
-  expect.near(resolve({ appId = 'terminal', id = 1 }).width, 1, TOLERANCE, 'the first resolve')
-  expect.near(resolve({ appId = 'terminal', id = 1 }).width, 1, TOLERANCE, 'the second resolve')
-  -- The second resolve consumed nothing, so the next window still finds slot 2.
-  expect.near(resolve({ appId = 'terminal', id = 2 }).width, 2, TOLERANCE, 'the second window')
+spec('source contributes nothing for unknown or unidentified applications', function()
+  local resolve = persist.source(persist.newFile { entry() })
+  expect.falsy(resolve(window 'browser'), 'an unknown application')
+  expect.falsy(resolve(window(nil)), 'an absent identity')
+  expect.falsy(resolve(window ''), 'an empty identity')
 end)
 
-spec('the restore source contributes nothing for a window it never saw', function()
-  reset()
-  local resolve = persist.source(persist.newFile { newEntry() })
-
-  expect.falsy(resolve { appId = 'browser', id = 1 }, 'an application with no entry')
-  expect.falsy(resolve { id = 1 }, 'a window with no appId at all')
+spec('persisted placement at 200 overrides rules at 100 and yields to native properties at 300', function()
+  withServices({ entry() }, function(state, context, panels, tags, rules)
+    rules:setRules(context, { { properties = { width = 1, pose = lovr.math.newMat4():translate(0, 0, -1) } } })
+    state:bind(context, panels, tags, rules)
+    local source = window 'terminal'
+    local panel = rules:place(context, source)
+    expect.near(panel.width, 1.2, TOLERANCE, 'the persisted width')
+    local _, _, z = panel.pose:getPosition()
+    expect.near(z, -2, TOLERANCE, 'the persisted pose')
+    rules:addSource(context, 'fixture.native', 300, function()
+      return { width = 3 }
+    end)
+    expect.near(rules:resolve(source).width, 3, TOLERANCE, 'the native width')
+  end)
 end)
 
-spec('a restored pose beats the rule that would have placed the window', function()
-  reset()
-  local file = persist.newFile {
-    newEntry { pose = pose.encode(lovr.math.newMat4():translate(3, 3, -3)) },
+spec('refused state binds an empty restore without placing panels', function()
+  local reports = {}
+  local state = persist.new {
+    filesystem = {
+      read = function()
+        return 'return { version = 99, entries = {} }'
+      end,
+      write = function()
+        error 'a refused state must not write'
+      end,
+      getSaveDirectory = function()
+        return '/save'
+      end,
+    },
+    report = function(message)
+      reports[#reports + 1] = message
+    end,
   }
-  rules.setRules {
-    { match = { appId = 'terminal' }, properties = { pose = lovr.math.newMat4():translate(0, 0, -1) } },
-  }
-  persist.install(file)
-
-  local created = rules.place(fixture.newWindow 'terminal')
-
-  local x, y, z = created.pose:getPosition()
-  expect.near(x, 3, TOLERANCE, 'x')
-  expect.near(y, 3, TOLERANCE, 'y')
-  expect.near(z, -3, TOLERANCE, 'z')
+  withServices(nil, function(_empty, context, panels, tags, rules)
+    local panel = panels:fromMonitor(context, monitor 'fixture.monitor', { width = 1 })
+    state:bind(context, panels, tags, rules)
+    expect.near(panel.width, 1, TOLERANCE, 'the untouched panel')
+    expect.equal(next(rules:resolve(window 'terminal')), nil, 'the empty source')
+  end)
+  expect.equal(#reports, 1, 'the refusal report')
 end)
 
-spec('a configuration can declare that the rules beat the restore instead', function()
-  reset()
-  local file = persist.newFile {
-    newEntry { pose = pose.encode(lovr.math.newMat4():translate(3, 3, -3)) },
-  }
-  rules.setRules {
-    { match = { appId = 'terminal' }, properties = { pose = lovr.math.newMat4():translate(0, 0, -1) } },
-  }
-  persist.install(file, rules.DEFAULT_PRECEDENCE - 1)
-
-  local created = rules.place(fixture.newWindow 'terminal')
-
-  local _, _, z = created.pose:getPosition()
-  expect.near(z, -1, TOLERANCE, 'z')
+spec('failed registration rolls back the source when a foreign panels service rejects the owner', function()
+  withServices(nil, function(state, context, _panels, tags, rules)
+    local foreign = plugin.runtime()
+    foreign:use(require '@lunette-plugins/panels', {}):enable()
+    local foreignPanels
+    foreign
+      :use(
+        plugin.define(function(value)
+          return value
+        end, { panels = panelsContract.capability }, {}, function(current)
+          foreignPanels = current:require(panelsContract.capability)
+        end),
+        {}
+      )
+      :enable()
+    local ok, failure = pcall(function()
+      expect.truthy(foreignPanels, 'the foreign service')
+      expect.raises(function()
+        state:bind(context, foreignPanels, tags, rules)
+      end, 'another runtime', 'the rejected owner')
+      expect.equal(#rules:sources(), 0, 'the rolled-back source')
+    end)
+    foreign:close()
+    if not ok then
+      error(failure)
+    end
+  end)
 end)
 
-spec('install accepts what load returns, as the default configuration passes it', function()
-  reset()
-  -- `etc/xdg/lunette/main.lua` writes `persist.install(persist.load())`, the
-  -- shape a configuration uses. A load and an arrangement are two different
-  -- things. An install limited to the arrangement form fails on the first frame
-  -- of every fresh installation.
-  local saved = persist.newFile {
-    newEntry { pose = pose.encode(lovr.math.newMat4():translate(3, 3, -3)) },
-  }
-  persist.install(persist.load(fixture.newFilesystem(persist.render(saved))))
-
-  local created = rules.place(fixture.newWindow 'terminal')
-
-  local x, y, z = created.pose:getPosition()
-  expect.near(x, 3, TOLERANCE, 'x')
-  expect.near(y, 3, TOLERANCE, 'y')
-  expect.near(z, -3, TOLERANCE, 'z')
-  -- The entry named a tag nothing declared. `mullion.rules` creates the tag and
-  -- reports the creation. The assertions below require the report.
-  expect.equal(#fixture.ruleReports, 1, 'what mullion.rules reported')
-  expect.truthy(fixture.ruleReports[1]:find 'nothing declared the tag', 'what was reported')
-end)
-
-spec('install accepts a load carrying no arrangement at all', function()
-  reset()
-  -- `forSession` answers nothing for a load this version cannot read, so a
-  -- configuration passing a load through without an `or` hands nil onwards. The
-  -- session starts with nothing to restore.
-  persist.install(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())))
-  persist.install(nil, rules.DEFAULT_PRECEDENCE + 1)
-
-  expect.equal(next(rules.resolve(fixture.newWindow 'terminal')), nil, 'the properties an empty restore contributed')
-end)
-
-spec('restore of a load carrying no arrangement places nothing rather than raising', function()
-  reset()
-  local screen = newMonitorPanel 'a screen'
-
-  local restored, stale = persist.restore(persist.load(fixture.newFilesystem(fixture.fromTheFutureText())), { screen })
-
-  expect.equal(#restored, 0, 'the panels restored')
-  expect.equal(#stale, 0, 'the stale entries')
+spec('binding rejects a context whose activation has ended', function()
+  local state, context, panels, tags, rules
+  withServices(nil, function(currentState, currentContext, currentPanels, currentTags, currentRules)
+    state, context, panels, tags, rules = currentState, currentContext, currentPanels, currentTags, currentRules
+  end)
+  expect.raises(function()
+    state:bind(context, panels, tags, rules)
+  end, 'no longer active', 'the ended activation')
 end)
 
 return spec

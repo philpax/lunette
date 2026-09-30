@@ -10,7 +10,7 @@ The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code.
 
 ## Current status
 
-The workspace builds, links LÖVR, and opens a window running a Lua configuration. Nothing above that exists yet: no compositor, no capture, no standard library. The first milestone is a vertical slice whose purpose is de-risking two specific unknowns; see [docs/dev/roadmap.md](docs/dev/roadmap.md).
+The workspace contains the compositor, capture, native API, Luau checker, standard-library modules, and plugin runtime. The shipped desktop configuration selects built-in providers and configuration-local desktop consumers. Its policy owns arrangement state across provider activations and writes it on panel removal and normal quit. Integration tests cover provider outages, placement precedence, save failures, and ten production source reloads. The full `make check` passes. An actual XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. The roadmap records the remaining milestones and human gates.
 
 ## Repository layout
 
@@ -77,7 +77,7 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
 - Keep module responsibilities distinct. `lunette` is native mechanism; `mullion` is optional policy and presentation implemented in Lua. The plugin facade, contracts, and providers have separate roots. Do not add policy to the native API or expect native mechanism from `mullion`.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
-- Every module is safe to `require` twice, and registers a teardown hook. Soft reload discards the Lua state; a module that leaks timers, signal connections, or coroutines across a reload is a defect.
+- Every module is safe to `require` twice. Modules that own Lua-managed resources register a teardown hook for callers that run the registry; source reload and hard restart do not run it. The host retains the Lua state during source reload, shuts down plugin runtimes, clears subscriptions and user modules, and starts a new plugin contract epoch. Plugin-owned resources use lifecycle effects. Modules that retain native resources outside a plugin must not assume automatic teardown.
 - Never assume a handle survives a frame. Check `handle.dead` before use.
 - Never cache the result of `window:getTexture()` across frames. Textures rotate as the client cycles its buffers. Use `window:stabilize()` when a persistent texture is genuinely wanted.
 - Raise errors normally. Callbacks run under `xpcall`, and the handler reports them. Do not swallow errors to keep a frame alive.

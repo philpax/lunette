@@ -1,0 +1,10 @@
+{
+  "languageMode": "strict",
+  "aliases": {
+    "lunette": "./lunette",
+    "lunette-plugin": "./lunette-plugin",
+    "lunette-contracts": "./lunette-contracts",
+    "lunette-plugins": "./lunette-plugins",
+    "mullion": "./mullion"
+  }
+}

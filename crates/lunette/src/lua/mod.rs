@@ -16,9 +16,12 @@
 //! deliberate exception: it is bound to one Lua state and retains plugin
 //! definitions, callbacks, services, and effects in its attachment.
 //!
-//! Plugin definitions and effects belong to their Lua state and runtime.
-//! Callers close a runtime when its resources are no longer needed; closing
-//! it disposes its instances and their effects.
+//! This exception is state-bound and explicit. A soft reload shuts down every
+//! plugin runtime, retires the contract epoch, and re-runs `main.lua` in the
+//! same Lua state. Definitions and tokens from the old epoch are therefore
+//! stale, even though the VM survives. A hard restart destroys the state while
+//! the compositor, the clients, and the textures keep running, so the
+//! attachment must drain before the state closes.
 //!
 //! # The frame
 //!
@@ -710,7 +713,7 @@ module! {
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }
 
-    /// Discards the Lua state and re-runs the configuration, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
+    /// Shuts down plugin runtimes, retires their contract epoch, and re-runs the configuration in the same Lua state, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
     fn reload(lua, session) -> (bool, Option<String>) {
         reload_from_lua(lua, &|| session.clear_subscribers())
     }

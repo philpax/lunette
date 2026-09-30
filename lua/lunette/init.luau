@@ -515,9 +515,9 @@ export type Lunette = {
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },
-  -- Discards the Lua state and re-runs the configuration, keeping the
-  -- compositor, the clients, and their textures. Answers whether it loaded, and
-  -- the error if it did not.
+  -- Shuts down plugin runtimes, retires their contract epoch, and re-runs the
+  -- configuration in the same Lua state, keeping the compositor, the clients,
+  -- and their textures. Answers whether it loaded, and the error if it did not.
   read reload: () -> (boolean, string?),
   -- Tears the session down and starts it again, graphics device included.
   read restart: () -> (),

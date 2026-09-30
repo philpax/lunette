@@ -54,9 +54,9 @@ The alternative is to raise an error on access. That is rejected because a windo
 
 ## Ownership rules
 
-The compositor and session own native state independently of the Lua state. Native handles read that state rather than retaining Lua values.
+The compositor and session own native state independently of the Lua state. Handles are recreated when a hard restart creates a new Lua state, while Wayland clients remain owned by the compositor.
 
-The plugin attachment retains definitions, callbacks, service values, and cleanup effects in its Lua state. Each attachment context carries a runtime, instance, and activation identity. The runtime rejects operations from an expired activation. Closing a runtime disposes its instances and effects.
+The plugin attachment is a deliberate exception to the rule that Rust holds no Lua values. It stores plugin definitions, callbacks, service values, and cleanup effects in the current Lua state. Each attachment context carries a runtime, instance, and activation identity. The host rejects operations from an expired activation. Source reload closes every plugin runtime before it clears the user's modules. Terminal cleanup also retires the runtimes before the final frame and external Lua-state close. This ordering limits retained references; it does not establish leak-free external close behavior.
 
 The `lunette` API and plugin attachment are available only in the main Lua state. `lovr.thread` and `lovr.task` create additional Lua states, which do not receive them. Window management from a worker thread is not a required capability, and supporting it would require substantial synchronisation. If a use case arises, the likely form is read-only snapshot access in worker states. This remains open.
 
@@ -69,6 +69,16 @@ A contract has an authority-qualified name and a positive schema number. A froze
 Luau checks each declared service shape, method signature, and configuration type in the source modules. The checker does not prove that a complete runtime graph is wired correctly. Runtime validation rejects undeclared capability access, absent providers, duplicate or extra provisions, nil values, and publication after the initializer expires. The native graph matches exact contract name and schema and binds a consumer to a specific provider generation. The adapter keeps erased casts private.
 
 Initialization and cleanup callbacks run synchronously and do not yield. Services remain private until initialization succeeds and the graph confirms that every required provider generation is still active. The graph then publishes the complete staged service record atomically. A failed initializer publishes nothing and runs registered cleanup effects in reverse order. A cleanup failure quarantines the instance's contract reservations for the rest of that runtime; shutdown does not retry an inverse that already failed.
+
+Source reload closes plugin runtimes, clears subscriptions and user modules, retires the old contract epoch, and runs the configuration again in the same Lua state. Contract names and schemas may be declared again in the new epoch. Runtime-local instance reload is a separate operation. It unloads and loads one instance while retaining its runtime and state epoch. Hard restart replaces the Lua state and creates a new attachment and epoch.
+
+## Shipped desktop composition
+
+`etc/xdg/lunette/main.lua` selects the built-in panel, interaction, laser, keyboard, tag, rules, adoption, arc-layout, and error-display providers. Configuration-local modules under `etc/xdg/lunette/desktop/` consume those services and own callback registration. The configuration creates one plugin runtime graph. Its callback registry invokes handlers only while their plugin contexts remain active.
+
+The desktop policy owns one persistence state outside the policy plugin activation. Rules contribute placement properties at precedence 100. The persisted arrangement contributes pose, size, and tags at 200. The native per-window property source contributes hand-placed pose at 300. Adoption registers the native property source. Higher precedence wins for a property, so saved arrangement state overrides configured rules and native per-window state overrides saved state.
+
+The desktop integration tests exercise ten production source reloads, isolated keyboard and error-display outages, policy recovery, persistence across policy outages, and quit-save failures. The tests use the real provider definitions and configuration-local consumers with fixture callbacks and native-resource seams. They do not establish that the shipped configuration boots on XR hardware or through a GPU-backed session.
 
 ## GPU ownership
 
@@ -89,15 +99,18 @@ lunette-lovr       cmake build, FFI surface, the patch set
 
 ## Survival across lifecycle events
 
-| Event | Wayland clients | GPU and XR session | Lua state |
-|---|---|---|---|
-| Soft reload (`lunette.reload()`) | survive | survives | discarded |
-| Hard restart (`lunette.restart()`) | survive | torn down and rebuilt | discarded |
-| lunette crash | terminated by process group | destroyed | destroyed |
+| Event | Wayland clients | GPU and XR session | Lua state | Plugin attachment |
+|---|---|---|---|---|
+| Source reload (`lunette.reload()`) | survive | survives | retained; configuration modules are reloaded | runtimes close; a new contract epoch starts |
+| Instance reload | survive | survives | retained | one instance unloads and initializes again |
+| Hard restart (`lunette.restart()`) | survive | torn down and rebuilt | replaced | replaced with the Lua state |
+| Process exit or crash | terminated with the process | destroyed | destroyed | destroyed |
 
-Clients survive both reload paths because they are owned by Rust, outside the Lua state, on a socket that remains open. This property is what makes iterative development of the compositor practical.
+The compositor owns clients outside the Lua state, so source reload and hard restart leave them connected to the same Wayland socket. Windows can be enumerated again through `lunette.windows()` after either operation.
 
-Seats, pointers, and outputs are owned by Rust too, so they would survive both paths for the same reason. A reload leaves them, because the Lua state carries on and the handles naming them carry on with it. A restart releases them through the standard library's teardown hooks, because the state closes and every handle in it goes at once, leaving compositor objects that nothing can name and names that the next configuration cannot claim. Windows are the exception on both paths: they belong to their clients, they are re-enumerable through `lunette.windows`, and neither path disturbs them.
+Source reload does not discard the Lua state or its globals. It closes plugin runtimes, clears subscriber handles and configuration callbacks, drops user and standard-library modules from `package.loaded`, retires contract tokens by advancing the epoch, then runs `main.lua` and `lovr.load`. It does not invoke `mullion.teardown.run()`. Lua modules that need source-reload cleanup must not assume the hook registry is called by the host.
+
+Hard restart does not preserve plugin runtimes or Lua handles. The host shuts down plugin runtimes and clears subscribers, flushes the final frame, quiesces or stops native users of the Lua state, marks the mlua state closed, and then calls LÖVR's external close path. This ordering does not settle every allocator-bookkeeping concern around external close.
 
 ## Decisions
 

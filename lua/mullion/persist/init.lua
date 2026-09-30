@@ -1,120 +1,62 @@
--- Arrangements that remain after the process ends.
---
--- This is the part of docs/dev/stdlib.md's tier 3 that remains after a restart. The
--- native property store keeps live per-window state across a soft reload, which
--- discards the Lua state and keeps the compositor. The module persists
--- arrangements across a hard restart, which discards the compositor too. The
--- two are different lifetimes and different mechanisms, and neither replaces
--- the other. A `WindowId` names nothing after a restart, so the file is keyed
--- on a window's `appId` plus a slot, and on a monitor's saved identity.
---
--- A mirrored screen has no per-source native store. `lunette.claimLayer` and
--- the property store take a window and nothing else, so a monitor panel's
--- hand-placed pose has no store elsewhere. That is a gap in the native
--- API. Until the gap closes, nothing else keeps a mirrored screen where the
--- user put it.
---
--- Restore is a source for `mullion.rules`, not a special case inside it. After
--- a restart a window that was hand-placed comes back where it was, and a window
--- opening fresh is placed by rule. The two results come from two sources, and
--- the sources' precedence determines which one applies; neither result depends
--- on the other's ordering.
---
--- `mullion.persist.format` holds the file's text and its versions, and it is
--- pure. The module is the shell: it reads and writes, reports what it could
--- not use, and turns entries into panels. The format's surface is re-exported,
--- so a configuration requires one module.
---
--- The file is written to `lovr.filesystem`'s save directory. The directory
--- derives from the identity, and the configuration directory is the source, so
--- the save path is not the config path.
---
--- The module holds no arrangement of its own; a file is a value a caller
--- keeps. It records whether the last load could be used. That record stops a
--- save built from live panels overwriting a file this version cannot read,
--- and the teardown hook discards it. The rules source is for `mullion.rules`
--- to discard, and that module's hook does.
+-- Persistent arrangement state outlives provider activations, while each provider
+-- binding owns only the source and callback registered for that activation.
 
 local lunette = require '@lunette'
-
+local plugin = require '@lunette-plugin'
+local panelsContract = require '@lunette-contracts/panels'
+local rulesContract = require '@lunette-contracts/rules'
+local tagsContract = require '@lunette-contracts/tags'
 local format = require '@mullion/persist/format'
-local pointing = require '@mullion/interaction/types'
-local panel = require '@mullion/panel'
 local pose = require '@mullion/pose'
-local rules = require '@mullion/rules'
-local tag = require '@mullion/tag'
-local teardown = require '@mullion/teardown'
 
 local persist = {}
 
--- One entry as an arrangement holds it, matching `mullion.persist.format`.
-type Entry = format.Entry
-
--- What an arrangement is captured from and restored onto.
---
--- A `mullion.panel` panel is one, and so is an object of a configuration's own
--- carrying the same fields. The type is a shape shared by both, not
--- `mullion.panel`'s type. The entry's key is read from `source`: a window's
--- `appId` or a monitor's `id`, per `sourceKey`. A `Placed` is over something,
--- and its size in metres is known.
---
--- `Placed` is `mullion.interaction`'s surface contract plus the fields the
--- module adds, not a shape of its own. The intersection narrows `kind` to the
--- two backed forms. A keyboard and a button that a configuration drew are
--- surfaces over nothing, and an arrangement cannot hold one of them; there is
--- nothing to key it on. The intersection also narrows `pose`, `width`, and
--- `height` from the contract's optionals, because a panel always has all three.
-export type Placed = pointing.Surface & {
-  read kind: panel.Kind,
-  read pose: Mat4,
-  read width: number,
-  read height: number,
-}
-
--- What the module supplies to `mullion.rules`. The name is the module's own
--- for that module's evaluated form; an arrangement holds values, not rules.
-type Properties = rules.Resolved
-type Filesystem = {
+export type Entry = format.Entry
+export type File = format.File
+export type Loaded = format.Loaded
+export type Filesystem = {
   read: (string) -> string?,
   write: (string, string) -> boolean,
   getSaveDirectory: () -> string,
 }
+export type Dependencies = {
+  read filesystem: Filesystem?,
+  read report: ((string) -> ())?,
+}
+export type SaveOptions = { read force: boolean? }
+export type Binding = {
+  read active: (Binding) -> boolean,
+  read save: (Binding, SaveOptions?) -> (boolean, string?),
+  read dispose: (Binding) -> (),
+}
+export type State = {
+  read loaded: (State) -> format.Loaded,
+  read arrangement: (State) -> format.File,
+  read declined: (State) -> string?,
+  read capture: (State, panelsContract.Service, tagsContract.Service) -> format.File,
+  read bind: (
+    State,
+    plugin.Context,
+    panelsContract.Service,
+    tagsContract.Service,
+    rulesContract.Service
+  ) -> Binding,
+}
 
--- Declared at the top and defined below the public API, so the public API
--- reads first.
-local sourceKey, slotsFor, slotKey
+type BindingState = {
+  active: boolean,
+  context: plugin.Context?,
+  panels: panelsContract.Service?,
+  tags: tagsContract.Service?,
+  sourceEffect: plugin.Effect?,
+  droppedEffect: plugin.Effect?,
+  ownerEffect: plugin.Effect?,
+}
 
-local function defaultFilesystem(): Filesystem
-  return {
-    read = function(filename: string): string?
-      local text = lovr.filesystem.read(filename)
-      return text
-    end,
-    write = function(filename: string, text: string): boolean
-      local ok = lovr.filesystem.write(filename, text)
-      return ok
-    end,
-    getSaveDirectory = function(): string
-      return lovr.filesystem.getSaveDirectory()
-    end,
-  }
-end
+local SOURCE = 'mullion.persist'
+local PRECEDENCE = 200
+local FILE = 'arrangement.state'
 
--- Why the last load could not be used, or nothing.
---
--- The from-the-future guard is a type at load time. A load from a later
--- version carries no arrangement, so there is nothing to hand `save`. `capture`
--- is a second constructor of an arrangement, and it builds from live panels;
--- the read file does not reach the constructor. A session that declined a
--- newer file and then quit would write this version's arrangement over it. That
--- is the old-writer-with-new-data corruption. The module records the refusal.
---
--- A load that could be used clears it, so a user who moves the newer file away
--- regains saving on the next start.
-local declined: string? = nil
-
--- The format's surface, so a configuration requires one module. The versions
--- and the text are documented in `mullion.persist.format`.
 persist.CURRENT_VERSION = format.CURRENT_VERSION
 persist.newFile = format.newFile
 persist.isFile = format.isFile
@@ -122,241 +64,90 @@ persist.isLoaded = format.isLoaded
 persist.entries = format.entries
 persist.read = format.read
 persist.render = format.render
+persist.empty = format.empty
+persist.FILE = FILE
+persist.PRECEDENCE = PRECEDENCE
+persist.SOURCE = SOURCE
 
--- Where the arrangement is kept, under the save directory.
---
--- The file has no `.lua` extension. `etc/xdg/lunette/conf.lua` sets
--- `t.saveprecedence = false`, so the save directory is mounted behind the
--- standard library. A file that could never be resolved as a module does not
--- rely on that setting.
-persist.FILE = 'arrangement.state'
+local function defaultFilesystem(): Filesystem
+  return {
+    read = function(filename: string): string?
+      local text: string? = lovr.filesystem.read(filename)
+      return text
+    end,
+    write = function(filename: string, text: string): boolean
+      local written: boolean = lovr.filesystem.write(filename, text)
+      return written
+    end,
+    getSaveDirectory = function(): string
+      return lovr.filesystem.getSaveDirectory()
+    end,
+  }
+end
 
--- Where `install` registers the restore source.
---
--- Above `mullion.rules.DEFAULT_PRECEDENCE`, so a saved pose takes precedence
--- over the rule that would otherwise have placed the window. A configuration
--- that makes the rules win passes a lower number.
-persist.PRECEDENCE = 200
-
--- The name `install` registers under.
-persist.SOURCE = 'mullion.persist'
-
--- Where a stale or unreadable entry is reported.
---
--- Replaceable, so error handling can route a report wherever it routes
--- everything else, and so a spec can capture one without printing it. The
--- default logs the message, and the host routes it to its own diagnostics.
--- Every report is a warning: a saved entry that could not be honoured is lost
--- state, not a failure the session cannot continue past.
-function persist.report(message)
+local function defaultReport(message: string): ()
   local log = lovr.log
   if log then
     log(message, 'warn', 'mullion.persist')
   end
 end
 
--- The arrangement in `value`, which is an arrangement, a load, or nothing.
---
--- `load` returns a load, and the functions that place panels take the
--- arrangement from inside it. The module unwraps once, not at every call site.
--- `persist.install(persist.load())` is the call a configuration writes.
--- Requiring a configuration to spell out `:forSession() or persist.newFile {}`
--- would drop the `or` and error on the first file it cannot read.
---
--- A load carrying no arrangement returns an empty one. There is nothing to
--- restore from a file this version cannot read, and a session that starts with
--- nothing saved is the ordinary first run.
-function persist.arrangementOf(value: format.File | format.Loaded | nil): format.File
-  if value == nil then
-    return format.newFile {}
-  end
-  if format.isFile(value) then
-    return value :: format.File
-  end
-  if format.isLoaded(value) then
-    local loaded: format.Loaded = value :: format.Loaded
-    local forSession = loaded.forSession
-    if forSession then
-      return forSession(loaded) or format.newFile {}
-    end
-    return format.newFile {}
-  end
-  error('mullion.persist: an arrangement is one this module made, not a ' .. type(value), 2)
+function persist.path(filesystem: Filesystem?): string
+  local selected = filesystem or defaultFilesystem()
+  return selected.getSaveDirectory() .. '/' .. FILE
 end
 
--- The arrangement `panels` are in.
---
--- A panel whose source carries no identity is reported and left out. Writing
--- it under an empty key would restore it onto the first source that also had
--- none.
-function persist.capture(panels: { read [number]: Placed }): format.File
-  local entries: { Entry } = {}
-  local counts: { [string]: number } = {}
-  for index = 1, #panels do
-    local target = panels[index]
-    if not target.dead then
-      local key = sourceKey(target)
-      if key then
-        local counted = target.kind .. '\0' .. key
-        local slot = (counts[counted] or 0) + 1
-        counts[counted] = slot
-        entries[#entries + 1] = {
-          kind = target.kind,
-          key = key,
-          slot = slot,
-          pose = pose.encode(target.pose),
-          width = target.width,
-          height = target.height,
-          tags = persist.tagsOf(target),
-        }
-      else
-        persist.report('a ' .. tostring(target.kind) .. ' panel has no identity, so it is not saved')
-      end
+local function sourceKey(target: panelsContract.Panel): string?
+  local key: string?
+  if target.kind == 'window' then
+    local source = target.source
+    if source.dead then
+      return nil
+    end
+    key = source.appId
+  else
+    local source = target.source
+    if source.dead then
+      return nil
+    end
+    local monitorId = source.id
+    if type(monitorId) == 'string' then
+      key = monitorId
     end
   end
-  return format.newFile(entries)
+  if type(key) ~= 'string' or key == '' then
+    return nil
+  end
+  return key
 end
 
--- The names of the tags `target` is on, in `mullion.tag.all` order.
-function persist.tagsOf(target: tag.Panel): { string }
-  local names: { string } = {}
-  for _, existing in ipairs(tag.all()) do
-    if existing:has(target) then
-      names[#names + 1] = existing.name
-    end
-  end
-  return names
+local function slotKey(kind: string, key: string, slot: number): string
+  return kind .. '\0' .. key .. '\0' .. slot
 end
 
--- The properties an entry describes, as `mullion.rules` takes them.
---
--- The pose stays the string `mullion.pose` wrote. `mullion.rules` decodes one,
--- and handing it through unchanged keeps one encoding.
-function persist.properties(entry: Entry): Properties
-  return {
-    pose = entry.pose,
-    width = entry.width,
-    height = entry.height,
-    tags = entry.tags,
-  }
+local function slotsFor(file: format.File): { [string]: Entry }
+  local available: { [string]: Entry } = {}
+  for _, entry in ipairs(format.entries(file)) do
+    available[slotKey(entry.kind, entry.key, entry.slot)] = entry
+  end
+  return available
 end
 
--- Applies `entry` to `target`, reporting whether it applied.
-function persist.apply(entry: Entry, target: Placed): boolean
-  if target.dead then
-    return false
-  end
-
-  local placed = pose.decode(entry.pose)
-  if not placed then
-    persist.report("the pose saved for '" .. tostring(entry.key) .. "' is not sixteen numbers")
-    return false
-  end
-  -- The contract makes both optional. A surface fixed in place carries neither,
-  -- and no arrangement can restore a surface that cannot be moved.
-  local setPose, setSize = target.setPose, target.setSize
-  if not setPose then
-    persist.report(
-      'the saved ' .. tostring(entry.kind) .. " '" .. tostring(entry.key) .. "' matched something that cannot be moved"
-    )
-    return false
-  end
-  setPose(target, placed)
-
-  if entry.width or entry.height then
-    if setSize then
-      setSize(target, entry.width, entry.height)
-    else
-      -- The pose applied, so the entry is applied. The size must not be dropped
-      -- in silence: the surface comes back in the right place at the wrong size,
-      -- and that reads as the arrangement having been saved wrong.
-      persist.report(
-        'the saved '
-          .. tostring(entry.kind)
-          .. " '"
-          .. tostring(entry.key)
-          .. "' carries a size and matched something that cannot be resized"
-      )
-    end
-  end
-  for _, name in ipairs(entry.tags or {}) do
-    local found = tag.find(name) or tag.new(name, nil)
-    found:add(target)
-  end
-  return true
-end
-
--- Restores `panels` from the arrangement.
---
--- Returns the panels it placed and the entries it could not, and reports each
--- of the latter. A saved arrangement may name a monitor that is unplugged or
--- an application that is not running. Refusing the whole load because a cable
--- moved is worse than loading partially and reporting the unmatched entries.
---
--- Panels are matched by kind, key, and slot, with slots counted in the order
--- `panels` were given. The rules source places a window that opens after this
--- function ran; this is for the panels a configuration made itself, which is
--- every monitor panel.
-function persist.restore(
-  file: format.File | format.Loaded | nil,
-  panels: { read [number]: Placed }
-): ({ Placed }, { Entry })
-  local arrangement = persist.arrangementOf(file)
-  local available = slotsFor(arrangement)
-
-  local restored: { Placed } = {}
-  local matched: { [Entry]: boolean } = {}
-  local counts: { [string]: number } = {}
-  for index = 1, #panels do
-    local target = panels[index]
-    if not target.dead then
-      local key = sourceKey(target)
-      if key then
-        local counted = target.kind .. '\0' .. key
-        local slot = (counts[counted] or 0) + 1
-        counts[counted] = slot
-        local entry = available[slotKey(target.kind, key, slot)]
-        if entry and persist.apply(entry, target) then
-          restored[#restored + 1] = target
-          matched[entry] = true
-        end
-      end
-    end
-  end
-
-  local stale: { Entry } = {}
-  for _, entry in ipairs(format.entries(arrangement)) do
-    if not matched[entry] then
-      stale[#stale + 1] = entry
-      persist.report('nothing matched the saved ' .. tostring(entry.kind) .. " '" .. tostring(entry.key) .. "'")
-    end
-  end
-  return restored, stale
-end
-
--- A `mullion.rules` source that places a window from the arrangement.
---
--- Each window takes the next unused entry for its `appId`, and the assignment
--- is kept by `win.id`, so resolving the same window twice does not consume two.
--- `win.id` is stable for a window's whole life and across a soft reload
--- (docs/dev/lua-api.md#per-window-properties) and names nothing across a restart,
--- so the file is keyed on `appId`, not on `win.id`.
---
--- `file` is an arrangement, a load, or nothing, per `persist.arrangementOf`.
-function persist.source(file): (window: lunette.Window) -> Properties?
+function persist.source(file: format.File): (lunette.Window) -> rulesContract.Properties?
   local available = slotsFor(file)
-  local assigned: { [any]: Entry } = {}
+  local assigned: { [number]: Entry } = {}
   local counts: { [string]: number } = {}
 
-  return function(window: lunette.Window): Properties?
+  return function(window: lunette.Window): rulesContract.Properties?
     local appId = window.appId
     if type(appId) ~= 'string' or appId == '' then
       return nil
     end
 
     local identity = window.id
-    if identity ~= nil and assigned[identity] then
-      return persist.properties(assigned[identity])
+    local existing = assigned[identity]
+    if existing then
+      return { pose = existing.pose, width = existing.width, height = existing.height, tags = existing.tags }
     end
 
     local slot = (counts[appId] or 0) + 1
@@ -365,180 +156,277 @@ function persist.source(file): (window: lunette.Window) -> Properties?
     if not entry then
       return nil
     end
-    if identity ~= nil then
-      assigned[identity] = entry
+    assigned[identity] = entry
+    return { pose = entry.pose, width = entry.width, height = entry.height, tags = entry.tags }
+  end
+end
+
+local function capture(report: (string) -> (), panels: panelsContract.Service, tags: tagsContract.Service): format.File
+  local entries: { Entry } = {}
+  local counts: { [string]: number } = {}
+  for _, target in ipairs(panels:all()) do
+    if not target.dead then
+      local key = sourceKey(target)
+      if key then
+        local counted = target.kind .. '\0' .. key
+        local slot = (counts[counted] or 0) + 1
+        counts[counted] = slot
+        local names: { string } = {}
+        for _, existing in ipairs(tags:all()) do
+          if existing:has(target) then
+            names[#names + 1] = existing.name
+          end
+        end
+        entries[#entries + 1] = {
+          kind = target.kind,
+          key = key,
+          slot = slot,
+          pose = pose.encode(target.pose),
+          width = target.width,
+          height = target.height,
+          tags = names,
+        }
+      else
+        report('a ' .. target.kind .. ' panel has no identity, so it is not saved')
+      end
     end
-    return persist.properties(entry)
+  end
+  return format.newFile(entries)
+end
+
+local function restore(
+  report: (string) -> (),
+  context: plugin.Context,
+  panels: panelsContract.Service,
+  tags: tagsContract.Service,
+  file: format.File
+): ({ panelsContract.Panel }, { Entry })
+  local available = slotsFor(file)
+  local restored: { panelsContract.Panel } = {}
+  local matched: { [Entry]: boolean } = {}
+  local counts: { [string]: number } = {}
+
+  for _, target in ipairs(panels:all()) do
+    if not target.dead then
+      local key = sourceKey(target)
+      if key then
+        local counted = target.kind .. '\0' .. key
+        local slot = (counts[counted] or 0) + 1
+        counts[counted] = slot
+        local entry = available[slotKey(target.kind, key, slot)]
+        if entry then
+          local placed = pose.decode(entry.pose)
+          if placed then
+            target:setPose(placed)
+            if entry.width or entry.height then
+              target:setSize(entry.width, entry.height)
+            end
+            for _, name in ipairs(entry.tags) do
+              local found = tags:find(name)
+              if found then
+                found:add(target)
+              else
+                local created = tags:new(context, name)
+                created:add(target)
+              end
+            end
+            restored[#restored + 1] = target
+            matched[entry] = true
+          else
+            report("the pose saved for '" .. entry.key .. "' is not sixteen numbers")
+          end
+        end
+      end
+    end
+  end
+
+  local stale: { Entry } = {}
+  for _, entry in ipairs(format.entries(file)) do
+    if not matched[entry] then
+      stale[#stale + 1] = entry
+      report('nothing matched the saved ' .. entry.kind .. " '" .. entry.key .. "'")
+    end
+  end
+  return restored, stale
+end
+
+local function bindingLive(binding: BindingState): boolean
+  local context = binding.context
+  return binding.active and context ~= nil and context:active()
+end
+
+local function disposeEffect(effect: plugin.Effect?): string?
+  if not effect then
+    return nil
+  end
+  local ok, failure = pcall(function()
+    effect:dispose()
+  end)
+  if not ok then
+    return tostring(failure)
+  end
+  return nil
+end
+
+local function deactivate(binding: BindingState): ()
+  if not binding.active then
+    return
+  end
+  binding.active = false
+  local droppedFailure = disposeEffect(binding.droppedEffect)
+  binding.droppedEffect = nil
+  local sourceFailure = disposeEffect(binding.sourceEffect)
+  binding.sourceEffect = nil
+  binding.context = nil
+  binding.panels = nil
+  binding.tags = nil
+  binding.ownerEffect = nil
+  if droppedFailure then
+    error(droppedFailure)
+  end
+  if sourceFailure then
+    error(sourceFailure)
   end
 end
 
--- Registers the restore source with `mullion.rules`.
---
--- `file` is an arrangement, a load, or nothing, per `persist.arrangementOf`,
--- so `persist.install(persist.load())` is the call a configuration writes.
---
--- `precedence` defaults to `persist.PRECEDENCE`, which is above the rules
--- table. Passing a lower one makes the configuration's rules take precedence
--- over where the user last dragged the window.
-function persist.install(file: format.File | format.Loaded | nil, precedence: number?)
-  rules.addSource(persist.SOURCE, precedence or persist.PRECEDENCE, persist.source(file))
-end
-
--- Where the arrangement is kept, as an absolute path.
---
--- The save directory derives from the identity; the source is the
--- configuration directory. Guessing that the save path is the config path
--- would write into the user's configuration.
-function persist.path(filesystem: Filesystem?): string
-  filesystem = filesystem or defaultFilesystem()
-  return filesystem.getSaveDirectory() .. '/' .. persist.FILE
-end
-
--- Reads the arrangement from the save directory.
---
--- An absent file is an empty arrangement, not an error. A first run has saved
--- nothing, and that is the ordinary case.
---
--- `filesystem` is the seam. It defaults to `lovr.filesystem` and takes anything
--- carrying `read`, `write`, and `getSaveDirectory`, so the cases about an
--- absent or unwritable file do not depend on the state of a real directory.
-function persist.load(filesystem: Filesystem?): format.Loaded
-  filesystem = filesystem or defaultFilesystem()
-
-  local text = filesystem.read(persist.FILE)
-  if not text then
-    declined = nil
-    return format.empty()
+function persist.new(dependencies: Dependencies?): State
+  local filesystem = if dependencies then dependencies.filesystem or defaultFilesystem() else defaultFilesystem()
+  local report = if dependencies then dependencies.report or defaultReport else defaultReport
+  local loaded: format.Loaded
+  local text = filesystem.read(FILE)
+  if text then
+    loaded = format.read(text)
+  else
+    loaded = format.empty()
   end
 
-  local loaded: format.Loaded = format.read(text)
-  if loaded.kind == 'broken' then
-    local notice = persist.path(filesystem) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
-    declined = notice
-    persist.report(notice)
+  local arrangement: format.File = format.newFile {}
+  local declined: string? = nil
+  if loaded.kind == 'arrangement' then
+    arrangement = loaded.file
+  elseif loaded.kind == 'broken' then
+    declined = persist.path(filesystem) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
+    report(declined)
   elseif loaded.kind == 'fromTheFuture' then
-    local notice = persist.path(filesystem)
+    declined = persist.path(filesystem)
       .. ' was written by version '
       .. loaded.found
       .. ', and this mullion writes version '
       .. loaded.supported
       .. ', so it is left alone'
-    declined = notice
-    persist.report(notice)
-  else
-    declined = nil
+    report(declined)
   end
   for _, message in ipairs(loaded.skipped) do
-    persist.report(message)
-  end
-  return loaded
-end
-
--- Why a save would be refused, or nothing.
---
--- Set by the last `load` that could not use what was on disk, and readable, so
--- a configuration can state the refusal in its own words or ask the user. The
--- alternative is discovering the refusal from a save that returned false.
-function persist.declined()
-  return declined
-end
-
--- Writes an arrangement to the save directory.
---
--- Takes an arrangement, not a table, so a load from a later version yields
--- no arrangement and has nothing to pass to `save`. That is half of the
--- old-writer-with-new-data guard, and it is a type, not a check.
---
--- The other half is this refusal, which the type cannot make. `capture` builds
--- an arrangement out of live panels and receives no information about what was
--- read, so a session that declined a newer file and then saved on quit would
--- overwrite it with what this version can represent. `options.force` is how a
--- caller that has decided to overwrite it expresses that; the option is a word,
--- not a second load.
-function persist.save(file: format.File, filesystem: Filesystem?, options: { force: boolean? }?): (boolean, string?)
-  filesystem = filesystem or defaultFilesystem()
-
-  -- Checked before the refusal, so a caller holding the wrong kind of value
-  -- is told about that and not about a file it never looked at.
-  if not format.isFile(file) then
-    error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
-  end
-  if declined and not (options and options.force) then
-    return false, declined
+    report(message)
   end
 
-  local text = format.render(file)
-  if not filesystem.write(persist.FILE, text) then
-    return false, persist.path(filesystem) .. ' could not be written'
-  end
-  -- A successful write is the module's own proof of what is on disk, the same
-  -- evidence a load that could be used supplies. Without it a forced save leaves
-  -- the refusal active, and every later save in the session is refused over a
-  -- newer file this one has already overwritten.
-  declined = nil
-  return true, nil
+  local state: State = {
+    loaded = function(_self: State): format.Loaded
+      return loaded
+    end,
+    arrangement = function(_self: State): format.File
+      return arrangement
+    end,
+    declined = function(_self: State): string?
+      return declined
+    end,
+    capture = function(_self: State, panels: panelsContract.Service, tags: tagsContract.Service): format.File
+      return capture(report, panels, tags)
+    end,
+    bind = function(
+      _self: State,
+      context: plugin.Context,
+      panels: panelsContract.Service,
+      tags: tagsContract.Service,
+      rules: rulesContract.Service
+    ): Binding
+      if not context:active() then
+        error 'mullion.persist: the provider scope is no longer active'
+      end
+
+      local binding: BindingState = {
+        active = true,
+        context = context,
+        panels = panels,
+        tags = tags,
+        sourceEffect = nil,
+        droppedEffect = nil,
+        ownerEffect = nil,
+      }
+      local resolve = persist.source(arrangement)
+      local function save(options: SaveOptions?): (boolean, string?)
+        if not bindingLive(binding) then
+          return false, 'mullion.persist: the provider binding is no longer active'
+        end
+        if declined and not (options and options.force) then
+          return false, declined
+        end
+        local currentPanels = binding.panels
+        local currentTags = binding.tags
+        if not currentPanels or not currentTags then
+          return false, 'mullion.persist: the provider binding is no longer active'
+        end
+        local file = capture(report, currentPanels, currentTags)
+        if not bindingLive(binding) then
+          return false, 'mullion.persist: the provider binding is no longer active'
+        end
+        if not filesystem.write(FILE, format.render(file)) then
+          return false, persist.path(filesystem) .. ' could not be written'
+        end
+        arrangement = file
+        declined = nil
+        return true, nil
+      end
+      local public: Binding = {
+        active = function(_binding: Binding): boolean
+          return bindingLive(binding)
+        end,
+        save = function(_binding: Binding, options: SaveOptions?): (boolean, string?)
+          return save(options)
+        end,
+        dispose = function(_binding: Binding): ()
+          local effect = binding.ownerEffect
+          if effect then
+            effect:dispose()
+          end
+        end,
+      }
+      local ok, failure = pcall(function(): ()
+        local source = function(window: lunette.Window): rulesContract.Properties?
+          if not bindingLive(binding) then
+            return nil
+          end
+          return resolve(window)
+        end
+        binding.sourceEffect = rules:addSource(context, SOURCE, PRECEDENCE, source)
+        binding.droppedEffect = panels:onDropped(context, nil, function()
+          if bindingLive(binding) then
+            local written, message = save(nil)
+            if not written and message then
+              report(message)
+            end
+          end
+        end)
+        restore(report, context, panels, tags, arrangement)
+        binding.ownerEffect = context:effect(function(): () -> ()
+          return function(): ()
+            deactivate(binding)
+          end
+        end)
+      end)
+      if not ok then
+        binding.active = false
+        disposeEffect(binding.droppedEffect)
+        disposeEffect(binding.sourceEffect)
+        binding.context = nil
+        binding.panels = nil
+        binding.tags = nil
+        error(failure)
+      end
+      return public
+    end,
+  }
+  return state
 end
-
--- Clears the record of the declined load.
---
--- Registered as the module's teardown hook. A soft reload discards the Lua
--- state and re-runs the configuration, which loads the file again; that load
--- sets the refusal again. The old state's refusal does not carry over.
-function persist.teardown()
-  declined = nil
-end
-
--- What a panel's source is known by across a restart, or nothing.
-function sourceKey(target: Placed): string?
-  -- The branch reads each field through its own case; an `and`/`or` chain
-  -- would fall through to the monitor identity for a window whose client set
-  -- no `appId`. A window also carries an `id`, so the fall-through would key
-  -- the window on the compositor's identifier, which names nothing after a
-  -- restart. The per-kind branch also narrows the source to the handle that
-  -- kind names.
-  --
-  -- `source` is tested for presence as well as for life. `Placed` is satisfied
-  -- by an object of a configuration's own, and the type states what kind it is;
-  -- it does not state that the object carries a handle.
-  local key: (string | number)?
-  if target.kind == 'window' then
-    local source = target.source
-    if not source or source.dead then
-      return nil
-    end
-    key = source.appId
-  elseif target.kind == 'monitor' then
-    local source = target.source
-    if not source or source.dead then
-      return nil
-    end
-    key = source.id
-  end
-
-  if type(key) ~= 'string' or key == '' then
-    return nil
-  end
-  return key
-end
-
--- Every entry, keyed by kind, key, and slot.
-function slotsFor(file: format.File | format.Loaded | nil): { [string]: Entry }
-  local available: { [string]: Entry } = {}
-  for _, entry in ipairs(format.entries(persist.arrangementOf(file))) do
-    available[slotKey(entry.kind, entry.key, entry.slot)] = entry
-  end
-  return available
-end
-
--- How an entry is looked up. A nul separates the parts, so a key holding
--- whatever a monitor's make and model happen to be cannot collide with another
--- entry by joining onto the slot.
-function slotKey(kind: string, key: string, slot: number)
-  return kind .. '\0' .. key .. '\0' .. slot
-end
-
--- Registered by name, so a module body running a second time leaves one hook,
--- not two. A soft reload runs the body again.
-teardown.register('mullion.persist', persist.teardown)
 
 return persist

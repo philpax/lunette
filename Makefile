@@ -51,7 +51,8 @@ export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 .PHONY: all build install install-binary install-lua install-config check check-format check-rust check-clippy check-test check-definitions check-luau clean
 
 # The generator owns this list. It includes Lua sources, Luau declarations,
-# and the generated LÖVR definitions, and excludes specs and probes.
+# generated LÖVR definitions, and installed alias metadata. Specs and probes
+# are excluded.
 install_manifest := $(CARGO) run -p lunette-generate-definitions -- --manifest
 
 all: build
@@ -118,9 +119,9 @@ install-binary: build
 	$(INSTALL_PROGRAM) $(lovr_build)/liblovr.so $(libdir)/liblovr.so
 	$(INSTALL_PROGRAM) $(lovr_build)/bin/* $(libdir)/
 
-# The manifest is the source of truth for installed Lua and Luau artifacts.
-# Every declared shipped root is required. An existing root is copied
-# recursively, but only declared source files are installed.
+# The manifest owns installed modules, declarations, and Lua-root alias metadata.
+# Required entries fail when absent; optional roots may be omitted. Directory
+# entries contribute only Lua and Luau files. Explicit files include .luaurc.
 install-lua:
 	@set -e; \
 	manifest="$$( $(install_manifest) )" || exit $$?; \
@@ -144,9 +145,40 @@ install-lua:
 		fi; \
 	done
 
+# cli::CONFIG_ARTIFACTS is the source of truth. The source .luaurc is
+# intentionally excluded: dump-config generates one with absolute installed roots.
+config_artifacts := $(shell awk '/^const CONFIG_ARTIFACTS:/{found=1; next} found && /^\];/{exit} found {gsub(/[",]/, ""); sub(/^[[:space:]]+/, ""); printf "%s ", $$0}' crates/lunette/src/cli.rs)
+
 install-config:
-	$(INSTALL) -d $(confdir)
-	$(INSTALL_DATA) etc/xdg/lunette/main.lua etc/xdg/lunette/conf.lua $(confdir)/
+	@set -e; \
+	for artifact in $(config_artifacts); do \
+		test -f "etc/xdg/lunette/$$artifact" && test ! -L "etc/xdg/lunette/$$artifact" || { echo "make: install config artifact is missing or unsupported: $$artifact" >&2; exit 1; }; \
+	done; \
+	unsupported="$$($(FIND) etc/xdg/lunette ! -type d ! -type f -print)" || exit $$?; \
+	if test -n "$$unsupported"; then \
+		printf '%s\n' "$$unsupported" | while IFS= read -r entry; do \
+			echo "make: install config contains unsupported content: $$entry" >&2; exit 1; \
+		done || exit $$?; \
+	fi; \
+	directories="$$($(FIND) etc/xdg/lunette -type d -mindepth 1 -print)" || exit $$?; \
+	if test -n "$$directories"; then \
+		printf '%s\n' "$$directories" | while IFS= read -r directory; do \
+			relative="$${directory#etc/xdg/lunette/}"; \
+			case " desktop " in *" $$relative "*) ;; *) echo "make: install config contains an undeclared directory: $$relative" >&2; exit 1 ;; esac; \
+		done || exit $$?; \
+	fi; \
+	config_files="$$($(FIND) etc/xdg/lunette -type f -print)" || exit $$?; \
+	if test -n "$$config_files"; then \
+		printf '%s\n' "$$config_files" | while IFS= read -r file; do \
+			relative="$${file#etc/xdg/lunette/}"; \
+			case " $(config_artifacts) .luaurc " in *" $$relative "*) ;; *) echo "make: install config contains an undeclared file: $$relative" >&2; exit 1 ;; esac; \
+		done || exit $$?; \
+	fi; \
+	$(INSTALL) -d $(confdir); \
+	for artifact in $(config_artifacts); do \
+		$(INSTALL) -d "$(confdir)/$$(dirname "$$artifact")"; \
+		$(INSTALL_DATA) "etc/xdg/lunette/$$artifact" "$(confdir)/$$artifact"; \
+	done
 
 clean:
 	$(CARGO) clean
