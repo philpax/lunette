@@ -425,6 +425,7 @@ fn the_module_exposes_only_what_this_phase_implements() {
             "onWindowClosed".to_owned(),
             "onWindowOpened".to_owned(),
             "outputs".to_owned(),
+            "plugin".to_owned(),
             "reload".to_owned(),
             "restart".to_owned(),
             "scaleSteps".to_owned(),

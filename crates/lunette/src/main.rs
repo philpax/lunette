@@ -94,6 +94,21 @@ use lunette_compositor::{
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
+/// Selects the check command before any session configuration or boot work.
+///
+/// The command owns its input paths, so this pure selector only borrows them
+/// for the checker and leaves the imperative startup path untouched.
+fn check_dispatch(command: Option<&cli::Command>) -> Option<(&[PathBuf], Option<&Path>, bool)> {
+    match command {
+        Some(cli::Command::Check {
+            roots,
+            definitions,
+            old_solver,
+        }) => Some((roots, definitions.as_deref(), *old_solver)),
+        None => None,
+    }
+}
+
 fn main() -> ExitCode {
     // The parse failure is held because reporting it needs the subscriber the
     // filter is being built for. Without the hold, a typo in the variable looks
@@ -123,20 +138,15 @@ fn main() -> ExitCode {
 
     let arguments = Cli::parse();
 
+    if let Some((roots, definitions, old_solver)) = check_dispatch(arguments.command.as_ref()) {
+        return check::run(roots, definitions, old_solver);
+    }
+
     let candidates = config_directory_candidates(&ConfigDirectorySources::from_environment());
     let Some(searched) = select_config_directory(&candidates) else {
         error!("config: no configuration directory could be determined");
         return ExitCode::FAILURE;
     };
-
-    if let Some(cli::Command::Check {
-        roots,
-        definitions,
-        old_solver,
-    }) = &arguments.command
-    {
-        return check::run(roots, definitions.as_deref(), *old_solver);
-    }
 
     if let Some(destination) = &arguments.dump_config {
         // An empty value means the flag was given without one, and the first
@@ -151,10 +161,10 @@ fn main() -> ExitCode {
         // Absolute, because the file it is written into is one the user may
         // open from anywhere, and a relative alias would resolve against
         // whichever directory the editor happened to start in.
-        let standard_library = absolute(&standard_library_directory(
-            &StandardLibrarySources::from_environment(),
+        let module_data = absolute(&module_data_directory(
+            &ModuleDataSources::from_environment(),
         ));
-        return match cli::dump(&source, destination, &standard_library) {
+        return match cli::dump(&source, destination, &module_data) {
             Ok(written) => {
                 for path in written {
                     info!(path = %path.display(), "wrote");
@@ -175,15 +185,15 @@ fn main() -> ExitCode {
 
     info!(path = %config_directory.display(), "loading the configuration");
 
-    let standard_library = standard_library_directory(&StandardLibrarySources::from_environment());
-    if standard_library_conflicts_with_configuration(config_directory, &standard_library) {
+    let module_data = module_data_directory(&ModuleDataSources::from_environment());
+    if module_data_conflicts_with_configuration(config_directory, &module_data) {
         error!(
-            "config: the standard-library path {} is also the configuration directory; the two directories cannot be mounted separately",
-            standard_library.display()
+            "config: the module-data path {} is also the configuration directory; the two directories cannot be mounted separately",
+            module_data.display()
         );
         return ExitCode::FAILURE;
     }
-    info!(path = %standard_library.display(), "mounting the standard library");
+    info!(path = %module_data.display(), "mounting the module data");
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
 
@@ -315,7 +325,7 @@ fn main() -> ExitCode {
     boot::run(
         SessionPaths {
             config: config_directory,
-            standard_library: &standard_library,
+            standard_library: &module_data,
             forwarded: &arguments.forwarded,
         },
         &session,
@@ -615,7 +625,7 @@ const IMPORT_LAYOUT: &str = "LUNETTE_IMPORT_LAYOUT";
 /// does not parse.
 const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::INFO;
 
-/// The install-time prefix the standard library is installed under.
+/// The install-time prefix the module data is installed under.
 ///
 /// A packager sets `LUNETTE_PREFIX` when building. The `Makefile` passes its
 /// own `PREFIX` down, so a build and the install that follows it agree without
@@ -625,7 +635,7 @@ pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
     None => "/usr/local",
 };
 
-/// The development override for where the standard library is read from.
+/// The development override for where the module data is read from.
 ///
 /// Pointing it at a working tree is the whole development loop for `mullion`;
 /// the override wins outright, because a first consultation could be shadowed
@@ -653,20 +663,20 @@ const SYSCONFDIR: &str = match option_env!("LUNETTE_SYSCONFDIR") {
     None => "/etc",
 };
 
-/// The values standard-library resolution depends on.
+/// The values module-data resolution depends on.
 ///
-/// Gathered here, keeping [`standard_library_directory`] a pure function of its
+/// Gathered here, keeping [`module_data_directory`] a pure function of its
 /// inputs and the environment read in exactly one place. The same arrangement
 /// [`ConfigDirectorySources`] uses, for the same reasons.
 #[derive(Debug)]
-struct StandardLibrarySources {
+struct ModuleDataSources {
     /// `$LUNETTE_STDLIB_PATH`, when it is set to something.
     override_path: Option<PathBuf>,
     /// The install-time prefix.
     prefix: PathBuf,
 }
 
-impl StandardLibrarySources {
+impl ModuleDataSources {
     fn from_environment() -> Self {
         Self {
             override_path: non_empty_path(env::var_os(STDLIB_PATH)),
@@ -675,7 +685,7 @@ impl StandardLibrarySources {
     }
 }
 
-/// Where the `mullion` standard library is read from.
+/// Where the `mullion` module data is read from.
 ///
 /// The precedence is stated, not left to the order things are mounted in:
 /// `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua`
@@ -692,22 +702,22 @@ impl StandardLibrarySources {
 /// work without the variable, and was not taken: it makes what a session
 /// requires depend on the directory it was started from, a property no user can
 /// see and no configuration can state.
-fn standard_library_directory(sources: &StandardLibrarySources) -> PathBuf {
+fn module_data_directory(sources: &ModuleDataSources) -> PathBuf {
     sources
         .override_path
         .clone()
         .unwrap_or_else(|| sources.prefix.join("share").join("lunette").join("lua"))
 }
 
-/// Whether mounting the standard library would ask PhysFS to mount the
+/// Whether mounting the module data would ask PhysFS to mount the
 /// configuration directory twice.
 ///
-/// The paths are compared as supplied. The standard-library override is
-/// allowed to be relative, and canonicalising either path here would change
+/// The paths are compared as supplied. The module-data override is allowed to
+/// be relative, and canonicalising either path here would change
 /// the documented resolution semantics; the duplicate-mount error would become
 /// clearer, nothing else would change.
-fn standard_library_conflicts_with_configuration(config: &Path, standard_library: &Path) -> bool {
-    config == standard_library
+fn module_data_conflicts_with_configuration(config: &Path, module_data: &Path) -> bool {
+    config == module_data
 }
 
 /// The environment values configuration-directory resolution depends on.
@@ -812,6 +822,22 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn check_dispatch_selects_check_without_a_boot_path() {
+        let command = cli::Command::Check {
+            roots: vec![PathBuf::from("config.luau")],
+            definitions: Some(PathBuf::from("definitions.luau")),
+            old_solver: true,
+        };
+
+        let (roots, definitions, old_solver) =
+            check_dispatch(Some(&command)).expect("the check command must be selected");
+        assert_eq!(roots, [PathBuf::from("config.luau")]);
+        assert_eq!(definitions, Some(Path::new("definitions.luau")));
+        assert!(old_solver);
+        assert!(check_dispatch(None).is_none());
+    }
 
     /// A state directory holding a token file with `text` in it.
     fn state_with_tokens(text: &str) -> TempDir {
@@ -967,51 +993,51 @@ mod tests {
         assert_eq!(state_directory(&state_sources(None, None)), None);
     }
 
-    fn standard_library(override_path: Option<&str>, prefix: &str) -> PathBuf {
-        standard_library_directory(&StandardLibrarySources {
+    fn module_data(override_path: Option<&str>, prefix: &str) -> PathBuf {
+        module_data_directory(&ModuleDataSources {
             override_path: override_path.map(PathBuf::from),
             prefix: PathBuf::from(prefix),
         })
     }
 
     #[test]
-    fn the_standard_library_defaults_to_the_compiled_in_prefix() {
+    fn module_data_defaults_to_the_compiled_in_prefix() {
         assert_eq!(
-            standard_library(None, "/usr/local"),
+            module_data(None, "/usr/local"),
             PathBuf::from("/usr/local/share/lunette/lua"),
         );
     }
 
     #[test]
-    fn the_override_wins_over_the_prefix() {
+    fn the_module_data_override_wins_over_the_prefix() {
         // The whole development loop for mullion: a working tree beats an
         // installed copy without being shadowed by one.
         assert_eq!(
-            standard_library(Some("/src/lunette/lua"), "/usr"),
+            module_data(Some("/src/lunette/lua"), "/usr"),
             PathBuf::from("/src/lunette/lua"),
         );
     }
 
     #[test]
-    fn a_relative_override_is_taken_as_it_stands() {
+    fn a_relative_module_data_override_is_taken_as_it_stands() {
         // A relative override is taken as it stands, unlike the XDG variables,
         // which the specification requires to be absolute. `LUNETTE_STDLIB_PATH=lua
         // cargo run` is the case it exists for.
-        assert_eq!(standard_library(Some("lua"), "/usr"), PathBuf::from("lua"));
+        assert_eq!(module_data(Some("lua"), "/usr"), PathBuf::from("lua"));
     }
 
     #[test]
-    fn the_configuration_directory_cannot_also_be_the_standard_library() {
+    fn the_configuration_directory_cannot_also_be_the_module_data() {
         let directory = Path::new("/tmp/lunette");
 
-        assert!(standard_library_conflicts_with_configuration(
+        assert!(module_data_conflicts_with_configuration(
             directory, directory
         ));
-        assert!(!standard_library_conflicts_with_configuration(
+        assert!(!module_data_conflicts_with_configuration(
             directory,
             Path::new("/tmp/lunette/lua"),
         ));
-        assert!(!standard_library_conflicts_with_configuration(
+        assert!(!module_data_conflicts_with_configuration(
             directory,
             Path::new("/tmp/other/lunette"),
         ));

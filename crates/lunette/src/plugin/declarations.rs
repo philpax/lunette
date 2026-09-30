@@ -1,0 +1,248 @@
+//! The native plugin facade and its generated Luau surface.
+//!
+//! The attachment owns the implementations. This module owns the facade shape:
+//! the native descriptor names are matched against these declarations, and the
+//! same function descriptors drive the nested `lunette.plugin` table and the
+//! generated `PluginApi` type.
+
+use std::fmt::Write as _;
+
+use lunette_luau::{Arguments, Parameter, Type, Typed};
+use mlua::{FromLuaMulti, IntoLuaMulti, Lua, MaybeSend, Table, UserDataRef};
+
+use crate::{
+    lua::declarations::{Signature, collect_methods},
+    plugin::attachment::{
+        self, PluginContext, PluginContractToken, PluginDefinition, PluginEffect, PluginInit,
+        PluginInstance, PluginRuntime, Unknown,
+    },
+};
+
+/// The name of the nested plugin facade on the native module.
+pub const API_NAME: &str = "plugin";
+/// The Luau type of the nested plugin facade.
+pub const API_TYPE_NAME: &str = "PluginApi";
+
+/// A function in the plugin facade. Its concrete callback is also the source
+/// for the generated argument and return types.
+#[derive(Clone, Copy, Debug)]
+pub struct FunctionSpec {
+    /// The Lua field name.
+    pub name: &'static str,
+    /// The parameter names used in the generated declaration.
+    pub parameters: &'static [&'static str],
+    /// The documentation emitted beside the field.
+    pub doc: &'static str,
+    callback: NativeFunction,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum NativeFunction {
+    Contract(fn(&Lua, (String, u64)) -> mlua::Result<PluginContractToken>),
+    Bind(fn(&Lua, UserDataRef<PluginContractToken>, Unknown) -> mlua::Result<()>),
+    Define(fn(&Lua, (Unknown, Unknown, PluginInit)) -> mlua::Result<PluginDefinition>),
+    Runtime(fn(&Lua, ()) -> mlua::Result<PluginRuntime>),
+}
+
+impl NativeFunction {
+    fn install(self, lua: &Lua, module: &Table, name: &'static str) -> mlua::Result<()> {
+        match self {
+            Self::Contract(function) => module.set(name, lua.create_function(function)?),
+            Self::Bind(function) => module.set(
+                name,
+                lua.create_function(move |lua, (token, wrapper)| function(lua, token, wrapper))?,
+            ),
+            Self::Define(function) => module.set(name, lua.create_function(function)?),
+            Self::Runtime(function) => module.set(name, lua.create_function(function)?),
+        }
+    }
+
+    fn ty(self, parameters: &[&'static str]) -> Type {
+        match self {
+            Self::Contract(function) => native_type(function, parameters),
+            Self::Bind(function) => native_type(
+                move |lua, (token, wrapper)| function(lua, token, wrapper),
+                parameters,
+            ),
+            Self::Define(function) => native_type(function, parameters),
+            Self::Runtime(function) => native_type(function, parameters),
+        }
+    }
+}
+
+fn native_type<A, R, F>(_: F, names: &[&'static str]) -> Type
+where
+    A: Arguments + FromLuaMulti,
+    R: IntoLuaMulti + Typed,
+    F: Fn(&Lua, A) -> mlua::Result<R> + MaybeSend + 'static,
+{
+    Type::Function {
+        receiver: None,
+        parameters: names
+            .iter()
+            .copied()
+            .zip(A::luau())
+            .map(|(name, ty)| Parameter { name, ty })
+            .collect(),
+        returns: Box::new(R::luau()),
+    }
+}
+
+/// Returns the plugin functions in facade order.
+#[must_use]
+pub fn functions() -> &'static [FunctionSpec] {
+    &FUNCTIONS
+}
+
+/// Installs the state-local attachment.
+///
+/// This is separate from [`install`], which builds a fresh nested module table
+/// each time `@lunette` is required. The attachment itself belongs to the Lua
+/// state and therefore must exist even when a configuration has not required
+/// the native module yet: reload cleanup retires its epoch unconditionally.
+pub fn install_attachment(lua: &Lua) -> mlua::Result<()> {
+    attachment::install(lua)
+}
+
+/// Installs the nested `lunette.plugin` table from the attachment descriptors.
+///
+/// The attachment remains the source of native behavior. A missing or unknown
+/// descriptor is an error rather than a silently omitted function, so adding a
+/// native entry cannot leave the generated facade and runtime table divergent.
+pub fn install(lua: &Lua, module: &Table) -> mlua::Result<()> {
+    attachment::install(lua)?;
+    let plugin = lua.create_table()?;
+    for function in functions() {
+        function.callback.install(lua, &plugin, function.name)?;
+    }
+
+    module.set(API_NAME, plugin)
+}
+
+/// Renders the plugin handle and nested-module declarations.
+pub(crate) fn render_types(out: &mut String) {
+    for handle in HANDLES {
+        out.push('\n');
+        render_doc(out, handle.doc, "");
+        let _ = writeln!(out, "export type {} = {{", (handle.name)());
+        for method in (handle.methods)() {
+            render_doc(out, method.doc, "  ");
+            let _ = writeln!(out, "  read {}: {},", method.name, method.ty);
+        }
+        out.push_str("}\n");
+    }
+
+    out.push('\n');
+    render_doc(out, "The native plugin facade.", "");
+    let _ = writeln!(out, "export type {API_TYPE_NAME} = {{");
+    for function in functions() {
+        render_doc(out, function.doc, "  ");
+        let _ = writeln!(
+            out,
+            "  read {}: {},",
+            function.name,
+            function.callback.ty(function.parameters)
+        );
+    }
+    out.push_str("}\n");
+}
+
+const FUNCTIONS: [FunctionSpec; 4] = [
+    FunctionSpec {
+        name: "contract",
+        parameters: &["name", "schema"],
+        doc: "Declares a qualified contract identity for the current Lua state epoch.",
+        callback: NativeFunction::Contract(attachment::contract),
+    },
+    FunctionSpec {
+        name: "bind",
+        parameters: &["token", "wrapper"],
+        doc: "Binds one erased native wrapper to a contract token.",
+        callback: NativeFunction::Bind(attachment::bind),
+    },
+    FunctionSpec {
+        name: "define",
+        parameters: &["required", "provided", "init"],
+        doc: "Defines a reusable plugin from required and provided contract records.",
+        callback: NativeFunction::Define(attachment::define),
+    },
+    FunctionSpec {
+        name: "runtime",
+        parameters: &[],
+        doc: "Creates an independent plugin runtime in the current Lua state.",
+        callback: NativeFunction::Runtime(attachment::runtime),
+    },
+];
+
+const HANDLES: [HandleSpec; 6] = [
+    HandleSpec {
+        name: PluginContractToken::luau,
+        doc: "An opaque native token naming one contract declaration.",
+        methods: no_methods,
+    },
+    HandleSpec {
+        name: PluginDefinition::luau,
+        doc: "A reusable plugin definition.",
+        methods: no_methods,
+    },
+    HandleSpec {
+        name: PluginRuntime::luau,
+        doc: "A runtime-local plugin graph.",
+        methods: || collect_methods::<PluginRuntime>(),
+    },
+    HandleSpec {
+        name: PluginInstance::luau,
+        doc: "A plugin installed in a runtime.",
+        methods: || collect_methods::<PluginInstance>(),
+    },
+    HandleSpec {
+        name: PluginContext::luau,
+        doc: "A context bound to one plugin activation.",
+        methods: || collect_methods::<PluginContext>(),
+    },
+    HandleSpec {
+        name: PluginEffect::luau,
+        doc: "A one-shot resource effect.",
+        methods: || collect_methods::<PluginEffect>(),
+    },
+];
+
+fn no_methods() -> Vec<Signature> {
+    Vec::new()
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HandleSpec {
+    name: fn() -> Type,
+    doc: &'static str,
+    methods: fn() -> Vec<Signature>,
+}
+
+/// Writes prose using the same width as the main declaration renderer.
+fn render_doc(out: &mut String, doc: &str, indent: &str) {
+    let width = 80usize.saturating_sub(indent.len() + 3);
+    let mut line = String::new();
+    for word in doc.split_whitespace() {
+        if !line.is_empty() && line.len() + 1 + word.len() > width {
+            let _ = writeln!(out, "{indent}-- {line}");
+            line.clear();
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        let _ = writeln!(out, "{indent}-- {line}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn plugin_types_are_rendered_as_nested_api() {
+        let output = crate::lua::declarations::render();
+        assert!(output.contains("export type PluginRuntime"));
+        assert!(output.contains("read plugin: PluginApi"));
+    }
+}

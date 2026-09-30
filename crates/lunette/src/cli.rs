@@ -126,7 +126,7 @@ pub fn dump(
     let target = destination.join(ALIAS_FILE);
     fs::write(
         &target,
-        aliases::luaurc(&standard_library.display().to_string()),
+        aliases::installed_luaurc(&standard_library.display().to_string()),
     )
     .map_err(|error| DumpError::Write(target.clone(), error))?;
     written.push(target);

@@ -414,6 +414,70 @@ export type LayerRevokedEvent = {
   claim: Claim,
 }
 
+-- An opaque native token naming one contract declaration.
+export type PluginContractToken = {}
+
+-- A reusable plugin definition.
+export type PluginDefinition = {}
+
+-- A runtime-local plugin graph.
+export type PluginRuntime = {
+  -- Installs a definition with its configuration.
+  read use: (self: PluginRuntime, definition: PluginDefinition, config: unknown) -> PluginInstance,
+  -- Disposes every instance in this runtime.
+  read close: (self: PluginRuntime) -> (),
+  -- Processes queued lifecycle work and records graph diagnostics.
+  read drain: (self: PluginRuntime) -> (),
+}
+
+-- A plugin installed in a runtime.
+export type PluginInstance = {
+  -- Enables this plugin instance.
+  read enable: (self: PluginInstance) -> (),
+  -- Disables this plugin instance.
+  read disable: (self: PluginInstance) -> (),
+  -- Disables and retires this plugin instance.
+  read dispose: (self: PluginInstance) -> (),
+  -- Replaces this instance's configuration and reloads it.
+  read reload: (self: PluginInstance, config: unknown) -> (),
+}
+
+-- A context bound to one plugin activation.
+export type PluginContext = {
+  -- Returns the services supplied by required contracts.
+  read services: (self: PluginContext) -> unknown,
+  -- Acquires a resource and registers its inverse for cleanup.
+  read effect: (self: PluginContext, acquire: () -> () -> ()) -> PluginEffect,
+  -- Installs a child definition owned by this plugin.
+  read child: (self: PluginContext, definition: PluginDefinition, config: unknown) -> PluginInstance,
+  -- Checks that another context is an owner of this plugin's service.
+  read checkOwner: (self: PluginContext, caller: PluginContext) -> (),
+  -- Reports whether this context's activation is still live.
+  read active: (self: PluginContext) -> boolean,
+}
+
+-- A one-shot resource effect.
+export type PluginEffect = {
+  -- Disposes this effect once.
+  read dispose: (self: PluginEffect) -> (),
+}
+
+-- The native plugin facade.
+export type PluginApi = {
+  -- Declares a qualified contract identity for the current Lua state epoch.
+  read contract: (name: string, schema: number) -> PluginContractToken,
+  -- Binds one erased native wrapper to a contract token.
+  read bind: (token: PluginContractToken, wrapper: unknown) -> (),
+  -- Defines a reusable plugin from required and provided contract records.
+  read define: (
+    required: unknown,
+    provided: unknown,
+    init: (context: PluginContext, config: unknown) -> unknown
+  ) -> PluginDefinition,
+  -- Creates an independent plugin runtime in the current Lua state.
+  read runtime: () -> PluginRuntime,
+}
+
 export type Lunette = {
   -- Every mapped toplevel, as of this frame's snapshot.
   read windows: () -> { Window },
@@ -489,6 +553,8 @@ export type Lunette = {
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.
   read onLayerRevoked: (handler: (event: LayerRevokedEvent) -> ()) -> () -> (),
+  -- The native plugin facade.
+  read plugin: PluginApi,
 }
 
 return (nil :: any) :: Lunette

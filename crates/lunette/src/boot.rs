@@ -37,14 +37,14 @@ use std::{
     ffi::{CStr, OsString, c_int},
     mem,
     os::unix::ffi::OsStrExt,
-    path::Path,
+    path::{Path, PathBuf},
     process::ExitCode,
     ptr,
     rc::Rc,
 };
 
 use lunette::{
-    aliases::{Alias, MULLION, SPEC},
+    aliases::ModuleRoots,
     control::{Budget, CHUNKS_PER_FRAME, ChunkQueue, answer},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
@@ -67,7 +67,7 @@ use tracing::{debug, error, info, warn};
 pub struct SessionPaths<'a> {
     /// Where LÖVR loads `main.lua` and `conf.lua` from.
     pub config: &'a Path,
-    /// Where the `mullion` standard library is mounted from.
+    /// The root of the Lua module data from which mounted roots are resolved.
     pub standard_library: &'a Path,
     /// The command-line arguments remaining after lunette takes its own. The
     /// configuration receives them as Lua's `arg`.
@@ -208,7 +208,8 @@ fn run_session(
         //
         // SAFETY: the three calls above are exactly the preconditions, and what
         // this installs is kept in the state, not in Rust.
-        install_standard_library_mount(state, paths.standard_library);
+        let roots = ModuleRoots::development(paths.standard_library);
+        install_standard_library_mount(state, &roots);
 
         // Before `boot.lua`, because `main.lua` runs inside it and requires the
         // module at its top. After `luaL_openlibs`, because the module is
@@ -502,8 +503,27 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
     }
 }
 
-/// Mounts the `mullion` standard library and the development specs into
-/// LÖVR's virtual filesystem the moment that filesystem exists.
+/// Describes one mounted module root for the Lua-side filesystem hook.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MountDescription {
+    source: PathBuf,
+    mount_point: String,
+    required: bool,
+}
+
+/// Derives the mount table from the same validated roots used by the checker.
+fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
+    roots
+        .mounted()
+        .map(|root| MountDescription {
+            source: root.source.clone(),
+            mount_point: root.mount_point(),
+            required: root.required_for_installation(),
+        })
+        .collect()
+}
+
+/// Mounts every resolved development root when `lovr.filesystem` is created.
 ///
 /// # Why this is a hook
 ///
@@ -514,40 +534,38 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 /// already run. Wrapping the `package.preload` entry the module is created by
 /// puts the mount between them.
 ///
-/// The wrapper is a C closure holding the original loader and the path as Lua
-/// upvalues, not a Rust closure holding Lua values. Rust keeps no reference
-/// into the state, and a soft reload can discard the state without anything
-/// here dangling.
+/// The wrapper is a C closure holding the original loader and a Lua data table
+/// as upvalues, not a Rust closure holding Lua values. Rust keeps no reference
+/// into the state. A hard restart discards the state and the closure with it;
+/// a soft reload keeps this state and does not recreate this hook.
 ///
 /// # Precedence
 ///
-/// The configuration is mounted at the filesystem root by `boot.lua:125`,
-/// the standard library at `@mullion`, and the optional specs at `@spec`. A
-/// configuration cannot shadow a mullion module by name, and the
-/// standard library cannot shadow the `main.lua` it is loaded alongside.
+/// The configuration is mounted at the filesystem root by `boot.lua:125`.
+/// Every mounted module root gets the `@` mount point from [`ModuleRoots`], so
+/// a configuration cannot shadow a module root by placing a file at root.
 ///
 /// # Read-only
 ///
 /// A physfs mount is read-only, so `lovr.filesystem.write` cannot modify a
-/// file in the standard library. What a session writes goes to the save
-/// directory `lovr.filesystem.setIdentity` establishes. That directory is
-/// mounted ahead of everything else when `conf.saveprecedence` is left at
-/// LÖVR's default of true, letting a write there shadow a standard-library
-/// module by name; the shipped `conf.lua` turns it off, and `docs/dev/stdlib.md`
-/// records why.
+/// file in a module root. What a session writes goes to the save directory
+/// `lovr.filesystem.setIdentity` establishes. That directory is mounted ahead
+/// of everything else when `conf.saveprecedence` is left at LÖVR's default of
+/// true; the shipped `conf.lua` turns it off, and `docs/dev/stdlib.md` records
+/// why.
 ///
-/// A directory that does not exist fails to mount and is reported. That is
-/// not fatal: a configuration that never mentions `@mullion` is supported,
-/// and one that does gets a `require` error naming the module. The spec tree
-/// is mounted only when `directory/spec` exists, which keeps it out of
-/// installed trees.
+/// Optional roots are omitted when their source directory is absent. A missing
+/// required root is still passed to LÖVR, and its failed mount is logged; a
+/// configuration that does not require that root can continue to safe mode.
+/// The development-only `@spec` root is therefore available in a development
+/// tree without ever becoming an installed requirement.
 ///
 /// # Safety
 ///
 /// `state` must be a live Lua state with `luaL_openlibs` and `luax_preload`
-/// already run on it, and with room for six stack slots. The optional spec
-/// directory is captured as nil when it is not present.
-unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: &Path) {
+/// already run on it, with enough stack room for the package tables and one
+/// mount record. The root descriptors are validated before they reach Lua.
+unsafe fn install_standard_library_mount(state: *mut lua::lua_State, roots: &ModuleRoots) {
     // SAFETY: every push below is balanced before this returns, and the caller
     // guarantees the state and the stack room.
     unsafe {
@@ -557,16 +575,14 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: 
             // non-table raises, and this runs under no `pcall`, so the error
             // would `longjmp` out through Rust frames and would not be
             // handled.
-            error!("lua: package is not a table, so the standard library cannot be mounted");
+            error!("lua: package is not a table, so module roots cannot be mounted");
             lua::lua_pop(state, 1);
             return;
         }
 
         lua::lua_getfield(state, -1, c"preload".as_ptr());
         if lua::lua_type(state, -1) != lua::LUA_TTABLE {
-            error!(
-                "lua: package.preload is not a table, so the standard library cannot be mounted"
-            );
+            error!("lua: package.preload is not a table, so module roots cannot be mounted");
             lua::lua_pop(state, 2);
             return;
         }
@@ -576,24 +592,30 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: 
             // `luax_preload` did not register it, which means this build of LÖVR
             // is not the one this module was written against.
             error!(
-                "lua: {} is not preloaded, so the standard library cannot be mounted",
+                "lua: {} is not preloaded, so module roots cannot be mounted",
                 FILESYSTEM_MODULE.to_string_lossy()
             );
             lua::lua_pop(state, 3);
             return;
         }
 
-        let mullion_directory = directory.join(MULLION.directory);
-        let bytes = mullion_directory.as_os_str().as_bytes();
-        lua::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
-        let spec_directory = directory.join(SPEC.directory);
-        if spec_directory.is_dir() {
-            let spec_bytes = spec_directory.as_os_str().as_bytes();
-            lua::lua_pushlstring(state, spec_bytes.as_ptr().cast(), spec_bytes.len());
-        } else {
-            lua::lua_pushnil(state);
+        lua::lua_newtable(state);
+        let mut index = 1;
+        for description in mount_descriptions(roots) {
+            if !description.required && !description.source.is_dir() {
+                continue;
+            }
+            lua::lua_newtable(state);
+            push_path(state, &description.source);
+            lua::lua_rawseti(state, -2, 1);
+            push_string(state, &description.mount_point);
+            lua::lua_rawseti(state, -2, 2);
+            lua::lua_pushboolean(state, c_int::from(description.required));
+            lua::lua_rawseti(state, -2, 3);
+            lua::lua_rawseti(state, -2, index);
+            index += 1;
         }
-        lua::lua_pushcclosure(state, open_filesystem_and_mount, 3);
+        lua::lua_pushcclosure(state, open_filesystem_and_mount, 2);
         lua::lua_setfield(state, -2, FILESYSTEM_MODULE.as_ptr());
 
         lua::lua_pop(state, 2);
@@ -603,98 +625,110 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, directory: 
 /// The `package.preload` key LÖVR's filesystem module is registered under.
 const FILESYSTEM_MODULE: &CStr = c"lovr.filesystem";
 
-/// Pushes the mount point a root is given, built from the alias.
-///
-/// The name a session mounts and the name the checker resolves must not part;
-/// both derive from the same alias.
+/// Pushes a path as a Lua string.
 ///
 /// # Safety
 ///
 /// The caller guarantees `state` is a live Lua state with a free stack slot.
-unsafe fn push_mount_point(state: *mut lua::lua_State, alias: &Alias) {
-    let point = alias.mount_point();
-    let bytes = point.as_bytes();
-    // SAFETY: the caller's guarantee, and `point` outlives the call, which is
-    // all Lua needs: it copies the bytes.
+unsafe fn push_path(state: *mut lua::lua_State, path: &Path) {
+    // SAFETY: the caller guarantees the Lua state and stack slot.
+    unsafe { push_bytes(state, path.as_os_str().as_bytes()) };
+}
+
+/// Pushes a UTF-8 string as a Lua string.
+///
+/// # Safety
+///
+/// The caller guarantees `state` is a live Lua state with a free stack slot.
+unsafe fn push_string(state: *mut lua::lua_State, value: &str) {
+    // SAFETY: the caller guarantees the Lua state and stack slot.
+    unsafe { push_bytes(state, value.as_bytes()) };
+}
+
+/// Pushes arbitrary bytes as a Lua string.
+///
+/// # Safety
+///
+/// The caller guarantees `state` is a live Lua state with a free stack slot.
+unsafe fn push_bytes(state: *mut lua::lua_State, bytes: &[u8]) {
+    // SAFETY: the caller's guarantee, and Lua copies the bytes before this call
+    // returns.
     unsafe {
         lua::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
     }
 }
 
-/// Opens `lovr.filesystem`, mounts the standard library onto it, and installs
-/// the host's `lovr.log`.
+/// Opens `lovr.filesystem`, mounts the validated module roots, and installs the
+/// host's `lovr.log`.
 ///
 /// [`install_standard_library_mount`] installs this closure; the reasoning for
-/// the timing is there. Upvalue 1 is the loader `luax_preload` registered;
-/// upvalue 2 is the standard-library directory, and upvalue 3 is the optional
-/// spec directory.
+/// the timing is there. Upvalue 1 is the loader `luax_preload` registered, and
+/// upvalue 2 is an array of `{ source, mount point, required }` records.
 ///
 /// The log handler is installed from here for the same reason: `boot.lua`
 /// assigns its own `lovr.log` in its chunk body, and requires
 /// `lovr.filesystem` from inside `lovr.boot`, which is after that and before
 /// the first message it logs.
 unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State) -> c_int {
-    // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the three
+    // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the two
     // upvalues the closure was built with and the module name at index 1.
     unsafe {
         lua::lua_pushvalue(state, lua::lua_upvalueindex(1));
         lua::lua_pushvalue(state, 1);
         lua::lua_call(state, 1, 1);
 
-        // Before the mount, so a build whose `lovr.filesystem` carries no
+        // Before the mounts, so a build whose `lovr.filesystem` carries no
         // `mount` still gets its diagnostics routed.
         install_log_handler(state);
 
-        lua::lua_getfield(state, -1, c"mount".as_ptr());
+        let filesystem = lua::lua_absindex(state, -1);
+        lua::lua_getfield(state, filesystem, c"mount".as_ptr());
         if lua::lua_type(state, -1) != lua::LUA_TFUNCTION {
             error!("lua: lovr.filesystem has no mount function");
             lua::lua_pop(state, 1);
             return 1;
         }
+        lua::lua_pop(state, 1);
 
-        lua::lua_pushvalue(state, lua::lua_upvalueindex(2));
-        // The mount point is explicit so a configuration cannot shadow a
-        // mullion module by placing a file with the same dotted name at root.
-        // The boolean sets append mode for the mount.
-        push_mount_point(state, &MULLION);
-        lua::lua_pushboolean(state, 1);
-        lua::lua_call(state, 3, 2);
-
-        // `luax_pushsuccess` (`vendor/lovr/src/api/api.c:403`) returns `true`, or
-        // `false` and the message.
-        if lua::lua_toboolean(state, -2) == 0 {
-            let message = match string_bytes(state, -1) {
-                Some(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-                None => "no reason was given".to_owned(),
-            };
-            warn!(
-                "lua: the mullion standard library could not be mounted: {message}; a \
-                 configuration that requires it will fail to load"
-            );
-        }
-
-        let filesystem = -1;
-        lua::lua_pop(state, 2);
-
-        if lua::lua_type(state, lua::lua_upvalueindex(3)) == lua::LUA_TSTRING {
+        let mounts = lua::lua_upvalueindex(2);
+        let count = lua::lua_rawlen(state, mounts);
+        for index in 1..=count {
             lua::lua_pushvalue(state, filesystem);
             lua::lua_getfield(state, -1, c"mount".as_ptr());
-            if lua::lua_type(state, -1) == lua::LUA_TFUNCTION {
-                lua::lua_pushvalue(state, lua::lua_upvalueindex(3));
-                push_mount_point(state, &SPEC);
-                lua::lua_pushboolean(state, 1);
-                lua::lua_call(state, 3, 2);
-                if lua::lua_toboolean(state, -2) == 0 {
-                    let message = match string_bytes(state, -1) {
-                        Some(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-                        None => "no reason was given".to_owned(),
-                    };
-                    warn!("lua: the spec tree could not be mounted: {message}");
-                }
-                lua::lua_pop(state, 2);
-            } else {
-                lua::lua_pop(state, 1);
+            lua::lua_rawgeti(state, mounts, index as _);
+            if lua::lua_type(state, -1) != lua::LUA_TTABLE {
+                error!("lua: module root mount record {index} is not a table");
+                lua::lua_pop(state, 3);
+                continue;
             }
+
+            lua::lua_rawgeti(state, -1, 1);
+            lua::lua_rawgeti(state, -2, 2);
+            lua::lua_rawgeti(state, -3, 3);
+            let required = lua::lua_toboolean(state, -1) != 0;
+            lua::lua_pop(state, 1);
+            let mount_point = owned_string(state, -1).unwrap_or_else(|| "<unknown>".to_owned());
+            lua::lua_remove(state, -3);
+            lua::lua_pushboolean(state, 1);
+            lua::lua_call(state, 3, 2);
+
+            if lua::lua_toboolean(state, -2) == 0 {
+                let message = match string_bytes(state, -1) {
+                    Some(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+                    None => "no reason was given".to_owned(),
+                };
+                if required {
+                    error!(
+                        "lua: required module root {mount_point} could not be mounted: {message}"
+                    );
+                } else {
+                    warn!(
+                        "lua: optional module root {mount_point} could not be mounted: {message}"
+                    );
+                }
+            }
+            lua::lua_pop(state, 2);
+            lua::lua_pop(state, 1);
         }
 
         1
@@ -930,5 +964,45 @@ mod tests {
     fn a_leading_flag_cannot_reach_index_one() {
         let entries = entries("/etc/xdg/lunette", &["-h"]);
         assert!(!entries[1].as_bytes().starts_with(b"-"));
+    }
+
+    #[test]
+    fn development_mounts_share_the_validated_root_model() {
+        let roots = ModuleRoots::development("/resolved/lunette");
+        let descriptions = mount_descriptions(&roots);
+
+        assert_eq!(
+            descriptions
+                .iter()
+                .map(|description| description.mount_point.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "@lunette-plugin",
+                "@lunette-contracts",
+                "@lunette-plugins",
+                "@mullion",
+                "@spec",
+            ]
+        );
+        assert_eq!(
+            descriptions
+                .iter()
+                .map(|description| description.source.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                PathBuf::from("/resolved/lunette/lunette-plugin"),
+                PathBuf::from("/resolved/lunette/lunette-contracts"),
+                PathBuf::from("/resolved/lunette/lunette-plugins"),
+                PathBuf::from("/resolved/lunette/mullion"),
+                PathBuf::from("/resolved/lunette/spec"),
+            ]
+        );
+        assert_eq!(
+            descriptions
+                .iter()
+                .map(|description| description.required)
+                .collect::<Vec<_>>(),
+            vec![true, true, true, false, false]
+        );
     }
 }

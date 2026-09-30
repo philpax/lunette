@@ -8,15 +8,18 @@ lunette/
   Makefile                        the install rule
   Cargo.toml                      workspace
   crates/
-    lunette/                      the binaries: lunette and lunctl, Lua injection, frame orchestration
+    lunette/                      binaries, Lua injection, frame orchestration, and plugin host
     lunette-compositor/           smithay; vendored fork of WayVR's backend/wayvr
     lunette-lovr/                 cmake build + FFI surface for LÖVR
-    lunette-luau/                 the Luau type language, and the closed-set macro
+    lunette-luau/                 the Luau type language and closed-set macro
     lunette-capture/              wrappers over wlx-capture and HidProvider
-    lunette-generate-definitions/ generates the Luau definitions, declarations, and .luaurc files
-  lua/lunette/                    the generated declarations for the native API
-  lua/mullion/                    the mullion standard library
-  lua/spec/                       the standard library's own specs
+    lunette-generate-definitions/ generates native declarations, aliases, and install manifest
+  lua/lunette/                    generated declarations for the native API
+  lua/lunette-plugin/             typed plugin authoring facade and erased adapter
+  lua/lunette-contracts/          neutral plugin service contracts
+  lua/lunette-plugins/            built-in plugin implementations
+  lua/mullion/                    optional Lua policy and presentation modules
+  lua/spec/                       development-only Lua specifications
   etc/lunette/                    the generated Luau definitions
   etc/xdg/lunette/                the default configuration
   vendor/lovr/                    submodule → LÖVR with lunette's patch branch (recursive)
@@ -48,28 +51,43 @@ A flake with a dev shell. It supplies the toolchain, the system libraries, and t
 
 Because LÖVR's `deps/` are nested submodules, that package output will need `fetchSubmodules = true` and a fixed-output hash that changes on every LÖVR bump. It is also what blocks the output today: a flake source does not carry submodules unless it is fetched with `submodules=1`, so a derivation building from `./.` finds `vendor/lovr` empty. This is the recurring friction of the arrangement, and it is the price of tracking upstream on a branch.
 
-## Where things live at runtime
+## Module roots
 
-This follows awesome, which installs Lua to `$PREFIX/share/awesome/lib` and its default config to `$SYSCONFDIR/xdg/awesome/rc.lua`.
+The source and install roots are described by `crates/lunette/src/aliases.rs`. It defines the aliases, source directories, runtime resolution, and development-only roots. The same descriptors generate `.luaurc` aliases and resolve the roots mounted by the session.
+
+| Alias | Source directory | Runtime resolution | Installation |
+|---|---|---|---|
+| `@lunette` | `lua/lunette/` | Native `package.preload` entry; the directory contains generated declarations for the checker | Required declarations |
+| `@lunette-plugin` | `lua/lunette-plugin/` | Mounted file root | Required |
+| `@lunette-contracts` | `lua/lunette-contracts/` | Mounted file root | Required |
+| `@lunette-plugins` | `lua/lunette-plugins/` | Mounted file root | Required |
+| `@mullion` | `lua/mullion/` | Mounted file root | Optional |
+| `@spec` | `lua/spec/` | Mounted development file root | Not installed |
+
+The `@lunette` API is registered at runtime and is not loaded from `lua/lunette/`. Its checked-in declaration is generated from the Rust registration surface. The plugin facade and provider roots are ordinary Lua modules mounted under reserved aliases. A configuration cannot shadow these mounts with files at the configuration root.
+
+`make check-definitions` checks the generated Luau definitions, native API declarations, `.luaurc` files, and alias metadata. `make check-luau` checks the shipped roots, the ordinary spec harness modules, and the default configuration. It runs the Luau checker as a separate process; startup does not run that checker.
+
+## Where things live at runtime
 
 | Thing | Path |
 |---|---|
-| Standard library | `$PREFIX/share/lunette/lua/` |
+| Lua roots | `$PREFIX/share/lunette/lua/` |
 | Default config | `$SYSCONFDIR/xdg/lunette/main.lua` |
 | User config | `~/.config/lunette/main.lua` |
 | Control socket | `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, mode 0600 in a 0700 directory |
 | Binaries | `$PREFIX/bin/lunette` and `$PREFIX/bin/lunctl` |
 | Saved state | LÖVR's save directory |
 
-The standard library is kept on disk rather than embedded in the binary, so it stays legible to anyone who needs to read it without cloning the source. There are two candidates and no third: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [The standard library](stdlib.md#decisions) records why there is no `./lua` fallback and how the mount is installed.
+The Lua roots are kept on disk rather than embedded in the binary. The source tree remains readable without cloning the repository. There are two candidates for the root directory: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as written, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [The standard library](stdlib.md#module-roots) records the root responsibilities.
 
-`make install` puts all of it where the table above says, with `PREFIX`, `SYSCONFDIR`, and `DESTDIR` all honoured. `PREFIX` and `SYSCONFDIR` reach the binary as `LUNETTE_PREFIX` and `LUNETTE_SYSCONFDIR`, which `crates/lunette/src/main.rs` compiles in through `option_env!` as the defaults it resolves against, so a build and the install that follows it are told the prefix once rather than twice. The LÖVR shared libraries are installed to `$PREFIX/lib/lunette`, which the executable reaches through an `$ORIGIN/../lib/lunette` rpath entry.
+`make install` installs the Lua artifacts listed by the Rust-owned manifest in `crates/lunette/src/aliases.rs`. `PREFIX`, `SYSCONFDIR`, and `DESTDIR` are honored. `PREFIX` and `SYSCONFDIR` reach the binary as `LUNETTE_PREFIX` and `LUNETTE_SYSCONFDIR`, which `crates/lunette/src/main.rs` compiles in through `option_env!`. The LÖVR shared libraries are installed to `$PREFIX/lib/lunette`, which the executable reaches through an `$ORIGIN/../lib/lunette` rpath entry. The `aliases.rs` module-root descriptors also generate checker aliases. `lunette --dump-config` copies `main.lua` and `conf.lua` and writes a `.luaurc` for the selected installation's Lua root.
 
 Embedding via `rust-embed` exists as an optional build feature, off by default, for single-file AppImage-style distribution later. WayVR ships one, so this may be adopted.
 
 ## The development loop
 
-`cargo run` starts the working copy against itself. The workspace's `default-members` is `crates/lunette` and that crate's `default-run` is `lunette`, so neither the package nor the binary has to be named from the repository root; `cargo run --bin lunctl` reaches the control client. A bare `cargo build` or `cargo test` covers that crate alone for the same reason, which is why the standing checks name `--workspace`. The devshell exports `LUNETTE_STDLIB_PATH` and `LUNETTE_CONFIG_PATH`, pointing at `lua/` and `etc/xdg/lunette` in the repository, so no flag is needed and the working directory does not matter: both are anchored at the repository root rather than at `$PWD`. `--config-path` outranks the variable, and the decisions below record why neither location has a default that would find a working copy without them.
+`cargo run` starts the working copy against itself. The workspace's `default-members` is `crates/lunette` and that crate's `default-run` is `lunette`, so neither the package nor the binary has to be named from the repository root; `cargo run --bin lunctl` reaches the control client. A bare `cargo build` or `cargo test` covers that crate alone for the same reason, which is why the standing checks name `--workspace`. The devshell exports `LUNETTE_STDLIB_PATH` and `LUNETTE_CONFIG_PATH`, pointing at `lua/` and `etc/xdg/lunette` in the repository, so no flag is needed and the working directory does not matter: both are anchored at the repository root rather than at `$PWD`. `--config-path` outranks the variable. The Rust alias descriptors and generated install manifest remain the source of truth for module roots and installation.
 
 `.envrc` carries `use flake`, so `direnv allow` puts that environment in the running shell. Using direnv rather than `nix develop` matters for what a session spawns. `nix develop` starts its own bash and sets `SHELL` to it, lunette hands its environment to every client it starts, and a terminal opened from such a session runs a shell from the store with none of the user's setup. direnv exports into the shell that is already running and leaves `SHELL` alone.
 

@@ -29,7 +29,8 @@
 //! `--check` generates into memory and compares against what is checked in,
 //! reporting the first line that differs and exiting non-zero. CONTRIBUTING.md
 //! requires a generated document to be verified. The command performs that
-//! verification for the generated files.
+//! verification for the generated files. `--lovr-only` limits either mode to
+//! the LÖVR definitions, leaving native declarations and alias files untouched.
 
 use std::{
     env, fs,
@@ -62,16 +63,23 @@ const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
 /// registration surface. The lovr-docs metadata does not describe it.
 const MODULE_DECLARATIONS: &str = "lua/lunette/init.luau";
 
+type AliasFile = (&'static str, &'static str, fn(&str) -> String);
+
 /// The `.luaurc` files the checker reads to resolve a `@root`, and the path
 /// each one reaches the standard library by. The path is written as Luau
 /// resolves it: relative to the file's own directory.
 ///
-/// The files are generated because the session mounts the same roots from
-/// [`lunette::aliases`]. A root added to one and not the other is a
-/// configuration that runs but cannot be checked.
-const ALIAS_FILES: &[(&str, &str)] = &[
-    ("lua/.luaurc", "."),
-    ("etc/xdg/lunette/.luaurc", "../../../lua"),
+/// The development file includes the spec root. The installed default
+/// configuration does not: specs are test inputs, not an installed module.
+/// Both files are generated from [`lunette::aliases`] so a root added to one
+/// resolution mechanism is not silently absent from the other.
+const ALIAS_FILES: &[AliasFile] = &[
+    ("lua/.luaurc", ".", lunette::aliases::luaurc),
+    (
+        "etc/xdg/lunette/.luaurc",
+        "../../../lua",
+        lunette::aliases::installed_luaurc,
+    ),
 ];
 
 /// What the checker needs that lovr-docs does not describe.
@@ -101,9 +109,16 @@ fn main() -> ExitCode {
         .with_target(false)
         .init();
 
-    let checking = env::args().any(|argument| argument == "--check");
+    let arguments = env::args().collect::<Vec<_>>();
+    if arguments.iter().any(|argument| argument == "--manifest") {
+        print!("{}", lunette::aliases::install_manifest());
+        return ExitCode::SUCCESS;
+    }
 
-    match run(checking) {
+    let checking = arguments.iter().any(|argument| argument == "--check");
+    let lovr_only = arguments.iter().any(|argument| argument == "--lovr-only");
+
+    match run(checking, lovr_only) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -117,7 +132,7 @@ fn main() -> ExitCode {
 ///
 /// Returns whether the run is a success. A comparison that differs is a
 /// failure; a write always succeeds or returns the error that stopped it.
-fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
+fn run(checking: bool, lovr_only: bool) -> Result<bool, Box<dyn std::error::Error>> {
     // The workspace root, relative to CARGO_MANIFEST_DIR
     // (crates/lunette-generate-definitions).
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -149,17 +164,15 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let text = fs::read_to_string(&generated)?;
 
     let definitions = format!("{FORK_GLOBALS}\n{text}");
-    let declarations = lunette::lua::declarations::render();
-
-    let mut generated = vec![
-        (CHECKER_DEFINITIONS, definitions),
-        (MODULE_DECLARATIONS, declarations),
-    ];
-    generated.extend(
-        ALIAS_FILES
-            .iter()
-            .map(|(path, root)| (*path, lunette::aliases::luaurc(root))),
-    );
+    let mut generated = vec![(CHECKER_DEFINITIONS, definitions)];
+    if !lovr_only {
+        generated.push((MODULE_DECLARATIONS, lunette::lua::declarations::render()));
+        generated.extend(
+            ALIAS_FILES
+                .iter()
+                .map(|(path, root, render)| (*path, render(root))),
+        );
+    }
 
     if checking {
         let mut current = true;

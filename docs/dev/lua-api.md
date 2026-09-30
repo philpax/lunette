@@ -7,11 +7,11 @@ local lunette = require '@lunette'  -- native mechanism.
 local mullion = require '@mullion'  -- the Lua standard library, optional.
 ```
 
-The two names carry different contracts. `lunette` covers surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. It is implemented in Rust and represents the full capability of the system. `mullion` covers panels, layouts, rules, signals, keybindings, and chrome. It is implemented in Lua, installed as readable files, and can be replaced.
+The roots have separate responsibilities. `lunette` exposes native mechanism for surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. `mullion` contains optional Lua policy and presentation modules. The plugin facade, its neutral contracts, and the built-in plugin providers have separate roots under `@lunette-plugin`, `@lunette-contracts`, and `@lunette-plugins`.
 
-awesome makes the same split by name, distinguishing `awesome`, `client`, and `screen` from `awful`. This is why writing a replacement for `awful` is a recognised option in that project. Nesting the standard library under `lunette.*` would present a single API in which part happens to be implemented in Lua, obscuring the distinction.
+The plugin facade does not replace either root. It provides lifecycle and service wiring for typed Lua components. The native `lunette` API remains usable without `mullion` or the plugin providers. `mullion` uses public APIs and contracts; it does not access private native state.
 
-The two roots are usable independently. `mullion` is written against the same public `lunette` API available to any other caller. If `mullion` ever requires something private, this indicates a defect in the `lunette` API.
+Module aliases and their runtime resolution are defined in [Module roots](build-and-development.md#module-roots) and `crates/lunette/src/aliases.rs`. `@lunette` is registered in `package.preload`. The plugin and standard-library roots are mounted from files. The runtime and static checker run in separate processes. Starting lunette does not run the static checker.
 
 ## The config
 
@@ -20,6 +20,23 @@ The two roots are usable independently. `mullion` is written against the same pu
 If this file does not exist, `$SYSCONFDIR/xdg/lunette/main.lua` is used directly. This matches awesome's approach, and avoids stale copies of a configuration the user never edited. `lunette --dump-config` produces a copy for the user to start editing.
 
 A config that never mentions `mullion` is a supported configuration.
+
+## Plugin authoring
+
+`require '@lunette-plugin'` provides the typed authoring facade. A contract module defines a service type, creates a capability with an authority-qualified name and schema number, and exports both. Its service type describes the methods and fields that callers may use. The capability wrapper is frozen and binds to one native token. Declarations use that exact wrapper, and a Lua state cannot declare the same name and schema twice in one epoch. Contract vocabulary modules can hold shared types without creating a runtime dependency between service implementations.
+
+A definition declares required and provided capabilities and its configuration type. The initializer receives a `Context`, typed configuration, and init-only `Publisher`:
+
+```lua
+local service: PanelService = context:require(panels.capability)
+publish:provide(layout.capability, layoutService)
+```
+
+`Context:require<T>(capability)` has the capability's service type. `Publisher:provide<T>(capability, value)` accepts the matching service type. The publisher is valid only while that initializer is active. `Definition<C>` carries configuration type `C`; service types belong to capabilities, not to a mapped services record.
+
+Luau checks local service shapes, methods, and configuration annotations in source modules. Runtime wiring remains a separate concern. The runtime matches authority-qualified contract name and exact schema. A required capability without a provider does not activate its consumer. The runtime rejects undeclared capability access, undeclared or duplicate provisions, missing or nil provided fields, extra fields, and calls to an expired publisher. It does not inspect service table shapes or validate configuration values against Luau types.
+
+The initializer stages all provided values. The native runtime publishes them as one provider generation only after the initializer succeeds and the graph confirms its bindings remain valid. If initialization fails or is cancelled, the provider publishes nothing and acquired effects are rolled back. Plugin callbacks are synchronous and do not yield. `Context:effect` registers a resource and its inverse with the activation. `Context:child` installs a child instance, `Context:active` checks whether the activation is live, and `Context:checkOwner` checks that a caller depends on the owning provider. Runtime instances expose `enable`, `disable`, `dispose`, and `reload`; runtime shutdown disposes every instance. The adapter contains all erased casts; plugin modules use no compatibility facade for the earlier mapped `Services<R>` and `Provisions<P>` design.
 
 ## Events
 
@@ -390,7 +407,7 @@ A chunk resolves a module by its own name, so `lunette` is reachable without a `
 
 This is the most significant inheritance from awesome, more significant than any layout algorithm. awesome's design allows the whole window manager to be inspected and mutated from a shell prompt while it runs, which is a substantial part of its usability. `lunctl` also serves as the end-to-end test harness: it spawns a client, evaluates assertions, and tears down.
 
-A caller that wants a typed protocol can build one in Lua on top of this mechanism.
+The plugin authoring API provides typed service contracts and runtime lifecycle management. It does not replace `lunctl` or make the control socket a typed protocol.
 
 `lunctl` has three modes, which is awesome-client's shape: a chunk as an argument, a chunk on standard input, and an interactive prompt when standard input is a terminal. It has no line editing of its own; `rlwrap lunctl` supplies it. `--socket PATH` names a socket other than the resolved one, which is what the end-to-end tests drive.
 
@@ -424,7 +441,9 @@ Choices made deliberately, recorded with their reasoning, so they are not reliti
 
 mlua, on Luau, not the raw C API or LuaJIT FFI. A Lua mistake must raise a catchable error, not crash the window manager. lunette runs Luau (via mlua and the LÖVR-linked fork) so that the standard library and configurations are statically checked, and because a typed dialect catches the two defect classes the interpreter alone does not (a local referenced before its declaration, and an accidental global). LuaJIT was a supported build mode until the standard library carried annotations LuaJIT cannot parse, at which point the mode was removed rather than kept as something that builds and cannot run.
 
-Control socket over Lua eval, not a typed protocol. awesome's design has held for seventeen years. lunette changes the transport (a 0600 Unix socket, not the session D-Bus), makes it deliberate rather than incidental, and serialises properly.
+Control socket over Lua eval, not a typed protocol. awesome's design has held for seventeen years. lunette changes the transport (a 0600 Unix socket, not the session D-Bus), makes it deliberate rather than incidental, and serialises properly. The plugin API is a separate in-process composition mechanism; it does not narrow the remote evaluation protocol.
+
+The plugin types cover each service, configuration, and capability use locally. An earlier mapped `Services<R>` and `Provisions<P>` design required a recursive inferred type for the complete provider graph. Luau exceeded its 20,000 subtype-normalization budget even for an empty initializer. The implementation does not change Luau compiler flags or limits. The mapped API was rejected in favor of direct capability reads and init-only publication. Runtime declarations and lifecycle checks validate graph wiring; static analysis does not claim whole-graph guarantees.
 
 `LUNETTE_CONTROL` fails closed: anything that is not `on` disables the socket. The first version failed open on an unrecognised value, on the reasoning that the failure worth protecting against is one that silently enables the endpoint — which is right, and was implemented backwards. Unset and empty already mean enabled, so nobody sets the variable to turn the endpoint on; the only reason to set it is to turn it off, and every unrecognised value is therefore a misspelt `off` — `false`, `0`, `no`, `disabled`. Answering one by opening a socket that evaluates arbitrary Lua, having warned on stderr that a user who set the variable in a systemd unit or a `.desktop` file will never read, is the failure the switch exists to prevent. The cost is a session whose `lunctl` stopped working because of a typo, which is visible the moment it is used and is fixed by writing `on`.
 

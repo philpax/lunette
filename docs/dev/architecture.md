@@ -54,11 +54,21 @@ The alternative is to raise an error on access. That is rejected because a windo
 
 ## Ownership rules
 
-Rust holds no long-lived references into Lua. There are no registry references to callbacks and no native objects holding Lua back-pointers.
+The compositor and session own native state independently of the Lua state. Native handles read that state rather than retaining Lua values.
 
-This rule exists to support soft reload, described in [The Lua API](lua-api.md#reload). Because all authoritative state is held in Rust, the user's Lua state can be discarded and every handle republished into a new state without affecting the compositor. The rule also removes a class of defects at the Rust and Lua garbage-collection boundary.
+The plugin attachment retains definitions, callbacks, service values, and cleanup effects in its Lua state. Each attachment context carries a runtime, instance, and activation identity. The runtime rejects operations from an expired activation. Closing a runtime disposes its instances and effects.
 
-The lunette API is available only in the main Lua state. `lovr.thread` and `lovr.task` create additional Lua states, which do not receive it. Window management from a worker thread is not a required capability, and supporting it would require substantial synchronisation. If a use case arises, the likely form is read-only snapshot access in worker states. This is left open rather than designed for.
+The `lunette` API and plugin attachment are available only in the main Lua state. `lovr.thread` and `lovr.task` create additional Lua states, which do not receive them. Window management from a worker thread is not a required capability, and supporting it would require substantial synchronisation. If a use case arises, the likely form is read-only snapshot access in worker states. This remains open.
+
+## Plugin runtime
+
+A Lua state owns one plugin attachment and contract epoch. The attachment can create independent runtime graphs. Definitions and contract tokens are shared within the state; instances, services, effects, and configuration values belong to one runtime graph.
+
+A contract has an authority-qualified name and a positive schema number. A frozen capability wrapper binds exactly once to the native token for that identity. Declarations retain the exact immutable wrapper. The registry shares these tokens and wrappers across runtime graphs in the same Lua state and epoch, and rejects duplicate identities in that epoch. A plugin definition declares its exact required and provided capability records and a configuration type. `Context:require<T>(capability)` returns the capability's service type. The init-only `Publisher:provide<T>(capability, value)` stages a service for publication.
+
+Luau checks each declared service shape, method signature, and configuration type in the source modules. The checker does not prove that a complete runtime graph is wired correctly. Runtime validation rejects undeclared capability access, absent providers, duplicate or extra provisions, nil values, and publication after the initializer expires. The native graph matches exact contract name and schema and binds a consumer to a specific provider generation. The adapter keeps erased casts private.
+
+Initialization and cleanup callbacks run synchronously and do not yield. Services remain private until initialization succeeds and the graph confirms that every required provider generation is still active. The graph then publishes the complete staged service record atomically. A failed initializer publishes nothing and runs registered cleanup effects in reverse order. A cleanup failure quarantines the instance's contract reservations for the rest of that runtime; shutdown does not retry an inverse that already failed.
 
 ## GPU ownership
 
@@ -96,6 +106,8 @@ Choices made deliberately, recorded with their reasoning, so they are not reliti
 OpenXR only; OpenVR never. SteamVR does not implement `XR_EXTX_overlay`. Supporting it would require a second full backend, which would require routing XR outside LÖVR, which would make `lovr.headset` inaccurate. The architecture depends on LÖVR owning the session.
 
 Compositor off the frame thread, at the cost of Lua seeing snapshots rather than live state. WayVR ticks on the main thread and this works for WayVR; lunette does not follow that arrangement because an overlay's value depends on not disturbing the application underneath.
+
+Plugin service types are local contracts, and runtime declarations own graph validation. A recursive statically inferred whole-graph type was rejected because the Luau subtype normalizer exceeded its 20,000-step budget on an empty initializer. No compiler flag or limit change was made. Local service and configuration checking remains useful without making graph wiring a compile-time guarantee.
 
 ## Deliberately left open
 

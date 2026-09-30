@@ -1,14 +1,14 @@
 # Standard library
 
-`mullion` is Lua, installed to `$PREFIX/share/lunette/lua/`, readable and forkable. It is written against the same public API available to a downstream user. If it ever needs something private from `lunette`, that is a bug in the API, not a licence to add a back door.
+`mullion` is an optional Lua library installed below `$PREFIX/share/lunette/lua/`. Its policy and presentation modules use the public `lunette` API and can be replaced or omitted. `@lunette-plugin` provides typed plugin authoring, `@lunette-contracts` holds neutral service contracts, and `@lunette-plugins` contains provider implementations. Their type boundary is specified in [The Lua API](lua-api.md#plugin-authoring) and [Architecture](architecture.md#plugin-runtime).
 
-Nothing here is settled. Much of it will be in flux, and it should be. What follows describes the intended tiers and the minimum viable version of each, not a committed API surface. Concrete signatures land once the thing has been used.
+## Module roots
 
-## How it is reached
+The source tree is `lua/`. A running session mounts file-backed roots through LÖVR's virtual filesystem. The checker resolves aliases from generated `.luaurc` files. `@lunette` is registered natively through `package.preload`; the checker reads its generated declaration from `lua/lunette/init.luau`.
 
-The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua/mullion/` once installed. The binary mounts the directory above it into LÖVR's virtual filesystem before `main.lua` runs, so `require '@mullion'` resolves `mullion/init.lua` and a configuration's first line may be that require. [Build and development](build-and-development.md#where-things-live-at-runtime) gives the search order, and [Decisions](#decisions) below records how the mount is installed and why it is read-only.
+The plugin facade is `lua/lunette-plugin/`. Shared contracts and vocabulary are in `lua/lunette-contracts/`. Built-in providers are in `lua/lunette-plugins/`. `lua/mullion/` contains optional policy modules. `lua/spec/` is a development-only root and is not installed. [Build and development](build-and-development.md#module-roots) records the source of truth and install behavior.
 
-`mullion` itself is the root module and re-exports nothing. Each submodule is required by its own path: `require '@mullion/signal'`, `require '@mullion/layout/arc'`. The tiers are independent and a configuration that wants one should not load the rest to get it. `mullion.layout.arc` and `mullion.tag.current` are the two names [The Lua API](lua-api.md) already attests.
+The root module `@mullion` re-exports nothing. Each module is required by its own path, such as `require '@mullion/panel'` or `require '@mullion/layout/arc'`. A configuration can use `lunette` without loading `mullion` or the built-in providers.
 
 The mount is read-only. A configuration that could overwrite the standard library it is running on top of could make a session unbootable in a way a reload cannot repair, since the reload would read the overwritten copy.
 
@@ -47,6 +47,14 @@ Two of these are here rather than with the reload mechanism that calls them, and
 `lua/spec/` mirrors the tree and holds the specs. It is not installed: it covers the standard library and is not part of it. The specs run inside the binary, through `cargo test`, because the tree they are required through is LÖVR's virtual filesystem rather than the process's.
 
 Three of them are about the suite rather than about a module. `spec/mullion/coverage_spec.lua` reads the module tree from the mount and fails when a module has neither a spec nor a recorded exemption, so an absence is deliberate. `spec/mullion/reload_spec.lua` requires every module twice against one registry and fails when a teardown hook or a global accumulates, which is what makes the rule above checkable rather than aspirational. `spec/runner_spec.lua` covers discovery, which is the one failure nothing else can catch: a discovery that skipped a directory would report the cases it found as passing and say nothing about the ones it never loaded.
+
+## Contracts and providers
+
+A neutral contract module declares a service shape and exports a capability. The capability pairs a Luau type with an authority-qualified contract name and schema number. Vocabulary that is shared by several contracts belongs in a neutral contract module so service types do not need to import a provider implementation.
+
+A plugin definition declares its required and provided capabilities, configuration type, and initializer. Its context reads required services with `Context:require<T>(capability)`. Its initializer stages provided services with `Publisher:provide<T>(capability, value)`. The native graph validates runtime wiring and publishes all provided values as one provider generation after initialization succeeds. See [Plugin authoring](lua-api.md#plugin-authoring) for the type boundary and runtime checks.
+
+The panel provider is `lua/lunette-plugins/panels/`. It creates window and monitor panels through the panels contract and registers their cleanup with the caller activation. It provides panel enumeration, raycasting, updates, drawing, and dropped-event subscriptions. The existing `mullion` modules remain available, and the default configuration continues to use them.
 
 ## Tier 1 — surfaces and panels
 

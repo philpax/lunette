@@ -23,9 +23,12 @@ crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
 crates/lunette-luau/                  the Luau type language, and the closed-set macro
 crates/lunette-capture/               wrappers over wlx-capture and HidProvider
 crates/lunette-generate-definitions/  generates the Luau definitions, declarations, and .luaurc files
-lua/lunette/                          the generated declarations for the native API
-lua/mullion/                          the mullion standard library
-lua/spec/                             the standard library's own specs
+lua/lunette/                          generated declarations for the native API
+lua/lunette-plugin/                   typed plugin authoring facade and erased adapter
+lua/lunette-contracts/                neutral plugin service contracts
+lua/lunette-plugins/                  built-in plugin implementations
+lua/mullion/                          optional Lua policy and presentation modules
+lua/spec/                             development-only Lua specifications
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
 vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
@@ -67,12 +70,12 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 
 - Target Luau, which accepts Lua 5.1 syntax and adds type annotations. Do not use LuaJIT-only or 5.2+ syntax that Luau rejects, and no `goto` (Luau has none).
 - Write a contract's data properties as `read`. Luau compares a read-write property invariantly, so `pose: Mat4` does not satisfy `pose: Mat4?` and a type carrying no such field does not satisfy an optional one. A read-only property is compared covariantly and both do. `interaction.Surface` is the worked example.
-- Name the contract as a method's receiver, in the contract and in the implementer both. A receiver is a parameter and parameters are contravariant, so an implementer naming its own type there cannot answer the contract; `any` on both sides typechecks and checks nothing. Where the tiers forbid naming it — a tier 1 module cannot require a tier 2 one, and naming a type means requiring the module that declares it — put the vocabulary in a types-only module, as `mullion.interaction.types` is.
+- Name a contract as a method's receiver in both the service declaration and implementation. A receiver is a parameter, and parameters are contravariant, so an implementation naming its own type there cannot answer the contract; `any` on both sides typechecks and checks nothing. Put shared vocabulary in a neutral module when importing either service implementation would create a dependency cycle or unnecessary coupling. `lua/lunette-contracts/vocabulary.lua` is one example.
 - Model a closed set as a union, and discriminate it where its members differ. A field that tells the arms apart is what narrows the others: testing `panel.kind` is what reaches the `lunette.Window` behind a window panel.
 - Fix a wrong declaration in the metadata or the generator, never in the calling code. Every workaround for a declaration that misdescribes LÖVR has changed behaviour: returning `true` from `lovr.quit` to satisfy its declared return vetoed the quit, and spelling an identity matrix out as sixteen numbers followed from an ambiguous constructor.
 - Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
-- Keep the two roots distinct. `lunette` is native mechanism; `mullion` is policy implemented in Lua. Do not add policy to `lunette` or expect mechanism from `mullion`.
+- Keep module responsibilities distinct. `lunette` is native mechanism; `mullion` is optional policy and presentation implemented in Lua. The plugin facade, contracts, and providers have separate roots. Do not add policy to the native API or expect native mechanism from `mullion`.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
 - Every module is safe to `require` twice, and registers a teardown hook. Soft reload discards the Lua state; a module that leaks timers, signal connections, or coroutines across a reload is a defect.
 - Never assume a handle survives a frame. Check `handle.dead` before use.
@@ -89,9 +92,9 @@ There is no upstream Lua template. These conventions apply to the `mullion` stan
 
 ### The Luau static check
 
-`lunette check` typechecks `lua/mullion` and the shipped configuration against the generated definitions. It is the same in-process checker the user-facing command and `make check` run, so the two paths cannot drift.
+`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/mullion`, the ordinary spec harness modules, and the shipped configuration against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
 
-The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types.
+The checker is strict mode. `etc/lunette/definitions.luau` declares the LÖVR runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. Lua modules carry their own service and configuration types. The checker checks those local shapes but does not prove that a complete plugin graph is wired correctly; the plugin runtime validates declarations and providers separately.
 
 `lua/spec/suite.lua` and `lua/spec/expect.lua` are checked: they are ordinary modules that happen to be used by tests. The spec files themselves are not, and neither is `lua/spec/runner.lua`. The runner requires by a name it computes from a directory walk, which is the one require form the checker cannot follow. The spec files construct the windows, seats, and sources they drive the standard library with as the smallest table each case needs, and the handle types are exact, so checking them would mean either building a whole handle per case or casting each one. Both make the tests worse at the thing they are for. A case that needs a real shape gets it from the module under test.
 
@@ -99,9 +102,9 @@ The check catches the two defect classes static analysis exists for: a local ref
 
 ### The module roots
 
-`require '@mullion/panel'` resolves twice by two mechanisms that cannot see each other. A running session answers it from LÖVR's virtual filesystem, where `crates/lunette/src/boot.rs` mounts the standard library; the checker and a user's editor answer it from a `.luaurc` on disk, which is Luau's own mechanism and is why a require means the same thing in both. `@lunette` is a third case: it is `package.preload`, so nothing on disk answers it at runtime, while the checker reads the generated declarations at `lua/lunette/init.luau`.
+File-backed aliases such as `@mullion/panel`, `@lunette-plugin`, `@lunette-contracts`, and `@lunette-plugins` resolve through LÖVR's virtual filesystem in a running session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload` at runtime; the checker reads its generated declarations from `lua/lunette/init.luau`. The development-only `@spec` root has no installed counterpart.
 
-`crates/lunette/src/aliases.rs` states the roots once and everything derives from it. The session mounts what it says to mount; `lua/.luaurc` and `etc/xdg/lunette/.luaurc` are generated from it and verified by `make check-definitions`; and `lunette --dump-config` writes one beside the configuration it copies, naming this installation's standard library by an absolute path.
+`crates/lunette/src/aliases.rs` describes the roots and their runtime resolution. The generator derives `.luaurc` files from those descriptors, and `make check-definitions` verifies them. The Rust install manifest names installed roots and generated declarations; `make install` consumes that manifest. `lunette --dump-config` writes a `.luaurc` beside the copied configuration and names this installation's Lua root by an absolute path.
 
 That last one is why a configuration is copied with the command rather than by hand. A `.luaurc` in the tree resolves its aliases relative to itself, so a copy of it beside a user's own configuration names a directory that is not there and every `require` fails to resolve — for `lunette check` and for their editor both.
 
@@ -207,7 +210,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `make check-format` — nightly rustfmt, and stylua over the Luau (see [formatting](#formatting))
   - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
   - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).
-  - `make check-luau` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
+  - `make check-luau` — the Luau type checker over all shipped Lua roots, the ordinary spec harness modules, and the shipped config (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

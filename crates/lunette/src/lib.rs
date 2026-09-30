@@ -46,6 +46,7 @@ pub mod keymaps;
 pub mod layers;
 pub mod lua;
 pub mod mirrors;
+pub mod plugin;
 pub mod properties;
 pub mod reload;
 pub mod restart;

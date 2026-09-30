@@ -1,0 +1,60 @@
+-- The tag service contract.
+--
+-- Tag creation registers caller-owned state even though it acquires no native
+-- handle. Membership borrows panels rather than owning their lifetimes.
+
+local plugin = require '@lunette-plugin'
+local owner = require '@lunette-contracts/owner'
+local surface = require '@lunette-contracts/surface'
+
+local tags = {}
+
+export type Panel = surface.Surface & {
+  read setPose: (surface.Surface, Mat4) -> (),
+}
+
+export type Options = {
+  read index: number?,
+  read selected: boolean?,
+  read layout: (({ Panel }) -> ())?,
+}
+
+export type Tag = {
+  read name: string,
+  read index: number,
+  read selected: boolean,
+  read layout: (({ Panel }) -> ())?,
+  read dead: boolean,
+  read members: { Panel },
+  read add: (Tag, Panel) -> boolean,
+  read remove: (Tag, Panel) -> boolean,
+  read has: (Tag, Panel) -> boolean,
+  read panels: (Tag) -> { Panel },
+  read setSelected: (Tag, boolean) -> boolean,
+  read apply: (Tag) -> boolean,
+  read destroy: (Tag) -> boolean,
+}
+
+export type Target = Tag | { Tag } | { Panel }
+
+export type Owner = owner.Owner
+
+export type Service = {
+  read new: (Service, Owner, string, Options?) -> Tag,
+  read all: (Service) -> { Tag },
+  read find: (Service, string) -> Tag?,
+  read current: (Service) -> { Tag },
+  read only: (Service, Tag) -> (),
+  read isTag: (Service, unknown) -> boolean,
+  read panelsOf: (Service, Target) -> { Panel },
+}
+
+export type Capability = plugin.Capability<Service>
+
+local capability = plugin.capability('lunette/tags', 1, function(value: Service): Service
+  return value
+end)
+
+tags.capability = capability
+
+return tags

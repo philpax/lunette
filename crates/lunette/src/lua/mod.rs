@@ -7,18 +7,18 @@
 //! `@mullion`, a library written in Lua against this same surface, and is not
 //! here.
 //!
-//! # Rust holds no reference into Lua
+//! # State-bound Lua values
 //!
-//! Nothing here keeps a `Lua`, a `RegistryKey`, or any handle to a Lua value
-//! beyond the call that produced it. The closures registered below capture an
-//! [`Rc<Session>`] and nothing else, and every handle answers by reading
-//! through that `Rc`.
+//! The ordinary native handles and module closures do not keep a `Lua`, a
+//! `RegistryKey`, or any handle to a Lua value beyond the call that produced
+//! it. Their closures capture an [`Rc<Session>`] and nothing else, and every
+//! handle answers by reading through that [`Rc`]. The plugin runtime is the
+//! deliberate exception: it is bound to one Lua state and retains plugin
+//! definitions, callbacks, services, and effects in its attachment.
 //!
-//! This is a prohibition. The soft reload discards the Lua state and re-runs
-//! `main.lua` while the compositor, the clients, and the textures keep
-//! running. The reload cannot do that while the Rust side holds
-//! anything the discarded state owned. A cached `Table` here would be a
-//! dangling registry reference the moment a reload happens.
+//! Plugin definitions and effects belong to their Lua state and runtime.
+//! Callers close a runtime when its resources are no longer needed; closing
+//! it disposes its instances and their effects.
 //!
 //! # The frame
 //!
@@ -105,6 +105,7 @@ use crate::{
         values::{Cancel, ErrorListener},
     },
     mirrors::MirrorRegistry,
+    plugin::declarations::{install as install_plugin, install_attachment},
     properties::WindowProperties,
     reload::reload_from_lua,
     restart::restart_from_lua,
@@ -129,6 +130,8 @@ pub const MODULE_NAME: &str = "@lunette";
 ///
 /// If `package.preload` cannot be reached, or the loader cannot be created.
 pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
+    install_attachment(lua)?;
+
     // Before the module, and unconditionally: the gate belongs to the state
     // and not to the module. A configuration that never requires `lunette`
     // still runs inside LÖVR's frame loop.
@@ -632,6 +635,7 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
     // `main.lua` runs. The first `require` is the earliest moment the table
     // exists, and the only moment the module is known to be needed.
     install_dispatchers(lua, session)?;
+    install_plugin(lua, &module)?;
 
     Ok(module)
 }

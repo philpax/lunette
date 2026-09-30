@@ -19,6 +19,7 @@ use crate::{
         seat::{NewSeat, Stroke},
         values::PointerButtonName,
     },
+    plugin::declarations::{API_TYPE_NAME, render_types},
 };
 
 /// Renders the whole file.
@@ -46,11 +47,83 @@ pub fn render() -> String {
         }
     }
 
+    let mut plugin_types = String::new();
+    render_types(&mut plugin_types);
+    render_plugin_types(&mut out, &plugin_types);
     render_module(&mut out);
     out.push('\n');
     out.push_str(FOOTER);
 
     out
+}
+
+/// Keeps the plugin declarations in the generated file StyLua-compatible.
+fn render_plugin_types(out: &mut String, plugin_types: &str) {
+    let mut lines = plugin_types.lines().peekable();
+    while let Some(line) = lines.next() {
+        let empty_type = line
+            .strip_prefix("export type ")
+            .and_then(|name| name.strip_suffix(" = {"));
+        if let Some(name) = empty_type.filter(|_| lines.peek().is_some_and(|next| *next == "}")) {
+            let _ = writeln!(out, "export type {name} = {{}}");
+            lines.next();
+        } else if line.starts_with("  read define: ") && line.len() > STYLUA_COLUMNS {
+            render_wrapped_function(out, line);
+        } else {
+            let _ = writeln!(out, "{line}");
+        }
+    }
+}
+
+/// Wraps a long function type at its outer argument boundaries.
+fn render_wrapped_function(out: &mut String, line: &str) {
+    let Some(signature) = line.strip_prefix("  read define: ") else {
+        let _ = writeln!(out, "{line}");
+        return;
+    };
+    let Some((arguments, return_type)) = split_function_type(signature) else {
+        let _ = writeln!(out, "{line}");
+        return;
+    };
+
+    out.push_str("  read define: (\n");
+    for (index, argument) in arguments.iter().enumerate() {
+        let comma = if index + 1 == arguments.len() {
+            ""
+        } else {
+            ","
+        };
+        let _ = writeln!(out, "    {argument}{comma}");
+    }
+    let _ = writeln!(out, "  ){return_type}");
+}
+
+/// Splits a function signature at commas outside nested parameter lists.
+fn split_function_type(signature: &str) -> Option<(Vec<&str>, &str)> {
+    let mut depth = 0usize;
+    let mut argument_start = 1;
+    let mut arguments = Vec::new();
+
+    for (index, character) in signature.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' if depth == 1 => {
+                let argument = signature[argument_start..index].trim();
+                if !argument.is_empty() {
+                    arguments.push(argument);
+                }
+                return Some((arguments, &signature[index + 1..]));
+            }
+            ')' => depth = depth.checked_sub(1)?,
+            ',' if depth == 1 => {
+                arguments.push(signature[argument_start..index].trim());
+                argument_start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 /// One declaration in the generated file.
@@ -104,6 +177,7 @@ const FOOTER: &str = "return (nil :: any) :: Lunette\n";
 
 /// Where a comment wraps, at the width the prose in the tree already uses.
 const COLUMNS: usize = 80;
+const STYLUA_COLUMNS: usize = 120;
 
 /// Renders one `export type`, named by the type the Rust side declares itself
 /// as.
@@ -185,6 +259,8 @@ fn render_module(out: &mut String) {
         render_doc(out, function.spec.doc, "  ");
         let _ = writeln!(out, "  read {}: {},", function.spec.name, (function.ty)());
     }
+    render_doc(out, "The native plugin facade.", "  ");
+    let _ = writeln!(out, "  read plugin: {API_TYPE_NAME},");
     out.push_str("}\n");
 }
 
@@ -209,5 +285,29 @@ fn render_doc(out: &mut String, doc: &str, indent: &str) {
 
     if !line.is_empty() {
         let _ = writeln!(out, "{indent}-- {line}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render;
+
+    #[test]
+    fn empty_plugin_userdata_types_use_compact_braces() {
+        let output = render();
+
+        assert!(output.contains("export type PluginContractToken = {}\n"));
+        assert!(output.contains("export type PluginDefinition = {}\n"));
+        assert!(!output.contains("export type PluginContractToken = {\n}"));
+        assert!(!output.contains("export type PluginDefinition = {\n}"));
+    }
+
+    #[test]
+    fn long_plugin_function_type_wraps_at_outer_arguments() {
+        let output = render();
+
+        assert!(output.contains(
+            "  read define: (\n    required: unknown,\n    provided: unknown,\n    init: (context: PluginContext, config: unknown) -> unknown\n  ) -> PluginDefinition,\n"
+        ));
     }
 }
