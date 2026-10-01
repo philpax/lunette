@@ -36,6 +36,15 @@ fn invalid_owner_effect_and_configuration_sites_are_reported_exactly() {
 }
 
 #[test]
+fn plugin_handles_are_not_satisfied_by_tables_or_other_handles() {
+    assert_rejections(
+        "opaque_handles.luau",
+        include_str!("plugin_authoring/opaque_handles.luau"),
+        &[(5, 20, 5, 22), (6, 12, 6, 14), (7, 12, 7, 17)],
+    );
+}
+
+#[test]
 fn malformed_declarations_are_reported_exactly() {
     assert_rejections(
         "malformed.luau",

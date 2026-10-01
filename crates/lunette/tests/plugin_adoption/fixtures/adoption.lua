@@ -304,6 +304,30 @@ function result.cancelCaller()
   assert(windows[1].closeCalls == 0)
 end
 
+-- A caller that requires adoption alone installs the native-state source. The
+-- registration belongs to the caller's lifetime but not to its rules binding.
+function result.installWithoutRules()
+  local function registered(): boolean
+    for _, source in services.rules:sources() do
+      if source.name == services.adoption.SOURCE and source.precedence == 250 then
+        return true
+      end
+    end
+    return false
+  end
+  local installer = runtime:use(
+    plugin.define(identity, { adoption = adoption.capability }, {}, function(context)
+      context:require(adoption.capability):install(context, 250)
+    end),
+    {}
+  )
+  installer:enable()
+  assert(installer:state() == 'active', tostring(installer:diagnostic()))
+  assert(registered(), 'install must register the source without the caller requiring rules')
+  installer:disable()
+  assert(not registered(), 'the source must end with the caller that installed it')
+end
+
 function result.releaseNativeCallbacks()
   table.clear(callbacks)
 end

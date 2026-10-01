@@ -32,7 +32,7 @@ local provider = plugin.define(identity, {}, provisions, function(ctx, _config, 
   escapedPublisher = publish
   rejects(function()
     publish:provide({ witness = serviceCapability.witness }, service)
-  end, 'capability is not declared')
+  end, 'is not declared')
   publish:provide(serviceCapability, service)
 end)
 provisions.source = extraCapability
@@ -48,20 +48,20 @@ end, 'readonly')
 local declaration = { source = serviceCapability }
 local consumer = plugin.define(identity, declaration, {}, function(ctx)
   consumerContext = ctx
-  assert(ctx:require(serviceCapability) == service)
+  assert(ctx:require(serviceCapability).marker == 'original')
   rejects(function()
     ctx:require(extraCapability)
-  end, 'capability is not declared')
+  end, 'is not declared')
   rejects(function()
     ctx:require { witness = serviceCapability.witness }
-  end, 'capability is not declared')
+  end, 'is not declared')
   rejects(function()
     ctx:require(setmetatable({ witness = serviceCapability.witness }, {
       __eq = function()
         return true
       end,
     }))
-  end, 'capability is not declared')
+  end, 'is not declared')
   calls += 1
 end)
 declaration.source = extraCapability

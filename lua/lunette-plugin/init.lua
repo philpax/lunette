@@ -1,7 +1,9 @@
 -- The typed plugin authoring facade.
 --
 -- Capability and configuration relationships stay in the public types. The
--- adapter enforces declaration membership and publication at runtime.
+-- adapter enforces declaration membership and publication at runtime. A
+-- contract is declared only through `plugin.capability`, which binds its token
+-- to the capability at once, so no unbound token is exported.
 
 local native = require '@lunette'
 local adapter = require '@lunette-plugin/adapter'
@@ -24,12 +26,11 @@ export type PluginDefinition = native.PluginDefinition
 export type PluginRuntime = native.PluginRuntime
 export type PluginInstance = native.PluginInstance
 
-function plugin.contract(name: string, schema: number): PluginContractToken
-  return native.plugin.contract(name, schema)
-end
-
+-- Declares a contract and returns its capability. The contract name is
+-- authority-qualified; the authority is a naming convention and is not
+-- authenticated, so a module can declare any authority's contract.
 function plugin.capability<T>(name: string, schema: number, witness: (T) -> T): Capability<T>
-  return adapter.capability(plugin.contract(name, schema), witness)
+  return adapter.capability(name, schema, witness)
 end
 
 function plugin.define<C>(

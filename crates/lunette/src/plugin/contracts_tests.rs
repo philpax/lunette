@@ -226,7 +226,7 @@ fn stale_bound_wrapper_is_rejected_after_epoch_retirement() -> mlua::Result<()> 
     declaration.set("clock", wrapper)?;
     assert!(matches!(
         registry.validate_declaration(Value::Table(declaration)),
-        Err(ContractError::RetiredToken { .. })
+        Err(ContractError::RetiredWrapper { .. })
     ));
     Ok(())
 }

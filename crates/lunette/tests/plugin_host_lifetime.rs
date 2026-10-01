@@ -354,6 +354,36 @@ fn reload_retires_the_attachment_before_rebuilding_the_epoch() -> mlua::Result<(
     Ok(())
 }
 
+/// The boot path closes the Lua state externally and does not drop its mlua
+/// handle, so a reference the host still holds is dropped after the state is
+/// gone. The fork's closed-state guard is what makes that drop inert.
+#[test]
+fn a_reference_dropped_after_external_close_does_not_touch_the_state() -> mlua::Result<()> {
+    let state = ExternalState::new();
+    let dropped = Rc::new(Cell::new(false));
+    let factory: Function = state
+        .lua
+        .load(
+            "return function(witness) return function() assert(witness ~= nil); return 42 end end",
+        )
+        .eval()?;
+    let callback: Function = factory.call(
+        state
+            .lua
+            .create_userdata(DropWitness(Rc::clone(&dropped)))?,
+    )?;
+    drop(factory);
+    assert_eq!(callback.call::<i64>(())?, 42);
+    state.close();
+    assert!(
+        dropped.get(),
+        "closing the state collects the callback's payload"
+    );
+    // Only dropping is valid here; calling the reference after close is not.
+    drop(callback);
+    Ok(())
+}
+
 fn set_reload_configuration(lua: &Lua) -> mlua::Result<()> {
     lua.load(
         r#"

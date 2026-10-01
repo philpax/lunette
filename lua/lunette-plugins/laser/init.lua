@@ -46,14 +46,7 @@ type MutableService = {
   headsetInput: (Service, Hand) -> Input?,
 }
 
-local states: { [Service]: ProviderState } = {}
-
-local function current(service: Service): ProviderState
-  return registry.stateFor(states, service)
-end
-
-local function headsetInput(service: Service, hand: Hand): Input?
-  current(service)
+local function headsetInput(hand: Hand): Input?
   local headset = lovr.headset
   if not headset then
     return nil
@@ -84,7 +77,7 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
       seat = seat,
       ownsSeat = settings.seat == nil,
       readInput = settings.readInput or function(which: Hand): Input?
-        return headsetInput(state.service, which)
+        return headsetInput(which)
       end,
       pointer = pointer,
       style = settings.style or state.service.STYLE,
@@ -159,18 +152,20 @@ end
 
 local function initialize(context: plugin.Context): Service
   local service: Service
+  -- The published service is revoked with this activation, so its methods
+  -- need no liveness guard. Lasers outlive the call that made them and check
+  -- the activation themselves.
+  local state: ProviderState
   local implementation: MutableService = {
     HANDS = HANDS,
     DEVICES = input.devices,
     CONTROLLERS = input.controllers,
     STYLE = STYLE,
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
-      local state = current(service)
       state.context:checkOwner(owner)
       return makeLaser(state, owner, hand, options)
     end,
     attach = function(_self: Service, owner: Owner, options: Options?): { Laser }
-      local state = current(service)
       state.context:checkOwner(owner)
       local attached: { Laser } = {}
       for _, hand in ipairs(HANDS) do
@@ -179,7 +174,6 @@ local function initialize(context: plugin.Context): Service
       return attached
     end,
     forHand = function(_self: Service, hand: Hand): Laser?
-      local state = current(service)
       for _, target in ipairs(registry.live(state)) do
         if target.hand == hand then
           return target
@@ -188,32 +182,31 @@ local function initialize(context: plugin.Context): Service
       return nil
     end,
     all = function(_self: Service): { Laser }
-      return registry.live(current(service))
+      return registry.live(state)
     end,
     update = function(_self: Service, surfaces: { Surface }): ()
-      registry.update(current(service), surfaces)
+      registry.update(state, surfaces)
     end,
     draw = function(_self: Service, pass: Pass): ()
-      registry.draw(current(service), pass)
+      registry.draw(state, pass)
     end,
     headsetInput = function(_self: Service, hand: Hand): Input?
-      return headsetInput(service, hand)
+      return headsetInput(hand)
     end,
   }
   service = implementation
 
-  local state: ProviderState = {
+  local created: ProviderState = {
     active = true,
     context = context,
     service = service,
     lasers = {},
   }
-  states[service] = state
+  state = created
   context:effect(function()
     return function()
       state.active = false
       registry.destroyAll(state)
-      states[service] = nil
     end
   end)
   return service

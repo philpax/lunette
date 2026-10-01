@@ -20,7 +20,6 @@ type Config = {
 }
 
 type State = {
-  active: boolean,
   context: Context,
   clock: () -> number,
   limiter: limiterModule.Limiter,
@@ -44,20 +43,12 @@ local function clock(): number
   return os.clock()
 end
 
-local function stateFor(state: State): State
-  if not state.active or not state.context:active() then
-    error 'error-display: service is no longer active'
-  end
-  return state
-end
-
 local function reportText(message: string, traceback: string, suppressed: number): string
   return format.report(message, traceback, suppressed)
 end
 
 local function makeState(context: Context, config: Config): (State, Service)
   local current: State = {
-    active = false,
     context = context,
     clock = clock,
     limiter = limiterModule.new(WINDOW, MAX_KEYS),
@@ -82,41 +73,36 @@ local function makeState(context: Context, config: Config): (State, Service)
       return message .. '\n' .. tostring(traceback or '')
     end,
     handle = function(self: Service, message: string, traceback: string?, now: number?): boolean
-      local owned = stateFor(current)
       local currentMessage = tostring(message)
       local currentTraceback = traceback and tostring(traceback) or debug.traceback('', 2)
       local shouldShow, suppressed =
-        owned.limiter:record(self:keyFor(currentMessage, currentTraceback), now or owned.clock())
+        current.limiter:record(self:keyFor(currentMessage, currentTraceback), now or current.clock())
       if not shouldShow then
         return false
       end
-      owned.latest = reportText(currentMessage, currentTraceback, suppressed)
-      owned.count += 1
+      current.latest = reportText(currentMessage, currentTraceback, suppressed)
+      current.count += 1
       return true
     end,
     show = function(_self: Service, message: string)
-      local owned = stateFor(current)
-      owned.latest = tostring(message)
-      owned.count += 1
+      current.latest = tostring(message)
+      current.count += 1
     end,
     clear = function(_self: Service)
-      local owned = stateFor(current)
-      owned.latest = nil
-      owned.count = 0
+      current.latest = nil
+      current.count = 0
     end,
     current = function(_self: Service): string?
-      return stateFor(current).latest
+      return current.latest
     end,
     count = function(_self: Service): number
-      return stateFor(current).count
+      return current.count
     end,
     lines = function(_self: Service): { string }
-      local owned = stateFor(current)
-      return format.lines(owned, { columns = COLUMNS, lines = LINES })
+      return format.lines(current, { columns = COLUMNS, lines = LINES })
     end,
     draw = function(_self: Service, pass: Pass): boolean
-      local owned = stateFor(current)
-      return panel.draw(owned, {
+      return panel.draw(current, {
         x = X,
         y = Y,
         z = Z,
@@ -130,7 +116,6 @@ local function makeState(context: Context, config: Config): (State, Service)
   }
 
   local service: Service = implementation
-  current.active = true
   current.clock = config.clock or clock
   return current, service
 end
@@ -138,21 +123,19 @@ end
 local provided: plugin.Declaration = { errorDisplay = contracts.capability }
 local required: plugin.Declaration = { panels = panels.capability }
 
+-- The published service is revoked with this activation, so its methods need
+-- no liveness guard. The subscription is an effect of the activation, and it
+-- delivers nothing once the activation has ended.
 local function initialize(context: Context, config: Config, provide: plugin.Publisher)
   local state, service = makeState(context, config)
   context:effect(function()
-    local nativeCancel = lunette.onError(function(event: lunette.ErrorEvent)
-      if not state.active or not context:active() then
-        return
-      end
-      service:handle(event.message, event.traceback)
-    end)
     return function()
-      state.active = false
-      nativeCancel()
       state.latest = nil
       state.count = 0
     end
+  end)
+  context:on(lunette.onError, function(event: lunette.ErrorEvent)
+    service:handle(event.message, event.traceback)
   end)
   provide:provide(contracts.capability, service)
 end

@@ -57,9 +57,7 @@ function events.onDropped(
   panel: panels.Panel?,
   callback: panels.DroppedCallback
 ): plugin.Effect
-  context:checkOwner(owner)
-  return owner:effect(function(): () -> ()
-    context:checkOwner(owner)
+  return context:acquire(owner, function(): () -> ()
     local listener: Listener = { owner = owner, panel = panel, callback = callback, active = true }
     registry.listeners[#registry.listeners + 1] = listener
     return function()
@@ -85,11 +83,8 @@ function events.emitDropped(
     local listenerOwner = listener.owner
     if listener.active and listenerOwner and (not listener.panel or listener.panel == panel) then
       -- Unloading invalidates the owner before its listener inverse runs.
-      local valid = pcall(function()
-        context:checkOwner(listenerOwner)
-      end)
       local callback = listener.callback
-      if valid and listener.active and callback then
+      if context:owns(listenerOwner) and listener.active and callback then
         callback(panel, pointer)
       end
     end

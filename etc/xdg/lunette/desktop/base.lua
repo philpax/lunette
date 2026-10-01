@@ -39,17 +39,14 @@ return plugin.define(
       })
       mirrors[monitor.id] = created
     end
-    context:effect(function(): () -> ()
-      local cancel = lunette.onMonitorAdded(function(event: lunette.MonitorAddedEvent)
-        if context:active() and event.monitor then
-          mirror(event.monitor)
-        end
-      end)
-      for _, monitor in pairs(lunette.monitors()) do
-        mirror(monitor)
+    context:on(lunette.onMonitorAdded, function(event: lunette.MonitorAddedEvent)
+      if event.monitor then
+        mirror(event.monitor)
       end
-      return cancel
     end)
+    for _, monitor in pairs(lunette.monitors()) do
+      mirror(monitor)
+    end
     laserService:attach(context)
     callbacks.onSurfaces(context, function(): { surface.Surface }
       local result: { surface.Surface } = {}

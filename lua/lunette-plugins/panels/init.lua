@@ -91,14 +91,6 @@ local STYLE = {
 local DEFAULT_PRIORITY = 10
 local DEFAULT_HEIGHT = 0.8
 local DEFAULT_ASPECT = 16 / 9
-local function stateFor(service: Service): ProviderState
-  local state = states[service]
-  if not state then
-    error 'panels: service is no longer active'
-  end
-  return state
-end
-
 local function sourceSize(source: lunette.Textured): (number?, number?)
   if source.dead then
     return nil, nil
@@ -498,13 +490,9 @@ function getOpaqueShader(service: Service): Shader?
   return state.opaqueShader
 end
 
-local function getOwnedOpaqueShader(service: Service, owner: Owner): Shader?
-  local state = stateFor(service)
+local function getOwnedOpaqueShader(state: ProviderState, owner: Owner): Shader?
   state.context:checkOwner(owner)
-  if not state.active or not state.context:active() then
-    return nil
-  end
-  return getOpaqueShader(service)
+  return getOpaqueShader(state.service)
 end
 
 local function destroyAll(state: ProviderState)
@@ -517,6 +505,10 @@ end
 
 local function init(context: plugin.Context): Service
   local service: Service
+  -- The published service is revoked with this activation, so its methods
+  -- need no liveness guard. Panels are not reached through the service after
+  -- they are created, and they check the registry below themselves.
+  local state: ProviderState
   local implementation = {
     STYLE = STYLE,
     DEFAULT_PRIORITY = DEFAULT_PRIORITY,
@@ -538,9 +530,8 @@ local function init(context: plugin.Context): Service
     window: lunette.Window,
     options: Options?
   ): WindowPanel
-    local current = stateFor(service)
-    current.context:checkOwner(owner)
-    local target = create(current, owner, { kind = 'window', source = window }, options)
+    state.context:checkOwner(owner)
+    local target = create(state, owner, { kind = 'window', source = window }, options)
     if target.kind ~= 'window' then
       error 'panels: window constructor returned a monitor panel'
     end
@@ -553,9 +544,8 @@ local function init(context: plugin.Context): Service
     monitor: lunette.Monitor,
     options: Options?
   ): MonitorPanel
-    local current = stateFor(service)
-    current.context:checkOwner(owner)
-    local target = create(current, owner, { kind = 'monitor', source = monitor }, options)
+    state.context:checkOwner(owner)
+    local target = create(state, owner, { kind = 'monitor', source = monitor }, options)
     if target.kind ~= 'monitor' then
       error 'panels: monitor constructor returned a window panel'
     end
@@ -563,16 +553,15 @@ local function init(context: plugin.Context): Service
   end
 
   function implementation.all(_self: Service): { Panel }
-    return livePanels(stateFor(service))
+    return livePanels(state)
   end
 
   function implementation.forSource(_self: Service, source: contracts.Source): Panel?
-    local current = stateFor(service)
     if source == nil then
       return nil
     end
     local identity = source.id
-    for _, target in ipairs(current.panels) do
+    for _, target in ipairs(state.panels) do
       if not target.dead and target.source.id == identity then
         return target
       end
@@ -581,21 +570,19 @@ local function init(context: plugin.Context): Service
   end
 
   function implementation.update(_self: Service)
-    local current = stateFor(service)
-    for _, target in ipairs(livePanels(current)) do
+    for _, target in ipairs(livePanels(state)) do
       target:update()
     end
   end
 
   function implementation.draw(_self: Service, pass: Pass)
-    local current = stateFor(service)
-    for _, target in ipairs(livePanels(current)) do
+    for _, target in ipairs(livePanels(state)) do
       target:draw(pass)
     end
   end
 
   function implementation.opaqueShader(_self: Service, owner: Owner): Shader?
-    return getOwnedOpaqueShader(service, owner)
+    return getOwnedOpaqueShader(state, owner)
   end
 
   function implementation.onDropped(
@@ -604,17 +591,15 @@ local function init(context: plugin.Context): Service
     panel: contracts.Panel?,
     callback: contracts.DroppedCallback
   ): plugin.Effect
-    local current = stateFor(service)
-    return events.onDropped(current.events, current.context, owner, panel, callback)
+    return events.onDropped(state.events, state.context, owner, panel, callback)
   end
 
   function implementation.emitDropped(_self: Service, owner: Owner, panel: Panel, pointer: vocabulary.Pointer)
-    local current = stateFor(service)
-    events.emitDropped(current.events, current.context, owner, panel, pointer)
+    events.emitDropped(state.events, state.context, owner, panel, pointer)
   end
 
   service = implementation
-  local state: ProviderState = {
+  local created: ProviderState = {
     active = true,
     context = context,
     service = service,
@@ -623,6 +608,7 @@ local function init(context: plugin.Context): Service
     shaderEffect = nil,
     events = events.new(),
   }
+  state = created
   states[service] = state
   context:effect(function()
     return function()

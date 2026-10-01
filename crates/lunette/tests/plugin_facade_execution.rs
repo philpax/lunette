@@ -8,7 +8,7 @@ extern crate lunette_lovr;
 
 use std::{cell::Cell, rc::Rc};
 
-use lunette::plugin::declarations;
+use lunette::plugin::{attachment, declarations};
 use mlua::{Function, Lua, Table, UserData, Value};
 
 mod plugin_support;
@@ -93,6 +93,12 @@ fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
         "cancellation" => include_str!("plugin_facade_execution/cancellation.lua"),
         "payload_release" => include_str!("plugin_facade_execution/payload_release.lua"),
         "forged_owner" => include_str!("plugin_facade_execution/forged_owner.lua"),
+        "revocation" => include_str!("plugin_facade_execution/revocation.lua"),
+        "subscriptions" => include_str!("plugin_facade_execution/subscriptions.lua"),
+        "ownership_helpers" => include_str!("plugin_facade_execution/ownership_helpers.lua"),
+        "schema_mismatch" => include_str!("plugin_facade_execution/schema_mismatch.lua"),
+        "error_positions" => include_str!("plugin_facade_execution/error_positions.lua"),
+        "child_enabled" => include_str!("plugin_facade_execution/child_enabled.lua"),
         other => return Err(mlua::Error::runtime(format!("unknown fixture {other}"))),
     };
     let callback: Function = lua.load(source).set_name(name).eval()?;
@@ -127,7 +133,7 @@ fn provision_failures_roll_back_and_publish_no_consumers() -> mlua::Result<()> {
         "missing provision missing",
         "duplicate provision duplicate",
         "provision nil_value was nil",
-        "capability is not declared",
+        "is not declared",
         "initializer must return nothing",
         "escaped initializer failure",
         "partial initializer failure",
@@ -214,5 +220,126 @@ fn check_owner_rejects_a_forged_owner() -> mlua::Result<()> {
     run_fixture(&lua, "forged_owner")?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "{errors:?}");
+    Ok(())
+}
+
+#[test]
+fn a_kept_service_is_revoked_with_its_provider_and_never_writable() -> mlua::Result<()> {
+    let lua = state()?;
+    run_fixture(&lua, "revocation")?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "{errors:?}");
+    Ok(())
+}
+
+#[test]
+fn context_subscriptions_end_with_their_activation() -> mlua::Result<()> {
+    let lua = state()?;
+    run_fixture(&lua, "subscriptions")?;
+    let errors = plugin_support::shutdown(&lua);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("answers the function that cancels it"),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn owns_and_acquire_follow_the_owner_check() -> mlua::Result<()> {
+    let lua = state()?;
+    run_fixture(&lua, "ownership_helpers")?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "{errors:?}");
+    Ok(())
+}
+
+#[test]
+fn a_schema_mismatch_blocks_the_consumer_and_is_reported() -> mlua::Result<()> {
+    let lua = state()?;
+    let diagnostic: String = lua.unpack(run_fixture_value(&lua, "schema_mismatch")?)?;
+    let errors = plugin_support::shutdown(&lua);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains(&diagnostic), "{errors:?} {diagnostic}");
+    Ok(())
+}
+
+#[test]
+fn plugin_errors_keep_their_position_and_traceback() -> mlua::Result<()> {
+    let lua = state()?;
+    let membership: String = lua.unpack(run_fixture_value(&lua, "error_positions")?)?;
+    assert!(
+        membership.starts_with("[string \"error_positions\"]:"),
+        "a membership error points at the plugin code: {membership}"
+    );
+    assert!(
+        membership
+            .contains("plugin require: capability local/positions-undeclared@1 is not declared"),
+        "{membership}"
+    );
+    let errors = plugin_support::shutdown(&lua);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let report = &errors[0];
+    let line = report
+        .lines()
+        .find(|line| line.contains("initializer position failure"))
+        .unwrap_or_default();
+    assert!(
+        line.contains("[string \"error_positions\"]:22: initializer position failure"),
+        "the error keeps the position it was raised at: {report}"
+    );
+    assert!(
+        !line.contains("adapter"),
+        "the adapter adds no position: {report}"
+    );
+    assert!(
+        report.contains("raiseFromInitializer"),
+        "the traceback reaches the raising function: {report}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_child_is_enabled_when_it_is_installed() -> mlua::Result<()> {
+    let lua = state()?;
+    run_fixture(&lua, "child_enabled")?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "{errors:?}");
+    Ok(())
+}
+
+#[test]
+fn the_facade_exports_no_unbound_contract_tokens() -> mlua::Result<()> {
+    let lua = state()?;
+    let contract: Value = lua
+        .load("return require('@lunette-plugin').contract")
+        .eval()?;
+    assert!(contract.is_nil());
+    Ok(())
+}
+
+#[test]
+fn a_capability_from_a_retired_epoch_is_named_as_retired() -> mlua::Result<()> {
+    let lua = state()?;
+    lua.load(
+        "old_capability = require('@lunette-plugin').capability('local/retired', 1, function(value) return value end)",
+    )
+    .exec()?;
+    attachment::reset_epoch(&lua).map_err(mlua::Error::external)?;
+    let result = lua
+        .load(
+            "return require('@lunette-plugin').define(function(value) return value end, { old = old_capability }, {}, function() end)",
+        )
+        .exec();
+    let message = result
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        message.contains(
+            "declaration field 'old' contains a capability from a retired contract epoch"
+        ),
+        "{message}"
+    );
     Ok(())
 }

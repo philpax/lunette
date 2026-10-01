@@ -401,6 +401,14 @@ fn context_check_owner(
     Ok(context::check_owner(this, &caller)?)
 }
 
+fn context_owns(
+    _: &Lua,
+    this: &PluginContext,
+    (caller,): (UserDataRef<PluginContext>,),
+) -> mlua::Result<bool> {
+    Ok(context::check_owner(this, &caller).is_ok())
+}
+
 fn context_active(_: &Lua, this: &PluginContext, _: ()) -> mlua::Result<bool> {
     Ok(context::context_active(this))
 }
@@ -442,6 +450,15 @@ impl MethodsDescribed for PluginContext {
                 parameters: &["caller"],
             },
             context_check_owner,
+        );
+        surface.method(
+            MethodSpec {
+                name: "owns",
+                doc: "Reports whether another context is a live dependent of this plugin's current generation: whether checkOwner would accept it.",
+                receiver: Receiver::Own,
+                parameters: &["caller"],
+            },
+            context_owns,
         );
         surface.method(
             MethodSpec {

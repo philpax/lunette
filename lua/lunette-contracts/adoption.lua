@@ -1,7 +1,10 @@
 -- Scoped window adoption, separate from installation of placement sources.
 --
--- install registers only the native-state source. The caller installs rules,
--- persisted state, and native state in increasing precedence before start.
+-- install registers only the native-state source. The adoption provider
+-- registers it through its own rules binding, inside an effect on the caller's
+-- owner, so the caller does not need to require rules and the source ends with
+-- the caller. The caller installs rules, persisted state, and native state in
+-- increasing precedence before start.
 -- start subscribes before enumerating and skips windows already represented by
 -- a live panel. Provider activation and windows never start adoption implicitly.
 -- The caller effect owns subscriptions and panels created by start; disposing

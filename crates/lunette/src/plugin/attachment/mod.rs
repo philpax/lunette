@@ -39,7 +39,7 @@ use self::{
     state::{AttachmentHost, DeclarationField, DefinitionData, RuntimeState},
 };
 use crate::plugin::{
-    contracts::{ContractName, ContractRegistry, ValidatedDeclaration},
+    contracts::{ContractError, ContractName, ContractRegistry, ValidatedDeclaration},
     graph::ContractKey,
 };
 
@@ -88,6 +88,12 @@ pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
         state.collect_failures = false;
     }
     clear_host_references(&host);
+    if let Err(source) = retire_wrappers(lua, &host) {
+        errors.push(AttachmentError::Lua {
+            operation: "retire capability wrappers",
+            source,
+        });
+    }
     {
         let mut state = host.borrow_mut();
         state.runtimes.clear();
@@ -183,14 +189,8 @@ pub fn define(
     let host = require_host(lua)?;
     let (required, provided, epoch) = {
         let host_ref = host.borrow();
-        let required = host_ref
-            .registry
-            .validate_declaration(required.0)
-            .map_err(AttachmentError::Contract)?;
-        let provided = host_ref
-            .registry
-            .validate_declaration(provided.0)
-            .map_err(AttachmentError::Contract)?;
+        let required = validate_declaration(&host_ref, required.0)?;
+        let provided = validate_declaration(&host_ref, provided.0)?;
         (
             fields_for_declaration(&host_ref, &required)?,
             fields_for_declaration(&host_ref, &provided)?,
@@ -243,6 +243,31 @@ fn require_host(lua: &Lua) -> Result<Rc<RefCell<AttachmentHost>>, AttachmentErro
     host_inner(lua).ok_or(AttachmentError::NotInstalled)
 }
 
+/// Validates a declaration, naming a wrapper from a retired epoch as such.
+///
+/// The registry is replaced when an epoch is retired, so it no longer knows
+/// the wrappers bound before; the host's record of them does.
+fn validate_declaration(
+    host: &AttachmentHost,
+    declaration: Value,
+) -> Result<ValidatedDeclaration, AttachmentError> {
+    let table = match &declaration {
+        Value::Table(table) => Some(table.clone()),
+        _ => None,
+    };
+    host.registry
+        .validate_declaration(declaration)
+        .map_err(|error| match (error, table) {
+            (ContractError::UnboundWrapper { key }, Some(table))
+                if host.holds_retired_wrapper(&table, &key) =>
+            {
+                ContractError::RetiredWrapper { key }
+            }
+            (error, _) => error,
+        })
+        .map_err(AttachmentError::Contract)
+}
+
 fn fields_for_declaration(
     host: &AttachmentHost,
     declaration: &ValidatedDeclaration,
@@ -265,6 +290,33 @@ fn fields_for_declaration(
 
 /// Releases every definition's initializer so escaped definitions do not
 /// keep the old epoch's Lua values alive.
+/// Records the wrappers bound to the registry that is about to be replaced,
+/// so a declaration that still holds one is rejected as retired.
+fn retire_wrappers(lua: &Lua, host: &Rc<RefCell<AttachmentHost>>) -> mlua::Result<()> {
+    let (retired, wrappers) = {
+        let state = host.borrow();
+        (
+            state.retired_wrappers.clone(),
+            state.registry.bound_wrappers(),
+        )
+    };
+    let retired = match retired {
+        Some(retired) => retired,
+        None => {
+            let retired = lua.create_table()?;
+            let metatable = lua.create_table()?;
+            metatable.set("__mode", "k")?;
+            retired.set_metatable(Some(metatable))?;
+            host.borrow_mut().retired_wrappers = Some(retired.clone());
+            retired
+        }
+    };
+    for wrapper in wrappers {
+        retired.raw_set(wrapper, true)?;
+    }
+    Ok(())
+}
+
 fn clear_host_references(host: &Rc<RefCell<AttachmentHost>>) {
     let definitions: Vec<Rc<DefinitionData>> = {
         let mut host = host.borrow_mut();

@@ -41,16 +41,6 @@ type MutableService = {
   start: (Service, Owner, Options?) -> plugin.Effect,
 }
 
-local states: { [Service]: State } = {}
-
-local function stateFor(service: Service): State
-  local state = states[service]
-  if not state or not state.active or not state.context:active() then
-    error 'adoption: service is no longer active'
-  end
-  return state
-end
-
 local function checkWindow(window: lunette.Window)
   local kind = type(window)
   if kind ~= 'table' and kind ~= 'userdata' then
@@ -111,27 +101,30 @@ local function init(context: plugin.Context): Service
   }
   local service: Service = implementation
   local state: State = { active = true, context = context, service = service }
-  states[service] = state
 
+  -- The published service is revoked with this activation, so its methods
+  -- need no liveness guard. The source closure and event callbacks are not
+  -- reached through the service, and they check the activation themselves.
   context:effect(function(): () -> ()
     return function()
       state.active = false
-      states[service] = nil
     end
   end)
 
   function implementation.properties(_self: Service, window: lunette.Window): rulesContract.Resolved?
-    return properties(stateFor(service), window)
+    return properties(state, window)
   end
 
   function implementation.source(_self: Service): (lunette.Window) -> Properties?
-    return source(stateFor(service))
+    return source(state)
   end
 
+  -- The source is registered under this provider's own rules binding, inside
+  -- an effect on the caller's owner. The caller's lifetime still bounds the
+  -- registration, and the caller does not need to require rules itself.
   function implementation.install(self: Service, owner: Owner, precedence: number?): plugin.Effect
-    local current = stateFor(service)
-    current.context:checkOwner(owner)
-    local rules: rulesContract.Service = current.context:require(rulesContract.capability)
+    context:checkOwner(owner)
+    local rules: rulesContract.Service = context:require(rulesContract.capability)
     local chosen = precedence or PRECEDENCE
     if type(chosen) ~= 'number' or chosen ~= chosen then
       error('adoption: precedence is an orderable number', 2)
@@ -144,15 +137,20 @@ local function init(context: plugin.Context): Service
       end
       return { pose = properties.pose }
     end
-    return rules:addSource(owner, SOURCE, chosen, resolve)
+    return context:acquire(owner, function(): () -> ()
+      local registration = rules:addSource(context, SOURCE, chosen, resolve)
+      return function()
+        registration:dispose()
+      end
+    end)
   end
 
   function implementation.windows(_self: Service): { lunette.Window }
-    return windows(stateFor(service))
+    return windows(state)
   end
 
   function implementation.start(self: Service, owner: Owner, options: Options?): plugin.Effect
-    local current = stateFor(service)
+    local current = state
     current.context:checkOwner(owner)
     local panels: panelsContract.Service = current.context:require(panelsContract.capability)
     local rules: rulesContract.Service = current.context:require(rulesContract.capability)
@@ -162,15 +160,10 @@ local function init(context: plugin.Context): Service
     local subscription: (() -> ())?
     local active = true
 
+    -- Copied callbacks must still belong to this provider's caller
+    -- activation, and owns also requires this provider to be active.
     local function live(): boolean
-      if not active or not current.active or not current.context:active() then
-        return false
-      end
-      -- Copied callbacks must still belong to this provider's caller activation.
-      local ok = pcall(function()
-        current.context:checkOwner(owner)
-      end)
-      return ok
+      return active and current.context:owns(owner)
     end
 
     local function place(window: lunette.Window)

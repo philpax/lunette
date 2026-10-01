@@ -32,6 +32,8 @@ A neutral contract module declares a service shape and exports a capability. The
 
 A plugin definition declares its required and provided capabilities, configuration type, and initializer. Its context reads required services with `Context:require<T>(capability)`. Its initializer stages provided services with `Publisher:provide<T>(capability, value)`. The native graph validates runtime wiring and publishes all provided values as one provider generation after initialization succeeds. See [Plugin authoring](lua-api.md#plugin-authoring) for the type boundary and runtime checks.
 
+A provider's service methods carry no liveness guard of their own: consumers reach them through the facade's service view, which raises once the provider's activation has ended. Objects a method returns, such as panels, pointers, lasers, keyboards, and tags, outlive the call and check their own state. A provider whose owner-scoped method needs one of its own dependencies registers that work under its own context, inside the effect it places on the caller's owner, rather than forwarding the caller's owner; the adoption provider's `install` registers its rules source this way. A provider subscribes to native events for its own activation through `Context:on`. The adoption provider's `start` subscribes inside the effect it registers on the caller's owner instead, because that subscription belongs to the caller.
+
 Built-in provider modules exist for adoption, error display, interaction, keyboard, laser, arc layout, panels, rules, and tags. The providers use the typed plugin facade. Some providers share narrow value helpers from `mullion`, including pose encoding and keycode tables. They do not use the legacy `mullion` panel, interaction, laser, keyboard, tag, rules, or adoption policy implementations. Replacing a provider keeps its capability and declared service shape. A replacement implements the existing interface; the contract is not weakened to accommodate it.
 
 The legacy `mullion` policy and presentation modules remain in the source tree as optional library modules. The default configuration composes provider definitions from `@lunette-plugins` and desktop consumers from `etc/xdg/lunette/desktop/`. The decision to remove the legacy policy implementations remains open.
@@ -74,6 +76,8 @@ The panel library adapts native window and monitor pixels to Lua-defined geometr
 ## Decisions
 
 The standard library stays optional and separate from `lunette`. The native root exposes mechanism, while `mullion` contains replaceable policy and presentation. Keeping distinct roots avoids making a Lua implementation look like native mechanism and lets a configuration omit the library.
+
+Liveness of a service belongs to the facade, not to each provider. Every provider repeated a guard against calls after its activation ended, and a provider that forgot one exposed torn-down state. The facade's service view enforces it once for every provision. Providers keep the checks that guard objects outliving a call, which the view does not reach.
 
 Neutral contracts stay separate from providers. A contract describes a service without importing the module that implements it. This allows plugins to typecheck against the service surface while keeping provider implementations replaceable.
 

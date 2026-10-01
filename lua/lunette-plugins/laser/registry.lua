@@ -45,14 +45,6 @@ local function remove(state: State, target: Laser)
   end
 end
 
-function registry.stateFor(states: { [Service]: State }, service: Service): State
-  local state = states[service]
-  if not state or not state.active then
-    error 'laser: service is no longer active'
-  end
-  return state
-end
-
 function registry.destroy(state: State, target: MutableLaser): boolean
   if target.dead then
     return false
@@ -85,18 +77,12 @@ function registry.destroyAll(state: State)
 end
 
 function registry.update(state: State, surfaces: { contracts.Surface })
-  if not state.active then
-    return
-  end
   for _, target in ipairs(registry.live(state)) do
     target:update(surfaces)
   end
 end
 
 function registry.draw(state: State, pass: Pass)
-  if not state.active then
-    return
-  end
   for _, target in ipairs(registry.live(state)) do
     draw.laser(target, pass)
   end

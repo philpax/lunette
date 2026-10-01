@@ -349,6 +349,21 @@ fn adoption_caught_enumeration_failure_cleans_up_and_allows_retry() -> mlua::Res
 }
 
 #[test]
+fn adoption_install_needs_no_rules_dependency_from_its_caller() -> mlua::Result<()> {
+    let lua = state()?;
+    let fixture: Table = lua
+        .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
+        .set_name("plugin_adoption/fixtures/adoption.lua")
+        .eval()?;
+    fixture
+        .get::<Function>("installWithoutRules")?
+        .call::<()>(())?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "cleanup errors: {errors:?}");
+    Ok(())
+}
+
+#[test]
 fn adoption_cancelled_caller_and_copied_callbacks_are_inert() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Table = lua

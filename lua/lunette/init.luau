@@ -418,13 +418,24 @@ export type LayerRevokedEvent = {
 export type PluginState = 'inactive' | 'loading' | 'active' | 'unloading' | 'failed' | 'quarantined' | 'removed'
 
 -- An opaque native token naming one contract declaration.
-export type PluginContractToken = {}
+export type PluginContractToken = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginContractToken: 'PluginContractToken',
+}
 
 -- A reusable plugin definition.
-export type PluginDefinition = {}
+export type PluginDefinition = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginDefinition: 'PluginDefinition',
+}
 
 -- A runtime-local plugin graph.
 export type PluginRuntime = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginRuntime: 'PluginRuntime',
   -- Installs a definition with its configuration.
   read use: (self: PluginRuntime, definition: PluginDefinition, config: unknown) -> PluginInstance,
   -- Disposes every instance in this runtime.
@@ -435,6 +446,9 @@ export type PluginRuntime = {
 
 -- A plugin installed in a runtime.
 export type PluginInstance = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginInstance: 'PluginInstance',
   -- Enables this plugin instance and reserves its provided contracts.
   read enable: (self: PluginInstance) -> (),
   -- Disables this plugin instance.
@@ -452,6 +466,9 @@ export type PluginInstance = {
 
 -- A context bound to one plugin activation.
 export type PluginContext = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginContext: 'PluginContext',
   -- Returns the services supplied by required contracts.
   read services: (self: PluginContext) -> unknown,
   -- Acquires a resource and registers its inverse for cleanup.
@@ -461,12 +478,18 @@ export type PluginContext = {
   -- Checks that another context is a live dependent of this plugin's current
   -- generation.
   read checkOwner: (self: PluginContext, caller: PluginContext) -> (),
+  -- Reports whether another context is a live dependent of this plugin's
+  -- current generation: whether checkOwner would accept it.
+  read owns: (self: PluginContext, caller: PluginContext) -> boolean,
   -- Reports whether this context's activation is still live.
   read active: (self: PluginContext) -> boolean,
 }
 
 -- A one-shot resource effect.
 export type PluginEffect = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginEffect: 'PluginEffect',
   -- Runs this effect's inverse once. Disposing an effect whose activation,
   -- instance, or runtime has ended does nothing.
   read dispose: (self: PluginEffect) -> (),

@@ -132,6 +132,8 @@ pub(crate) fn render_types(out: &mut String) {
         out.push('\n');
         render_doc(out, handle.doc, "");
         let _ = writeln!(out, "export type {} = {{", (handle.name)());
+        render_doc(out, BRAND_DOC, "  ");
+        let _ = writeln!(out, "  read {}: '{}',", handle.brand, (handle.name)());
         for method in (handle.methods)() {
             render_doc(out, method.doc, "  ");
             let _ = writeln!(out, "  read {}: {},", method.name, method.ty);
@@ -184,35 +186,53 @@ const FUNCTIONS: [FunctionSpec; 4] = [
 const HANDLES: [HandleSpec; 6] = [
     HandleSpec {
         name: PluginContractToken::luau,
+        brand: "__pluginContractToken",
         doc: "An opaque native token naming one contract declaration.",
         methods: no_methods,
     },
     HandleSpec {
         name: PluginDefinition::luau,
+        brand: "__pluginDefinition",
         doc: "A reusable plugin definition.",
         methods: no_methods,
     },
     HandleSpec {
         name: PluginRuntime::luau,
+        brand: "__pluginRuntime",
         doc: "A runtime-local plugin graph.",
         methods: || collect_methods::<PluginRuntime>(),
     },
     HandleSpec {
         name: PluginInstance::luau,
+        brand: "__pluginInstance",
         doc: "A plugin installed in a runtime.",
         methods: || collect_methods::<PluginInstance>(),
     },
     HandleSpec {
         name: PluginContext::luau,
+        brand: "__pluginContext",
         doc: "A context bound to one plugin activation.",
         methods: || collect_methods::<PluginContext>(),
     },
     HandleSpec {
         name: PluginEffect::luau,
+        brand: "__pluginEffect",
         doc: "A one-shot resource effect.",
         methods: || collect_methods::<PluginEffect>(),
     },
 ];
+
+/// Explains the phantom field every handle declares.
+///
+/// A handle is native userdata, and a structural table type would accept any
+/// table with the same methods; an empty one would accept any table at all.
+/// The field exists only in the declaration, so a value of the handle type
+/// comes from the native function that returns it or from a deliberate
+/// forgery. Its type is the handle's name as a singleton string rather than
+/// `never`, because Luau treats a table with a `never` property as
+/// uninhabited and then rejects casts to any type that contains the handle.
+const BRAND_DOC: &str =
+    "A type brand that makes this handle nominal. The field does not exist at runtime.";
 
 fn no_methods() -> Vec<Signature> {
     Vec::new()
@@ -221,6 +241,8 @@ fn no_methods() -> Vec<Signature> {
 #[derive(Clone, Copy, Debug)]
 struct HandleSpec {
     name: fn() -> Type,
+    /// The name of the phantom field that makes the handle nominal.
+    brand: &'static str,
     doc: &'static str,
     methods: fn() -> Vec<Signature>,
 }
@@ -251,5 +273,28 @@ mod tests {
         let output = crate::lua::declarations::render();
         assert!(output.contains("export type PluginRuntime"));
         assert!(output.contains("read plugin: PluginApi"));
+    }
+
+    #[test]
+    fn plugin_handles_are_nominal() {
+        let output = crate::lua::declarations::render();
+        for (handle, brand) in [
+            ("PluginContractToken", "__pluginContractToken"),
+            ("PluginDefinition", "__pluginDefinition"),
+            ("PluginRuntime", "__pluginRuntime"),
+            ("PluginInstance", "__pluginInstance"),
+            ("PluginContext", "__pluginContext"),
+            ("PluginEffect", "__pluginEffect"),
+        ] {
+            let declaration = output
+                .split(&format!("export type {handle} = {{"))
+                .nth(1)
+                .and_then(|rest| rest.split("\n}").next())
+                .unwrap_or_default();
+            assert!(
+                declaration.contains(&format!("read {brand}: '{handle}',")),
+                "{handle} is not branded: {declaration}"
+            );
+        }
     }
 }

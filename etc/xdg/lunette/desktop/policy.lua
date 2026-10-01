@@ -86,12 +86,8 @@ local function define(): plugin.Definition<Config>
         end,
       })
       arrange()
-      context:effect(function(): () -> ()
-        return lunette.onWindowClosed(function()
-          if context:active() then
-            arrange()
-          end
-        end)
+      context:on(lunette.onWindowClosed, function()
+        arrange()
       end)
       callbacks.onQuit(context, function(): ()
         if not binding:active() then
@@ -113,17 +109,15 @@ local function define(): plugin.Definition<Config>
         end
         attempted = lunette.spawn { argv = { program } }
       end
-      context:effect(function(): () -> ()
-        return lunette.onProcessExited(function(event: lunette.ProcessExitedEvent)
-          if not context:active() or not attempted or event.process.id ~= attempted.id then
-            return
-          end
-          if event.outcome == 'spawnFailed' then
-            spawnNext()
-          else
-            attempted = nil
-          end
-        end)
+      context:on(lunette.onProcessExited, function(event: lunette.ProcessExitedEvent)
+        if not attempted or event.process.id ~= attempted.id then
+          return
+        end
+        if event.outcome == 'spawnFailed' then
+          spawnNext()
+        else
+          attempted = nil
+        end
       end)
       if not _G.lunetteDemonstrationSpawned then
         _G.lunetteDemonstrationSpawned = true

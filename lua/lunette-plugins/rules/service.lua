@@ -24,7 +24,6 @@ type Source = contracts.Source & {
 }
 
 type ProviderState = {
-  active: boolean,
   context: plugin.Context,
   service: Service,
   sources: { Source },
@@ -44,16 +43,6 @@ type MutableService = {
   resolve: (Service, lunette.Window) -> Resolved,
   place: (Service, Owner, lunette.Window, Resolved?) -> (panelsContract.WindowPanel, Resolved),
 }
-
-local states: { [Service]: ProviderState } = {}
-
-local function stateFor(service: Service): ProviderState
-  local state = states[service]
-  if not state or not state.active then
-    error 'rules: service is no longer active'
-  end
-  return state
-end
 
 local function byPrecedence(left: Source, right: Source): boolean
   if left.precedence ~= right.precedence then
@@ -293,20 +282,18 @@ local function init(context: plugin.Context): Service
   }
   local service: Service = implementation
   local state: ProviderState = {
-    active = true,
     context = context,
     service = service,
     sources = {},
     registrations = 0,
   }
-  states[service] = state
 
+  -- The published service is revoked with this activation, so its methods
+  -- need no liveness guard of their own.
   context:effect(function(): () -> ()
     return function()
-      state.active = false
       state.sources = {}
       state.registrations = 0
-      states[service] = nil
     end
   end)
 
@@ -369,7 +356,7 @@ local function init(context: plugin.Context): Service
 
   function implementation.sources(_self: Service): { contracts.Source }
     local described: { contracts.Source } = {}
-    for index, source in ipairs(orderedSources(stateFor(service))) do
+    for index, source in ipairs(orderedSources(state)) do
       described[index] = { name = source.name, precedence = source.precedence }
     end
     return described
@@ -389,7 +376,7 @@ local function init(context: plugin.Context): Service
 
   function implementation.resolve(_self: Service, window: lunette.Window): Resolved
     local collected: Properties = {}
-    for _, source in ipairs(orderedSources(stateFor(service))) do
+    for _, source in ipairs(orderedSources(state)) do
       local answered = source.resolve(window)
       if answered ~= nil then
         if type(answered) ~= 'table' then

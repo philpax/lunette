@@ -59,15 +59,8 @@ pub fn render() -> String {
 
 /// Keeps the plugin declarations in the generated file StyLua-compatible.
 fn render_plugin_types(out: &mut String, plugin_types: &str) {
-    let mut lines = plugin_types.lines().peekable();
-    while let Some(line) = lines.next() {
-        let empty_type = line
-            .strip_prefix("export type ")
-            .and_then(|name| name.strip_suffix(" = {"));
-        if let Some(name) = empty_type.filter(|_| lines.peek().is_some_and(|next| *next == "}")) {
-            let _ = writeln!(out, "export type {name} = {{}}");
-            lines.next();
-        } else if line.starts_with("  read define: ") && line.len() > STYLUA_COLUMNS {
+    for line in plugin_types.lines() {
+        if line.starts_with("  read define: ") && line.len() > STYLUA_COLUMNS {
             render_wrapped_function(out, line);
         } else {
             let _ = writeln!(out, "{line}");
@@ -291,16 +284,6 @@ fn render_doc(out: &mut String, doc: &str, indent: &str) {
 #[cfg(test)]
 mod tests {
     use super::render;
-
-    #[test]
-    fn empty_plugin_userdata_types_use_compact_braces() {
-        let output = render();
-
-        assert!(output.contains("export type PluginContractToken = {}\n"));
-        assert!(output.contains("export type PluginDefinition = {}\n"));
-        assert!(!output.contains("export type PluginContractToken = {\n}"));
-        assert!(!output.contains("export type PluginDefinition = {\n}"));
-    }
 
     #[test]
     fn long_plugin_function_type_wraps_at_outer_arguments() {

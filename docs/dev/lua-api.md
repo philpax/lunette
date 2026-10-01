@@ -23,24 +23,52 @@ A configuration that never mentions `mullion` is supported when it uses only the
 
 ## Plugin authoring
 
-`require '@lunette-plugin'` provides the typed authoring facade. A contract module defines a service type, creates a capability with an authority-qualified name and schema number, and exports both. Its service type describes the methods and fields that callers may use. The capability wrapper is frozen and binds to one native token. Declarations use that exact wrapper, and a Lua state cannot declare the same name and schema twice in one epoch. Contract vocabulary modules can hold shared types without creating a runtime dependency between service implementations.
+`require '@lunette-plugin'` provides the typed authoring facade. A contract module defines a service type, declares the contract with `plugin.capability(name, schema, witness)`, and exports the resulting capability. The name is authority-qualified and the schema is a positive number. Its service type describes the methods and fields that callers may use. The capability wrapper is frozen and binds to one native token when it is created, so the facade never hands out an unbound token. Declarations use that exact wrapper, and a Lua state cannot declare the same name and schema twice in one epoch. Contract vocabulary modules can hold shared types without creating a runtime dependency between service implementations.
 
 A definition declares required and provided capabilities and its configuration type. The initializer receives a `Context`, typed configuration, and init-only `Publisher`:
 
 ```lua
 local service: PanelService = context:require(panels.capability)
-publish:provide(layout.capability, layoutService)
+publish:provide(layout.arc, arcService)
 ```
 
-`Context:require<T>(capability)` has the capability's service type. `Publisher:provide<T>(capability, value)` accepts the matching service type. The publisher is valid only while that initializer is active. `Definition<C>` carries configuration type `C`; service types belong to capabilities, not to a mapped services record.
+`Context:require<T>(capability)` has the capability's service type. `Publisher:provide<T>(capability, value)` accepts the matching service type. The publisher is valid only while that initializer is active. `Definition<C>` carries configuration type `C`; service types belong to capabilities, not to a mapped services record. The configuration witness passed to `plugin.define` is a type witness: the adapter never calls it, and it does not validate or convert a configuration value at runtime.
 
-Luau checks local service shapes, methods, and configuration annotations in source modules. Runtime wiring remains a separate concern. The runtime matches authority-qualified contract name and exact schema. A required capability without a provider does not activate its consumer. The runtime rejects undeclared capability access, undeclared or duplicate provisions, missing or nil provided fields, extra fields, and calls to an expired publisher. It does not inspect service table shapes or validate configuration values against Luau types.
+Luau checks local service shapes, methods, and configuration annotations in source modules. Runtime wiring remains a separate concern. The runtime matches authority-qualified contract name and exact schema. A required capability without a provider does not activate its consumer, and neither does a provider of another schema of the same name. The runtime rejects undeclared capability access, undeclared or duplicate provisions, missing or nil provided fields, extra fields, and calls to an expired publisher. A membership error names the contract and the plugin code that made the call. It does not inspect service table shapes or validate configuration values against Luau types.
 
-The initializer stages all provided values. The native runtime publishes them as one provider generation only after the initializer succeeds and the graph confirms its bindings remain valid. If initialization fails or is cancelled, the provider publishes nothing and acquired effects are rolled back. Plugin callbacks are synchronous and do not yield. `Context:effect` registers a resource and its inverse with the activation. If the activation is cancelled while the acquisition runs, the call raises and the inverse is not left registered: it runs at once. `Context:child` installs a child instance owned by the current activation, `Context:active` checks whether the activation is live, and `Context:checkOwner` checks that a caller is a live context bound to the owning provider's current generation. The adapter accepts only a context it wrapped as an owner; a table that copies a context's fields is rejected. Disposing an effect whose activation, instance, or runtime has ended does nothing.
+The initializer stages all provided values. The native runtime publishes them as one provider generation only after the initializer succeeds and the graph confirms its bindings remain valid. If initialization fails or is cancelled, the provider publishes nothing and acquired effects are rolled back. An error an initializer raises keeps its own position and traceback. Plugin callbacks are synchronous and do not yield.
+
+### Context operations
+
+`Context:effect` registers a resource and its inverse with the activation. If the activation is cancelled while the acquisition runs, the call raises and the inverse is not left registered: it runs at once. Disposing an effect whose activation, instance, or runtime has ended does nothing.
+
+`Context:on(subscribe, handler)` registers an event subscription as an effect. `subscribe` is a function that takes a handler and answers the function that cancels it, which is the shape of every `lunette.on*` event, so `context:on(lunette.onWindowOpened, handler)` subscribes for the life of the activation. The subscription is cancelled when the activation ends, and a handler that is reached after the activation has ended but before the cancellation runs, such as an error reported during cleanup, is not called.
+
+`Context:child` installs a child instance owned by the current activation and enables it, so the child loads with its parent and is retired when the activation that installed it ends. `Context:active` checks whether the activation is live.
+
+`Context:checkOwner` checks that a caller is a live context bound to the owning provider's current generation, and raises otherwise. `Context:owns` answers the same question with a boolean. `Context:acquire(owner, acquire)` checks the owner and registers the resource with the owner's lifetime, which is the common shape of an owner-scoped provider method. The adapter accepts only a context it wrapped as an owner; a table that copies a context's fields is rejected by `checkOwner` and `acquire` and is not owned.
+
+### Services
+
+A consumer receives each provision through a frozen view rather than the provider's own value. Every consumer of one provider generation receives the same view. Reading a field, calling a method, iterating, or calling a callable provision through the view raises an error naming the contract once the provider's activation has ended, including through a reference the consumer kept past its own activation. Assigning a field raises at any time. A method receives the view as `self`, so a provider reads its own fields through `self` and keeps mutable state in its own locals. The view checks a method when it is read rather than wrapping the call, so it adds no stack frame and a provider error raised at level 2 still names the consumer's call site. A function value read while the provider was live remains callable afterwards, as does any object a method returned; those objects carry their own `dead` state. `pairs` and `#` see an empty table; a service is read by field or iterated with generalized iteration.
+
+### Confinement
+
+A plugin changes state outside itself only through its context. Every resource, subscription, and child an initializer creates is registered through `Context:effect`, `Context:on`, `Context:child`, or an owner-scoped provider method, so unloading the instance reverts it. A direct `lunette.onWindowOpened` call in an initializer is not tracked: the subscription survives instance reload and disable, and a reloaded instance subscribes a second time. Source reload clears native subscriptions, which hides the leak only until the next instance reload.
+
+Effects are flat. An effect created inside another effect's acquisition is registered with the context it was created through, as a sibling of the outer effect, and it is registered before the outer one because the outer inverse is registered only when its acquisition returns. Inverses run in reverse registration order when the activation ends, so the outer inverse runs before the inner one. An outer inverse that must release the inner resource first disposes the inner effect itself; disposing it again later does nothing.
+
+An owner-scoped provider method registers the resource on the caller's owner, so the resource ends with the caller. When the provider needs a service of its own to do that work, it calls the service with its own context as the owner, inside the effect it registers on the caller's owner. It does not forward the caller's owner: that would require the caller to depend on the provider's dependencies. The adoption provider's `install` follows this pattern with its rules binding.
+
+Two active instances cannot provide the same contract and schema. Several implementations of one contract are composed through a broker, as section 6.2 of the Cordis paper describes: one plugin provides the contract, implementations register with it through an owner-scoped method, and it chooses between them or multiplexes them. The rules provider's sources have this shape.
+
+### Instances
 
 Runtime instances expose `enable`, `disable`, `dispose`, and `reload`; runtime shutdown disposes every instance. A request takes effect immediately, in the order it is made, and raises at the call that made it when the graph rejects it: an unknown or removed instance, an enable of a retired or quarantined instance, or an enable whose provided contract another enabled instance already reserves. `instance:state()` reports `inactive`, `loading`, `active`, `unloading`, `failed`, `quarantined`, or `removed`. `instance:diagnostic()` describes why the instance last failed or is not loading, or returns nil. A definition is named for where its initializer is defined; the native `define` also accepts an explicit name. Logs, reports, and diagnostics name instances by their definition. An initializer or inverse that fails while lifecycle work drains is reported through [the error path](#errors) rather than raised from the request that started the drain. [Architecture](architecture.md#plugin-runtime) states the reservation, retry, and quarantine rules. The adapter contains all erased casts; plugin modules use no compatibility facade for the earlier mapped `Services<R>` and `Provisions<P>` design.
 
-Contract tokens and frozen capability wrappers are shared by runtime graphs in one Lua state's epoch. A runtime graph owns its plugin instances, service values, and effects. Source reload retires the old epoch, so a new configuration may declare the same contract names and schema numbers again. Instance reload replaces one plugin activation without replacing the runtime or epoch. See [Architecture](architecture.md#plugin-runtime) for lifecycle ownership and cleanup.
+Contract tokens and frozen capability wrappers are shared by runtime graphs in one Lua state's epoch. A runtime graph owns its plugin instances, service values, and effects. Source reload retires the old epoch, so a new configuration may declare the same contract names and schema numbers again, and a declaration that still holds a capability from the retired epoch is rejected as retired. Instance reload replaces one plugin activation without replacing the runtime or epoch. See [Architecture](architecture.md#plugin-runtime) for lifecycle ownership and cleanup.
+
+The native plugin handles in `lua/lunette/init.luau` are nominal. Each declares a phantom field that exists only in the declaration, so a table, or another plugin handle, does not satisfy a parameter that takes a contract token, definition, runtime, instance, context, or effect.
 
 ## Events
 
@@ -56,7 +84,7 @@ Several listeners may wait on one event. They are called in the order they subsc
 
 `crates/lunette/src/events/mod.rs` declares each event once — its name, the fields its payload carries, and the expression that fills each one — and both the subscription and its payload type are generated from that declaration. The handler's parameter is typed without an annotation: `event` above is a `WindowOpenedEvent`, and `lunprocessexited` hands over a `ProcessExitedEvent` whose `outcome` is the union of the three names it can hold.
 
-A source reload clears every native subscription before it re-runs the configuration, so a listener registered by the previous configuration is not called again. The host does not call `mullion.teardown.run()`. A Lua module that owns resources must not assume that its teardown hook runs during source reload. The `mullion` teardown registry remains available for callers that invoke it explicitly.
+A source reload clears every native subscription before it re-runs the configuration, so a listener registered by the previous configuration is not called again. A plugin subscribes through `Context:on`, which ends the subscription with the activation; [Plugin authoring](#confinement) states why. The host does not call `mullion.teardown.run()`. A Lua module that owns resources must not assume that its teardown hook runs during source reload. The `mullion` teardown registry remains available for callers that invoke it explicitly.
 
 `boot.lua`'s poll loop unpacks four arguments, so a payload of more than four values would not arrive. Every event carries a table instead, including the events with one field, so the shape does not differ between callbacks and a field added later is not a change to a signature.
 
@@ -525,6 +553,26 @@ An initializer or inverse that fails during a drain is reported through `lunette
 
 A definition defaults to the location of its initializer as its name. Requiring an explicit name would change every existing definition for a label that the source location already provides, and an anonymous definition would make an instance number the only thing a report could name.
 
+### A published service is a view that its provider's activation revokes
+
+A provision reaches consumers as a frozen view that raises once the provider's activation has ended and raises on every write. Before this, a consumer received the provider's own table. A reference kept past a provider's unload reached torn-down state, so every provider repeated a hand-written liveness guard, and consumers shared one mutable table that any of them could change for all the others.
+
+The view is checked against the provider's activation, not the consumer's. A consumer's inverses run while the consumer unloads and its own activation has already ended, and they routinely call the services they depend on to release what they acquired; a consumer-side check would refuse exactly those calls. Dependents always unload before their providers, so the provider is still active while every dependent's inverses run. A consumer that leaks a service reference past its own activation is a confinement fault, and it is caught as soon as the provider it reaches has gone.
+
+The view checks a read rather than wrapping each method. Luau has no tail calls, so a wrapper adds a stack frame, and every provider error raised at level 2 to name the consumer's call site would name the adapter instead. The cost is that a function read while the provider was live remains callable. A method wrapper cache was considered and rejected for the same reason. One view per provision, shared by all consumers of a generation, keeps the cost to one native liveness query per read.
+
+### Subscriptions are context effects
+
+`Context:on(subscribe, handler)` makes a native subscription an effect of the activation, which is how Cordis's `ctx.on` tracks a listener on its fiber. It takes the subscribing function rather than an event name, because `lunette` events are subscribed through typed functions such as `lunette.onWindowOpened`, and taking the function keeps the handler's payload type. Wrapping the subscription in `Context:effect` by hand was the alternative; every provider and desktop consumer did so, each with its own `context:active()` check in the handler, and an initializer that called `lunette.on*` directly leaked the subscription across instance reload.
+
+### Contracts are declared only through capabilities
+
+The facade does not export the native `contract` function. A token declared that way is unbound, so declaring `lunette/panels` at schema 1 through it reserved the identity without producing a capability anything could use, and blocked the real contract for the rest of the epoch. `plugin.capability` declares and binds in one step. The native function remains for the adapter and for tests of the native layer.
+
+### A child is enabled when it is installed
+
+`Context:child` enables the instance it installs, matching the `ctx:use` semantics of issue #32 and Cordis's `ctx.plugin`, where installing a child under a parent loads it. A disabled child would load only after a separate `enable`, and every caller made that call at once. Enabling inside the parent's initializer is a request like any other: a conflicting reservation raises in the initializer and fails the parent's load, which retires the child with it.
+
 ## Known gaps
 
 Named, not solved.
@@ -534,3 +582,7 @@ The `lovr.lun*` prefix squats in LÖVR's callback namespace permanently. It is d
 `lunctl` has root-equivalent access to the session. Anything that can write to the socket controls the machine. This follows from the single-user assumption, stated explicitly, and the socket is never network-reachable.
 
 The host does not call `mullion.teardown.run()` during source reload or hard restart. Lua modules that retain native resources outside plugin instances can therefore outlive their configuration callbacks. Plugin effect cleanup does not cover those independent resources.
+
+## Deliberately left open
+
+Contract authorities are a naming convention and are not authenticated. Any module can declare a contract under any authority, including `lunette`, and the first declaration in an epoch holds the name and schema. Binding an authority to the package root that may declare under it is left to plugin packaging and distribution, #39.

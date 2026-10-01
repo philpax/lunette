@@ -208,6 +208,8 @@ pub enum ContractError {
     ForeignToken { key: String },
     /// The token was created in an epoch that has been retired.
     RetiredToken { key: String },
+    /// The capability wrapper was bound in an epoch that has been retired.
+    RetiredWrapper { key: String },
     /// The token has the registry identity but not a currently registered identity.
     UnknownToken { key: String },
     /// A capability wrapper was mutable when native code tried to bind it.
@@ -275,6 +277,10 @@ impl fmt::Display for ContractError {
             Self::RetiredToken { key } => write!(
                 formatter,
                 "plugin contract: declaration field '{key}' contains a token from a retired epoch"
+            ),
+            Self::RetiredWrapper { key } => write!(
+                formatter,
+                "plugin contract: declaration field '{key}' contains a capability from a retired contract epoch"
             ),
             Self::UnknownToken { key } => write!(
                 formatter,
@@ -465,6 +471,20 @@ impl ContractRegistry {
         Ok(())
     }
 
+    /// Returns every capability wrapper bound to this registry, in any epoch.
+    ///
+    /// The attachment records them when it replaces the registry, so a
+    /// wrapper from a retired epoch is named as retired rather than unbound.
+    #[must_use]
+    pub fn bound_wrappers(&self) -> Vec<Table> {
+        self.inner
+            .bindings
+            .borrow()
+            .values()
+            .map(|binding| binding.table.clone())
+            .collect()
+    }
+
     /// Binds a frozen capability wrapper supplied as a Lua value.
     pub fn bind_token_value(
         &self,
@@ -591,7 +611,7 @@ impl ContractRegistry {
             return Err(ContractError::WrapperNotFrozen);
         }
         if binding.epoch != self.epoch() {
-            return Err(ContractError::RetiredToken {
+            return Err(ContractError::RetiredWrapper {
                 key: key.to_owned(),
             });
         }
@@ -599,7 +619,7 @@ impl ContractRegistry {
         if contracts.contains_key(&id) && id.epoch() == self.epoch() {
             Ok(id)
         } else {
-            Err(ContractError::RetiredToken {
+            Err(ContractError::RetiredWrapper {
                 key: key.to_owned(),
             })
         }

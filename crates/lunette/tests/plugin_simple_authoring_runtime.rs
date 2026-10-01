@@ -17,7 +17,7 @@ fn runtime_enforces_declared_access_publication_and_native_lifecycle() -> mlua::
     for expected in [
         "missing provision service",
         "duplicate provision service",
-        "capability is not declared",
+        "is not declared",
         "provision service was nil",
         "initializer must return nothing",
         "production partial initializer failure",

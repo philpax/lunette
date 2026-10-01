@@ -92,11 +92,6 @@ local function init(context: plugin.Context): Service
   local states: { [Pointer]: PointerState } = {}
   local focusedSeat: lunette.Seat? = nil
   local focusedSink: lunette.Sink? = nil
-  local function checkActive()
-    if not active or not context:active() then
-      error 'interaction: service is no longer active'
-    end
-  end
   local panels: panelsContract.Service = context:require(panelsContract.capability)
   local carrying = grab.new {
     pointers = function(): { PointerState }
@@ -118,7 +113,6 @@ local function init(context: plugin.Context): Service
     end,
   }
   local function newPointer(owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
-    checkActive()
     context:checkOwner(owner)
     local seat: lunette.Seat? = options and options.seat
     local state: {
@@ -372,6 +366,9 @@ local function init(context: plugin.Context): Service
       focusedSeat, focusedSink = nil, nil
     end
   end)
+  -- The published service is revoked with this activation, so its methods
+  -- need no liveness guard. Pointers outlive the call that made them and
+  -- check the activation themselves.
   return {
     TUNING = TUNING,
     POSE_PROPERTY = POSE_PROPERTY,
@@ -390,11 +387,9 @@ local function init(context: plugin.Context): Service
       return deadZone(x, current.scrollDeadZone) * scale, -deadZone(y, current.scrollDeadZone) * scale
     end,
     storePose = function(_self: Service, target: Surface): boolean
-      checkActive()
       return storePose(target)
     end,
     restorePose = function(_self: Service, target: Surface): boolean
-      checkActive()
       return restorePose(target)
     end,
     newPointer = function(_self: Service, owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
@@ -407,7 +402,6 @@ local function init(context: plugin.Context): Service
       return focusedSeat, focusedSink
     end,
     setFocus = function(_self: Service, seat: lunette.Seat?, sink: lunette.Sink?)
-      checkActive()
       focusedSeat, focusedSink = seat, sink
     end,
   }

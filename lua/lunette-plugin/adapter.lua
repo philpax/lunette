@@ -3,6 +3,8 @@
 -- Public types retain capability and configuration relationships. Runtime
 -- declarations retain frozen capability wrappers so native validation and
 -- per-capability access both use the exact wrapper registered at binding.
+-- Published services reach consumers as frozen proxies that the provider's
+-- activation guards.
 
 local native = require '@lunette'
 
@@ -21,6 +23,10 @@ export type Effect = {
   read dispose: (Effect) -> (),
 }
 
+-- A caller lifetime that a provider acquires resources for. A provider checks
+-- it with `Context:checkOwner` or `Context:owns`, and registers the resource
+-- with `owner:effect` or `Context:acquire`, so the resource is released when
+-- the caller's activation ends.
 export type Owner = {
   read services: (never) -> unknown,
   read effect: (Owner, () -> () -> ()) -> Effect,
@@ -32,6 +38,9 @@ export type Context = {
   read effect: (Owner, () -> () -> ()) -> Effect,
   read child: <C>(Context, Definition<C>, C) -> Instance<C>,
   read checkOwner: (Context, Owner) -> (),
+  read owns: (Context, Owner) -> boolean,
+  read acquire: (Context, Owner, () -> () -> ()) -> Effect,
+  read on: <E>(Context, ((E) -> ()) -> () -> (), (E) -> ()) -> Effect,
   read active: (Context) -> boolean,
 }
 
@@ -91,13 +100,39 @@ local function mapDeclaration(declaration: Declaration): ErasedDeclaration
   return freeze(mapped)
 end
 
-local function declaredField(declaration: Declaration, capability: unknown): string
+-- Names a capability for an error message by its contract, or says that the
+-- value is not a capability at all.
+local function describeCapability(capability: unknown): string
+  if type(capability) == 'table' then
+    local contract = rawget(capability :: { [string]: unknown }, 'contract')
+    if type(contract) == 'string' then
+      return 'capability ' .. contract
+    end
+  end
+  return 'a value that is not a capability'
+end
+
+local function declaredField(declaration: Declaration, capability: unknown): string?
   for field, declared in declaration do
     if rawequal(declared, capability) then
       return field
     end
   end
-  error 'plugin capability: capability is not declared'
+  return nil
+end
+
+-- Returns the field a capability is declared under, or raises an error that
+-- names the contract at the plugin code that passed it.
+local function memberField(operation: string, declaration: Declaration, capability: unknown): string
+  local field = declaredField(declaration, capability)
+  if field == nil then
+    error(string.format('plugin %s: %s is not declared', operation, describeCapability(capability)), 3)
+  end
+  return field
+end
+
+local function contractOf(declaration: Declaration, field: string): string
+  return describeCapability(declaration[field])
 end
 
 local function unwrapDefinition<C>(definition: Definition<C>): NativeDefinition
@@ -109,10 +144,10 @@ end
 -- owner; the native side then checks that the context is a live dependent.
 local nativeContexts: { [Context]: NativeContext } = setmetatable({}, { __mode = 'k' }) :: any
 
-local function ownerContext(owner: Owner): NativeContext
+local function ownerContext(owner: Owner, level: number): NativeContext
   local nativeContext = nativeContexts[(owner :: unknown) :: Context]
   if nativeContext == nil then
-    error('plugin checkOwner: the owner is not a plugin context', 3)
+    error('plugin checkOwner: the owner is not a plugin context', level)
   end
   return nativeContext
 end
@@ -129,7 +164,7 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
       return nativeContext:services()
     end,
     require = function<T>(_self: Context, capability: Capability<T>): T
-      local field = declaredField(required, capability)
+      local field = memberField('require', required, capability)
       local services = (nativeContext:services() :: unknown) :: ErasedDeclaration
       return (services[field] :: unknown) :: T
     end,
@@ -139,10 +174,43 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
     end,
     child = function<C>(_self: Context, definition: Definition<C>, config: C): Instance<C>
       local instance: NativeInstance = nativeContext:child(unwrapDefinition(definition), config)
+      instance:enable()
       return (instance :: unknown) :: Instance<C>
     end,
     checkOwner = function(_self: Context, caller: Owner): ()
-      nativeContext:checkOwner(ownerContext(caller))
+      nativeContext:checkOwner(ownerContext(caller, 3))
+    end,
+    owns = function(_self: Context, caller: Owner): boolean
+      local callerContext = nativeContexts[(caller :: unknown) :: Context]
+      return callerContext ~= nil and nativeContext:owns(callerContext)
+    end,
+    acquire = function(_self: Context, owner: Owner, acquire: () -> () -> ()): Effect
+      local callerContext = ownerContext(owner, 3)
+      nativeContext:checkOwner(callerContext)
+      local effect: NativeEffect = callerContext:effect(acquire)
+      return (effect :: unknown) :: Effect
+    end,
+    on = function<E>(_self: Context, subscribe: ((E) -> ()) -> () -> (), handler: (E) -> ()): Effect
+      if type(subscribe) ~= 'function' then
+        error('plugin on: a subscription is a function, not a ' .. type(subscribe), 2)
+      end
+      if type(handler) ~= 'function' then
+        error('plugin on: a handler is a function, not a ' .. type(handler), 2)
+      end
+      local effect: NativeEffect = nativeContext:effect(function(): () -> ()
+        -- An event delivered after the activation ended but before this
+        -- inverse ran, such as an error reported during cleanup, is dropped.
+        local cancel: unknown = subscribe(function(event: E): ()
+          if nativeContext:active() then
+            handler(event)
+          end
+        end)
+        if type(cancel) ~= 'function' then
+          error('plugin on: a subscription answers the function that cancels it, not a ' .. type(cancel), 0)
+        end
+        return cancel :: () -> ()
+      end)
+      return (effect :: unknown) :: Effect
     end,
     active = function(_self: Context): boolean
       return nativeContext:active()
@@ -153,23 +221,90 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
   return context
 end
 
-function adapter.capability<T>(token: native.PluginContractToken, witness: (T) -> T): Capability<T>
-  local capability = freeze { token = token, witness = witness }
+function adapter.capability<T>(name: string, schema: number, witness: (T) -> T): Capability<T>
+  local token = native.plugin.contract(name, schema)
+  local capability = freeze {
+    token = token,
+    witness = witness,
+    contract = name .. '@' .. tostring(schema),
+  }
   native.plugin.bind(token, capability)
   return capability
 end
 
-local function stagedValues(values: StagedValues, called: { [string]: boolean }, provided: Declaration): StagedValues
+local function revoked(contract: string): string
+  return 'plugin service: ' .. contract .. ' is no longer available because its provider activation has ended'
+end
+
+-- Wraps a published service in a frozen view. Every field read and every call
+-- of a callable service checks that the provider's activation is still live,
+-- and every write raises. A method is checked when it is read, so a method
+-- call adds no stack frame and an error a provider raises at level 2 still
+-- names the consumer's call site.
+local function guardService(value: unknown, contract: string, provider: NativeContext): unknown
+  if type(value) == 'function' then
+    local call = value :: (...unknown) -> ...unknown
+    return function(...: unknown): ...unknown
+      if not provider:active() then
+        error(revoked(contract), 2)
+      end
+      return call(...)
+    end
+  end
+  if type(value) ~= 'table' then
+    return value
+  end
+  local raw = value :: { [unknown]: unknown }
+  local view = {
+    __index = function(_proxy: unknown, key: unknown): unknown
+      if not provider:active() then
+        error(revoked(contract), 2)
+      end
+      return raw[key]
+    end,
+    __newindex = function(_proxy: unknown, key: unknown, _value: unknown): ()
+      error('plugin service: ' .. contract .. ' is read-only, so ' .. tostring(key) .. ' cannot be assigned', 2)
+    end,
+    __iter = function(_proxy: unknown): ((unknown, unknown) -> (unknown, unknown), unknown)
+      if not provider:active() then
+        error(revoked(contract), 2)
+      end
+      return next :: any, raw
+    end,
+    __call = nil :: ((unknown, ...unknown) -> ...unknown)?,
+  }
+  local rawMetatable: unknown = getmetatable(raw :: any)
+  if type(rawMetatable) == 'table' then
+    local rawCall = rawget(rawMetatable :: { [string]: unknown }, '__call')
+    if type(rawCall) == 'function' then
+      local call = rawCall :: (unknown, ...unknown) -> ...unknown
+      view.__call = function(proxy: unknown, ...: unknown): ...unknown
+        if not provider:active() then
+          error(revoked(contract), 2)
+        end
+        return call(proxy, ...)
+      end
+    end
+  end
+  return freeze(setmetatable({}, freeze(view) :: any))
+end
+
+local function stagedValues(
+  values: StagedValues,
+  called: { [string]: boolean },
+  provided: Declaration,
+  provider: NativeContext
+): StagedValues
   local result: StagedValues = {}
   for field, _ in provided do
     if not called[field] then
-      error('plugin provision: missing provision ' .. field)
+      error('plugin provision: missing provision ' .. field, 0)
     end
     local value = values[field]
     if value == nil then
-      error('plugin provision: provision ' .. field .. ' was nil')
+      error('plugin provision: provision ' .. field .. ' was nil', 0)
     end
-    result[field] = value
+    result[field] = guardService(value, contractOf(provided, field), provider)
   end
   return result
 end
@@ -178,14 +313,14 @@ local function publisher(provided: Declaration, staging: Staging): Publisher
   return freeze {
     provide = function<T>(_self: Publisher, capability: Capability<T>, value: T): ()
       if not staging.open or not staging.active() then
-        error 'plugin provision: initializer is no longer active'
+        error('plugin provision: initializer is no longer active', 2)
       end
-      local field = declaredField(provided, capability)
+      local field = memberField('provision', provided, capability)
       if staging.called[field] then
-        error('plugin provision: duplicate provision ' .. field)
+        error('plugin provision: duplicate provision ' .. field, 2)
       end
       if value == nil then
-        error('plugin provision: provision ' .. field .. ' was nil')
+        error('plugin provision: provision ' .. field .. ' was nil', 2)
       end
       staging.called[field] = true
       staging.values[field] = value
@@ -213,24 +348,29 @@ function adapter.define<C>(
         values = {},
         called = {},
       }
+      -- The initializer is called unprotected so an error it raises keeps its
+      -- own position and traceback. Staged values are released by this
+      -- inverse when the load is rolled back, even if a publisher escaped.
+      nativeContext:effect(function(): () -> ()
+        return function(): ()
+          staging.open = false
+          staging.values = {}
+          staging.called = {}
+        end
+      end)
       local context = wrapContext(nativeContext, requiredSnapshot)
       local typedConfig = (config :: unknown) :: C
       local provide = publisher(providedSnapshot, staging)
-      local results = table.pack(pcall(function(): ...unknown
-        return init(context, typedConfig, provide)
-      end))
+      local returned = select('#', init(context, typedConfig, provide))
       staging.open = false
       local values = staging.values
       local called = staging.called
       staging.values = {}
       staging.called = {}
-      if not results[1] then
-        error(results[2])
+      if returned ~= 0 then
+        error('plugin provision: initializer must return nothing', 0)
       end
-      if results.n ~= 1 then
-        error 'plugin provision: initializer must return nothing'
-      end
-      return stagedValues(values, called, providedSnapshot)
+      return stagedValues(values, called, providedSnapshot, nativeContext)
     end,
     definitionName(init)
   )
