@@ -1,17 +1,21 @@
 -- The keyboard provider; resources are acquired during activation.
 --
 -- `style` sets the default key size, spacing, depths, and colours that a
--- keyboard's own options override.
+-- keyboard's own options override. `rows` sets the default key rows, which are
+-- a compact ANSI arrangement unless configured; a keyboard's own `rows`
+-- option overrides them.
 local plugin = require '@lunette-plugin'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
 local build = require '@lunette-plugins/keyboard/service'
+local rows = require '@lunette-plugins/keyboard/rows'
 
 export type Settings = build.Settings
 export type Service = keyboard.Service
 
 -- What a configuration gives: every option optional.
 export type Config = {
+  read rows: { keyboard.KeyRow }?,
   read style: {
     read keyUnit: number?,
     read gap: number?,
@@ -32,6 +36,7 @@ return plugin.provider<<Config, Settings, Service>> {
   capability = keyboard.capability,
   requires = { interaction = interaction.capability },
   defaults = {
+    rows = rows,
     style = {
       keyUnit = 0.028,
       gap = 0.004,

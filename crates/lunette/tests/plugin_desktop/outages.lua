@@ -86,7 +86,7 @@ local function sources()
   local list = placement:sources()
   assert(#list == 3)
   assert(list[1].precedence == 100 and list[2].precedence == 200 and list[3].precedence == 300)
-  assert(list[2].name == 'mullion.persist' and list[3].name == 'lunette.adoption')
+  assert(list[2].name == 'desktop.persist' and list[3].name == 'lunette.adoption')
 end
 sources()
 events.windows = { newWindow(10), newWindow(11, 'firefox') }

@@ -1,7 +1,7 @@
 -- The arrangement file: its text, its versions, and the one type that may be
 -- written.
 --
--- Pure. Nothing here reads or writes a file; `mullion.persist` is the shell that
+-- Pure. Nothing here reads or writes a file; `@lunette-desktop/persist` is the shell that
 -- does, and it is the module a configuration requires. This half is separate
 -- so the version matrix can be reasoned about on its own, and because a format
 -- that turns text into data needs no filesystem to be exercised.
@@ -11,9 +11,9 @@
 -- The matrix is handled by construction; `crates/lunette-capture/src/tokens.rs`
 -- uses the same shape for the same problem:
 --
--- - A new mullion reading an old file reads the fields the file holds; fields
+-- - A new lunette reading an old file reads the fields the file holds; fields
 --   added after that version read as absent.
--- - An old mullion reading a new file gets a `fromTheFuture` load, and
+-- - An old lunette reading a new file gets a `fromTheFuture` load, and
 --   `loaded:forSession()` returns nothing. The version check exists for this
 --   case: saving a file that holds fields this version cannot represent would
 --   drop those fields and corrupt the file; failing on the file does not. There
@@ -81,7 +81,7 @@ local fileMetatable, loadedMetatable, quote
 local renderEntry: (Entry) -> string
 local readEntry: (any) -> (Entry?, string?)
 
--- The format version this mullion writes.
+-- The format version this lunette writes.
 format.CURRENT_VERSION = 1
 
 -- The fields an entry is written with, in a fixed order. An arrangement that
@@ -91,7 +91,7 @@ format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' } :: { 
 
 -- An arrangement, from a list of entries.
 --
--- Everything `render` accepts comes from here, and `mullion.persist.save`
+-- Everything `render` accepts comes from here, and `persist.save`
 -- accepts the same. A caller cannot assemble one out of a plain table; the
 -- from-the-future rule is structural, and no check has to be remembered.
 --
@@ -102,7 +102,7 @@ function format.newFile(entries: { Entry }): File
   for index = 1, #(entries or {}) do
     local entry = entries[index]
     if type(entry) ~= 'table' then
-      error('mullion.persist: entry ' .. index .. ' is a table, not a ' .. type(entry), 2)
+      error('desktop.persist: entry ' .. index .. ' is a table, not a ' .. type(entry), 2)
     end
     held[index] = entry
   end
@@ -126,7 +126,7 @@ end
 -- An arrangement's entries, as a fresh array.
 function format.entries(file: File): { Entry }
   if not format.isFile(file) then
-    error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
+    error('desktop.persist: an arrangement is one this module made, not a ' .. type(file), 2)
   end
   local copied = {}
   for index = 1, #file.entries do
@@ -237,11 +237,11 @@ end
 -- not change it.
 function format.render(file: File): string
   if not format.isFile(file) then
-    error('mullion.persist: an arrangement is one this module made, not a ' .. type(file), 2)
+    error('desktop.persist: an arrangement is one this module made, not a ' .. type(file), 2)
   end
 
   local lines = {
-    '-- The arrangement lunette last saved. Written by mullion.persist.',
+    '-- The arrangement lunette last saved. Written by desktop.persist.',
     'return {',
     '  version = ' .. format.CURRENT_VERSION .. ',',
     '  entries = {',
@@ -285,7 +285,7 @@ function quote(value)
     -- the drift would be diagnosed as a layout defect, not a formatting one.
     return string.format('%.17g', value)
   end
-  error('mullion.persist: an entry holds strings and numbers, not a ' .. type(value))
+  error('desktop.persist: an entry holds strings and numbers, not a ' .. type(value))
 end
 
 -- One entry as a line of the file.

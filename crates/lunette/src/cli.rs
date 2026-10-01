@@ -90,7 +90,7 @@ const CONFIG_ARTIFACTS: &[&str] = &["main.lua", "conf.lua"];
 /// names `standard_library` by an absolute path. The file in the source
 /// tree resolves its aliases relative to itself; copied beside a user's
 /// configuration, it names a directory that is not there, and every
-/// `require '@mullion/…'` fails to resolve for the checker and for the
+/// `require '@lunette-desktop/…'` fails to resolve for the checker and for the
 /// user's editor.
 pub fn dump(
     source: &Path,

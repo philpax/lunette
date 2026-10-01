@@ -8,7 +8,7 @@ local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/rules'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
-local pose = require '@mullion/pose'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local policy = require '@lunette-plugins/rules/policy'
 
 export type Service = contracts.Service
@@ -120,7 +120,7 @@ local function poseFrom(state: ProviderState, value: (string | Mat4)?, window: l
   if type(value) ~= 'string' then
     return value
   end
-  local decoded = pose.decode(value)
+  local decoded = vocabulary.decodePose(value)
   if not decoded then
     report(state, "the pose for '" .. tostring(window.appId) .. "' is not sixteen numbers, so it is ignored")
   end

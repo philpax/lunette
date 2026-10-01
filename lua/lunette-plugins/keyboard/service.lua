@@ -7,9 +7,9 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
+local keyVocabulary = require '@lunette-contracts/keys'
 local quad = require '@lunette-contracts/quad'
 local drawing = require '@lunette-plugins/keyboard/draw'
-local keycodes = require '@mullion/keycodes'
 local layout = require '@lunette-plugins/keyboard/layout'
 
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
@@ -18,29 +18,19 @@ local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 -- consumer can restyle another's keyboards. Resizing a keyboard makes it a new
 -- style table.
 export type Settings = {
+  read rows: { keyboard.KeyRow },
   read style: keyboard.Style,
 }
 
 local function create(
   options: keyboard.Options?,
-  defaults: keyboard.Style,
+  defaults: Settings,
   interactionService: interaction.Service,
   remove: (keyboard.Keyboard) -> (),
   dispose: () -> ()
 ): (keyboard.Keyboard, () -> ())
-  local rows: { keyboard.KeyRow } = {}
-  if options and options.rows then
-    rows = options.rows
-  else
-    for _, sourceRow in ipairs(keycodes.ROWS) do
-      local row: keyboard.KeyRow = {}
-      for _, entry in ipairs(sourceRow) do
-        row[#row + 1] = { code = entry.code, label = entry.label, width = entry.width }
-      end
-      rows[#rows + 1] = row
-    end
-  end
-  local style: keyboard.Style = options and options.style or defaults
+  local rows: { keyboard.KeyRow } = options and options.rows or defaults.rows
+  local style: keyboard.Style = options and options.style or defaults.style
   local width, height = layout.extentOf(rows, style)
   local target: keyboard.Target = options and options.target or function()
     return interactionService:focused()
@@ -70,7 +60,7 @@ local function create(
 
   local function modifiers(): { string }
     local held: { string } = {}
-    for _, name in ipairs(keycodes.MODIFIER_ORDER) do
+    for _, name in ipairs(keyVocabulary.MODIFIER_ORDER) do
       if latched[name] or locked[name] then
         held[#held + 1] = name
       end
@@ -155,7 +145,7 @@ local function create(
     if state.dead then
       return
     end
-    local set = if keycodes.LOCKS[name] then locked else latched
+    local set = if keyVocabulary.LOCKS[name] then locked else latched
     set[name] = not set[name] or nil
   end
 
@@ -174,7 +164,7 @@ local function create(
     if state.dead then
       return false
     end
-    local modifier = keycodes.MODIFIERS[code]
+    local modifier = keyVocabulary.MODIFIER_KEYS[code]
     if modifier then
       toggleModifier(self, modifier)
       return true
@@ -363,7 +353,6 @@ end
 local function build(context: plugin.Context, settings: Settings): keyboard.Service
   local interactionService: interaction.Service = context:require(interaction.capability)
   local entries: { keyboard.Keyboard } = {}
-  local defaults = settings.style
   local function remove(created: keyboard.Keyboard): ()
     local index = table.find(entries, created)
     if index then
@@ -371,13 +360,13 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
     end
   end
   local service: keyboard.Service = {
-    STYLE = defaults,
+    STYLE = settings.style,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       context:checkOwner(owner)
       local result: keyboard.Keyboard? = nil
       local cleanupEffect: plugin.Effect? = nil
       local acquired = owner:effect(function(): () -> ()
-        local created, releaseRaw = create(options, defaults, interactionService, remove, function(): ()
+        local created, releaseRaw = create(options, settings, interactionService, remove, function(): ()
           local effect = cleanupEffect
           cleanupEffect = nil
           if effect then

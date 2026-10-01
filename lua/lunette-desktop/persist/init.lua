@@ -12,9 +12,9 @@ local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
-local format = require '@mullion/persist/format'
-local slots = require '@mullion/persist/slots'
-local arrangements = require '@mullion/persist/arrangement'
+local format = require '@lunette-desktop/persist/format'
+local slots = require '@lunette-desktop/persist/slots'
+local arrangements = require '@lunette-desktop/persist/arrangement'
 
 local persist = {}
 
@@ -62,7 +62,7 @@ type BindingState = {
   ownerEffect: plugin.Effect?,
 }
 
-local SOURCE = 'mullion.persist'
+local SOURCE = 'desktop.persist'
 local PRECEDENCE = 200
 local FILE = 'arrangement.state'
 
@@ -97,7 +97,7 @@ end
 local function defaultReport(message: string): ()
   local log = lovr.log
   if log then
-    log(message, 'warn', 'mullion.persist')
+    log(message, 'warn', 'desktop.persist')
   end
 end
 
@@ -189,7 +189,7 @@ function persist.new(dependencies: Dependencies?): State
     declined = persist.path(filesystem)
       .. ' was written by version '
       .. loaded.found
-      .. ', and this mullion writes version '
+      .. ', and this lunette writes version '
       .. loaded.supported
       .. ', so it is left alone'
     report(declined)
@@ -219,7 +219,7 @@ function persist.new(dependencies: Dependencies?): State
       rules: rulesContract.Service
     ): Binding
       if not context:active() then
-        error 'mullion.persist: the provider scope is no longer active'
+        error 'desktop.persist: the provider scope is no longer active'
       end
 
       local binding: BindingState = {
@@ -246,7 +246,7 @@ function persist.new(dependencies: Dependencies?): State
       end
       local function save(options: SaveOptions?): (boolean, string?)
         if not bindingLive(binding) then
-          return false, 'mullion.persist: the provider binding is no longer active'
+          return false, 'desktop.persist: the provider binding is no longer active'
         end
         if declined and not (options and options.force) then
           return false, declined
@@ -254,11 +254,11 @@ function persist.new(dependencies: Dependencies?): State
         local currentPanels = binding.panels
         local currentTags = binding.tags
         if not currentPanels or not currentTags then
-          return false, 'mullion.persist: the provider binding is no longer active'
+          return false, 'desktop.persist: the provider binding is no longer active'
         end
         local file = arrangements.capture(report, held, currentPanels, currentTags)
         if not bindingLive(binding) then
-          return false, 'mullion.persist: the provider binding is no longer active'
+          return false, 'desktop.persist: the provider binding is no longer active'
         end
         if not filesystem.write(FILE, format.render(file)) then
           return false, persist.path(filesystem) .. ' could not be written'

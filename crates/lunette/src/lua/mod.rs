@@ -5,7 +5,8 @@
 //! reachable from it is mechanism: what a window is, where its pixels are, and
 //! where a pointer event goes. Policy (panels, layouts, placement rules) is
 //! written in Lua against this same surface, in the plugin providers under
-//! `@lunette-plugins` and the `@mullion` library, and is not here.
+//! `@lunette-plugins`, the `@lunette-desktop` consumers, and the optional
+//! `@mullion` library, and is not here.
 //!
 //! # State-bound Lua values
 //!
@@ -51,6 +52,7 @@
 
 mod claim;
 pub mod declarations;
+pub mod keys;
 mod monitor;
 mod output;
 mod process;
@@ -103,6 +105,7 @@ use crate::{
     lua::{
         claim::{ClaimLayer, claim_layer},
         declarations::{FunctionSpec, NullTexture, Options, Record, Type, module, record},
+        keys::{KeyCodes, locking_modifier_names},
         monitor::monitors,
         output::{NewOutput, new_output, outputs},
         seat::{NewSeat, new_seat, seats},
@@ -735,6 +738,12 @@ module! {
 
     /// Every modifier name a seat accepts, in the order a keymap numbers them. `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
     fn modifierNames(_lua, _session) -> Vec<String> { Ok(modifier_names()) }
+
+    /// The modifiers a keymap reports as locked rather than held: a press turns one on, and the next press turns it off. A subset of `modifierNames()`.
+    fn lockingModifierNames(_lua, _session) -> Vec<String> { Ok(locking_modifier_names()) }
+
+    /// Every key lunette names, by name, as the evdev keycode `sink:key` takes. The table is fresh on each call.
+    fn keyCodes(_lua, _session) -> KeyCodes { Ok(KeyCodes) }
 
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }

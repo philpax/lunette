@@ -1,6 +1,7 @@
 -- Interaction and laser outages, and an interaction outage in the middle of a
 -- drag, in the shipped desktop composition.
-local persist = require '@mullion/persist'
+local persist = require '@lunette-desktop/persist'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local desktop = require 'fixture/graph'()
 local providers, consumers, service = desktop.providers, desktop.consumers, desktop.panels
 
@@ -55,7 +56,7 @@ local writes = events.writes
 providers.interaction:disable()
 events.grip = false
 events.handX = nil
-local stored = window.properties['mullion.pose']
+local stored = window.properties[vocabulary.POSE_PROPERTY]
 assert(stored ~= nil, 'the abandoned grab stored the pose')
 assert(events.writes == writes + 1, 'the abandoned grab saved the arrangement')
 local loaded = persist.read(events.saved)

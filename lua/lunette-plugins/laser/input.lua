@@ -1,21 +1,13 @@
 -- Pure input shaping shared by the headset reader and test readers.
 
+local vocabulary = require '@lunette-contracts/vocabulary'
+
 local input = {}
 
 export type Device = 'hand/left/point' | 'hand/right/point' | 'hand/left' | 'hand/right'
 export type Hand = 'left' | 'right'
+export type Input = vocabulary.Input
 export type Reader = (Hand) -> Input?
-
-export type Input = {
-  read pose: Mat4?,
-  read origin: vector,
-  read direction: vector,
-  read trigger: boolean,
-  read grip: boolean,
-  read scrollX: number?,
-  read scrollY: number?,
-  read dt: number?,
-}
 
 local devices: { [string]: Device } = {
   left = 'hand/left/point',

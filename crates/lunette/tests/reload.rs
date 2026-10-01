@@ -218,8 +218,10 @@ fn standard_library() -> PathBuf {
     };
     let lua = root.join("lua");
     assert!(
-        lua.join("mullion").join("pose.lua").is_file(),
-        "{} should hold the standard library",
+        lua.join("lunette-contracts")
+            .join("vocabulary.lua")
+            .is_file(),
+        "{} should hold the shipped Lua roots",
         lua.display()
     );
     lua

@@ -6,10 +6,10 @@ local lunette = require '@lunette'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
-local persist = require '@mullion/persist'
-local pose = require '@mullion/pose'
+local persist = require '@lunette-desktop/persist'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
-local spec = suite.new 'mullion.persist.arrangement'
+local spec = suite.new 'lunette-desktop.persist.arrangement'
 local TOLERANCE = 1e-5
 
 local function entry(overrides)
@@ -154,7 +154,7 @@ spec('capture records pose, metre size, and ordered tag membership', function()
     tags:new(context, 'main'):add(context, panel)
     tags:new(context, 'side'):add(context, panel)
     local captured = persist.entries(state:capture(panels, tags))[1]
-    expect.equal(captured.pose, pose.encode(panel.pose), 'the pose')
+    expect.equal(captured.pose, vocabulary.encodePose(panel.pose), 'the pose')
     expect.near(captured.width, 1.6, TOLERANCE, 'the width')
     expect.near(captured.height, 0.9, TOLERANCE, 'the height')
     expect.equal(table.concat(captured.tags, ','), 'main,side', 'the tags')
@@ -186,7 +186,7 @@ spec('binding restores a monitor and reports unmatched entries', function()
     entry {
       kind = 'monitor',
       key = 'fixture.monitor',
-      pose = pose.encode(lovr.math.newMat4():translate(-1, 2, -3)),
+      pose = vocabulary.encodePose(lovr.math.newMat4():translate(-1, 2, -3)),
       tags = {},
     },
     entry { kind = 'monitor', key = 'unplugged', tags = {} },

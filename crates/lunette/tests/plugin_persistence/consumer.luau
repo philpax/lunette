@@ -3,7 +3,7 @@ local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
-local persist = require '@mullion/persist'
+local persist = require '@lunette-desktop/persist'
 
 local filesystem: persist.Filesystem = {
   read = function(_filename: string): string?

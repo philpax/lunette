@@ -7,7 +7,7 @@ local lunette = require '@lunette'  -- native mechanism.
 local mullion = require '@mullion'  -- the Lua standard library, optional.
 ```
 
-The roots have separate responsibilities. `lunette` exposes native mechanism for surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. `mullion` contains optional Lua policy and presentation modules. The plugin facade, its neutral contracts, and the built-in plugin providers have separate roots under `@lunette-plugin`, `@lunette-contracts`, and `@lunette-plugins`.
+The roots have separate responsibilities. `lunette` exposes native mechanism for surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. `mullion` contains optional Lua policy modules. The plugin facade, its neutral contracts, the built-in plugin providers, and the desktop that composes them have separate roots under `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`.
 
 The plugin facade does not replace either root. It provides lifecycle and service wiring for typed Lua components. The native `lunette` API remains usable without `mullion` or the plugin providers. `mullion` uses public APIs and contracts; it does not access private native state.
 
@@ -19,7 +19,7 @@ Module aliases and their runtime resolution are defined in [Module roots](build-
 
 If this file does not exist, `$SYSCONFDIR/xdg/lunette/main.lua` is used directly. This matches awesome's approach, and avoids stale copies of a configuration the user never edited. `lunette --dump-config` produces a copy for the user to start editing.
 
-A configuration that never mentions `mullion` is supported when it uses only the native API and plugin modules that do not depend on `mullion` helpers. The shipped configuration runs the `@lunette-desktop` composition of built-in providers and desktop consumers; it uses `mullion.persist` for arrangement state and the shared `mullion.pose` and `mullion.keycodes` helpers through its policy and providers.
+A configuration that never mentions `mullion` is supported. The shipped configuration runs the `@lunette-desktop` composition of built-in providers and desktop consumers, and none of them requires `mullion`: pose encoding and the key vocabulary are in `@lunette-contracts`, and arrangement persistence is `@lunette-desktop/persist`.
 
 ## Plugin authoring
 
@@ -344,7 +344,9 @@ The two scroll methods are separate because the protocol keeps the two sources a
 
 `sink:key(keycode, pressed)` takes an evdev keycode, which is what `wl_keyboard` carries and what `seat:strokeFor` hands back. On a window sink it goes to the seat's keyboard and so reaches whichever client that seat is focused on; a seat with no focus delivers to nobody. On a host sink it reaches whatever the host compositor currently focuses, and lunette does not choose what that is. A keycode outside the set lunette's host provider declared is refused with `false` rather than sent, because the kernel would otherwise drop it without a word.
 
-`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. `lunette.modifierNames()` answers with the names it takes, in the order a keymap numbers them, and an unrecognised one raises; `KeyModifier` in `crates/lunette-compositor/src/protocol/input.rs` is where the set is declared and everything else derives from it. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
+`lunette.keyCodes()` answers a fresh table from key name to evdev code, such as `codes.leftShift` for 42, so a configuration does not write keycodes as numbers. The names are camelCase and the set is the host sinks' `VirtualKey` in `crates/lunette-capture/src/hid/key.rs`, so every named key reaches a host sink as well as a window's seat; a key outside it still reaches a seat by number. The table's Luau type is keyed by `lunette.KeyName`, so indexing it with a misspelt name is a type error. `crates/lunette/src/lua/keys.rs` gives the names, and `crates/lunette-capture/tests/evdev_codes.rs` checks the codes against xkeyboard-config's evdev table.
+
+`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. `lunette.modifierNames()` answers with the names it takes, in the order a keymap numbers them, and an unrecognised one raises; `KeyModifier` in `crates/lunette-compositor/src/protocol/input.rs` is where the set is declared and everything else derives from it. `lunette.lockingModifierNames()` answers the subset a keymap reports as locked rather than held, `capsLock` and `numLock`: a press turns one on and the next press turns it off. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
 
 `sink:typeText(text)` is an escape hatch, and explicitly stateful. Text the active layout can type goes down the ordinary path and changes nothing; the rest makes lunette generate a temporary keymap, upload it, type against it, and put the client's own back. So it must not be interleaved with `sink:key` on the same seat, and a client may see its keymap change while it runs — which is legal, and is the price of entering text no layout binds. Text needing more distinct keysyms than one keymap holds is split into runs that fit rather than refused. It is refused on a host sink, because lunette does not own the host's keyboard well enough to promise the layout it took can be given back.
 
@@ -510,12 +512,12 @@ The directory is what makes the 0600 requirement enforceable, and reproducing th
 $ lunctl 'return #lunette.windows()'
 3
 $ lunctl 'for _, w in ipairs(lunette.windows()) do print(w.appId, w.title) end'
-$ lunctl "return require('@mullion/pose').encode(lovr.math.newMat4())"
+$ lunctl "return require('@lunette-contracts/vocabulary').encodePose(lovr.math.newMat4())"
 ```
 
 A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and a module name is tried as written and then under the `@` root the session registers it at, so `lunette` finds `@lunette`. Only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
 
-`mullion`'s submodules are not reachable through the root, here or anywhere. The root deliberately re-exports nothing, so `mullion.pose` is `nil` and the submodule is required by its own path.
+`mullion`'s submodules are not reachable through the root, here or anywhere. The root deliberately re-exports nothing, so `mullion.scale` is `nil` and the submodule is required by its own path.
 
 This is the most significant inheritance from awesome, more significant than any layout algorithm. awesome's design allows the whole window manager to be inspected and mutated from a shell prompt while it runs, which is a substantial part of its usability. `lunctl` also serves as the end-to-end test harness: it spawns a client, evaluates assertions, and tears down.
 

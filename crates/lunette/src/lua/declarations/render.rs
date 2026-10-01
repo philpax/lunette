@@ -5,6 +5,8 @@
 
 use std::fmt::Write as _;
 
+use lunette_luau::Type;
+
 use crate::{
     events::{payload_records, subscription_functions},
     lua::{
@@ -14,6 +16,7 @@ use crate::{
             AliasSpec, Aliased, Handle, NullTexture, Property, PropertyType, Record, Recorded,
             Textured, collect,
         },
+        keys::KeyName,
         module_functions,
         output::{NewOutput, SetMode},
         seat::{NewSeat, Stroke},
@@ -36,7 +39,7 @@ pub fn render() -> String {
         })
         .collect();
 
-    for alias in [Textured::ALIAS, PointerButtonName::ALIAS] {
+    for alias in [Textured::ALIAS, PointerButtonName::ALIAS, KeyName::ALIAS] {
         render_alias(&mut out, &alias, &handles);
     }
 
@@ -178,12 +181,22 @@ const STYLUA_COLUMNS: usize = 120;
 fn render_alias(out: &mut String, alias: &AliasSpec, handles: &[&Handle]) {
     out.push('\n');
     render_doc(out, alias.doc, "");
-    let _ = writeln!(
-        out,
-        "export type {} = {}",
-        (alias.name)(),
-        (alias.definition)(handles)
-    );
+    let name = (alias.name)();
+    let definition = (alias.definition)(handles);
+    let line = format!("export type {name} = {definition}");
+    match &definition {
+        // StyLua breaks a union too wide for one line before each member.
+        Type::Union(members) if line.len() > STYLUA_COLUMNS => {
+            let _ = writeln!(out, "export type {name} =");
+            for (index, member) in members.iter().enumerate() {
+                let separator = if index == 0 { "" } else { "| " };
+                let _ = writeln!(out, "  {separator}{member}");
+            }
+        }
+        _ => {
+            let _ = writeln!(out, "{line}");
+        }
+    }
 }
 
 fn render_handle(out: &mut String, handle: &Handle) {

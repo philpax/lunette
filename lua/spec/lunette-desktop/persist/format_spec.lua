@@ -1,4 +1,4 @@
--- Covers lua/mullion/persist/format.lua.
+-- Covers lua/lunette-desktop/persist/format.lua.
 --
 -- An old reader must not write a newer file back. A default would let it parse
 -- the file, and the write-back would drop the fields added after the reader's
@@ -11,17 +11,17 @@
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
 
-local format = require '@mullion/persist/format'
-local pose = require '@mullion/pose'
+local format = require '@lunette-desktop/persist/format'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
-local spec = suite.new 'mullion.persist.format'
+local spec = suite.new 'lunette-desktop.persist.format'
 
 local function newEntry(overrides)
   local entry = {
     kind = 'window',
     key = 'terminal',
     slot = 1,
-    pose = pose.encode(lovr.math.newMat4():translate(1, 1.5, -2)),
+    pose = vocabulary.encodePose(lovr.math.newMat4():translate(1, 1.5, -2)),
     width = 1.2,
     height = 0.7,
     tags = { 'main' },
@@ -59,7 +59,7 @@ spec('an entry with no size round-trips as one with no size', function()
   -- A table constructor cannot carry a nil, so an override in `newEntry` cannot
   -- express a missing field.
   local written = format.newFile {
-    { kind = 'window', key = 'terminal', slot = 1, pose = pose.encode(lovr.math.newMat4()), tags = {} },
+    { kind = 'window', key = 'terminal', slot = 1, pose = vocabulary.encodePose(lovr.math.newMat4()), tags = {} },
   }
 
   local entry = format.entries(format.read(format.render(written)):forSession())[1]

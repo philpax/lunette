@@ -5,7 +5,7 @@
 
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
-local keycodes = require '@mullion/keycodes'
+local keyVocabulary = require '@lunette-contracts/keys'
 
 local layout = {}
 
@@ -29,7 +29,7 @@ function layout.keysOf(rows: { KeyRow }, measurements: Measurements, legendFor: 
       local width = (entry.width or 1) * unit
       keys[#keys + 1] = {
         code = entry.code,
-        modifier = keycodes.MODIFIERS[entry.code],
+        modifier = keyVocabulary.MODIFIER_KEYS[entry.code],
         legend = legendFor(entry),
         x = x,
         y = y,

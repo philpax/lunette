@@ -8,7 +8,7 @@ local adoption = require '@lunette-contracts/adoption'
 local layout = require '@lunette-contracts/layout'
 local frame = require '@lunette-contracts/frame'
 local logging = require '@lunette-desktop/logging'
-local persist = require '@mullion/persist'
+local persist = require '@lunette-desktop/persist'
 
 local WORKSPACE = 'main'
 local TERMINALS = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }

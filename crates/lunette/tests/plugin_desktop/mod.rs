@@ -1,7 +1,11 @@
 //! Real configuration modules and plugin attachment with unmanaged boundaries substituted.
 use std::path::Path;
 
-use lunette::{plugin::declarations, reload};
+use lunette::{
+    lua::keys::{KeyCodes, locking_modifier_names},
+    plugin::declarations,
+    reload,
+};
 use mlua::{Function, Lua, Table};
 
 #[path = "../plugin_sources/mod.rs"]
@@ -31,6 +35,13 @@ pub fn state() -> mlua::Result<Lua> {
         .exec()?;
     let native = lua.create_table()?;
     declarations::install(&lua, &native)?;
+    // The real key vocabulary, so the default rows resolve to the codes a
+    // session hands them.
+    native.set("keyCodes", lua.create_function(|_, ()| Ok(KeyCodes))?)?;
+    native.set(
+        "lockingModifierNames",
+        lua.create_function(|_, ()| Ok(locking_modifier_names()))?,
+    )?;
     native.set(
         "reload",
         lua.create_function(|lua, ()| {

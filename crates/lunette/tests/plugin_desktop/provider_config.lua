@@ -40,7 +40,12 @@ local rejections = {
     message = 'tuning.button is a pointer button, not thumb',
   },
   { id = 'laser', config = { style = 'red' }, message = 'plugin laser: option style is a table, not a string' },
-  { id = 'keyboard', config = { rows = {} }, message = 'plugin keyboard: unknown option rows; the options are style' },
+  { id = 'keyboard', config = { rows = 'qwerty' }, message = 'plugin keyboard: option rows is a table, not a string' },
+  {
+    id = 'keyboard',
+    config = { layout = {} },
+    message = 'plugin keyboard: unknown option layout; the options are rows, style',
+  },
   { id = 'rules', config = { precedance = 1 }, message = 'plugin rules: unknown option precedance' },
   { id = 'adoption', config = { precedence = '300' }, message = 'plugin adoption: option precedence is a number' },
   {
@@ -105,7 +110,10 @@ local running = desktop.start(desktop.compose {
     { id = 'panels', config = { height = 1.2, style = { borderThickness = 0.02 } } },
     { id = 'interaction', config = { tuning = { reach = 0.5 } } },
     { id = 'laser', config = { style = { length = 2.5 } } },
-    { id = 'keyboard', config = { style = { keyUnit = 0.056 } } },
+    {
+      id = 'keyboard',
+      config = { rows = { { { code = 30 }, { code = 31, width = 2 } } }, style = { keyUnit = 0.056 } },
+    },
     { id = 'rules', config = { precedence = 150 } },
     { id = 'adoption', config = { precedence = 350 } },
     { id = 'layout/arc', config = { tuning = { radius = 3 } } },
@@ -138,6 +146,8 @@ assert(services.laser.STYLE.length == 2.5 and services.laser.STYLE.cursorRadius 
 assert(services.keyboard.STYLE.keyUnit == 0.056 and services.keyboard.STYLE.gap == 0.004)
 local typed = services.keyboard:new(owner, {})
 assert(typed.style.keyUnit == 0.056, 'a new keyboard takes the configured style')
+assert(#typed.rows == 1 and #typed.rows[1] == 2, 'a new keyboard takes the configured rows')
+assert(typed.width == 3 * 0.056, 'the configured rows set the keyboard width')
 typed:destroy()
 
 assert(services.rules.DEFAULT_PRECEDENCE == 150)

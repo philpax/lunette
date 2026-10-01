@@ -1,8 +1,8 @@
 -- Every module is safe to require twice.
 --
--- A source reload keeps the Lua state, drops every `@mullion` entry from
--- `package.loaded`, and runs each module body again when the new configuration
--- requires it (docs/dev/lua-api.md#reload). A module body that fails when it
+-- A source reload keeps the Lua state, drops every module outside the
+-- runtime's own from `package.loaded`, and runs each module body again when
+-- the new configuration requires it (docs/dev/lua-api.md#reload). A module body that fails when it
 -- runs a second time, or that writes a global the first run left behind, is a
 -- defect a reload exposes. The check walks the tree and runs every module body
 -- again, so the suite catches it and review does not have to notice it.
@@ -13,9 +13,9 @@
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
 
-local tree = require '@spec/mullion/tree'
+local tree = require '@spec/tree'
 
-local spec = suite.new 'mullion.reload'
+local spec = suite.new 'spec.reload'
 
 -- Every module name, in the order the tree lists them.
 local function moduleNames()

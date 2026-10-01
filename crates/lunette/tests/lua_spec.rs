@@ -1,7 +1,7 @@
-//! Linux-only: runs the `lua/spec/` suite, which covers the `mullion` standard
-//! library.
+//! Linux-only: runs the `lua/spec/` suite, which covers the optional `mullion`
+//! library, the desktop's persistence, and the shared vocabulary.
 //!
-//! The workspace's checks compile Rust, and the standard library is Lua.
+//! The workspace's checks compile Rust, and those modules are Lua.
 //! Without the `cargo test` the specs would need a manual run; with it they
 //! run with everything else.
 //!
@@ -24,7 +24,7 @@ use tempfile::TempDir;
 const PASSED: i32 = 9;
 
 #[test]
-fn every_mullion_spec_passes() {
+fn every_lua_spec_passes() {
     let outcome = run();
 
     assert_eq!(
@@ -66,18 +66,18 @@ fn run() -> Outcome {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
-        .join("mullion-spec");
+        .join("lua-spec");
     // Checked before the run. A mislaid fixture then fails as itself, and
     // boot.lua's "no main.lua" path never runs.
     assert!(
         directory.join("lunette").join("main.lua").is_file(),
-        "the mullion-spec fixture is missing its main.lua"
+        "the lua-spec fixture is missing its main.lua"
     );
 
     // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and
     // fails the boot when it cannot. A temporary directory per run also
     // removes the dependency on `HOME`, which the command unsets.
-    let data_directory = match TempDir::with_prefix("lunette-mullion-spec-data-") {
+    let data_directory = match TempDir::with_prefix("lunette-lua-spec-data-") {
         Ok(directory) => directory,
         Err(error) => panic!("a temporary data directory could not be created: {error}"),
     };

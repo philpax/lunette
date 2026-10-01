@@ -8,9 +8,9 @@ local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
-local format = require '@mullion/persist/format'
-local slots = require '@mullion/persist/slots'
-local pose = require '@mullion/pose'
+local vocabulary = require '@lunette-contracts/vocabulary'
+local format = require '@lunette-desktop/persist/format'
+local slots = require '@lunette-desktop/persist/slots'
 
 local arrangement = {}
 
@@ -112,7 +112,7 @@ function arrangement.capture(
           kind = target.kind,
           key = key,
           slot = slot,
-          pose = pose.encode(target.pose),
+          pose = vocabulary.encodePose(target.pose),
           width = target.width,
           height = target.height,
           tags = names,
@@ -134,7 +134,7 @@ function arrangement.apply(
   target: panelsContract.Panel,
   entry: Entry
 ): boolean
-  local placed = pose.decode(entry.pose)
+  local placed = vocabulary.decodePose(entry.pose)
   if not placed then
     report("the pose saved for '" .. entry.key .. "' is not sixteen numbers")
     return false

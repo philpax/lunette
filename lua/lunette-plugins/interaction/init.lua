@@ -13,7 +13,6 @@ local panelsContract = require '@lunette-contracts/panels'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local focus = require '@lunette-plugins/interaction/focus'
 local grab = require '@lunette-plugins/interaction/grab'
-local pose = require '@lunette-plugins/interaction/pose'
 
 type Service = contracts.Service
 type Pointer = contracts.Pointer
@@ -56,14 +55,14 @@ local function storePose(target: Surface): boolean
   if target.dead or target.kind ~= 'window' or target.source.dead or not target.pose then
     return false
   end
-  return target.source:setProperty(POSE_PROPERTY, pose.encode(target.pose)) and true
+  return target.source:setProperty(POSE_PROPERTY, vocabulary.encodePose(target.pose)) and true
 end
 
 local function restorePose(target: Surface): boolean
   if target.dead or target.kind ~= 'window' or target.source.dead then
     return false
   end
-  local kept = pose.decode(target.source:getProperty(POSE_PROPERTY))
+  local kept = vocabulary.decodePose(target.source:getProperty(POSE_PROPERTY))
   if not kept or not target.setPose then
     return false
   end

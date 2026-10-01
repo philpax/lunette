@@ -1,8 +1,8 @@
 local suite = require '@spec/suite'
 local mounted = {
-  { name = '@spec/mullion/persist/file_spec', cases = 15 },
-  { name = '@spec/mullion/persist/arrangement_spec', cases = 18 },
-  { name = '@spec/mullion/persist/format_spec', cases = 15 },
+  { name = '@spec/lunette-desktop/persist/file_spec', cases = 15 },
+  { name = '@spec/lunette-desktop/persist/arrangement_spec', cases = 18 },
+  { name = '@spec/lunette-desktop/persist/format_spec', cases = 15 },
 }
 local count = 0
 for _, expected in ipairs(mounted) do

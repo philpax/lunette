@@ -739,6 +739,7 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "wlx-capture",
+ "xkbcommon",
 ]
 
 [[package]]

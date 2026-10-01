@@ -2,14 +2,14 @@
 -- built.
 --
 -- The suite lives in the repository's `lua/` tree, which reaches this session
--- through LUNETTE_STDLIB_PATH, so `@spec/runner` and `@mullion/pose` both
+-- through LUNETTE_STDLIB_PATH, so `@spec/runner` and the shipped roots
 -- resolve through the same mount a session resolves the standard library
 -- through. The specs run against the tree as it is installed, not against a copy
 -- assembled for them.
 --
 -- The devshell ships no standalone LuaJIT, and the mount is LÖVR's virtual
 -- filesystem, not the process's, so there is nowhere else this could run.
--- crates/lunette/tests/mullion_spec.rs is the caller.
+-- crates/lunette/tests/lua_spec.rs is the caller.
 
 -- The specs live at `@spec` in the virtual filesystem, and `@spec/` is the
 -- module prefix that path is reached by. The explicit mount point is the

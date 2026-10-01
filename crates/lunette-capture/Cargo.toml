@@ -37,6 +37,9 @@ test-fakes = []
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+# The evdev-code test checks `VirtualKey` against xkeyboard-config's evdev
+# keycodes, which libxkbcommon reads. The compositor already links it.
+xkbcommon.workspace = true
 
 [lints]
 workspace = true

@@ -2,9 +2,9 @@
 --
 -- This module has no state and issues no capability. Keeping both sides of the
 -- recursive relationship here lets surface.lua and interaction.lua remain
--- independently requireable without a runtime cycle. Constants that several
--- providers agree on also live here, so agreeing on one does not make a
--- provider require another's contract.
+-- independently requireable without a runtime cycle. Constants and encodings
+-- that several providers agree on also live here, so agreeing on one does not
+-- make a provider require another's contract.
 
 local lunette = require '@lunette'
 
@@ -12,8 +12,83 @@ local vocabulary = {}
 
 -- The per-window property a window's kept pose is stored under. The
 -- interaction provider writes it on a drop and the adoption provider reads it
--- as a placement source.
-vocabulary.POSE_PROPERTY = 'mullion.pose'
+-- as a placement source. Its value is `encodePose`'s string.
+vocabulary.POSE_PROPERTY = 'lunette.pose'
+
+-- How many numbers a pose is written as.
+--
+-- The per-window property store takes a number, a string, or a boolean and
+-- refuses a table (docs/dev/lua-api.md#per-window-properties), so a pose is
+-- encoded into a string. The property store, a rule's `pose` given as text,
+-- and a saved arrangement on disk share this one encoding.
+--
+-- The format uses sixteen elements, not a position and an orientation,
+-- because a pose may carry a scale and a decomposition would drop it. Nine
+-- significant digits return a 32-bit float to its original value, so the
+-- round trip is exact.
+vocabulary.POSE_ELEMENTS = 16
+
+-- A `Mat4` as a string of sixteen numbers.
+function vocabulary.encodePose(matrix: Mat4): string
+  local elements: { number } = { matrix:unpack(true) }
+  local encoded: { string } = {}
+  for index = 1, vocabulary.POSE_ELEMENTS do
+    encoded[index] = string.format('%.9g', elements[index])
+  end
+  return table.concat(encoded, ' ')
+end
+
+-- What `encodePose` wrote, as a fresh `Mat4`, or nothing.
+--
+-- Anything that is not sixteen finite numbers returns nothing, and no
+-- partly-filled matrix is returned. A stored value persists after the Lua
+-- state that wrote it is gone, and a configuration that sets the property
+-- directly is as likely a source as this module is.
+function vocabulary.decodePose(text: boolean | number | string | nil): Mat4?
+  if type(text) ~= 'string' then
+    return nil
+  end
+  local encoded: string = text
+
+  local elements: { number } = {}
+  local count = 0
+  for word in encoded:gmatch '%S+' do
+    count += 1
+    if count > vocabulary.POSE_ELEMENTS then
+      return nil
+    end
+    local number = tonumber(word)
+    -- An infinity or a nan places a panel nowhere, and the value stays in the
+    -- store across reloads. A nan is not equal to itself, so `number ~= number`
+    -- catches it.
+    if not number or number ~= number or number == math.huge or number == -math.huge then
+      return nil
+    end
+    elements[count] = number
+  end
+
+  if count ~= vocabulary.POSE_ELEMENTS then
+    return nil
+  end
+  return lovr.math.newMat4():set(
+    elements[1],
+    elements[2],
+    elements[3],
+    elements[4],
+    elements[5],
+    elements[6],
+    elements[7],
+    elements[8],
+    elements[9],
+    elements[10],
+    elements[11],
+    elements[12],
+    elements[13],
+    elements[14],
+    elements[15],
+    elements[16]
+  )
+end
 
 export type Tuning = {
   read reach: number,
@@ -28,6 +103,8 @@ export type Tuning = {
   read button: lunette.PointerButton,
 }
 
+-- One frame of a pointing device: where it is, which way it points, and what
+-- is held. A laser reads one per hand and a pointer is driven by it.
 export type Input = {
   read pose: Mat4?,
   read origin: vector,

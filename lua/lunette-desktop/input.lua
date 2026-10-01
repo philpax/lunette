@@ -3,36 +3,15 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local interaction = require '@lunette-contracts/interaction'
+local keys = require '@lunette-contracts/keys'
 local logging = require '@lunette-desktop/logging'
 
-local NAMED_KEYS = {
-  backspace = 14,
-  ['return'] = 28,
-  kpenter = 28,
-  escape = 1,
-  tab = 15,
-  up = 103,
-  down = 108,
-  left = 105,
-  right = 106,
-  home = 102,
-  ['end'] = 107,
-  pageup = 104,
-  pagedown = 109,
-  delete = 111,
-  insert = 110,
-}
-local MODIFIERS: { { names: { KeyCode }, modifier: string } } = {
-  { names = { 'lctrl', 'rctrl' }, modifier = 'control' },
-  { names = { 'lalt', 'ralt' }, modifier = 'alt' },
-  { names = { 'lgui', 'rgui' }, modifier = 'logo' },
-}
 local required: plugin.Declaration = { frame = frame.capability, interaction = interaction.capability }
 
 local function heldModifiers(): { string }
   local held: { string } = {}
-  for _, entry in ipairs(MODIFIERS) do
-    for _, name in ipairs(entry.names) do
+  for _, entry in ipairs(keys.LOVR_MODIFIERS) do
+    for _, name in ipairs(entry.keys) do
       if lovr.system.isKeyDown(name) then
         held[#held + 1] = entry.modifier
         break
@@ -93,7 +72,7 @@ return plugin.define {
       run = function(event: frame.KeyEvent): boolean?
         local key = event.key
         local held = heldModifiers()
-        local named = NAMED_KEYS[key]
+        local named = keys.FROM_LOVR[key]
         if named then
           stroke(named, held)
         elseif #held > 0 and #key == 1 then

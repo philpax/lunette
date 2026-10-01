@@ -19,7 +19,7 @@ lunette/
   lua/lunette-contracts/          neutral plugin service contracts
   lua/lunette-plugins/            built-in plugin implementations
   lua/lunette-desktop/            the shipped desktop's consumers and composition
-  lua/mullion/                    optional Lua helper and policy modules
+  lua/mullion/                    optional Lua policy modules
   lua/spec/                       development-only Lua specifications
   etc/lunette/                    the generated Luau definitions
   etc/xdg/lunette/                the default configuration
@@ -66,7 +66,7 @@ The source and install roots are described by `crates/lunette/src/aliases.rs`. I
 | `@mullion` | `lua/mullion/` | Mounted file root | Optional |
 | `@spec` | `lua/spec/` | Mounted development file root | Not installed |
 
-The `@lunette` API is registered at runtime and is not loaded from `lua/lunette/`. Its checked-in declaration is generated from the Rust registration surface. The plugin facade, provider, and desktop roots are ordinary Lua modules mounted under reserved aliases. The desktop root is required because the default configuration runs it; safe mode is compiled into the binary and needs none of the installed roots. A configuration cannot shadow these mounts with files at the configuration root.
+The `@lunette` API is registered at runtime and is not loaded from `lua/lunette/`. Its checked-in declaration is generated from the Rust registration surface. The plugin facade, provider, and desktop roots are ordinary Lua modules mounted under reserved aliases. The desktop root is required because the default configuration runs it; safe mode is compiled into the binary and needs none of the installed roots. `@mullion` is optional because nothing in the required roots or the default configuration requires it, which `crates/lunette/tests/optional_library.rs` checks. A configuration cannot shadow these mounts with files at the configuration root.
 
 `make check-definitions` checks the generated Luau definitions, native API declarations, `.luaurc` files, and alias metadata. `make check-luau` checks the shipped roots, the ordinary spec harness modules, and the default configuration. It runs the Luau checker as a separate process; startup does not run that checker.
 

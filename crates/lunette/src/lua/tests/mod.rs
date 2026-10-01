@@ -411,6 +411,8 @@ fn the_module_exposes_only_what_this_phase_implements() {
         names,
         vec![
             "claimLayer".to_owned(),
+            "keyCodes".to_owned(),
+            "lockingModifierNames".to_owned(),
             "modifierNames".to_owned(),
             "monitors".to_owned(),
             "newOutput".to_owned(),

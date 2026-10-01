@@ -1,4 +1,4 @@
--- Every module of the standard library has a spec or a recorded exemption.
+-- Every module the specs own has a spec or a recorded exemption.
 --
 -- A thin module may lack a spec; the absence must be deliberate, not
 -- accidental. The table below names every module and what covers it. A
@@ -12,49 +12,51 @@
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
 
-local tree = require '@spec/mullion/tree'
+local tree = require '@spec/tree'
 
-local spec = suite.new 'mullion.coverage'
+local spec = suite.new 'spec.coverage'
 
--- The specs covering the standard library are under the `@spec` mount.
-local MULLION_SPECS = '@spec/mullion'
-
--- What covers each module: a spec path under `spec/mullion`, an array of
--- them for a module whose specs split along a seam, or `false` with the
--- reason it is exempt.
+-- What covers each module: a spec path under `@spec/`, an array of them for a
+-- module whose specs split along a seam, or `false` with the reason it is
+-- exempt.
 --
--- Keyed by the path under `mullion/`, matching the tree's module paths.
+-- Keyed by the module's path without its leading `@`, matching the tree's
+-- module paths. A module's specs sit under `@spec/` at the module's own path.
 local COVERAGE = {
   -- The root module holds no state, registers nothing, and returns an empty
   -- table. There is no behaviour for a spec to assert beyond requiring it,
   -- and `crates/lunette/tests/standard_library.rs` requires it from a real
   -- session to check the mount.
-  ['init.lua'] = false,
-  ['keycodes.lua'] = 'keycodes_spec.lua',
-  ['pacing.lua'] = 'pacing_spec.lua',
-  ['persist/format.lua'] = 'persist/format_spec.lua',
+  ['mullion/init.lua'] = false,
+  ['mullion/pacing.lua'] = 'mullion/pacing_spec.lua',
+  ['mullion/scale.lua'] = 'mullion/scale_spec.lua',
+  ['lunette-desktop/persist/format.lua'] = 'lunette-desktop/persist/format_spec.lua',
   -- Split along the module's own seam: one half is arrangements and panels, the
   -- other is the file on disk.
-  ['persist/init.lua'] = { 'persist/arrangement_spec.lua', 'persist/file_spec.lua' },
+  ['lunette-desktop/persist/init.lua'] = {
+    'lunette-desktop/persist/arrangement_spec.lua',
+    'lunette-desktop/persist/file_spec.lua',
+  },
   -- Capture and restore, exercised through a state's capture and bind.
-  ['persist/arrangement.lua'] = 'persist/arrangement_spec.lua',
+  ['lunette-desktop/persist/arrangement.lua'] = 'lunette-desktop/persist/arrangement_spec.lua',
   -- Slot holds, exercised through the source a spec builds over them.
-  ['persist/slots.lua'] = 'persist/arrangement_spec.lua',
-  ['pose.lua'] = 'pose_spec.lua',
-  ['scale.lua'] = 'scale_spec.lua',
+  ['lunette-desktop/persist/slots.lua'] = 'lunette-desktop/persist/arrangement_spec.lua',
+  ['lunette-contracts/keys.lua'] = 'lunette-contracts/keys_spec.lua',
+  ['lunette-contracts/vocabulary.lua'] = 'lunette-contracts/vocabulary_spec.lua',
+  ['lunette-plugins/keyboard/rows.lua'] = 'lunette-plugins/keyboard/rows_spec.lua',
 }
 
 -- The specs that cover the suite itself. The check below does not require a
 -- module claim for them.
 local ABOUT_THE_SUITE = {
-  ['@spec/mullion/coverage_spec.lua'] = true,
-  ['@spec/mullion/reload_spec.lua'] = true,
+  ['@spec/coverage_spec.lua'] = true,
+  ['@spec/reload_spec.lua'] = true,
   ['@spec/runner_spec.lua'] = true,
 }
 
--- The path under `mullion/` that `path` names.
+-- The path `path` names, without its leading `@`.
 local function relative(path)
-  return (path:gsub('^' .. tree.MODULE_ROOT .. '/', ''))
+  return (path:gsub('^@', ''))
 end
 
 -- The spec paths a coverage entry names, as an array. The checks below read
@@ -106,7 +108,7 @@ spec('every spec the coverage table names exists', function()
   local missing = {}
   for module, entry in pairs(COVERAGE) do
     for _, path in ipairs(covering(entry)) do
-      if not present[MULLION_SPECS .. '/' .. path] then
+      if not present[tree.SPEC_ROOT .. '/' .. path] then
         missing[#missing + 1] = module .. ' -> ' .. path
       end
     end
@@ -120,7 +122,7 @@ spec('every spec covers a module or is about the suite', function()
   local claimed = {}
   for _, entry in pairs(COVERAGE) do
     for _, path in ipairs(covering(entry)) do
-      claimed[MULLION_SPECS .. '/' .. path] = true
+      claimed[tree.SPEC_ROOT .. '/' .. path] = true
     end
   end
 

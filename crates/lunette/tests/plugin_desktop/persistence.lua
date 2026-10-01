@@ -2,8 +2,8 @@ local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
-local persist = require '@mullion/persist'
-local pose = require '@mullion/pose'
+local persist = require '@lunette-desktop/persist'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local runtime = plugin.runtime()
 frame.install {
   start = function() end,
@@ -54,19 +54,19 @@ service:emitDropped(owner, created, {})
 assert(events.writes == 1)
 local saved = events.saved
 first:dispose()
-window:setProperty('mullion.pose', nil)
+window:setProperty(vocabulary.POSE_PROPERTY, nil)
 local second = policy()
 created = service:forSource(window)
 local x, y, z = created.pose:getPosition()
 assert(x == 4 and y == 3 and z == -6, 'saved source overrides configured rule')
 second:dispose()
-window:setProperty('mullion.pose', pose.encode(lovr.math.newMat4():translate(8, 7, -9)))
+window:setProperty(vocabulary.POSE_PROPERTY, vocabulary.encodePose(lovr.math.newMat4():translate(8, 7, -9)))
 local third = policy()
 created = service:forSource(window)
 x, y, z = created.pose:getPosition()
 assert(x == 8 and y == 7 and z == -9, 'native source overrides saved arrangement')
 third:dispose()
-window:setProperty('mullion.pose', nil)
+window:setProperty(vocabulary.POSE_PROPERTY, nil)
 events.saved = 'invalid arrangement'
 local refused = policy()
 local reads, writes = events.reads, events.writes

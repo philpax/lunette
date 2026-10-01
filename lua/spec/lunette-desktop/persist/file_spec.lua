@@ -5,9 +5,9 @@ local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
-local persist = require '@mullion/persist'
+local persist = require '@lunette-desktop/persist'
 
-local spec = suite.new 'mullion.persist.file'
+local spec = suite.new 'lunette-desktop.persist.file'
 
 local function filesystem(text)
   local fs = { text = text, reads = 0, writes = 0, writable = true }

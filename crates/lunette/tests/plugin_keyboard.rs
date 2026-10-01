@@ -2,7 +2,10 @@
 
 extern crate lunette_lovr;
 
-use lunette::plugin::declarations;
+use lunette::{
+    lua::keys::{KeyCodes, locking_modifier_names},
+    plugin::declarations,
+};
 use mlua::{Function, Lua, Table, Value};
 
 mod plugin_sources;
@@ -18,6 +21,13 @@ fn keyboard_uses_real_dependency_providers() -> mlua::Result<()> {
     )?;
     let native = lua.create_table()?;
     declarations::install(&lua, &native)?;
+    // The real key vocabulary, so the default rows resolve to the codes a
+    // session hands them.
+    native.set("keyCodes", lua.create_function(|_, ()| Ok(KeyCodes))?)?;
+    native.set(
+        "lockingModifierNames",
+        lua.create_function(|_, ()| Ok(locking_modifier_names()))?,
+    )?;
     lua.globals().set("native", native)?;
     let modules = lua.create_table()?;
     plugin_sources::register(&lua, &modules)?;

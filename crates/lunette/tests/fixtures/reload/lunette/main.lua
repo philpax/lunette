@@ -17,9 +17,9 @@
 
 local lunette = require '@lunette'
 
--- Required for its module identity: a reload has to run the standard
--- library's module bodies again rather than keep the previous run's tables.
-local pose = require '@mullion/pose'
+-- Required for its module identity: a reload has to run the shipped Lua
+-- roots' module bodies again rather than keep the previous run's tables.
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 -- How many reloads this fixture performs. Ten: the accumulation under test
 -- shows only across several reloads, and one reload cannot show that nothing
@@ -32,9 +32,10 @@ reloads = reloads or 0
 
 -- What the first run saw, to compare every later run against.
 firstFilesystem = firstFilesystem or package.loaded['lovr.filesystem']
--- The `@mullion/pose` module table each run resolved, newest last.
-poseTables = poseTables or {}
-poseTables[#poseTables + 1] = pose
+-- The `@lunette-contracts/vocabulary` module table each run resolved, newest
+-- last.
+vocabularyTables = vocabularyTables or {}
+vocabularyTables[#vocabularyTables + 1] = vocabulary
 
 if reloads == 0 then
   -- Defined by the first run alone. It models a callback the user deleted
@@ -54,8 +55,8 @@ local function firstFailure()
   if reloads >= 1 and lovr.lunwindowopened ~= nil then
     return 13
   end
-  local count = #poseTables
-  if count >= 2 and poseTables[count] == poseTables[count - 1] then
+  local count = #vocabularyTables
+  if count >= 2 and vocabularyTables[count] == vocabularyTables[count - 1] then
     return 16
   end
   return nil

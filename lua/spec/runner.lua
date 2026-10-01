@@ -2,7 +2,7 @@
 --
 -- The standard library is Lua, and the workspace's checks compile Rust, so
 -- nothing else in the tree would run this code. `crates/lunette/tests/
--- mullion_spec.rs` runs it inside the binary, where a LuaJIT and a
+-- lua_spec.rs` runs it inside the binary, where a LuaJIT and a
 -- `lovr.filesystem` are available. The devshell ships no standalone
 -- interpreter. The specs are required through a mount on LÖVR's virtual
 -- filesystem, not the process's.

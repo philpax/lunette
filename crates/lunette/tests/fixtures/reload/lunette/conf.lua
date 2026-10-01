@@ -2,8 +2,8 @@
 --
 -- The session has to reach `lovr.load` on a machine with no display, no XR
 -- runtime, and no sound device, so the modules that depend on those are off.
--- `lovr.math` stays on, because the mullion modules this fixture requires
--- build `Mat4`s as they place panels.
+-- `lovr.math` stays on, because the vocabulary module this fixture requires
+-- decodes poses into `Mat4`s.
 
 function lovr.conf(t)
   -- This identity is distinct from the other fixtures' identities. boot.lua

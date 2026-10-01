@@ -72,16 +72,16 @@ fn persistence_vm() -> mlua::Result<Lua> {
         ("@spec/suite", include_str!("../../../lua/spec/suite.lua")),
         ("@spec/expect", include_str!("../../../lua/spec/expect.lua")),
         (
-            "@spec/mullion/persist/file_spec",
-            include_str!("../../../lua/spec/mullion/persist/file_spec.lua"),
+            "@spec/lunette-desktop/persist/file_spec",
+            include_str!("../../../lua/spec/lunette-desktop/persist/file_spec.lua"),
         ),
         (
-            "@spec/mullion/persist/arrangement_spec",
-            include_str!("../../../lua/spec/mullion/persist/arrangement_spec.lua"),
+            "@spec/lunette-desktop/persist/arrangement_spec",
+            include_str!("../../../lua/spec/lunette-desktop/persist/arrangement_spec.lua"),
         ),
         (
-            "@spec/mullion/persist/format_spec",
-            include_str!("../../../lua/spec/mullion/persist/format_spec.lua"),
+            "@spec/lunette-desktop/persist/format_spec",
+            include_str!("../../../lua/spec/lunette-desktop/persist/format_spec.lua"),
         ),
     ] {
         loaders.set(name, lua.load(source).set_name(name).into_function()?)?;

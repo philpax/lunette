@@ -17,7 +17,6 @@ fn panels_dropped_boundary_typechecks() {
             root.join("lua/lunette-plugins/panels/init.lua"),
             root.join("lua/lunette-plugins/interaction/init.lua"),
             root.join("lua/lunette-plugins/interaction/grab.lua"),
-            root.join("lua/lunette-plugins/interaction/pose.lua"),
         ],
     );
     let report = analyze::check(&request).unwrap_or_else(|error| panic!("panels: {error}"));

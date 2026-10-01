@@ -5,8 +5,8 @@
 -- there. The copy is `main.lua` and this file: the desktop itself is the
 -- installed `@lunette-desktop` root, which `main.lua` composes and patches. The
 -- command writes a `.luaurc` naming this installation's Lua roots, which makes
--- `lunette check` and an editor resolve `@lunette-desktop`, `@mullion`, and
--- `@lunette` from wherever the copy is placed.
+-- `lunette check` and an editor resolve `@lunette-desktop`, `@lunette`, and the
+-- other installed roots from wherever the copy is placed.
 
 function lovr.conf(t)
   t.identity = 'lunette'
@@ -14,8 +14,8 @@ function lovr.conf(t)
   -- LÖVR defaults this to true (vendor/lovr/etc/boot.lua). The default mounts
   -- the save directory ahead of everything else, so a file written there
   -- shadows a same-named file elsewhere. The precedence exists to patch a
-  -- packaged application. A session that writes 'mullion/init.lua' or
-  -- 'main.lua' into its save directory replaces the standard library or the
+  -- packaged application. A session that writes '@lunette-desktop/init.lua'
+  -- or 'main.lua' into its save directory replaces the desktop or the
   -- configuration for every session after it, and no reload can undo it
   -- because the reload reads the shadowing copy too. Setting it to false
   -- leaves the save directory mounted and readable. The save directory then

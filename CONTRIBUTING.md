@@ -28,7 +28,7 @@ lua/lunette-plugin/                   typed plugin authoring facade and erased a
 lua/lunette-contracts/                neutral plugin service contracts
 lua/lunette-plugins/                  built-in plugin implementations
 lua/lunette-desktop/                  the shipped desktop's consumers and composition
-lua/mullion/                          optional Lua helper and policy modules
+lua/mullion/                          optional Lua policy modules
 lua/spec/                             development-only Lua specifications
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
@@ -103,7 +103,7 @@ The check catches the two defect classes static analysis exists for: a local ref
 
 ### The module roots
 
-File-backed aliases such as `@mullion/persist`, `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop` resolve through LÖVR's virtual filesystem in a running session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload` at runtime; the checker reads its generated declarations from `lua/lunette/init.luau`. The development-only `@spec` root has no installed counterpart.
+File-backed aliases such as `@lunette-desktop/persist`, `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop` resolve through LÖVR's virtual filesystem in a running session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload` at runtime; the checker reads its generated declarations from `lua/lunette/init.luau`. The development-only `@spec` root has no installed counterpart.
 
 `crates/lunette/src/aliases.rs` describes the roots and their runtime resolution. The generator derives `.luaurc` files from those descriptors, and `make check-definitions` verifies them. The Rust install manifest names installed roots and generated declarations; `make install` consumes that manifest. `lunette --dump-config` writes a `.luaurc` beside the copied configuration and names this installation's Lua root by an absolute path.
 

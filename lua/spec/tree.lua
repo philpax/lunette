@@ -1,4 +1,4 @@
--- The standard library's own file tree, read from the mount.
+-- The file tree the Lua specs own, read from the mount.
 --
 -- `coverage_spec` and `reload_spec` both use the tree. The first lists every
 -- module that exists, and the second requires every module. Both read the tree
@@ -18,28 +18,56 @@ local tree = {}
 -- comes first in the file.
 local walk
 
--- Where the standard library and its specs are, as paths in the virtual
--- filesystem. The two trees have explicit mount points. Their paths start
--- with the same `@` roots that `require` resolves.
-tree.MODULE_ROOT = '@mullion'
+-- The modules the Lua specs own, as paths in the virtual filesystem. Each is
+-- a directory, walked for every `.lua` file under it, or a single file. The
+-- paths start with the same `@` roots that `require` resolves.
+--
+-- The rest of the shipped roots are providers, contracts, and desktop
+-- consumers that the Rust integration tests under `crates/lunette/tests/`
+-- drive through the plugin runtime. The modules here are the ones with
+-- behaviour a spec can reach without a runtime: the optional library, the
+-- desktop's persistence, the shared vocabulary, and the keyboard's default
+-- rows.
+tree.MODULE_ROOTS = {
+  '@mullion',
+  '@lunette-desktop/persist',
+  '@lunette-contracts/keys.lua',
+  '@lunette-contracts/vocabulary.lua',
+  '@lunette-plugins/keyboard/rows.lua',
+}
 tree.SPEC_ROOT = '@spec'
 
--- Every `.lua` file under `root`, as paths including it, in sorted order.
+-- Every `.lua` file under `root`, as paths including it, in sorted order. A
+-- root that is a file answers itself.
 function tree.files(root)
+  if not lovr.filesystem.isDirectory(root) then
+    if not lovr.filesystem.isFile(root) then
+      error(root .. ' is not in the mount')
+    end
+    return { root }
+  end
   local found = {}
   walk(root, found)
   table.sort(found)
   return found
 end
 
--- Every module of the standard library, as paths such as
--- `@mullion/persist/init.lua`.
+-- Every module the specs own, as paths such as
+-- `@lunette-desktop/persist/init.lua`, in sorted order.
 function tree.modules()
-  return tree.files(tree.MODULE_ROOT)
+  local found = {}
+  for _, root in ipairs(tree.MODULE_ROOTS) do
+    for _, path in ipairs(tree.files(root)) do
+      found[#found + 1] = path
+    end
+  end
+  table.sort(found)
+  return found
 end
 
--- Every spec file, as paths such as `@spec/mullion/persist/file_spec.lua`. The
--- suite's own specs are under `@spec/` directly and are included.
+-- Every spec file, as paths such as
+-- `@spec/lunette-desktop/persist/file_spec.lua`. The suite's own specs are
+-- under `@spec/` directly and are included.
 --
 -- Files that are not specs, such as `tree.lua`, are left
 -- out. The specs are the files that hold cases.
@@ -53,8 +81,9 @@ function tree.specs()
   return specs
 end
 
--- The module name that `require` uses for a path. `@mullion/persist/init.lua`
--- is `@mullion/persist`, and `@mullion/pose.lua` is `@mullion/pose`.
+-- The module name that `require` uses for a path.
+-- `@lunette-desktop/persist/init.lua` is `@lunette-desktop/persist`, and
+-- `@mullion/scale.lua` is `@mullion/scale`.
 function tree.moduleName(path)
   return path:gsub('%.lua$', ''):gsub('/init$', '')
 end
