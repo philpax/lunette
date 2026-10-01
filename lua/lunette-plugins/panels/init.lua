@@ -241,13 +241,10 @@ end
 local capability = contracts.capability
 local provided = { panels = capability }
 
-return plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  {},
-  provided,
-  function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
+return plugin.define {
+  name = 'panels',
+  provides = provided,
+  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
     publish:provide(capability, init(context))
-  end
-)
+  end,
+}

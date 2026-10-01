@@ -9,13 +9,11 @@ local required = {
 }
 local provided = { keyboard = keyboard.capability }
 
-return plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  required,
-  provided,
-  function(context: plugin.Context, config: {}, publish: plugin.Publisher)
+return plugin.define {
+  name = 'keyboard',
+  requires = required,
+  provides = provided,
+  init = function(context: plugin.Context, config: {}, publish: plugin.Publisher)
     service.initialize(context, config, publish)
-  end
-)
+  end,
+}

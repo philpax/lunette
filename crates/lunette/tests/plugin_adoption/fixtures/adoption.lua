@@ -5,10 +5,6 @@ local rules = require '@lunette-contracts/rules'
 local interaction = require '@lunette-contracts/interaction'
 local adoption = require '@lunette-contracts/adoption'
 
-local function identity(value)
-  return value
-end
-
 local runtime = plugin.runtime()
 local panelProvider = runtime:use(require '@lunette-plugins/panels', {})
 local tagProvider = runtime:use(require '@lunette-plugins/tags', {})
@@ -24,22 +20,26 @@ adoptionProvider:enable()
 local services
 local owner
 local consumer = runtime:use(
-  plugin.define(identity, {
-    panels = panels.capability,
-    tags = tags.capability,
-    rules = rules.capability,
-    interaction = interaction.capability,
-    adoption = adoption.capability,
-  }, {}, function(context)
-    services = {
-      panels = context:require(panels.capability),
-      tags = context:require(tags.capability),
-      rules = context:require(rules.capability),
-      interaction = context:require(interaction.capability),
-      adoption = context:require(adoption.capability),
-    }
-    owner = context
-  end),
+  plugin.define {
+    name = 'adoption-1',
+    requires = {
+      panels = panels.capability,
+      tags = tags.capability,
+      rules = rules.capability,
+      interaction = interaction.capability,
+      adoption = adoption.capability,
+    },
+    init = function(context)
+      services = {
+        panels = context:require(panels.capability),
+        tags = context:require(tags.capability),
+        rules = context:require(rules.capability),
+        interaction = context:require(interaction.capability),
+        adoption = context:require(adoption.capability),
+      }
+      owner = context
+    end,
+  },
   {}
 )
 consumer:enable()
@@ -209,18 +209,22 @@ function result.failInitialization()
   local placements = 0
   local failedOwner
   local failed = runtime:use(
-    plugin.define(identity, { adoption = adoption.capability }, {}, function(context)
-      failedOwner = context
-      local service = context:require(adoption.capability)
-      service:start(context, {
-        onPlaced = function()
-          placements += 1
-          if placements == 2 then
-            error 'fixture: onPlaced failure'
-          end
-        end,
-      })
-    end),
+    plugin.define {
+      name = 'adoption-2',
+      requires = { adoption = adoption.capability },
+      init = function(context)
+        failedOwner = context
+        local service = context:require(adoption.capability)
+        service:start(context, {
+          onPlaced = function()
+            placements += 1
+            if placements == 2 then
+              error 'fixture: onPlaced failure'
+            end
+          end,
+        })
+      end,
+    },
     {}
   )
   failed:enable()
@@ -282,13 +286,17 @@ function result.cancelCaller()
     return existing
   end
   caller = runtime:use(
-    plugin.define(identity, { adoption = adoption.capability }, {}, function(context)
-      context:require(adoption.capability):start(context, {
-        onPlaced = function()
-          placements += 1
-        end,
-      })
-    end),
+    plugin.define {
+      name = 'adoption-3',
+      requires = { adoption = adoption.capability },
+      init = function(context)
+        context:require(adoption.capability):start(context, {
+          onPlaced = function()
+            placements += 1
+          end,
+        })
+      end,
+    },
     {}
   )
   caller:enable()
@@ -316,9 +324,13 @@ function result.installWithoutRules()
     return false
   end
   local installer = runtime:use(
-    plugin.define(identity, { adoption = adoption.capability }, {}, function(context)
-      context:require(adoption.capability):install(context, 250)
-    end),
+    plugin.define {
+      name = 'adoption-4',
+      requires = { adoption = adoption.capability },
+      init = function(context)
+        context:require(adoption.capability):install(context, 250)
+      end,
+    },
     {}
   )
   installer:enable()
@@ -356,9 +368,13 @@ function result.placementLifetime(payload, mode)
   }
   if mode == 'failed-consumer' or mode == 'disable' then
     local caller = runtime:use(
-      plugin.define(identity, { adoption = adoption.capability }, {}, function(context)
-        context:require(adoption.capability):start(context, options)
-      end),
+      plugin.define {
+        name = 'adoption-5',
+        requires = { adoption = adoption.capability },
+        init = function(context)
+          context:require(adoption.capability):start(context, options)
+        end,
+      },
       {}
     )
     caller:enable()

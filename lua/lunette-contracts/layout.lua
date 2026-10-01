@@ -35,9 +35,7 @@ export type ArcService = {
 
 export type Capability = plugin.Capability<ArcService>
 
-local capability = plugin.capability('lunette/layout.arc', 1, function(value: ArcService): ArcService
-  return value
-end)
+local capability = plugin.capability<<ArcService>> { name = 'lunette/layout.arc', schema = 1 }
 
 layout.arc = capability
 layout.surface = surface

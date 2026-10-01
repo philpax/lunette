@@ -26,11 +26,13 @@ return function()
   local desktop = { runtime = runtime, providers = providers, consumers = consumers, callbacks = callbacks }
   runtime
     :use(
-      plugin.define(function(config)
-        return config
-      end, { panels = panels.capability }, {}, function(ctx)
-        desktop.panels = ctx:require(panels.capability)
-      end),
+      plugin.define {
+        name = 'graph-1',
+        requires = { panels = panels.capability },
+        init = function(ctx)
+          desktop.panels = ctx:require(panels.capability)
+        end,
+      },
       {}
     )
     :enable()

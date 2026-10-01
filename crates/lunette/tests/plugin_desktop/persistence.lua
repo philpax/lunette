@@ -24,11 +24,13 @@ end
 local service, owner
 runtime
   :use(
-    plugin.define(function(config)
-      return config
-    end, { panels = panels.capability }, {}, function(ctx)
-      service, owner = ctx:require(panels.capability), ctx
-    end),
+    plugin.define {
+      name = 'persistence-1',
+      requires = { panels = panels.capability },
+      init = function(ctx)
+        service, owner = ctx:require(panels.capability), ctx
+      end,
+    },
     {}
   )
   :enable()

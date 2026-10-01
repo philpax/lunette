@@ -70,9 +70,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability('lunette/laser', 1, function(value: Service): Service
-  return value
-end)
+local capability = plugin.capability<<Service>> { name = 'lunette/laser', schema = 1 }
 
 laser.capability = capability
 

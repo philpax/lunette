@@ -5,54 +5,58 @@ return function(plugin, modules)
   local laserInstance = runtime:use(modules.laser, {})
   local events = modules.events
 
-  local callerDefinition = plugin.define(function(config)
-    return config
-  end, { laser = modules.laserCapability }, {}, function(context, _config, _provide)
-    local service = context:require(modules.laserCapability)
-    local borrowed = service:new(context, 'left', {
-      seat = modules.seat,
-      readInput = function()
-        return nil
-      end,
-    })
-    assert(borrowed.seat == modules.seat)
-    assert(not borrowed.ownsSeat)
-    assert(#service:all() == 1)
+  local callerDefinition = plugin.define {
+    name = 'callerDefinition',
+    requires = { laser = modules.laserCapability },
+    init = function(context, _config, _provide)
+      local service = context:require(modules.laserCapability)
+      local borrowed = service:new(context, 'left', {
+        seat = modules.seat,
+        readInput = function()
+          return nil
+        end,
+      })
+      assert(borrowed.seat == modules.seat)
+      assert(not borrowed.ownsSeat)
+      assert(#service:all() == 1)
 
-    local attached = service:attach(context, {
-      seat = modules.seat,
-      readInput = function()
-        return nil
-      end,
-    })
-    assert(#attached == 2)
-    assert(attached[1] == borrowed, "attach answers the owner's own laser for a hand it holds")
-    assert(service:forHand 'left' == borrowed)
-    assert(#service:all() == 2)
-    local again = service:attach(context)
-    assert(again[1] == attached[1] and again[2] == attached[2] and #service:all() == 2, 'attach is idempotent')
+      local attached = service:attach(context, {
+        seat = modules.seat,
+        readInput = function()
+          return nil
+        end,
+      })
+      assert(#attached == 2)
+      assert(attached[1] == borrowed, "attach answers the owner's own laser for a hand it holds")
+      assert(service:forHand 'left' == borrowed)
+      assert(#service:all() == 2)
+      local again = service:attach(context)
+      assert(again[1] == attached[1] and again[2] == attached[2] and #service:all() == 2, 'attach is idempotent')
 
-    service:update {}
-    assert(borrowed.input == nil)
-    borrowed:destroy()
-    assert(#service:all() == 1)
-    assert(not modules.seat.dead)
-    events.acquired = true
-    events.service = service
-  end)
+      service:update {}
+      assert(borrowed.input == nil)
+      borrowed:destroy()
+      assert(#service:all() == 1)
+      assert(not modules.seat.dead)
+      events.acquired = true
+      events.service = service
+    end,
+  }
 
   -- A hand has one laser, and attach never hands one owner another's.
-  local rivalDefinition = plugin.define(function(config)
-    return config
-  end, { laser = modules.laserCapability }, {}, function(context)
-    local service = context:require(modules.laserCapability)
-    local before = #service:all()
-    assert(not pcall(function()
-      service:attach(context)
-    end), 'attach raises for a hand another owner holds')
-    assert(#service:all() == before, 'a refused attach makes nothing')
-    events.rivalRefused = true
-  end)
+  local rivalDefinition = plugin.define {
+    name = 'rivalDefinition',
+    requires = { laser = modules.laserCapability },
+    init = function(context)
+      local service = context:require(modules.laserCapability)
+      local before = #service:all()
+      assert(not pcall(function()
+        service:attach(context)
+      end), 'attach raises for a hand another owner holds')
+      assert(#service:all() == before, 'a refused attach makes nothing')
+      events.rivalRefused = true
+    end,
+  }
 
   local caller = runtime:use(callerDefinition, {})
   panelsInstance:enable()

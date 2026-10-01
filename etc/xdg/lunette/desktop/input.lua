@@ -43,13 +43,10 @@ local function heldModifiers(): { string }
   return held
 end
 
-return plugin.define(
-  function(config: Config): Config
-    return config
-  end,
-  required,
-  {},
-  function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
+return plugin.define {
+  name = 'desktop/input',
+  requires = required,
+  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
     local callbacks = config.callbacks
     local service: interaction.Service = context:require(interaction.capability)
     -- The focused seat and sink, or nothing when either has died since focus
@@ -107,5 +104,5 @@ return plugin.define(
         end
       end
     end)
-  end
-)
+  end,
+}

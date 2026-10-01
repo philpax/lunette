@@ -1,25 +1,21 @@
 return function(plugin)
-  local function identity(value)
-    return value
-  end
-
   local function rejects(callback, expected)
     local ok, message = pcall(callback)
     assert(not ok and tostring(message):find(expected, 1, true), tostring(message))
   end
 
-  local good = plugin.capability('local/failure-good', 1, identity)
-  local missing = plugin.capability('local/failure-missing', 1, identity)
-  local duplicate = plugin.capability('local/failure-duplicate', 1, identity)
-  local nil_value = plugin.capability('local/failure-nil', 1, identity)
-  local extra = plugin.capability('local/failure-extra', 1, identity)
-  local undeclared = plugin.capability('local/failure-undeclared', 1, identity)
-  local returned = plugin.capability('local/failure-returned', 1, identity)
-  local escaped_success_token = plugin.capability('local/failure-escaped-success', 1, identity)
-  local escaped_error_token = plugin.capability('local/failure-escaped-error', 1, identity)
-  local cancelled = plugin.capability('local/failure-cancelled', 1, identity)
-  local partial_one = plugin.capability('local/failure-partial-one', 1, identity)
-  local partial_two = plugin.capability('local/failure-partial-two', 1, identity)
+  local good = plugin.capability { name = 'local/failure-good', schema = 1 }
+  local missing = plugin.capability { name = 'local/failure-missing', schema = 1 }
+  local duplicate = plugin.capability { name = 'local/failure-duplicate', schema = 1 }
+  local nil_value = plugin.capability { name = 'local/failure-nil', schema = 1 }
+  local extra = plugin.capability { name = 'local/failure-extra', schema = 1 }
+  local undeclared = plugin.capability { name = 'local/failure-undeclared', schema = 1 }
+  local returned = plugin.capability { name = 'local/failure-returned', schema = 1 }
+  local escaped_success_token = plugin.capability { name = 'local/failure-escaped-success', schema = 1 }
+  local escaped_error_token = plugin.capability { name = 'local/failure-escaped-error', schema = 1 }
+  local cancelled = plugin.capability { name = 'local/failure-cancelled', schema = 1 }
+  local partial_one = plugin.capability { name = 'local/failure-partial-one', schema = 1 }
+  local partial_two = plugin.capability { name = 'local/failure-partial-two', schema = 1 }
   local events = {}
   local published = {}
   local escaped_success
@@ -27,39 +23,54 @@ return function(plugin)
   local escaped_cancel
   local cancelled_instance
 
-  local provider = plugin.define(identity, {}, { good = good }, function(_context, config, publish)
-    publish:provide(good, config.value)
-  end)
-  local consumer = plugin.define(identity, { good = good }, {}, function(context, config)
-    assert(context:require(good) == 'service')
-    table.insert(published, config.name)
-  end)
+  local provider = plugin.define {
+    name = 'provider',
+    provides = { good = good },
+    init = function(_context, config, publish)
+      publish:provide(good, config.value)
+    end,
+  }
+  local consumer = plugin.define {
+    name = 'consumer',
+    requires = { good = good },
+    init = function(context, config)
+      assert(context:require(good) == 'service')
+      table.insert(published, config.name)
+    end,
+  }
   local function failed_consumer(capability, name)
-    return plugin.define(identity, { service = capability }, {}, function(context, config)
-      context:require(capability)
-      table.insert(published, config.name .. name)
-    end)
+    return plugin.define {
+      name = 'provision-failures-3',
+      requires = { service = capability },
+      init = function(context, config)
+        context:require(capability)
+        table.insert(published, config.name .. name)
+      end,
+    }
   end
 
-  local missing_definition = plugin.define(identity, {}, { missing = missing }, function(context)
-    context:effect(function()
-      table.insert(events, 'missing-acquire-outer')
-      return function()
-        table.insert(events, 'missing-release-outer')
-      end
-    end)
-    context:effect(function()
-      table.insert(events, 'missing-acquire-inner')
-      return function()
-        table.insert(events, 'missing-release-inner')
-      end
-    end)
-  end)
-  local duplicate_definition = plugin.define(
-    identity,
-    {},
-    { duplicate = duplicate },
-    function(context, _config, publish)
+  local missing_definition = plugin.define {
+    name = 'missing-definition',
+    provides = { missing = missing },
+    init = function(context)
+      context:effect(function()
+        table.insert(events, 'missing-acquire-outer')
+        return function()
+          table.insert(events, 'missing-release-outer')
+        end
+      end)
+      context:effect(function()
+        table.insert(events, 'missing-acquire-inner')
+        return function()
+          table.insert(events, 'missing-release-inner')
+        end
+      end)
+    end,
+  }
+  local duplicate_definition = plugin.define {
+    name = 'duplicate-definition',
+    provides = { duplicate = duplicate },
+    init = function(context, _config, publish)
       context:effect(function()
         table.insert(events, 'duplicate-acquire')
         return function()
@@ -68,51 +79,61 @@ return function(plugin)
       end)
       publish:provide(duplicate, 'first')
       publish:provide(duplicate, 'second')
-    end
-  )
-  local nil_definition = plugin.define(identity, {}, { nil_value = nil_value }, function(context, _config, publish)
-    context:effect(function()
-      table.insert(events, 'nil-acquire')
-      return function()
-        table.insert(events, 'nil-release')
-      end
-    end)
-    publish:provide(nil_value, nil)
-  end)
-  local extra_definition = plugin.define(identity, {}, { extra = extra }, function(context, _config, publish)
-    context:effect(function()
-      table.insert(events, 'extra-acquire')
-      return function()
-        table.insert(events, 'extra-release')
-      end
-    end)
-    publish:provide(undeclared, 'extra')
-  end)
-  local returned_definition = plugin.define(identity, {}, { returned = returned }, function(context, _config, publish)
-    context:effect(function()
-      table.insert(events, 'returned-acquire')
-      return function()
-        table.insert(events, 'returned-release')
-      end
-    end)
-    publish:provide(returned, 'staged')
-    return 'initializer result'
-  end)
-  local escaped_success_definition = plugin.define(
-    identity,
-    {},
-    { service = escaped_success_token },
-    function(_context, config, publish)
+    end,
+  }
+  local nil_definition = plugin.define {
+    name = 'nil-definition',
+    provides = { nil_value = nil_value },
+    init = function(context, _config, publish)
+      context:effect(function()
+        table.insert(events, 'nil-acquire')
+        return function()
+          table.insert(events, 'nil-release')
+        end
+      end)
+      publish:provide(nil_value, nil)
+    end,
+  }
+  local extra_definition = plugin.define {
+    name = 'extra-definition',
+    provides = { extra = extra },
+    init = function(context, _config, publish)
+      context:effect(function()
+        table.insert(events, 'extra-acquire')
+        return function()
+          table.insert(events, 'extra-release')
+        end
+      end)
+      publish:provide(undeclared, 'extra')
+    end,
+  }
+  local returned_definition = plugin.define {
+    name = 'returned-definition',
+    provides = { returned = returned },
+    init = function(context, _config, publish)
+      context:effect(function()
+        table.insert(events, 'returned-acquire')
+        return function()
+          table.insert(events, 'returned-release')
+        end
+      end)
+      publish:provide(returned, 'staged')
+      return 'initializer result'
+    end,
+  }
+  local escaped_success_definition = plugin.define {
+    name = 'escaped-success-definition',
+    provides = { service = escaped_success_token },
+    init = function(_context, config, publish)
       escaped_success = publish
       publish:provide(escaped_success_token, config.value)
-    end
-  )
+    end,
+  }
   local escaped_success_consumer = failed_consumer(escaped_success_token, '-escaped-success')
-  local escaped_error_definition = plugin.define(
-    identity,
-    {},
-    { service = escaped_error_token },
-    function(context, _config, publish)
+  local escaped_error_definition = plugin.define {
+    name = 'escaped-error-definition',
+    provides = { service = escaped_error_token },
+    init = function(context, _config, publish)
       escaped_error = publish
       context:effect(function()
         table.insert(events, 'escaped-error-acquire')
@@ -122,13 +143,12 @@ return function(plugin)
       end)
       publish:provide(escaped_error_token, { marker = 'staged-before-error' })
       error 'escaped initializer failure'
-    end
-  )
-  local cancelled_definition = plugin.define(
-    identity,
-    {},
-    { cancelled = cancelled },
-    function(context, _config, publish)
+    end,
+  }
+  local cancelled_definition = plugin.define {
+    name = 'cancelled-definition',
+    provides = { cancelled = cancelled },
+    init = function(context, _config, publish)
       escaped_cancel = publish
       context:effect(function()
         table.insert(events, 'cancel-acquire')
@@ -138,14 +158,13 @@ return function(plugin)
       end)
       cancelled_instance:disable()
       publish:provide(cancelled, 'cancelled')
-    end
-  )
+    end,
+  }
   local cancelled_consumer = failed_consumer(cancelled, '-cancelled')
-  local partial_definition = plugin.define(
-    identity,
-    {},
-    { one = partial_one, two = partial_two },
-    function(context, _config, publish)
+  local partial_definition = plugin.define {
+    name = 'partial-definition',
+    provides = { one = partial_one, two = partial_two },
+    init = function(context, _config, publish)
       context:effect(function()
         table.insert(events, 'partial-acquire')
         return function()
@@ -154,8 +173,8 @@ return function(plugin)
       end)
       publish:provide(partial_one, 'one')
       error 'partial initializer failure'
-    end
-  )
+    end,
+  }
   local partial_consumer = failed_consumer(partial_one, '-partial')
 
   local runtime = plugin.runtime()

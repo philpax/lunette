@@ -1,32 +1,32 @@
 return function(plugin)
-  local function identity(value)
-    return value
-  end
-
-  local service = plugin.capability('local/cancel-service', 1, identity)
+  local service = plugin.capability { name = 'local/cancel-service', schema = 1 }
   local events = {}
   local consumer_published = false
   local escaped_provide
   local instance
 
-  local definition = plugin.define(function(config)
-    return config
-  end, {}, { service = service }, function(context, config, provide)
-    escaped_provide = provide
-    context:effect(function()
-      table.insert(events, 'acquire')
-      instance:disable()
-      return function()
-        table.insert(events, 'release')
-      end
-    end)
-    provide:provide(service, config.value)
-  end)
-  local consumer_definition = plugin.define(function(config)
-    return config
-  end, { service = service }, {}, function(_context, _config, _provide)
-    consumer_published = true
-  end)
+  local definition = plugin.define {
+    name = 'definition',
+    provides = { service = service },
+    init = function(context, config, provide)
+      escaped_provide = provide
+      context:effect(function()
+        table.insert(events, 'acquire')
+        instance:disable()
+        return function()
+          table.insert(events, 'release')
+        end
+      end)
+      provide:provide(service, config.value)
+    end,
+  }
+  local consumer_definition = plugin.define {
+    name = 'consumer-definition',
+    requires = { service = service },
+    init = function(_context, _config, _provide)
+      consumer_published = true
+    end,
+  }
 
   local runtime = plugin.runtime()
   instance = runtime:use(definition, { value = { marker = 'service' } })

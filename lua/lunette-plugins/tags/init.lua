@@ -5,13 +5,11 @@ local tags = require '@lunette-contracts/tags'
 local create = require '@lunette-plugins/tags/service'
 local required: plugin.Declaration = {}
 local provided: plugin.Declaration = { tags = tags.capability }
-return plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  required,
-  provided,
-  function(context, _config, provide)
+return plugin.define {
+  name = 'tags',
+  requires = required,
+  provides = provided,
+  init = function(context: plugin.Context, _config: {}, provide: plugin.Publisher)
     provide:provide(tags.capability, create(context))
-  end
-)
+  end,
+}

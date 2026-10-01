@@ -5,26 +5,34 @@ return function(plugin)
     return value
   end
 
-  local guarded = plugin.capability('local/guarded', 1, identity)
+  local guarded = plugin.capability { name = 'local/guarded', schema = 1 }
   local checked = false
-  local provider = plugin.define(identity, {}, { guarded = guarded }, function(context, _config, publish)
-    publish:provide(guarded, {
-      touch = function(_self, owner)
-        context:checkOwner(owner)
-        return true
-      end,
-    })
-  end)
-  local consumer = plugin.define(identity, { guarded = guarded }, {}, function(context)
-    local service = context:require(guarded)
-    assert(service:touch(context), 'a genuine owner was rejected')
-    local forged = setmetatable({}, { __index = context })
-    local ok, message = pcall(function()
-      service:touch(forged)
-    end)
-    assert(not ok and string.find(tostring(message), 'not a plugin context', 1, true), tostring(message))
-    checked = true
-  end)
+  local provider = plugin.define {
+    name = 'provider',
+    provides = { guarded = guarded },
+    init = function(context, _config, publish)
+      publish:provide(guarded, {
+        touch = function(_self, owner)
+          context:checkOwner(owner)
+          return true
+        end,
+      })
+    end,
+  }
+  local consumer = plugin.define {
+    name = 'consumer',
+    requires = { guarded = guarded },
+    init = function(context)
+      local service = context:require(guarded)
+      assert(service:touch(context), 'a genuine owner was rejected')
+      local forged = setmetatable({}, { __index = context })
+      local ok, message = pcall(function()
+        service:touch(forged)
+      end)
+      assert(not ok and string.find(tostring(message), 'not a plugin context', 1, true), tostring(message))
+      checked = true
+    end,
+  }
 
   local runtime = plugin.runtime()
   runtime:use(provider, {}):enable()

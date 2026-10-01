@@ -6,13 +6,10 @@ local laser = require '@lunette-contracts/laser'
 local required: plugin.Declaration = { laser = laser.capability }
 export type Config = { read callbacks: typeof(callbacks) }
 
-return plugin.define(
-  function(config: Config): Config
-    return config
-  end,
-  required,
-  {},
-  function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
+return plugin.define {
+  name = 'desktop/pointing',
+  requires = required,
+  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
     local callbacks = config.callbacks
     local laserService: laser.Service = context:require(laser.capability)
     laserService:attach(context)
@@ -23,5 +20,5 @@ return plugin.define(
     callbacks.onDraw(context, function(pass: Pass)
       laserService:draw(pass)
     end, 300)
-  end
-)
+  end,
+}

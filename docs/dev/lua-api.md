@@ -23,16 +23,31 @@ A configuration that never mentions `mullion` is supported when it uses only the
 
 ## Plugin authoring
 
-`require '@lunette-plugin'` provides the typed authoring facade. A contract module defines a service type, declares the contract with `plugin.capability(name, schema, witness)`, and exports the resulting capability. The name is authority-qualified and the schema is a positive number. Its service type describes the methods and fields that callers may use. The capability wrapper is frozen and binds to one native token when it is created, so the facade never hands out an unbound token. Declarations use that exact wrapper, and a Lua state cannot declare the same name and schema twice in one epoch. Contract vocabulary modules can hold shared types without creating a runtime dependency between service implementations.
-
-A definition declares required and provided capabilities and its configuration type. The initializer receives a `Context`, typed configuration, and init-only `Publisher`:
+`require '@lunette-plugin'` provides the typed authoring facade. A contract module defines a service type, declares the contract with `plugin.capability`, and exports the resulting capability. The service type is named by explicit type instantiation, and the fields name the contract and its schema:
 
 ```lua
-local service: PanelService = context:require(panels.capability)
-publish:provide(layout.arc, arcService)
+local capability = plugin.capability<<Service>> { name = 'lunette/keyboard', schema = 1 }
 ```
 
-`Context:require<T>(capability)` has the capability's service type. `Publisher:provide<T>(capability, value)` accepts the matching service type. The publisher is valid only while that initializer is active. `Definition<C>` carries configuration type `C`; service types belong to capabilities, not to a mapped services record. The configuration witness passed to `plugin.define` is a type witness: the adapter never calls it, and it does not validate or convert a configuration value at runtime.
+The name is authority-qualified and the schema is a positive integer. Its service type describes the methods and fields that callers may use. The capability wrapper is frozen and binds to one native token when it is created, so the facade never hands out an unbound token. Declarations use that exact wrapper, and a Lua state cannot declare the same name and schema twice in one epoch. Contract vocabulary modules can hold shared types without creating a runtime dependency between service implementations.
+
+A definition is a table of named fields. `name` labels the definition in logs, reports, and diagnostics. `requires` and `provides` declare capabilities by field name and default to empty. `init` is the initializer, which receives a `Context`, typed configuration, and init-only `Publisher`:
+
+```lua
+return plugin.define {
+  name = 'layout/arc',
+  requires = { tags = tags.capability },
+  provides = { arc = layout.arc },
+  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
+    local service: tags.Service = context:require(tags.capability)
+    publish:provide(layout.arc, create(context, service))
+  end,
+}
+```
+
+The facade rejects a spec with a field outside `name`, `requires`, `provides`, and `init`, a `name` that is not a non-empty string, an `init` that is not a function, and a `requires` or `provides` that is not a table. `plugin.capability` rejects a field outside `name` and `schema`, a `name` that is not a non-empty string, and a `schema` that is not a positive integer. Each error names the problem and points at the call. Definition names need not be unique.
+
+`Context:require<T>(capability)` has the capability's service type. `Publisher:provide<T>(capability, value)` accepts the matching service type. The publisher is valid only while that initializer is active. `Definition<C>` carries configuration type `C`, which is inferred from the initializer's configuration parameter; service types belong to capabilities, not to a mapped services record. The facade does not validate or convert a configuration value at runtime. A capability's service type is fixed by the explicit instantiation; a call that omits it produces a `Capability<unknown>`, whose services the checker cannot type.
 
 Luau checks local service shapes, methods, and configuration annotations in source modules. Runtime wiring remains a separate concern. The runtime matches authority-qualified contract name and exact schema. A required capability without a provider does not activate its consumer, and neither does a provider of another schema of the same name. The runtime rejects undeclared capability access, undeclared or duplicate provisions, missing or nil provided fields, extra fields, and calls to an expired publisher. A membership error names the contract and the plugin code that made the call. It does not inspect service table shapes or validate configuration values against Luau types.
 
@@ -64,7 +79,7 @@ Two active instances cannot provide the same contract and schema. Several implem
 
 ### Instances
 
-Runtime instances expose `enable`, `disable`, `dispose`, and `reload`; runtime shutdown disposes every instance. A request takes effect immediately, in the order it is made, and raises at the call that made it when the graph rejects it: an unknown or removed instance, an enable of a retired or quarantined instance, or an enable whose provided contract another enabled instance already reserves. `instance:state()` reports `inactive`, `loading`, `active`, `unloading`, `failed`, `quarantined`, or `removed`. `instance:diagnostic()` describes why the instance last failed or is not loading, or returns nil. A definition is named for where its initializer is defined; the native `define` also accepts an explicit name. Logs, reports, and diagnostics name instances by their definition. An initializer or inverse that fails while lifecycle work drains is reported through [the error path](#errors) rather than raised from the request that started the drain. [Architecture](architecture.md#plugin-runtime) states the reservation, retry, and quarantine rules. The adapter contains all erased casts; plugin modules use no compatibility facade for the earlier mapped `Services<R>` and `Provisions<P>` design.
+Runtime instances expose `enable`, `disable`, `dispose`, and `reload`; runtime shutdown disposes every instance. A request takes effect immediately, in the order it is made, and raises at the call that made it when the graph rejects it: an unknown or removed instance, an enable of a retired or quarantined instance, or an enable whose provided contract another enabled instance already reserves. `instance:state()` reports `inactive`, `loading`, `active`, `unloading`, `failed`, `quarantined`, or `removed`. `instance:diagnostic()` describes why the instance last failed or is not loading, or returns nil. Logs, reports, and diagnostics name instances by their definition's `name`. The native `define` takes the name as an optional argument and otherwise names a definition for where its initializer is defined. An initializer or inverse that fails while lifecycle work drains is reported through [the error path](#errors) rather than raised from the request that started the drain. [Architecture](architecture.md#plugin-runtime) states the reservation, retry, and quarantine rules. The adapter contains all erased casts; plugin modules use no compatibility facade for the earlier mapped `Services<R>` and `Provisions<P>` design.
 
 Contract tokens and frozen capability wrappers are shared by runtime graphs in one Lua state's epoch. A runtime graph owns its plugin instances, service values, and effects. Source reload retires the old epoch, so a new configuration may declare the same contract names and schema numbers again, and a declaration that still holds a capability from the retired epoch is rejected as retired. Instance reload replaces one plugin activation without replacing the runtime or epoch. See [Architecture](architecture.md#plugin-runtime) for lifecycle ownership and cleanup.
 
@@ -580,6 +595,14 @@ The facade does not export the native `contract` function. A token declared that
 ### A child is enabled when it is installed
 
 `Context:child` enables the instance it installs, matching the `ctx:use` semantics of issue #32 and Cordis's `ctx.plugin`, where installing a child under a parent loads it. A disabled child would load only after a separate `enable`, and every caller made that call at once. Enabling inside the parent's initializer is a request like any other: a conflicting reservation raises in the initializer and fails the parent's load, which retires the child with it.
+
+### Definitions and capabilities take named fields
+
+`plugin.define` and `plugin.capability` each take one table of named fields. `plugin.define` took four positional arguments, a configuration witness, the required and provided declarations, and the initializer, and a call site did not say which empty table was which. Named fields also give a definition a declared name in place of the source position of its initializer, and they let the facade reject a misspelt field.
+
+The configuration witness was removed because the initializer's configuration annotation carries the type. Luau infers `C` from the `init` field of a generic table parameter. `Definition<C>` keeps the initializer under `init` with its context and publisher erased to `never`. An initializer typed with `Context` there made `Definition` and `Context` mutually recursive, and `Context:child` then stopped rejecting a wrongly-typed configuration; the erased form keeps `C` in the type without the cycle.
+
+The capability witness was removed from the call site because Luau's explicit type instantiation, `plugin.capability<<Service>> { ... }`, names the service type directly. The vendored Luau parses, checks, and compiles it, and StyLua formats it. `Capability<T>` still carries `T` through an identity witness, which the adapter now creates. The witness function at the call site was rejected because it repeated the service type twice in an identity function the runtime never needed.
 
 ## Known gaps
 

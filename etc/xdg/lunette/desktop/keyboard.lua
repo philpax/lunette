@@ -10,13 +10,10 @@ local required: plugin.Declaration = { keyboard = keyboard.capability }
 local HAND: Device = 'hand/left'
 local SIZE = 0.115
 
-return plugin.define(
-  function(config: Config): Config
-    return config
-  end,
-  required,
-  {},
-  function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
+return plugin.define {
+  name = 'desktop/keyboard',
+  requires = required,
+  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
     local callbacks = config.callbacks
     local service: keyboard.Service = context:require(keyboard.capability)
     local virtualKeyboard: keyboard.Keyboard? = nil
@@ -127,5 +124,5 @@ return plugin.define(
       end
       service:draw(pass)
     end, 200)
-  end
-)
+  end,
+}

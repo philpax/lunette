@@ -6,15 +6,10 @@ local provider: plugin.Definition<{}> = require '@lunette-plugins/laser'
 local panelsProvider: plugin.Definition<{}> = require '@lunette-plugins/panels'
 local interactionProvider: plugin.Definition<{}> = require '@lunette-plugins/interaction'
 
-local function identity(config: {}): {}
-  return config
-end
-
-local consumer = plugin.define(
-  identity,
-  { panels = panels.capability, interaction = interaction.capability, laser = laser.capability },
-  {},
-  function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+local consumer = plugin.define {
+  name = 'consumer',
+  requires = { panels = panels.capability, interaction = interaction.capability, laser = laser.capability },
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
     local panelService: panels.Service = context:require(panels.capability)
     local interactionService: interaction.Service = context:require(interaction.capability)
     local service: laser.Service = context:require(laser.capability)
@@ -36,8 +31,8 @@ local consumer = plugin.define(
     end
     local pointers: { interaction.Pointer } = interactionService:pointers()
     assert(#targets == 2 and #pointers >= 0)
-  end
-)
+  end,
+}
 
 return {
   provider = provider,

@@ -11,54 +11,63 @@ return function(native, initModule, adapterModule)
     return module
   end
   local plugin = require '@lunette-plugin'
-  local function witness(value)
-    return value
-  end
   for _, missing in { false, true } do
     local suffix = tostring(missing)
-    local dependency = plugin.capability('audit/facade-cleanup-dependency-' .. suffix, 1, witness)
-    local output = plugin.capability('audit/facade-cleanup-output-' .. suffix, 1, witness)
+    local dependency = plugin.capability { name = 'audit/facade-cleanup-dependency-' .. suffix, schema = 1 }
+    local output = plugin.capability { name = 'audit/facade-cleanup-output-' .. suffix, schema = 1 }
     local runtime = plugin.runtime()
     local events = {}
     local acquired = 0
     local childLoads = 0
     local providerAlive = true
-    local provider = plugin.define(witness, {}, { service = dependency }, function(context, _, publish)
-      context:effect(function()
-        return function()
-          table.insert(events, 'provider')
-          providerAlive = false
-        end
-      end)
-      publish:provide(dependency, 42)
-    end)
+    local provider = plugin.define {
+      name = 'provider',
+      provides = { service = dependency },
+      init = function(context, _, publish)
+        context:effect(function()
+          return function()
+            table.insert(events, 'provider')
+            providerAlive = false
+          end
+        end)
+        publish:provide(dependency, 42)
+      end,
+    }
     runtime:use(provider, {}):enable()
-    local child = plugin.define(witness, {}, {}, function()
-      childLoads += 1
-    end)
-    local definition = plugin.define(witness, { service = dependency }, { service = output }, function(context)
-      context:effect(function()
-        return function()
-          assert(providerAlive and context:require(dependency) == 42, 'facade cleanup lost dependency reads')
-          table.insert(events, 'inverse')
-          assert(not context:active(), 'facade rollback remains active')
-          assert(not pcall(function()
-            context:effect(function()
-              acquired += 1
-              return function()
-                acquired -= 1
-              end
-            end)
-          end), 'facade rollback accepts effect')
-          assert(not pcall(function()
-            context:child(child, {}):enable()
-          end), 'facade rollback accepts child')
+    local child = plugin.define {
+      name = 'child',
+      init = function()
+        childLoads += 1
+      end,
+    }
+    local definition = plugin.define {
+      name = 'definition',
+      requires = { service = dependency },
+      provides = { service = output },
+      init = function(context)
+        context:effect(function()
+          return function()
+            assert(providerAlive and context:require(dependency) == 42, 'facade cleanup lost dependency reads')
+            table.insert(events, 'inverse')
+            assert(not context:active(), 'facade rollback remains active')
+            assert(not pcall(function()
+              context:effect(function()
+                acquired += 1
+                return function()
+                  acquired -= 1
+                end
+              end)
+            end), 'facade rollback accepts effect')
+            assert(not pcall(function()
+              context:child(child, {}):enable()
+            end), 'facade rollback accepts child')
+          end
+        end)
+        if not missing then
+          error 'facade cleanup initializer failure'
         end
-      end)
-      if not missing then
-        error 'facade cleanup initializer failure'
-      end
-    end)
+      end,
+    }
     runtime:use(definition, {}):enable()
     assert(acquired == 0 and childLoads == 0, 'facade rollback ran acquisition body')
     assert(table.concat(events, ',') == 'inverse', 'facade initializer assertions failed')

@@ -1,19 +1,23 @@
 -- A consumer that requires another schema of a contract than its provider
 -- publishes is not activated, and its diagnostic names both schemas.
 return function(plugin)
-  local function identity(value)
-    return value
-  end
-
-  local first = plugin.capability('local/schema-mismatch', 1, identity)
-  local second = plugin.capability('local/schema-mismatch', 2, identity)
+  local first = plugin.capability { name = 'local/schema-mismatch', schema = 1 }
+  local second = plugin.capability { name = 'local/schema-mismatch', schema = 2 }
   local loaded = false
-  local provider = plugin.define(identity, {}, { service = first }, function(_context, _config, publish)
-    publish:provide(first, { version = 1 })
-  end)
-  local consumer = plugin.define(identity, { service = second }, {}, function()
-    loaded = true
-  end)
+  local provider = plugin.define {
+    name = 'provider',
+    provides = { service = first },
+    init = function(_context, _config, publish)
+      publish:provide(first, { version = 1 })
+    end,
+  }
+  local consumer = plugin.define {
+    name = 'consumer',
+    requires = { service = second },
+    init = function()
+      loaded = true
+    end,
+  }
 
   local runtime = plugin.runtime()
   local providerInstance = runtime:use(provider, {})

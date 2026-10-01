@@ -2,10 +2,6 @@
 -- instance reload cancels the old subscription before the new one starts, and
 -- a handler kept past its activation delivers nothing.
 return function(plugin)
-  local function identity(value)
-    return value
-  end
-
   local function rejects(callback, expected)
     local ok, message = pcall(callback)
     assert(not ok and tostring(message):find(expected, 1, true), tostring(message))
@@ -31,11 +27,14 @@ return function(plugin)
   end
 
   local received = {}
-  local definition = plugin.define(identity, {}, {}, function(context, config)
-    context:on(subscribe, function(event)
-      received[#received + 1] = config.name .. ':' .. event
-    end)
-  end)
+  local definition = plugin.define {
+    name = 'definition',
+    init = function(context, config)
+      context:on(subscribe, function(event)
+        received[#received + 1] = config.name .. ':' .. event
+      end)
+    end,
+  }
 
   local runtime = plugin.runtime()
   local instance = runtime:use(definition, { name = 'one' })
@@ -58,11 +57,14 @@ return function(plugin)
   assert(#received == 2)
 
   local failing = runtime:use(
-    plugin.define(identity, {}, {}, function(context)
-      context:on(function()
-        return 'not a cancel function'
-      end, function() end)
-    end),
+    plugin.define {
+      name = 'subscriptions-2',
+      init = function(context)
+        context:on(function()
+          return 'not a cancel function'
+        end, function() end)
+      end,
+    },
     {}
   )
   failing:enable()
@@ -70,14 +72,17 @@ return function(plugin)
   assert(tostring(failing:diagnostic()):find('answers the function that cancels it', 1, true), failing:diagnostic())
 
   local checked = runtime:use(
-    plugin.define(identity, {}, {}, function(context)
-      rejects(function()
-        context:on(subscribe, 'not a handler')
-      end, 'plugin on: a handler is a function, not a string')
-      rejects(function()
-        context:on('not a subscription', function() end)
-      end, 'plugin on: a subscription is a function, not a string')
-    end),
+    plugin.define {
+      name = 'subscriptions-3',
+      init = function(context)
+        rejects(function()
+          context:on(subscribe, 'not a handler')
+        end, 'plugin on: a handler is a function, not a string')
+        rejects(function()
+          context:on('not a subscription', function() end)
+        end, 'plugin on: a subscription is a function, not a string')
+      end,
+    },
     {}
   )
   checked:enable()

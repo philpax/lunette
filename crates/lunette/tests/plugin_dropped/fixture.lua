@@ -10,12 +10,14 @@ interactionProvider:enable()
 
 local panelService, interactionService, owner
 local consumer = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, { panels = panels.capability, interaction = interaction.capability }, {}, function(context)
-    panelService, interactionService, owner =
-      context:require(panels.capability), context:require(interaction.capability), context
-  end),
+  plugin.define {
+    name = 'fixture-1',
+    requires = { panels = panels.capability, interaction = interaction.capability },
+    init = function(context)
+      panelService, interactionService, owner =
+        context:require(panels.capability), context:require(interaction.capability), context
+    end,
+  },
   {}
 )
 consumer:enable()
@@ -69,14 +71,16 @@ end))
 
 local activeOwner, activePanel, activePointer
 local activeConsumer = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, { panels = panels.capability, interaction = interaction.capability }, {}, function(context)
-    local panelService = context:require(panels.capability)
-    local interactionService = context:require(interaction.capability)
-    activeOwner, activePanel, activePointer =
-      context, panelService:fromWindow(context, source(3), { chrome = false }), interactionService:newPointer(context)
-  end),
+  plugin.define {
+    name = 'fixture-2',
+    requires = { panels = panels.capability, interaction = interaction.capability },
+    init = function(context)
+      local panelService = context:require(panels.capability)
+      local interactionService = context:require(interaction.capability)
+      activeOwner, activePanel, activePointer =
+        context, panelService:fromWindow(context, source(3), { chrome = false }), interactionService:newPointer(context)
+    end,
+  },
   {}
 )
 activeConsumer:enable()
@@ -120,11 +124,13 @@ failing:dispose()
 local unloadingCalls = 0
 local unloadingOwner
 local unloading = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, { panels = panels.capability }, {}, function(context)
-    unloadingOwner = context
-  end),
+  plugin.define {
+    name = 'fixture-3',
+    requires = { panels = panels.capability },
+    init = function(context)
+      unloadingOwner = context
+    end,
+  },
   {}
 )
 unloading:enable()

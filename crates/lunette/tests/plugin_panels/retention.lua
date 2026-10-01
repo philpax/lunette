@@ -8,12 +8,14 @@ provider:enable()
 local service
 local owner
 local consumer = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, { panels = contracts.capability }, {}, function(context)
-    service = context:require(contracts.capability)
-    owner = context
-  end),
+  plugin.define {
+    name = 'retention-1',
+    requires = { panels = contracts.capability },
+    init = function(context)
+      service = context:require(contracts.capability)
+      owner = context
+    end,
+  },
   {}
 )
 consumer:enable()

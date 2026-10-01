@@ -99,6 +99,7 @@ fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
         "schema_mismatch" => include_str!("plugin_facade_execution/schema_mismatch.lua"),
         "error_positions" => include_str!("plugin_facade_execution/error_positions.lua"),
         "child_enabled" => include_str!("plugin_facade_execution/child_enabled.lua"),
+        "spec_validation" => include_str!("plugin_facade_execution/spec_validation.lua"),
         "quarantine_pending_provider" => {
             include_str!("plugin_facade_execution/quarantine_pending_provider.lua")
         }
@@ -288,7 +289,7 @@ fn plugin_errors_keep_their_position_and_traceback() -> mlua::Result<()> {
         .find(|line| line.contains("initializer position failure"))
         .unwrap_or_default();
     assert!(
-        line.contains("[string \"error_positions\"]:22: initializer position failure"),
+        line.contains("[string \"error_positions\"]:26: initializer position failure"),
         "the error keeps the position it was raised at: {report}"
     );
     assert!(
@@ -299,6 +300,42 @@ fn plugin_errors_keep_their_position_and_traceback() -> mlua::Result<()> {
         report.contains("raiseFromInitializer"),
         "the traceback reaches the raising function: {report}"
     );
+    assert!(
+        report.starts_with("plugin load: failing (instance "),
+        "the report names the definition by its declared name: {report}"
+    );
+    Ok(())
+}
+
+#[test]
+fn malformed_specs_are_rejected_at_the_caller_with_the_problem_named() -> mlua::Result<()> {
+    let lua = state()?;
+    let messages: Vec<String> = lua.unpack(run_fixture_value(&lua, "spec_validation")?)?;
+    let expected = [
+        "plugin define: unknown field require; the fields are name, requires, provides, and init",
+        "plugin define: name is a string, not a nil",
+        "plugin define: name is empty",
+        "plugin define: init is a function, not a nil",
+        "plugin define: requires is a table of capabilities, not a string",
+        "plugin define: provides is a table of capabilities, not a number",
+        "plugin define: a definition is a table of fields, not a function",
+        "plugin capability: unknown field witness; the fields are name and schema",
+        "plugin capability: name is a string, not a nil",
+        "plugin capability: name is empty",
+        "plugin capability: schema is a positive integer, not 1.5",
+        "plugin capability: schema is a positive integer, not 0",
+        "plugin capability: schema is a number, not a nil",
+    ];
+    assert_eq!(messages.len(), expected.len(), "{messages:#?}");
+    for (message, expected) in messages.iter().zip(expected) {
+        assert!(
+            message.starts_with("[string \"spec_validation\"]:"),
+            "the error points at the caller: {message}"
+        );
+        assert!(message.ends_with(expected), "{message}");
+    }
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "{errors:?}");
     Ok(())
 }
 
@@ -340,13 +377,13 @@ fn the_facade_exports_no_unbound_contract_tokens() -> mlua::Result<()> {
 fn a_capability_from_a_retired_epoch_is_named_as_retired() -> mlua::Result<()> {
     let lua = state()?;
     lua.load(
-        "old_capability = require('@lunette-plugin').capability('local/retired', 1, function(value) return value end)",
+        "old_capability = require('@lunette-plugin').capability { name = 'local/retired', schema = 1 }",
     )
     .exec()?;
     attachment::reset_epoch(&lua).map_err(mlua::Error::external)?;
     let result = lua
         .load(
-            "return require('@lunette-plugin').define(function(value) return value end, { old = old_capability }, {}, function() end)",
+            "return require('@lunette-plugin').define { name = 'retired', requires = { old = old_capability }, init = function() end }",
         )
         .exec();
     let message = result

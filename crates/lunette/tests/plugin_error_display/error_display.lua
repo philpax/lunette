@@ -31,11 +31,13 @@ return function()
   errorInstance:enable()
 
   local service
-  local consumerDefinition = plugin.define(function(config)
-    return config
-  end, { errorDisplay = errorContract.capability }, {}, function(context)
-    service = context:require(errorContract.capability)
-  end)
+  local consumerDefinition = plugin.define {
+    name = 'consumerDefinition',
+    requires = { errorDisplay = errorContract.capability },
+    init = function(context)
+      service = context:require(errorContract.capability)
+    end,
+  }
   local consumer = runtime:use(consumerDefinition, {})
   consumer:enable()
 

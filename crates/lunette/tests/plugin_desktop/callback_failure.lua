@@ -8,28 +8,29 @@ runtime:use(require('@lunette-plugins/error-display').definition, {}):enable()
 local ran = {}
 runtime
   :use(
-    plugin.define(function(config)
-      return config
-    end, {}, {}, function(ctx)
-      callbacks.onUpdate(ctx, function()
-        error 'fixture update failure'
-      end, 1)
-      callbacks.onUpdate(ctx, function()
-        ran.update = true
-      end, 2)
-      callbacks.onDraw(ctx, function()
-        error 'fixture draw failure'
-      end, 1)
-      callbacks.onSurfaces(ctx, function()
-        error 'fixture surfaces failure'
-      end)
-      callbacks.onQuit(ctx, function()
-        error 'fixture quit failure'
-      end)
-      callbacks.onQuit(ctx, function()
-        ran.quit = true
-      end)
-    end),
+    plugin.define {
+      name = 'callback-failure-1',
+      init = function(ctx)
+        callbacks.onUpdate(ctx, function()
+          error 'fixture update failure'
+        end, 1)
+        callbacks.onUpdate(ctx, function()
+          ran.update = true
+        end, 2)
+        callbacks.onDraw(ctx, function()
+          error 'fixture draw failure'
+        end, 1)
+        callbacks.onSurfaces(ctx, function()
+          error 'fixture surfaces failure'
+        end)
+        callbacks.onQuit(ctx, function()
+          error 'fixture quit failure'
+        end)
+        callbacks.onQuit(ctx, function()
+          ran.quit = true
+        end)
+      end,
+    },
     {}
   )
   :enable()

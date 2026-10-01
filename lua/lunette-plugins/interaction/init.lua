@@ -468,13 +468,11 @@ end
 
 local required = { panels = panelsContract.capability }
 local provided = { interaction = contracts.capability }
-return plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  required,
-  provided,
-  function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
+return plugin.define {
+  name = 'interaction',
+  requires = required,
+  provides = provided,
+  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
     publish:provide(contracts.capability, init(context))
-  end
-)
+  end,
+}

@@ -18,21 +18,18 @@ local filesystem: persist.Filesystem = {
 }
 local state: persist.State = persist.new { filesystem = filesystem }
 local binding: persist.Binding? = nil
-local consumer: plugin.Definition<{}> = plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
-  {},
-  function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+local consumer: plugin.Definition<{}> = plugin.define {
+  name = 'consumer',
+  requires = { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
     binding = state:bind(
       context,
       context:require(panelsContract.capability),
       context:require(tagsContract.capability),
       context:require(rulesContract.capability)
     )
-  end
-)
+  end,
+}
 local function save(options: persist.SaveOptions?): (boolean, string?)
   local current = binding
   if not current then

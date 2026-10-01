@@ -52,19 +52,20 @@ local function withBinding(state, run)
   end
   local binding, context, panels, tags
   local owner = runtime:use(
-    plugin.define(
-      function(value)
-        return value
-      end,
-      { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
-      {},
-      function(current)
+    plugin.define {
+      name = 'file-spec-1',
+      requires = {
+        panels = panelsContract.capability,
+        tags = tagsContract.capability,
+        rules = rulesContract.capability,
+      },
+      init = function(current)
         context = current
         panels = current:require(panelsContract.capability)
         tags = current:require(tagsContract.capability)
         binding = state:bind(current, panels, tags, current:require(rulesContract.capability))
-      end
-    ),
+      end,
+    },
     {}
   )
   owner:enable()

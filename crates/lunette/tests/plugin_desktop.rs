@@ -112,7 +112,7 @@ fn resource_and_callback_failure_witnesses_detect_faults() -> mlua::Result<()> {
     let lua = plugin_desktop::state()?;
     plugin_desktop::execute(
         &lua,
-        "local plugin = require '@lunette-plugin'; local runtime = plugin.runtime(); local seat; runtime:use(plugin.define(function(config) return config end, {}, {}, function(ctx) ctx:effect(function() seat = require('@lunette').newSeat('leak'); return function() end end) end), {}):enable(); runtime:close(); local ok, message = pcall(assertResourcesReleased); assert(not ok and tostring(message):find('leaked native seat', 1, true), 'witness catches leaked plugin effect resource'); seat:destroy(); assertResourcesReleased()",
+        "local plugin = require '@lunette-plugin'; local runtime = plugin.runtime(); local seat; runtime:use(plugin.define { name = 'leak', init = function(ctx) ctx:effect(function() seat = require('@lunette').newSeat('leak'); return function() end end) end }, {}):enable(); runtime:close(); local ok, message = pcall(assertResourcesReleased); assert(not ok and tostring(message):find('leaked native seat', 1, true), 'witness catches leaked plugin effect resource'); seat:destroy(); assertResourcesReleased()",
     )?;
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/callback_failure.lua"))?;
     assert!(plugin_desktop::shutdown(&lua)?.is_empty());

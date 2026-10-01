@@ -2,9 +2,6 @@
 -- failure: the owner is quarantined, and the laser and interaction providers
 -- keep serving other owners.
 return function(plugin, modules)
-  local function identity(value)
-    return value
-  end
   local function noInput()
     return nil
   end
@@ -18,9 +15,13 @@ return function(plugin, modules)
 
   local held
   local consumer = runtime:use(
-    plugin.define(identity, { laser = modules.laserCapability }, {}, function(context)
-      held = context:require(modules.laserCapability):new(context, 'left', { readInput = noInput })
-    end),
+    plugin.define {
+      name = 'release-failure-1',
+      requires = { laser = modules.laserCapability },
+      init = function(context)
+        held = context:require(modules.laserCapability):new(context, 'left', { readInput = noInput })
+      end,
+    },
     {}
   )
   consumer:enable()
@@ -47,9 +48,13 @@ return function(plugin, modules)
 
   local replacement
   local other = runtime:use(
-    plugin.define(identity, { laser = modules.laserCapability }, {}, function(context)
-      replacement = context:require(modules.laserCapability):new(context, 'left', { readInput = noInput })
-    end),
+    plugin.define {
+      name = 'release-failure-2',
+      requires = { laser = modules.laserCapability },
+      init = function(context)
+        replacement = context:require(modules.laserCapability):new(context, 'left', { readInput = noInput })
+      end,
+    },
     {}
   )
   other:enable()

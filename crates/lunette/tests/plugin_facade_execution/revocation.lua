@@ -2,27 +2,22 @@
 -- provider's activation has ended, even for a reference the consumer kept, and
 -- it raises on every write.
 return function(plugin)
-  local function identity(value)
-    return value
-  end
-
   local function rejects(callback, expected)
     local ok, message = pcall(callback)
     assert(not ok and tostring(message):find(expected, 1, true), tostring(message))
     return tostring(message)
   end
 
-  local counter = plugin.capability('local/revocation-counter', 1, identity)
-  local doubler = plugin.capability('local/revocation-doubler', 1, identity)
+  local counter = plugin.capability { name = 'local/revocation-counter', schema = 1 }
+  local doubler = plugin.capability { name = 'local/revocation-doubler', schema = 1 }
   local kept
   local keptDoubler
   local seen = {}
 
-  local provider = plugin.define(
-    identity,
-    {},
-    { counter = counter, doubler = doubler },
-    function(_context, _config, publish)
+  local provider = plugin.define {
+    name = 'provider',
+    provides = { counter = counter, doubler = doubler },
+    init = function(_context, _config, publish)
       local count = 0
       local service = { LIMIT = 3 }
       function service.bump(self, by)
@@ -41,13 +36,17 @@ return function(plugin)
           end,
         })
       )
-    end
-  )
-  local consumer = plugin.define(identity, { counter = counter, doubler = doubler }, {}, function(context, config)
-    seen[config.name] = context:require(counter)
-    kept = seen[config.name]
-    keptDoubler = context:require(doubler)
-  end)
+    end,
+  }
+  local consumer = plugin.define {
+    name = 'consumer',
+    requires = { counter = counter, doubler = doubler },
+    init = function(context, config)
+      seen[config.name] = context:require(counter)
+      kept = seen[config.name]
+      keptDoubler = context:require(doubler)
+    end,
+  }
 
   local runtime = plugin.runtime()
   local providerInstance = runtime:use(provider, {})

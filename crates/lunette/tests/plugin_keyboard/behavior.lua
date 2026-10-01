@@ -7,9 +7,6 @@ return function()
   assert(require '@lunette-plugins/keyboard' == definition)
   local panelsDefinition = require '@lunette-plugins/panels'
   local interactionDefinition = require '@lunette-plugins/interaction'
-  local function identity(value)
-    return value
-  end
   local function setup()
     local runtime = plugin.runtime()
     runtime:use(panelsDefinition, {}):enable()
@@ -18,14 +15,13 @@ return function()
     provider:enable()
     local service, owner, focus
     local consumer = runtime:use(
-      plugin.define(
-        identity,
-        { keyboard = contract.capability, interaction = interaction.capability },
-        {},
-        function(ctx)
+      plugin.define {
+        name = 'behavior-1',
+        requires = { keyboard = contract.capability, interaction = interaction.capability },
+        init = function(ctx)
           service, owner, focus = ctx:require(contract.capability), ctx, ctx:require(interaction.capability)
-        end
-      ),
+        end,
+      },
       {}
     )
     consumer:enable()
@@ -165,9 +161,13 @@ return function()
   assert(failProvider:state() == 'active', 'the keyboard provider is not quarantined: ' .. failProvider:state())
   local survivorService, survivorOwner
   local survivor = failRuntime:use(
-    plugin.define(identity, { keyboard = contract.capability }, {}, function(ctx)
-      survivorService, survivorOwner = ctx:require(contract.capability), ctx
-    end),
+    plugin.define {
+      name = 'behavior-2',
+      requires = { keyboard = contract.capability },
+      init = function(ctx)
+        survivorService, survivorOwner = ctx:require(contract.capability), ctx
+      end,
+    },
     {}
   )
   survivor:enable()

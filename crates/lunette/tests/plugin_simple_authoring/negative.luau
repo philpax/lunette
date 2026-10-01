@@ -4,15 +4,11 @@ local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
 
 type Config = { read title: string, read height: number }
-local function configWitness(value: Config): Config
-  return value
-end
-
-local definition = api.define(
-  configWitness,
-  { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
-  { panels = panels.capability, keyboard = keyboard.capability },
-  function(ctx, config: Config, provide)
+local definition = api.define {
+  name = 'definition',
+  requires = { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
+  provides = { panels = panels.capability, keyboard = keyboard.capability },
+  init = function(ctx, config: Config, provide)
     local panelRegistry = ctx:require(panels.capability)
     local input = ctx:require(interaction.capability)
     local keys = ctx:require(keyboard.capability)
@@ -35,8 +31,8 @@ local definition = api.define(
       panel:setSize('wide', nil) -- reject: number.
       pointer:withdraw(42) -- reject: Argument count.
     end)
-  end
-)
+  end,
+}
 
 local widened: api.Capability<unknown> = panels.capability -- reject: unknown.
 local confused: api.Capability<keyboard.Service> = panels.capability -- reject: Service.
@@ -44,6 +40,6 @@ local runtime = api.runtime()
 runtime:use(definition, { title = 42, height = 1 }) -- reject: string.
 local instance = runtime:use(definition, { title = 'fixture', height = 1 })
 instance:reload { title = 'fixture', height = 'tall' } -- reject: number.
-local wrongInitializer = api.define(configWitness, {}, {}, function(_ctx, config: number) end) -- reject: number.
+local wrongName = api.define { name = 42, init = function(_ctx, _config: Config) end } -- reject: string.
 
-return { widened = widened, confused = confused, definition = definition, wrongInitializer = wrongInitializer }
+return { widened = widened, confused = confused, definition = definition, wrongName = wrongName }

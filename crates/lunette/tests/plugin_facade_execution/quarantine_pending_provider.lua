@@ -2,38 +2,42 @@
 -- ends. Until then it keeps serving: its consumers read it through their views,
 -- including from their own inverses while they unload before it.
 return function(plugin)
-  local function identity(value)
-    return value
-  end
-
-  local echo = plugin.capability('local/quarantine-pending-echo', 1, identity)
+  local echo = plugin.capability { name = 'local/quarantine-pending-echo', schema = 1 }
   local released = {}
 
-  local provider = plugin.define(identity, {}, { echo = echo }, function(context, _config, publish)
-    local doomed = context:effect(function()
-      return function()
-        error('the doomed inverse fails', 0)
-      end
-    end)
-    publish:provide(echo, {
-      ping = function(_self, value)
-        return value
-      end,
-      dropDoomed = function(_self)
-        doomed:dispose()
-      end,
-    })
-  end)
+  local provider = plugin.define {
+    name = 'provider',
+    provides = { echo = echo },
+    init = function(context, _config, publish)
+      local doomed = context:effect(function()
+        return function()
+          error('the doomed inverse fails', 0)
+        end
+      end)
+      publish:provide(echo, {
+        ping = function(_self, value)
+          return value
+        end,
+        dropDoomed = function(_self)
+          doomed:dispose()
+        end,
+      })
+    end,
+  }
   local kept
-  local consumer = plugin.define(identity, { echo = echo }, {}, function(context)
-    local service = context:require(echo)
-    kept = service
-    context:effect(function()
-      return function()
-        released[#released + 1] = service:ping 'released'
-      end
-    end)
-  end)
+  local consumer = plugin.define {
+    name = 'consumer',
+    requires = { echo = echo },
+    init = function(context)
+      local service = context:require(echo)
+      kept = service
+      context:effect(function()
+        return function()
+          released[#released + 1] = service:ping 'released'
+        end
+      end)
+    end,
+  }
 
   local runtime = plugin.runtime()
   local providerInstance = runtime:use(provider, {})

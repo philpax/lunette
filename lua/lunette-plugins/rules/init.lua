@@ -9,13 +9,11 @@ local required: plugin.Declaration = {
   tags = tags.capability,
 }
 local provided: plugin.Declaration = { rules = rules.capability }
-return plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  required,
-  provided,
-  function(context, _config, provide)
+return plugin.define {
+  name = 'rules',
+  requires = required,
+  provides = provided,
+  init = function(context: plugin.Context, _config: {}, provide: plugin.Publisher)
     provide:provide(rules.capability, create(context))
-  end
-)
+  end,
+}

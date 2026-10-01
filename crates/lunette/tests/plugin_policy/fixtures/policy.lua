@@ -9,13 +9,10 @@ for _, name in ipairs { 'panels', 'tags', 'rules', 'layout/arc' } do
 end
 local owner, services
 local consumer = runtime:use(
-  plugin.define(
-    function(value)
-      return value
-    end,
-    { panels = panels.capability, tags = tags.capability, rules = rules.capability, arc = layout.arc },
-    {},
-    function(context)
+  plugin.define {
+    name = 'policy-1',
+    requires = { panels = panels.capability, tags = tags.capability, rules = rules.capability, arc = layout.arc },
+    init = function(context)
       owner = context
       services = {
         panels = context:require(panels.capability),
@@ -23,8 +20,8 @@ local consumer = runtime:use(
         rules = context:require(rules.capability),
         arc = context:require(layout.arc),
       }
-    end
-  ),
+    end,
+  },
   {}
 )
 consumer:enable()
@@ -101,11 +98,13 @@ assert(tag:setSelected(owner, true))
 -- with it: the most recent live override decides the selection.
 local borrower, borrowerTags
 local borrowing = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, { tags = tags.capability }, {}, function(context)
-    borrower, borrowerTags = context, context:require(tags.capability)
-  end),
+  plugin.define {
+    name = 'policy-2',
+    requires = { tags = tags.capability },
+    init = function(context)
+      borrower, borrowerTags = context, context:require(tags.capability)
+    end,
+  },
   {}
 )
 borrowing:enable()
@@ -203,16 +202,17 @@ for count = 0, 20 do
 end
 local before = #services.panels:all()
 local stranger = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, {}, {}, function(context)
-    assert(not pcall(function()
-      services.rules:place(context, window)
-    end))
-    assert(not pcall(function()
-      services.tags:new(context, 'forbidden')
-    end))
-  end),
+  plugin.define {
+    name = 'policy-3',
+    init = function(context)
+      assert(not pcall(function()
+        services.rules:place(context, window)
+      end))
+      assert(not pcall(function()
+        services.tags:new(context, 'forbidden')
+      end))
+    end,
+  },
   {}
 )
 stranger:enable()

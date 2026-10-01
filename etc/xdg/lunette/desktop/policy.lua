@@ -26,13 +26,10 @@ local function define(): plugin.Definition<Config>
   local arrangement = persist.new()
   local attempted: lunette.Process? = nil
   local attempt = 0
-  return plugin.define(
-    function(config: Config): Config
-      return config
-    end,
-    required,
-    {},
-    function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
+  return plugin.define {
+    name = 'desktop/policy',
+    requires = required,
+    init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
       local callbacks = config.callbacks
       local panelService: panels.Service = context:require(panels.capability)
       local tagService: tags.Service = context:require(tags.capability)
@@ -126,8 +123,8 @@ local function define(): plugin.Definition<Config>
         _G.lunetteDemonstrationSpawned = true
         spawnNext()
       end
-    end
-  )
+    end,
+  }
 end
 
 return define

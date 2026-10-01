@@ -1,18 +1,20 @@
 -- Context:child installs a child and enables it, so it loads with the
 -- activation that installed it and is retired with that activation.
 return function(plugin)
-  local function identity(value)
-    return value
-  end
-
   local loads = 0
-  local child = plugin.define(identity, {}, {}, function()
-    loads += 1
-  end)
+  local child = plugin.define {
+    name = 'child',
+    init = function()
+      loads += 1
+    end,
+  }
   local installed
-  local parent = plugin.define(identity, {}, {}, function(context)
-    installed = context:child(child, {})
-  end)
+  local parent = plugin.define {
+    name = 'parent',
+    init = function(context)
+      installed = context:child(child, {})
+    end,
+  }
 
   local runtime = plugin.runtime()
   local parentInstance = runtime:use(parent, {})

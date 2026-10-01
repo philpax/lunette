@@ -4,10 +4,6 @@ local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
 
 type Config = { read title: string, read height: number }
-local function configWitness(value: Config): Config
-  return value
-end
-
 local function build(
   panelService: panels.Service,
   interactionService: interaction.Service,
@@ -33,24 +29,22 @@ local function build(
       return keyboardService:keyAt(rendered, x, y)
     end,
   }
-  local provider = api.define(
-    configWitness,
-    {},
-    { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
-    function(_ctx, config, provide)
+  local provider = api.define {
+    name = 'provider',
+    provides = { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
+    init = function(_ctx, config: Config, provide)
       local height: number = config.height
       local title: string = config.title
       assert(height > 0 and #title > 0)
       provide:provide(panels.capability, panelService)
       provide:provide(interaction.capability, interactionService)
       provide:provide(keyboard.capability, implementation)
-    end
-  )
-  local consumer = api.define(
-    configWitness,
-    { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
-    {},
-    function(ctx, config, _provide)
+    end,
+  }
+  local consumer = api.define {
+    name = 'consumer',
+    requires = { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
+    init = function(ctx, config, _provide)
       local panelRegistry: panels.Service = ctx:require(panels.capability)
       local input: interaction.Service = ctx:require(interaction.capability)
       local keys: keyboard.Service = ctx:require(keyboard.capability)
@@ -79,8 +73,8 @@ local function build(
           board:typeText(windowTitle)
         end
       end
-    end
-  )
+    end,
+  }
   local runtime = api.runtime()
   local providerInstance = runtime:use(provider, { title = 'fixture', height = 1 })
   local consumerInstance = runtime:use(consumer, { title = 'fixture', height = 1 })

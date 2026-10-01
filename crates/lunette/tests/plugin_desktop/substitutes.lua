@@ -9,22 +9,25 @@ local tagsContract = require '@lunette-contracts/tags'
 local adoptionContract = require '@lunette-contracts/adoption'
 local displayContract = require '@lunette-contracts/error-display'
 
-local function identity(config)
-  return config
-end
 local function consumer(runtime, required, initialize)
-  local instance = runtime:use(plugin.define(identity, required, {}, initialize), {})
+  local instance = runtime:use(
+    plugin.define {
+      name = 'substitutes-1',
+      requires = required,
+      init = initialize,
+    },
+    {}
+  )
   instance:enable()
   return instance
 end
 
 -- A panels provider that keeps panels in a list and announces removal to
 -- owner-scoped listeners, as the contract requires.
-local substitutePanels = plugin.define(
-  identity,
-  {},
-  { panels = panelsContract.capability },
-  function(context, _, publish)
+local substitutePanels = plugin.define {
+  name = 'substitutePanels',
+  provides = { panels = panelsContract.capability },
+  init = function(context, _, publish)
     local live, removed = {}, {}
     local function retire(panel)
       if panel.dead then
@@ -133,8 +136,8 @@ local substitutePanels = plugin.define(
       end,
     }
     publish:provide(panelsContract.capability, service)
-  end
-)
+  end,
+}
 
 -- Rules' placement cleanup needs only the contract's removal announcement.
 do
@@ -171,11 +174,11 @@ do
   local runtime = plugin.runtime()
   runtime:use(require '@lunette-plugins/panels', {}):enable()
   local placements = {}
-  local substituteRules = plugin.define(
-    identity,
-    { panels = panelsContract.capability },
-    { rules = rulesContract.capability },
-    function(context, _, publish)
+  local substituteRules = plugin.define {
+    name = 'substituteRules',
+    requires = { panels = panelsContract.capability },
+    provides = { rules = rulesContract.capability },
+    init = function(context, _, publish)
       local panels = context:require(panelsContract.capability)
       local sources = {}
       local service = {
@@ -225,8 +228,8 @@ do
         end,
       }
       publish:provide(rulesContract.capability, service)
-    end
-  )
+    end,
+  }
   runtime:use(substituteRules, {}):enable()
   runtime:use(require '@lunette-plugins/adoption', {}):enable()
   local window = newWindow(41)
@@ -264,11 +267,10 @@ do
     runtime:close()
   end)
   local drawn = 0
-  local substituteDisplay = plugin.define(
-    identity,
-    {},
-    { display = displayContract.capability },
-    function(_, _, publish)
+  local substituteDisplay = plugin.define {
+    name = 'substituteDisplay',
+    provides = { display = displayContract.capability },
+    init = function(_, _, publish)
       local function nothing() end
       publish:provide(displayContract.capability, {
         WINDOW = 1,
@@ -302,8 +304,8 @@ do
           return true
         end,
       })
-    end
-  )
+    end,
+  }
   runtime:use(substituteDisplay, {}):enable()
   runtime:use(require 'desktop/errors', { callbacks = callbacks }):enable()
   assert(lovr.draw(events.pass) == false)

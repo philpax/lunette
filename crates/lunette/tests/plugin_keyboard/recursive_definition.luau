@@ -12,21 +12,16 @@ local required: { read interaction: interaction.Capability, read panels: panels.
 }
 local provided: { read keyboard: keyboard.Capability } = { keyboard = keyboard.capability }
 
-local function identity(config: {}): {}
-  return config
-end
-
-local consumer = plugin.define(
-  identity,
-  { keyboard = keyboard.capability },
-  {},
-  function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+local consumer = plugin.define {
+  name = 'consumer',
+  requires = { keyboard = keyboard.capability },
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
     local service: keyboard.Service = context:require(keyboard.capability)
     local keys: { keyboard.Keyboard } = service:all()
     service:keyAt({}, 0, 0)
     assert(#keys == 0)
-  end
-)
+  end,
+}
 
 return {
   provider = provider,

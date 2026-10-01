@@ -7,12 +7,14 @@ provider:enable()
 local owner
 local service
 local caller = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, { panels = panels.capability }, {}, function(context)
-    owner = context
-    service = context:require(panels.capability)
-  end),
+  plugin.define {
+    name = 'acquisition-failure-1',
+    requires = { panels = panels.capability },
+    init = function(context)
+      owner = context
+      service = context:require(panels.capability)
+    end,
+  },
   {}
 )
 caller:enable()

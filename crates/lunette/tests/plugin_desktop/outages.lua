@@ -42,21 +42,23 @@ policy:enable()
 local service, focus, placement, tagService, owner
 runtime
   :use(
-    plugin.define(function(config)
-      return config
-    end, {
-      panels = panels.capability,
-      interaction = interaction.capability,
-      rules = rules.capability,
-      tags = tags.capability,
-    }, {}, function(ctx)
-      service, focus, placement, tagService, owner =
-        ctx:require(panels.capability),
-        ctx:require(interaction.capability),
-        ctx:require(rules.capability),
-        ctx:require(tags.capability),
-        ctx
-    end),
+    plugin.define {
+      name = 'outages-1',
+      requires = {
+        panels = panels.capability,
+        interaction = interaction.capability,
+        rules = rules.capability,
+        tags = tags.capability,
+      },
+      init = function(ctx)
+        service, focus, placement, tagService, owner =
+          ctx:require(panels.capability),
+          ctx:require(interaction.capability),
+          ctx:require(rules.capability),
+          ctx:require(tags.capability),
+          ctx
+      end,
+    },
     {}
   )
   :enable()

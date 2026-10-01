@@ -11,13 +11,10 @@ local surface = require '@lunette-contracts/surface'
 local required: plugin.Declaration = { panels = panels.capability }
 export type Config = { read callbacks: typeof(callbacks) }
 
-return plugin.define(
-  function(config: Config): Config
-    return config
-  end,
-  required,
-  {},
-  function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
+return plugin.define {
+  name = 'desktop/base',
+  requires = required,
+  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
     local callbacks = config.callbacks
     local panelService: panels.Service = context:require(panels.capability)
     local mirrors: { [string]: panels.MonitorPanel } = {}
@@ -102,5 +99,5 @@ return plugin.define(
         )
       end
     end, 100)
-  end
-)
+  end,
+}

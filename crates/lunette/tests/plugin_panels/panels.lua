@@ -3,10 +3,6 @@ return function()
   local contracts = require '@lunette-contracts/panels'
   local definition = require '@lunette-plugins/panels'
 
-  local function identity(value)
-    return value
-  end
-
   local source = {
     id = 17,
     dead = false,
@@ -40,10 +36,14 @@ return function()
   local owner
   local panel
   local monitorPanel
-  local consumer = plugin.define(identity, { panels = contracts.capability }, {}, function(context)
-    service = context:require(contracts.capability)
-    owner = context
-  end)
+  local consumer = plugin.define {
+    name = 'consumer',
+    requires = { panels = contracts.capability },
+    init = function(context)
+      service = context:require(contracts.capability)
+      owner = context
+    end,
+  }
 
   local consumerInstance = runtime:use(consumer, {})
   consumerInstance:enable()
@@ -63,9 +63,13 @@ return function()
   assert(panel:sourceSize() == 800)
 
   local opaqueOwner
-  local opaqueConsumer = plugin.define(identity, { panels = contracts.capability }, {}, function(context)
-    opaqueOwner = context
-  end)
+  local opaqueConsumer = plugin.define {
+    name = 'opaqueConsumer',
+    requires = { panels = contracts.capability },
+    init = function(context)
+      opaqueOwner = context
+    end,
+  }
   local opaqueInstance = runtime:use(opaqueConsumer, {})
   opaqueInstance:enable()
   source.opaque = true
@@ -83,13 +87,16 @@ return function()
   assert(service:opaqueShader(opaqueOwner) ~= nil)
   assert(shaderCreated == 1)
 
-  local fresh = plugin.define(identity, {}, {}, function(context)
-    local ok = pcall(function()
-      service:opaqueShader(context)
-    end)
-    assert(not ok)
-    assert(shaderCreated == 1)
-  end)
+  local fresh = plugin.define {
+    name = 'fresh',
+    init = function(context)
+      local ok = pcall(function()
+        service:opaqueShader(context)
+      end)
+      assert(not ok)
+      assert(shaderCreated == 1)
+    end,
+  }
   local freshInstance = runtime:use(fresh, {})
   freshInstance:enable()
 
@@ -101,21 +108,28 @@ return function()
   assert(not staleOk)
   assert(shaderCreated == 1)
 
-  local rejected = plugin.define(identity, {}, {}, function(context)
-    local ok = pcall(function()
-      service:fromWindow(context, source, { height = 1, chrome = false })
-    end)
-    assert(not ok)
-  end)
+  local rejected = plugin.define {
+    name = 'rejected',
+    init = function(context)
+      local ok = pcall(function()
+        service:fromWindow(context, source, { height = 1, chrome = false })
+      end)
+      assert(not ok)
+    end,
+  }
   local rejectedInstance = runtime:use(rejected, {})
   rejectedInstance:enable()
 
   -- Only the creating owner destroys a panel.
   local stranger
   local strangerInstance = runtime:use(
-    plugin.define(identity, { panels = contracts.capability }, {}, function(context)
-      stranger = context
-    end),
+    plugin.define {
+      name = 'panels-5',
+      requires = { panels = contracts.capability },
+      init = function(context)
+        stranger = context
+      end,
+    },
     {}
   )
   strangerInstance:enable()

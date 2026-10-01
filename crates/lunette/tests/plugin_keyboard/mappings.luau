@@ -6,15 +6,10 @@ local panelsDefinition = require '@lunette-plugins/panels'
 local interactionDefinition = require '@lunette-plugins/interaction'
 local keyboardDefinition = require '@lunette-plugins/keyboard'
 
-local function identity(config: {}): {}
-  return config
-end
-
-local consumer = plugin.define(
-  identity,
-  { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
-  {},
-  function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+local consumer = plugin.define {
+  name = 'consumer',
+  requires = { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
     local panelService: panels.Service = context:require(panels.capability)
     local interactionService: interaction.Service = context:require(interaction.capability)
     local keyboardService: keyboard.Service = context:require(keyboard.capability)
@@ -22,8 +17,8 @@ local consumer = plugin.define(
     local pointers: { interaction.Pointer } = interactionService:pointers()
     local keyboards: { keyboard.Keyboard } = keyboardService:all()
     assert(#pointers == 0 and #keyboards == 0)
-  end
-)
+  end,
+}
 
 return {
   panels = panelsDefinition,

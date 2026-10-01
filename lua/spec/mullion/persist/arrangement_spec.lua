@@ -68,19 +68,20 @@ local function withServices(entries, run)
     local context, panels, tags, rules
     runtime
       :use(
-        plugin.define(
-          function(value)
-            return value
-          end,
-          { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
-          {},
-          function(current)
+        plugin.define {
+          name = 'arrangement-spec-1',
+          requires = {
+            panels = panelsContract.capability,
+            tags = tagsContract.capability,
+            rules = rulesContract.capability,
+          },
+          init = function(current)
             context = current
             panels = current:require(panelsContract.capability)
             tags = current:require(tagsContract.capability)
             rules = current:require(rulesContract.capability)
-          end
-        ),
+          end,
+        },
         {}
       )
       :enable()
@@ -331,11 +332,13 @@ spec('failed registration rolls back the source when a foreign panels service re
     local foreignPanels
     foreign
       :use(
-        plugin.define(function(value)
-          return value
-        end, { panels = panelsContract.capability }, {}, function(current)
-          foreignPanels = current:require(panelsContract.capability)
-        end),
+        plugin.define {
+          name = 'arrangement-spec-2',
+          requires = { panels = panelsContract.capability },
+          init = function(current)
+            foreignPanels = current:require(panelsContract.capability)
+          end,
+        },
         {}
       )
       :enable()

@@ -6,10 +6,6 @@ return function()
   local contracts = require '@lunette-contracts/panels'
   local definition = require '@lunette-plugins/panels'
 
-  local function identity(value)
-    return value
-  end
-
   local source = { id = 23, dead = false, width = 800, height = 600, title = 'Drained window', opaque = false }
   function source:getTexture()
     return false
@@ -30,22 +26,30 @@ return function()
   -- listener, and its cleanup removes the panel while the listener still hears.
   local created = 0
   local creator = runtime:use(
-    plugin.define(identity, { panels = contracts.capability }, {}, function(context)
-      local service = context:require(contracts.capability)
-      service:fromWindow(context, source, { height = 1, chrome = false })
-      created += 1
-    end),
+    plugin.define {
+      name = 'removal-during-drain-1',
+      requires = { panels = contracts.capability },
+      init = function(context)
+        local service = context:require(contracts.capability)
+        service:fromWindow(context, source, { height = 1, chrome = false })
+        created += 1
+      end,
+    },
     {}
   )
   local heard = 0
   local listener = runtime:use(
-    plugin.define(identity, { panels = contracts.capability }, {}, function(context)
-      local service = context:require(contracts.capability)
-      service:onRemoved(context, nil, function()
-        heard += 1
-        error 'removal listener failed during a drain'
-      end)
-    end),
+    plugin.define {
+      name = 'removal-during-drain-2',
+      requires = { panels = contracts.capability },
+      init = function(context)
+        local service = context:require(contracts.capability)
+        service:onRemoved(context, nil, function()
+          heard += 1
+          error 'removal listener failed during a drain'
+        end)
+      end,
+    },
     {}
   )
   listener:enable()

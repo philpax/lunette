@@ -240,13 +240,11 @@ end
 
 local provided = { laser = contracts.capability }
 
-return plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  { interaction = interaction.capability },
-  provided,
-  function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
+return plugin.define {
+  name = 'laser',
+  requires = { interaction = interaction.capability },
+  provides = provided,
+  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
     publish:provide(contracts.capability, initialize(context))
-  end
-)
+  end,
+}

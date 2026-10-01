@@ -38,7 +38,5 @@ export type Service = {
 export type Capability = plugin.Capability<Service>
 
 return {
-  capability = plugin.capability('lunette/error-display', 1, function(value: Service): Service
-    return value
-  end),
+  capability = plugin.capability<<Service>> { name = 'lunette/error-display', schema = 1 },
 }

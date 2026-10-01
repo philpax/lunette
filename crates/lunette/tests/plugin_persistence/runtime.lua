@@ -60,13 +60,10 @@ local binding, context, panels, tags, rules
 local cleanupChecks = 0
 local beforeCleanup
 local function consumerDefinition(persistent)
-  return plugin.define(
-    function(value)
-      return value
-    end,
-    { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
-    {},
-    function(current)
+  return plugin.define {
+    name = 'runtime-1',
+    requires = { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
+    init = function(current)
       context = current
       panels = current:require(panelsContract.capability)
       tags = current:require(tagsContract.capability)
@@ -94,8 +91,8 @@ local function consumerDefinition(persistent)
           end
         end
       end)
-    end
-  )
+    end,
+  }
 end
 local owner = runtime:use(consumerDefinition(state), {})
 owner:enable()
@@ -167,11 +164,13 @@ assert(rules:resolve(afterSave).width == 1, 'the saved window holds the only sav
 assert(rules:resolve(afterSave).width == 1, 'repeated lookups do not change the answer')
 local observerContext
 local observer = runtime:use(
-  plugin.define(function(value)
-    return value
-  end, { panels = panelsContract.capability }, {}, function(current)
-    observerContext = current
-  end),
+  plugin.define {
+    name = 'runtime-2',
+    requires = { panels = panelsContract.capability },
+    init = function(current)
+      observerContext = current
+    end,
+  },
   {}
 )
 observer:enable()

@@ -11,13 +11,11 @@ local required: plugin.Declaration = {
 }
 local provided: plugin.Declaration = { adoption = adoption.capability }
 
-return plugin.define(
-  function(config: {}): {}
-    return config
-  end,
-  required,
-  provided,
-  function(context, _config, provide)
+return plugin.define {
+  name = 'adoption',
+  requires = required,
+  provides = provided,
+  init = function(context: plugin.Context, _config: {}, provide: plugin.Publisher)
     provide:provide(adoption.capability, create(context))
-  end
-)
+  end,
+}

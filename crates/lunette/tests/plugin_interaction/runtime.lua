@@ -38,22 +38,25 @@ local provider = runtime:use(require '@lunette-plugins/interaction', {})
 provider:enable()
 local service, owner
 local consumer = runtime:use(
-  plugin.define(function(v)
-    return v
-  end, { interaction = contract.capability }, {}, function(ctx)
-    service, owner = ctx:require(contract.capability), ctx
-  end),
+  plugin.define {
+    name = 'runtime-1',
+    requires = { interaction = contract.capability },
+    init = function(ctx)
+      service, owner = ctx:require(contract.capability), ctx
+    end,
+  },
   {}
 )
 consumer:enable()
 local wrongOwner = runtime:use(
-  plugin.define(function(v)
-    return v
-  end, {}, {}, function(ctx)
-    assert(not pcall(function()
-      service:newPointer(ctx)
-    end))
-  end),
+  plugin.define {
+    name = 'runtime-2',
+    init = function(ctx)
+      assert(not pcall(function()
+        service:newPointer(ctx)
+      end))
+    end,
+  },
   {}
 )
 wrongOwner:enable()
@@ -168,11 +171,13 @@ grant:dispose()
 assert(granted.focus == nil and service:focused() == nil, 'disposing the grant takes its focus back')
 local otherOwner
 local survivor = runtime:use(
-  plugin.define(function(v)
-    return v
-  end, { interaction = contract.capability }, {}, function(ctx)
-    otherOwner = ctx
-  end),
+  plugin.define {
+    name = 'runtime-3',
+    requires = { interaction = contract.capability },
+    init = function(ctx)
+      otherOwner = ctx
+    end,
+  },
   {}
 )
 survivor:enable()

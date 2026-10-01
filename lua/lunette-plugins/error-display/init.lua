@@ -144,10 +144,11 @@ local function initialize(context: Context, config: Config, provide: plugin.Publ
   provide:provide(contracts.capability, service)
 end
 
-local function identity(config: Config): Config
-  return config
-end
-
-local definition: plugin.Definition<Config> = plugin.define(identity, required, provided, initialize)
+local definition: plugin.Definition<Config> = plugin.define {
+  name = 'error-display',
+  requires = required,
+  provides = provided,
+  init = initialize,
+}
 
 return { definition = definition }

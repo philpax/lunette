@@ -15,8 +15,17 @@ type NativeDefinition = native.PluginDefinition
 type NativeEffect = native.PluginEffect
 type NativeInstance = native.PluginInstance
 
+-- A contract's capability. The service type `T` is named at the call site by
+-- explicit instantiation, as in `plugin.capability<<Service>> { ... }`, and
+-- the witness is an identity function that carries it.
 export type Capability<T> = {
   read witness: (T) -> T,
+}
+
+-- The fields `plugin.capability` accepts.
+export type CapabilitySpec = {
+  read name: string,
+  read schema: number,
 }
 
 export type Effect = {
@@ -50,10 +59,24 @@ export type Publisher = {
 
 export type Declaration = { [string]: { read witness: (never) -> unknown } }
 
+-- The fields `plugin.define` accepts. The configuration type `C` is inferred
+-- from the initializer's configuration parameter.
+export type Spec<C> = {
+  read name: string,
+  read requires: Declaration?,
+  read provides: Declaration?,
+  read init: (Context, C, Publisher) -> (),
+}
+
+-- A defined plugin. The initializer's context and publisher are erased to
+-- `never`: naming `Context` here makes `Definition` and `Context` mutually
+-- recursive, and `Context:child` then no longer checks its configuration
+-- argument against `C`.
 export type Definition<C> = {
-  read configWitness: (C) -> C,
-  read required: Declaration,
-  read provided: Declaration,
+  read name: string,
+  read requires: Declaration,
+  read provides: Declaration,
+  read init: (never, C, never) -> (),
 }
 
 type DefinitionRecord<C> = Definition<C> & {
@@ -152,12 +175,6 @@ local function ownerContext(owner: Owner, level: number): NativeContext
   return nativeContext
 end
 
--- Names a definition for diagnostics by where its initializer is defined.
-local function definitionName(init: (...any) -> ...any): string
-  local source, line = debug.info(init, 'sl')
-  return string.format('%s:%d', source, line)
-end
-
 local function wrapContext(nativeContext: NativeContext, required: Declaration): Context
   local wrapped = {
     services = function(_self: Context): unknown
@@ -221,12 +238,61 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
   return context
 end
 
-function adapter.capability<T>(name: string, schema: number, witness: (T) -> T): Capability<T>
-  local token = native.plugin.contract(name, schema)
+-- Raises an error naming the first key outside `allowed`, so a misspelt field
+-- is reported rather than ignored.
+local function rejectUnknownKeys(
+  operation: string,
+  raw: { [unknown]: unknown },
+  allowed: { [string]: boolean },
+  fields: string,
+  level: number
+): ()
+  for key, _ in raw do
+    if type(key) ~= 'string' or not allowed[key] then
+      error(string.format('plugin %s: unknown field %s; the fields are %s', operation, tostring(key), fields), level)
+    end
+  end
+end
+
+local capabilityKeys: { [string]: boolean } = { name = true, schema = true }
+
+-- Checks a capability spec's shape. Each error is raised at the caller of
+-- `plugin.capability`, which is three frames up through this function and
+-- the facade. The native side then checks the name's form and the schema's
+-- range.
+local function validateCapabilitySpec(spec: CapabilitySpec): CapabilitySpec
+  local level = 4
+  if type(spec) ~= 'table' then
+    error('plugin capability: a capability is a table of fields, not a ' .. type(spec), level)
+  end
+  local raw = (spec :: unknown) :: { [unknown]: unknown }
+  rejectUnknownKeys('capability', raw, capabilityKeys, 'name and schema', level + 1)
+  local name = raw.name
+  if type(name) ~= 'string' then
+    error('plugin capability: name is a string, not a ' .. type(name), level)
+  end
+  if name == '' then
+    error('plugin capability: name is empty', level)
+  end
+  local schema = raw.schema
+  if type(schema) ~= 'number' then
+    error('plugin capability: schema is a number, not a ' .. type(schema), level)
+  end
+  if schema ~= math.floor(schema) or schema < 1 or schema == math.huge then
+    error('plugin capability: schema is a positive integer, not ' .. tostring(schema), level)
+  end
+  return { name = name, schema = schema }
+end
+
+function adapter.capability<T>(spec: CapabilitySpec): Capability<T>
+  local fields = validateCapabilitySpec(spec)
+  local token = native.plugin.contract(fields.name, fields.schema)
   local capability = freeze {
     token = token,
-    witness = witness,
-    contract = name .. '@' .. tostring(schema),
+    witness = function(value: T): T
+      return value
+    end,
+    contract = fields.name .. '@' .. tostring(fields.schema),
   }
   native.plugin.bind(token, capability)
   return capability
@@ -328,14 +394,57 @@ local function publisher(provided: Declaration, staging: Staging): Publisher
   }
 end
 
-function adapter.define<C>(
-  configWitness: (C) -> C,
-  required: Declaration,
-  provided: Declaration,
-  init: (Context, C, Publisher) -> ()
-): Definition<C>
-  local requiredSnapshot = declarationSnapshot(required)
-  local providedSnapshot = declarationSnapshot(provided)
+local specKeys: { [string]: boolean } = { name = true, requires = true, provides = true, init = true }
+
+type ValidSpec<C> = {
+  name: string,
+  requires: Declaration,
+  provides: Declaration,
+  init: (Context, C, Publisher) -> (),
+}
+
+-- Checks a definition spec's shape and fills the optional declarations. Each
+-- error is raised at the caller of `plugin.define`, which is three frames up
+-- through this function and the facade.
+local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
+  local level = 4
+  if type(spec) ~= 'table' then
+    error('plugin define: a definition is a table of fields, not a ' .. type(spec), level)
+  end
+  local raw = (spec :: unknown) :: { [unknown]: unknown }
+  rejectUnknownKeys('define', raw, specKeys, 'name, requires, provides, and init', level + 1)
+  local name = raw.name
+  if type(name) ~= 'string' then
+    error('plugin define: name is a string, not a ' .. type(name), level)
+  end
+  if name == '' then
+    error('plugin define: name is empty', level)
+  end
+  local init = raw.init
+  if type(init) ~= 'function' then
+    error('plugin define: init is a function, not a ' .. type(init), level)
+  end
+  local requires = raw.requires
+  if requires ~= nil and type(requires) ~= 'table' then
+    error('plugin define: requires is a table of capabilities, not a ' .. type(requires), level)
+  end
+  local provides = raw.provides
+  if provides ~= nil and type(provides) ~= 'table' then
+    error('plugin define: provides is a table of capabilities, not a ' .. type(provides), level)
+  end
+  return {
+    name = name,
+    requires = (requires or {}) :: Declaration,
+    provides = (provides or {}) :: Declaration,
+    init = spec.init,
+  }
+end
+
+function adapter.define<C>(spec: Spec<C>): Definition<C>
+  local fields = validateSpec(spec)
+  local init = fields.init
+  local requiredSnapshot = declarationSnapshot(fields.requires)
+  local providedSnapshot = declarationSnapshot(fields.provides)
   local nativeDefinition = native.plugin.define(
     mapDeclaration(requiredSnapshot),
     mapDeclaration(providedSnapshot),
@@ -372,12 +481,13 @@ function adapter.define<C>(
       end
       return stagedValues(values, called, providedSnapshot, nativeContext)
     end,
-    definitionName(init)
+    fields.name
   )
   return freeze {
-    configWitness = configWitness,
-    required = requiredSnapshot,
-    provided = providedSnapshot,
+    name = fields.name,
+    requires = requiredSnapshot,
+    provides = providedSnapshot,
+    init = init,
     nativeDefinition = nativeDefinition,
   } :: Definition<C>
 end

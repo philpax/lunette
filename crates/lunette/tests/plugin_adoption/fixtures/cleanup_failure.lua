@@ -10,11 +10,13 @@ return function(fixture, payload, mode, extraFailure)
   local runtime = fixture.runtime
   local observer
   local independent = runtime:use(
-    plugin.define(function(value)
-      return value
-    end, { panels = panels.capability, tags = tags.capability }, {}, function(context)
-      observer = context
-    end),
+    plugin.define {
+      name = 'cleanup-failure-1',
+      requires = { panels = panels.capability, tags = tags.capability },
+      init = function(context)
+        observer = context
+      end,
+    },
     {}
   )
   independent:enable()
@@ -77,17 +79,14 @@ return function(fixture, payload, mode, extraFailure)
   local callerOwner
   local loads = 0
   local caller = runtime:use(
-    plugin.define(
-      function(value)
-        return value
-      end,
-      if mode == 'direct' then { rules = rules.capability } else { adoption = adoption.capability },
-      {},
-      function(context)
+    plugin.define {
+      name = 'cleanup-failure-2',
+      requires = if mode == 'direct' then { rules = rules.capability } else { adoption = adoption.capability },
+      init = function(context)
         callerOwner = context
         loads += 1
-      end
-    ),
+      end,
+    },
     {}
   )
   caller:enable()

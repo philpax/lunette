@@ -5,70 +5,72 @@ return function(plugin, modules)
   local laser = runtime:use(modules.laser, {})
   local events = modules.events
 
-  local callerDefinition = plugin.define(function(config)
-    return config
-  end, {
-    laser = modules.laserCapability,
-    interaction = modules.interactionCapability,
-  }, {}, function(context)
-    local service = context:require(modules.laserCapability)
-    events.service = service
-    events.interaction = context:require(modules.interactionCapability)
-    local leftInput = {
-      pose = lovr.math.newMat4(),
-      origin = vector.pack(0, 0, 0),
-      direction = vector.pack(0, 0, -1),
-      trigger = false,
-      grip = false,
-      dt = 1 / 60,
-    }
-    local rightInput = {
-      pose = lovr.math.newMat4(),
-      origin = vector.pack(0, 0, 0),
-      direction = vector.pack(0, 1, 0),
-      trigger = false,
-      grip = false,
-      dt = 1 / 60,
-    }
-    events.inputs = { left = leftInput, right = rightInput }
-    local function readInput(hand)
-      events.inputCalls[hand] = (events.inputCalls[hand] or 0) + 1
-      return events.inputs[hand]
-    end
-
-    local weakResources = setmetatable({}, { __mode = 'v' })
-    for cycle = 1, 12 do
-      do
-        local temporary = service:new(context, 'left', { readInput = readInput })
-        local seat = temporary.seat
-        weakResources[1], weakResources[2] = temporary, temporary.pointer
-        assert(temporary:destroy())
-        assert(seat.dead)
-        assert(not temporary:destroy())
+  local callerDefinition = plugin.define {
+    name = 'callerDefinition',
+    requires = {
+      laser = modules.laserCapability,
+      interaction = modules.interactionCapability,
+    },
+    init = function(context)
+      local service = context:require(modules.laserCapability)
+      events.service = service
+      events.interaction = context:require(modules.interactionCapability)
+      local leftInput = {
+        pose = lovr.math.newMat4(),
+        origin = vector.pack(0, 0, 0),
+        direction = vector.pack(0, 0, -1),
+        trigger = false,
+        grip = false,
+        dt = 1 / 60,
+      }
+      local rightInput = {
+        pose = lovr.math.newMat4(),
+        origin = vector.pack(0, 0, 0),
+        direction = vector.pack(0, 1, 0),
+        trigger = false,
+        grip = false,
+        dt = 1 / 60,
+      }
+      events.inputs = { left = leftInput, right = rightInput }
+      local function readInput(hand)
+        events.inputCalls[hand] = (events.inputCalls[hand] or 0) + 1
+        return events.inputs[hand]
       end
-      collectResources()
-      collectResources()
-      assert(weakResources[1] == nil and weakResources[2] == nil, 'destroyed laser or pointer retained')
-    end
-    local borrowed = service:new(context, 'left', { seat = modules.borrowedSeat, readInput = readInput })
-    local attached = service:attach(context, { readInput = readInput })
-    assert(attached[1] == borrowed)
-    assert(attached[2].hand == 'right')
-    assert(attached[2].seat ~= modules.borrowedSeat)
-    assert(#service:all() == 2)
-    assert(#events.interaction:pointers() == 2)
 
-    events.service = service
-    if not events.firstService then
-      events.firstService = service
-      events.borrowed = borrowed
-      events.borrowedSeat = modules.borrowedSeat
-      events.ownedSeat = attached[2].seat
-    else
-      events.replacementService = service
-      events.replacementOwnedSeat = attached[2].seat
-    end
-  end)
+      local weakResources = setmetatable({}, { __mode = 'v' })
+      for cycle = 1, 12 do
+        do
+          local temporary = service:new(context, 'left', { readInput = readInput })
+          local seat = temporary.seat
+          weakResources[1], weakResources[2] = temporary, temporary.pointer
+          assert(temporary:destroy())
+          assert(seat.dead)
+          assert(not temporary:destroy())
+        end
+        collectResources()
+        collectResources()
+        assert(weakResources[1] == nil and weakResources[2] == nil, 'destroyed laser or pointer retained')
+      end
+      local borrowed = service:new(context, 'left', { seat = modules.borrowedSeat, readInput = readInput })
+      local attached = service:attach(context, { readInput = readInput })
+      assert(attached[1] == borrowed)
+      assert(attached[2].hand == 'right')
+      assert(attached[2].seat ~= modules.borrowedSeat)
+      assert(#service:all() == 2)
+      assert(#events.interaction:pointers() == 2)
+
+      events.service = service
+      if not events.firstService then
+        events.firstService = service
+        events.borrowed = borrowed
+        events.borrowedSeat = modules.borrowedSeat
+        events.ownedSeat = attached[2].seat
+      else
+        events.replacementService = service
+        events.replacementOwnedSeat = attached[2].seat
+      end
+    end,
+  }
 
   local caller = runtime:use(callerDefinition, {})
   panels:enable()
