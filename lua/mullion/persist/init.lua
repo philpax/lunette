@@ -288,15 +288,17 @@ function persist.new(dependencies: Dependencies?): State
           end
           return arrangements.answer(available(), held, window)
         end
-        binding.sourceEffect = rules:addSource(context, SOURCE, PRECEDENCE, source)
-        binding.droppedEffect = panels:onDropped(context, nil, function()
-          if bindingLive(binding) then
-            local written, message = save(nil)
-            if not written and message then
-              report(message)
+        binding.sourceEffect = rules:addSource(context, { name = SOURCE, precedence = PRECEDENCE, resolve = source })
+        binding.droppedEffect = panels:onDropped(context, {
+          run = function()
+            if bindingLive(binding) then
+              local written, message = save(nil)
+              if not written and message then
+                report(message)
+              end
             end
-          end
-        end)
+          end,
+        })
         arrangements.restore(report, held, context, panels, tags, arrangement)
         binding.addedEffect = panels:onAdded(context, function(target: panelsContract.Panel)
           if bindingLive(binding) then

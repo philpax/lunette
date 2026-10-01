@@ -284,16 +284,23 @@ end)
 
 spec('persisted placement at 200 overrides rules at 100 and yields to native properties at 300', function()
   withServices({ entry() }, function(state, context, panels, tags, rules)
-    rules:setRules(context, { { properties = { width = 1, pose = lovr.math.newMat4():translate(0, 0, -1) } } })
+    rules:setRules(
+      context,
+      { rules = { { properties = { width = 1, pose = lovr.math.newMat4():translate(0, 0, -1) } } } }
+    )
     state:bind(context, panels, tags, rules)
     local source = window 'terminal'
     local panel = rules:place(context, source)
     expect.near(panel.width, 1.2, TOLERANCE, 'the persisted width')
     local _, _, z = panel.pose:getPosition()
     expect.near(z, -2, TOLERANCE, 'the persisted pose')
-    rules:addSource(context, 'fixture.native', 300, function()
-      return { width = 3 }
-    end)
+    rules:addSource(context, {
+      name = 'fixture.native',
+      precedence = 300,
+      resolve = function()
+        return { width = 3 }
+      end,
+    })
     expect.near(rules:resolve(source).width, 3, TOLERANCE, 'the native width')
   end)
 end)

@@ -14,8 +14,8 @@ return function()
   -- The native error boundary is outside this test, so its entry point
   -- records what the provider reports.
   local reported = {}
-  lunette.reportError = function(context, message)
-    reported[#reported + 1] = context .. ': ' .. message
+  lunette.reportError = function(fields)
+    reported[#reported + 1] = fields.context .. ': ' .. fields.message
   end
 
   local runtime = plugin.runtime()
@@ -44,10 +44,12 @@ return function()
       requires = { panels = contracts.capability },
       init = function(context)
         local service = context:require(contracts.capability)
-        service:onRemoved(context, nil, function()
-          heard += 1
-          error 'removal listener failed during a drain'
-        end)
+        service:onRemoved(context, {
+          run = function()
+            heard += 1
+            error 'removal listener failed during a drain'
+          end,
+        })
       end,
     },
     {}

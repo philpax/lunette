@@ -70,17 +70,22 @@ local function makeState(context: Context, config: Config): (State, Service)
     COLUMNS = COLUMNS,
     LINES = LINES,
     BACKGROUND = BACKGROUND,
-    newLimiter = function(_self: Service, window: number?, maxKeys: number?): limiterModule.Limiter
+    newLimiter = function(_self: Service, options: contracts.LimiterOptions?): limiterModule.Limiter
+      local window = options and options.window
+      local maxKeys = options and options.maxKeys
       return limiterModule.new(window or WINDOW, maxKeys or MAX_KEYS)
     end,
-    keyFor = function(_self: Service, message: string, traceback: string?): string
-      return message .. '\n' .. tostring(traceback or '')
+    keyFor = function(_self: Service, report: contracts.Report): string
+      return report.message .. '\n' .. tostring(report.traceback or '')
     end,
-    handle = function(self: Service, message: string, traceback: string?, now: number?): boolean
+    handle = function(self: Service, report: contracts.TimedReport): boolean
+      local message, traceback, now = report.message, report.traceback, report.now
       local currentMessage = tostring(message)
       local currentTraceback = traceback and tostring(traceback) or debug.traceback('', 2)
-      local shouldShow, suppressed =
-        current.limiter:record(self:keyFor(currentMessage, currentTraceback), now or current.clock())
+      local shouldShow, suppressed = current.limiter:record(
+        self:keyFor { message = currentMessage, traceback = currentTraceback },
+        now or current.clock()
+      )
       if not shouldShow then
         return false
       end
@@ -138,9 +143,12 @@ local function initialize(context: Context, config: Config, provide: plugin.Publ
       state.count = 0
     end
   end)
-  context:on(lunette.onError, function(event: lunette.ErrorEvent)
-    service:handle(event.message, event.traceback)
-  end)
+  context:on {
+    event = lunette.onError,
+    run = function(event: lunette.ErrorEvent)
+      service:handle { message = event.message, traceback = event.traceback }
+    end,
+  }
   provide:provide(contracts.capability, service)
 end
 

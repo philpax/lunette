@@ -4,18 +4,22 @@
 -- panels updating and drawing.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local callbacks = require '../desktop/callbacks'
+local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
-local surface = require '@lunette-contracts/surface'
+local surfaces = require '@lunette-contracts/surfaces'
 
-local required: plugin.Declaration = { panels = panels.capability }
-export type Config = { read callbacks: typeof(callbacks) }
+local required: plugin.Declaration = {
+  frame = frame.capability,
+  panels = panels.capability,
+  surfaces = surfaces.capability,
+}
 
 return plugin.define {
   name = 'desktop/base',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local callbacks = config.callbacks
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+    local frameService: frame.Service = context:require(frame.capability)
+    local surfaceService: surfaces.Service = context:require(surfaces.capability)
     local panelService: panels.Service = context:require(panels.capability)
     local mirrors: { [string]: panels.MonitorPanel } = {}
     -- A mirror lasts as long as its panel. The capture and the removal
@@ -56,48 +60,60 @@ return plugin.define {
       end
       mirrors[monitor.id] = created
       local removal: plugin.Effect
-      removal = panelService:onRemoved(context, created, function(): ()
-        if mirrors[monitor.id] == created then
-          mirrors[monitor.id] = nil
-        end
-        removal:dispose()
-        mirrored:dispose()
-      end)
+      removal = panelService:onRemoved(context, {
+        panel = created,
+        run = function(): ()
+          if mirrors[monitor.id] == created then
+            mirrors[monitor.id] = nil
+          end
+          removal:dispose()
+          mirrored:dispose()
+        end,
+      })
     end
-    context:on(lunette.onMonitorAdded, function(event: lunette.MonitorAddedEvent)
-      if event.monitor then
-        mirror(event.monitor)
-      end
-    end)
+    context:on {
+      event = lunette.onMonitorAdded,
+      run = function(event: lunette.MonitorAddedEvent)
+        if event.monitor then
+          mirror(event.monitor)
+        end
+      end,
+    }
     for _, monitor in pairs(lunette.monitors()) do
       mirror(monitor)
     end
-    callbacks.onSurfaces(context, function(): { surface.Surface }
-      local result: { surface.Surface } = {}
-      local function add(value: surface.Surface): ()
-        result[#result + 1] = value
-      end
-      for _, item in ipairs(panelService:all()) do
-        if not item.dead then
-          add(item)
+    surfaceService:offer(context, {
+      name = 'desktop/panels',
+      list = function(): { surfaces.Surface }
+        local result: { surfaces.Surface } = {}
+        for _, item in ipairs(panelService:all()) do
+          if not item.dead then
+            result[#result + 1] = item
+          end
         end
-      end
-      return result
-    end)
-    callbacks.onUpdate(context, function(_dt: number)
-      panelService:update()
-    end, 100)
-    callbacks.onDraw(context, function(pass: Pass)
-      panelService:draw(pass)
-      if #panelService:all() == 0 then
-        pass:text(
-          'lunette: no windows yet',
-          lovr.math.mat4():translate(0, 1.5, -1.5):scale(0.08),
-          0,
-          'center',
-          'middle'
-        )
-      end
-    end, 100)
+        return result
+      end,
+    })
+    frameService:onUpdate(context, {
+      phase = 'scene',
+      run = function(_dt: number)
+        panelService:update()
+      end,
+    })
+    frameService:onDraw(context, {
+      phase = 'scene',
+      run = function(pass: Pass)
+        panelService:draw(pass)
+        if #panelService:all() == 0 then
+          pass:text(
+            'lunette: no windows yet',
+            lovr.math.mat4():translate(0, 1.5, -1.5):scale(0.08),
+            0,
+            'center',
+            'middle'
+          )
+        end
+      end,
+    })
   end,
 }

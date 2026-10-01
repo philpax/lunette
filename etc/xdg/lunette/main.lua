@@ -1,7 +1,8 @@
 -- The default desktop explicitly selects replaceable providers and independent consumers.
 local plugin = require '@lunette-plugin'
-local callbacks = require './desktop/callbacks'
 
+local frame = require '@lunette-plugins/frame'
+local surfaces = require '@lunette-plugins/surfaces'
 local panels = require '@lunette-plugins/panels'
 local interaction = require '@lunette-plugins/interaction'
 local laser = require '@lunette-plugins/laser'
@@ -23,32 +24,39 @@ local policy = require './desktop/policy'
 _G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
 local runtime: plugin.Runtime? = nil
 
-callbacks.install(function(): ()
-  if runtime then
-    return
-  end
-  local graph = plugin.runtime()
-  runtime = graph
-  graph:use(panels, {}):enable()
-  graph:use(interaction, {}):enable()
-  graph:use(laser, {}):enable()
-  graph:use(keyboard, {}):enable()
-  graph:use(tags, {}):enable()
-  graph:use(rules, {}):enable()
-  graph:use(adoption, {}):enable()
-  graph:use(arc, {}):enable()
-  graph:use(errorDisplay.definition, {}):enable()
-  graph:use(base, { callbacks = callbacks }):enable()
-  graph:use(pointing, { callbacks = callbacks }):enable()
-  graph:use(input, { callbacks = callbacks }):enable()
-  graph:use(wristKeyboard, { callbacks = callbacks }):enable()
-  graph:use(errors, { callbacks = callbacks }):enable()
-  graph:use(policy(), { callbacks = callbacks }):enable()
-  graph:drain()
-end, function(): ()
-  local graph = runtime
-  runtime = nil
-  if graph then
-    graph:close()
-  end
-end)
+-- LÖVR's callbacks are bound before the runtime exists: lovr.load creates it,
+-- and lovr.quit runs the quit handlers and then closes it.
+frame.install {
+  start = function(): ()
+    if runtime then
+      return
+    end
+    local graph = plugin.runtime()
+    runtime = graph
+    graph:use(frame.definition, {}):enable()
+    graph:use(surfaces, {}):enable()
+    graph:use(panels, {}):enable()
+    graph:use(interaction, {}):enable()
+    graph:use(laser, {}):enable()
+    graph:use(keyboard, {}):enable()
+    graph:use(tags, {}):enable()
+    graph:use(rules, {}):enable()
+    graph:use(adoption, {}):enable()
+    graph:use(arc, {}):enable()
+    graph:use(errorDisplay.definition, {}):enable()
+    graph:use(base, {}):enable()
+    graph:use(pointing, {}):enable()
+    graph:use(input, {}):enable()
+    graph:use(wristKeyboard, {}):enable()
+    graph:use(errors, {}):enable()
+    graph:use(policy(), {}):enable()
+    graph:drain()
+  end,
+  stop = function(): ()
+    local graph = runtime
+    runtime = nil
+    if graph then
+      graph:close()
+    end
+  end,
+}

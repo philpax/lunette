@@ -13,6 +13,24 @@ export type Limiter = {
   read suppressedCount: (Limiter, string) -> number,
 }
 
+-- What newLimiter takes: the window in seconds a repeated report is
+-- suppressed for, and how many distinct reports it remembers.
+export type LimiterOptions = {
+  read window: number?,
+  read maxKeys: number?,
+}
+
+-- A report: the error's message and where it was raised.
+export type Report = {
+  read message: string,
+  read traceback: string?,
+}
+
+-- A report handled at a time, by default the provider's clock.
+export type TimedReport = Report & {
+  read now: number?,
+}
+
 export type Service = {
   read WINDOW: number,
   read MAX_KEYS: number,
@@ -24,9 +42,9 @@ export type Service = {
   read COLUMNS: number,
   read LINES: number,
   read BACKGROUND: { number },
-  read newLimiter: (Service, number?, number?) -> Limiter,
-  read keyFor: (Service, string, string?) -> string,
-  read handle: (Service, string, string?, number?) -> boolean,
+  read newLimiter: (Service, LimiterOptions?) -> Limiter,
+  read keyFor: (Service, Report) -> string,
+  read handle: (Service, TimedReport) -> boolean,
   read show: (Service, string) -> (),
   read clear: (Service) -> (),
   read current: (Service) -> string?,

@@ -14,6 +14,7 @@ export type Capability<T> = adapter.Capability<T>
 export type CapabilitySpec = adapter.CapabilitySpec
 export type Effect = adapter.Effect
 export type Context = adapter.Context
+export type Subscription<E> = adapter.Subscription<E>
 export type Owner = adapter.Owner
 export type Publisher = adapter.Publisher
 export type Declaration = adapter.Declaration
@@ -34,7 +35,7 @@ export type PluginInstance = native.PluginInstance
 -- convention and is not authenticated, so a module can declare any
 -- authority's contract.
 function plugin.capability<T>(spec: CapabilitySpec): Capability<T>
-  return adapter.capability(spec)
+  return adapter.capability<<T>>(spec)
 end
 
 -- Defines a plugin from its name, the capabilities it requires and provides,

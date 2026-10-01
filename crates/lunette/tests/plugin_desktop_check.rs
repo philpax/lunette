@@ -10,7 +10,6 @@ fn shipped_desktop_composition_is_strictly_typed() {
         Some(root.join("etc/lunette/definitions.luau")),
         [
             "main.lua",
-            "desktop/callbacks.lua",
             "desktop/logging.lua",
             "desktop/base.lua",
             "desktop/pointing.lua",

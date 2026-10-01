@@ -1,20 +1,25 @@
 -- The left-wrist keyboard button and its lazily created keyboard.
 local plugin = require '@lunette-plugin'
+local frame = require '@lunette-contracts/frame'
 local keyboard = require '@lunette-contracts/keyboard'
 local quad = require '@lunette-contracts/quad'
 local surface = require '@lunette-contracts/surface'
-local callbackModule = require '../desktop/callbacks'
-export type Config = { read callbacks: typeof(callbackModule) }
+local surfaces = require '@lunette-contracts/surfaces'
 
-local required: plugin.Declaration = { keyboard = keyboard.capability }
+local required: plugin.Declaration = {
+  frame = frame.capability,
+  keyboard = keyboard.capability,
+  surfaces = surfaces.capability,
+}
 local HAND: Device = 'hand/left'
 local SIZE = 0.115
 
 return plugin.define {
   name = 'desktop/keyboard',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local callbacks = config.callbacks
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+    local frameService: frame.Service = context:require(frame.capability)
+    local surfaceService: surfaces.Service = context:require(surfaces.capability)
     local service: keyboard.Service = context:require(keyboard.capability)
     local virtualKeyboard: keyboard.Keyboard? = nil
     local tracked = false
@@ -87,42 +92,48 @@ return plugin.define {
         toggle()
       end,
     }
-    callbacks.onSurfaces(context, function(): { surface.Surface }
-      local result: { surface.Surface } = {}
-      local function add(value: surface.Surface): ()
-        result[#result + 1] = value
-      end
-      tracked = lovr.headset.isTracked(HAND)
-      if tracked then
-        local x, y, z, angle, ax, ay, az = lovr.headset.getPose(HAND)
-        pose:set(lovr.math.newMat4(x, y, z, angle, ax, ay, az))
-        pose:translate(-0.03, -0.01, 0.125):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
-        add(wrist)
-      end
-      if virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead then
-        add(virtualKeyboard)
-      end
-      return result
-    end)
-    callbacks.onDraw(context, function(pass: Pass)
-      if tracked then
-        local showing = virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead
-        if showing then
-          pass:setColor(0.35, 0.75, 0.45, 1)
-        else
-          pass:setColor(0.2, 0.2, 0.24, 1)
+    surfaceService:offer(context, {
+      name = 'desktop/keyboard',
+      list = function(): { surface.Surface }
+        local result: { surface.Surface } = {}
+        tracked = lovr.headset.isTracked(HAND)
+        if tracked then
+          local x, y, z, angle, ax, ay, az = lovr.headset.getPose(HAND)
+          pose:set(lovr.math.newMat4(x, y, z, angle, ax, ay, az))
+          pose:translate(-0.03, -0.01, 0.125):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
+          result[#result + 1] = wrist
         end
-        pass:plane(lovr.math.mat4(pose):scale(SIZE, SIZE, 1), 'fill', 1, 1)
-        pass:setColor(1, 1, 1, 1)
-        pass:text(
-          'kbd',
-          lovr.math.mat4(pose):translate(0, 0, 0.002):scale(vector.pack(SIZE * 0.35)),
-          0,
-          'center',
-          'middle'
-        )
-      end
-      service:draw(pass)
-    end, 200)
+        if virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead then
+          result[#result + 1] = virtualKeyboard
+        end
+        return result
+      end,
+    })
+    -- Drawn after the panels in the scene phase, as one of the scene's
+    -- surfaces.
+    frameService:onDraw(context, {
+      phase = 'scene',
+      order = 1,
+      run = function(pass: Pass)
+        if tracked then
+          local showing = virtualKeyboard and virtualKeyboard.visible and not virtualKeyboard.dead
+          if showing then
+            pass:setColor(0.35, 0.75, 0.45, 1)
+          else
+            pass:setColor(0.2, 0.2, 0.24, 1)
+          end
+          pass:plane(lovr.math.mat4(pose):scale(SIZE, SIZE, 1), 'fill', 1, 1)
+          pass:setColor(1, 1, 1, 1)
+          pass:text(
+            'kbd',
+            lovr.math.mat4(pose):translate(0, 0, 0.002):scale(vector.pack(SIZE * 0.35)),
+            0,
+            'center',
+            'middle'
+          )
+        end
+        service:draw(pass)
+      end,
+    })
   end,
 }

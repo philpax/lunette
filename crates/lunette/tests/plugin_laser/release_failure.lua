@@ -35,7 +35,7 @@ return function(plugin, modules)
       error 'native laser release failed'
     end
   end
-  held.pointer:setButton(true, brokenSink)
+  held.pointer:setButton { pressed = true, sink = brokenSink }
 
   consumer:disable()
   assert(failedReleases == 1 and held.dead, 'the release ran once')

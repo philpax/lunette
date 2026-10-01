@@ -1,14 +1,18 @@
 local plugin = require '@lunette-plugin'
-local callbacks = require 'desktop/callbacks'
+local frame = require '@lunette-plugins/frame'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 local persist = require '@mullion/persist'
 local pose = require '@mullion/pose'
 local runtime = plugin.runtime()
-callbacks.install(function() end, function()
-  runtime:close()
-end)
+frame.install {
+  start = function() end,
+  stop = function()
+    runtime:close()
+  end,
+}
 local definitions = {
+  frame.definition,
   require '@lunette-plugins/panels',
   require '@lunette-plugins/interaction',
   require '@lunette-plugins/tags',
@@ -36,7 +40,7 @@ runtime
   :enable()
 local definePolicy = require 'desktop/policy'
 local function policy()
-  local instance = runtime:use(definePolicy(), { callbacks = callbacks })
+  local instance = runtime:use(definePolicy(), {})
   instance:enable()
   return instance
 end

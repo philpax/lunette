@@ -85,7 +85,7 @@ return function()
     self.focus = target
     return true
   end
-  focus:setFocus(owner, seat, sink)
+  focus:setFocus(owner, { seat = seat, sink = sink })
   assert(seat.focus == sink)
   local board = service:new(owner)
   assert(#service:all() == 1 and #otherService:all() == 0)
@@ -151,7 +151,7 @@ return function()
   function failSink:key(_code, _pressed, _seat)
     return true
   end
-  failFocus:setFocus(failOwner, failSeat, failSink)
+  failFocus:setFocus(failOwner, { seat = failSeat, sink = failSink })
   local failBoard = failService:new(failOwner)
   failBoard:pressKey(30)
   failing = true

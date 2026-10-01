@@ -1,10 +1,9 @@
 -- Desktop keyboard input follows the interaction provider's focused seat.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local frame = require '@lunette-contracts/frame'
 local interaction = require '@lunette-contracts/interaction'
-local callbackModule = require '../desktop/callbacks'
 local logging = require '../desktop/logging'
-export type Config = { read callbacks: typeof(callbackModule) }
 
 local NAMED_KEYS = {
   backspace = 14,
@@ -28,7 +27,7 @@ local MODIFIERS: { { names: { KeyCode }, modifier: string } } = {
   { names = { 'lalt', 'ralt' }, modifier = 'alt' },
   { names = { 'lgui', 'rgui' }, modifier = 'logo' },
 }
-local required: plugin.Declaration = { interaction = interaction.capability }
+local required: plugin.Declaration = { frame = frame.capability, interaction = interaction.capability }
 
 local function heldModifiers(): { string }
   local held: { string } = {}
@@ -46,8 +45,8 @@ end
 return plugin.define {
   name = 'desktop/input',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local callbacks = config.callbacks
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+    local frameService: frame.Service = context:require(frame.capability)
     local service: interaction.Service = context:require(interaction.capability)
     -- The focused seat and sink, or nothing when either has died since focus
     -- was given: a handle does not survive its native object.
@@ -72,37 +71,54 @@ return plugin.define {
         sink:modifiers({}, seat)
       end
     end
-    callbacks.onKeypressed(context, function(key: KeyCode, _scancode: number, _isrepeat: boolean)
-      if key == 'f5' then
+    -- The reload key is a binding, so it is consumed before delivery and a
+    -- binding another plugin registers can take a key before the client does.
+    frameService:onKey(context, {
+      phase = 'binding',
+      run = function(event: frame.KeyEvent): boolean?
+        if event.key ~= 'f5' then
+          return nil
+        end
         local reloaded, message = lunette.reload()
         if not reloaded then
           logging.report('configuration was not reloaded: ' .. tostring(message), 'error')
         end
-        return
-      end
-      local held = heldModifiers()
-      local named = NAMED_KEYS[key]
-      if named then
-        stroke(named, held)
-      elseif #held > 0 and #key == 1 then
-        local seat = focused()
-        local found = seat and seat:strokeFor(key)
-        if found then
-          stroke(found.keycode, held)
+        return true
+      end,
+    })
+    frameService:onKey(context, {
+      phase = 'delivery',
+      run = function(event: frame.KeyEvent): boolean?
+        local key = event.key
+        local held = heldModifiers()
+        local named = NAMED_KEYS[key]
+        if named then
+          stroke(named, held)
+        elseif #held > 0 and #key == 1 then
+          local seat = focused()
+          local found = seat and seat:strokeFor(key)
+          if found then
+            stroke(found.keycode, held)
+          end
         end
-      end
-    end)
-    callbacks.onTextinput(context, function(text: string, _code: number)
-      local seat, sink = focused()
-      if not seat or not sink or #heldModifiers() > 0 then
-        return
-      end
-      for character in text:gmatch '.' do
-        local found = seat:strokeFor(character)
-        if found then
-          stroke(found.keycode, found.modifiers or {})
+        return nil
+      end,
+    })
+    frameService:onText(context, {
+      phase = 'delivery',
+      run = function(event: frame.TextEvent): boolean?
+        local seat, sink = focused()
+        if not seat or not sink or #heldModifiers() > 0 then
+          return nil
         end
-      end
-    end)
+        for character in event.text:gmatch '.' do
+          local found = seat:strokeFor(character)
+          if found then
+            stroke(found.keycode, found.modifiers or {})
+          end
+        end
+        return nil
+      end,
+    })
   end,
 }

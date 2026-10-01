@@ -1,16 +1,32 @@
 -- The shipped desktop composition built as main.lua builds it, with each
 -- instance returned so a scenario can take a provider or consumer away.
 local plugin = require '@lunette-plugin'
-local callbacks = require 'desktop/callbacks'
+local frame = require '@lunette-plugins/frame'
 local panels = require '@lunette-contracts/panels'
+local surfaces = require '@lunette-contracts/surfaces'
 
 return function()
   local runtime = plugin.runtime()
-  callbacks.install(function() end, function()
-    runtime:close()
-  end)
+  frame.install {
+    start = function() end,
+    stop = function()
+      runtime:close()
+    end,
+  }
   local providers = {}
-  for _, name in ipairs { 'panels', 'interaction', 'laser', 'keyboard', 'tags', 'rules', 'adoption', 'layout/arc' } do
+  providers.frame = runtime:use(frame.definition, {})
+  providers.frame:enable()
+  for _, name in ipairs {
+    'surfaces',
+    'panels',
+    'interaction',
+    'laser',
+    'keyboard',
+    'tags',
+    'rules',
+    'adoption',
+    'layout/arc',
+  } do
     providers[name] = runtime:use(require('@lunette-plugins/' .. name), {})
     providers[name]:enable()
   end
@@ -18,19 +34,20 @@ return function()
   providers.display:enable()
   local consumers = {}
   for _, name in ipairs { 'base', 'pointing', 'input', 'keyboard', 'errors' } do
-    consumers[name] = runtime:use(require('desktop/' .. name), { callbacks = callbacks })
+    consumers[name] = runtime:use(require('desktop/' .. name), {})
     consumers[name]:enable()
   end
-  consumers.policy = runtime:use(require 'desktop/policy'(), { callbacks = callbacks })
+  consumers.policy = runtime:use(require 'desktop/policy'(), {})
   consumers.policy:enable()
-  local desktop = { runtime = runtime, providers = providers, consumers = consumers, callbacks = callbacks }
+  local desktop = { runtime = runtime, providers = providers, consumers = consumers }
   runtime
     :use(
       plugin.define {
         name = 'graph-1',
-        requires = { panels = panels.capability },
+        requires = { panels = panels.capability, surfaces = surfaces.capability },
         init = function(ctx)
           desktop.panels = ctx:require(panels.capability)
+          desktop.surfaces = ctx:require(surfaces.capability)
         end,
       },
       {}

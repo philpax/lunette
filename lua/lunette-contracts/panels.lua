@@ -76,6 +76,18 @@ export type Panel =
 export type DroppedCallback = (Panel, vocabulary.Pointer) -> ()
 export type PanelCallback = (Panel) -> ()
 
+-- A dropped or removed listener hears every panel, or only panel when it is
+-- given.
+export type DroppedListener = {
+  read panel: Panel?,
+  read run: DroppedCallback,
+}
+
+export type RemovedListener = {
+  read panel: Panel?,
+  read run: PanelCallback,
+}
+
 export type Quad = quad.Quad
 
 export type Service = {
@@ -92,10 +104,10 @@ export type Service = {
   read update: (Service) -> (),
   read draw: (Service, Pass) -> (),
   read opaqueShader: (Service, Owner) -> Shader?,
-  read onDropped: (Service, Owner, Panel?, DroppedCallback) -> plugin.Effect,
+  read onDropped: (Service, Owner, DroppedListener) -> plugin.Effect,
   read emitDropped: (Service, Owner, Panel, vocabulary.Pointer) -> (),
   read onAdded: (Service, Owner, PanelCallback) -> plugin.Effect,
-  read onRemoved: (Service, Owner, Panel?, PanelCallback) -> plugin.Effect,
+  read onRemoved: (Service, Owner, RemovedListener) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>

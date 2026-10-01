@@ -465,8 +465,8 @@ fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
         "seen = {}
          lunette.onError(function() error('a listener that raises') end)
          lunette.onError(function(event) seen[#seen + 1] = event end)
-         lunette.reportError('lovr.draw', 'a handler failed', 'stack traceback: here')
-         lunette.reportError('lovr.update', 'no traceback')",
+         lunette.reportError { context = 'lovr.draw', message = 'a handler failed', traceback = 'stack traceback: here' }
+         lunette.reportError { context = 'lovr.update', message = 'no traceback' }",
     );
 
     let (count, first, trace, second, empty): (usize, String, String, String, String) = run(
@@ -478,6 +478,35 @@ fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
     assert_eq!(trace, "stack traceback: here");
     assert_eq!(second, "lovr.update: no traceback");
     assert_eq!(empty, "");
+}
+
+/// `lunette.reportError` takes named fields, and a call that misspells or
+/// omits one raises naming it rather than reporting a partial error.
+#[test]
+fn a_report_with_a_missing_or_unknown_field_raises_naming_it() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+    let (missing, unknown, positional): (String, String, String) = run(
+        &lua,
+        "local function failure(call)
+           local ok, message = pcall(call)
+           assert(not ok, 'the report should have raised')
+           return tostring(message)
+         end
+         return
+           failure(function() lunette.reportError { context = 'lovr.draw' } end),
+           failure(function() lunette.reportError { context = 'lovr.draw', message = 'm', trace = 't' } end),
+           failure(function() lunette.reportError('lovr.draw', 'm') end)",
+    );
+    assert!(
+        missing.contains("reportError's message is a string, not a nil"),
+        "{missing}"
+    );
+    assert!(
+        unknown.contains("'trace' is not an option here"),
+        "{unknown}"
+    );
+    assert!(!positional.is_empty());
 }
 
 /// The same error raised every frame for two hundred frames.

@@ -1,24 +1,36 @@
--- Two-hand pointing at every surface the desktop's consumers offer.
+-- Two-hand pointing at every surface the desktop's plugins offer.
 local plugin = require '@lunette-plugin'
-local callbacks = require '../desktop/callbacks'
+local frame = require '@lunette-contracts/frame'
 local laser = require '@lunette-contracts/laser'
+local surfaces = require '@lunette-contracts/surfaces'
 
-local required: plugin.Declaration = { laser = laser.capability }
-export type Config = { read callbacks: typeof(callbacks) }
+local required: plugin.Declaration = {
+  frame = frame.capability,
+  laser = laser.capability,
+  surfaces = surfaces.capability,
+}
 
 return plugin.define {
   name = 'desktop/pointing',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local callbacks = config.callbacks
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+    local frameService: frame.Service = context:require(frame.capability)
+    local surfaceService: surfaces.Service = context:require(surfaces.capability)
     local laserService: laser.Service = context:require(laser.capability)
     laserService:attach(context)
-    -- After the panels update, so the beams pick against this frame's panels.
-    callbacks.onUpdate(context, function(_dt: number)
-      laserService:update(callbacks.surfaces())
-    end, 110)
-    callbacks.onDraw(context, function(pass: Pass)
-      laserService:draw(pass)
-    end, 300)
+    -- The pointing phase follows the scene, so the beams pick against this
+    -- frame's panels.
+    frameService:onUpdate(context, {
+      phase = 'pointing',
+      run = function(_dt: number)
+        laserService:update(surfaceService:all())
+      end,
+    })
+    frameService:onDraw(context, {
+      phase = 'pointing',
+      run = function(pass: Pass)
+        laserService:draw(pass)
+      end,
+    })
   end,
 }

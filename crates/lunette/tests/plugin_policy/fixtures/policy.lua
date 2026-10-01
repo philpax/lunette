@@ -44,55 +44,67 @@ assert(services.rules:matches({
 assert(not pcall(function()
   services.rules:matches({ typo = true }, window)
 end))
-local low = services.rules:addSource(owner, 'typed-low', 10, function()
-  return {
-    width = function()
-      error 'overwritten named evaluator called'
-    end,
-    chrome = function()
-      return false
-    end,
-    callback = literal,
-    payload = extension,
-    evaluate = {
-      dynamic = function()
-        error 'overwritten extension evaluator called'
+local low = services.rules:addSource(owner, {
+  name = 'typed-low',
+  precedence = 10,
+  resolve = function()
+    return {
+      width = function()
+        error 'overwritten named evaluator called'
       end,
-      kept = function(_, key)
-        return key
+      chrome = function()
+        return false
       end,
-    },
-  }
-end)
-local high = services.rules:addSource(owner, 'typed-high', 20, function()
-  return {
-    width = function(source, key)
-      assert(key == 'width')
-      return source.width / 400
-    end,
-    dynamic = false,
-  }
-end)
+      callback = literal,
+      payload = extension,
+      evaluate = {
+        dynamic = function()
+          error 'overwritten extension evaluator called'
+        end,
+        kept = function(_, key)
+          return key
+        end,
+      },
+    }
+  end,
+})
+local high = services.rules:addSource(owner, {
+  name = 'typed-high',
+  precedence = 20,
+  resolve = function()
+    return {
+      width = function(source, key)
+        assert(key == 'width')
+        return source.width / 400
+      end,
+      dynamic = false,
+    }
+  end,
+})
 local typed = services.rules:resolve(window)
 assert(typed.width == 2 and typed.chrome == false and typed.dynamic == false)
 assert(typed.callback == literal and typed.payload == extension and typed.kept == 'kept' and typed.evaluate == nil)
 low:dispose()
 high:dispose()
-local invalid = services.rules:addSource(owner, 'invalid-evaluator', 10, function()
-  return { evaluate = {
-    width = function()
-      return 'invalid'
-    end,
-  } }
-end)
+local invalid = services.rules:addSource(owner, {
+  name = 'invalid-evaluator',
+  precedence = 10,
+  resolve = function()
+    return { evaluate = {
+      width = function()
+        return 'invalid'
+      end,
+    } }
+  end,
+})
 assert(not pcall(function()
   services.rules:resolve(window)
 end))
 invalid:dispose()
 local tag = services.tags:new(owner, 'primary', { selected = true })
 assert(tag.selected)
-assert(tag:setSelected(owner, false) and not tag.selected)
-assert(tag:setSelected(owner, true))
+assert(tag:setSelected(owner, { selected = false }) and not tag.selected)
+assert(tag:setSelected(owner, { selected = true }))
 
 -- Another owner's selection and membership changes are its own, and they end
 -- with it: the most recent live override decides the selection.
@@ -109,11 +121,11 @@ local borrowing = runtime:use(
 )
 borrowing:enable()
 local borrowed = { dead = false }
-assert(tag:setSelected(borrower, false) and not tag.selected)
+assert(tag:setSelected(borrower, { selected = false }) and not tag.selected)
 assert(tag:add(borrower, borrowed) and tag:has(borrowed))
 borrowerTags:only(borrower, tag)
 assert(tag.selected, 'only selects the chosen tag for its owner')
-assert(tag:setSelected(borrower, false) and not tag.selected)
+assert(tag:setSelected(borrower, { selected = false }) and not tag.selected)
 borrowing:disable()
 assert(tag.selected, "an unloading owner's selection override is reverted")
 assert(not tag:has(borrowed), "an unloading owner's membership is removed")
@@ -144,25 +156,37 @@ local oldPayloads = setmetatable({}, { __mode = 'v' })
 local function sourceWithPayload(slot: number)
   local payload = { marker = true }
   oldPayloads[slot] = payload
-  return services.rules:addSource(owner, 'same', 100, function()
-    assert(payload.marker)
-    return { width = 2 }
-  end)
+  return services.rules:addSource(owner, {
+    name = 'same',
+    precedence = 100,
+    resolve = function()
+      assert(payload.marker)
+      return { width = 2 }
+    end,
+  })
 end
 for cycle = 1, 12 do
   do
     local first = sourceWithPayload(cycle)
     assert(not pcall(function()
-      services.rules:addSource(owner, 'same', 100, function()
-        return nil
-      end)
+      services.rules:addSource(owner, {
+        name = 'same',
+        precedence = 100,
+        resolve = function()
+          return nil
+        end,
+      })
     end), 'a duplicate source name raises')
     assert(#services.rules:sources() == 1, 'a duplicate does not replace the registration')
     first:dispose()
     first:dispose()
-    local replacement = services.rules:addSource(owner, 'same', 100, function()
-      return { width = cycle, tags = { 'primary', 'implicit' } }
-    end)
+    local replacement = services.rules:addSource(owner, {
+      name = 'same',
+      precedence = 100,
+      resolve = function()
+        return { width = cycle, tags = { 'primary', 'implicit' } }
+      end,
+    })
     collectgarbage()
     collectgarbage()
     assert(oldPayloads[cycle] == nil, 'replaced source payload retained by active owner')
@@ -175,9 +199,13 @@ for cycle = 1, 12 do
 end
 local first = sourceWithPayload(13)
 first:dispose()
-local second = services.rules:addSource(owner, 'same', 100, function()
-  return { width = 3, tags = { 'primary', 'implicit' } }
-end)
+local second = services.rules:addSource(owner, {
+  name = 'same',
+  precedence = 100,
+  resolve = function()
+    return { width = 3, tags = { 'primary', 'implicit' } }
+  end,
+})
 collectgarbage()
 collectgarbage()
 assert(oldPayloads[13] == nil, 'replaced source payload retained by active owner')

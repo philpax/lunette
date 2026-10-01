@@ -94,7 +94,7 @@ return function()
   nativeError('fresh callback', 'fresh trace')
   assert(freshService:count() == 1)
 
-  local limiter = freshService:newLimiter(5, 2)
+  local limiter = freshService:newLimiter { window = 5, maxKeys = 2 }
   local first, suppressed = limiter:record('same', 0)
   assert(first and suppressed == 0)
   local second = limiter:record('same', 1)

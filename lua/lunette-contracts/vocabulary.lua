@@ -56,6 +56,21 @@ export type Scaling = {
   read width: number,
 }
 
+-- What Pointer:setButton takes: whether the button is held, and the sink and
+-- surface it presses or releases on.
+export type ButtonState = {
+  read pressed: boolean,
+  read sink: lunette.Sink?,
+  read surface: Surface?,
+}
+
+-- What Pointer:push takes: the stick deflection that moves a grabbed surface
+-- along the ray, and the frame time it is scaled by.
+export type Push = {
+  read deflection: number,
+  read dt: number,
+}
+
 export type Pointer = {
   read seat: lunette.Seat?,
   read tuning: Tuning,
@@ -76,11 +91,11 @@ export type Pointer = {
   read withdraw: (Pointer) -> (),
   read destroy: (Pointer) -> boolean,
   read hover: (Pointer, Surface?) -> (),
-  read setButton: (Pointer, boolean, lunette.Sink?, Surface?) -> (),
+  read setButton: (Pointer, ButtonState) -> (),
   read focus: (Pointer, lunette.Sink?) -> (),
   read beginGrab: (Pointer, Surface, Mat4?) -> boolean,
   read scaleWith: (Pointer, Mat4?) -> (),
-  read push: (Pointer, number, number) -> (),
+  read push: (Pointer, Push) -> (),
   read dragTo: (Pointer, Mat4?) -> (),
   read endGrab: (Pointer) -> boolean,
 }

@@ -53,6 +53,17 @@ fn malformed_declarations_are_reported_exactly() {
     );
 }
 
+/// `plugin.capability` without `<<Service>>` checks as a `Capability<unknown>`,
+/// which Luau accepts silently; the checker reports the call that made it.
+#[test]
+fn a_capability_without_its_service_type_is_reported_at_the_call() {
+    assert_rejections(
+        "unnamed_service.luau",
+        include_str!("plugin_authoring/unnamed_service.luau"),
+        &[(5, 16, 5, 74)],
+    );
+}
+
 fn assert_rejections(fixture: &str, source: &str, spans: &[(u32, u32, u32, u32)]) {
     let report = check(fixture);
     let sites: Vec<_> = source

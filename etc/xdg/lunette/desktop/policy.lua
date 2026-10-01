@@ -6,9 +6,8 @@ local tags = require '@lunette-contracts/tags'
 local rules = require '@lunette-contracts/rules'
 local adoption = require '@lunette-contracts/adoption'
 local layout = require '@lunette-contracts/layout'
-local callbackModule = require '../desktop/callbacks'
+local frame = require '@lunette-contracts/frame'
 local logging = require '../desktop/logging'
-export type Config = { read callbacks: typeof(callbackModule) }
 local persist = require '@mullion/persist'
 
 local WORKSPACE = 'main'
@@ -19,9 +18,10 @@ local required: plugin.Declaration = {
   rules = rules.capability,
   adoption = adoption.capability,
   arc = layout.arc,
+  frame = frame.capability,
 }
 
-local function define(): plugin.Definition<Config>
+local function define(): plugin.Definition<{}>
   -- The state retains saved placement and write refusal through provider outages.
   local arrangement = persist.new()
   local attempted: lunette.Process? = nil
@@ -29,8 +29,8 @@ local function define(): plugin.Definition<Config>
   return plugin.define {
     name = 'desktop/policy',
     requires = required,
-    init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-      local callbacks = config.callbacks
+    init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+      local frameService: frame.Service = context:require(frame.capability)
       local panelService: panels.Service = context:require(panels.capability)
       local tagService: tags.Service = context:require(tags.capability)
       local ruleService: rules.Service = context:require(rules.capability)
@@ -43,13 +43,15 @@ local function define(): plugin.Definition<Config>
       local unplaced: { panels.WindowPanel } = {}
 
       ruleService:setRules(context, {
-        {
-          match = { appId = 'firefox' },
-          properties = {
-            width = 2,
-            pose = function()
-              return lovr.math.newMat4():translate(-1.4, 1.5, -1.2):rotate(0.9, 0, 1, 0)
-            end,
+        rules = {
+          {
+            match = { appId = 'firefox' },
+            properties = {
+              width = 2,
+              pose = function()
+                return lovr.math.newMat4():translate(-1.4, 1.5, -1.2):rotate(0.9, 0, 1, 0)
+              end,
+            },
           },
         },
       })
@@ -86,18 +88,23 @@ local function define(): plugin.Definition<Config>
         end,
       })
       arrange()
-      context:on(lunette.onWindowClosed, function()
-        arrange()
-      end)
-      callbacks.onQuit(context, function(): ()
-        if not binding:active() then
-          return
-        end
-        local written, message = binding:save()
-        if not written then
-          error('arrangement was not saved: ' .. tostring(message))
-        end
-      end)
+      context:on {
+        event = lunette.onWindowClosed,
+        run = function()
+          arrange()
+        end,
+      }
+      frameService:onQuit(context, {
+        run = function(): ()
+          if not binding:active() then
+            return
+          end
+          local written, message = binding:save()
+          if not written then
+            error('arrangement was not saved: ' .. tostring(message))
+          end
+        end,
+      })
 
       local function spawnNext(): ()
         attempt += 1
@@ -109,16 +116,19 @@ local function define(): plugin.Definition<Config>
         end
         attempted = lunette.spawn { argv = { program } }
       end
-      context:on(lunette.onProcessExited, function(event: lunette.ProcessExitedEvent)
-        if not attempted or event.process.id ~= attempted.id then
-          return
-        end
-        if event.outcome == 'spawnFailed' then
-          spawnNext()
-        else
-          attempted = nil
-        end
-      end)
+      context:on {
+        event = lunette.onProcessExited,
+        run = function(event: lunette.ProcessExitedEvent)
+          if not attempted or event.process.id ~= attempted.id then
+            return
+          end
+          if event.outcome == 'spawnFailed' then
+            spawnNext()
+          else
+            attempted = nil
+          end
+        end,
+      }
       if not _G.lunetteDemonstrationSpawned then
         _G.lunetteDemonstrationSpawned = true
         spawnNext()

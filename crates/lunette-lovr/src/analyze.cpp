@@ -9,6 +9,8 @@
 #include "Luau/ExperimentalFlags.h"
 #include "Luau/Frontend.h"
 #include "Luau/RequireNavigator.h"
+#include "Luau/Type.h"
+#include "Luau/TypePack.h"
 
 #include <cstring>
 #include <fstream>
@@ -160,6 +162,58 @@ struct Collector
     }
 };
 
+// Whether a type is a plugin capability whose service type is unknown: the
+// facade's `Capability<T>`, `{ read witness: (T) -> T }`, at T = unknown.
+// `plugin.capability` called without explicit instantiation leaves T
+// unsolved, Luau reads it as unknown, and every service read through the
+// capability then goes unchecked without any error of its own.
+bool isUnnamedCapability(Luau::TypeId type)
+{
+    const Luau::TableType* table = Luau::get<Luau::TableType>(Luau::follow(type));
+    if (table == nullptr || table->props.size() != 1 || table->indexer)
+        return false;
+
+    auto witness = table->props.find("witness");
+    if (witness == table->props.end() || !witness->second.readTy)
+        return false;
+
+    const Luau::FunctionType* function = Luau::get<Luau::FunctionType>(Luau::follow(*witness->second.readTy));
+    if (function == nullptr)
+        return false;
+
+    auto [arguments, tail] = Luau::flatten(function->argTypes);
+    return arguments.size() == 1 && !tail && Luau::get<Luau::UnknownType>(Luau::follow(arguments[0])) != nullptr;
+}
+
+// Finds each call in a module whose result is a capability with an unknown
+// service type. The check needs the module's expression types, which the
+// frontend keeps only when it retains full type graphs.
+struct UnnamedCapabilities : Luau::AstVisitor
+{
+    const Luau::Module& module;
+    std::vector<Luau::Location> found;
+
+    explicit UnnamedCapabilities(const Luau::Module& module)
+        : module(module)
+    {
+    }
+
+    bool visit(Luau::AstExprCall* call) override
+    {
+        if (const Luau::TypePackId* results = module.astTypePacks.find(call))
+        {
+            std::optional<Luau::TypeId> first = Luau::first(*results);
+            if (first && isUnnamedCapability(*first))
+                found.push_back(call->location);
+        }
+        return true;
+    }
+};
+
+const char* const kUnnamedCapability =
+    "this capability's service type is unknown, so nothing read through it is checked; name it with "
+    "plugin.capability<<Service>> { ... }";
+
 lunette_luau_report* fail(const std::string& message, Collector& collected)
 {
     lunette_luau_report* report = new lunette_luau_report{};
@@ -222,6 +276,9 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
 
     Luau::FrontendOptions options;
     options.runLintChecks = true;
+    // The unnamed-capability check reads each expression's type after the
+    // module is checked, and the frontend discards them otherwise.
+    options.retainFullTypeGraphs = true;
 
     DirectoryConfigResolver config(request->strict ? Luau::Mode::Strict : Luau::Mode::Nonstrict);
     PathResolver files;
@@ -280,6 +337,16 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
                     collected.add(LUNETTE_LUAU_SYNTAX_ERROR, module, error.location, syntax->message);
                 else
                     collected.add(LUNETTE_LUAU_TYPE_ERROR, module, error.location, Luau::toString(error));
+            }
+
+            Luau::ModulePtr module = frontend.moduleResolver.getModule(root);
+            const Luau::SourceModule* source = frontend.getSourceModule(root);
+            if (module && source && source->root)
+            {
+                UnnamedCapabilities unnamed(*module);
+                source->root->visit(&unnamed);
+                for (const Luau::Location& location : unnamed.found)
+                    collected.add(LUNETTE_LUAU_TYPE_ERROR, root, location, kUnnamedCapability);
             }
 
             for (const Luau::LintWarning& warning : result.lintResult.errors)

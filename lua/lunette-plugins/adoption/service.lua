@@ -30,7 +30,7 @@ type MutableService = {
   PRECEDENCE: number,
   properties: (Service, lunette.Window) -> rulesContract.Resolved?,
   source: (Service) -> (lunette.Window) -> adoption.Properties?,
-  install: (Service, Owner, number?) -> plugin.Effect,
+  install: (Service, Owner, adoption.InstallOptions?) -> plugin.Effect,
   windows: (Service) -> { lunette.Window },
   start: (Service, Owner, Options?) -> plugin.Effect,
 }
@@ -81,7 +81,7 @@ local function init(context: plugin.Context): Service
     source = function(_self: Service): (lunette.Window) -> Properties?
       error 'adoption: service is not initialized'
     end,
-    install = function(_self: Service, _owner: Owner, _precedence: number?): plugin.Effect
+    install = function(_self: Service, _owner: Owner, _options: adoption.InstallOptions?): plugin.Effect
       error 'adoption: service is not initialized'
     end,
     windows = function(_self: Service): { lunette.Window }
@@ -114,10 +114,18 @@ local function init(context: plugin.Context): Service
   -- The source is registered under this provider's own rules binding, inside
   -- an effect on the caller's owner. The caller's lifetime still bounds the
   -- registration, and the caller does not need to require rules itself.
-  function implementation.install(self: Service, owner: Owner, precedence: number?): plugin.Effect
+  function implementation.install(self: Service, owner: Owner, options: adoption.InstallOptions?): plugin.Effect
     context:checkOwner(owner)
+    if options ~= nil and type(options) ~= 'table' then
+      error('adoption: install options are a table of fields, not a ' .. type(options), 2)
+    end
+    for key, _ in (options or {}) :: { [unknown]: unknown } do
+      if key ~= 'precedence' then
+        error('adoption: unknown install field ' .. tostring(key) .. '; the field is precedence', 2)
+      end
+    end
     local rules: rulesContract.Service = context:require(rulesContract.capability)
-    local chosen = precedence or PRECEDENCE
+    local chosen = options and options.precedence or PRECEDENCE
     if type(chosen) ~= 'number' or chosen ~= chosen then
       error('adoption: precedence is an orderable number', 2)
     end
@@ -130,7 +138,7 @@ local function init(context: plugin.Context): Service
       return { pose = properties.pose }
     end
     return context:acquire(owner, function(): () -> ()
-      local registration = rules:addSource(context, SOURCE, chosen, resolve)
+      local registration = rules:addSource(context, { name = SOURCE, precedence = chosen, resolve = resolve })
       return function()
         registration:dispose()
       end
@@ -174,9 +182,12 @@ local function init(context: plugin.Context): Service
         adoptedIds[window.id] = true
         local created, properties, placed = rules:place(current.context, window, settings.defaults)
         panel, resolved = created, properties
-        local removal = panels:onRemoved(current.context, created, function()
-          acquired:dispose()
-        end)
+        local removal = panels:onRemoved(current.context, {
+          panel = created,
+          run = function()
+            acquired:dispose()
+          end,
+        })
         return function()
           adoptedIds[window.id] = nil
           local index = table.find(adopted, acquired)

@@ -111,6 +111,23 @@ local function create(state: ProviderState, owner: Owner, source: panel.Source, 
   return target
 end
 
+-- Checks a listener table's shape. Each error names the caller of the
+-- service method, two frames up.
+local function checkListener(operation: string, listener: unknown): ()
+  if type(listener) ~= 'table' then
+    error(string.format('panels %s: a listener is a table of fields, not a %s', operation, type(listener)), 3)
+  end
+  for key, _ in listener :: { [unknown]: unknown } do
+    if key ~= 'panel' and key ~= 'run' then
+      error(string.format('panels %s: unknown field %s; the fields are panel and run', operation, tostring(key)), 3)
+    end
+  end
+  local run = (listener :: { [string]: unknown }).run
+  if type(run) ~= 'function' then
+    error(string.format('panels %s: run is a function, not a %s', operation, type(run)), 3)
+  end
+end
+
 local function init(context: plugin.Context): Service
   local state: ProviderState
   local host: panel.Host = {
@@ -212,13 +229,9 @@ local function init(context: plugin.Context): Service
       context:checkOwner(owner)
       return opaqueShader(state)
     end,
-    onDropped = function(
-      _self: Service,
-      owner: Owner,
-      target: Panel?,
-      callback: contracts.DroppedCallback
-    ): plugin.Effect
-      return events.onDropped(state.events, context, owner, target, callback)
+    onDropped = function(_self: Service, owner: Owner, listener: contracts.DroppedListener): plugin.Effect
+      checkListener('onDropped', listener)
+      return events.onDropped(state.events, context, owner, listener.panel, listener.run)
     end,
     emitDropped = function(_self: Service, owner: Owner, target: Panel, pointer: vocabulary.Pointer)
       events.emitDropped(state.events, context, owner, target, pointer)
@@ -226,13 +239,9 @@ local function init(context: plugin.Context): Service
     onAdded = function(_self: Service, owner: Owner, callback: contracts.PanelCallback): plugin.Effect
       return events.onAdded(state.events, context, owner, callback)
     end,
-    onRemoved = function(
-      _self: Service,
-      owner: Owner,
-      target: Panel?,
-      callback: contracts.PanelCallback
-    ): plugin.Effect
-      return events.onRemoved(state.events, context, owner, target, callback)
+    onRemoved = function(_self: Service, owner: Owner, listener: contracts.RemovedListener): plugin.Effect
+      checkListener('onRemoved', listener)
+      return events.onRemoved(state.events, context, owner, listener.panel, listener.run)
     end,
   }
   return service

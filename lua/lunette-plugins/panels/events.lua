@@ -4,10 +4,10 @@
 -- its owner, and it is delivered to only while the provider still owns that
 -- owner: unloading invalidates the owner before its listener inverse runs.
 
-local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local protected = require '@lunette-plugins/protected'
 
 local events = {}
 
@@ -83,17 +83,9 @@ end
 -- Calls one listener, reporting its error rather than raising it into the
 -- operation that added or removed the panel, which belongs to another plugin.
 local function deliver(kind: string, callback: panels.PanelCallback, panel: panels.Panel): ()
-  local message: string? = nil
-  local traceback = ''
-  xpcall(function()
+  protected.call('panels: ' .. kind .. ' listener', function()
     callback(panel)
-  end, function(raised: unknown)
-    message = tostring(raised)
-    traceback = debug.traceback('', 2)
   end)
-  if message then
-    lunette.reportError('panels: ' .. kind .. ' listener', message, traceback)
-  end
 end
 
 function events.onDropped(

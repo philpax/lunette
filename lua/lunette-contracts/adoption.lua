@@ -25,12 +25,18 @@ export type Options = {
   read onPlaced: ((panels.WindowPanel, Properties) -> ())?,
 }
 
+-- What install takes: the precedence its source is registered at, by default
+-- PRECEDENCE.
+export type InstallOptions = {
+  read precedence: number?,
+}
+
 export type Service = {
   read SOURCE: string,
   read PRECEDENCE: number,
   read properties: (Service, lunette.Window) -> Properties?,
   read source: (Service) -> (lunette.Window) -> Properties?,
-  read install: (Service, Owner, number?) -> plugin.Effect,
+  read install: (Service, Owner, InstallOptions?) -> plugin.Effect,
   read windows: (Service) -> { lunette.Window },
   read start: (Service, Owner, Options?) -> plugin.Effect,
 }

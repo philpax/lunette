@@ -118,3 +118,25 @@ fn resource_and_callback_failure_witnesses_detect_faults() -> mlua::Result<()> {
     assert!(plugin_desktop::shutdown(&lua)?.is_empty());
     Ok(())
 }
+
+#[test]
+fn frame_phases_consumption_cleanup_and_surface_offers_follow_the_contracts() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/frame.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.contains("frame: another frame activation")),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_user_plugin_without_configuration_draws_and_offers_surfaces() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/user_plugin.lua"))?;
+    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
+    Ok(())
+}

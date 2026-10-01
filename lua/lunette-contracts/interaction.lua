@@ -25,6 +25,25 @@ export type Grab = vocabulary.Grab
 export type Scaling = vocabulary.Scaling
 export type Pointer = vocabulary.Pointer
 
+export type ButtonState = vocabulary.ButtonState
+export type Push = vocabulary.Push
+
+-- What setFocus gives an owner's focus to: a seat's keyboard and the sink
+-- that receives it. A nil sink withdraws the seat's focus.
+export type Focus = {
+  read seat: lunette.Seat?,
+  read sink: lunette.Sink?,
+}
+
+-- What scrollDelta converts: a stick deflection on each axis, the frame time
+-- it is scaled by, and the tuning whose dead zone and scale apply.
+export type Scroll = {
+  read x: number,
+  read y: number,
+  read dt: number?,
+  read tuning: Tuning?,
+}
+
 export type PointerOptions = {
   read seat: lunette.Seat?,
   read tuning: Tuning?,
@@ -34,13 +53,13 @@ export type Service = {
   read TUNING: Tuning,
   read POSE_PROPERTY: string,
   read pick: (Service, { Surface }, vector, vector, Tuning?) -> (Surface?, number?, number?, number?),
-  read scrollDelta: (Service, number, number, number?, Tuning?) -> (number, number),
+  read scrollDelta: (Service, Scroll) -> (number, number),
   read storePose: (Service, Surface) -> boolean,
   read restorePose: (Service, Surface) -> boolean,
   read newPointer: (Service, Owner, PointerOptions?) -> Pointer,
   read pointers: (Service) -> { Pointer },
   read focused: (Service) -> (lunette.Seat?, lunette.Sink?),
-  read setFocus: (Service, Owner, lunette.Seat?, lunette.Sink?) -> plugin.Effect,
+  read setFocus: (Service, Owner, Focus) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>

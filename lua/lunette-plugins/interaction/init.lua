@@ -270,9 +270,9 @@ local function init(context: plugin.Context): Service
           giveFocus(sink)
         end
       end,
-      setButton = function(self: Pointer, pressed: boolean, sink: lunette.Sink?, surface: Surface?)
+      setButton = function(self: Pointer, state: contracts.ButtonState)
         if live() then
-          button(self, pressed, sink, surface)
+          button(self, state.pressed, state.sink, state.surface)
         end
       end,
       withdraw = function(self: Pointer)
@@ -308,9 +308,9 @@ local function init(context: plugin.Context): Service
           carrying.scaleWith(self, handPose)
         end
       end,
-      push = function(self: Pointer, amount: number, dt: number)
+      push = function(self: Pointer, push: contracts.Push)
         if live() then
-          carrying.push(self, amount, dt)
+          carrying.push(self, push.deflection, push.dt)
         end
       end,
       dragTo = function(self: Pointer, handPose: Mat4?)
@@ -414,10 +414,10 @@ local function init(context: plugin.Context): Service
     )
       return pick(surfaces, origin, direction, tuning or TUNING)
     end,
-    scrollDelta = function(_self: Service, x: number, y: number, dt: number?, tuning: contracts.Tuning?)
-      local current = tuning or TUNING
-      local scale = current.scrollScale * (dt or 0)
-      return deadZone(x, current.scrollDeadZone) * scale, -deadZone(y, current.scrollDeadZone) * scale
+    scrollDelta = function(_self: Service, scroll: contracts.Scroll)
+      local current = scroll.tuning or TUNING
+      local scale = current.scrollScale * (scroll.dt or 0)
+      return deadZone(scroll.x, current.scrollDeadZone) * scale, -deadZone(scroll.y, current.scrollDeadZone) * scale
     end,
     storePose = function(_self: Service, target: Surface): boolean
       return storePose(target)
@@ -436,12 +436,8 @@ local function init(context: plugin.Context): Service
     end,
     -- One grant per owner: a later call moves the owner's grant rather than
     -- adding another effect. The grant ends with the owner.
-    setFocus = function(
-      _self: Service,
-      owner: contracts.Owner,
-      seat: lunette.Seat?,
-      sink: lunette.Sink?
-    ): plugin.Effect
+    setFocus = function(_self: Service, owner: contracts.Owner, target: contracts.Focus): plugin.Effect
+      local seat, sink = target.seat, target.sink
       local existing = granted[owner]
       local effect = existing and existing.effect
       if existing and effect then

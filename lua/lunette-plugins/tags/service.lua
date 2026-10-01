@@ -27,7 +27,7 @@ type Mutable = {
   remove: (tags.Tag, Owner, Panel) -> boolean,
   has: (tags.Tag, Panel) -> boolean,
   panels: (tags.Tag) -> { Panel },
-  setSelected: (tags.Tag, Owner, boolean) -> boolean,
+  setSelected: (tags.Tag, Owner, tags.Selection) -> boolean,
   apply: (tags.Tag) -> boolean,
   destroy: (tags.Tag) -> boolean,
 }
@@ -223,8 +223,12 @@ local function create(context: plugin.Context): tags.Service
         return table.find(members(self), panel) ~= nil
       end,
       panels = members,
-      setSelected = function(_self: tags.Tag, caller: Owner, selected: boolean): boolean
+      setSelected = function(_self: tags.Tag, caller: Owner, wanted: tags.Selection): boolean
         context:checkOwner(caller)
+        if type(wanted) ~= 'table' or type(wanted.selected) ~= 'boolean' then
+          error('tags setSelected: a selection is a table whose selected is a boolean', 2)
+        end
+        local selected = wanted.selected
         if created.dead then
           return false
         end
@@ -323,7 +327,7 @@ local function create(context: plugin.Context): tags.Service
     end,
     only = function(self: tags.Service, owner: Owner, chosen: tags.Tag): ()
       for _, entry in ipairs(self:all()) do
-        entry:setSelected(owner, entry == chosen)
+        entry:setSelected(owner, { selected = entry == chosen })
       end
     end,
     isTag = function(_self: tags.Service, value: unknown): boolean

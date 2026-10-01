@@ -57,7 +57,7 @@ collectgarbage()
 assert(next(gone) == nil, 'replugged monitors are not retained by their ended mirrors')
 
 -- The mirror is restored again when the consumer that mirrors it reloads.
-desktop.consumers.base:reload { callbacks = desktop.callbacks }
+desktop.consumers.base:reload {}
 assert(x(assert(service:forSource(monitor))) == 3, 'a reloaded mirror takes its saved placement')
 
 -- Two windows of one application take the two saved slots. One closes, and a

@@ -1,5 +1,6 @@
 local plugin = require '@lunette-plugin'
-local callbacks = require 'desktop/callbacks'
+local frame = require '@lunette-plugins/frame'
+local surfacesContract = require '@lunette-contracts/surfaces'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 local rules = require '@lunette-contracts/rules'
@@ -7,10 +8,15 @@ local tags = require '@lunette-contracts/tags'
 local keyboard = require '@lunette-contracts/keyboard'
 local display = require '@lunette-contracts/error-display'
 local runtime = plugin.runtime()
-callbacks.install(function() end, function()
-  runtime:close()
-end)
+frame.install {
+  start = function() end,
+  stop = function()
+    runtime:close()
+  end,
+}
 local definitions = {
+  frame = frame.definition,
+  surfaces = require '@lunette-plugins/surfaces',
   panels = require '@lunette-plugins/panels',
   interaction = require '@lunette-plugins/interaction',
   laser = require '@lunette-plugins/laser',
@@ -22,12 +28,24 @@ local definitions = {
   display = require('@lunette-plugins/error-display').definition,
 }
 local providers = {}
-for _, name in ipairs { 'panels', 'interaction', 'laser', 'keyboard', 'tags', 'rules', 'adoption', 'arc', 'display' } do
+for _, name in ipairs {
+  'frame',
+  'surfaces',
+  'panels',
+  'interaction',
+  'laser',
+  'keyboard',
+  'tags',
+  'rules',
+  'adoption',
+  'arc',
+  'display',
+} do
   providers[name] = runtime:use(definitions[name], {})
   providers[name]:enable()
 end
 local function use(name)
-  local instance = runtime:use(require('desktop/' .. name), { callbacks = callbacks })
+  local instance = runtime:use(require('desktop/' .. name), {})
   instance:enable()
   return instance
 end
@@ -37,9 +55,9 @@ use 'input'
 use 'keyboard'
 use 'errors'
 local definePolicy = require 'desktop/policy'
-local policy = runtime:use(definePolicy(), { callbacks = callbacks })
+local policy = runtime:use(definePolicy(), {})
 policy:enable()
-local service, focus, placement, tagService, owner
+local service, focus, placement, tagService, surfaceBroker, owner
 runtime
   :use(
     plugin.define {
@@ -49,13 +67,15 @@ runtime
         interaction = interaction.capability,
         rules = rules.capability,
         tags = tags.capability,
+        surfaces = surfacesContract.capability,
       },
       init = function(ctx)
-        service, focus, placement, tagService, owner =
+        service, focus, placement, tagService, surfaceBroker, owner =
           ctx:require(panels.capability),
           ctx:require(interaction.capability),
           ctx:require(rules.capability),
           ctx:require(tags.capability),
+          ctx:require(surfacesContract.capability),
           ctx
       end,
     },
@@ -86,16 +106,16 @@ for _ = 1, 3 do
   providers.keyboard:disable()
   assert(service == stable and service:forSource(events.windows[1]) == initial)
   assert(subscriptionCount 'onError' == 1 and subscriptionCount 'onWindowOpened' == 1)
-  local surfaces = callbacks.surfaces()
+  local surfaces = surfaceBroker:all()
   assert(#surfaces == 2, 'keyboard outage removes only wrist/keyboard surfaces')
   lovr.update(0.016)
   assert(lovr.draw(events.pass) == false)
   sources()
   providers.keyboard:enable()
-  assert(#callbacks.surfaces() == 3)
-  local wrist = callbacks.surfaces()[3]
+  assert(#surfaceBroker:all() == 3)
+  local wrist = surfaceBroker:all()[3]
   wrist:onPress(nil, nil, {})
-  assert(#callbacks.surfaces() == 4, 'recovery lazily creates one keyboard')
+  assert(#surfaceBroker:all() == 4, 'recovery lazily creates one keyboard')
   providers.display:disable()
   assert(subscriptionCount 'onError' == 0)
   assert(service:forSource(events.windows[1]) == initial)
@@ -138,7 +158,7 @@ assert(events.unmirrored == 1, 'base cleanup stops its capture')
 base:enable()
 assert(service:forSource(monitor), 'base recovery remirrors connected outputs')
 assert(events.mirrored == 2)
-base:reload { callbacks = callbacks }
+base:reload {}
 assert(events.mirrored == 3 and events.unmirrored == 2, 'replacement releases previous capture')
 monitor.dead = true
 lovr.update(0.016)

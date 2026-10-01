@@ -79,15 +79,40 @@ export type Source = {
   read precedence: number,
 }
 
+-- What addSource registers: a named resolver and the precedence it is merged
+-- at. A higher precedence is merged later and wins a conflicting key.
+export type SourceRegistration = {
+  read name: string,
+  read precedence: number,
+  read resolve: (lunette.Window) -> Properties?,
+}
+
+-- What setRules registers: a rule list as a source. The name defaults to
+-- DEFAULT_SOURCE and the precedence to DEFAULT_PRECEDENCE; a second list
+-- registered at the same time needs a name of its own.
+export type RuleSet = {
+  read name: string?,
+  read precedence: number?,
+  read rules: { Rule },
+}
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+-- What report logs. The level defaults to warn.
+export type Report = {
+  read message: string,
+  read level: LogLevel?,
+}
+
 export type Service = {
   read DEFAULT_PRECEDENCE: number,
   read DEFAULT_SOURCE: string,
   read PANEL_PROPERTIES: { string },
-  read report: (Service, string, string?) -> (),
-  read addSource: (Service, Owner, string, number, (lunette.Window) -> Properties?) -> plugin.Effect,
+  read report: (Service, Report) -> (),
+  read addSource: (Service, Owner, SourceRegistration) -> plugin.Effect,
   read sources: (Service) -> { Source },
   read fromList: (Service, { Rule }) -> (lunette.Window) -> Properties?,
-  read setRules: (Service, Owner, { Rule }) -> plugin.Effect,
+  read setRules: (Service, Owner, RuleSet) -> plugin.Effect,
   read matches: (Service, Match?, lunette.Window) -> boolean,
   read resolve: (Service, lunette.Window) -> Resolved,
   read place: (Service, Owner, lunette.Window, Resolved?) -> (panels.WindowPanel, Resolved, plugin.Effect),

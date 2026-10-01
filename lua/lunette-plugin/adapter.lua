@@ -41,6 +41,14 @@ export type Owner = {
   read effect: (Owner, () -> () -> ()) -> Effect,
 }
 
+-- What `Context:on` takes. `event` is a subscribing function that takes a
+-- handler and answers the function that cancels it, the shape of every
+-- `lunette.on*` event, and `run` is the handler.
+export type Subscription<E> = {
+  read event: ((E) -> ()) -> () -> (),
+  read run: (E) -> (),
+}
+
 export type Context = {
   read services: (never) -> unknown,
   read require: <T>(Context, Capability<T>) -> T,
@@ -49,7 +57,7 @@ export type Context = {
   read checkOwner: (Context, Owner) -> (),
   read owns: (Context, Owner) -> boolean,
   read acquire: (Context, Owner, () -> () -> ()) -> Effect,
-  read on: <E>(Context, ((E) -> ()) -> () -> (), (E) -> ()) -> Effect,
+  read on: <E>(Context, Subscription<E>) -> Effect,
   read active: (Context) -> boolean,
 }
 
@@ -175,6 +183,24 @@ local function ownerContext(owner: Owner, level: number): NativeContext
   return nativeContext
 end
 
+-- Raises an error naming the first key outside `allowed`, so a misspelt field
+-- is reported rather than ignored.
+local function rejectUnknownKeys(
+  operation: string,
+  raw: { [unknown]: unknown },
+  allowed: { [string]: boolean },
+  fields: string,
+  level: number
+): ()
+  for key, _ in raw do
+    if type(key) ~= 'string' or not allowed[key] then
+      error(string.format('plugin %s: unknown field %s; the fields are %s', operation, tostring(key), fields), level)
+    end
+  end
+end
+
+local subscriptionKeys: { [string]: boolean } = { event = true, run = true }
+
 local function wrapContext(nativeContext: NativeContext, required: Declaration): Context
   local wrapped = {
     services = function(_self: Context): unknown
@@ -207,12 +233,17 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
       local effect: NativeEffect = callerContext:effect(acquire)
       return (effect :: unknown) :: Effect
     end,
-    on = function<E>(_self: Context, subscribe: ((E) -> ()) -> () -> (), handler: (E) -> ()): Effect
+    on = function<E>(_self: Context, subscription: Subscription<E>): Effect
+      if type(subscription) ~= 'table' then
+        error('plugin on: a subscription is a table of fields, not a ' .. type(subscription), 2)
+      end
+      rejectUnknownKeys('on', (subscription :: unknown) :: { [unknown]: unknown }, subscriptionKeys, 'event and run', 3)
+      local subscribe, handler = subscription.event, subscription.run
       if type(subscribe) ~= 'function' then
-        error('plugin on: a subscription is a function, not a ' .. type(subscribe), 2)
+        error('plugin on: event is a subscribing function, not a ' .. type(subscribe), 2)
       end
       if type(handler) ~= 'function' then
-        error('plugin on: a handler is a function, not a ' .. type(handler), 2)
+        error('plugin on: run is a function, not a ' .. type(handler), 2)
       end
       local effect: NativeEffect = nativeContext:effect(function(): () -> ()
         -- An event delivered after the activation ended but before this
@@ -236,22 +267,6 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
   local context = (freeze(wrapped) :: unknown) :: Context
   nativeContexts[context] = nativeContext
   return context
-end
-
--- Raises an error naming the first key outside `allowed`, so a misspelt field
--- is reported rather than ignored.
-local function rejectUnknownKeys(
-  operation: string,
-  raw: { [unknown]: unknown },
-  allowed: { [string]: boolean },
-  fields: string,
-  level: number
-): ()
-  for key, _ in raw do
-    if type(key) ~= 'string' or not allowed[key] then
-      error(string.format('plugin %s: unknown field %s; the fields are %s', operation, tostring(key), fields), level)
-    end
-  end
 end
 
 local capabilityKeys: { [string]: boolean } = { name = true, schema = true }

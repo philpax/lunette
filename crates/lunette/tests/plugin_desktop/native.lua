@@ -69,8 +69,8 @@ end
 -- The native boundary logs a reported error and notifies every onError
 -- listener; the fake records the report as the log and notifies the same way.
 events.reported = {}
-native.reportError = function(context, message, traceback)
-  local report = { message = context .. ': ' .. message, traceback = traceback or '' }
+native.reportError = function(fields)
+  local report = { message = fields.context .. ': ' .. fields.message, traceback = fields.traceback or '' }
   events.reported[#events.reported + 1] = report
   emit('onError', report)
 end

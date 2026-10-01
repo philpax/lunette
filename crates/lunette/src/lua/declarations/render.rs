@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use crate::{
     events::{payload_records, subscription_functions},
     lua::{
-        Claim, ErrorEvent, Monitor, Output, Process, Seat, Sink, Spawn, Window,
+        Claim, ErrorEvent, Monitor, Output, Process, ReportError, Seat, Sink, Spawn, Window,
         claim::ClaimLayer,
         declarations::{
             AliasSpec, Aliased, Handle, NullTexture, Property, PropertyType, Record, Recorded,
@@ -143,6 +143,7 @@ fn surface() -> Vec<Item> {
         Item::Record(ClaimLayer::RECORD),
         Item::Handle(collect::<Claim<NullTexture>>()),
         Item::Record(ErrorEvent::RECORD),
+        Item::Record(ReportError::RECORD),
     ];
     // The tables the `lovr.lun*` callbacks are called with are exported from
     // the module; the callbacks do not declare them, because a definitions

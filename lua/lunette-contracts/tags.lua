@@ -28,6 +28,11 @@ export type Options = {
 
 export type Owner = owner.Owner
 
+-- What setSelected sets: the owner's selection override.
+export type Selection = {
+  read selected: boolean,
+}
+
 export type Tag = {
   read name: string,
   read index: number,
@@ -39,7 +44,7 @@ export type Tag = {
   read remove: (Tag, Owner, Panel) -> boolean,
   read has: (Tag, Panel) -> boolean,
   read panels: (Tag) -> { Panel },
-  read setSelected: (Tag, Owner, boolean) -> boolean,
+  read setSelected: (Tag, Owner, Selection) -> boolean,
   read apply: (Tag) -> boolean,
   read destroy: (Tag) -> boolean,
 }

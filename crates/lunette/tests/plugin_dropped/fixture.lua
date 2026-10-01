@@ -43,15 +43,20 @@ local first = panelService:fromWindow(owner, firstSource, { chrome = false })
 local second = panelService:fromWindow(owner, secondSource, { chrome = false })
 local pointer = interactionService:newPointer(owner)
 local seen = {}
-local allEffect = panelService:onDropped(owner, nil, function(panel, actualPointer)
-  assert(actualPointer == pointer)
-  seen[#seen + 1] = panel
-  events[#events + 1] = panel == first and 'first' or 'second'
-end)
-local firstEffect = panelService:onDropped(owner, first, function(panel)
-  assert(panel == first)
-  events[#events + 1] = 'exact'
-end)
+local allEffect = panelService:onDropped(owner, {
+  run = function(panel, actualPointer)
+    assert(actualPointer == pointer)
+    seen[#seen + 1] = panel
+    events[#events + 1] = panel == first and 'first' or 'second'
+  end,
+})
+local firstEffect = panelService:onDropped(owner, {
+  panel = first,
+  run = function(panel)
+    assert(panel == first)
+    events[#events + 1] = 'exact'
+  end,
+})
 
 panelService:emitDropped(owner, first, pointer)
 assert(#seen == 1 and seen[1] == first)
@@ -86,9 +91,12 @@ local activeConsumer = runtime:use(
 activeConsumer:enable()
 local order = {}
 local listener = activePanel
-  and panelService:onDropped(activeOwner, activePanel, function()
-    order[#order + 1] = 'drop'
-  end)
+  and panelService:onDropped(activeOwner, {
+    panel = activePanel,
+    run = function()
+      order[#order + 1] = 'drop'
+    end,
+  })
 activePanel:setPose(lovr.math.newMat4 { x = 2 })
 activePanel.source.setProperty = function(self, key, value)
   order[#order + 1] = 'store'
@@ -102,19 +110,25 @@ listener:dispose()
 
 local canceledCalls = 0
 local canceled
-local cancelFirst = panelService:onDropped(activeOwner, nil, function()
-  canceled:dispose()
-end)
-canceled = panelService:onDropped(activeOwner, nil, function()
-  canceledCalls += 1
-end)
+local cancelFirst = panelService:onDropped(activeOwner, {
+  run = function()
+    canceled:dispose()
+  end,
+})
+canceled = panelService:onDropped(activeOwner, {
+  run = function()
+    canceledCalls += 1
+  end,
+})
 panelService:emitDropped(activeOwner, activePanel, activePointer)
 assert(canceledCalls == 0, 'a canceled listener in the dispatch snapshot must be skipped')
 cancelFirst:dispose()
 
-local failing = panelService:onDropped(activeOwner, nil, function()
-  error 'dropped callback failure'
-end)
+local failing = panelService:onDropped(activeOwner, {
+  run = function()
+    error 'dropped callback failure'
+  end,
+})
 local ok, failure = pcall(function()
   panelService:emitDropped(activeOwner, activePanel, activePointer)
 end)
@@ -134,9 +148,11 @@ local unloading = runtime:use(
   {}
 )
 unloading:enable()
-panelService:onDropped(unloadingOwner, nil, function()
-  unloadingCalls += 1
-end)
+panelService:onDropped(unloadingOwner, {
+  run = function()
+    unloadingCalls += 1
+  end,
+})
 unloadingOwner:effect(function()
   return function()
     panelService:emitDropped(activeOwner, activePanel, activePointer)
@@ -151,9 +167,11 @@ for index = 1, 32 do
   do
     local payload = { index = index }
     weak[index] = payload
-    local effect = panelService:onDropped(activeOwner, nil, function()
-      assert(payload.index == index)
-    end)
+    local effect = panelService:onDropped(activeOwner, {
+      run = function()
+        assert(payload.index == index)
+      end,
+    })
     heldEffects[index] = effect
     effect:dispose()
   end
@@ -166,6 +184,6 @@ activeConsumer:disable()
 interactionProvider:disable()
 panelProvider:disable()
 assert(not pcall(function()
-  panelService:onDropped(activeOwner, nil, function() end)
+  panelService:onDropped(activeOwner, { run = function() end })
 end), 'stale provider must reject registration')
 runtime:close()

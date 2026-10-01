@@ -140,8 +140,8 @@ return function()
 
   -- Removal and arrival listeners are owner-scoped and hear every cause.
   local added, removed, reported = {}, {}, {}
-  require('@lunette').reportError = function(context, message)
-    reported[#reported + 1] = context .. ': ' .. message
+  require('@lunette').reportError = function(fields)
+    reported[#reported + 1] = fields.context .. ': ' .. fields.message
   end
   service:onAdded(stranger, function(created)
     added[#added + 1] = created
@@ -149,12 +149,17 @@ return function()
   service:onAdded(stranger, function()
     error 'arrival listener failed'
   end)
-  local removal = service:onRemoved(stranger, panel, function(target)
-    removed[#removed + 1] = target
-  end)
-  service:onRemoved(stranger, nil, function()
-    error 'removal listener failed'
-  end)
+  local removal = service:onRemoved(stranger, {
+    panel = panel,
+    run = function(target)
+      removed[#removed + 1] = target
+    end,
+  })
+  service:onRemoved(stranger, {
+    run = function()
+      error 'removal listener failed'
+    end,
+  })
 
   assert(panel:destroy(owner))
   assert(not panel:destroy(owner))

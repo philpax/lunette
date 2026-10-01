@@ -21,16 +21,18 @@ local definition = api.define {
     provide:provide(keyboard.capability, panelRegistry) -- reject: Service.
     local _wrongResult: number = panelRegistry:all() -- reject: number.
     panelRegistry:fromWindow(ctx, 'not a window') -- reject: Window.
-    input:scrollDelta('not a delta', 1) -- reject: number.
+    input:scrollDelta { x = 'not a delta', y = 1 } -- reject: number.
     local board = keys:new(ctx)
     board:typeText(42) -- reject: string.
     board:setVisible 'visible' -- reject: boolean.
     local _wrongBoard: panels.Panel = board -- reject: Panel.
     local _wrongConfig: number = config.title -- reject: number.
-    panelRegistry:onDropped(ctx, nil, function(panel, pointer)
-      panel:setSize('wide', nil) -- reject: number.
-      pointer:withdraw(42) -- reject: Argument count.
-    end)
+    panelRegistry:onDropped(ctx, {
+      run = function(panel, pointer)
+        panel:setSize('wide', nil) -- reject: number.
+        pointer:withdraw(42) -- reject: Argument count.
+      end,
+    })
   end,
 }
 

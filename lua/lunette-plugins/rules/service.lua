@@ -34,11 +34,11 @@ type MutableService = {
   DEFAULT_PRECEDENCE: number,
   DEFAULT_SOURCE: string,
   PANEL_PROPERTIES: { string },
-  report: (Service, string, string?) -> (),
-  addSource: (Service, Owner, string, number, (lunette.Window) -> Properties?) -> plugin.Effect,
+  report: (Service, contracts.Report) -> (),
+  addSource: (Service, Owner, contracts.SourceRegistration) -> plugin.Effect,
   sources: (Service) -> { contracts.Source },
   fromList: (Service, { Rule }) -> (lunette.Window) -> Properties?,
-  setRules: (Service, Owner, { Rule }) -> plugin.Effect,
+  setRules: (Service, Owner, contracts.RuleSet) -> plugin.Effect,
   matches: (Service, contracts.Match?, lunette.Window) -> boolean,
   resolve: (Service, lunette.Window) -> Resolved,
   place: (Service, Owner, lunette.Window, Resolved?) -> (panelsContract.WindowPanel, Resolved, plugin.Effect),
@@ -110,7 +110,7 @@ local function fromList(service: Service, list: { Rule }): (lunette.Window) -> P
   end
 end
 
-local function report(state: ProviderState, message: string, level: string?): ()
+local function report(state: ProviderState, message: string, level: contracts.LogLevel?): ()
   if lovr and lovr.log then
     lovr.log(message, level or 'warn', 'lunette.rules')
   end
@@ -244,9 +244,12 @@ local function acquirePlacement(
     -- The listener belongs to this provider and is stopped by the cleanup, so a
     -- panel removed by its source dying or by the panels provider ends the
     -- placement it belongs to.
-    removal = panels:onRemoved(state.context, panel, function()
-      acquired:dispose()
-    end)
+    removal = panels:onRemoved(state.context, {
+      panel = panel,
+      run = function()
+        acquired:dispose()
+      end,
+    })
   end
   return panel, acquired
 end
@@ -256,14 +259,8 @@ local function init(context: plugin.Context): Service
     DEFAULT_PRECEDENCE = 100,
     DEFAULT_SOURCE = 'lunette.rules',
     PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chrome' },
-    report = function(_self: Service, _message: string, _level: string?) end,
-    addSource = function(
-      _self: Service,
-      _owner: Owner,
-      _name: string,
-      _precedence: number,
-      _resolve: (lunette.Window) -> Properties?
-    ): plugin.Effect
+    report = function(_self: Service, _report: contracts.Report) end,
+    addSource = function(_self: Service, _owner: Owner, _registration: contracts.SourceRegistration): plugin.Effect
       error 'rules: service is not initialized'
     end,
     sources = function(_self: Service): { contracts.Source }
@@ -272,7 +269,7 @@ local function init(context: plugin.Context): Service
     fromList = function(_self: Service, _list: { Rule }): (lunette.Window) -> Properties?
       error 'rules: service is not initialized'
     end,
-    setRules = function(_self: Service, _owner: Owner, _list: { Rule }): plugin.Effect
+    setRules = function(_self: Service, _owner: Owner, _set: contracts.RuleSet): plugin.Effect
       error 'rules: service is not initialized'
     end,
     matches = function(_self: Service, _match: contracts.Match?, _window: lunette.Window): boolean
@@ -307,18 +304,28 @@ local function init(context: plugin.Context): Service
     end
   end)
 
-  function implementation.report(_self: Service, message: string, level: string?)
-    report(state, message, level)
+  function implementation.report(_self: Service, fields: contracts.Report)
+    if type(fields) ~= 'table' or type(fields.message) ~= 'string' then
+      error('rules report: a report is a table whose message is a string', 2)
+    end
+    report(state, fields.message, fields.level)
   end
 
   function implementation.addSource(
     _self: Service,
     owner: Owner,
-    name: string,
-    precedence: number,
-    resolve: (lunette.Window) -> Properties?
+    registration: contracts.SourceRegistration
   ): plugin.Effect
     context:checkOwner(owner)
+    if type(registration) ~= 'table' then
+      error('rules: a source registration is a table of fields, not a ' .. type(registration), 2)
+    end
+    for key, _ in registration :: { [unknown]: unknown } do
+      if key ~= 'name' and key ~= 'precedence' and key ~= 'resolve' then
+        error('rules: unknown source field ' .. tostring(key) .. '; the fields are name, precedence, and resolve', 2)
+      end
+    end
+    local name, precedence, resolve = registration.name, registration.precedence, registration.resolve
     if type(name) ~= 'string' then
       error('rules: a source is named by a string, not a ' .. type(name), 2)
     end
@@ -371,8 +378,23 @@ local function init(context: plugin.Context): Service
     return fromList(service, list)
   end
 
-  function implementation.setRules(_self: Service, owner: Owner, list: { Rule }): plugin.Effect
-    return service:addSource(owner, service.DEFAULT_SOURCE, service.DEFAULT_PRECEDENCE, service:fromList(list))
+  function implementation.setRules(_self: Service, owner: Owner, set: contracts.RuleSet): plugin.Effect
+    if type(set) ~= 'table' then
+      error('rules: a rule set is a table of fields, not a ' .. type(set), 2)
+    end
+    for key, _ in set :: { [unknown]: unknown } do
+      if key ~= 'name' and key ~= 'precedence' and key ~= 'rules' then
+        error('rules: unknown rule set field ' .. tostring(key) .. '; the fields are name, precedence, and rules', 2)
+      end
+    end
+    if type(set.rules) ~= 'table' then
+      error('rules: a rule set has a list of rules, not a ' .. type(set.rules), 2)
+    end
+    return service:addSource(owner, {
+      name = set.name or service.DEFAULT_SOURCE,
+      precedence = set.precedence or service.DEFAULT_PRECEDENCE,
+      resolve = service:fromList(set.rules),
+    })
   end
 
   function implementation.matches(_self: Service, match: contracts.Match?, window: lunette.Window): boolean

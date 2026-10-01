@@ -58,14 +58,16 @@ local function build(
       })
       board:typeText(config.title)
       board:setSize(nil, config.height)
-      panelRegistry:onDropped(ctx, nil, function(panel, droppedPointer)
-        panel:setSize(nil, config.height)
-        droppedPointer:withdraw()
-        local all: { keyboard.Keyboard } = ctx:require(keyboard.capability):all()
-        for _, current in all do
-          current:setVisible(true)
-        end
-      end)
+      panelRegistry:onDropped(ctx, {
+        run = function(panel, droppedPointer)
+          panel:setSize(nil, config.height)
+          droppedPointer:withdraw()
+          local all: { keyboard.Keyboard } = ctx:require(keyboard.capability):all()
+          for _, current in all do
+            current:setVisible(true)
+          end
+        end,
+      })
       local allPanels: { panels.Panel } = panelRegistry:all()
       for _, panel in allPanels do
         if panel.kind == 'window' then

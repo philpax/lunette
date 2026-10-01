@@ -727,15 +727,9 @@ module! {
     }
 
     /// Reports an error as a raising callback is reported: it is logged and every `lunette.onError` listener is notified. `context` leads the message. A dispatcher that protects each of several handlers reports one handler's error with it and continues with the next.
-    fn reportError(lua, session, context: String, message: String, traceback: Option<String>) -> () {
-        callback_error::report_traced(
-            lua,
-            &session.listeners(ERROR),
-            &TracedError {
-                message: format!("{context}: {message}"),
-                traceback: traceback.unwrap_or_default(),
-            },
-        );
+    fn reportError(lua, session, options: Options<ReportError>) -> () {
+        let report = report_error_fields(options.table())?;
+        callback_error::report_traced(lua, &session.listeners(ERROR), &report);
         Ok(())
     }
 
@@ -873,6 +867,51 @@ record! {
         /// Where it was raised, as Lua reports it.
         traceback: String,
     }
+}
+
+record! {
+    /// What `lunette.reportError` takes.
+    options ReportError as ReportErrorOptions {
+        /// The dispatcher or operation the error came through. It leads the message.
+        context: String,
+        /// The error itself.
+        message: String,
+        /// Where it was raised, as Lua reports it.
+        traceback: Option<String>,
+    }
+}
+
+/// Reads `lunette.reportError`'s fields into the error it reports.
+///
+/// The context and message are required. Naming the missing one is the
+/// difference between a report that says what was wrong and a conversion
+/// error about nil.
+fn report_error_fields(options: &Table) -> mlua::Result<TracedError> {
+    let required = |name: &str| -> mlua::Result<String> {
+        match options.get::<Value>(name)? {
+            Value::String(text) => Ok(text.to_string_lossy()),
+            other => Err(mlua::Error::runtime(format!(
+                "lunette: reportError's {name} is a string, not a {}",
+                other.type_name()
+            ))),
+        }
+    };
+    let context = required("context")?;
+    let message = required("message")?;
+    let traceback = match options.get::<Value>("traceback")? {
+        Value::Nil => String::new(),
+        Value::String(text) => text.to_string_lossy(),
+        other => {
+            return Err(mlua::Error::runtime(format!(
+                "lunette: reportError's traceback is a string, not a {}",
+                other.type_name()
+            )));
+        }
+    };
+    Ok(TracedError {
+        message: format!("{context}: {message}"),
+        traceback,
+    })
 }
 
 record! {

@@ -2,7 +2,7 @@
 -- composed with the built-in providers and desktop consumers that use them.
 -- Each substitute is written against the contract alone.
 local plugin = require '@lunette-plugin'
-local callbacks = require 'desktop/callbacks'
+local frame = require '@lunette-plugins/frame'
 local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
@@ -131,8 +131,8 @@ local substitutePanels = plugin.define {
           return function() end
         end)
       end,
-      onRemoved = function(_, owner, panel, callback)
-        return listen(owner, panel, callback)
+      onRemoved = function(_, owner, listener)
+        return listen(owner, listener.panel, listener.run)
       end,
     }
     publish:provide(panelsContract.capability, service)
@@ -186,9 +186,10 @@ do
         DEFAULT_SOURCE = 'substitute',
         PANEL_PROPERTIES = {},
         report = function() end,
-        addSource = function(_, owner, name, precedence, resolve)
+        addSource = function(_, owner, registration)
           return context:acquire(owner, function()
-            local source = { name = name, precedence = precedence, resolve = resolve }
+            local source =
+              { name = registration.name, precedence = registration.precedence, resolve = registration.resolve }
             sources[#sources + 1] = source
             return function()
               table.remove(sources, table.find(sources, source))
@@ -204,9 +205,13 @@ do
           end
         end,
         setRules = function(self, owner)
-          return self:addSource(owner, 'substitute', 100, function()
-            return nil
-          end)
+          return self:addSource(owner, {
+            name = 'substitute',
+            precedence = 100,
+            resolve = function()
+              return nil
+            end,
+          })
         end,
         matches = function()
           return true
@@ -263,9 +268,13 @@ end
 -- The desktop's error consumer draws through a substitute display.
 do
   local runtime = plugin.runtime()
-  callbacks.install(function() end, function()
-    runtime:close()
-  end)
+  frame.install {
+    start = function() end,
+    stop = function()
+      runtime:close()
+    end,
+  }
+  runtime:use(frame.definition, {}):enable()
   local drawn = 0
   local substituteDisplay = plugin.define {
     name = 'substituteDisplay',
@@ -307,7 +316,7 @@ do
     end,
   }
   runtime:use(substituteDisplay, {}):enable()
-  runtime:use(require 'desktop/errors', { callbacks = callbacks }):enable()
+  runtime:use(require 'desktop/errors', {}):enable()
   assert(lovr.draw(events.pass) == false)
   assert(drawn == 1, 'the error consumer drew through the substitute')
   assert(lovr.quit() == false)

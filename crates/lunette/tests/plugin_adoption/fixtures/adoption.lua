@@ -138,12 +138,20 @@ local function pose(x)
   return table.concat(values, ' ')
 end
 
-local low = services.rules:addSource(owner, 'caller.rules', 100, function()
-  return { title = 'rule-title', pose = pose(1) }
-end)
-local persisted = services.rules:addSource(owner, 'persistence', 200, function()
-  return { title = 'persisted-title', pose = pose(2) }
-end)
+local low = services.rules:addSource(owner, {
+  name = 'caller.rules',
+  precedence = 100,
+  resolve = function()
+    return { title = 'rule-title', pose = pose(1) }
+  end,
+})
+local persisted = services.rules:addSource(owner, {
+  name = 'persistence',
+  precedence = 200,
+  resolve = function()
+    return { title = 'persisted-title', pose = pose(2) }
+  end,
+})
 local replaced = services.adoption:install(owner)
 local sources = services.rules:sources()
 assert(sources[1].name == 'caller.rules' and sources[1].precedence == 100)
@@ -328,7 +336,7 @@ function result.installWithoutRules()
       name = 'adoption-4',
       requires = { adoption = adoption.capability },
       init = function(context)
-        context:require(adoption.capability):install(context, 250)
+        context:require(adoption.capability):install(context, { precedence = 250 })
       end,
     },
     {}

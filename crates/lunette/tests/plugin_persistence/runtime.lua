@@ -76,7 +76,7 @@ local function consumerDefinition(persistent)
         error(result)
       end
       binding = result
-      rules:setRules(current, { { properties = { width = 1 } } })
+      rules:setRules(current, { rules = { { properties = { width = 1 } } } })
       local currentBinding = binding
       local currentPanels = panels
       local currentRules = rules
@@ -102,9 +102,13 @@ local function window(id)
 end
 local first = window(17)
 local second = window(18)
-local nativeEffect = rules:addSource(context, 'fixture.native', 300, function()
-  return { width = 3 }
-end)
+local nativeEffect = rules:addSource(context, {
+  name = 'fixture.native',
+  precedence = 300,
+  resolve = function()
+    return { width = 3 }
+  end,
+})
 assert(rules:resolve(first).width == 3, 'native source at 300 wins')
 nativeEffect:dispose()
 assert(rules:resolve(first).width == 2, 'persisted source at 200 wins over rules at 100')

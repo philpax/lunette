@@ -30,9 +30,12 @@ return function(plugin)
   local definition = plugin.define {
     name = 'definition',
     init = function(context, config)
-      context:on(subscribe, function(event)
-        received[#received + 1] = config.name .. ':' .. event
-      end)
+      context:on {
+        event = subscribe,
+        run = function(event)
+          received[#received + 1] = config.name .. ':' .. event
+        end,
+      }
     end,
   }
 
@@ -60,9 +63,12 @@ return function(plugin)
     plugin.define {
       name = 'subscriptions-2',
       init = function(context)
-        context:on(function()
-          return 'not a cancel function'
-        end, function() end)
+        context:on {
+          event = function()
+            return 'not a cancel function'
+          end,
+          run = function() end,
+        }
       end,
     },
     {}
@@ -76,11 +82,17 @@ return function(plugin)
       name = 'subscriptions-3',
       init = function(context)
         rejects(function()
-          context:on(subscribe, 'not a handler')
-        end, 'plugin on: a handler is a function, not a string')
+          context:on { event = subscribe, run = 'not a handler' }
+        end, 'plugin on: run is a function, not a string')
         rejects(function()
-          context:on('not a subscription', function() end)
-        end, 'plugin on: a subscription is a function, not a string')
+          context:on { event = 'not a subscription', run = function() end }
+        end, 'plugin on: event is a subscribing function, not a string')
+        rejects(function()
+          context:on(subscribe, function() end)
+        end, 'plugin on: a subscription is a table of fields, not a function')
+        rejects(function()
+          context:on { event = subscribe, handler = function() end }
+        end, 'plugin on: unknown field handler; the fields are event and run')
       end,
     },
     {}

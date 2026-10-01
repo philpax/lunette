@@ -1,40 +1,87 @@
+-- A raising frame handler or surface offer is reported and does not stop the
+-- handlers after it, including the error display that would show it.
 local plugin = require '@lunette-plugin'
-local callbacks = require 'desktop/callbacks'
+local frame = require '@lunette-plugins/frame'
+local frameContract = require '@lunette-contracts/frame'
+local surfacesContract = require '@lunette-contracts/surfaces'
 local runtime = plugin.runtime()
-callbacks.install(function() end, function()
-  runtime:close()
-end)
+frame.install {
+  start = function() end,
+  stop = function()
+    runtime:close()
+  end,
+}
+runtime:use(frame.definition, {}):enable()
+runtime:use(require '@lunette-plugins/surfaces', {}):enable()
 runtime:use(require('@lunette-plugins/error-display').definition, {}):enable()
 local ran = {}
+local broker
 runtime
   :use(
     plugin.define {
       name = 'callback-failure-1',
+      requires = { frame = frameContract.capability, surfaces = surfacesContract.capability },
       init = function(ctx)
-        callbacks.onUpdate(ctx, function()
-          error 'fixture update failure'
-        end, 1)
-        callbacks.onUpdate(ctx, function()
-          ran.update = true
-        end, 2)
-        callbacks.onDraw(ctx, function()
-          error 'fixture draw failure'
-        end, 1)
-        callbacks.onSurfaces(ctx, function()
-          error 'fixture surfaces failure'
-        end)
-        callbacks.onQuit(ctx, function()
-          error 'fixture quit failure'
-        end)
-        callbacks.onQuit(ctx, function()
-          ran.quit = true
-        end)
+        local frameService = ctx:require(frameContract.capability)
+        broker = ctx:require(surfacesContract.capability)
+        frameService:onUpdate(ctx, {
+          phase = 'scene',
+          run = function()
+            error 'fixture update failure'
+          end,
+        })
+        frameService:onUpdate(ctx, {
+          phase = 'scene',
+          order = 1,
+          run = function()
+            ran.update = true
+          end,
+        })
+        frameService:onDraw(ctx, {
+          phase = 'scene',
+          run = function()
+            error 'fixture draw failure'
+          end,
+        })
+        frameService:onKey(ctx, {
+          run = function()
+            error 'fixture key failure'
+          end,
+        })
+        frameService:onKey(ctx, {
+          phase = 'delivery',
+          run = function(event)
+            ran.key = event.key
+          end,
+        })
+        broker:offer(ctx, {
+          name = 'raising',
+          list = function()
+            error 'fixture surfaces failure'
+          end,
+        })
+        broker:offer(ctx, {
+          name = 'not-a-list',
+          list = function()
+            return 'not a list'
+          end,
+        })
+        frameService:onQuit(ctx, {
+          run = function()
+            error 'fixture quit failure'
+          end,
+        })
+        frameService:onQuit(ctx, {
+          run = function()
+            ran.quit = true
+          end,
+        })
       end,
     },
     {}
   )
   :enable()
-runtime:use(require 'desktop/errors', { callbacks = callbacks }):enable()
+runtime:use(require 'desktop/errors', {}):enable()
 
 local function reported(text)
   local last = events.reported[#events.reported]
@@ -59,8 +106,16 @@ assert(
   'the error display still draws after a raising draw handler, and shows its error'
 )
 
-assert(#callbacks.surfaces() == 0)
-assert(reported 'lovr.surfaces: ' and reported 'fixture surfaces failure')
+lovr.keypressed('a', 4, false)
+assert(reported 'lovr.keypressed: ' and reported 'fixture key failure')
+assert(ran.key == 'a', 'a raising key handler does not consume the key')
+
+local count = #events.reported
+assert(#broker:all() == 0)
+assert(#events.reported == count + 2)
+assert(events.reported[count + 1].message:find('surfaces: raising: ', 1, true))
+assert(events.reported[count + 1].message:find('fixture surfaces failure', 1, true))
+assert(reported 'surfaces: not-a-list: ' and reported 'not a list of surfaces')
 
 assert(lovr.quit() == false, 'a raising quit handler does not veto the quit')
 assert(ran.quit, 'a raising quit handler does not stop the next')
