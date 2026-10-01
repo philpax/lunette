@@ -18,6 +18,7 @@ lunette/
   lua/lunette-plugin/             typed plugin authoring facade and erased adapter
   lua/lunette-contracts/          neutral plugin service contracts
   lua/lunette-plugins/            built-in plugin implementations
+  lua/lunette-desktop/            the shipped desktop's consumers and composition
   lua/mullion/                    optional Lua helper and policy modules
   lua/spec/                       development-only Lua specifications
   etc/lunette/                    the generated Luau definitions
@@ -61,10 +62,11 @@ The source and install roots are described by `crates/lunette/src/aliases.rs`. I
 | `@lunette-plugin` | `lua/lunette-plugin/` | Mounted file root | Required |
 | `@lunette-contracts` | `lua/lunette-contracts/` | Mounted file root | Required |
 | `@lunette-plugins` | `lua/lunette-plugins/` | Mounted file root | Required |
+| `@lunette-desktop` | `lua/lunette-desktop/` | Mounted file root | Required |
 | `@mullion` | `lua/mullion/` | Mounted file root | Optional |
 | `@spec` | `lua/spec/` | Mounted development file root | Not installed |
 
-The `@lunette` API is registered at runtime and is not loaded from `lua/lunette/`. Its checked-in declaration is generated from the Rust registration surface. The plugin facade and provider roots are ordinary Lua modules mounted under reserved aliases. A configuration cannot shadow these mounts with files at the configuration root.
+The `@lunette` API is registered at runtime and is not loaded from `lua/lunette/`. Its checked-in declaration is generated from the Rust registration surface. The plugin facade, provider, and desktop roots are ordinary Lua modules mounted under reserved aliases. The desktop root is required because the default configuration runs it; safe mode is compiled into the binary and needs none of the installed roots. A configuration cannot shadow these mounts with files at the configuration root.
 
 `make check-definitions` checks the generated Luau definitions, native API declarations, `.luaurc` files, and alias metadata. `make check-luau` checks the shipped roots, the ordinary spec harness modules, and the default configuration. It runs the Luau checker as a separate process; startup does not run that checker.
 
@@ -81,7 +83,7 @@ The `@lunette` API is registered at runtime and is not loaded from `lua/lunette/
 
 The Lua roots are kept on disk rather than embedded in the binary. The source tree remains readable without cloning the repository. There are two candidates for the root directory: `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as written, so `LUNETTE_STDLIB_PATH=lua cargo run` works from the source tree. [The standard library](stdlib.md#module-roots) records the root responsibilities.
 
-`make install` installs the Lua artifacts listed by the Rust-owned manifest in `crates/lunette/src/aliases.rs`. `PREFIX`, `SYSCONFDIR`, and `DESTDIR` are honored. `PREFIX` and `SYSCONFDIR` reach the binary as `LUNETTE_PREFIX` and `LUNETTE_SYSCONFDIR`, which `crates/lunette/src/main.rs` compiles in through `option_env!`. The LÖVR shared libraries are installed to `$PREFIX/lib/lunette`, which the executable reaches through an `$ORIGIN/../lib/lunette` rpath entry. The `aliases.rs` module-root descriptors also generate checker aliases. `crates/lunette/src/cli.rs` separately lists files copied by `lunette --dump-config`: `main.lua`, `conf.lua`, `desktop/base.lua`, `desktop/callbacks.lua`, `desktop/errors.lua`, `desktop/input.lua`, `desktop/keyboard.lua`, `desktop/logging.lua`, `desktop/pointing.lua`, and `desktop/policy.lua`. The command writes a `.luaurc` for the selected installation's Lua root.
+`make install` installs the Lua artifacts listed by the Rust-owned manifest in `crates/lunette/src/aliases.rs`. `PREFIX`, `SYSCONFDIR`, and `DESTDIR` are honored. `PREFIX` and `SYSCONFDIR` reach the binary as `LUNETTE_PREFIX` and `LUNETTE_SYSCONFDIR`, which `crates/lunette/src/main.rs` compiles in through `option_env!`. The LÖVR shared libraries are installed to `$PREFIX/lib/lunette`, which the executable reaches through an `$ORIGIN/../lib/lunette` rpath entry. The `aliases.rs` module-root descriptors also generate checker aliases. `crates/lunette/src/cli.rs` separately lists files copied by `lunette --dump-config`: `main.lua` and `conf.lua`. The desktop's consumers are the installed `@lunette-desktop` root, so a copied configuration patches them rather than carrying copies. The command writes a `.luaurc` for the selected installation's Lua root, which names `@lunette-desktop` among the others.
 
 Embedding via `rust-embed` exists as an optional build feature, off by default. It supports possible single-file distribution, but no such package output is defined.
 

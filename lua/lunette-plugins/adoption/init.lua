@@ -1,21 +1,28 @@
--- Declares the scoped adoption provider.
+-- The scoped adoption provider.
+--
+-- `precedence` is the precedence install registers the native pose source at
+-- when it is given none.
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
 local panels = require '@lunette-contracts/panels'
 local rules = require '@lunette-contracts/rules'
-local create = require '@lunette-plugins/adoption/service'
+local build = require '@lunette-plugins/adoption/service'
 
-local required: plugin.Declaration = {
-  panels = panels.capability,
-  rules = rules.capability,
+export type Settings = build.Settings
+export type Service = adoption.Service
+
+-- What a configuration gives: every option optional.
+export type Config = {
+  read precedence: number?,
 }
-local provided: plugin.Declaration = { adoption = adoption.capability }
 
-return plugin.define {
+return plugin.provider<<Config, Settings, Service>> {
   name = 'adoption',
-  requires = required,
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, provide: plugin.Publisher)
-    provide:provide(adoption.capability, create(context))
-  end,
+  capability = adoption.capability,
+  requires = {
+    panels = panels.capability,
+    rules = rules.capability,
+  },
+  defaults = { precedence = 300 },
+  build = build,
 }

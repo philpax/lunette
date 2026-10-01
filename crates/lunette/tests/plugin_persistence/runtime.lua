@@ -47,9 +47,9 @@ local function report(message)
   reported[#reported + 1] = message
 end
 local runtime = plugin.runtime()
-local panelsInstance = runtime:use(require '@lunette-plugins/panels', {})
-local tagsInstance = runtime:use(require '@lunette-plugins/tags', {})
-local rulesInstance = runtime:use(require '@lunette-plugins/rules', {})
+local panelsInstance = runtime:use(require('@lunette-plugins/panels').definition, {})
+local tagsInstance = runtime:use(require('@lunette-plugins/tags').definition, {})
+local rulesInstance = runtime:use(require('@lunette-plugins/rules').definition, {})
 panelsInstance:enable()
 tagsInstance:enable()
 rulesInstance:enable()

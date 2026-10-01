@@ -1065,6 +1065,7 @@ mod tests {
                 "@lunette-plugin",
                 "@lunette-contracts",
                 "@lunette-plugins",
+                "@lunette-desktop",
                 "@mullion",
                 "@spec",
             ]
@@ -1078,6 +1079,7 @@ mod tests {
                 PathBuf::from("/resolved/lunette/lunette-plugin"),
                 PathBuf::from("/resolved/lunette/lunette-contracts"),
                 PathBuf::from("/resolved/lunette/lunette-plugins"),
+                PathBuf::from("/resolved/lunette/lunette-desktop"),
                 PathBuf::from("/resolved/lunette/mullion"),
                 PathBuf::from("/resolved/lunette/spec"),
             ]
@@ -1087,7 +1089,7 @@ mod tests {
                 .iter()
                 .map(|description| description.required)
                 .collect::<Vec<_>>(),
-            vec![true, true, true, false, false]
+            vec![true, true, true, true, false, false]
         );
     }
 }

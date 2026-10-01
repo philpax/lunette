@@ -1,45 +1,33 @@
--- The shipped desktop composition built as main.lua builds it, with each
+-- The shipped desktop composition started as main.lua starts it, with each
 -- instance returned so a scenario can take a provider or consumer away.
+-- `options` are the composition's options, so a scenario can patch it.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
+local desktopRoot = require '@lunette-desktop'
 local panels = require '@lunette-contracts/panels'
 local surfaces = require '@lunette-contracts/surfaces'
 
-return function()
-  local runtime = plugin.runtime()
+return function(options)
+  local running
   frame.install {
     start = function() end,
     stop = function()
-      runtime:close()
+      running.runtime:close()
     end,
   }
-  local providers = {}
-  providers.frame = runtime:use(frame.definition, {})
-  providers.frame:enable()
-  for _, name in ipairs {
-    'surfaces',
-    'panels',
-    'interaction',
-    'laser',
-    'keyboard',
-    'tags',
-    'rules',
-    'adoption',
-    'layout/arc',
-  } do
-    providers[name] = runtime:use(require('@lunette-plugins/' .. name), {})
-    providers[name]:enable()
+  running = desktopRoot.start(desktopRoot.compose(options))
+  local runtime = running.runtime
+  local providers, consumers = {}, {}
+  for id, instance in pairs(running.instances) do
+    local consumer = id:match '^desktop/(.+)$'
+    if consumer then
+      consumers[consumer] = instance
+    else
+      providers[id] = instance
+    end
   end
-  providers.display = runtime:use(require('@lunette-plugins/error-display').definition, {})
-  providers.display:enable()
-  local consumers = {}
-  for _, name in ipairs { 'base', 'pointing', 'input', 'keyboard', 'errors' } do
-    consumers[name] = runtime:use(require('desktop/' .. name), {})
-    consumers[name]:enable()
-  end
-  consumers.policy = runtime:use(require 'desktop/policy'(), {})
-  consumers.policy:enable()
-  local desktop = { runtime = runtime, providers = providers, consumers = consumers }
+  providers.display = running.instances['error-display']
+  local desktop = { runtime = runtime, providers = providers, consumers = consumers, instances = running.instances }
   runtime
     :use(
       plugin.define {

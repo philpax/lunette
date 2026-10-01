@@ -1,6 +1,7 @@
 
--- The shipped configuration sets this once, deliberately, to remember that the
--- demonstration window was already spawned across soft reloads. Written through
+-- The shipped desktop (@lunette-desktop) sets this once, deliberately, to
+-- remember that the demonstration window was already spawned across soft
+-- reloads. Written through
 -- `_G` so the assignment is visible to the checker.
 declare _G: {
     lunetteDemonstrationSpawned: boolean,

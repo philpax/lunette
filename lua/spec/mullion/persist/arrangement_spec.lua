@@ -63,7 +63,7 @@ local function withServices(entries, run)
     }
     runtime = plugin.runtime()
     for _, name in ipairs { 'panels', 'tags', 'rules' } do
-      runtime:use(require('@lunette-plugins/' .. name), {}):enable()
+      runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
     end
     local context, panels, tags, rules
     runtime
@@ -335,7 +335,7 @@ end)
 spec('failed registration rolls back the source when a foreign panels service rejects the owner', function()
   withServices(nil, function(state, context, _panels, tags, rules)
     local foreign = plugin.runtime()
-    foreign:use(require '@lunette-plugins/panels', {}):enable()
+    foreign:use(require('@lunette-plugins/panels').definition, {}):enable()
     local foreignPanels
     foreign
       :use(

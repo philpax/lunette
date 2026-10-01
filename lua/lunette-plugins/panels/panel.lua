@@ -16,13 +16,23 @@ export type Owner = contracts.Owner
 export type Panel = contracts.Panel
 export type Options = contracts.Options
 
+-- The resolved options of the activation that made a panel: its style, and
+-- the priority, height, and aspect ratio a panel takes when it is given none
+-- and its source has no size.
+export type Settings = {
+  read style: contracts.Style,
+  read priority: number,
+  read height: number,
+  read aspect: number,
+}
+
 -- What a panel needs from the activation that made it.
 export type Host = {
   -- Whether the activation is still live.
   read active: () -> boolean,
   -- Raises unless the owner is still a live owner of this activation.
   read checkOwner: (Owner) -> (),
-  read style: contracts.Style,
+  read settings: Settings,
   -- The activation's opaque shader, or nil when none can be made.
   read opaqueShader: () -> Shader?,
   -- Called once a panel is dead and its claim released.
@@ -61,10 +71,6 @@ export type Source =
   { read kind: 'window', read source: lunette.Window }
   | { read kind: 'monitor', read source: lunette.Monitor }
 export type State = MutablePanel & Source
-
-panel.DEFAULT_PRIORITY = 10
-panel.DEFAULT_HEIGHT = 0.8
-panel.DEFAULT_ASPECT = 16 / 9
 
 -- Creates a panel's state without registering it or acquiring a claim.
 function panel.new(host: Host, owner: Owner, source: Source, options: Options?): State
@@ -118,7 +124,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   }
   local metatable = { __index = exposed }
   local pose = settings.pose and lovr.math.newMat4(settings.pose) or lovr.math.newMat4()
-  local priority = settings.priority or panel.DEFAULT_PRIORITY
+  local priority = settings.priority or host.settings.priority
   local chrome = settings.chrome ~= false
   local noClaim: layer.Claim? = nil
   local noSize: number? = nil
@@ -173,7 +179,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   if settings.width or settings.height then
     panel.resize(created, settings.width, settings.height)
   else
-    panel.resize(created, nil, panel.DEFAULT_HEIGHT)
+    panel.resize(created, nil, host.settings.height)
   end
   return created
 end
@@ -227,7 +233,7 @@ end
 
 function panel.resize(target: State, width: number?, height: number?)
   local pixelWidth, pixelHeight = panel.sourceSize(target)
-  local aspect = panel.DEFAULT_ASPECT
+  local aspect = target.host.settings.aspect
   if pixelWidth and pixelHeight and pixelWidth > 0 and pixelHeight > 0 then
     aspect = pixelWidth / pixelHeight
   end
@@ -361,7 +367,7 @@ function panel.draw(target: State, pass: Pass)
 end
 
 function panel.drawChrome(target: State, pass: Pass)
-  local style = target.host.style
+  local style = target.host.settings.style
   local color = target.highlighted and style.borderHighlightColor or style.borderColor
 
   pass:setColor(color[1], color[2], color[3], color[4])

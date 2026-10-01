@@ -1,15 +1,18 @@
--- Declares the tags provider. Membership borrows panels without requiring the
--- panels contract.
+-- The tags provider. Membership borrows panels without requiring the panels
+-- contract. It takes no options.
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
 local create = require '@lunette-plugins/tags/service'
-local required: plugin.Declaration = {}
-local provided: plugin.Declaration = { tags = tags.capability }
-return plugin.define {
+
+export type Config = {}
+export type Settings = {}
+export type Service = tags.Service
+
+return plugin.provider<<Config, Settings, Service>> {
   name = 'tags',
-  requires = required,
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, provide: plugin.Publisher)
-    provide:provide(tags.capability, create(context))
+  capability = tags.capability,
+  defaults = {},
+  build = function(context: plugin.Context, _settings: Settings): Service
+    return create(context)
   end,
 }

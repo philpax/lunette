@@ -143,8 +143,8 @@ local substitutePanels = plugin.define {
 do
   local runtime = plugin.runtime()
   runtime:use(substitutePanels, {}):enable()
-  runtime:use(require '@lunette-plugins/tags', {}):enable()
-  runtime:use(require '@lunette-plugins/rules', {}):enable()
+  runtime:use(require('@lunette-plugins/tags').definition, {}):enable()
+  runtime:use(require('@lunette-plugins/rules').definition, {}):enable()
   local owner, panels, tags, rules
   consumer(
     runtime,
@@ -172,7 +172,7 @@ end
 -- with its panel.
 do
   local runtime = plugin.runtime()
-  runtime:use(require '@lunette-plugins/panels', {}):enable()
+  runtime:use(require('@lunette-plugins/panels').definition, {}):enable()
   local placements = {}
   local substituteRules = plugin.define {
     name = 'substituteRules',
@@ -236,7 +236,7 @@ do
     end,
   }
   runtime:use(substituteRules, {}):enable()
-  runtime:use(require '@lunette-plugins/adoption', {}):enable()
+  runtime:use(require('@lunette-plugins/adoption').definition, {}):enable()
   local window = newWindow(41)
   events.windows = { window }
   local adopted = {}
@@ -316,7 +316,7 @@ do
     end,
   }
   runtime:use(substituteDisplay, {}):enable()
-  runtime:use(require 'desktop/errors', {}):enable()
+  runtime:use(require '@lunette-desktop/errors', {}):enable()
   assert(lovr.draw(events.pass) == false)
   assert(drawn == 1, 'the error consumer drew through the substitute')
   assert(lovr.quit() == false)

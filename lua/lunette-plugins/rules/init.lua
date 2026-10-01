@@ -1,19 +1,27 @@
--- Declares window placement policy and its resource dependencies.
+-- The rules provider: window placement policy over panels and tags.
+--
+-- `precedence` is the precedence a rule set takes when it names none.
 local plugin = require '@lunette-plugin'
 local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
 local panels = require '@lunette-contracts/panels'
-local create = require '@lunette-plugins/rules/service'
-local required: plugin.Declaration = {
-  panels = panels.capability,
-  tags = tags.capability,
+local build = require '@lunette-plugins/rules/service'
+
+export type Settings = build.Settings
+export type Service = rules.Service
+
+-- What a configuration gives: every option optional.
+export type Config = {
+  read precedence: number?,
 }
-local provided: plugin.Declaration = { rules = rules.capability }
-return plugin.define {
+
+return plugin.provider<<Config, Settings, Service>> {
   name = 'rules',
-  requires = required,
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, provide: plugin.Publisher)
-    provide:provide(rules.capability, create(context))
-  end,
+  capability = rules.capability,
+  requires = {
+    panels = panels.capability,
+    tags = tags.capability,
+  },
+  defaults = { precedence = 100 },
+  build = build,
 }

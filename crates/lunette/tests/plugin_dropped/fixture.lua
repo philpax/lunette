@@ -3,9 +3,9 @@ local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 
 local runtime = plugin.runtime()
-local panelProvider = runtime:use(require '@lunette-plugins/panels', {})
+local panelProvider = runtime:use(require('@lunette-plugins/panels').definition, {})
 panelProvider:enable()
-local interactionProvider = runtime:use(require '@lunette-plugins/interaction', {})
+local interactionProvider = runtime:use(require('@lunette-plugins/interaction').definition, {})
 interactionProvider:enable()
 
 local panelService, interactionService, owner

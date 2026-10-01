@@ -5,7 +5,7 @@ local rules = require '@lunette-contracts/rules'
 local layout = require '@lunette-contracts/layout'
 local runtime = plugin.runtime()
 for _, name in ipairs { 'panels', 'tags', 'rules', 'layout/arc' } do
-  runtime:use(require('@lunette-plugins/' .. name), {}):enable()
+  runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
 end
 local owner, services
 local consumer = runtime:use(

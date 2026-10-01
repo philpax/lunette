@@ -2,9 +2,9 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
-local panelsDefinition = require '@lunette-plugins/panels'
-local interactionDefinition = require '@lunette-plugins/interaction'
-local keyboardDefinition = require '@lunette-plugins/keyboard'
+local panelsDefinition = require('@lunette-plugins/panels').definition
+local interactionDefinition = require('@lunette-plugins/interaction').definition
+local keyboardDefinition = require('@lunette-plugins/keyboard').definition
 
 local consumer = plugin.define {
   name = 'consumer',

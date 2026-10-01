@@ -140,3 +140,32 @@ fn a_user_plugin_without_configuration_draws_and_offers_surfaces() -> mlua::Resu
     assert!(plugin_desktop::shutdown(&lua)?.is_empty());
     Ok(())
 }
+
+#[test]
+fn the_composition_applies_patches_and_names_the_id_of_every_malformed_one() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/composition.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.contains("plugin desktop/errors: unknown option colour")),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn every_provider_validates_and_applies_its_configuration() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/provider_config.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors.iter().all(|error| error.contains("unknown option")
+            || error.contains(" is a ")
+            || error.contains("pointer button")
+            || error.contains("requires missing contract")),
+        "{errors:?}"
+    );
+    Ok(())
+}

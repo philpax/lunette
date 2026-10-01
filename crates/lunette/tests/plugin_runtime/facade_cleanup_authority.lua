@@ -1,11 +1,10 @@
-return function(native, initModule, adapterModule)
+return function(native, sources)
   local cache = { ['@lunette'] = { plugin = native } }
   require = function(name)
     if cache[name] ~= nil then
       return cache[name]
     end
-    local source = if name == '@lunette-plugin' then initModule else adapterModule
-    assert(name == '@lunette-plugin' or name == '@lunette-plugin/adapter')
+    local source = assert(sources[name], 'unknown module ' .. name)
     local module = assert(loadstring(source, name))()
     cache[name] = module
     return module

@@ -180,17 +180,17 @@ fn production_facade_composes_interaction_and_laser_with_borrowed_seat_cleanup()
     let modules = lua.create_table()?;
     modules.set(
         "panels",
-        lua.load("return require '@lunette-plugins/panels'")
+        lua.load("return require('@lunette-plugins/panels').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
         "interaction",
-        lua.load("return require '@lunette-plugins/interaction'")
+        lua.load("return require('@lunette-plugins/interaction').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
         "laser",
-        lua.load("return require '@lunette-plugins/laser'")
+        lua.load("return require('@lunette-plugins/laser').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
@@ -220,12 +220,12 @@ fn followup_records_input_rendering_haptics_and_replacement_cleanup() -> mlua::R
     let modules = lua.create_table()?;
     modules.set(
         "panels",
-        lua.load("return require '@lunette-plugins/panels'")
+        lua.load("return require('@lunette-plugins/panels').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
         "interaction",
-        lua.load("return require '@lunette-plugins/interaction'")
+        lua.load("return require('@lunette-plugins/interaction').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
@@ -235,7 +235,7 @@ fn followup_records_input_rendering_haptics_and_replacement_cleanup() -> mlua::R
     )?;
     modules.set(
         "laser",
-        lua.load("return require '@lunette-plugins/laser'")
+        lua.load("return require('@lunette-plugins/laser').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
@@ -271,7 +271,7 @@ fn a_failing_laser_release_quarantines_its_owner_not_the_provider() -> mlua::Res
     ] {
         modules.set(
             name,
-            lua.load(format!("return require '{module}'"))
+            lua.load(format!("return require('{module}').definition"))
                 .eval::<Value>()?,
         )?;
     }

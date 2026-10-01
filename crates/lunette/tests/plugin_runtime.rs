@@ -10,6 +10,7 @@ use std::{cell::Cell, rc::Rc};
 use lunette::plugin::{attachment, declarations};
 use mlua::{Function, Lua, Table, UserData, Value};
 
+mod plugin_facade_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<(Lua, Table)> {
@@ -201,11 +202,11 @@ fn public_facade_rollback_uses_native_cleanup_authority() -> mlua::Result<()> {
         .load(include_str!("plugin_runtime/facade_cleanup_authority.lua"))
         .set_name("facade_cleanup_authority")
         .eval()?;
-    fixture.call::<()>((
-        module,
-        include_str!("../../../lua/lunette-plugin/init.lua"),
-        include_str!("../../../lua/lunette-plugin/adapter.lua"),
-    ))?;
+    let sources = lua.create_table()?;
+    for (name, source) in plugin_facade_sources::FACADE_SOURCES {
+        sources.set(name, source)?;
+    }
+    fixture.call::<()>((module, sources))?;
     let errors = plugin_support::shutdown(&lua);
     assert_eq!(errors.len(), 2, "unexpected errors: {errors:?}");
     assert!(

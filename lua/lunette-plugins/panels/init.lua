@@ -5,6 +5,9 @@
 -- teardown, signal, or cleanup registry is used: the plugin context owns all
 -- provider resources through effects, and a panel's end is announced to
 -- owner-scoped removal listeners.
+--
+-- `style` sets the border and title appearance. `priority`, `height`, and
+-- `aspect` are what a panel takes when its own options give none.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -36,19 +39,23 @@ local OPAQUE_FRAGMENT = [[
   }
 ]]
 
--- Everything a panel's appearance is tuned with, in one table. Each activation
--- receives its own frozen copy, so no consumer can retune another's panels.
-local function style(): contracts.Style
-  return table.freeze {
-    borderThickness = 0.008,
-    borderDepth = 0.001,
-    borderColor = table.freeze { 0.14, 0.14, 0.17, 0.95 },
-    borderHighlightColor = table.freeze { 0.35, 0.55, 0.95, 0.95 },
-    titleHeight = 0.04,
-    titleMargin = 0.02,
-    titleColor = table.freeze { 1, 1, 1, 1 },
-  }
-end
+export type Settings = panel.Settings
+
+-- What a configuration gives: every option optional.
+export type Config = {
+  read style: {
+    read borderThickness: number?,
+    read borderDepth: number?,
+    read borderColor: { number }?,
+    read borderHighlightColor: { number }?,
+    read titleHeight: number?,
+    read titleMargin: number?,
+    read titleColor: { number }?,
+  }?,
+  read priority: number?,
+  read height: number?,
+  read aspect: number?,
+}
 
 local function livePanels(state: ProviderState): { Panel }
   local live: { Panel } = {}
@@ -128,7 +135,7 @@ local function checkListener(operation: string, listener: unknown): ()
   end
 end
 
-local function init(context: plugin.Context): Service
+local function build(context: plugin.Context, settings: Settings): Service
   local state: ProviderState
   local host: panel.Host = {
     active = function(): boolean
@@ -137,7 +144,7 @@ local function init(context: plugin.Context): Service
     checkOwner = function(owner: Owner)
       context:checkOwner(owner)
     end,
-    style = style(),
+    settings = settings,
     opaqueShader = function(): Shader?
       return opaqueShader(state)
     end,
@@ -175,10 +182,10 @@ local function init(context: plugin.Context): Service
   -- need no liveness guard. Panels are not reached through the service after
   -- they are created, and they check their activation through their host.
   local service: Service = {
-    STYLE = host.style,
-    DEFAULT_PRIORITY = panel.DEFAULT_PRIORITY,
-    DEFAULT_HEIGHT = panel.DEFAULT_HEIGHT,
-    DEFAULT_ASPECT = panel.DEFAULT_ASPECT,
+    STYLE = settings.style,
+    DEFAULT_PRIORITY = settings.priority,
+    DEFAULT_HEIGHT = settings.height,
+    DEFAULT_ASPECT = settings.aspect,
     OPAQUE_FRAGMENT = OPAQUE_FRAGMENT,
     rayQuadHit = function(_self: Service, target: contracts.Quad, origin: vector, direction: vector)
       return quad.hit(target, origin, direction)
@@ -247,13 +254,22 @@ local function init(context: plugin.Context): Service
   return service
 end
 
-local capability = contracts.capability
-local provided = { panels = capability }
-
-return plugin.define {
+return plugin.provider<<Config, Settings, Service>> {
   name = 'panels',
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
-    publish:provide(capability, init(context))
-  end,
+  capability = contracts.capability,
+  defaults = {
+    style = {
+      borderThickness = 0.008,
+      borderDepth = 0.001,
+      borderColor = { 0.14, 0.14, 0.17, 0.95 },
+      borderHighlightColor = { 0.35, 0.55, 0.95, 0.95 },
+      titleHeight = 0.04,
+      titleMargin = 0.02,
+      titleColor = { 1, 1, 1, 1 },
+    },
+    priority = 10,
+    height = 0.8,
+    aspect = 16 / 9,
+  },
+  build = build,
 }

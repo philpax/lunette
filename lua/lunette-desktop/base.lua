@@ -17,7 +17,9 @@ local required: plugin.Declaration = {
 return plugin.define {
   name = 'desktop/base',
   requires = required,
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+  init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
+    -- The consumer takes no options, so any option is a mistake worth naming.
+    plugin.options { name = 'desktop/base', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
     local surfaceService: surfaces.Service = context:require(surfaces.capability)
     local panelService: panels.Service = context:require(panels.capability)

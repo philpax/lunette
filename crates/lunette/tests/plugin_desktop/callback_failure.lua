@@ -12,7 +12,7 @@ frame.install {
   end,
 }
 runtime:use(frame.definition, {}):enable()
-runtime:use(require '@lunette-plugins/surfaces', {}):enable()
+runtime:use(require('@lunette-plugins/surfaces').definition, {}):enable()
 runtime:use(require('@lunette-plugins/error-display').definition, {}):enable()
 local ran = {}
 local broker
@@ -81,7 +81,7 @@ runtime
     {}
   )
   :enable()
-runtime:use(require 'desktop/errors', {}):enable()
+runtime:use(require '@lunette-desktop/errors', {}):enable()
 
 local function reported(text)
   local last = events.reported[#events.reported]

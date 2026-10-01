@@ -11,6 +11,7 @@ use std::{cell::Cell, rc::Rc};
 use lunette::plugin::{attachment, declarations};
 use mlua::{Function, Lua, Table, UserData, Value};
 
+mod plugin_facade_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
@@ -57,18 +58,9 @@ fn state() -> mlua::Result<Lua> {
         "@lunette",
         lua.create_function(move |_, _: String| Ok(native.clone()))?,
     )?;
-    preload.set(
-        "@lunette-plugin",
-        lua.load(include_str!("../../../lua/lunette-plugin/init.lua"))
-            .set_name("@lunette-plugin/init.lua")
-            .into_function()?,
-    )?;
-    preload.set(
-        "@lunette-plugin/adapter",
-        lua.load(include_str!("../../../lua/lunette-plugin/adapter.lua"))
-            .set_name("@lunette-plugin/adapter.lua")
-            .into_function()?,
-    )?;
+    for (name, source) in plugin_facade_sources::FACADE_SOURCES {
+        preload.set(name, lua.load(source).set_name(name).into_function()?)?;
+    }
 
     Ok(lua)
 }
@@ -100,6 +92,7 @@ fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
         "error_positions" => include_str!("plugin_facade_execution/error_positions.lua"),
         "child_enabled" => include_str!("plugin_facade_execution/child_enabled.lua"),
         "spec_validation" => include_str!("plugin_facade_execution/spec_validation.lua"),
+        "options" => include_str!("plugin_facade_execution/options.lua"),
         "quarantine_pending_provider" => {
             include_str!("plugin_facade_execution/quarantine_pending_provider.lua")
         }
@@ -396,5 +389,14 @@ fn a_capability_from_a_retired_epoch_is_named_as_retired() -> mlua::Result<()> {
         ),
         "{message}"
     );
+    Ok(())
+}
+
+#[test]
+fn configuration_merges_records_replaces_other_values_and_names_unknown_options() -> mlua::Result<()>
+{
+    let lua = state()?;
+    run_fixture(&lua, "options")?;
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }

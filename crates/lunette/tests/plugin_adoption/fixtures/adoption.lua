@@ -6,11 +6,11 @@ local interaction = require '@lunette-contracts/interaction'
 local adoption = require '@lunette-contracts/adoption'
 
 local runtime = plugin.runtime()
-local panelProvider = runtime:use(require '@lunette-plugins/panels', {})
-local tagProvider = runtime:use(require '@lunette-plugins/tags', {})
-local rulesProvider = runtime:use(require '@lunette-plugins/rules', {})
-local interactionProvider = runtime:use(require '@lunette-plugins/interaction', {})
-local adoptionProvider = runtime:use(require '@lunette-plugins/adoption', {})
+local panelProvider = runtime:use(require('@lunette-plugins/panels').definition, {})
+local tagProvider = runtime:use(require('@lunette-plugins/tags').definition, {})
+local rulesProvider = runtime:use(require('@lunette-plugins/rules').definition, {})
+local interactionProvider = runtime:use(require('@lunette-plugins/interaction').definition, {})
+local adoptionProvider = runtime:use(require('@lunette-plugins/adoption').definition, {})
 panelProvider:enable()
 tagProvider:enable()
 rulesProvider:enable()

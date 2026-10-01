@@ -10,10 +10,11 @@ use std::{fs, path::Path};
 use mlua::{Lua, Table};
 
 /// The roots registered, and the alias each one resolves under.
-const ROOTS: [(&str, &str); 4] = [
+const ROOTS: [(&str, &str); 5] = [
     ("lua/lunette-plugin", "@lunette-plugin"),
     ("lua/lunette-contracts", "@lunette-contracts"),
     ("lua/lunette-plugins", "@lunette-plugins"),
+    ("lua/lunette-desktop", "@lunette-desktop"),
     ("lua/mullion", "@mullion"),
 ];
 

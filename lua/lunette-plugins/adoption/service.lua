@@ -17,7 +17,6 @@ export type Options = adoption.Options
 export type Properties = adoption.Properties
 
 local SOURCE = 'lunette.adoption'
-local PRECEDENCE = 300
 
 type State = {
   active: boolean,
@@ -71,10 +70,16 @@ local function source(state: State): (lunette.Window) -> Properties?
   end
 end
 
-local function init(context: plugin.Context): Service
+-- The resolved options: the precedence install registers the native pose
+-- source at when it is given none.
+export type Settings = {
+  read precedence: number,
+}
+
+local function build(context: plugin.Context, settings: Settings): Service
   local implementation: MutableService = {
     SOURCE = SOURCE,
-    PRECEDENCE = PRECEDENCE,
+    PRECEDENCE = settings.precedence,
     properties = function(_self: Service, window: lunette.Window): rulesContract.Resolved?
       error 'adoption: service is not initialized'
     end,
@@ -125,7 +130,7 @@ local function init(context: plugin.Context): Service
       end
     end
     local rules: rulesContract.Service = context:require(rulesContract.capability)
-    local chosen = options and options.precedence or PRECEDENCE
+    local chosen = options and options.precedence or settings.precedence
     if type(chosen) ~= 'number' or chosen ~= chosen then
       error('adoption: precedence is an orderable number', 2)
     end
@@ -262,4 +267,4 @@ local function init(context: plugin.Context): Service
   return service
 end
 
-return init
+return build

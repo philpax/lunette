@@ -1,7 +1,7 @@
 return function()
   local plugin = require '@lunette-plugin'
   local contracts = require '@lunette-contracts/panels'
-  local definition = require '@lunette-plugins/panels'
+  local definition = require('@lunette-plugins/panels').definition
 
   local source = {
     id = 17,

@@ -5,6 +5,7 @@
     "lunette-plugin": "../../../lua/lunette-plugin",
     "lunette-contracts": "../../../lua/lunette-contracts",
     "lunette-plugins": "../../../lua/lunette-plugins",
+    "lunette-desktop": "../../../lua/lunette-desktop",
     "mullion": "../../../lua/mullion"
   }
 }

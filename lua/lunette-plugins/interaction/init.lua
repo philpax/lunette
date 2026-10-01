@@ -3,6 +3,9 @@
 -- A pointer and a setFocus grant are resources of the owner that asked for
 -- them. Their release runs as an inverse on that owner, so a native release
 -- that fails is the owner's failure, not this provider's.
+--
+-- `tuning` sets the default reach, dead zones, scroll and resize scales, and
+-- the button a trigger presses; a pointer's own options override it.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/interaction'
@@ -17,23 +20,6 @@ type Pointer = contracts.Pointer
 type Surface = contracts.Surface
 type PointerState = grab.PointerState
 
--- Each activation receives its own frozen tuning, so no consumer can retune
--- another's pointers.
-local function defaultTuning(): contracts.Tuning
-  local tuning: contracts.Tuning = {
-    reach = 8,
-    grabDeadZone = 0.006,
-    scrollScale = 900,
-    scrollDeadZone = 0.2,
-    reachScale = 1.2,
-    reachMinimum = 0.2,
-    reachMaximum = 6,
-    resizeMinimum = 0.15,
-    resizeMaximum = 4,
-    button = 'left',
-  }
-  return table.freeze(tuning)
-end
 local POSE_PROPERTY = vocabulary.POSE_PROPERTY
 
 local function deadZone(value: number, dead: number): number
@@ -97,9 +83,36 @@ local function emitDropped(context: plugin.Context, panels: panelsContract.Servi
   end
 end
 
-local function init(context: plugin.Context): Service
+local BUTTONS: { [string]: boolean } = { left = true, right = true, middle = true, back = true, forward = true }
+
+-- The resolved options. Each activation receives its own frozen copy, so no
+-- consumer can retune another's pointers.
+export type Settings = {
+  read tuning: contracts.Tuning,
+}
+
+-- What a configuration gives: every option optional.
+export type Config = {
+  read tuning: {
+    read reach: number?,
+    read grabDeadZone: number?,
+    read scrollScale: number?,
+    read scrollDeadZone: number?,
+    read reachScale: number?,
+    read reachMinimum: number?,
+    read reachMaximum: number?,
+    read resizeMinimum: number?,
+    read resizeMaximum: number?,
+    read button: lunette.PointerButton?,
+  }?,
+}
+
+local function build(context: plugin.Context, settings: Settings): Service
   local active = true
-  local TUNING = defaultTuning()
+  local TUNING = settings.tuning
+  if not BUTTONS[TUNING.button] then
+    error('plugin interaction: option tuning.button is a pointer button, not ' .. tostring(TUNING.button), 0)
+  end
   local pointers: { Pointer } = {}
   local states: { [Pointer]: PointerState } = {}
   local focused = focus.new()
@@ -462,13 +475,23 @@ local function init(context: plugin.Context): Service
   }
 end
 
-local required = { panels = panelsContract.capability }
-local provided = { interaction = contracts.capability }
-return plugin.define {
+return plugin.provider<<Config, Settings, Service>> {
   name = 'interaction',
-  requires = required,
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
-    publish:provide(contracts.capability, init(context))
-  end,
+  capability = contracts.capability,
+  requires = { panels = panelsContract.capability },
+  defaults = {
+    tuning = {
+      reach = 8,
+      grabDeadZone = 0.006,
+      scrollScale = 900,
+      scrollDeadZone = 0.2,
+      reachScale = 1.2,
+      reachMinimum = 0.2,
+      reachMaximum = 6,
+      resizeMinimum = 0.15,
+      resizeMaximum = 4,
+      button = 'left',
+    },
+  },
+  build = build,
 }

@@ -1,7 +1,9 @@
 -- The frame provider, and the binding of LÖVR's callbacks to it.
 --
--- `definition` provides lunette/frame. Each activation keeps its own handler
--- lists and, while it is loaded, is the activation LÖVR's callbacks reach.
+-- `definition` provides lunette/frame, and `define`, `build`, and `requires`
+-- follow the shape of the other providers; the provider takes no options. Each
+-- activation keeps its own handler lists and, while it is loaded, is the
+-- activation LÖVR's callbacks reach.
 -- `install` assigns the LÖVR callbacks once, outside any plugin, before the
 -- runtime starts: lovr.load starts the runtime, and lovr.quit runs the quit
 -- handlers and then stops it. The callbacks find the loaded activation when
@@ -214,27 +216,39 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
   return service, dispatcher
 end
 
-local provided: plugin.Declaration = { frame = contract.capability }
+export type Config = {}
+export type Settings = {}
+export type Service = contract.Service
 
-frame.definition = plugin.define {
+-- Binding the activation to LÖVR's callbacks is an effect of the activation,
+-- not a publication, so a plugin that builds the service to wrap it still
+-- receives the callbacks.
+local function build(context: plugin.Context, _settings: Settings): Service
+  local service, dispatcher = create(context)
+  context:effect(function(): () -> ()
+    if bound then
+      error('frame: another frame activation already receives the LÖVR callbacks', 0)
+    end
+    bound = dispatcher
+    return function(): ()
+      if bound == dispatcher then
+        bound = nil
+      end
+    end
+  end)
+  return service
+end
+
+local provider = plugin.provider<<Config, Settings, Service>> {
   name = 'frame',
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
-    local service, dispatcher = create(context)
-    context:effect(function(): () -> ()
-      if bound then
-        error('frame: another frame activation already receives the LÖVR callbacks', 0)
-      end
-      bound = dispatcher
-      return function(): ()
-        if bound == dispatcher then
-          bound = nil
-        end
-      end
-    end)
-    publish:provide(contract.capability, service)
-  end,
+  capability = contract.capability,
+  defaults = {},
+  build = build,
 }
+frame.definition = provider.definition
+frame.define = provider.define
+frame.build = provider.build
+frame.requires = provider.requires
 
 -- Assigns lovr.load, lovr.update, lovr.draw, lovr.keypressed, lovr.textinput,
 -- and lovr.quit. start runs from lovr.load and creates the runtime; stop runs

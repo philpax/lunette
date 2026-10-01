@@ -7,7 +7,7 @@ local rules = require '@lunette-contracts/rules'
 local adoption = require '@lunette-contracts/adoption'
 local layout = require '@lunette-contracts/layout'
 local frame = require '@lunette-contracts/frame'
-local logging = require '../desktop/logging'
+local logging = require '@lunette-desktop/logging'
 local persist = require '@mullion/persist'
 
 local WORKSPACE = 'main'
@@ -29,7 +29,9 @@ local function define(): plugin.Definition<{}>
   return plugin.define {
     name = 'desktop/policy',
     requires = required,
-    init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+    init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
+      -- The consumer takes no options, so any option is a mistake worth naming.
+      plugin.options { name = 'desktop/policy', defaults = {}, config = config }
       local frameService: frame.Service = context:require(frame.capability)
       local panelService: panels.Service = context:require(panels.capability)
       local tagService: tags.Service = context:require(tags.capability)

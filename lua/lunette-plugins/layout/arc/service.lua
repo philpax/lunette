@@ -45,15 +45,15 @@ local function poses(service: Service, count: number, options: Options?): { Mat4
   return placed
 end
 
-local function init(context: plugin.Context): Service
+-- The resolved options. Each activation receives its own frozen copy, so no
+-- consumer can retune the layout another consumer applies.
+export type Settings = {
+  read tuning: contracts.Tuning,
+}
+
+local function build(context: plugin.Context, settings: Settings): Service
   local tags: tagsContract.Service = context:require(tagsContract.capability)
-  -- Frozen, so no consumer can retune the layout another consumer applies.
-  local tuning: contracts.Tuning = table.freeze {
-    radius = 1.6,
-    step = 0.55,
-    span = math.pi * 1.2,
-    center = table.freeze { 0, 1.5, 0 },
-  }
+  local tuning = settings.tuning
   local service: Service
   local implementation = {
     TUNING = tuning,
@@ -87,4 +87,4 @@ local function init(context: plugin.Context): Service
   return service
 end
 
-return init
+return build

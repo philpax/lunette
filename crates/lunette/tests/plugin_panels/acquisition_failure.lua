@@ -2,7 +2,7 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local native = require '@lunette'
 local runtime = plugin.runtime()
-local provider = runtime:use(require '@lunette-plugins/panels', {})
+local provider = runtime:use(require('@lunette-plugins/panels').definition, {})
 provider:enable()
 local owner
 local service

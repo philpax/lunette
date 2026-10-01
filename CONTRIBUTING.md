@@ -10,7 +10,7 @@ The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code.
 
 ## Current status
 
-The workspace contains the compositor, capture, native API, Luau checker, standard-library modules, and plugin runtime. The shipped desktop configuration selects built-in providers and configuration-local desktop consumers. Its policy owns arrangement state across provider activations and writes it when a grab drops a panel and at normal quit. Integration tests cover provider outages, placement precedence, save failures, monitor hotplug, reopened windows, substitute providers, and ten production source reloads. The full `make check` passes. An actual XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. The roadmap records the remaining milestones, and the standard library document records the human gates.
+The workspace contains the compositor, capture, native API, Luau checker, standard-library modules, and plugin runtime. The shipped desktop configuration runs `@lunette-desktop`, which composes built-in providers and desktop consumers as entries a configuration patches by id. Its policy owns arrangement state across provider activations and writes it when a grab drops a panel and at normal quit. Integration tests cover provider outages, placement precedence, save failures, monitor hotplug, reopened windows, substitute providers, and ten production source reloads. The full `make check` passes. An actual XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. The roadmap records the remaining milestones, and the standard library document records the human gates.
 
 ## Repository layout
 
@@ -27,6 +27,7 @@ lua/lunette/                          generated declarations for the native API
 lua/lunette-plugin/                   typed plugin authoring facade and erased adapter
 lua/lunette-contracts/                neutral plugin service contracts
 lua/lunette-plugins/                  built-in plugin implementations
+lua/lunette-desktop/                  the shipped desktop's consumers and composition
 lua/mullion/                          optional Lua helper and policy modules
 lua/spec/                             development-only Lua specifications
 etc/lunette/                          the generated Luau definitions
@@ -75,7 +76,7 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 - Fix a wrong declaration in the metadata or the generator, never in the calling code. Every workaround for a declaration that misdescribes LÖVR has changed behaviour: returning `true` from `lovr.quit` to satisfy its declared return vetoed the quit, and spelling an identity matrix out as sixteen numbers followed from an ambiguous constructor.
 - Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
-- Keep module responsibilities distinct. `lunette` is native mechanism; `mullion` is optional policy and helpers implemented in Lua. The plugin facade, contracts, and providers have separate roots. Do not add policy to the native API or expect native mechanism from `mullion`.
+- Keep module responsibilities distinct. `lunette` is native mechanism; `mullion` is optional policy and helpers implemented in Lua. The plugin facade, contracts, providers, and the shipped desktop have separate roots. Do not add policy to the native API or expect native mechanism from `mullion`.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
 - Every module is safe to `require` twice. The host retains the Lua state during source reload, shuts down plugin runtimes, clears subscriptions and user modules, starts a new plugin contract epoch, and runs each cleared module's body again when the new configuration requires it, so a module keeps no module-level state that a second run would duplicate. Resources a plugin acquires are effects of its context or of its caller's owner, and the plugin runtime releases them. There is no teardown registry: a module that retains native resources outside a plugin gets no cleanup from the host.
 - Never assume a handle survives a frame. Check `handle.dead` before use.
@@ -92,7 +93,7 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 
 ### The Luau static check
 
-`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/mullion`, the ordinary spec harness modules, and the shipped configuration against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
+`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, `lua/mullion`, the ordinary spec harness modules, and the shipped configuration against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
 
 The checker is strict mode. `etc/lunette/definitions.luau` declares the LÖVR runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. Lua modules carry their own service and configuration types. The checker checks those local shapes but does not prove that a complete plugin graph is wired correctly; the plugin runtime validates declarations and providers separately.
 
@@ -102,7 +103,7 @@ The check catches the two defect classes static analysis exists for: a local ref
 
 ### The module roots
 
-File-backed aliases such as `@mullion/persist`, `@lunette-plugin`, `@lunette-contracts`, and `@lunette-plugins` resolve through LÖVR's virtual filesystem in a running session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload` at runtime; the checker reads its generated declarations from `lua/lunette/init.luau`. The development-only `@spec` root has no installed counterpart.
+File-backed aliases such as `@mullion/persist`, `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop` resolve through LÖVR's virtual filesystem in a running session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload` at runtime; the checker reads its generated declarations from `lua/lunette/init.luau`. The development-only `@spec` root has no installed counterpart.
 
 `crates/lunette/src/aliases.rs` describes the roots and their runtime resolution. The generator derives `.luaurc` files from those descriptors, and `make check-definitions` verifies them. The Rust install manifest names installed roots and generated declarations; `make install` consumes that manifest. `lunette --dump-config` writes a `.luaurc` beside the copied configuration and names this installation's Lua root by an absolute path.
 

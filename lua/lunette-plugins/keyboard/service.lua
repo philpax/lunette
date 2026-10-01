@@ -12,29 +12,14 @@ local drawing = require '@lunette-plugins/keyboard/draw'
 local keycodes = require '@mullion/keycodes'
 local layout = require '@lunette-plugins/keyboard/layout'
 
-local required: { read interaction: interaction.Capability } = {
-  interaction = interaction.capability,
-}
-local provided: { read keyboard: keyboard.Capability } = { keyboard = keyboard.capability }
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
--- Each activation receives its own frozen style, so no consumer can restyle
--- another's keyboards. Resizing a keyboard makes it a new style table.
-local function defaultStyle(): keyboard.Style
-  return table.freeze {
-    keyUnit = 0.028,
-    gap = 0.004,
-    plateDepth = 0.002,
-    legendDepth = 0.001,
-    margin = 0.008,
-    plateColor = table.freeze { 0.1, 0.1, 0.13, 0.92 },
-    keyColor = table.freeze { 0.2, 0.2, 0.24, 1 },
-    heldColor = table.freeze { 0.35, 0.55, 0.95, 1 },
-    hoverColor = table.freeze { 0.4, 0.42, 0.5, 1 },
-    legendColor = table.freeze { 1, 1, 1, 1 },
-    legendHeight = 0.012,
-  }
-end
+-- The resolved options. Each activation receives its own frozen copy, so no
+-- consumer can restyle another's keyboards. Resizing a keyboard makes it a new
+-- style table.
+export type Settings = {
+  read style: keyboard.Style,
+}
 
 local function create(
   options: keyboard.Options?,
@@ -375,10 +360,10 @@ local function create(
   return created, releaseRaw
 end
 
-local function initialize(context: plugin.Context, _config: {}, publish: plugin.Publisher): ()
+local function build(context: plugin.Context, settings: Settings): keyboard.Service
   local interactionService: interaction.Service = context:require(interaction.capability)
   local entries: { keyboard.Keyboard } = {}
-  local defaults = defaultStyle()
+  local defaults = settings.style
   local function remove(created: keyboard.Keyboard): ()
     local index = table.find(entries, created)
     if index then
@@ -429,7 +414,7 @@ local function initialize(context: plugin.Context, _config: {}, publish: plugin.
       return layout.keyAt(rendered, x, y)
     end,
   }
-  publish:provide(keyboard.capability, service)
+  return service
 end
 
-return { initialize = initialize, required = required, provided = provided }
+return build

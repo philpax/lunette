@@ -7,6 +7,8 @@
 
 local native = require '@lunette'
 local adapter = require '@lunette-plugin/adapter'
+local options = require '@lunette-plugin/options'
+local provider = require '@lunette-plugin/provider'
 
 local plugin = {}
 
@@ -22,6 +24,10 @@ export type Spec<C> = adapter.Spec<C>
 export type Definition<C> = adapter.Definition<C>
 export type Instance<C> = adapter.Instance<C>
 export type Runtime = adapter.Runtime
+export type OptionsSpec<S> = options.Spec<S>
+export type MergeSpec = options.MergeSpec
+export type ProviderSpec<S, T> = provider.Spec<S, T>
+export type Provider<C, T> = provider.Provider<C, T>
 export type PluginContractToken = native.PluginContractToken
 export type PluginContext = native.PluginContext
 export type PluginEffect = native.PluginEffect
@@ -47,6 +53,28 @@ end
 
 function plugin.runtime(): Runtime
   return adapter.runtime()
+end
+
+-- Answers a plugin's configuration merged over its defaults, copied and
+-- frozen, and raises an error naming the plugin and the option for an option
+-- the defaults do not name or a value of another type than its default. A
+-- record merges key by key; any other value replaces its default.
+function plugin.options<S>(spec: OptionsSpec<S>): S
+  return options.resolve(spec)
+end
+
+-- Answers `over` merged over `base` by the configuration rule, without
+-- validating either.
+function plugin.merge(spec: MergeSpec): { [string]: unknown }
+  return options.merge(spec)
+end
+
+-- Makes a provider module, `{ definition, define, build, requires }`, from a
+-- builder and its default options. The configuration type, the resolved
+-- options type, and the service type are named by explicit instantiation:
+-- `plugin.provider<<Config, Settings, Service>> { ... }`.
+function plugin.provider<C, S, T>(spec: ProviderSpec<S, T>): Provider<C, T>
+  return provider.create<<C, S, T>>(spec)
 end
 
 return plugin

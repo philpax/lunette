@@ -2,6 +2,9 @@
 -- Native headset reads are isolated from the pointer and drawing logic, and every
 -- acquired pointer or seat is released through the caller's owner effect, so a
 -- release that fails is the caller's failure rather than this provider's.
+--
+-- `style` sets the default beam length, colours, cursor size, and hover haptic
+-- that a laser's own options override.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -19,18 +22,23 @@ export type Hand = contracts.Hand
 export type Surface = contracts.Surface
 export type Input = contracts.Input
 
--- Each activation receives its own frozen style, so no consumer can restyle
--- another's lasers.
-local function defaultStyle(): contracts.Style
-  return table.freeze {
-    length = 1.5,
-    color = table.freeze { 0.55, 0.7, 1, 0.5 },
-    hoverColor = table.freeze { 0.75, 0.9, 1, 0.9 },
-    cursorRadius = 0.006,
-    hapticStrength = 0.2,
-    hapticDuration = 0.01,
-  }
-end
+-- The resolved options. Each activation receives its own frozen copy, so no
+-- consumer can restyle another's lasers.
+export type Settings = {
+  read style: contracts.Style,
+}
+
+-- What a configuration gives: every option optional.
+export type Config = {
+  read style: {
+    read length: number?,
+    read color: contracts.Color?,
+    read hoverColor: contracts.Color?,
+    read cursorRadius: number?,
+    read hapticStrength: number?,
+    read hapticDuration: number?,
+  }?,
+}
 
 local HANDS: { Hand } = { 'left', 'right' }
 
@@ -164,7 +172,7 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
   return created
 end
 
-local function initialize(context: plugin.Context): Service
+local function build(context: plugin.Context, settings: Settings): Service
   local service: Service
   -- The published service is revoked with this activation, so its methods
   -- need no liveness guard. Lasers outlive the call that made them and check
@@ -174,7 +182,7 @@ local function initialize(context: plugin.Context): Service
     HANDS = HANDS,
     DEVICES = input.devices,
     CONTROLLERS = input.controllers,
-    STYLE = defaultStyle(),
+    STYLE = settings.style,
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
       state.context:checkOwner(owner)
       return makeLaser(state, owner, hand, options)
@@ -238,13 +246,19 @@ local function initialize(context: plugin.Context): Service
   return service
 end
 
-local provided = { laser = contracts.capability }
-
-return plugin.define {
+return plugin.provider<<Config, Settings, Service>> {
   name = 'laser',
+  capability = contracts.capability,
   requires = { interaction = interaction.capability },
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
-    publish:provide(contracts.capability, initialize(context))
-  end,
+  defaults = {
+    style = {
+      length = 1.5,
+      color = { 0.55, 0.7, 1, 0.5 },
+      hoverColor = { 0.75, 0.9, 1, 0.9 },
+      cursorRadius = 0.006,
+      hapticStrength = 0.2,
+      hapticDuration = 0.01,
+    },
+  },
+  build = build,
 }

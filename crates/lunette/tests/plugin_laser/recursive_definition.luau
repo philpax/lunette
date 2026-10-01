@@ -2,9 +2,9 @@ local plugin = require '@lunette-plugin'
 local laser = require '@lunette-contracts/laser'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
-local provider: plugin.Definition<{}> = require '@lunette-plugins/laser'
-local panelsProvider: plugin.Definition<{}> = require '@lunette-plugins/panels'
-local interactionProvider: plugin.Definition<{}> = require '@lunette-plugins/interaction'
+local provider: plugin.Definition<{}> = require('@lunette-plugins/laser').definition
+local panelsProvider: plugin.Definition<{}> = require('@lunette-plugins/panels').definition
+local interactionProvider: plugin.Definition<{}> = require('@lunette-plugins/interaction').definition
 
 local consumer = plugin.define {
   name = 'consumer',

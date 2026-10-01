@@ -5,6 +5,7 @@ extern crate lunette_lovr;
 use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
 
+mod plugin_facade_sources;
 mod plugin_support;
 
 #[test]
@@ -50,16 +51,7 @@ fn state() -> mlua::Result<Lua> {
         "@lunette",
         lua.create_function(move |_, _: String| Ok(native.clone()))?,
     )?;
-    for (name, source) in [
-        (
-            "@lunette-plugin",
-            include_str!("../../../lua/lunette-plugin/init.lua"),
-        ),
-        (
-            "@lunette-plugin/adapter",
-            include_str!("../../../lua/lunette-plugin/adapter.lua"),
-        ),
-    ] {
+    for (name, source) in plugin_facade_sources::FACADE_SOURCES {
         preload.set(name, lua.load(source).set_name(name).into_function()?)?;
     }
     lua.globals().set(

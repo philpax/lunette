@@ -2,9 +2,11 @@
 --
 -- lunette loads this directory when the user has none of their own. Run
 -- `lunette --dump-config` to put a copy in $XDG_CONFIG_HOME/lunette and edit it
--- there. The command writes a `.luaurc` naming this installation's standard
--- library. The `.luaurc` makes `lunette check` and an editor resolve `@mullion`
--- and `@lunette` from wherever the copy is placed.
+-- there. The copy is `main.lua` and this file: the desktop itself is the
+-- installed `@lunette-desktop` root, which `main.lua` composes and patches. The
+-- command writes a `.luaurc` naming this installation's Lua roots, which makes
+-- `lunette check` and an editor resolve `@lunette-desktop`, `@mullion`, and
+-- `@lunette` from wherever the copy is placed.
 
 function lovr.conf(t)
   t.identity = 'lunette'

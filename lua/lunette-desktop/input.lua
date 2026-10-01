@@ -3,7 +3,7 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local interaction = require '@lunette-contracts/interaction'
-local logging = require '../desktop/logging'
+local logging = require '@lunette-desktop/logging'
 
 local NAMED_KEYS = {
   backspace = 14,
@@ -45,7 +45,9 @@ end
 return plugin.define {
   name = 'desktop/input',
   requires = required,
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+  init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
+    -- The consumer takes no options, so any option is a mistake worth naming.
+    plugin.options { name = 'desktop/input', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
     local service: interaction.Service = context:require(interaction.capability)
     -- The focused seat and sink, or nothing when either has died since focus

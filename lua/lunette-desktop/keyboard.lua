@@ -17,7 +17,9 @@ local SIZE = 0.115
 return plugin.define {
   name = 'desktop/keyboard',
   requires = required,
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+  init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
+    -- The consumer takes no options, so any option is a mistake worth naming.
+    plugin.options { name = 'desktop/keyboard', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
     local surfaceService: surfaces.Service = context:require(surfaces.capability)
     local service: keyboard.Service = context:require(keyboard.capability)

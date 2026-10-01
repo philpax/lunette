@@ -1,7 +1,8 @@
 -- The surfaces provider: a broker for the surfaces a pointer can pick.
 --
 -- Each activation keeps its own offers, keyed by name. An offer belongs to
--- the owner that made it and ends with that owner.
+-- the owner that made it and ends with that owner. The provider takes no
+-- options.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/surfaces'
@@ -83,12 +84,15 @@ local function create(context: plugin.Context): contract.Service
   }
 end
 
-local provided: plugin.Declaration = { surfaces = contract.capability }
+export type Config = {}
+export type Settings = {}
+export type Service = contract.Service
 
-return plugin.define {
+return plugin.provider<<Config, Settings, Service>> {
   name = 'surfaces',
-  provides = provided,
-  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
-    publish:provide(contract.capability, create(context))
+  capability = contract.capability,
+  defaults = {},
+  build = function(context: plugin.Context, _settings: Settings): Service
+    return create(context)
   end,
 }

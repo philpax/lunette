@@ -95,8 +95,9 @@ const ALIAS_FILES: &[AliasFile] = &[
 /// The runtime has no `io`, and declaring one would let four calls pass the
 /// checker; those calls fail at runtime.
 const FORK_GLOBALS: &str = "
--- The shipped configuration sets this once, deliberately, to remember that the
--- demonstration window was already spawned across soft reloads. Written through
+-- The shipped desktop (@lunette-desktop) sets this once, deliberately, to
+-- remember that the demonstration window was already spawned across soft
+-- reloads. Written through
 -- `_G` so the assignment is visible to the checker.
 declare _G: {
     lunetteDemonstrationSpawned: boolean,

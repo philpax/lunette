@@ -32,9 +32,9 @@ lovr = { math = { newMat4 = matrix } }
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/interaction'
 local runtime = plugin.runtime()
-local panels = runtime:use(require '@lunette-plugins/panels', {})
+local panels = runtime:use(require('@lunette-plugins/panels').definition, {})
 panels:enable()
-local provider = runtime:use(require '@lunette-plugins/interaction', {})
+local provider = runtime:use(require('@lunette-plugins/interaction').definition, {})
 provider:enable()
 local service, owner
 local consumer = runtime:use(

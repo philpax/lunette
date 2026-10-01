@@ -4,7 +4,7 @@ return function()
   local lunette = require '@lunette'
   local plugin = require '@lunette-plugin'
   local contracts = require '@lunette-contracts/panels'
-  local definition = require '@lunette-plugins/panels'
+  local definition = require('@lunette-plugins/panels').definition
 
   local source = { id = 23, dead = false, width = 800, height = 600, title = 'Drained window', opaque = false }
   function source:getTexture()

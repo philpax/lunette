@@ -14,7 +14,37 @@ local panel = require '@lunette-plugins/error-display/panel'
 export type Service = contracts.Service
 
 type Context = plugin.Context
-type Config = {
+
+-- The resolved options: the limiter's window and capacity, where the display
+-- is drawn and how large, its background, and the clock reports are timed by.
+-- Each activation receives its own frozen copy, so no consumer can recolour
+-- another's display.
+export type Settings = {
+  read window: number,
+  read maxKeys: number,
+  read x: number,
+  read y: number,
+  read z: number,
+  read width: number,
+  read textHeight: number,
+  read columns: number,
+  read lines: number,
+  read background: { number },
+  read clock: () -> number,
+}
+
+-- What a configuration gives: every option optional.
+export type Config = {
+  read window: number?,
+  read maxKeys: number?,
+  read x: number?,
+  read y: number?,
+  read z: number?,
+  read width: number?,
+  read textHeight: number?,
+  read columns: number?,
+  read lines: number?,
+  read background: { number }?,
   read clock: (() -> number)?,
 }
 
@@ -25,19 +55,6 @@ type State = {
   latest: string?,
   count: number,
 }
-
-local WINDOW = 5
-local MAX_KEYS = 64
-local X, Y, Z = 0, 1.4, -1.1
-local WIDTH = 1.1
-local TEXT_HEIGHT = 0.045
-local COLUMNS = 64
-local LINES = 6
--- Each activation receives its own frozen colour, so no consumer can recolour
--- another's display.
-local function background(): { number }
-  return table.freeze { 0.15, 0.03, 0.03, 0.85 }
-end
 
 local function clock(): number
   if lovr and lovr.timer and lovr.timer.getTime then
@@ -50,11 +67,15 @@ local function reportText(message: string, traceback: string, suppressed: number
   return format.report(message, traceback, suppressed)
 end
 
-local function makeState(context: Context, config: Config): (State, Service)
-  local BACKGROUND = background()
+local function makeState(context: Context, settings: Settings): (State, Service)
+  local WINDOW, MAX_KEYS = settings.window, settings.maxKeys
+  local X, Y, Z = settings.x, settings.y, settings.z
+  local WIDTH, TEXT_HEIGHT = settings.width, settings.textHeight
+  local COLUMNS, LINES = settings.columns, settings.lines
+  local BACKGROUND = settings.background
   local current: State = {
     context = context,
-    clock = clock,
+    clock = settings.clock,
     limiter = limiterModule.new(WINDOW, MAX_KEYS),
     latest = nil,
     count = 0,
@@ -125,18 +146,14 @@ local function makeState(context: Context, config: Config): (State, Service)
   }
 
   local service: Service = implementation
-  current.clock = config.clock or clock
   return current, service
 end
-
-local provided: plugin.Declaration = { errorDisplay = contracts.capability }
-local required: plugin.Declaration = {}
 
 -- The published service is revoked with this activation, so its methods need
 -- no liveness guard. The subscription is an effect of the activation, and it
 -- delivers nothing once the activation has ended.
-local function initialize(context: Context, config: Config, provide: plugin.Publisher)
-  local state, service = makeState(context, config)
+local function build(context: Context, settings: Settings): Service
+  local state, service = makeState(context, settings)
   context:effect(function()
     return function()
       state.latest = nil
@@ -149,14 +166,24 @@ local function initialize(context: Context, config: Config, provide: plugin.Publ
       service:handle { message = event.message, traceback = event.traceback }
     end,
   }
-  provide:provide(contracts.capability, service)
+  return service
 end
 
-local definition: plugin.Definition<Config> = plugin.define {
+return plugin.provider<<Config, Settings, Service>> {
   name = 'error-display',
-  requires = required,
-  provides = provided,
-  init = initialize,
+  capability = contracts.capability,
+  defaults = {
+    window = 5,
+    maxKeys = 64,
+    x = 0,
+    y = 1.4,
+    z = -1.1,
+    width = 1.1,
+    textHeight = 0.045,
+    columns = 64,
+    lines = 6,
+    background = { 0.15, 0.03, 0.03, 0.85 },
+    clock = clock,
+  },
+  build = build,
 }
-
-return { definition = definition }

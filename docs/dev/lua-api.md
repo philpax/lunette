@@ -19,7 +19,7 @@ Module aliases and their runtime resolution are defined in [Module roots](build-
 
 If this file does not exist, `$SYSCONFDIR/xdg/lunette/main.lua` is used directly. This matches awesome's approach, and avoids stale copies of a configuration the user never edited. `lunette --dump-config` produces a copy for the user to start editing.
 
-A configuration that never mentions `mullion` is supported when it uses only the native API and plugin modules that do not depend on `mullion` helpers. The shipped configuration composes built-in providers with consumers under `etc/xdg/lunette/desktop/`; it uses `mullion.persist` for arrangement state and the shared `mullion.pose` and `mullion.keycodes` helpers through its policy and providers.
+A configuration that never mentions `mullion` is supported when it uses only the native API and plugin modules that do not depend on `mullion` helpers. The shipped configuration runs the `@lunette-desktop` composition of built-in providers and desktop consumers; it uses `mullion.persist` for arrangement state and the shared `mullion.pose` and `mullion.keycodes` helpers through its policy and providers.
 
 ## Plugin authoring
 
@@ -35,19 +35,19 @@ A definition is a table of named fields. `name` labels the definition in logs, r
 
 ```lua
 return plugin.define {
-  name = 'layout/arc',
+  name = 'my-layout',
   requires = { tags = tags.capability },
-  provides = { arc = layout.arc },
+  provides = { layout = myLayout.capability },
   init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
     local service: tags.Service = context:require(tags.capability)
-    publish:provide(layout.arc, create(context, service))
+    publish:provide(myLayout.capability, create(context, service))
   end,
 }
 ```
 
 The facade rejects a spec with a field outside `name`, `requires`, `provides`, and `init`, a `name` that is not a non-empty string, an `init` that is not a function, and a `requires` or `provides` that is not a table. `plugin.capability` rejects a field outside `name` and `schema`, a `name` that is not a non-empty string, and a `schema` that is not a positive integer. Each error names the problem and points at the call. Definition names need not be unique.
 
-`Context:require<T>(capability)` has the capability's service type. `Publisher:provide<T>(capability, value)` accepts the matching service type. The publisher is valid only while that initializer is active. `Definition<C>` carries configuration type `C`, which is inferred from the initializer's configuration parameter; service types belong to capabilities, not to a mapped services record. The facade does not validate or convert a configuration value at runtime. A capability's service type is fixed by the explicit instantiation. A call that omits it produces a `Capability<unknown>`, which Luau accepts without an error of its own and through which no service read is checked, so `lunette check` reports every call whose result is a capability with an unknown service type.
+`Context:require<T>(capability)` has the capability's service type. `Publisher:provide<T>(capability, value)` accepts the matching service type. The publisher is valid only while that initializer is active. `Definition<C>` carries configuration type `C`, which is inferred from the initializer's configuration parameter; service types belong to capabilities, not to a mapped services record. The facade does not check a configuration value against its Luau type at runtime; a plugin checks it against its defaults with `plugin.options`, as [Provider modules](#provider-modules) states. A capability's service type is fixed by the explicit instantiation. A call that omits it produces a `Capability<unknown>`, which Luau accepts without an error of its own and through which no service read is checked, so `lunette check` reports every call whose result is a capability with an unknown service type.
 
 Luau checks local service shapes, methods, and configuration annotations in source modules. Runtime wiring remains a separate concern. The runtime matches authority-qualified contract name and exact schema. A required capability without a provider does not activate its consumer, and neither does a provider of another schema of the same name. The runtime rejects undeclared capability access, undeclared or duplicate provisions, missing or nil provided fields, extra fields, and calls to an expired publisher. A membership error names the contract and the plugin code that made the call. It does not inspect service table shapes or validate configuration values against Luau types.
 
@@ -85,6 +85,45 @@ Contract tokens and frozen capability wrappers are shared by runtime graphs in o
 
 The native plugin handles in `lua/lunette/init.luau` are nominal. Each declares a phantom field that exists only in the declaration, so a table, or another plugin handle, does not satisfy a parameter that takes a contract token, definition, runtime, instance, context, or effect.
 
+### Provider modules
+
+Every built-in provider module answers one table:
+
+```lua
+local laser = require '@lunette-plugins/laser'
+laser.definition                                   -- the default definition
+laser.define { name = 'long-laser', style = { length = 3 } } -- a definition with other defaults
+laser.build(context, { style = { length = 3 } })   -- the service, not published
+laser.requires                                     -- the declaration build reads from
+```
+
+A provider's options are its configuration. `graph:use(laser.definition, config)`, a composition's `config` patch, `define`, and `build` all take the same table, in which every option is optional and merges over the defaults: a record, a table with string keys, merges key by key at every depth, and any other value, a list included, replaces its default. `define` takes the options and an optional `name`, which defaults to the provider's own, and answers a definition whose defaults are the result; a configuration given to that definition merges over them in turn. Each activation resolves its configuration afresh and receives its own frozen copy. A provider module exports `Config`, the table a caller writes, and `Settings`, the resolved table its builder receives.
+
+`build(context, config)` makes the service without publishing it, so a plugin can wrap it and publish the wrapper under the same contract. The plugin declares `requires` among its own requirements, because `build` reads them from the context it is given. Effects `build` registers, such as the frame provider's binding to the LÖVR callbacks, belong to that context's activation.
+
+```lua
+plugin.define {
+  name = 'counting-laser',
+  requires = laser.requires,
+  provides = { laser = laserContract.capability },
+  init = function(context, config, publish)
+    local inner = laser.build(context, config)
+    publish:provide(laserContract.capability, setmetatable({
+      attach = function(_self, owner, options)
+        attached += 1
+        return inner:attach(owner, options)
+      end,
+    }, { __index = inner }))
+  end,
+}
+```
+
+A wrapper changes only what reaches the service from outside. A built-in calls its own methods through closures rather than through `self`, so a wrapper that replaces `angles` on the arc layout does not change the poses `apply` computes, and a wrapper of a returned keyboard or laser does not change what the provider draws. Variation inside a provider is a hook. A hook is an option whose value is a function, and it follows the around convention: it receives its arguments followed by the default implementation, `hook(args..., base)`, and calls `base` to keep the default behaviour, as in `drawKey = function(pass, key, state, base) base(pass, key, state) end`. A hook is plain data, frozen at build time like every other option, and it runs under the provider's activation, so an error it raises is the provider's own. No built-in provider takes a hook yet.
+
+`plugin.provider<<Config, Settings, Service>> { name, capability, requires, defaults, build }` makes such a module from a builder and its defaults; the built-in providers use it, and a user's provider can. `defaults` names every option with its default value, and is what validation reads: a configuration that names an option the defaults do not, at any depth, raises `plugin <name>: unknown option <path>; the options are ...`, and one that gives an option a value of another type than its default raises `plugin <name>: option <path> is a <type>, not a <type>`. `define` raises at its call. A configuration given to a definition is checked as the instance activates, so the error fails that activation and is reported, and the rest of the graph is unaffected. A provider with a closed set of values checks membership itself: the interaction provider rejects a `tuning.button` that is not a pointer button. Every option has a default, so an option that is absent by default needs a value that stands for absence.
+
+`plugin.options { name = ..., defaults = ..., config = ... }` is the validation alone, for a plugin that is not a provider: the desktop's consumers call it with empty defaults, so any option they are given is reported by name. `plugin.merge { base = ..., over = ... }` merges by the same rule without validating, which is what a composition does with a `config` patch.
+
 ### Frame and surfaces
 
 LÖVR's frame and input callbacks reach plugins through two contracts, `lunette/frame` and `lunette/surfaces`, which the built-in `@lunette-plugins/frame` and `@lunette-plugins/surfaces` providers implement. A plugin that draws, updates, takes keys, or offers something a pointer can pick requires them like any other contract and needs nothing from the configuration.
@@ -105,7 +144,7 @@ Key and text handlers run `binding` handlers before `delivery` handlers, then by
 
 Every handler, and every offer's `list`, runs under its own protected call. Its error is reported through `lunette.reportError`, under `lovr.update`, `lovr.draw`, `lovr.keypressed`, `lovr.textinput`, or `lovr.quit` for a handler and `surfaces: <name>` for an offer, and the handlers after it still run. A key or text handler that raises consumes nothing. An offer whose `list` raises or answers something other than a table contributes no surfaces. An offer name names one offer, and offering a name that is already offered raises. A registration with a field the contract does not name, a phase outside its set, an `order` that is not a finite number, or a `run` that is not a function raises at the call.
 
-`frame.install { start = ..., stop = ... }` binds the LÖVR callbacks to the frame provider. It assigns `lovr.load`, which calls `start`, and `lovr.update`, `lovr.draw`, `lovr.keypressed`, `lovr.textinput`, and `lovr.quit`, which reach whichever frame activation is loaded and do nothing while none is. `lovr.quit` runs the quit handlers and then `stop` under a protected call, and answers `false`. One frame activation receives the callbacks at a time; a second raises as it loads. A configuration calls `install` once, before the runtime exists, and creates its runtime in `start`: `etc/xdg/lunette/main.lua` does this.
+`frame.install { start = ..., stop = ... }` binds the LÖVR callbacks to the frame provider. It assigns `lovr.load`, which calls `start`, and `lovr.update`, `lovr.draw`, `lovr.keypressed`, `lovr.textinput`, and `lovr.quit`, which reach whichever frame activation is loaded and do nothing while none is. `lovr.quit` runs the quit handlers and then `stop` under a protected call, and answers `false`. One frame activation receives the callbacks at a time; a second raises as it loads. A configuration calls `install` once, before the runtime exists, and creates its runtime in `start`: `@lunette-desktop`'s `run` does this.
 
 ## Events
 
@@ -522,7 +561,7 @@ The plugin types cover each service, configuration, and capability use locally. 
 
 Per-window state lives in a native store as well as in `win.userdata`, and the two have different lifetimes. `userdata` is a Lua value on a Lua handle. Source reload retains the Lua state but clears configuration modules and callbacks, so configuration locals are recreated while globals and protected modules remain. The native property store survives source reload because it is outside the Lua state. It holds values a configuration cannot derive from its rules, such as a pose or size placed by hand. The store holds a number, a string, or a boolean and refuses a table; a caller that needs structure encodes it as a string. The alternative considered was preserving `userdata` by serialising it during reload. That would fail on functions, coroutines, and handles or silently drop them. Entries are keyed by `WindowId` and last as long as the window. Source reload and hard restart leave the compositor thread running, so the identifier remains valid across both. Persistence to disk is outside the native store's contract.
 
-Safe mode is a Lua chunk compiled into the binary, not a file installed beside the default configuration. It exists for the moment `main.lua` fails to load, and a broken standard library, a missing install, or a `LUNETTE_STDLIB_PATH` pointing at nothing is one of the reasons it might have — so a fallback that read anything off disk would be unavailable in a fair share of the cases it exists for. It therefore requires `lunette` and nothing else, never `mullion`, and does its own ray-plane solve for one fixed axis-aligned panel rather than reaching for the panels provider. That duplicates a little of the shipped configuration, which is the price of always working, and both sites say so, so neither is later simplified by pointing at the other. `crates/lunette/src/safe_mode.lua` is the chunk and `safe_mode.rs` embeds it with `include_str!`, so it stays a Lua file that an editor highlights and a diff can be read against `etc/xdg/lunette/main.lua`. The alternative considered was installing it as a third file under `$SYSCONFDIR`, which reads better and fails in exactly the case the feature is for.
+Safe mode is a Lua chunk compiled into the binary, not a file installed beside the default configuration. It exists for the moment `main.lua` fails to load, and a broken standard library, a missing install, or a `LUNETTE_STDLIB_PATH` pointing at nothing is one of the reasons it might have — so a fallback that read anything off disk would be unavailable in a fair share of the cases it exists for. It therefore requires `lunette` and nothing else, never `mullion`, and does its own ray-plane solve for one fixed axis-aligned panel rather than reaching for the panels provider. That duplicates a little of the shipped configuration, which is the price of always working, and both sites say so, so neither is later simplified by pointing at the other. `crates/lunette/src/safe_mode.lua` is the chunk and `safe_mode.rs` embeds it with `include_str!`, so it stays a Lua file that an editor highlights and a diff can be read against the shipped desktop in `lua/lunette-desktop/`. The alternative considered was installing it as a third file under `$SYSCONFDIR`, which reads better and fails in exactly the case the feature is for.
 
 ### The lunctl time budget is best-effort
 
@@ -633,6 +672,10 @@ A plugin-system call whose arguments do not say what they are at the call site t
 An owner-first call with one further argument whose type says what it is stays positional: `keyboard:new(owner, options)`, `panels:onAdded(owner, callback)`, `tags:new(owner, name, options)`, and `runtime:use(definition, config)`. So do the surface protocol's callbacks, `raycast(origin, direction, backFace)`, `setSize(width, height)`, `onHover(x, y, pointer)`, and `onPress(x, y, pointer)`, and the helpers that share their convention, `interaction:pick(surfaces, origin, direction, tuning)`, `panels:rayQuadHit(quad, origin, direction)`, `keyboard:hit`, and `keyboard:keyAt(keys, x, y)`. A ray's origin before its direction, and x before y and width before height, is the convention LÖVR's own API uses, and every surface implements these callbacks, so changing them belongs with the surface vocabulary rather than with this sweep. A setter named for its one value, such as `keyboard:setVisible(visible)`, also stays.
 
 The native API was converted only where the plugin system introduced the call. `lunette.reportError` exists for Lua dispatchers; the rest of the native API keeps its shapes.
+
+### Provider configuration is validated against defaults
+
+Provider configuration was ignored: every built-in took `_config: {}` and kept its tuning in a frozen per-activation table, so a colour could not change without replacing the provider, and a misspelt option would have been ignored once one was read. Each provider now reads its configuration and validates it against its defaults. The defaults are the schema, because they already exist and a separate schema would be a second statement of the same shape that could disagree with it; type checking against the default catches the common mistakes, a misspelt name and a value of the wrong kind, at the cost of not expressing an option that is absent by default. A configuration error fails the plugin's activation rather than the whole configuration, because the runtime reports an initializer's failure and goes on, and the composition cannot check an option it does not know the shape of. `define` checks its options at the call, where the shape is known.
 
 ### Frame dispatch and the surface list are contracts
 

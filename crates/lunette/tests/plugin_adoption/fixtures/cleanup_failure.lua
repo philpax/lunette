@@ -171,7 +171,7 @@ return function(fixture, payload, mode, extraFailure)
   assert(loads == 1, 'cleanup failure must not reactivate the failed caller')
   if mode == 'adoption' then
     assert(subscriptions == 1 and unsubscriptions == 1)
-    local duplicate = runtime:use(require '@lunette-plugins/adoption', {})
+    local duplicate = runtime:use(require('@lunette-plugins/adoption').definition, {})
     assert(not pcall(function()
       duplicate:enable()
     end), 'failed provider cleanup must retain its exact reservation')

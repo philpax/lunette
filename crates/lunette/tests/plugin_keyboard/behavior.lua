@@ -2,11 +2,11 @@ return function()
   local plugin = require '@lunette-plugin'
   local contract = require '@lunette-contracts/keyboard'
   local interaction = require '@lunette-contracts/interaction'
-  local definition = require '@lunette-plugins/keyboard'
+  local definition = require('@lunette-plugins/keyboard').definition
   assert(allocations == 0)
-  assert(require '@lunette-plugins/keyboard' == definition)
-  local panelsDefinition = require '@lunette-plugins/panels'
-  local interactionDefinition = require '@lunette-plugins/interaction'
+  assert(require('@lunette-plugins/keyboard').definition == definition)
+  local panelsDefinition = require('@lunette-plugins/panels').definition
+  local interactionDefinition = require('@lunette-plugins/interaction').definition
   local function setup()
     local runtime = plugin.runtime()
     runtime:use(panelsDefinition, {}):enable()

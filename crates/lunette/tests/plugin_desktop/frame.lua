@@ -16,7 +16,7 @@ frame.install {
 }
 local frameProvider = runtime:use(frame.definition, {})
 frameProvider:enable()
-runtime:use(require '@lunette-plugins/surfaces', {}):enable()
+runtime:use(require('@lunette-plugins/surfaces').definition, {}):enable()
 
 local function rejects(call, expected)
   local ok, message = pcall(call)

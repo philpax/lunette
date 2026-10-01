@@ -7,6 +7,7 @@
 -- activation guards.
 
 local native = require '@lunette'
+local options = require '@lunette-plugin/options'
 
 local adapter = {}
 
@@ -183,21 +184,7 @@ local function ownerContext(owner: Owner, level: number): NativeContext
   return nativeContext
 end
 
--- Raises an error naming the first key outside `allowed`, so a misspelt field
--- is reported rather than ignored.
-local function rejectUnknownKeys(
-  operation: string,
-  raw: { [unknown]: unknown },
-  allowed: { [string]: boolean },
-  fields: string,
-  level: number
-): ()
-  for key, _ in raw do
-    if type(key) ~= 'string' or not allowed[key] then
-      error(string.format('plugin %s: unknown field %s; the fields are %s', operation, tostring(key), fields), level)
-    end
-  end
-end
+local rejectUnknownKeys = options.rejectUnknownKeys
 
 local subscriptionKeys: { [string]: boolean } = { event = true, run = true }
 

@@ -48,7 +48,7 @@ end
 local function withBinding(state, run)
   local runtime = plugin.runtime()
   for _, name in ipairs { 'panels', 'tags', 'rules' } do
-    runtime:use(require('@lunette-plugins/' .. name), {}):enable()
+    runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
   end
   local binding, context, panels, tags
   local owner = runtime:use(

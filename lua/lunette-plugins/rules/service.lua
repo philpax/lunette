@@ -254,9 +254,14 @@ local function acquirePlacement(
   return panel, acquired
 end
 
-local function init(context: plugin.Context): Service
+-- The resolved options: the precedence a rule set takes when it names none.
+export type Settings = {
+  read precedence: number,
+}
+
+local function build(context: plugin.Context, settings: Settings): Service
   local implementation: MutableService = {
-    DEFAULT_PRECEDENCE = 100,
+    DEFAULT_PRECEDENCE = settings.precedence,
     DEFAULT_SOURCE = 'lunette.rules',
     PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chrome' },
     report = function(_self: Service, _report: contracts.Report) end,
@@ -440,4 +445,4 @@ local function init(context: plugin.Context): Service
   return service
 end
 
-return init
+return build

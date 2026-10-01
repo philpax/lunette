@@ -16,15 +16,15 @@ frame.install {
 }
 local definitions = {
   frame = frame.definition,
-  surfaces = require '@lunette-plugins/surfaces',
-  panels = require '@lunette-plugins/panels',
-  interaction = require '@lunette-plugins/interaction',
-  laser = require '@lunette-plugins/laser',
-  keyboard = require '@lunette-plugins/keyboard',
-  tags = require '@lunette-plugins/tags',
-  rules = require '@lunette-plugins/rules',
-  adoption = require '@lunette-plugins/adoption',
-  arc = require '@lunette-plugins/layout/arc',
+  surfaces = require('@lunette-plugins/surfaces').definition,
+  panels = require('@lunette-plugins/panels').definition,
+  interaction = require('@lunette-plugins/interaction').definition,
+  laser = require('@lunette-plugins/laser').definition,
+  keyboard = require('@lunette-plugins/keyboard').definition,
+  tags = require('@lunette-plugins/tags').definition,
+  rules = require('@lunette-plugins/rules').definition,
+  adoption = require('@lunette-plugins/adoption').definition,
+  arc = require('@lunette-plugins/layout/arc').definition,
   display = require('@lunette-plugins/error-display').definition,
 }
 local providers = {}
@@ -45,7 +45,7 @@ for _, name in ipairs {
   providers[name]:enable()
 end
 local function use(name)
-  local instance = runtime:use(require('desktop/' .. name), {})
+  local instance = runtime:use(require('@lunette-desktop/' .. name), {})
   instance:enable()
   return instance
 end
@@ -54,7 +54,7 @@ use 'pointing'
 use 'input'
 use 'keyboard'
 use 'errors'
-local definePolicy = require 'desktop/policy'
+local definePolicy = require '@lunette-desktop/policy'
 local policy = runtime:use(definePolicy(), {})
 policy:enable()
 local service, focus, placement, tagService, surfaceBroker, owner

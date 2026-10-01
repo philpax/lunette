@@ -61,6 +61,14 @@ pub const LUNETTE_PLUGINS: Alias = Alias {
     resolution: Resolution::Mounted,
 };
 
+/// The shipped desktop: its consumers and the composition that starts them.
+/// The default configuration requires it; safe mode does not.
+pub const LUNETTE_DESKTOP: Alias = Alias {
+    name: "lunette-desktop",
+    directory: "lunette-desktop",
+    resolution: Resolution::Mounted,
+};
+
 /// The standard library's own module, written in Lua.
 pub const MULLION: Alias = Alias {
     name: "mullion",
@@ -81,6 +89,7 @@ pub const DEVELOPMENT_ALIASES: &[Alias] = &[
     LUNETTE_PLUGIN,
     LUNETTE_CONTRACTS,
     LUNETTE_PLUGINS,
+    LUNETTE_DESKTOP,
     MULLION,
     SPEC,
 ];
@@ -91,6 +100,7 @@ pub const INSTALLED_ALIASES: &[Alias] = &[
     LUNETTE_PLUGIN,
     LUNETTE_CONTRACTS,
     LUNETTE_PLUGINS,
+    LUNETTE_DESKTOP,
     MULLION,
 ];
 
@@ -316,6 +326,11 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         required: true,
     },
     InstallArtifact {
+        source: "lua/lunette-desktop",
+        destination: "lua/lunette-desktop",
+        required: true,
+    },
+    InstallArtifact {
         source: "lua/mullion",
         destination: "lua/mullion",
         required: false,
@@ -467,6 +482,7 @@ mod tests {
                 "lunette-plugin",
                 "lunette-contracts",
                 "lunette-plugins",
+                "lunette-desktop",
                 "mullion",
                 "spec",
             ]
@@ -478,6 +494,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 Resolution::Native,
+                Resolution::Mounted,
                 Resolution::Mounted,
                 Resolution::Mounted,
                 Resolution::Mounted,
@@ -497,6 +514,7 @@ mod tests {
                 "lunette-plugin",
                 "lunette-contracts",
                 "lunette-plugins",
+                "lunette-desktop",
                 "mullion",
             ]
         );
@@ -506,7 +524,12 @@ mod tests {
                 .required()
                 .map(|root| root.alias.as_str())
                 .collect::<Vec<_>>(),
-            vec!["lunette-plugin", "lunette-contracts", "lunette-plugins"]
+            vec![
+                "lunette-plugin",
+                "lunette-contracts",
+                "lunette-plugins",
+                "lunette-desktop"
+            ]
         );
         assert!(
             installed
@@ -523,6 +546,7 @@ mod tests {
                 "@lunette-plugin",
                 "@lunette-contracts",
                 "@lunette-plugins",
+                "@lunette-desktop",
                 "@mullion",
             ]
         );
@@ -574,6 +598,11 @@ mod tests {
                     required: true,
                 },
                 InstallArtifact {
+                    source: "lua/lunette-desktop",
+                    destination: "lua/lunette-desktop",
+                    required: true,
+                },
+                InstallArtifact {
                     source: "lua/mullion",
                     destination: "lua/mullion",
                     required: false,
@@ -621,7 +650,7 @@ mod tests {
         assert_eq!(
             luaurc("."),
             "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \
-             \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"mullion\": \"./mullion\",\n    \"spec\": \"./spec\"\n  }\n}\n"
+             \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\",\n    \"mullion\": \"./mullion\",\n    \"spec\": \"./spec\"\n  }\n}\n"
         );
     }
 

@@ -93,7 +93,7 @@ check-definitions:
 # Negative specs and probe runners stay out; their dedicated tests assert those
 # diagnostics and the runner's computed requires are not statically followable.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
 
 install: install-binary install-lua install-config
 
@@ -147,7 +147,9 @@ install-lua:
 
 # cli::CONFIG_ARTIFACTS is the source of truth. The source .luaurc is
 # intentionally excluded: dump-config generates one with absolute installed roots.
-config_artifacts := $(shell awk '/^const CONFIG_ARTIFACTS:/{found=1; next} found && /^\];/{exit} found {gsub(/[",]/, ""); sub(/^[[:space:]]+/, ""); printf "%s ", $$0}' crates/lunette/src/cli.rs)
+# The list may sit on one line or several, as rustfmt lays it out; every quoted
+# string from the declaration to its closing bracket is an artifact.
+config_artifacts := $(shell awk '/^const CONFIG_ARTIFACTS:/{found=1} found {done = index($$0, "];") > 0; while (match($$0, /"[^"]*"/)) {printf "%s ", substr($$0, RSTART + 1, RLENGTH - 2); $$0 = substr($$0, RSTART + RLENGTH)} if (done) exit}' crates/lunette/src/cli.rs)
 
 install-config:
 	@set -e; \
@@ -160,11 +162,10 @@ install-config:
 			echo "make: install config contains unsupported content: $$entry" >&2; exit 1; \
 		done || exit $$?; \
 	fi; \
-	directories="$$($(FIND) etc/xdg/lunette -type d -mindepth 1 -print)" || exit $$?; \
+	directories="$$($(FIND) etc/xdg/lunette -mindepth 1 -type d -print)" || exit $$?; \
 	if test -n "$$directories"; then \
 		printf '%s\n' "$$directories" | while IFS= read -r directory; do \
-			relative="$${directory#etc/xdg/lunette/}"; \
-			case " desktop " in *" $$relative "*) ;; *) echo "make: install config contains an undeclared directory: $$relative" >&2; exit 1 ;; esac; \
+			echo "make: install config contains an undeclared directory: $${directory#etc/xdg/lunette/}" >&2; exit 1; \
 		done || exit $$?; \
 	fi; \
 	config_files="$$($(FIND) etc/xdg/lunette -type f -print)" || exit $$?; \

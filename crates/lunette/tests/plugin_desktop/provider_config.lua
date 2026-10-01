@@ -1,0 +1,207 @@
+-- Every built-in provider reads its configuration over its defaults, rejects
+-- an option it does not take by name, and serves what it was configured with.
+local plugin = require '@lunette-plugin'
+local desktop = require '@lunette-desktop'
+local panels = require '@lunette-contracts/panels'
+local interaction = require '@lunette-contracts/interaction'
+local laser = require '@lunette-contracts/laser'
+local keyboard = require '@lunette-contracts/keyboard'
+local rules = require '@lunette-contracts/rules'
+local adoption = require '@lunette-contracts/adoption'
+local layout = require '@lunette-contracts/layout'
+local errorDisplay = require '@lunette-contracts/error-display'
+local laserModule = require '@lunette-plugins/laser'
+
+local function raises(expected, run)
+  local ok, message = pcall(run)
+  assert(not ok, 'expected an error naming ' .. expected)
+  assert(tostring(message):find(expected, 1, true), 'expected ' .. expected .. ', got ' .. tostring(message))
+end
+
+-- Each provider, started with an option it does not take, fails its own
+-- activation with an error that names it and the option.
+local rejections = {
+  { id = 'frame', config = { bogus = 1 }, message = 'plugin frame: unknown option bogus; frame takes no options' },
+  { id = 'surfaces', config = { bogus = 1 }, message = 'plugin surfaces: unknown option bogus' },
+  { id = 'tags', config = { bogus = 1 }, message = 'plugin tags: unknown option bogus' },
+  {
+    id = 'panels',
+    config = { style = { borderColour = { 1, 1, 1, 1 } } },
+    message = 'plugin panels: unknown option style.borderColour; the options are borderColor,',
+  },
+  {
+    id = 'interaction',
+    config = { tuning = { reach = 'far' } },
+    message = 'option tuning.reach is a number, not a string',
+  },
+  {
+    id = 'interaction',
+    config = { tuning = { button = 'thumb' } },
+    message = 'tuning.button is a pointer button, not thumb',
+  },
+  { id = 'laser', config = { style = 'red' }, message = 'plugin laser: option style is a table, not a string' },
+  { id = 'keyboard', config = { rows = {} }, message = 'plugin keyboard: unknown option rows; the options are style' },
+  { id = 'rules', config = { precedance = 1 }, message = 'plugin rules: unknown option precedance' },
+  { id = 'adoption', config = { precedence = '300' }, message = 'plugin adoption: option precedence is a number' },
+  {
+    id = 'layout/arc',
+    config = { tuning = { radious = 2 } },
+    message = 'plugin layout/arc: unknown option tuning.radious',
+  },
+  { id = 'error-display', config = { colour = {} }, message = 'plugin error-display: unknown option colour' },
+}
+for _, case in ipairs(rejections) do
+  local running = desktop.start(desktop.compose { patches = { { id = case.id, config = case.config } } })
+  local instance = running.instances[case.id]
+  assert(instance:state() == 'failed', case.id .. ' is ' .. instance:state())
+  local diagnostic = tostring(instance:diagnostic())
+  assert(diagnostic:find(case.message, 1, true), case.id .. ': ' .. diagnostic)
+  running.runtime:close()
+end
+
+-- A configuration that is not a table is the provider's to reject too, when it
+-- is used outside a composition, which rejects one first.
+local direct = plugin.runtime()
+local loud = direct:use(require('@lunette-plugins/error-display').definition, 'loud' :: any)
+loud:enable()
+assert(
+  tostring(loud:diagnostic()):find(
+    'plugin error-display: the configuration is a table of options, not a string',
+    1,
+    true
+  )
+)
+direct:close()
+
+-- A configured desktop serves the configured values; a record merges over the
+-- defaults, so what a configuration leaves out keeps its default.
+local services, owner = {}, nil
+local probe = plugin.define {
+  name = 'probe',
+  requires = {
+    panels = panels.capability,
+    interaction = interaction.capability,
+    laser = laser.capability,
+    keyboard = keyboard.capability,
+    rules = rules.capability,
+    adoption = adoption.capability,
+    arc = layout.arc,
+    errorDisplay = errorDisplay.capability,
+  },
+  init = function(context)
+    owner = context
+    services.panels = context:require(panels.capability)
+    services.interaction = context:require(interaction.capability)
+    services.laser = context:require(laser.capability)
+    services.keyboard = context:require(keyboard.capability)
+    services.rules = context:require(rules.capability)
+    services.adoption = context:require(adoption.capability)
+    services.arc = context:require(layout.arc)
+    services.errorDisplay = context:require(errorDisplay.capability)
+  end,
+}
+local running = desktop.start(desktop.compose {
+  patches = {
+    { id = 'panels', config = { height = 1.2, style = { borderThickness = 0.02 } } },
+    { id = 'interaction', config = { tuning = { reach = 0.5 } } },
+    { id = 'laser', config = { style = { length = 2.5 } } },
+    { id = 'keyboard', config = { style = { keyUnit = 0.056 } } },
+    { id = 'rules', config = { precedence = 150 } },
+    { id = 'adoption', config = { precedence = 350 } },
+    { id = 'layout/arc', config = { tuning = { radius = 3 } } },
+    { id = 'error-display', config = { columns = 10, background = { 0, 0, 1, 1 } } },
+    { insert = { id = 'probe', definition = probe } },
+  },
+})
+for id, instance in pairs(running.instances) do
+  assert(instance:state() == 'active', id .. ': ' .. tostring(instance:diagnostic()))
+end
+
+assert(services.panels.DEFAULT_HEIGHT == 1.2 and services.panels.DEFAULT_PRIORITY == 10)
+assert(services.panels.STYLE.borderThickness == 0.02 and services.panels.STYLE.borderDepth == 0.001)
+assert(table.isfrozen(services.panels.STYLE), 'a configured style is frozen')
+local window = newWindow(90)
+local panel = services.panels:fromWindow(owner, window, {})
+assert(panel.height == 1.2, 'a panel given no size takes the configured height')
+
+assert(services.interaction.TUNING.reach == 0.5 and services.interaction.TUNING.button == 'left')
+local near = {
+  dead = false,
+  raycast = function()
+    return 0.5, 0.5, 1
+  end,
+}
+assert(services.interaction:pick({ near }, vector.pack(0, 0, 0), vector.pack(0, 0, -1)) == nil, 'reach limits picking')
+
+assert(services.laser.STYLE.length == 2.5 and services.laser.STYLE.cursorRadius == 0.006)
+
+assert(services.keyboard.STYLE.keyUnit == 0.056 and services.keyboard.STYLE.gap == 0.004)
+local typed = services.keyboard:new(owner, {})
+assert(typed.style.keyUnit == 0.056, 'a new keyboard takes the configured style')
+typed:destroy()
+
+assert(services.rules.DEFAULT_PRECEDENCE == 150)
+services.rules:setRules(owner, { name = 'probe', rules = {} })
+assert(services.adoption.PRECEDENCE == 350)
+local precedences = {}
+for _, source in ipairs(services.rules:sources()) do
+  precedences[source.name] = source.precedence
+end
+assert(precedences.probe == 150, 'a rule set without a precedence takes the configured one')
+assert(precedences['lunette.adoption'] == 350, 'adoption installs its source at the configured precedence')
+
+assert(services.arc.TUNING.radius == 3 and services.arc.TUNING.step == 0.55)
+local _, _, z = services.arc:poses(1)[1]:getPosition()
+assert(z == -3, 'the arc is laid out at the configured radius: ' .. tostring(z))
+
+assert(services.errorDisplay.COLUMNS == 10 and services.errorDisplay.BACKGROUND[3] == 1)
+services.errorDisplay:show 'a report longer than ten columns'
+-- The first line is the display's fixed heading; the report wraps below it.
+local wrapped = services.errorDisplay:lines()
+assert(#wrapped > 2)
+for index = 2, #wrapped do
+  assert(#wrapped[index] <= 10, 'the report wraps at the configured columns: ' .. wrapped[index])
+end
+
+panel:destroy(owner)
+running.runtime:close()
+
+-- define makes another definition whose options are the new defaults, and a
+-- configuration still merges over them.
+local long = laserModule.define { name = 'long-laser', style = { length = 3 } }
+assert(long.name == 'long-laser' and laserModule.definition.name == 'laser')
+local defined = desktop.start(desktop.compose {
+  patches = {
+    { id = 'laser', definition = long, config = { style = { color = { 1, 0, 0, 1 } } } },
+    { insert = { id = 'probe', definition = probe } },
+  },
+})
+assert(defined.instances.laser:state() == 'active', tostring(defined.instances.laser:diagnostic()))
+assert(services.laser.STYLE.length == 3 and services.laser.STYLE.color[1] == 1 and services.laser.STYLE.color[2] == 0)
+defined.runtime:close()
+assert(laserModule.define({}).name == 'laser', 'define without a name keeps the default name')
+
+-- define and build reject what a configuration rejects, at the call.
+local built = {}
+local builder = plugin.define {
+  name = 'builder',
+  requires = laserModule.requires,
+  init = function(context)
+    built.ok, built.message = pcall(laserModule.build, context, { style = { colour = {} } })
+    built.service = laserModule.build(context)
+  end,
+}
+local building = desktop.start(desktop.compose { patches = { { insert = { id = 'builder', definition = builder } } } })
+assert(building.instances.builder:state() == 'active', tostring(building.instances.builder:diagnostic()))
+assert(not built.ok and tostring(built.message):find('plugin laser: unknown option style.colour', 1, true))
+assert(built.service.STYLE.length == 1.5, 'build without a configuration takes the defaults')
+building.runtime:close()
+raises('plugin laser: unknown option bogus', function()
+  laserModule.define { bogus = 1 }
+end)
+raises('plugin short-laser: option style.length is a number, not a string', function()
+  laserModule.define { name = 'short-laser', style = { length = 'short' } }
+end)
+raises('define names a definition with a non-empty string, not 5', function()
+  laserModule.define { name = 5 }
+end)

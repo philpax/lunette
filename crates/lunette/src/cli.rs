@@ -74,17 +74,11 @@ pub enum Command {
 ///
 /// Keep this inventory explicit: adding a configuration file must be a
 /// deliberate packaging change, not an accidental consequence of a tree walk.
-const CONFIG_ARTIFACTS: &[&str] = &[
-    "main.lua",
-    "conf.lua",
-    "desktop/base.lua",
-    "desktop/errors.lua",
-    "desktop/input.lua",
-    "desktop/keyboard.lua",
-    "desktop/logging.lua",
-    "desktop/pointing.lua",
-    "desktop/policy.lua",
-];
+///
+/// The desktop's consumers are not configuration files: they are the
+/// installed `@lunette-desktop` root, which `main.lua` composes, so a copied
+/// configuration patches them rather than carrying copies of them.
+const CONFIG_ARTIFACTS: &[&str] = &["main.lua", "conf.lua"];
 
 /// Copies `source` to `destination`, refusing to overwrite anything.
 ///
@@ -312,37 +306,30 @@ mod tests {
 
     #[test]
     fn config_artifact_manifest_names_the_shipped_files() {
-        assert_eq!(
-            CONFIG_ARTIFACTS,
-            &[
-                "main.lua",
-                "conf.lua",
-                "desktop/base.lua",
-                "desktop/errors.lua",
-                "desktop/input.lua",
-                "desktop/keyboard.lua",
-                "desktop/logging.lua",
-                "desktop/pointing.lua",
-                "desktop/policy.lua",
-            ]
-        );
+        assert_eq!(CONFIG_ARTIFACTS, &["main.lua", "conf.lua"]);
     }
 
     #[test]
-    fn the_manifest_accepts_exact_files_and_their_parent_directory() {
+    fn the_manifest_accepts_exact_files() {
         let entries = [
-            (PathBuf::from("desktop"), ConfigEntryKind::Directory),
             (PathBuf::from("main.lua"), ConfigEntryKind::File),
             (PathBuf::from("conf.lua"), ConfigEntryKind::File),
-            (PathBuf::from("desktop/base.lua"), ConfigEntryKind::File),
-            (PathBuf::from("desktop/errors.lua"), ConfigEntryKind::File),
-            (PathBuf::from("desktop/input.lua"), ConfigEntryKind::File),
-            (PathBuf::from("desktop/keyboard.lua"), ConfigEntryKind::File),
-            (PathBuf::from("desktop/logging.lua"), ConfigEntryKind::File),
-            (PathBuf::from("desktop/pointing.lua"), ConfigEntryKind::File),
-            (PathBuf::from("desktop/policy.lua"), ConfigEntryKind::File),
+            (PathBuf::from(".luaurc"), ConfigEntryKind::File),
         ];
         assert!(validate_config_entries(&entries).is_ok());
+    }
+
+    #[test]
+    fn the_manifest_rejects_the_desktop_consumers_it_no_longer_carries() {
+        let mut entries = CONFIG_ARTIFACTS
+            .iter()
+            .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
+            .collect::<Vec<_>>();
+        entries.push((PathBuf::from("desktop"), ConfigEntryKind::Directory));
+        assert!(matches!(
+            validate_config_entries(&entries),
+            Err(DumpError::Unsupported(path)) if path == Path::new("desktop")
+        ));
     }
 
     #[test]
@@ -357,23 +344,20 @@ mod tests {
             .iter()
             .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
             .collect::<Vec<_>>();
-        unsupported.push((PathBuf::from("desktop/extra.lua"), ConfigEntryKind::File));
+        unsupported.push((PathBuf::from("extra.lua"), ConfigEntryKind::File));
         assert!(matches!(
             validate_config_entries(&unsupported),
-            Err(DumpError::Unsupported(path)) if path == Path::new("desktop/extra.lua")
+            Err(DumpError::Unsupported(path)) if path == Path::new("extra.lua")
         ));
 
         let mut symlink = CONFIG_ARTIFACTS
             .iter()
             .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
             .collect::<Vec<_>>();
-        symlink.push((
-            PathBuf::from("desktop/link.lua"),
-            ConfigEntryKind::Unsupported,
-        ));
+        symlink.push((PathBuf::from("link.lua"), ConfigEntryKind::Unsupported));
         assert!(matches!(
             validate_config_entries(&symlink),
-            Err(DumpError::Unsupported(path)) if path == Path::new("desktop/link.lua")
+            Err(DumpError::Unsupported(path)) if path == Path::new("link.lua")
         ));
     }
 
@@ -394,6 +378,11 @@ mod tests {
         let rendered = fs::read_to_string(destination.join(".luaurc")).expect("the written file");
         assert!(
             rendered.contains("\"mullion\": \"/usr/local/share/lunette/lua/mullion\""),
+            "{rendered}"
+        );
+        assert!(
+            rendered
+                .contains("\"lunette-desktop\": \"/usr/local/share/lunette/lua/lunette-desktop\""),
             "{rendered}"
         );
         assert!(

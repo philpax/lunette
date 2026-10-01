@@ -13,12 +13,12 @@ frame.install {
 }
 local definitions = {
   frame.definition,
-  require '@lunette-plugins/panels',
-  require '@lunette-plugins/interaction',
-  require '@lunette-plugins/tags',
-  require '@lunette-plugins/rules',
-  require '@lunette-plugins/adoption',
-  require '@lunette-plugins/layout/arc',
+  require('@lunette-plugins/panels').definition,
+  require('@lunette-plugins/interaction').definition,
+  require('@lunette-plugins/tags').definition,
+  require('@lunette-plugins/rules').definition,
+  require('@lunette-plugins/adoption').definition,
+  require('@lunette-plugins/layout/arc').definition,
 }
 local providers = {}
 for index, definition in ipairs(definitions) do
@@ -38,7 +38,7 @@ runtime
     {}
   )
   :enable()
-local definePolicy = require 'desktop/policy'
+local definePolicy = require '@lunette-desktop/policy'
 local function policy()
   local instance = runtime:use(definePolicy(), {})
   instance:enable()
