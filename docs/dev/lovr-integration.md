@@ -20,7 +20,7 @@ The series is ordered by how long a patch is expected to live, oldest-lived firs
 
 Nothing has been proposed upstream yet.
 
-LÖVR's Lua is Luau, from a second submodule: `vendor/lovr/deps/luau` points at `philpax/luau`'s `lunette/luau-bump` branch, lunette's fork of `bjornbytes/luau`'s `lovr` branch against upstream `luau-lang/luau`. The fork is merged from upstream rather than rebased, so the sync is a merge of `master` into the branch. What lunette keeps fork-owned is the LÖVR work upstream Luau does not carry: the quaternion type and `quaternion.*` library, the vector call surface mullion depends on, and the Lua 5.1 C-API shims (`lua_errorL`, the two-argument `lua_pushcfunction`/`lua_pushcclosure`, `luaL_ref`/`luaL_unref`, `luaL_getsubtable`). Upstream Luau now provides a native vector type, which the fork adopts; the fork layers the LÖVR-facing vector methods on top of it. The fork also carries what lunette's bindings need that upstream's `Custom/` component would otherwise provide in full: `lua_getmetatablepointer`, `lua_gcdump`, and a `LUAI_MAXCSTACK` large enough for mlua's registry-index arithmetic. Sync cadence is per LÖVR release; a merge is exercised by running `lunette check` against the tree it typechecks.
+LÖVR's Lua is Luau, from a second submodule: `vendor/lovr/deps/luau` points at `philpax/luau`'s `lunette/luau-bump` branch, lunette's fork of `bjornbytes/luau`'s `lovr` branch against upstream `luau-lang/luau`. The fork is merged from upstream rather than rebased, so the sync is a merge of `master` into the branch. What lunette keeps fork-owned is the LÖVR work upstream Luau does not carry: the quaternion type and `quaternion.*` library, the vector call surface the Lua tree depends on, and the Lua 5.1 C-API shims (`lua_errorL`, the two-argument `lua_pushcfunction`/`lua_pushcclosure`, `luaL_ref`/`luaL_unref`, `luaL_getsubtable`). Upstream Luau now provides a native vector type, which the fork adopts; the fork layers the LÖVR-facing vector methods on top of it. The fork also carries what lunette's bindings need that upstream's `Custom/` component would otherwise provide in full: `lua_getmetatablepointer`, `lua_gcdump`, and a `LUAI_MAXCSTACK` large enough for mlua's registry-index arithmetic. Sync cadence is per LÖVR release; a merge is exercised by running `lunette check` against the tree it typechecks.
 
 ## The patch set
 
@@ -166,9 +166,9 @@ This is why two reload paths exist ([The Lua API](lua-api.md#reload)): soft relo
 
 ## Error handling
 
-lunette overrides `lovr.errhand`. LÖVR's default shows an error screen and stops, which suits a game but not a window manager. The standard library installs a handler that logs the error, emits an event, and shows a floating error panel, rate-limiting identical repeats. Users can replace this handler, which is why it lives in Lua.
+lunette does not override `lovr.errhand`. An error that escapes to `boot.lua`'s handler has already unwound the frame loop, and with no `lovr.errhand` the handler prints it and ends the process with status 1, which suits a game but not a window manager. lunette therefore keeps errors from reaching it: event listeners and plugin callbacks run under the host's protected calls, and the shipped configuration dispatches LÖVR's frame callbacks through a registry that protects each handler. Each reported error is logged and emitted through `lunette.onError`, and the error-display provider rate-limits and draws it. A raw `lovr.update` or `lovr.draw` in a user's configuration is not protected. [The Lua API](lua-api.md#errors) states the boundaries and records the gap.
 
-The native layer owns only the load-time fallback. If `main.lua` fails to load at all, no user handler exists yet, so a built-in safe mode takes over.
+The native layer owns one failure path of its own, the load-time fallback. If `main.lua` fails to load at all, no configuration exists to report through, so a built-in safe mode takes over.
 
 ## Decisions
 

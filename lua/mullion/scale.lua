@@ -22,9 +22,9 @@
 -- chooser is handed a distance and answers with a scale, so the specs pass
 -- distances toward a panel and away from it without a room to do it in.
 --
--- The module starts nothing and holds no handle, so it registers no teardown
--- hook. A chooser is owned by whatever made it, and a soft reload re-runs
--- the module and rebuilds the ladder. A reload leaves nothing behind.
+-- The module starts nothing and holds no handle. A chooser is owned by
+-- whatever made it, and a source reload re-runs the module and rebuilds the
+-- ladder. A reload leaves nothing behind.
 
 local lunette = require '@lunette'
 
@@ -49,8 +49,8 @@ local idealScale, settle, largestAtMost
 -- Everything the choice is tuned by, in one table.
 --
 -- A tuning pass edits this table; the numbers are not scattered through
--- functions. `mullion.interaction.TUNING` plays the same role for the feel of
--- a pointer. A caller that needs different numbers for one output passes its
+-- functions. `mullion.pacing.TUNING` plays the same role for frame pacing. A
+-- caller that needs different numbers for one output passes its
 -- own table as `options.tuning`; it leaves the default in place.
 scale.TUNING = {
   -- The distance in metres at which a panel is rendered at scale 1. Closer

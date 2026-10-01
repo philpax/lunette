@@ -1,30 +1,22 @@
 # Standard library
 
-`mullion` is an optional Lua library installed below `$PREFIX/share/lunette/lua/`. Its policy and presentation modules use the public `lunette` API and can be replaced or omitted. `@lunette-plugin`, `@lunette-contracts`, and `@lunette-plugins` provide the typed plugin facade, neutral service contracts, and built-in plugin implementations. The shipped configuration selects those providers and defines desktop-specific consumers under `etc/xdg/lunette/desktop/`. Their lifecycle and type boundary are specified in [The Lua API](lua-api.md#plugin-authoring) and [Architecture](architecture.md#plugin-runtime).
+`mullion` is an optional Lua library installed below `$PREFIX/share/lunette/lua/`. Its modules are value helpers and policy that no provider owns. They use the public `lunette` API and the plugin contracts, and can be replaced or omitted. `@lunette-plugin`, `@lunette-contracts`, and `@lunette-plugins` provide the typed plugin facade, neutral service contracts, and built-in plugin implementations. The shipped configuration selects those providers and defines desktop-specific consumers under `etc/xdg/lunette/desktop/`. Their lifecycle and type boundary are specified in [The Lua API](lua-api.md#plugin-authoring) and [Architecture](architecture.md#plugin-runtime).
 
 ## Module roots
 
 The source tree is `lua/`. A running session mounts file-backed roots through LÖVR's virtual filesystem. The checker resolves aliases from generated `.luaurc` files. `@lunette` is registered natively through `package.preload`; the checker reads its generated declaration from `lua/lunette/init.luau`.
 
-The plugin facade is `lua/lunette-plugin/`. Shared contracts and vocabulary are in `lua/lunette-contracts/`. Built-in providers are in `lua/lunette-plugins/`. `lua/mullion/` contains optional policy modules. `lua/spec/` is a development-only root and is not installed. [Build and development](build-and-development.md#module-roots) records the source of truth and install behavior.
+The plugin facade is `lua/lunette-plugin/`. Shared contracts and vocabulary are in `lua/lunette-contracts/`. Built-in providers are in `lua/lunette-plugins/`. `lua/mullion/` contains optional helper and policy modules. `lua/spec/` is a development-only root and is not installed. [Build and development](build-and-development.md#module-roots) records the source of truth and install behavior.
 
-The root module `@mullion` re-exports nothing. Each module is required by its own path, such as `require '@mullion/panel'` or `require '@mullion/layout/arc'`. A configuration can use `lunette` without loading `mullion` or the built-in providers.
+The root module `@mullion` re-exports nothing. Each module is required by its own path, such as `require '@mullion/pose'` or `require '@mullion/persist'`. A configuration can use `lunette` without loading `mullion` or the built-in providers.
 
 | Module | Responsibility |
 |---|---|
-| `mullion.signal` | Lua signal connections, emission, and property-change signals. |
-| `mullion.teardown` | Explicit Lua cleanup-hook registry. The host does not run it during reload or restart. |
-| `mullion.error` and `mullion.error.panel` | Error reporting and its optional in-world display. |
-| `mullion.panel` and `mullion.panel.raycast` | Window or monitor panels, ray intersection, and rendering. |
-| `mullion.interaction` and `mullion.interaction.types` | Surface picking, pointer interaction, and shared interaction types. |
-| `mullion.laser` and `mullion.keyboard` | Lua-managed pointing and virtual keyboard behavior. |
-| `mullion.tag`, `mullion.rules`, and `mullion.layout.arc` | Window grouping, placement rules, and arc layout. |
-| `mullion.adopt` | Re-enumeration and restoration of windows already open after source reload. |
 | `mullion.persist`, `mullion.persist.arrangement`, `mullion.persist.slots`, and `mullion.persist.format` | Configuration-owned arrangement state, capture and restore, the saved slot each live window holds, file loading and saving, and the versioned file representation. |
-| `mullion.pose` and `mullion.keycodes` | Shared value helpers used by built-in providers. |
-| `mullion.scale` and `mullion.pacing` | Optional scale selection and frame-pacing policy helpers. |
+| `mullion.pose` and `mullion.keycodes` | Pose encoding and the physical keyboard description, shared by built-in providers and the shipped configuration. |
+| `mullion.scale` and `mullion.pacing` | Scale selection with hysteresis and per-window frame-pacing choice. No provider or shipped consumer uses them yet. |
 
-The default configuration uses `mullion.persist` for arrangement state and shared `mullion.pose` and `mullion.keycodes` helpers through the policy and provider modules. It does not compose the legacy `mullion.panel`, `mullion.interaction`, `mullion.laser`, `mullion.keyboard`, `mullion.tag`, `mullion.rules`, or `mullion.adopt` implementations. Those modules remain in the source tree; their removal is undecided.
+The default configuration uses `mullion.persist` for arrangement state and the `mullion.pose` and `mullion.keycodes` helpers through the policy and provider modules. Panels, interaction, lasers, the virtual keyboard, tags, rules, adoption, arc layout, and error display are built-in providers under `@lunette-plugins`, not `mullion` modules; [Decisions](#decisions) records why their earlier `mullion` implementations were removed.
 
 ## Contracts and providers
 
@@ -42,9 +34,7 @@ The panels contract announces a panel's arrival and removal to owner-scoped list
 
 Constants and helpers that several providers agree on are neutral vocabulary rather than service fields. The per-window pose property is `@lunette-contracts/vocabulary`'s `POSE_PROPERTY`, and ray intersection with a flat quad is `@lunette-contracts/quad`. A provider's tuning and style tables are copied and frozen for each activation, so no consumer can retune another's.
 
-Built-in provider modules exist for adoption, error display, interaction, keyboard, laser, arc layout, panels, rules, and tags. The providers use the typed plugin facade. Some providers share narrow value helpers from `mullion`, including pose encoding and keycode tables. They do not use the legacy `mullion` panel, interaction, laser, keyboard, tag, rules, or adoption policy implementations. Replacing a provider keeps its capability and declared service shape. A replacement implements the existing interface; the contract is not weakened to accommodate it.
-
-The legacy `mullion` policy and presentation modules remain in the source tree as optional library modules. The default configuration composes provider definitions from `@lunette-plugins` and desktop consumers from `etc/xdg/lunette/desktop/`. The decision to remove the legacy policy implementations remains open.
+Built-in provider modules exist for adoption, error display, interaction, keyboard, laser, arc layout, panels, rules, and tags. The providers use the typed plugin facade. Some providers share narrow value helpers from `mullion`, including pose encoding and keycode tables. Replacing a provider keeps its capability and declared service shape. A replacement implements the existing interface; the contract is not weakened to accommodate it.
 
 ## Default configuration
 
@@ -64,13 +54,13 @@ Safe mode is compiled into the binary and requires `lunette` alone. It does not 
 
 ## Module lifecycle
 
-The host's source reload retains the Lua state. It shuts down plugin runtimes, clears native subscribers and configuration callbacks, drops unprotected modules from `package.loaded`, advances the plugin contract epoch, and runs `main.lua` and `lovr.load` again. It does not call `mullion.teardown.run()`.
+The host's source reload retains the Lua state. It shuts down plugin runtimes, clears native subscribers and configuration callbacks, drops unprotected modules from `package.loaded`, advances the plugin contract epoch, and runs `main.lua` and `lovr.load` again.
 
 Plugin implementations register cleanup effects with their context or owner. The native runtime runs these effects during disable, instance reload, disposal, and shutdown. An expired activation cannot use its context or publisher. A cleanup failure quarantines the instance: the runtime does not retry an inverse that already failed, runs the instance's remaining inverses when its attachment ends, and never loads it again. A quarantined instance keeps its contract reservations but does not hold back its providers or parent. Cleanup failures during a drain are reported through `lunette.onError`; a failing `effect:dispose()` raises to its caller.
 
-The Lua teardown registry remains available for modules that explicitly call it. It is not part of the host's source-reload or hard-restart sequence. A Lua module that owns native resources outside the plugin runtime must not rely on that registry being called automatically. This lifecycle gap remains open.
+Plugin effects are the only cleanup mechanism. There is no Lua teardown registry: the one `mullion` had was absorbed into the effect layer, as issue #32 specifies. A `mullion` module keeps no module-level state: a persistence state belongs to the caller that creates it, and its bindings are plugin effects. A Lua module outside a plugin that owns native resources releases them through a lifecycle path of its own or tolerates their continued existence; [Known gaps](#known-gaps) records this.
 
-`lua/spec/` mirrors the Lua module tree with specifications and test support. It is available only in development. The checker includes the ordinary suite modules, while computed spec requires and negative type probes are handled by their dedicated tests. `make check` includes subprocess integration tests that start `lunette` with headless fixtures. It does not run a hardware acceptance session.
+`lua/spec/` mirrors the `mullion` tree with specifications and test support. It is available only in development. The checker includes the ordinary suite modules, while computed spec requires and negative type probes are handled by their dedicated tests. `make check` includes subprocess integration tests that start `lunette` with headless fixtures. It does not run a hardware acceptance session.
 
 ## Policy and mechanism
 
@@ -81,11 +71,11 @@ The Lua teardown registry remains available for modules that explicitly call it.
 | Contract identity, exact provider bindings, lifecycle, and resource cleanup | Native plugin runtime | These rules span service providers and must remain consistent within a runtime graph. |
 | Service methods and configuration types | Luau contracts and definitions | The checker can validate local source shapes without inferring the complete runtime graph. |
 
-The panel library adapts native window and monitor pixels to Lua-defined geometry and interaction. A monitor panel remains an in-scene quad because the native layer claim API accepts windows, not monitors. Interaction keeps pointer hover and keyboard focus separate; pointer motion does not implicitly take focus. These boundaries let a configuration change geometry and input policy without changing Wayland protocol behavior.
+The panels provider adapts native window and monitor pixels to Lua-defined geometry and interaction. A monitor panel remains an in-scene quad because the native layer claim API accepts windows, not monitors. Interaction keeps pointer hover and keyboard focus separate; pointer motion does not implicitly take focus. These boundaries let a configuration change geometry and input policy without changing Wayland protocol behavior.
 
 ## Decisions
 
-The standard library stays optional and separate from `lunette`. The native root exposes mechanism, while `mullion` contains replaceable policy and presentation. Keeping distinct roots avoids making a Lua implementation look like native mechanism and lets a configuration omit the library.
+The standard library stays optional and separate from `lunette`. The native root exposes mechanism, while `mullion` contains replaceable policy and helpers. Keeping distinct roots avoids making a Lua implementation look like native mechanism and lets a configuration omit the library.
 
 Liveness of a service belongs to the facade, not to each provider. Every provider repeated a guard against calls after its activation ended, and a provider that forgot one exposed torn-down state. The facade's service view enforces it once for every provision. Providers keep the checks that guard objects outliving a call, which the view does not reach.
 
@@ -94,6 +84,10 @@ Neutral contracts stay separate from providers. A contract describes a service w
 The plugin API uses local capability and configuration types with runtime graph validation. A recursive inferred type for the complete provider graph exceeded Luau's 20,000 subtype-normalization budget even with an empty initializer. Changing compiler flags or limits was rejected. Local static checking remains useful, while declarations and the lifecycle graph validate whole-runtime wiring.
 
 The native adapter contains erased casts. A mapped `Services<R>` and `Provisions<P>` authoring API is not used. `Context:require<T>(capability)` and init-only `Publisher:provide<T>(capability, value)` keep the public typing model direct and place runtime membership checks at the boundary.
+
+### Superseded `mullion` modules are removed
+
+The panel, interaction, laser, keyboard, tag, rules, adoption, error, and arc-layout modules of `mullion`, with the signal and teardown modules they were built on, were removed once the built-in providers replaced them. Issue #32 makes the existing standard library the first plugins and absorbs the teardown registry into the effect layer; the providers did both, and the shipped configuration and safe mode used none of the old modules. Keeping them as optional alternatives was rejected. Each was a second implementation of a provider's behaviour with a lifecycle the host no longer runs: their cleanup depended on a teardown registry that source reload and hard restart do not call, so a configuration that used them leaked across every reload, and fixes to a provider would not have reached its legacy twin. The modules that remain are helpers a provider or the persistence binding uses, `mullion.pose`, `mullion.keycodes`, and `mullion.persist`, and the scale and pacing choosers, which no provider replaces. Their history is in the repository.
 
 ### Panel lifecycle is announced through the panels contract
 
@@ -125,14 +119,12 @@ A grab that the interaction provider's own teardown ends stores the pose propert
 
 ## Known gaps
 
-The host does not run the Lua teardown registry during source reload or hard restart. Non-plugin Lua modules that retain native resources can outlive their callbacks unless another owner releases those resources.
+Source reload runs no cleanup for Lua code outside the plugin runtime. A non-plugin module that retains native resources keeps them after the reload unless another owner releases them.
 
 The desktop integration tests do not establish an actual XR or GPU-backed boot, host-desktop acceptance, or successful installed-session execution.
 
 ## Deliberately left open
 
-The legacy `mullion` panel, interaction, laser, keyboard, tag, rules, adoption, and layout policy implementations remain in the source tree. Their removal or continued role as optional library modules has not been decided.
-
-A 2D widget toolkit remains deferred. Larger settings and desktop interfaces fit better in Wayland clients than in a Lua widget framework. Further layout algorithms also remain open; the current library provides the arc layout and does not define a complete 3D layout set.
+A 2D widget toolkit remains deferred. Larger settings and desktop interfaces fit better in Wayland clients than in a Lua widget framework. Further layout algorithms also remain open; the arc-layout provider is the only layout, and there is no complete 3D layout set.
 
 Deferred follow-up issues include #15, #36, #38, and #39. Their feature scope remains in the issue records. XR hardware and host-desktop acceptance remain human gates, and new desktop features remain outside this specification until their implementation and acceptance criteria are defined.

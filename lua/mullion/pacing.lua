@@ -21,15 +21,14 @@
 -- caller observed and answers with a rate. The specs run a panel through a
 -- whole session without a clock, headset, or window.
 --
--- The module starts nothing and holds no handle, so it registers no teardown
--- hook. Whatever made a pacer owns it, and a reload rebuilds it.
+-- The module starts nothing and holds no handle. Whatever made a pacer owns
+-- it, and a reload rebuilds it.
 
 local pacing = {}
 
 -- Everything the choice is tuned by, in one table.
 --
--- Tuning is a diff to this table, as `mullion.scale.TUNING` and
--- `mullion.interaction.TUNING` are. A caller that needs different numbers for
+-- Tuning is a diff to this table, as `mullion.scale.TUNING` is. A caller that needs different numbers for
 -- one window passes its own table as `options.tuning` and leaves this one
 -- unchanged.
 pacing.TUNING = {

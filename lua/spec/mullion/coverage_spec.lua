@@ -30,28 +30,8 @@ local COVERAGE = {
   -- and `crates/lunette/tests/standard_library.rs` requires it from a real
   -- session to check the mount.
   ['init.lua'] = false,
-  ['adopt.lua'] = 'adopt_spec.lua',
-  ['error/init.lua'] = 'error/handler_spec.lua',
-  ['error/panel.lua'] = 'error/panel_spec.lua',
-  ['interaction/init.lua'] = 'interaction_spec.lua',
-  -- Declares the pointer protocol's vocabulary and returns an empty table;
-  -- there is no behaviour for a spec to assert. The Luau check covers it.
-  ['interaction/types.lua'] = false,
-  -- The carrying half, exercised through the pointer that installs it.
-  ['interaction/grab.lua'] = 'interaction_spec.lua',
-  ['keyboard/init.lua'] = 'keyboard_spec.lua',
-  -- Pure geometry and legends, exercised through the keyboard that calls it.
-  ['keyboard/layout.lua'] = 'keyboard_spec.lua',
-  -- Drawing, which the spec's recording pass exercises through `draw`.
-  ['keyboard/draw.lua'] = 'keyboard_spec.lua',
   ['keycodes.lua'] = 'keycodes_spec.lua',
-  ['laser.lua'] = 'laser_spec.lua',
-  ['layout/arc.lua'] = 'layout/arc_spec.lua',
   ['pacing.lua'] = 'pacing_spec.lua',
-  ['panel/init.lua'] = 'panel/panel_spec.lua',
-  -- The claim and the layer it is granted, exercised through a panel's update.
-  ['panel/layer.lua'] = 'panel/panel_spec.lua',
-  ['panel/raycast.lua'] = 'panel/raycast_spec.lua',
   ['persist/format.lua'] = 'persist/format_spec.lua',
   -- Split along the module's own seam: one half is arrangements and panels, the
   -- other is the file on disk.
@@ -61,11 +41,7 @@ local COVERAGE = {
   -- Slot holds, exercised through the source a spec builds over them.
   ['persist/slots.lua'] = 'persist/arrangement_spec.lua',
   ['pose.lua'] = 'pose_spec.lua',
-  ['rules.lua'] = 'rules_spec.lua',
   ['scale.lua'] = 'scale_spec.lua',
-  ['signal.lua'] = 'signal_spec.lua',
-  ['tag.lua'] = 'tag_spec.lua',
-  ['teardown.lua'] = 'teardown_spec.lua',
 }
 
 -- The specs that cover the suite itself. The check below does not require a

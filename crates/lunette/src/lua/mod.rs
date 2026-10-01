@@ -4,8 +4,8 @@
 //! `require('@lunette')` resolves to the table [`install`] registers. Everything
 //! reachable from it is mechanism: what a window is, where its pixels are, and
 //! where a pointer event goes. Policy (panels, layouts, placement rules) is
-//! `@mullion`, a library written in Lua against this same surface, and is not
-//! here.
+//! written in Lua against this same surface, in the plugin providers under
+//! `@lunette-plugins` and the `@mullion` library, and is not here.
 //!
 //! # State-bound Lua values
 //!
@@ -45,8 +45,9 @@
 //! frame early is worse than doing nothing. `docs/dev/lua-api.md` records that
 //! choice.
 //!
-//! Raising is safe: `boot.lua` runs every callback under `xpcall`, and the
-//! handler reports. Nothing here swallows an error to keep a frame alive.
+//! Raising is the right answer: the error reaches the boundary its caller runs
+//! under, which `docs/dev/lua-api.md#errors` describes. Nothing here swallows
+//! an error to keep a frame alive.
 
 mod claim;
 pub mod declarations;
@@ -768,8 +769,8 @@ fn window_handles<T: LuaTexture>(
 
 /// `lunette.modifierNames()`: every modifier a seat accepts.
 ///
-/// Read from [`KeyModifier`] and not listed, so what mullion builds a keyboard
-/// from and what the runtime accepts from it are one set. The order is the
+/// Read from [`KeyModifier`] and not listed, so what the keyboard provider
+/// builds a keyboard from and what the runtime accepts from it are one set. The order is the
 /// keymap's own modifier numbering; a caller reporting held modifiers should
 /// report them in that order.
 fn modifier_names() -> Vec<String> {

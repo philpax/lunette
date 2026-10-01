@@ -2,7 +2,7 @@
 -- built.
 --
 -- The suite lives in the repository's `lua/` tree, which reaches this session
--- through LUNETTE_STDLIB_PATH, so `@spec/runner` and `@mullion/signal` both
+-- through LUNETTE_STDLIB_PATH, so `@spec/runner` and `@mullion/pose` both
 -- resolve through the same mount a session resolves the standard library
 -- through. The specs run against the tree as it is installed, not against a copy
 -- assembled for them.
@@ -38,8 +38,8 @@ local filesystem = {
 
 -- LÖVR hands out temporary vectors from a fixed pool and drains it at each
 -- frame boundary. This run never reaches one, so it drains between cases; a
--- panel spec raycasting a few dozen times would otherwise exhaust the pool part
--- way through the suite. The failure would then be an arithmetic error, and
+-- spec doing vector arithmetic a few dozen times would otherwise exhaust the
+-- pool part way through the suite. The failure would then be an arithmetic error, and
 -- an arithmetic error does not identify the pool as the cause.
 local function drainTemporaries()
     if lovr.math and lovr.math.drain then

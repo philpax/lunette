@@ -29,8 +29,8 @@
 -- `string.format`'s `%q` provides the escaping, the part of a serialiser with a
 -- correctness tail.
 --
--- This module holds no state and starts nothing, so it installs no teardown
--- hook: no timer, connection, or coroutine survives a reload.
+-- This module holds no state and starts nothing, so no timer, connection, or
+-- coroutine survives a reload.
 
 local format = {}
 

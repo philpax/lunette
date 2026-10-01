@@ -18,7 +18,7 @@ lunette/
   lua/lunette-plugin/             typed plugin authoring facade and erased adapter
   lua/lunette-contracts/          neutral plugin service contracts
   lua/lunette-plugins/            built-in plugin implementations
-  lua/mullion/                    optional Lua policy and presentation modules
+  lua/mullion/                    optional Lua helper and policy modules
   lua/spec/                       development-only Lua specifications
   etc/lunette/                    the generated Luau definitions
   etc/xdg/lunette/                the default configuration

@@ -13,8 +13,8 @@
 -- significant digits return a 32-bit float to its original value, so the
 -- round-trip is exact.
 --
--- This module holds no state and starts nothing. It has no teardown hook: a
--- reload has nothing to discard.
+-- This module holds no state and starts nothing, so a reload has nothing to
+-- discard.
 
 local pose = {}
 

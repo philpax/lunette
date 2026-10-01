@@ -521,8 +521,8 @@ mod tests {
         let lua = state("");
         run(
             &lua,
-            "package.loaded['@mullion/panel'] = { n = 1 }
-             package.loaded['@mullion/layout/arc'] = { n = 1 }
+            "package.loaded['@mullion/persist'] = { n = 1 }
+             package.loaded['@mullion/persist/format'] = { n = 1 }
              package.loaded.mylayout = { n = 1 }
              package.loaded['@lunette'] = { n = 1 }",
         );
@@ -530,8 +530,8 @@ mod tests {
         reload(&lua, &|| ()).expect("the reload succeeds");
 
         for name in [
-            "@mullion/panel",
-            "@mullion/layout/arc",
+            "@mullion/persist",
+            "@mullion/persist/format",
             "mylayout",
             "@lunette",
         ] {
@@ -708,7 +708,7 @@ mod tests {
         assert!(is_protected("jit.util"));
         assert!(is_protected("string.buffer"));
         assert!(!is_protected("lovrly"));
-        assert!(!is_protected("mullion.panel"));
+        assert!(!is_protected("mullion.pose"));
         assert!(!is_protected(MAIN_MODULE));
     }
 }

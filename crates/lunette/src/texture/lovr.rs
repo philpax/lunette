@@ -319,7 +319,7 @@ impl LovrTexture {
     /// different one.
     ///
     /// A panel setting `layer:setViewport` to its source's extent is the policy
-    /// answer, and it is mullion's, not the pool's. The viewport is one of the
+    /// answer, and it is the panels provider's, not the pool's. The viewport is one of the
     /// per-panel properties that let a layer of a given key serve any panel
     /// wanting that key. This catches what the panel misses: nothing a caller
     /// forgot reaches the compositor.

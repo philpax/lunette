@@ -22,7 +22,7 @@ The point at which the system is usable for daily work. Each step is usable on i
 1. Composition layers and the claim pool. The point at which text becomes legible. Layer recycling, priority claims, grant/revoke events, degradation to in-scene quads. ([Rendering](rendering.md#the-layer-pool))
 2. Monitor mirroring and host input injection. The point at which the system becomes useful: the user can see and drive the real desktop from inside VR. Portal capture with streams correlated to outputs by logical geometry, uinput injection. ([Host desktop](host-desktop.md))
 3. Keyboard, seats, clipboard. Typing works, two hands work, copy-paste crosses the boundary. ([Input](input.md), [Host desktop](host-desktop.md#clipboard))
-4. Panel standard library. Tiers 1 through 3: panels, interaction, layouts and rules. ([Standard library](stdlib.md))
+4. Panel standard library. Panels, interaction, layouts, and rules, as built-in providers on the plugin runtime. ([Standard library](stdlib.md))
 5. Reload, `lunctl`, error handling. The iteration loop closes; the window manager becomes inspectable from a shell. ([The Lua API](lua-api.md))
 6. Per-window outputs, fractional scale, frame pacing. Sharpness and efficiency. ([Compositor](compositor.md#outputs), [Rendering](rendering.md#frame-pacing))
 

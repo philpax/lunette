@@ -1,9 +1,9 @@
 //! The soft reload, exercised by performing one.
 //!
 //! The reload applies an edited configuration without disconnecting any
-//! client, and the teardown hooks run and prevent timers and signal
-//! connections from accumulating. Neither half can be established by asserting
-//! a flag, so the tests establish both by reloading.
+//! client, and it rebuilds the configuration's modules and callbacks without
+//! leaving the previous run's behind. Neither half can be established by
+//! asserting a flag, so the tests establish both by reloading.
 //!
 //! The two halves need different test apparatus.
 //!
@@ -44,10 +44,9 @@ use tempfile::TempDir;
 ///
 /// The fixture checks that `lovr.*` survives, that `boot.lua`'s own callback
 /// defaults survive, that a callback the configuration stopped defining stops
-/// being called, that the standard library's modules are re-required, and
-/// that the teardown registry holds the same hooks after the tenth reload as
-/// after the first. The fixture quits 9 when every check holds and with a
-/// distinct status for each check that does not.
+/// being called, and that the standard library's modules are re-required. The
+/// fixture quits 9 when every check holds and with a distinct status for each
+/// check that does not.
 #[test]
 fn ten_reloads_leave_the_session_where_one_does() {
     assert_exit_status("reload", 9);
@@ -219,7 +218,7 @@ fn standard_library() -> PathBuf {
     };
     let lua = root.join("lua");
     assert!(
-        lua.join("mullion").join("teardown.lua").is_file(),
+        lua.join("mullion").join("pose.lua").is_file(),
         "{} should hold the standard library",
         lua.display()
     );

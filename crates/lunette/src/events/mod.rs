@@ -49,8 +49,8 @@
 //! loop unwinds the loop, so the rest of the frame's events are never
 //! delivered. The dispatcher calls the handler through mlua, which is a
 //! protected call, and passes what comes back to [`crate::callback_error`].
-//! The error panel, the rate limiting, and the wording of a report belong to
-//! `mullion.error`, and that module defines them.
+//! The error display, the rate limiting, and the wording of a report belong to
+//! the error-display provider, which subscribes through `lunette.onError`.
 
 mod macros;
 
@@ -525,8 +525,8 @@ fn dispatch<T: LuaTexture>(
     // handler, so an error arrives with its traceback, and `boot.lua`'s poll
     // loop is not unwound; the frame's remaining events are still delivered.
     // [`crate::callback_error`] handles the error from here: the rate
-    // limiting, the wording, and the panel belong to `mullion.error`, and this
-    // is the boundary that hands the error over.
+    // limiting, the wording, and the display belong to `lunette.onError`
+    // listeners, and this is the boundary that hands the error over.
     for handler in listeners {
         if let Err(error) = handler.call::<()>(payload.clone()) {
             report(

@@ -12,7 +12,7 @@ LÖVR bundles Steam Audio (`deps/phonon`), which provides HRTF spatialisation wi
 
 Native layer: enumerate a process's PipeWire nodes by pid, redirect them away from the default sink, and hand Lua a live PCM stream.
 
-Lua: pipe that stream into a `lovr.audio` source parented to the panel's pose. Spatialisation, falloff, and per-application policy are `mullion`'s responsibility.
+Lua: pipe that stream into a `lovr.audio` source parented to the panel's pose. Spatialisation, falloff, and per-application policy belong to Lua policy, not the native layer.
 
 This reuses the process identity machinery from [Compositor](compositor.md#attribution). The pid plus auth-key attribution needs to be a first-class concept rather than a private detail, so audio code can ask which nodes belong to a given process handle.
 

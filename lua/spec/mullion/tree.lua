@@ -33,15 +33,15 @@ function tree.files(root)
 end
 
 -- Every module of the standard library, as paths such as
--- `@mullion/panel/init.lua`.
+-- `@mullion/persist/init.lua`.
 function tree.modules()
   return tree.files(tree.MODULE_ROOT)
 end
 
--- Every spec file, as paths such as `@spec/mullion/panel/panel_spec.lua`. The
+-- Every spec file, as paths such as `@spec/mullion/persist/file_spec.lua`. The
 -- suite's own specs are under `@spec/` directly and are included.
 --
--- Files that are not specs, such as `tree.lua` and the panel fixture, are left
+-- Files that are not specs, such as `tree.lua`, are left
 -- out. The specs are the files that hold cases.
 function tree.specs()
   local specs = {}
@@ -53,8 +53,8 @@ function tree.specs()
   return specs
 end
 
--- The module name that `require` uses for a path. `@mullion/panel/init.lua`
--- is `@mullion/panel`, and `@mullion/signal.lua` is `@mullion/signal`.
+-- The module name that `require` uses for a path. `@mullion/persist/init.lua`
+-- is `@mullion/persist`, and `@mullion/pose.lua` is `@mullion/pose`.
 function tree.moduleName(path)
   return path:gsub('%.lua$', ''):gsub('/init$', '')
 end

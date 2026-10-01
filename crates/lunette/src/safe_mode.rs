@@ -82,8 +82,8 @@ pub fn load(lua: &Lua) -> mlua::Result<Function> {
 ///
 /// `lovr.errhand` catches every error that escapes a callback boundary, including
 /// errors unrelated to the load failure. It also belongs to the
-/// configuration: `mullion.error` installs one, and replacing it would replace
-/// that one. Wrapping `lovr.boot` catches a failure to start and nothing after
+/// configuration, which may define one, and replacing it would replace that
+/// one. Wrapping `lovr.boot` catches a failure to start and nothing after
 /// it, so a runtime error one frame into a session that started cannot replace
 /// the session with the fallback. The boundary is one callback wider than
 /// "the configuration did not load": `lovr.load` runs inside it. The module

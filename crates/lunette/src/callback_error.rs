@@ -2,11 +2,10 @@
 //! callback.
 //!
 //! [The Lua API](../../../docs/dev/lua-api.md#errors) says the callback boundary
-//! logs, notifies every `lunette.onError` listener, draws a panel, and
-//! rate-limits identical errors. The native side implements the first two. The
-//! limiter, the wording of a report, and the panel are policy in
-//! `mullion.error`, which subscribes like any other listener and is never
-//! looked up.
+//! logs the error and notifies every `lunette.onError` listener. The limiter,
+//! the wording of a report, and the display are policy in the error-display
+//! provider, `@lunette-plugins/error-display`, which subscribes like any other
+//! listener and is never looked up.
 //!
 //! # No native limiter
 //!
@@ -15,19 +14,17 @@
 //! starts from the wrong occurrence. Every listener is notified, and each
 //! listener handles the error independently.
 //!
-//! # Sessions without the standard library
+//! # Sessions without the error display
 //!
-//! A configuration that never requires `mullion` is supported, and so is one
-//! whose standard library is missing. There is then no limiter: the error is
-//! logged and each listener is notified, and an error raised every frame is
-//! logged every frame. Requiring `mullion.error` installs the limiter that
-//! suppresses the repetition.
+//! A configuration that does not enable the error-display provider is
+//! supported. There is then no limiter: the error is logged and each listener
+//! is notified, and an error raised every frame is logged every frame. Enabling
+//! the provider installs the limiter that suppresses the repetition on the
+//! display.
 //!
 //! A listener that raises does not stop the ones after it. A session whose
-//! standard library itself raises still reaches every other listener.
+//! error display itself raises still reaches every other listener.
 
-#[cfg(test)]
-use mlua::Table;
 use mlua::{Function, IntoLua, Lua};
 use tracing::error;
 
@@ -61,7 +58,7 @@ pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
 
 /// An error's message and the traceback that goes with it, kept apart.
 ///
-/// `mullion.error` keys its rate limit on both. One message raised from two
+/// The error-display provider keys its rate limit on both. One message raised from two
 /// places is two defects, and conflating them would hide the second behind the
 /// first. The listener receives the two separately, and mlua reports them
 /// joined.
@@ -135,68 +132,6 @@ fn offer_to_listeners(lua: &Lua, listeners: &[Function], traced: &TracedError) -
         }
     }
     raised
-}
-
-/// Loads `mullion.error` into `lua` and captures what it reports.
-///
-/// The two modules are compiled in, not read at run time, so a case covers
-/// the files that ship and touches no filesystem. Reports land in the global
-/// `reports`, and a case counts them.
-///
-/// The `lun*` dispatch tests in [`crate::lua::tests`] use it too.
-///
-/// # Panics
-///
-/// The function panics when either module does not load. That condition is a
-/// defect in the standard library, not a consequence of the case.
-#[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test fixture reports a defect in the tree it loads"
-)]
-pub(crate) fn install_standard_library_handler(lua: &Lua) {
-    const MULLION_ERROR: &str = include_str!("../../../lua/mullion/error/init.lua");
-    const MULLION_TEARDOWN: &str = include_str!("../../../lua/mullion/teardown.lua");
-
-    let loaded: Table = lua
-        .globals()
-        .get::<Table>("package")
-        .expect("package exists")
-        .get("loaded")
-        .expect("package.loaded exists");
-
-    let teardown: Table = lua
-        .load(MULLION_TEARDOWN)
-        .set_name("@mullion/teardown.lua")
-        .call(())
-        .expect("the teardown registry loads");
-    loaded
-        .set("@mullion/teardown", teardown)
-        .expect("the registry is reachable");
-
-    let module: Table = lua
-        .load(MULLION_ERROR)
-        .set_name("@mullion/error/init.lua")
-        .call(())
-        .expect("the error handler loads");
-    loaded
-        .set("@mullion/error", module)
-        .expect("the handler is reachable");
-
-    lua.load(
-        "reports = {}
-         package.loaded['@mullion/error'].report = function(text)
-             reports[#reports + 1] = text
-         end",
-    )
-    .exec()
-    .expect("the report sink is replaced");
-
-    // Installing subscribes: the boundary notifies its subscribers and looks
-    // nothing up.
-    lua.load("package.loaded['@mullion/error'].install()")
-        .exec()
-        .expect("the handler subscribes");
 }
 
 #[cfg(test)]
@@ -280,10 +215,10 @@ mod tests {
         );
     }
 
-    /// A session with no standard library still notifies the configuration, so
-    /// a `lovr.lunerror` written without `mullion` still runs.
+    /// A listener the configuration subscribed receives the error directly,
+    /// with no error-display provider in between.
     #[test]
-    fn lunerror_is_called_directly_when_there_is_no_standard_library() {
+    fn a_listener_is_called_directly_with_the_message_and_traceback() {
         let lua = state();
         lua.load("seen = {} function record(event) seen[#seen + 1] = event end")
             .exec()
@@ -307,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn a_configuration_with_no_lunerror_is_not_an_error() {
+    fn a_configuration_with_no_listener_is_not_an_error() {
         let lua = state();
 
         report(
@@ -319,15 +254,16 @@ mod tests {
     }
 
     #[test]
-    fn a_lunerror_that_raises_does_not_take_the_session_with_it() {
+    fn a_listener_that_raises_does_not_take_the_session_with_it() {
         let lua = state();
         lua.load("function record() error('the handler said no') end")
             .exec()
             .expect("the handler installs");
+        let listener = listener(&lua, "record");
 
         report(
             &lua,
-            &[],
+            std::slice::from_ref(&listener),
             "lunette.lunwindowopened",
             &raised(&lua, "error('it broke')"),
         );

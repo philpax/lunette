@@ -13,7 +13,7 @@
 //! an xkb keymap plus raw keycodes and do their own keysym translation, so
 //! anything that draws a keyboard must look up what a key means. The three
 //! queries are the layout list, forward lookup, and reverse lookup. They
-//! let mullion draw a virtual keyboard with correct legends and produce correct
+//! let the keyboard provider draw a virtual keyboard with correct legends and produce correct
 //! keycodes without reimplementing xkb in Lua.
 //!
 //! Every answer comes from the seat's own published layout, compiled on this

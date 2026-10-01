@@ -7,13 +7,13 @@
 -- who is not on QWERTY, and lunette already obtains the letters from a
 -- seat's keymap.
 --
--- Separate from `mullion.keyboard` because it is a different thing: that
--- module is a widget, and this is a description of a keyboard. A
--- configuration binding a key uses the names here and does not need the
--- widget.
+-- Separate from the keyboard provider in `@lunette-plugins/keyboard` because it
+-- is a different thing: that provider is a widget, and this is a description
+-- of a keyboard. A configuration binding a key uses the names here and does
+-- not need the widget.
 --
--- The module holds no state and starts nothing, so it installs no teardown
--- hook. A reload leaves nothing behind.
+-- The module holds no state and starts nothing, so a reload leaves nothing
+-- behind.
 
 local lunette = require '@lunette'
 
@@ -70,8 +70,8 @@ keycodes.MODIFIER_ORDER = lunette.modifierNames()
 -- when a key types a character that has no legend, such as `\r` for enter.
 --
 -- This is a compact ANSI arrangement and the default layout.
--- `mullion.keyboard` uses it unless a configuration passes its own rows, and
--- that is the full extent of the customisation offered.
+-- The keyboard provider uses it unless a configuration passes its own rows,
+-- and that is the full extent of the customisation offered.
 keycodes.ROWS = {
   {
     { code = 41 },

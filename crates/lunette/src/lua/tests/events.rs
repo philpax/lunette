@@ -8,7 +8,6 @@ use mlua::{Table, Value};
 use pretty_assertions::assert_eq;
 
 use crate::{
-    callback_error::install_standard_library_handler,
     events::LuaEvent,
     lua::tests::{
         layered_session,
@@ -417,18 +416,18 @@ fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
     );
 }
 
-/// An error a configuration's handler raised reaches the standard library's
-/// handler, with its traceback, and the configuration's `lovr.lunerror` after
-/// it.
+/// An error a configuration's handler raised reaches every `lunette.onError`
+/// subscriber, with its traceback.
 #[test]
-fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
+fn a_handlers_error_reaches_every_subscriber_with_its_traceback() {
     let (session, sink) =
         recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
-    install_standard_library_handler(&lua);
     run::<()>(
         &lua,
         "seen = {}
+         others = 0
+         lunette.onError(function() others = others + 1 end)
          lunette.onError(function(event) seen[#seen + 1] = event end)
          lunette.onWindowOpened(function() error('a defect in the configuration') end)",
     );
@@ -438,11 +437,11 @@ fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
     });
     poll(&lua, &sink);
 
-    let (reported, delivered, message, traceback): (usize, usize, String, String) = run(
+    let (others, delivered, message, traceback): (usize, usize, String, String) = run(
         &lua,
-        "return #reports, #seen, seen[1].message, seen[1].traceback",
+        "return others, #seen, seen[1].message, seen[1].traceback",
     );
-    assert_eq!((reported, delivered), (1, 1));
+    assert_eq!((others, delivered), (1, 1));
     assert!(
         message.contains("lunette.onWindowOpened") && message.contains("a defect"),
         "the report should name the callback and what it said: {message}"
@@ -483,18 +482,19 @@ fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
 
 /// The same error raised every frame for two hundred frames.
 ///
-/// The limiter is part of `mullion.error`, so the test installs the standard
-/// library handler and raises from the handler. The test then compares the
-/// reported count against the limiter's one report per distinct error.
+/// The native boundary rate-limits nothing: every occurrence reaches every
+/// listener, and a listener such as the error-display provider owns its own
+/// limiter. The handler keeps being called, so the session continues.
 #[test]
-fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues() {
+fn a_handler_that_raises_every_frame_is_reported_every_frame_and_the_session_continues() {
     let (session, sink) =
         recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
-    install_standard_library_handler(&lua);
     run::<()>(
         &lua,
         "frames = 0
+         reports = 0
+         lunette.onError(function() reports = reports + 1 end)
          lunette.onTitleChanged(function() frames = frames + 1 error('every frame') end)",
     );
 
@@ -506,38 +506,15 @@ fn a_handler_that_raises_every_frame_is_rate_limited_and_the_session_continues()
         poll(&lua, &sink);
     }
 
-    let (frames, reported): (usize, usize) = run(&lua, "return frames, #reports");
+    let (frames, reported): (usize, usize) = run(&lua, "return frames, reports");
     assert_eq!(
         frames, 200,
         "every frame's event should still have been delivered"
     );
     assert_eq!(
-        reported, 1,
-        "an error recurring every frame should not fill the display with copies of itself"
+        reported, 200,
+        "the boundary leaves rate limiting to its listeners"
     );
-}
-
-/// A session that never loaded the standard library still receives the
-/// error. The boundary calls every `lunette.onError` listener, and this
-/// module is one of them.
-#[test]
-fn a_handlers_error_reaches_a_subscriber_with_no_standard_library_loaded() {
-    let (session, sink) =
-        recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "seen = 0
-         lunette.onError(function() seen = seen + 1 end)
-         lunette.onWindowOpened(function() error('a defect in the configuration') end)",
-    );
-
-    session.push_event(LuaEvent::WindowOpened {
-        window: window_id(1),
-    });
-    poll(&lua, &sink);
-
-    assert_eq!(run::<usize>(&lua, "return seen"), 1);
 }
 
 #[test]
