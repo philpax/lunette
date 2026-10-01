@@ -69,13 +69,6 @@ pub const LUNETTE_DESKTOP: Alias = Alias {
     resolution: Resolution::Mounted,
 };
 
-/// The standard library's own module, written in Lua.
-pub const MULLION: Alias = Alias {
-    name: "mullion",
-    directory: "mullion",
-    resolution: Resolution::Mounted,
-};
-
 /// The specs, present in a development tree, absent from an installed one.
 pub const SPEC: Alias = Alias {
     name: "spec",
@@ -90,7 +83,6 @@ pub const DEVELOPMENT_ALIASES: &[Alias] = &[
     LUNETTE_CONTRACTS,
     LUNETTE_PLUGINS,
     LUNETTE_DESKTOP,
-    MULLION,
     SPEC,
 ];
 
@@ -101,7 +93,6 @@ pub const INSTALLED_ALIASES: &[Alias] = &[
     LUNETTE_CONTRACTS,
     LUNETTE_PLUGINS,
     LUNETTE_DESKTOP,
-    MULLION,
 ];
 
 /// Every root, retained as the compatibility name used by existing callers.
@@ -151,10 +142,11 @@ impl ModuleRoot {
         format!("@{}", self.alias)
     }
 
-    /// Whether the root is optional in a source tree or installation.
+    /// Whether the root is optional in a source tree or installation. Only the
+    /// development-only spec root is.
     #[must_use]
     pub fn optional(&self) -> bool {
-        self.alias == MULLION.name || self.alias == SPEC.name
+        self.alias == SPEC.name
     }
 
     /// Whether the root is required in a shipped installation.
@@ -331,11 +323,6 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         required: true,
     },
     InstallArtifact {
-        source: "lua/mullion",
-        destination: "lua/mullion",
-        required: false,
-    },
-    InstallArtifact {
         source: "etc/lunette/definitions.luau",
         destination: "definitions.luau",
         required: true,
@@ -483,7 +470,6 @@ mod tests {
                 "lunette-contracts",
                 "lunette-plugins",
                 "lunette-desktop",
-                "mullion",
                 "spec",
             ]
         );
@@ -494,7 +480,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 Resolution::Native,
-                Resolution::Mounted,
                 Resolution::Mounted,
                 Resolution::Mounted,
                 Resolution::Mounted,
@@ -515,7 +500,6 @@ mod tests {
                 "lunette-contracts",
                 "lunette-plugins",
                 "lunette-desktop",
-                "mullion",
             ]
         );
         assert!(installed.iter().all(|root| root.alias != SPEC.name));
@@ -532,10 +516,8 @@ mod tests {
             ]
         );
         assert!(
-            installed
-                .iter()
-                .find(|root| root.alias == MULLION.name)
-                .is_some_and(ModuleRoot::optional)
+            !installed.iter().any(ModuleRoot::optional),
+            "every installed root is required"
         );
         assert_eq!(
             installed
@@ -547,7 +529,6 @@ mod tests {
                 "@lunette-contracts",
                 "@lunette-plugins",
                 "@lunette-desktop",
-                "@mullion",
             ]
         );
     }
@@ -603,11 +584,6 @@ mod tests {
                     required: true,
                 },
                 InstallArtifact {
-                    source: "lua/mullion",
-                    destination: "lua/mullion",
-                    required: false,
-                },
-                InstallArtifact {
                     source: "etc/lunette/definitions.luau",
                     destination: "definitions.luau",
                     required: true,
@@ -650,7 +626,7 @@ mod tests {
         assert_eq!(
             luaurc("."),
             "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \
-             \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\",\n    \"mullion\": \"./mullion\",\n    \"spec\": \"./spec\"\n  }\n}\n"
+             \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\",\n    \"spec\": \"./spec\"\n  }\n}\n"
         );
     }
 

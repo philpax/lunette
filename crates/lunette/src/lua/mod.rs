@@ -5,8 +5,7 @@
 //! reachable from it is mechanism: what a window is, where its pixels are, and
 //! where a pointer event goes. Policy (panels, layouts, placement rules) is
 //! written in Lua against this same surface, in the plugin providers under
-//! `@lunette-plugins`, the `@lunette-desktop` consumers, and the optional
-//! `@mullion` library, and is not here.
+//! `@lunette-plugins` and the `@lunette-desktop` consumers, and is not here.
 //!
 //! # State-bound Lua values
 //!

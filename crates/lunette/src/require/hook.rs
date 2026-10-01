@@ -172,14 +172,18 @@ mod tests {
 
     #[test]
     fn an_alias_reaches_the_loader_as_it_stands() {
-        let lua = state(&[("@mullion/scale", "@mullion/scale.lua", "return 'scale'")]);
+        let lua = state(&[(
+            "@lunette-contracts/scale",
+            "@lunette-contracts/scale.lua",
+            "return 'scale'",
+        )]);
         let answer: String = lua
-            .load("return require '@mullion/scale'")
+            .load("return require '@lunette-contracts/scale'")
             .set_name("@nested/a.lua")
             .eval()
             .expect("the require");
         assert_eq!(answer, "scale");
-        assert_eq!(required(&lua), ["@mullion/scale"]);
+        assert_eq!(required(&lua), ["@lunette-contracts/scale"]);
     }
 
     #[test]

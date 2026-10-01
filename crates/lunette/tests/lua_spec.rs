@@ -1,5 +1,6 @@
-//! Linux-only: runs the `lua/spec/` suite, which covers the optional `mullion`
-//! library, the desktop's persistence, and the shared vocabulary.
+//! Linux-only: runs the `lua/spec/` suite, which covers the desktop's
+//! persistence, the shared vocabulary, and the pure halves of several
+//! providers, such as the frame pacing and output scale rules.
 //!
 //! The workspace's checks compile Rust, and those modules are Lua.
 //! Without the `cargo test` the specs would need a manual run; with it they

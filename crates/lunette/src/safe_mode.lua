@@ -5,8 +5,8 @@
 -- it: safe mode exists for the moment `main.lua` fails to load, and a broken
 -- standard library, a missing install, or a bad LUNETTE_STDLIB_PATH is one of
 -- the reasons it might have. So this requires `lunette` and nothing else — no
--- `mullion`, no file on disk, nothing that a broken installation could take
--- away.
+-- mounted module root, no file on disk, nothing that a broken installation
+-- could take away.
 --
 -- It deliberately resembles etc/xdg/lunette/main.lua and shares no code with
 -- it. The duplication is the price of always working, and neither site should be

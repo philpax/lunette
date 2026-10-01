@@ -71,8 +71,8 @@ fn run_fixture(lua: &Lua, name: &str) -> mlua::Result<()> {
 
 fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
     let source = match name {
-        "local_plugin_without_mullion" => {
-            include_str!("plugin_facade_execution/local_plugin_without_mullion.lua")
+        "local_plugin_with_only_the_facade" => {
+            include_str!("plugin_facade_execution/local_plugin_with_only_the_facade.lua")
         }
         "definition_require_inert" => {
             include_str!("plugin_facade_execution/definition_require_inert.lua")
@@ -173,9 +173,9 @@ fn service_payload_is_released_with_an_escaped_provision_callback() -> mlua::Res
 }
 
 #[test]
-fn local_plugin_without_mullion() -> mlua::Result<()> {
+fn local_plugin_with_only_the_facade() -> mlua::Result<()> {
     let lua = state()?;
-    run_fixture(&lua, "local_plugin_without_mullion")?;
+    run_fixture(&lua, "local_plugin_with_only_the_facade")?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())

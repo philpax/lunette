@@ -282,3 +282,28 @@ fn placement_is_order_independent_tag_aware_replaceable_and_saved_on_demand() ->
     );
     Ok(())
 }
+
+#[test]
+fn hidden_panels_are_paced_at_the_floor_video_is_exempt_and_unloading_unthrottles()
+-> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/pacing.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.starts_with("plugin graph: instance ")
+                && error.contains(" requires missing contract ")),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn output_scale_steps_with_hysteresis_and_unloading_restores_it() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/scale.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(errors.is_empty(), "{errors:?}");
+    Ok(())
+}

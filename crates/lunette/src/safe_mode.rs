@@ -11,7 +11,7 @@
 //! `main.lua` fails to load. A broken standard library, a missing install, or a bad
 //! `LUNETTE_STDLIB_PATH` can cause the load to fail, so the fallback must not
 //! depend on anything on disk. [`SOURCE`] requires `lunette` and nothing else, and
-//! never `mullion`.
+//! no module root mounted from disk.
 //!
 //! # How it is reached
 //!

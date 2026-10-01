@@ -24,7 +24,7 @@ The point at which the system is usable for daily work. Each step is usable on i
 3. Keyboard, seats, clipboard. Typing works, two hands work, copy-paste crosses the boundary. ([Input](input.md), [Host desktop](host-desktop.md#clipboard))
 4. Panel standard library. Panels, interaction, layouts, and rules, as built-in providers on the plugin runtime. ([Standard library](stdlib.md))
 5. Reload, `lunctl`, error handling. The iteration loop closes; the window manager becomes inspectable from a shell. ([The Lua API](lua-api.md))
-6. Per-window outputs, fractional scale, frame pacing. Sharpness and efficiency. ([Compositor](compositor.md#outputs), [Rendering](rendering.md#frame-pacing))
+6. Per-window outputs, fractional scale, frame pacing. Sharpness and efficiency. The policy is the pacing and scale providers, applied by the `desktop/pacing` and `desktop/scale` entries, on by default (issue #38). ([Compositor](compositor.md#outputs), [Rendering](rendering.md#frame-pacing), [The Lua API](lua-api.md#frame-pacing-and-output-scale))
 
 Mirroring lands before the standard library on purpose. Seeing the real desktop in VR carries the project further than a window abstraction alone, and it exercises capture, injection, input domains, and the layer pool against real content.
 

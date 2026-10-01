@@ -91,12 +91,12 @@ Native mechanism:
 - Damage-driven layer blits: an unchanged surface is not copied.
 - Skipping the projection layer when Lua drew nothing.
 
-Lua policy decides each panel's rate from visibility, gaze, distance, focus, and whether a game is running.
+Lua policy decides each panel's rate from visibility, gaze, distance, focus, and whether a game is running. The shipped policy is the pacing provider, `@lunette-plugins/pacing`, applied by the `desktop/pacing` entry, which reads whether each panel is hidden; [Frame pacing and output scale](lua-api.md#frame-pacing-and-output-scale) states it.
 
 Two defaults matter because they are easy to get wrong.
 
 - The floor is approximately 1 Hz, not zero, and the native layer enforces it: a rate below the floor is paced at the floor rather than honoured. Clients starved of frame callbacks often stop pumping their event loops entirely, so they stop responding to input as well. A window that is frozen but alive is worse than one costing 1 Hz.
-- Video is exempt by default. A throttled video player stutters conspicuously. The native layer supplies the signal — `wp_content_type_v1`, reported as `win.contentType` — and `mullion.pacing` decides. It exempts on either the hint or an observed commit rate close to full, because each covers the other's blind spot: the hint catches a video paused on a still frame, which commits nothing, and the commit rate catches a player that sets no hint at all, which is most of them.
+- Video is exempt by default. A throttled video player stutters conspicuously. The native layer supplies the signal — `wp_content_type_v1`, reported as `win.contentType` — and the pacing provider decides. It exempts on either the hint or an observed commit rate close to full, because each covers the other's blind spot: the hint catches a video paused on a still frame, which commits nothing, and the commit rate catches a player that sets no hint at all, which is most of them.
 
 lunette's own XR frame rate is not negotiable: an overlay submits every cycle whether or not anything changed. What is skipped is lunette's own scene rendering, which is where the savings actually occur.
 

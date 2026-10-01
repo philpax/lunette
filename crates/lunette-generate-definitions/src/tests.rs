@@ -14,7 +14,7 @@ fn installed_lua_root_metadata_is_strict_relative_and_excludes_specs() {
         generated,
         Some((
             ".",
-            "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\",\n    \"mullion\": \"./mullion\"\n  }\n}\n".to_owned(),
+            "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\"\n  }\n}\n".to_owned(),
         ))
     );
 }

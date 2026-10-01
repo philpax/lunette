@@ -1,4 +1,4 @@
--- Covers lua/mullion/pacing.lua.
+-- Covers lua/lunette-plugins/pacing/pacer.lua.
 --
 -- The module is pure. Every case constructs a pacer, feeds it observations,
 -- and reads the rate back. The exemption rule yields three outcomes: the hint
@@ -9,23 +9,22 @@
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
 
-local pacing = require '@mullion/pacing'
+local pacing = require '@lunette-plugins/pacing/pacer'
 
-local spec = suite.new 'mullion.pacing'
+local spec = suite.new 'lunette-plugins.pacing.pacer'
 
 -- A short history with round numbers. A case can count the observations manually.
 local TUNING = {
-  foreground = false,
   background = 1,
   exempt = 30,
   history = 4,
   busy = 0.5,
-  exemptTypes = { video = true, game = true },
+  exemptTypes = { none = false, photo = false, video = true, game = true },
 }
 
 local function pacer(options)
   options = options or {}
-  return pacing.newPacer { tuning = options.tuning or TUNING }
+  return pacing.new { tuning = options.tuning or TUNING, choose = options.choose }
 end
 
 -- Feeds `count` observations of the same state to the pacer and returns the
@@ -167,8 +166,15 @@ spec('reset forgets the history and the settled rate', function()
 end)
 
 spec('a history of one still works', function()
-  local paced =
-    pacer { tuning = { history = 1, busy = 0.5, foreground = false, background = 1, exempt = 30, exemptTypes = {} } }
+  local paced = pacer {
+    tuning = {
+      history = 1,
+      busy = 0.5,
+      background = 1,
+      exempt = 30,
+      exemptTypes = { none = false, photo = false, video = false, game = false },
+    },
+  }
 
   expect.equal(paced:observe { visible = false, drew = true }, 30, 'the rate after one commit')
   expect.equal(paced:observe { visible = false, drew = false }, 1, 'the rate after one quiet frame')
@@ -176,8 +182,51 @@ end)
 
 spec('a history below one is refused', function()
   expect.raises(function()
-    pacing.newPacer { tuning = { history = 0 } }
-  end, 'history of at least one sample', 'the message for a history of zero')
+    pacing.new { tuning = { history = 0 } }
+  end, 'at least one sample', 'the message for a history of zero')
+end)
+
+spec('an observation that says nothing about drawing adds no sample', function()
+  local paced = pacer()
+  observe(paced, { visible = false, contentType = 'none', drew = true }, 2)
+
+  -- A throttled window's commits describe the throttle, so its caller passes
+  -- no `drew`. Recording those frames as quiet would end the exemption.
+  local rate = observe(paced, { visible = false, contentType = 'none' }, 8)
+
+  expect.equal(rate, 30, 'the rate after frames the caller could not judge')
+end)
+
+spec('a rule replaces the default choice and can call it', function()
+  local paced = pacer {
+    choose = function(this, observation)
+      if observation.visible then
+        return 60
+      end
+      return pacing.rule(TUNING)(this, observation)
+    end,
+  }
+
+  expect.equal(paced:observe { visible = true }, 60, 'the rate the rule gives a window in view')
+  expect.equal(paced:observe { visible = false }, 1, 'the rate the default gives a window out of view')
+end)
+
+spec('a rule that answers something other than a rate is refused', function()
+  for _, bad in ipairs { 0, -1, 'fast', 0 / 0, math.huge } do
+    expect.raises(function()
+      pacer({
+        choose = function()
+          return bad
+        end,
+      }):observe { visible = false }
+    end, 'rate in hertz', 'a rule answering ' .. tostring(bad))
+  end
+end)
+
+spec('an observation without a visibility is refused', function()
+  expect.raises(function()
+    pacer():observe { contentType = 'none' }
+  end, 'visible', 'the message for an observation that does not say')
 end)
 
 spec('observing something that is not a table is refused', function()

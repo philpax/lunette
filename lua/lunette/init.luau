@@ -248,6 +248,14 @@ export type Window = {
   -- Where input for this window goes. Nil only for a handle that has never seen
   -- its window in a snapshot; a dead window still names its sink.
   read sink: Sink?,
+  -- The output the window's client is shown, whose scale and refresh rate the
+  -- client lays out against. Nil for a handle that has never seen its window in
+  -- a snapshot, and while the output is not in the snapshot.
+  read output: Output?,
+  -- Which buffer this window's pixels came from: a number that changes whenever
+  -- the client commits a new buffer, and zero while it has committed none or is
+  -- gone. Comparing it across frames tells whether the client drew in between.
+  read commit: number,
   -- This frame's pixels. False while the client is gone or has committed
   -- nothing. Textures rotate as the client cycles its buffers, so the texture
   -- does not carry across frames.

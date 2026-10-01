@@ -467,7 +467,7 @@ mod tests {
     fn a_configuration_without_plugin_runtime_reloads() {
         let lua = state("runs.main = runs.main + 1");
 
-        reload(&lua, &|| ()).expect("a session without mullion reloads");
+        reload(&lua, &|| ()).expect("a session without a plugin runtime reloads");
 
         assert_eq!(number(&lua, "runs.main"), 1);
     }
@@ -708,7 +708,7 @@ mod tests {
         assert!(is_protected("jit.util"));
         assert!(is_protected("string.buffer"));
         assert!(!is_protected("lovrly"));
-        assert!(!is_protected("mullion.scale"));
+        assert!(!is_protected("lunette-plugins.scale"));
         assert!(!is_protected(MAIN_MODULE));
     }
 }

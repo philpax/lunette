@@ -28,7 +28,6 @@ lua/lunette-plugin/                   typed plugin authoring facade and erased a
 lua/lunette-contracts/                neutral plugin service contracts
 lua/lunette-plugins/                  built-in plugin implementations
 lua/lunette-desktop/                  the shipped desktop's consumers and composition
-lua/mullion/                          optional Lua policy modules
 lua/spec/                             development-only Lua specifications
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
@@ -78,7 +77,7 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 - Fix a wrong declaration in the metadata or the generator, never in the calling code. Every workaround for a declaration that misdescribes LÖVR has changed behaviour: returning `true` from `lovr.quit` to satisfy its declared return vetoed the quit, and spelling an identity matrix out as sixteen numbers followed from an ambiguous constructor.
 - Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
-- Keep module responsibilities distinct. `lunette` is native mechanism; `mullion` is optional policy and helpers implemented in Lua. The plugin facade, contracts, providers, and the shipped desktop have separate roots. Do not add policy to the native API or expect native mechanism from `mullion`.
+- Keep module responsibilities distinct. `lunette` is native mechanism; policy is Lua, written as providers and consumers. The plugin facade, contracts, providers, and the shipped desktop have separate roots. Do not add policy to the native API or expect native mechanism from a provider. A helper lives beside what it describes, in a contract's vocabulary or a provider's pure module, not in a root of helpers.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
 - Every module is safe to `require` twice. The host retains the Lua state during source reload, shuts down plugin runtimes, clears subscriptions and user modules, starts a new plugin contract epoch, and runs each cleared module's body again when the new configuration requires it, so a module keeps no module-level state that a second run would duplicate. Resources a plugin acquires are effects of its context or of its caller's owner, and the plugin runtime releases them. There is no teardown registry: a module that retains native resources outside a plugin gets no cleanup from the host.
 - Never assume a handle survives a frame. Check `handle.dead` before use.
@@ -95,7 +94,7 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 
 ### The Luau static check
 
-`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, `lua/mullion`, the ordinary spec harness modules, the shipped configuration, and the configurations under `examples/` against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
+`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, the ordinary spec harness modules, the shipped configuration, and the configurations under `examples/` against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
 
 The checker is strict mode. `etc/lunette/definitions.luau` declares the LÖVR runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. Lua modules carry their own service and configuration types. The checker checks those local shapes but does not prove that a complete plugin graph is wired correctly; the plugin runtime validates declarations and providers separately.
 

@@ -14,8 +14,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::protocol::{
-    Command, ContentType, FramePacing, FrameRate, PixelSize, SinkId, SurfaceId, ToplevelStates,
-    WindowId, WindowSnapshot,
+    Command, ContentType, FramePacing, FrameRate, OutputId, PixelSize, SinkId, SurfaceId,
+    ToplevelStates, WindowId, WindowSnapshot,
 };
 use mlua::{LuaString, Value};
 
@@ -23,7 +23,7 @@ use crate::{
     control::wire::HandleKind,
     import::formats::Alpha,
     lua::{
-        LuaTexture, Session,
+        LuaTexture, Output, Session,
         declarations::{Textured, handle},
         pixel_size,
         sink::Sink,
@@ -98,14 +98,15 @@ impl<T> Window<T> {
 
 /// The latest cached value of each window field.
 ///
-/// The surface and the sink are optional for one case: a handle built for a
-/// window that no snapshot in reach describes. Everything else has a natural
-/// empty value; those two are identifiers, and inventing one would name a
-/// surface belonging to a different window.
+/// The surface, the sink, and the output are optional for one case: a handle
+/// built for a window that no snapshot in reach describes. Everything else has
+/// a natural empty value; those three are identifiers, and inventing one would
+/// name something belonging to a different window.
 #[derive(Clone, Debug, Default)]
 struct Known {
     surface: Option<SurfaceId>,
     sink: Option<SinkId>,
+    output: Option<OutputId>,
     title: Option<String>,
     app_id: Option<String>,
     size: PixelSize,
@@ -121,6 +122,7 @@ impl From<&WindowSnapshot> for Known {
         Self {
             surface: Some(window.surface),
             sink: Some(window.sink),
+            output: Some(window.output),
             title: window.title.clone(),
             app_id: window.app_id.clone(),
             size: window.size,
@@ -187,6 +189,17 @@ handle! {
         Ok(sink.map(|sink| Sink::window(Rc::clone(&this.session), sink)))
     }
 
+    /// The output the window's client is shown, whose scale and refresh rate
+    /// the client lays out against. Nil for a handle that has never seen its
+    /// window in a snapshot, and while the output is not in the snapshot.
+    field output(_lua, this) -> Option<Output<T>> { Ok(output(this)) }
+
+    /// Which buffer this window's pixels came from: a number that changes
+    /// whenever the client commits a new buffer, and zero while it has
+    /// committed none or is gone. Comparing it across frames tells whether the
+    /// client drew in between.
+    field commit(_lua, this) -> u64 { Ok(commit(this)) }
+
     /// This frame's pixels. False while the client is gone or has committed
     /// nothing. Textures rotate as the client cycles its buffers, so the
     /// texture does not carry across frames.
@@ -223,6 +236,44 @@ handle! {
     /// Every key this window is carrying, so what survived a reload can be
     /// discovered.
     method properties(lua, this) -> PropertyMap { properties(lua, this) }
+}
+
+/// `window.output`: the output the window's client is shown.
+///
+/// Read from the snapshot's assignment rather than from what the client was
+/// spawned with, because destroying an output moves its clients to the one
+/// every session starts with. A handle for an output the snapshot does not
+/// hold would report a mode nothing is showing, so the field is nil then.
+fn output<T>(window: &Window<T>) -> Option<Output<T>> {
+    window.refresh();
+    let id = window.known.borrow().output?;
+    let snapshot = window.session.snapshot();
+    snapshot
+        .outputs
+        .iter()
+        .find(|output| output.output == id)
+        .map(|output| Output::new(Rc::clone(&window.session), output))
+}
+
+/// `window.commit`: which buffer the window's texture was made from.
+///
+/// The ledger's commit counter is shared by every surface and never restarts,
+/// so a value is never repeated for a different buffer, and a caller that
+/// compares two readings learns whether a new buffer arrived between them.
+/// This is the observed commit rate frame pacing reads, which is what tells a
+/// video player that sets no content-type hint from an idle window.
+fn commit<T>(window: &Window<T>) -> u64 {
+    if !window.refresh() {
+        return 0;
+    }
+    let Some(surface) = window.known.borrow().surface else {
+        return 0;
+    };
+    window.session.with_textures(|textures| {
+        textures
+            .source(surface)
+            .map_or(0, |(_, commit)| commit.get())
+    })
 }
 
 /// `window:getTexture()`: the texture holding this frame's pixels.
@@ -337,7 +388,8 @@ fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> 
 /// client answered no frame callbacks at all stops pumping its event loop and
 /// stops answering input with it, so a rate below the floor is paced at the
 /// floor. `docs/dev/rendering.md` records why. Assigning a rate to a window is
-/// policy that belongs in `mullion`.
+/// policy, which the `@lunette-plugins/pacing` provider and the
+/// `desktop/pacing` consumer hold.
 ///
 /// `false` on a dead handle, like every other mutation here.
 ///

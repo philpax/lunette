@@ -1,6 +1,7 @@
--- Asserts that the mullion standard library is mounted at the requested root.
+-- Asserts that the file-backed module roots are mounted from the requested
+-- directory, through the plugin facade's root, `@lunette-plugin`.
 --
--- The host wraps LÖVR's `lovr.filesystem` loader so the standard library is
+-- The host wraps LÖVR's `lovr.filesystem` loader so the module roots are
 -- mounted between the module being created and `main.lua` running; see
 -- crates/lunette/src/boot.rs. Nothing else in the suite exercises that, and it
 -- is not observable from a Lua state a test builds, because the mount goes into
@@ -11,64 +12,65 @@
 -- arg[2]. Each failure quits with its own status, so the run reports which
 -- assertion did not hold. A shared status would not name the failed assertion.
 
--- Requires the standard library, and checks it is the copy the run meant.
+-- Requires the root module, and checks it is the copy the run meant.
 --
 -- The check is on the module's contents, not on the path it came from: physfs
 -- reports the mount point it was handed, and a test comparing paths would be
 -- asserting how a temporary directory was spelled, not which tree answered.
-local function loadMullion(marker)
-  local resolved, mullion = pcall(require, '@mullion')
+local function loadRoot(marker)
+  local resolved, root = pcall(require, '@lunette-plugin')
   if not resolved then
-    print(mullion)
+    print(root)
     return nil, 11
   end
 
-  if type(mullion) ~= 'table' then
+  if type(root) ~= 'table' then
     return nil, 12
   end
 
-  if marker and mullion[marker] ~= true then
+  if marker and root[marker] ~= true then
     print('the root module carries no ' .. marker .. ' field, so it is not the expected copy')
     return nil, 13
   end
 
-  return mullion, 9
+  return root, 9
 end
 
--- Asserts that nothing is mounted, which is the condition of an uninstalled
--- standard library. A session that needs none of it still has to boot, so this
--- absence is the supported case, not a failure.
+-- Asserts that nothing is mounted, which is the condition of a missing or
+-- broken installation. The session still has to boot, so safe mode can
+-- recover from it, and so a missing root is reported by `require` rather than
+-- by a failed boot.
 local function checkAbsent()
-  if pcall(require, '@mullion') then
+  if pcall(require, '@lunette-plugin') then
     return 16
   end
 
   return 9
 end
 
--- Asserts that a configuration cannot overwrite the standard library it runs
--- on. The write lands in the save directory, which is mounted behind the
--- standard library, so a fresh require still loads the original.
+-- Asserts that a configuration cannot overwrite a module root it runs on. The
+-- write lands in the save directory, which is mounted behind the module roots,
+-- so a fresh require still loads the original.
 local function checkReadOnly(marker)
-  local _, status = loadMullion(marker)
+  local _, status = loadRoot(marker)
   if status ~= 9 then
     return status
   end
 
-  lovr.filesystem.createDirectory('@mullion')
-  lovr.filesystem.write('@mullion/init.lua', 'return { overwritten = true }\n')
+  lovr.filesystem.createDirectory '@lunette-plugin'
+  lovr.filesystem.write('@lunette-plugin/init.lua', 'return { overwritten = true }\n')
 
   -- The dropped entry makes the require below resolve through the search path
   -- again, not through the cached table.
-  package.loaded['@mullion'] = nil
+  package.loaded['@lunette-plugin'] = nil
 
-  local reloaded, reloadedStatus = loadMullion(marker)
+  local reloaded, reloadedStatus = loadRoot(marker)
   if reloadedStatus ~= 9 then
     return reloadedStatus
   end
 
   if reloaded.overwritten then
-    print('the write reached the mounted standard library')
+    print 'the write reached the mounted module root'
     return 14
   end
 
@@ -80,7 +82,7 @@ function lovr.load()
 
   local status
   if mode == 'present' then
-    local _, result = loadMullion(marker)
+    local _, result = loadRoot(marker)
     status = result
   elseif mode == 'absent' then
     status = checkAbsent()

@@ -25,17 +25,19 @@ local walk
 -- The rest of the shipped roots are providers, contracts, and desktop
 -- consumers that the Rust integration tests under `crates/lunette/tests/`
 -- drive through the plugin runtime. The modules here are the ones with
--- behaviour a spec can reach without a runtime: the optional library, the
--- desktop's persistence, the shared vocabulary, the keyboard's default
--- rows, the pointer picking arithmetic, and a curved panel's geometry.
+-- behaviour a spec can reach without a runtime: the desktop's persistence,
+-- the shared vocabulary, the keyboard's default rows, the pointer picking
+-- arithmetic, a curved panel's geometry, and the frame pacing and output
+-- scale rules.
 tree.MODULE_ROOTS = {
-  '@mullion',
   '@lunette-desktop/persist',
   '@lunette-contracts/keys.lua',
   '@lunette-contracts/vocabulary.lua',
   '@lunette-plugins/keyboard/rows.lua',
   '@lunette-plugins/interaction/picking.lua',
   '@lunette-plugins/panels/shape.lua',
+  '@lunette-plugins/pacing/pacer.lua',
+  '@lunette-plugins/scale/chooser.lua',
 }
 tree.SPEC_ROOT = '@spec'
 
@@ -85,7 +87,7 @@ end
 
 -- The module name that `require` uses for a path.
 -- `@lunette-desktop/persist/init.lua` is `@lunette-desktop/persist`, and
--- `@mullion/scale.lua` is `@mullion/scale`.
+-- `@lunette-plugins/scale/chooser.lua` is `@lunette-plugins/scale/chooser`.
 function tree.moduleName(path)
   return path:gsub('%.lua$', ''):gsub('/init$', '')
 end

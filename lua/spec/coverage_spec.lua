@@ -23,13 +23,6 @@ local spec = suite.new 'spec.coverage'
 -- Keyed by the module's path without its leading `@`, matching the tree's
 -- module paths. A module's specs sit under `@spec/` at the module's own path.
 local COVERAGE = {
-  -- The root module holds no state, registers nothing, and returns an empty
-  -- table. There is no behaviour for a spec to assert beyond requiring it,
-  -- and `crates/lunette/tests/standard_library.rs` requires it from a real
-  -- session to check the mount.
-  ['mullion/init.lua'] = false,
-  ['mullion/pacing.lua'] = 'mullion/pacing_spec.lua',
-  ['mullion/scale.lua'] = 'mullion/scale_spec.lua',
   ['lunette-desktop/persist/format.lua'] = 'lunette-desktop/persist/format_spec.lua',
   -- Split along the module's own seam: one half is arrangements and panels, the
   -- other is the file on disk.
@@ -46,6 +39,8 @@ local COVERAGE = {
   ['lunette-plugins/keyboard/rows.lua'] = 'lunette-plugins/keyboard/rows_spec.lua',
   ['lunette-plugins/interaction/picking.lua'] = 'lunette-plugins/interaction/picking_spec.lua',
   ['lunette-plugins/panels/shape.lua'] = 'lunette-plugins/panels/shape_spec.lua',
+  ['lunette-plugins/pacing/pacer.lua'] = 'lunette-plugins/pacing/pacer_spec.lua',
+  ['lunette-plugins/scale/chooser.lua'] = 'lunette-plugins/scale/chooser_spec.lua',
 }
 
 -- The specs that cover the suite itself. The check below does not require a

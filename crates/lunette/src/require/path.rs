@@ -25,7 +25,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Requirer<'a> {
     /// A chunk loaded from a file, named by its path in the virtual
-    /// filesystem, such as `nested/a.lua` or `@mullion/scale.lua`.
+    /// filesystem, such as `nested/a.lua` or `@lunette-contracts/scale.lua`.
     File(&'a str),
     /// A chunk with no file, such as one `lunctl eval` sends. It resolves as a
     /// module at the configuration root would, as a REPL resolves against its
@@ -48,7 +48,7 @@ impl<'a> Requirer<'a> {
 /// Resolves `path` as `requirer` requires it.
 ///
 /// Answers `None` for a path that is not relative, such as an alias
-/// (`@mullion/scale`), which the session's loader resolves as it stands.
+/// (`@lunette-contracts/scale`), which the session's loader resolves as it stands.
 ///
 /// # Errors
 ///
@@ -244,7 +244,11 @@ mod tests {
             // Self in any other file is the module's own path.
             ("@nested/a.lua", "@self/b", "nested/a/b"),
             // A mounted root resolves within itself.
-            ("@@mullion/scale.lua", "./pacing", "@mullion/pacing"),
+            (
+                "@@lunette-contracts/scale.lua",
+                "./pacing",
+                "@lunette-contracts/pacing",
+            ),
             (
                 "@@lunette-plugins/keyboard/init.lua",
                 "@self/draw",
@@ -268,7 +272,7 @@ mod tests {
 
     #[test]
     fn other_paths_are_left_to_the_loader() {
-        for path in ["@mullion/scale", "main", "@selfish/x"] {
+        for path in ["@lunette-contracts/scale", "main", "@selfish/x"] {
             assert_eq!(resolved("@nested/a.lua", path), Ok(None), "{path}");
         }
     }
@@ -277,10 +281,22 @@ mod tests {
     fn unrepresentable_paths_are_errors() {
         let cases = [
             ("@main.lua", "../x", ResolveErrorKind::Escapes),
-            ("@@mullion/scale.lua", "../x", ResolveErrorKind::Escapes),
-            ("@@mullion/init.lua", "./x", ResolveErrorKind::Escapes),
+            (
+                "@@lunette-contracts/scale.lua",
+                "../x",
+                ResolveErrorKind::Escapes,
+            ),
+            (
+                "@@lunette-contracts/init.lua",
+                "./x",
+                ResolveErrorKind::Escapes,
+            ),
             ("@nested/a.lua", "../", ResolveErrorKind::NamesRoot),
-            ("@@mullion/a.lua", "./", ResolveErrorKind::NamesRoot),
+            (
+                "@@lunette-contracts/a.lua",
+                "./",
+                ResolveErrorKind::NamesRoot,
+            ),
             (
                 "@nested/a.lua",
                 "./my.module",

@@ -3,15 +3,15 @@
 ## Two roots
 
 ```lua
-local lunette = require '@lunette'  -- native mechanism.
-local mullion = require '@mullion'  -- the Lua standard library, optional.
+local lunette = require '@lunette'        -- native mechanism.
+local plugin = require '@lunette-plugin'  -- the plugin facade, written in Lua.
 ```
 
-The roots have separate responsibilities. `lunette` exposes native mechanism for surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. `mullion` contains optional Lua policy modules. The plugin facade, its neutral contracts, the built-in plugin providers, and the desktop that composes them have separate roots under `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`.
+The two have separate responsibilities. `lunette` exposes native mechanism for surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. Policy is Lua: the plugin facade, its neutral contracts, the built-in plugin providers, and the desktop that composes them have separate roots under `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`.
 
-The plugin facade does not replace either root. It provides lifecycle and service wiring for typed Lua components. The native `lunette` API remains usable without `mullion` or the plugin providers. `mullion` uses public APIs and contracts; it does not access private native state.
+The plugin facade does not replace the native root. It provides lifecycle and service wiring for typed Lua components. The native `lunette` API remains usable without the plugin providers. The Lua roots use public APIs and contracts; they do not access private native state.
 
-Module aliases and their runtime resolution are defined in [Module roots](build-and-development.md#module-roots) and `crates/lunette/src/aliases.rs`. A relative require, `./`, `../`, or `@self`, resolves against the requiring file by Luau's rules, in a session as in the checker; [Module roots](stdlib.md#module-roots) states the rules. `@lunette` is registered in `package.preload`. The plugin and standard-library roots are mounted from files. The runtime and static checker run in separate processes. Starting lunette does not run the static checker.
+Module aliases and their runtime resolution are defined in [Module roots](build-and-development.md#module-roots) and `crates/lunette/src/aliases.rs`. A relative require, `./`, `../`, or `@self`, resolves against the requiring file by Luau's rules, in a session as in the checker; [Module roots](stdlib.md#module-roots) states the rules. `@lunette` is registered in `package.preload`. The plugin, contract, provider, and desktop roots are mounted from files. The runtime and static checker run in separate processes. Starting lunette does not run the static checker.
 
 ## The config
 
@@ -19,7 +19,7 @@ Module aliases and their runtime resolution are defined in [Module roots](build-
 
 If this file does not exist, `$SYSCONFDIR/xdg/lunette/main.lua` is used directly. This matches awesome's approach, and avoids stale copies of a configuration the user never edited. `lunette --dump-config` produces a copy for the user to start editing.
 
-A configuration that never mentions `mullion` is supported. The shipped configuration runs the `@lunette-desktop` composition of built-in providers and desktop consumers, and none of them requires `mullion`: pose encoding and the key vocabulary are in `@lunette-contracts`, and arrangement persistence is `@lunette-desktop/persist`.
+The shipped configuration runs the `@lunette-desktop` composition of built-in providers and desktop consumers. A configuration that uses `lunette` alone, or only some of the providers, is supported.
 
 ## Plugin authoring
 
@@ -120,7 +120,7 @@ plugin.define {
 }
 ```
 
-A wrapper changes only what reaches the service from outside. A built-in calls its own methods through closures rather than through `self`, so a wrapper that replaces `matches` on the rules provider does not change what the rule lists `setRules` registers match, and a wrapper of a returned laser does not change what the provider draws. Variation inside a provider is a hook. A hook is an option whose value is a function, and it follows the around convention: it receives its arguments followed by the default implementation, `hook(args..., base)`, and calls `base` to keep the default behaviour, as in `drawKey = function(pass, key, state, base) base(pass, key, state) end`. A hook is plain data, frozen at build time like every other option. Its default is a function that calls `base`, so option validation checks that a hook is given a function. A hook runs on the stack of whatever reached the provider: the keyboard's `onKey` runs inside the pointer update that pressed the key, and `drawKey` inside the owner's draw, so an error a hook raises is reported where theirs would be. The built-in hooks are the keyboard's `onKey` and `drawKey`, which [Keyboard](#keyboard) states; the interaction provider's `drive` and `constrain`, which [Pointers and interaction](#pointers-and-interaction) states; the laser's `readInput` and `draw`, which [Lasers](#lasers) states; the panels provider's `shape.raycast`, `shape.draw`, and `shape.applyLayer`, which [Panels](#panels) states; and the placement provider's `panelOptions`, which [Rules and placement](#rules-and-placement) states.
+A wrapper changes only what reaches the service from outside. A built-in calls its own methods through closures rather than through `self`, so a wrapper that replaces `matches` on the rules provider does not change what the rule lists `setRules` registers match, and a wrapper of a returned laser does not change what the provider draws. Variation inside a provider is a hook. A hook is an option whose value is a function, and it follows the around convention: it receives its arguments followed by the default implementation, `hook(args..., base)`, and calls `base` to keep the default behaviour, as in `drawKey = function(pass, key, state, base) base(pass, key, state) end`. A hook is plain data, frozen at build time like every other option. Its default is a function that calls `base`, so option validation checks that a hook is given a function. A hook runs on the stack of whatever reached the provider: the keyboard's `onKey` runs inside the pointer update that pressed the key, and `drawKey` inside the owner's draw, so an error a hook raises is reported where theirs would be. The built-in hooks are the keyboard's `onKey` and `drawKey`, which [Keyboard](#keyboard) states; the interaction provider's `drive` and `constrain`, which [Pointers and interaction](#pointers-and-interaction) states; the laser's `readInput` and `draw`, which [Lasers](#lasers) states; the panels provider's `shape.raycast`, `shape.draw`, and `shape.applyLayer`, which [Panels](#panels) states; the placement provider's `panelOptions`, which [Rules and placement](#rules-and-placement) states; and the pacing provider's `choose` and the scale provider's `ideal`, which [Frame pacing and output scale](#frame-pacing-and-output-scale) states.
 
 `plugin.provider<<Config, Settings, Service>> { name, capability, requires, defaults, validate, build }` makes such a module from a builder and its defaults; the built-in providers use it, and a user's provider can. `validate` is optional: it receives the resolved options and the definition's name each time they are resolved, at `define` and at every activation, and raises for what the defaults cannot describe, such as an entry of a list. The keyboard validates its rows with it. `defaults` names every option with its default value, and is what validation reads: a configuration that names an option the defaults do not, at any depth, raises `plugin <name>: unknown option <path>; the options are ...`, and one that gives an option a value of another type than its default raises `plugin <name>: option <path> is a <type>, not a <type>`. `define` raises at its call. A configuration given to a definition is checked as the instance activates, so the error fails that activation and is reported, and the rest of the graph is unaffected. A provider with a closed set of values checks membership itself: the laser rejects a `buttons` entry whose control is not a controller button or whose button is not a pointer button. Every option has a default, so an option that is absent by default needs a value that stands for absence.
 
@@ -302,6 +302,33 @@ The `lunette/errors` contract is the session's error reports, rate-limited, whic
 
 A presenter is any plugin that subscribes. The shipped `desktop/errors` draws the latest report on a quad over the scene, and `examples/desktop/notify-errors.lua` sends each as a desktop notification through `lunette.spawn`; several presenters run side by side.
 
+### Frame pacing and output scale
+
+How often each window's client draws and what scale each output's clients render at are policy over `window:setFrameRate` and `output:setMode`. Each is a contract that hands out a pure chooser, and a desktop entry that reads the scene and applies what the choosers answer, so a different rule and a different reading of the scene are replaced separately.
+
+```lua
+local pacer = pacing:newPacer()
+local rate, changed = pacer:observe { visible = false, contentType = window.contentType, drew = true }
+pacer:current()             -- the latest rate, nil for unthrottled.
+pacer:isExempt('video')     -- whether this hint, or the pacer's history, exempts the window.
+pacer:reset()
+
+local chooser = scale:newChooser()
+local step, moved = chooser:choose(0.8)   -- the scale for a panel 0.8 metres away.
+chooser:current()
+chooser:reset()
+```
+
+`lunette/pacing` hands out a pacer per window. `observe` records one frame's `{ visible, contentType, drew }` and answers the rate in hertz, or nil for unthrottled, and whether it differs from the previous answer. `visible` is required. `drew` is whether the client committed a new buffer since the previous observation, and an observation without it adds no sample to the history, so a caller that cannot tell says nothing rather than reporting a quiet frame. A window is exempt when its content type is one the tuning exempts or when at least the `busy` fraction of the recent samples carried a commit; an exempt window out of view is paced at the `exempt` rate, any other window out of view at the `background` rate, and a window in view is unthrottled. A pacer with no samples is not busy, so a new window is judged on its hint alone.
+
+The built-in `@lunette-plugins/pacing` provider's options are `tuning`, with `background`, default 1 Hz, the native floor; `exempt`, default 30 Hz; `history`, the samples kept, default 90; `busy`, default one half; and `exemptTypes`, a flag for each of `none`, `photo`, `video`, and `game`, by default `video` and `game`; and `choose(pacer, observation, base)`, an around hook whose `base` is the rule above. A rule answers nil or a finite rate above zero, and anything else raises from `observe`. `@lunette-plugins/pacing/pacer` is the pure rule, `pacer.new { tuning, choose }` and `pacer.rule(tuning)`.
+
+`lunette/scale` hands out a chooser per output. `choose(distance)` answers the scale for the nearest panel the output's clients are shown on, `distance` metres away, and whether it differs from the previous answer. The scale is a rung of `lunette.scaleSteps()`. The first choice takes the largest rung no greater than the ideal scale; after it, the chooser climbs a rung only when the ideal passes that rung by the `raise` fraction and gives one back only when the ideal falls below the current rung by the `lower` fraction, as many rungs as the ideal has moved, so an ideal inside the band around a rung changes nothing. A distance that is not a number raises.
+
+The built-in `@lunette-plugins/scale` provider's options are `tuning`, with `reference`, the distance at which the ideal scale is 1, default one metre; `raise`, default 0.06; `lower`, default 0.12; and `nearest`, the closest a panel is treated as being, default 0.05 metres; and `ideal(distance, base)`, an around hook whose `base` is `reference / max(distance, nearest)`. An ideal that is not a number above zero raises from `choose`. The ladder is not an option, because a second ladder would make a raised panel ask the layer pool for a rung it does not hold. `@lunette-plugins/scale/chooser` is the pure rule, `chooser.new { steps, tuning, ideal }` and `chooser.ideal(tuning)`.
+
+Neither provider requires a contract or holds a resource, and a pacer or chooser is released with the last reference to it. The `desktop/pacing` and `desktop/scale` entries apply them each frame, and [Default configuration](stdlib.md#default-configuration) states what each reads, what a monitor panel does, and what unloading undoes.
+
 ## Events
 
 The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. A listener subscribes through the module and is answered with the function that cancels it:
@@ -342,6 +369,8 @@ print(win.appId)             -- the client's application identifier.
 print(win.width, win.height) -- the surface's size in pixels.
 print(win.opaque)            -- true when the buffer's fourth component is padding, not alpha.
 print(win.contentType)       -- 'none', 'photo', 'video', or 'game': what the client says it draws.
+print(win.output)            -- the output the client is shown, or nil.
+print(win.commit)            -- changes whenever the client commits a new buffer; 0 before the first.
 win:resize(1920, 1080)       -- a configure request; the client may ignore it.
 win:setFrameRate(10)         -- how often this client is let draw; nil for unthrottled.
 win:close()                  -- a close request, not a kill; watch for lunette.onWindowClosed.
@@ -360,15 +389,19 @@ Both return `false` on a dead handle, without raising. Both are requests, so nei
 
 `win:setFrameRate(hz)` sets how often the compositor answers this window's frame callbacks, which is how often its client draws. `nil` returns it to unthrottled, which is where every window starts; throttling is asked for rather than imposed. The rate is a finite number of hertz above zero, and a value that is not raises.
 
-The rate is a ceiling with a floor under it. A rate below approximately 1 Hz is paced at 1 Hz rather than honoured, because a client answered no frame callbacks stops pumping its event loop and stops answering input with it — the difference between a panel that is cheap and one that appears hung. [Rendering](rendering.md#frame-pacing) states the rest. Which window deserves which rate is policy and belongs in `mullion`; this is the mechanism it is built on.
+The rate is a ceiling with a floor under it. A rate below approximately 1 Hz is paced at 1 Hz rather than honoured, because a client answered no frame callbacks stops pumping its event loop and stops answering input with it — the difference between a panel that is cheap and one that appears hung. [Rendering](rendering.md#frame-pacing) states the rest. Which window deserves which rate is policy, which the pacing provider and `desktop/pacing` hold ([Frame pacing and output scale](#frame-pacing-and-output-scale)); this is the mechanism it is built on.
 
 `win:stabilize()` is described in [Rendering](rendering.md#windowstabilize).
 
 `win.opaque` reports that the window's current buffer has no alpha channel, so its fourth component is padding a caller forces to one rather than sampling. It is a property of the buffer and changes when the client renegotiates its format, so it is read each frame alongside the texture. [Rendering](rendering.md#alpha) states what a consumer does with it, and why premultiplied blending is the other half of the same subject.
 
-`win.contentType` is `wp_content_type_v1`, and is a hint rather than a fact. The protocol has no events and no way to ask, and adoption is thin and uneven: a client playing video commonly reports `'none'`, and one reporting `'video'` may be paused on a still frame. It is reported rather than acted on, and `mullion.pacing` combines it with an observed commit rate to decide what is exempt from throttling. A configuration that wants a different rule has both halves.
+`win.contentType` is `wp_content_type_v1`, and is a hint rather than a fact. The protocol has no events and no way to ask, and adoption is thin and uneven: a client playing video commonly reports `'none'`, and one reporting `'video'` may be paused on a still frame. It is reported rather than acted on, and the pacing provider's pacer combines it with an observed commit rate, read from `win.commit`, to decide what is exempt from throttling. A configuration that wants a different rule has both halves.
 
-`win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
+`win.commit` names the buffer the window's pixels came from. It is a number that changes whenever the client commits a new buffer, taken from a counter every surface shares and that never restarts, so a value is never repeated for a different buffer; it is 0 before the client's first buffer and once the window is gone. A caller that reads it each frame learns whether the client drew in between, which is the observed commit rate pacing needs.
+
+`win.output` is the output the window's client is shown, the one whose scale and refresh rate it lays out against: the output it was spawned with, or the one every session starts with. It is read from the frame's snapshot, so a client whose output was destroyed reports the starting output it was moved to. It is nil for a handle that has never seen its window in a snapshot.
+
+`win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and the standard library reaches for nothing the public API does not expose.
 
 ## Per-window properties
 
@@ -421,9 +454,9 @@ end
 
 Refresh is advertisement, not pacing. It is what a client reads off `wl_output.mode` and reasons about; how often the compositor actually answers a surface's frame callbacks is `window:setFrameRate`, which is separate.
 
-`output:setMode` keeps the fields it was not given, so `setMode{ scale = 2 }` changes the scale alone. Clients reallocate their buffers and re-lay-out in response, and some — GTK in particular — do it aggressively, so a configuration that adjusts this continuously will see them struggle. `mullion` moves between discrete steps with hysteresis for that reason.
+`output:setMode` keeps the fields it was not given, so `setMode{ scale = 2 }` changes the scale alone. Clients reallocate their buffers and re-lay-out in response, and some — GTK in particular — do it aggressively, so a configuration that adjusts this continuously will see them struggle. The scale provider moves between discrete steps with hysteresis for that reason.
 
-`lunette.scaleSteps()` answers with the scale ladder, ascending, as plain numbers. It is the same ladder a claimed layer's requested size is quantised against ([Rendering](rendering.md#the-layer-pool)), and it is one ladder rather than two so that raising a panel's scale asks the pool for a rung the free list already holds instead of forcing an allocation. Each call returns its own table, so writing into what one call handed back does not change what the next reads. `mullion.scale` moves along it with hysteresis; a configuration that wants different steps is choosing among these, not adding to them.
+`lunette.scaleSteps()` answers with the scale ladder, ascending, as plain numbers. It is the same ladder a claimed layer's requested size is quantised against ([Rendering](rendering.md#the-layer-pool)), and it is one ladder rather than two so that raising a panel's scale asks the pool for a rung the free list already holds instead of forcing an allocation. Each call returns its own table, so writing into what one call handed back does not change what the next reads. The scale provider's choosers move along it with hysteresis; a configuration that wants different steps is choosing among these, not adding to them.
 
 `lunette.spawn{ output = out }` is how a client is assigned one, and it takes an output handle rather than an identifier so that a number in range cannot be mistaken for one. The assignment is made at spawn and lasts the client's life; there is no way to move a running client to another output, because the filter is only consulted when a client reads the registry or binds, so a change would have to withdraw the global and create a new one — which the client experiences as a monitor unplugged and replugged. Changing the mode of the output a client is already on is the supported operation.
 
@@ -606,7 +639,7 @@ Skipping means `lovr.draw` is not called and the projection layer is left out of
 
 A change takes effect at the next frame boundary rather than immediately, because the frame's layer list has already been submitted with the answer the frame started with. A configuration therefore sets this from `lovr.update` and reads the effect on the frame after.
 
-Deciding is the configuration's, and lunette has no way to check. Everything drawn in `lovr.draw` is the configuration's own: a panel that holds no layer, a panel's chrome, a laser, an error panel, or anything else it draws. Turning the scene off while still drawing means the drawing does not happen, and the value defaults to on so that a configuration that never mentions it behaves as it always did. `mullion` does not set it, and the shipped configuration does not either: it draws chrome around every panel and a laser for every hand, so its scene is never empty.
+Deciding is the configuration's, and lunette has no way to check. Everything drawn in `lovr.draw` is the configuration's own: a panel that holds no layer, a panel's chrome, a laser, an error panel, or anything else it draws. Turning the scene off while still drawing means the drawing does not happen, and the value defaults to on so that a configuration that never mentions it behaves as it always did. No built-in provider or consumer sets it, and the shipped configuration does not either: it draws chrome around every panel and a laser for every hand, so its scene is never empty.
 
 ## Reload
 
@@ -656,7 +689,7 @@ The native layer owns exactly one failure path: if `main.lua` fails to load, saf
 
 The trigger is a wrapper around `lovr.boot`, installed after `boot.lua`'s chunk has run and before its coroutine is first resumed. `lovr.boot` is the function whose failure means the configuration did not start: a source that will not mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, and an error at the top level of `main.lua` all raise inside it. So does a `lovr.load` that raises, because `lovr.boot` ends with `return lovr.run()` and `lovr.run` calls `lovr.load` before it returns the frame loop. That is intended: `lovr.load` is where a configuration builds the state its later callbacks assume, and a session whose `lovr.load` raised halfway is not one those callbacks can run in. Everything after `lovr.load` happens once the frame loop has been returned, and goes to the boundaries above instead. `lovr.errhand` would be the wrong hook, because it is reached by every error that escaped a callback boundary and because it belongs to the configuration. Safe mode replaces the callbacks a half-run `main.lua` installed, so a configuration that raised partway through does not keep running alongside it, and the load error is shown on the panel rather than only logged.
 
-Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never `mullion`, since a broken standard library is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](#decisions) below records why the duplication is deliberate.
+Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never a mounted module root, since a broken installation is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](#decisions) below records why the duplication is deliberate.
 
 ## lunctl
 
@@ -672,8 +705,6 @@ $ lunctl "return require('@lunette-contracts/vocabulary').encodePose(lovr.math.n
 ```
 
 A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and a module name is tried as written and then under the `@` root the session registers it at, so `lunette` finds `@lunette`. Only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
-
-`mullion`'s submodules are not reachable through the root, here or anywhere. The root deliberately re-exports nothing, so `mullion.scale` is `nil` and the submodule is required by its own path.
 
 This is the most significant inheritance from awesome, more significant than any layout algorithm. awesome's design allows the whole window manager to be inspected and mutated from a shell prompt while it runs, which is a substantial part of its usability. `lunctl` also serves as the end-to-end test harness: it spawns a client, evaluates assertions, and tears down.
 
@@ -719,7 +750,7 @@ The plugin types cover each service, configuration, and capability use locally. 
 
 Per-window state lives in a native store as well as in `win.userdata`, and the two have different lifetimes. `userdata` is a Lua value on a Lua handle. Source reload retains the Lua state but clears configuration modules and callbacks, so configuration locals are recreated while globals and protected modules remain. The native property store survives source reload because it is outside the Lua state. It holds values a configuration cannot derive from its rules, such as a pose or size placed by hand. The store holds a number, a string, or a boolean and refuses a table; a caller that needs structure encodes it as a string. The alternative considered was preserving `userdata` by serialising it during reload. That would fail on functions, coroutines, and handles or silently drop them. Entries are keyed by `WindowId` and last as long as the window. Source reload and hard restart leave the compositor thread running, so the identifier remains valid across both. Persistence to disk is outside the native store's contract.
 
-Safe mode is a Lua chunk compiled into the binary, not a file installed beside the default configuration. It exists for the moment `main.lua` fails to load, and a broken standard library, a missing install, or a `LUNETTE_STDLIB_PATH` pointing at nothing is one of the reasons it might have — so a fallback that read anything off disk would be unavailable in a fair share of the cases it exists for. It therefore requires `lunette` and nothing else, never `mullion`, and does its own ray-plane solve for one fixed axis-aligned panel rather than reaching for the panels provider. That duplicates a little of the shipped configuration, which is the price of always working, and both sites say so, so neither is later simplified by pointing at the other. `crates/lunette/src/safe_mode.lua` is the chunk and `safe_mode.rs` embeds it with `include_str!`, so it stays a Lua file that an editor highlights and a diff can be read against the shipped desktop in `lua/lunette-desktop/`. The alternative considered was installing it as a third file under `$SYSCONFDIR`, which reads better and fails in exactly the case the feature is for.
+Safe mode is a Lua chunk compiled into the binary, not a file installed beside the default configuration. It exists for the moment `main.lua` fails to load, and a broken standard library, a missing install, or a `LUNETTE_STDLIB_PATH` pointing at nothing is one of the reasons it might have — so a fallback that read anything off disk would be unavailable in a fair share of the cases it exists for. It therefore requires `lunette` and nothing else, no mounted module root, and does its own ray-plane solve for one fixed axis-aligned panel rather than reaching for the panels provider. That duplicates a little of the shipped configuration, which is the price of always working, and both sites say so, so neither is later simplified by pointing at the other. `crates/lunette/src/safe_mode.lua` is the chunk and `safe_mode.rs` embeds it with `include_str!`, so it stays a Lua file that an editor highlights and a diff can be read against the shipped desktop in `lua/lunette-desktop/`. The alternative considered was installing it as a third file under `$SYSCONFDIR`, which reads better and fails in exactly the case the feature is for.
 
 ### The lunctl time budget is best-effort
 
@@ -938,6 +969,14 @@ Nothing announced a change to a tag, so a workspace consumer could only poll, an
 ### The error stream is a provider, and presenters are consumers
 
 The error display bundled the subscription, the limiter, the formatting, and a quad at a fixed point, and its contract carried the quad's position and size, which a toast or a notification would have had to fake. `lunette/errors` keeps what every presenter shares, the subscription, the limiter, and a bounded history, and a presenter is any plugin that subscribes, so several coexist and a configuration chooses them by entry. A broker of named presenters was considered; subscription already composes several, and a name would add nothing a composition entry does not already give. Reports raised while subscribers run are kept and not delivered, because a presenter that raises on every report would otherwise report its own error to itself for as long as the limiter let it.
+
+### Pacing and scale hand out choosers
+
+The contracts answer a pacer per window and a chooser per output rather than a rate for a window or a scale for an output, because a rule with hysteresis or a history needs state per window or output, and a service holding that state would have to be told when each window and output ends. A pacer and a chooser are plain objects their caller keeps and drops, so they are not owner-scoped, and the provider holds nothing. A service that applied rates itself was rejected: reading the scene is a separate choice from the rule, and a configuration that paces by gaze replaces the consumer and keeps the rule.
+
+### A window names its output and its latest commit
+
+Scaling an output by its nearest panel needs to know which output a window's client is shown, and the snapshot carried it without Lua being able to read it; pacing by an observed commit rate needs to know whether the client drew, and nothing answered that either. Both are mechanism, so they are fields of the window handle, `window.output` and `window.commit`, rather than something a provider infers. Comparing textures from `getTexture` across frames was considered for the commit and rejected: a texture is valid for one frame, and a client that alternates two buffers hands back a texture that was seen before. `commit` is the texture ledger's shared counter, which never repeats a value for a different buffer, and is 0 rather than nil before the first buffer so that a comparison needs no nil case.
 
 ## Known gaps
 

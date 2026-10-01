@@ -160,8 +160,8 @@ pub(crate) fn outputs<T: LuaTexture>(
 /// `output:setMode{ … }`: changes the mode, keeping the fields not named.
 ///
 /// Clients reallocate and re-lay-out in response. A caller that changes the
-/// mode continuously makes clients do so continuously. `mullion` moves between
-/// discrete steps with hysteresis because of that.
+/// mode continuously makes clients do so continuously. The `@lunette-plugins/scale`
+/// provider moves between discrete steps with hysteresis because of that.
 fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> mlua::Result<bool> {
     let current = *output.mode.borrow();
     let mode = read_mode(options.table(), Some(current))?;

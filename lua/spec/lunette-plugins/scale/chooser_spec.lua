@@ -1,4 +1,4 @@
--- Covers lua/mullion/scale.lua.
+-- Covers lua/lunette-plugins/scale/chooser.lua.
 --
 -- The module is pure, so each case passes numbers to a chooser and reads the
 -- returned scale. The cases assert the hysteresis: a distance approaching a
@@ -10,9 +10,9 @@ local expect = require '@spec/expect'
 local suite = require '@spec/suite'
 
 local lunette = require '@lunette'
-local scale = require '@mullion/scale'
+local scale = require '@lunette-plugins/scale/chooser'
 
-local spec = suite.new 'mullion.scale'
+local spec = suite.new 'lunette-plugins.scale.chooser'
 
 -- A ladder with round rungs keeps the arithmetic between a named distance and
 -- a named rung readable. The default ladder is exercised separately.
@@ -25,9 +25,10 @@ local TUNING = { reference = 1, raise = 0.1, lower = 0.2, nearest = 0.05 }
 
 local function chooser(options)
   options = options or {}
-  return scale.newChooser {
+  return scale.new {
     steps = options.steps or LADDER,
     tuning = options.tuning or TUNING,
+    ideal = options.ideal,
   }
 end
 
@@ -174,30 +175,46 @@ spec('a walk that only recedes never raises the step', function()
   end
 end)
 
-spec('the default ladder is the one the native layer publishes', function()
+spec('a chooser on the published ladder clamps to its ends', function()
   local published = lunette.scaleSteps()
-
-  expect.equal(#scale.STEPS, #published, 'the number of rungs')
-  for index = 1, #published do
-    expect.equal(scale.STEPS[index], published[index], 'rung ' .. index)
-  end
-end)
-
-spec('a chooser given no ladder uses the default one', function()
-  local picked = scale.newChooser()
+  local picked = chooser { steps = published }
 
   -- The bottom of the published ladder is 1. A far panel produces an ideal
-  -- below that, and the step clamps to 1.
-  expect.equal(picked:choose(1000), scale.STEPS[1], 'the step for a very distant panel')
-  expect.equal(picked:choose(0.01), scale.STEPS[#scale.STEPS], 'the step for a very near one')
+  -- below that, and the step clamps to it.
+  expect.equal(picked:choose(1000), published[1], 'the step for a very distant panel')
+  expect.equal(picked:choose(0.01), published[#published], 'the step for a very near one')
+end)
+
+spec('an ideal replaces the default and the ladder still applies', function()
+  -- Twice the default ideal: a panel at one metre wants scale 2.
+  local picked = chooser {
+    ideal = function(distance)
+      return 2 * scale.ideal(TUNING)(distance)
+    end,
+  }
+
+  expect.equal(picked:choose(1), 2, 'the step for twice the ideal at a metre')
+  expect.equal(picked:choose(0.01), 4, 'the step clamps to the ladder')
+end)
+
+spec('an ideal that is not a positive number is refused', function()
+  for _, bad in ipairs { 0, -1, 'sharp', 0 / 0 } do
+    expect.raises(function()
+      chooser({
+        ideal = function()
+          return bad
+        end,
+      }):choose(1)
+    end, 'ideal scale', 'an ideal of ' .. tostring(bad))
+  end
 end)
 
 spec('a ladder that is not one is refused', function()
   expect.raises(function()
-    scale.newChooser { steps = {} }
+    scale.new { steps = {}, tuning = TUNING }
   end, 'ladder', 'an empty ladder')
   expect.raises(function()
-    scale.newChooser { steps = 3 }
+    scale.new { steps = 3, tuning = TUNING }
   end, 'ladder', 'a ladder that is not a table')
 end)
 

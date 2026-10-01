@@ -204,6 +204,45 @@ local rejections = {
     config = { programs = 'foot' },
     message = 'plugin desktop/demo-terminal: option programs is a table, not a string',
   },
+  {
+    id = 'pacing',
+    config = { tuning = { exemptTypes = { movie = true } } },
+    message = 'plugin pacing: unknown option tuning.exemptTypes.movie',
+  },
+  {
+    id = 'pacing',
+    config = { tuning = { background = 0 } },
+    message = 'plugin pacing: option tuning.background is a rate in hertz above zero, not 0',
+  },
+  {
+    id = 'pacing',
+    config = { tuning = { history = 0.5 } },
+    message = 'plugin pacing: option tuning.history is a whole number of at least 1, not 0.5',
+  },
+  {
+    id = 'pacing',
+    config = { tuning = { busy = 2 } },
+    message = 'plugin pacing: option tuning.busy is a fraction above 0 and at most 1, not 2',
+  },
+  { id = 'pacing', config = { choose = 30 }, message = 'plugin pacing: option choose is a function, not a number' },
+  { id = 'scale', config = { steps = { 1, 2 } }, message = 'plugin scale: unknown option steps' },
+  {
+    id = 'scale',
+    config = { tuning = { lower = 1 } },
+    message = 'plugin scale: option tuning.lower is a fraction of at least 0 and below 1, not 1',
+  },
+  {
+    id = 'scale',
+    config = { tuning = { reference = -1 } },
+    message = 'plugin scale: option tuning.reference is a distance in metres above zero, not -1',
+  },
+  { id = 'scale', config = { ideal = 2 }, message = 'plugin scale: option ideal is a function, not a number' },
+  {
+    id = 'desktop/pacing',
+    config = { pauseMonitors = 'yes' },
+    message = 'plugin desktop/pacing: option pauseMonitors is a boolean, not a string',
+  },
+  { id = 'desktop/scale', config = { bogus = 1 }, message = 'plugin desktop/scale: unknown option bogus' },
 }
 for _, case in ipairs(rejections) do
   local running = desktop.start(desktop.compose { patches = { { id = case.id, config = case.config } } })

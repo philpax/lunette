@@ -497,6 +497,17 @@ keys:register(context, {
 
 A format of your own is a `{ read, render }` pair; [Default configuration](../dev/stdlib.md#default-configuration) states what `read` answers so that a file written by a newer version is left alone rather than overwritten.
 
+## Frame rates and sharpness
+
+The desktop paces and scales windows by default. `desktop/pacing` lets a hidden panel's window draw about once a second, unless it is playing video or a game, and `desktop/scale` raises an output's scale as you lean toward the nearest panel on it, in steps, so a client re-lays-out only when it crosses one. The rules are the `pacing` and `scale` providers, and their numbers are configuration:
+
+```lua
+desktop.configure.pacing { tuning = { background = 5, exemptTypes = { photo = true } } },
+desktop.configure.scale { tuning = { reference = 0.8 } },
+```
+
+Each provider takes a hook around its rule. `choose(pacer, observation, base)` answers a window's rate, so a hook that caps panels in view at 60 Hz answers 60 when `observation.visible` is true and calls `base` otherwise; `ideal(distance, base)` answers the scale a panel at that distance wants, before the steps apply. A rule of your own entirely is a plugin that provides `lunette/pacing` or `lunette/scale`, put in the entry's place with `{ id = 'pacing', definition = mine }`, and a different reading of the scene, such as pacing by where you look, is a consumer in place of `desktop/pacing` that keeps the provider. `{ id = 'desktop/pacing', disabled = true }` turns pacing off, and disabling either entry leaves every rate or scale as the client started with. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the rules.
+
 ## Checking a configuration
 
 `lunette check` typechecks every `.lua` and `.luau` file in the configuration directory a session would load, and every module they require, in strict mode, against the runtime's definitions. Naming files or directories, as in `lunette check main.lua`, checks those instead. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It checks the options of a `desktop.configure` patch but not a plain patch's `config`, and it does not run the plugins: an option error, a malformed row, or an error raised in `init` appears when the session loads the plugin, in the log and in the error panel, naming the plugin.

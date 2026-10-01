@@ -1,0 +1,89 @@
+//! The installed roots do not require a development-only root.
+//!
+//! `@spec` is present in a source tree and absent from an installation, and
+//! the development `.luaurc` the checker reads names it, so a shipped module
+//! that required it would check clean and fail in every installed session. The
+//! test reads the checked-in sources of every installed root, and of the
+//! shipped configuration, and refuses any string literal naming a root that
+//! is not installed, which is the form a `require` of it takes; a computed
+//! module name would pass, and the shipped roots compute none.
+//!
+//! Both lists come from `lunette::aliases`, so a root added to either is
+//! covered without editing the test.
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALL_ARTIFACTS, INSTALLED_ALIASES, Resolution};
+
+/// The shipped configuration, which an installation runs and which is not a
+/// module root.
+const SHIPPED_CONFIGURATION: &str = "etc/xdg/lunette";
+
+#[test]
+fn no_installed_root_requires_a_development_only_root() {
+    let development_only: Vec<String> = DEVELOPMENT_ALIASES
+        .iter()
+        .filter(|alias| !INSTALLED_ALIASES.contains(alias))
+        .map(|alias| format!("@{}", alias.name))
+        .collect();
+    assert!(
+        !development_only.is_empty(),
+        "the spec root is development-only"
+    );
+
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut sources = Vec::new();
+    for alias in INSTALLED_ALIASES
+        .iter()
+        .filter(|alias| alias.resolution == Resolution::Mounted)
+    {
+        let installed = format!("lua/{}", alias.directory);
+        assert!(
+            INSTALL_ARTIFACTS
+                .iter()
+                .any(|artifact| artifact.source == installed),
+            "{installed} is installed"
+        );
+        collect(&workspace.join(&installed), &mut sources);
+    }
+    collect(&workspace.join(SHIPPED_CONFIGURATION), &mut sources);
+    assert!(!sources.is_empty(), "the installed roots hold Lua sources");
+
+    let offenders: Vec<String> = sources
+        .iter()
+        .filter(|path| {
+            let text = fs::read_to_string(path)
+                .unwrap_or_else(|error| panic!("{} is readable: {error}", path.display()));
+            development_only.iter().any(|root| {
+                text.contains(&format!("'{root}/"))
+                    || text.contains(&format!("\"{root}/"))
+                    || text.contains(&format!("'{root}'"))
+                    || text.contains(&format!("\"{root}\""))
+            })
+        })
+        .map(|path| path.display().to_string())
+        .collect();
+    assert!(offenders.is_empty(), "{offenders:#?}");
+}
+
+/// Every `.lua` and `.luau` file under `directory`.
+fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
+    let entries = fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("{} is readable: {error}", directory.display()));
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|error| panic!("{} lists: {error}", directory.display()))
+            .path();
+        if path.is_dir() {
+            collect(&path, found);
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "lua" || extension == "luau")
+        {
+            found.push(path);
+        }
+    }
+}

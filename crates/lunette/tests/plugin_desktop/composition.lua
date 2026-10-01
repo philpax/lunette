@@ -52,6 +52,8 @@ local DEFAULT_IDS = table.concat({
   'layouts',
   'layout/arc',
   'errors',
+  'pacing',
+  'scale',
   'desktop/render',
   'desktop/hint',
   'desktop/decorations',
@@ -68,6 +70,8 @@ local DEFAULT_IDS = table.concat({
   'desktop/arrange',
   'desktop/adoption',
   'desktop/demo-terminal',
+  'desktop/pacing',
+  'desktop/scale',
 }, ' ')
 
 -- The default list is inspectable and read-only.
@@ -118,7 +122,7 @@ for id, make in desktop.configure do
   assert(make({}).id == id, 'configure.' .. id .. ' patches ' .. id)
   typedCount += 1
 end
-assert(typedCount == 22, 'every shipped entry with options has a typed patch: ' .. typedCount)
+assert(typedCount == 25, 'every shipped entry with options has a typed patch: ' .. typedCount)
 assert(table.isfrozen(desktop.configure), 'the typed patches are frozen')
 
 -- Malformed compositions raise before anything is defined or enabled, and

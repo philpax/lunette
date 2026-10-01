@@ -11,7 +11,7 @@ The protocol set starts from WayVR's (`inspiration/wayvr/wayvr/src/backend/wayvr
 Additions:
 
 - `wp_fractional_scale_v1`. WayVR does not implement it; lunette requires it. Panel resolution and physical size are decoupled in VR, and a panel the user leans toward should render sharper. Viewporter, its prerequisite, is already present.
-- `wp_content_type_v1`. A client's own statement of what it is drawing is the strongest single signal for whether throttling it would be noticed. It is a hint with no events and no way to ask, and adoption is thin, so it is reported to Lua as `win.contentType` rather than acted on natively; `mullion.pacing` combines it with an observed commit rate and decides. A heuristic in the compositor would be policy in the mechanism layer.
+- `wp_content_type_v1`. A client's own statement of what it is drawing is the strongest single signal for whether throttling it would be noticed. It is a hint with no events and no way to ask, and adoption is thin, so it is reported to Lua as `win.contentType` rather than acted on natively; the pacing provider, `@lunette-plugins/pacing`, combines it with an observed commit rate and decides. A heuristic in the compositor would be policy in the mechanism layer.
 - `linux-drm-syncobj-v1`, eventually, for explicit sync.
 
 ## Outputs
@@ -36,7 +36,7 @@ This design enables the following.
 - Refresh as policy. A background panel told 15 Hz stops burning CPU; the one the user is looking at gets 90.
 - Correct fullscreen behaviour. `xdg_toplevel.set_fullscreen` resizes the panel rather than the whole workspace.
 
-The cost is that scale changes make clients reallocate buffers and re-layout, and some do this poorly, causing flicker or, in the case of GTK, a full recompute. The standard library uses discrete scale steps with hysteresis rather than continuous adjustment. This is Lua policy, and it is tunable.
+The cost is that scale changes make clients reallocate buffers and re-layout, and some do this poorly, causing flicker or, in the case of GTK, a full recompute. The standard library uses discrete scale steps with hysteresis rather than continuous adjustment. This is Lua policy, and it is tunable: the scale provider, `@lunette-plugins/scale`, chooses the step from the distance to the nearest panel an output's clients are shown on, and the `desktop/scale` entry applies it; [Frame pacing and output scale](lua-api.md#frame-pacing-and-output-scale) states the rule and its tuning.
 
 A session starts with one output, and it is what a client that was assigned none is shown. Every client adopted from outside lunette is one of those — nothing spawned it, so nothing named an output for it — and a client with no `wl_output` at all cannot pick a scale or a refresh rate. That output refuses to be destroyed for the same reason the seat every session starts with does. It is also where the clients of any other destroyed output go: the assignment naming a withdrawn output is cleared, so `can_view` falls back to the starting output, and that output's global is withdrawn and advertised again because `can_view` is consulted at advertisement and at bind and nowhere else. Without that a client would hold no `wl_output` for the rest of its life, while the compositor went on configuring it against the starting output's mode.
 

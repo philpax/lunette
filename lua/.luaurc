@@ -6,7 +6,6 @@
     "lunette-contracts": "./lunette-contracts",
     "lunette-plugins": "./lunette-plugins",
     "lunette-desktop": "./lunette-desktop",
-    "mullion": "./mullion",
     "spec": "./spec"
   }
 }

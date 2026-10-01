@@ -106,10 +106,10 @@
 
             LUNETTE_JOLTPHYSICS_SRC = joltPhysicsSrc;
 
-            # The standard library a session run from here reads. Without it,
+            # The Lua module roots a session run from here reads. Without it,
             # `cargo run -p lunette` resolves the installed
             # $PREFIX/share/lunette/lua rather than the working copy, and a
-            # configuration that requires `@mullion` fails to load.
+            # change to a provider or the desktop does not reach the session.
             #
             # Anchored at the repository root rather than at the working
             # directory: the path is taken as it stands, so `nix develop` from a

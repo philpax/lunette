@@ -26,6 +26,8 @@ local adoption = require '@lunette-plugins/adoption'
 local layouts = require '@lunette-plugins/layouts'
 local arc = require '@lunette-plugins/layout/arc'
 local errorStream = require '@lunette-plugins/errors'
+local pacingProvider = require '@lunette-plugins/pacing'
+local scaleProvider = require '@lunette-plugins/scale'
 local render = require '@lunette-desktop/render'
 local monitors = require '@lunette-desktop/monitors'
 local hint = require '@lunette-desktop/hint'
@@ -42,6 +44,8 @@ local persistence = require '@lunette-desktop/persistence'
 local arrange = require '@lunette-desktop/arrange'
 local adoptionConsumer = require '@lunette-desktop/adoption'
 local demoTerminal = require '@lunette-desktop/demo-terminal'
+local pacing = require '@lunette-desktop/pacing'
+local scale = require '@lunette-desktop/scale'
 
 local desktop = {}
 
@@ -85,6 +89,8 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'layouts', definition = layouts.definition },
   { id = 'layout/arc', definition = arc.definition },
   { id = 'errors', definition = errorStream.definition },
+  { id = 'pacing', definition = pacingProvider.definition },
+  { id = 'scale', definition = scaleProvider.definition },
   { id = 'desktop/render', definition = render },
   { id = 'desktop/hint', definition = hint },
   { id = 'desktop/decorations', definition = decorations },
@@ -101,6 +107,8 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'desktop/arrange', factory = arrange },
   { id = 'desktop/adoption', definition = adoptionConsumer },
   { id = 'desktop/demo-terminal', definition = demoTerminal },
+  { id = 'desktop/pacing', definition = pacing },
+  { id = 'desktop/scale', definition = scale },
 }, nil)
 
 -- A typed patch for each shipped entry that takes options: a function of the
@@ -122,6 +130,8 @@ export type Configure = {
   read adoption: (adoption.Config) -> Patch,
   read ['layout/arc']: (arc.Config) -> Patch,
   read errors: (errorStream.Config) -> Patch,
+  read pacing: (pacingProvider.Config) -> Patch,
+  read scale: (scaleProvider.Config) -> Patch,
   read ['desktop/hint']: (hint.Config) -> Patch,
   read ['desktop/decorations']: (decorations.Config) -> Patch,
   read ['desktop/pointing']: (pointing.Config) -> Patch,
@@ -135,6 +145,7 @@ export type Configure = {
   read ['desktop/arrange']: (arrange.Config) -> Patch,
   read ['desktop/adoption']: (adoptionConsumer.Config) -> Patch,
   read ['desktop/demo-terminal']: (demoTerminal.Config) -> Patch,
+  read ['desktop/pacing']: (pacing.Config) -> Patch,
 }
 
 local function configure<C>(id: string): (C) -> Patch
@@ -153,6 +164,8 @@ desktop.configure = table.freeze {
   adoption = configure<<adoption.Config>> 'adoption',
   ['layout/arc'] = configure<<arc.Config>> 'layout/arc',
   errors = configure<<errorStream.Config>> 'errors',
+  pacing = configure<<pacingProvider.Config>> 'pacing',
+  scale = configure<<scaleProvider.Config>> 'scale',
   ['desktop/hint'] = configure<<hint.Config>> 'desktop/hint',
   ['desktop/decorations'] = configure<<decorations.Config>> 'desktop/decorations',
   ['desktop/pointing'] = configure<<pointing.Config>> 'desktop/pointing',
@@ -166,6 +179,7 @@ desktop.configure = table.freeze {
   ['desktop/arrange'] = configure<<arrange.Config>> 'desktop/arrange',
   ['desktop/adoption'] = configure<<adoptionConsumer.Config>> 'desktop/adoption',
   ['desktop/demo-terminal'] = configure<<demoTerminal.Config>> 'desktop/demo-terminal',
+  ['desktop/pacing'] = configure<<pacing.Config>> 'desktop/pacing',
 } :: Configure
 
 -- The shipped desktop's entries, in the order they are enabled. The list and

@@ -122,12 +122,12 @@ fn safe_mode_runs_with_no_standard_library_mounted() {
     );
     session.wait_until_answering();
 
-    let mounted = session.lunctl(&["return package.loaded.mullion == nil"]);
+    let mounted = session.lunctl(&["return package.loaded['@lunette-plugin'] == nil"]);
     assert_eq!(code(&mounted), 0, "stderr was:\n{}", stderr(&mounted));
     assert_eq!(
         stdout(&mounted),
         "true",
-        "no standard library should have been loaded",
+        "no module root should have been loaded",
     );
 
     let drawn = session.lunctl(&["return type(lovr.draw)"]);

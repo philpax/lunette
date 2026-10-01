@@ -9,4 +9,7 @@ return {
   desktop.configure.laser { style = { length = 'long' } },
   desktop.configure['desktop/arrange'] { layout = 3 },
   desktop.configure.keyboard { rows = 'qwerty' },
+  desktop.configure.pacing { tuning = { background = 'low' } },
+  desktop.configure.scale { tuning = { raise = true } },
+  desktop.configure['desktop/pacing'] { pauseMonitors = 1 },
 }

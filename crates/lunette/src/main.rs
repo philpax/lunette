@@ -635,9 +635,10 @@ pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
 
 /// The development override for where the module data is read from.
 ///
-/// Pointing it at a working tree is the whole development loop for `mullion`;
-/// the override wins outright, because a first consultation could be shadowed
-/// by an installed copy.
+/// Pointing it at a working tree is the development loop for the Lua module
+/// roots, the plugin facade, contracts, providers, and desktop; the override
+/// wins outright, because a first consultation could be shadowed by an
+/// installed copy.
 const STDLIB_PATH: &str = "LUNETTE_STDLIB_PATH";
 
 /// The development override for which configuration directory is loaded.
@@ -683,13 +684,13 @@ impl ModuleDataSources {
     }
 }
 
-/// Where the `mullion` module data is read from.
+/// Where the Lua module roots are read from.
 ///
 /// The precedence is stated, not left to the order things are mounted in:
 /// `$LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua`
-/// otherwise. A developer pointing the variable at a working tree is the whole
-/// development loop for `mullion`, so a working tree has to win over an
-/// installed copy, not be shadowed by one.
+/// otherwise. A developer pointing the variable at a working tree is the
+/// development loop for the Lua module roots, so a working tree has to win
+/// over an installed copy, not be shadowed by one.
 ///
 /// A relative override is taken as it stands and resolved by the process's
 /// working directory. The XDG variables differ, because the specification
@@ -1020,8 +1021,8 @@ mod tests {
 
     #[test]
     fn the_module_data_override_wins_over_the_prefix() {
-        // The whole development loop for mullion: a working tree beats an
-        // installed copy without being shadowed by one.
+        // The development loop for the Lua module roots: a working tree beats
+        // an installed copy without being shadowed by one.
         assert_eq!(
             module_data(Some("/src/lunette/lua"), "/usr"),
             PathBuf::from("/src/lunette/lua"),

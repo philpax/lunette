@@ -26,7 +26,7 @@ local SPEC_SUFFIX = '_spec.lua'
 -- table of strings.
 --
 -- `prefix` is the module path `directory` is reached by, with its trailing
--- slash: `@spec/mullion/` for `@spec/mullion`.
+-- slash: `@spec/lunette-plugins/` for `@spec/lunette-plugins`.
 function runner.discover(filesystem, directory, prefix)
   local names = {}
 

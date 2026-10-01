@@ -67,5 +67,10 @@ fn a_typed_patch_is_checked_against_its_entrys_options() {
         .collect::<Vec<_>>();
     lines.sort_unstable();
     lines.dedup();
-    assert_eq!(lines, [8, 9, 10, 11], "{:#?}", report.diagnostics);
+    assert_eq!(
+        lines,
+        [8, 9, 10, 11, 12, 13, 14],
+        "{:#?}",
+        report.diagnostics
+    );
 }

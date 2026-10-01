@@ -18,6 +18,9 @@ events = {
   closed = 0,
   writeMode = 'ok',
   time = 0,
+  rates = {},
+  modes = {},
+  pauses = {},
 }
 local function subscribe(name, callback)
   local list = events.subscriptions[name] or {}
@@ -81,6 +84,23 @@ native.windows = function()
 end
 native.monitors = function()
   return events.monitors
+end
+-- An output records each mode change it is asked for and reports the scale
+-- it was last set to, as the compositor would a frame later.
+function newOutput(id, scale)
+  local output = { id = id, dead = false, width = 1920, height = 1080, scale = scale or 1, refresh = 60 }
+  function output:setMode(mode)
+    events.modes[#events.modes + 1] = { output = self.id, scale = mode.scale }
+    if mode.scale then
+      self.scale = mode.scale
+    end
+    return true
+  end
+  return output
+end
+events.outputs = { newOutput(1) }
+native.outputs = function()
+  return table.clone(events.outputs)
 end
 native.seats = function()
   return events.seats
@@ -316,7 +336,16 @@ function newWindow(id, appId)
     width = 1000,
     height = 500,
     properties = {},
+    contentType = 'none',
+    commit = 0,
+    output = events.outputs[1],
   }
+  -- Each rate a window is paced at is recorded, nil for unthrottled.
+  function window:setFrameRate(rate)
+    events.rates[#events.rates + 1] = { window = self.id, rate = rate }
+    self.rate = rate
+    return true
+  end
   local sink = { domain = 'window' }
   for _, name in ipairs { 'key', 'modifiers', 'pointer', 'motion', 'button', 'scroll', 'enter', 'leave' } do
     sink[name] = function(_, ...)
@@ -361,6 +390,11 @@ function newMonitor(id)
   end
   function monitor:dismiss()
     events.unmirrored = (events.unmirrored or 0) + 1
+    return true
+  end
+  function monitor:setPaused(paused)
+    events.pauses[#events.pauses + 1] = { monitor = self.id, paused = paused }
+    self.paused = paused
     return true
   end
   return monitor

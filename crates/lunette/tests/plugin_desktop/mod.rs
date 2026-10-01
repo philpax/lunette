@@ -5,6 +5,7 @@ use lunette::{
     lua::keys::{KeyCodes, locking_modifier_names, modifier_names},
     plugin::declarations,
     reload,
+    scale::{STEPS, ScaleStep},
 };
 use mlua::{Function, Lua, Table};
 
@@ -52,6 +53,17 @@ pub fn state_for(configuration: &Path) -> mlua::Result<Lua> {
     native.set(
         "modifierNames",
         lua.create_function(|_, ()| Ok(modifier_names()))?,
+    )?;
+    // The real scale ladder, so the scale provider's choosers step along what
+    // a session hands them.
+    native.set(
+        "scaleSteps",
+        lua.create_function(|_, ()| {
+            Ok(STEPS
+                .iter()
+                .map(|step| f64::from(step.in_120ths()) / f64::from(ScaleStep::DENOMINATOR))
+                .collect::<Vec<_>>())
+        })?,
     )?;
     native.set(
         "reload",

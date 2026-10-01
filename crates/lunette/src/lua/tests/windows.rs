@@ -6,8 +6,11 @@
 //! close in the middle of a frame, and raising over that would crash the
 //! session for a routine event.
 
+use std::sync::Arc;
+
 use lunette_compositor::protocol::{
-    Command, ContentType, FramePacing, PixelSize, ToplevelState, ToplevelStates,
+    Command, ContentType, FramePacing, OutputId, OutputMode, OutputScale, OutputSnapshot,
+    PixelSize, RefreshRate, Snapshot, ToplevelState, ToplevelStates, WindowSnapshot,
 };
 use pretty_assertions::assert_eq;
 
@@ -359,6 +362,102 @@ fn a_window_whose_client_said_nothing_reports_none() {
         "none",
         "the protocol's own default, and what most clients report"
     );
+}
+
+/// A snapshot holding `windows` and one output for each of `outputs`.
+fn with_outputs(windows: Vec<WindowSnapshot>, outputs: &[(u64, f64)]) -> Arc<Snapshot> {
+    Arc::new(Snapshot {
+        windows,
+        outputs: outputs
+            .iter()
+            .map(|&(raw, scale)| OutputSnapshot {
+                output: OutputId::new(raw).expect("non-zero"),
+                mode: OutputMode {
+                    size: PixelSize::new(1920, 1080),
+                    scale: OutputScale::new(scale).expect("the test names a positive scale"),
+                    refresh: RefreshRate::from_millihertz(60_000),
+                },
+            })
+            .collect(),
+        ..Snapshot::default()
+    })
+}
+
+#[test]
+fn a_window_reports_the_output_its_client_is_shown() {
+    let mut spawned = window(1, "foot", "foot", PixelSize::new(64, 32));
+    spawned.output = OutputId::new(2).expect("non-zero");
+    let session = session(Vec::new());
+    session.begin(with_outputs(vec![spawned], &[(1, 1.0), (2, 1.5)]));
+    let lua = lua(&session);
+
+    let (id, scale): (u64, f64) = run(
+        &lua,
+        "local output = lunette.windows()[1].output
+         return output.id, output.scale",
+    );
+
+    assert_eq!((id, scale), (2, 1.5));
+}
+
+#[test]
+fn a_window_whose_output_is_not_in_the_snapshot_reports_none() {
+    let session = session(Vec::new());
+    session.begin(with_outputs(
+        vec![window(1, "foot", "foot", PixelSize::new(64, 32))],
+        &[],
+    ));
+    let lua = lua(&session);
+
+    assert!(run::<bool>(
+        &lua,
+        "return lunette.windows()[1].output == nil"
+    ));
+}
+
+#[test]
+fn a_window_s_commit_changes_with_each_buffer_and_is_zero_before_the_first() {
+    let session = session(vec![window(1, "mpv", "mpv", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+    let description = TextureDescription {
+        size: PixelSize::new(64, 32),
+        alpha: Alpha::Present,
+    };
+
+    let before: u64 = run(&lua, "return lunette.windows()[1].commit");
+    session.with_textures(|textures| textures.install(surface_id(1), FakeTexture(1), description));
+    let first: u64 = run(&lua, "return lunette.windows()[1].commit");
+    let unchanged: u64 = run(&lua, "return lunette.windows()[1].commit");
+    session.with_textures(|textures| textures.install(surface_id(1), FakeTexture(2), description));
+    let second: u64 = run(&lua, "return lunette.windows()[1].commit");
+
+    assert_eq!(before, 0, "nothing committed yet");
+    assert_ne!(first, 0, "a committed buffer has a commit");
+    assert_eq!(
+        first, unchanged,
+        "reading twice without a commit answers the same"
+    );
+    assert_ne!(first, second, "a new buffer changes the commit");
+}
+
+#[test]
+fn a_dead_window_s_commit_is_zero() {
+    let session = session(vec![window(1, "mpv", "mpv", PixelSize::new(64, 32))]);
+    session.with_textures(|textures| {
+        textures.install(
+            surface_id(1),
+            FakeTexture(1),
+            TextureDescription {
+                size: PixelSize::new(64, 32),
+                alpha: Alpha::Present,
+            },
+        )
+    });
+    let lua = lua(&session);
+    run::<()>(&lua, "held = lunette.windows()[1]");
+    session.begin(snapshot(Vec::new(), Vec::new()));
+
+    assert_eq!(run::<u64>(&lua, "return held.commit"), 0);
 }
 
 #[test]

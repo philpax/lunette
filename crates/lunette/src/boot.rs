@@ -28,9 +28,9 @@
 //! report success. See [`step`]; matching `main.c` would report success for
 //! every exit.
 //!
-//! One thing has no counterpart in `main.c`: the standard library is mounted
-//! into LÖVR's virtual filesystem, which makes `require '@mullion'` resolve.
-//! See [`install_standard_library_mount`].
+//! One thing has no counterpart in `main.c`: the Lua module roots are mounted
+//! into LÖVR's virtual filesystem, which makes `require '@lunette-plugin'` and
+//! the other file-backed roots resolve. See [`install_standard_library_mount`].
 
 use std::{
     cell::RefCell,
@@ -1072,7 +1072,6 @@ mod tests {
                 "@lunette-contracts",
                 "@lunette-plugins",
                 "@lunette-desktop",
-                "@mullion",
                 "@spec",
             ]
         );
@@ -1086,7 +1085,6 @@ mod tests {
                 PathBuf::from("/resolved/lunette/lunette-contracts"),
                 PathBuf::from("/resolved/lunette/lunette-plugins"),
                 PathBuf::from("/resolved/lunette/lunette-desktop"),
-                PathBuf::from("/resolved/lunette/mullion"),
                 PathBuf::from("/resolved/lunette/spec"),
             ]
         );
@@ -1095,7 +1093,7 @@ mod tests {
                 .iter()
                 .map(|description| description.required)
                 .collect::<Vec<_>>(),
-            vec![true, true, true, true, false, false]
+            vec![true, true, true, true, false]
         );
     }
 }
