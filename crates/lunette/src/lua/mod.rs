@@ -92,6 +92,7 @@ pub use crate::lua::{
     window::Window,
 };
 use crate::{
+    callback_error,
     events::{
         ERROR, EventName, EventQueue, EventSink, LuaEvent, install_dispatchers,
         subscription_functions,
@@ -108,7 +109,10 @@ use crate::{
         values::{Cancel, ErrorListener},
     },
     mirrors::MirrorRegistry,
-    plugin::declarations::{install as install_plugin, install_attachment},
+    plugin::{
+        attachment::{PluginFailure, set_reporter},
+        declarations::{install as install_plugin, install_attachment},
+    },
     properties::WindowProperties,
     reload::reload_from_lua,
     restart::restart_from_lua,
@@ -134,6 +138,20 @@ pub const MODULE_NAME: &str = "@lunette";
 /// If `package.preload` cannot be reached, or the loader cannot be created.
 pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
     install_attachment(lua)?;
+    // A plugin's load or cleanup failure takes the path a configuration
+    // callback's error takes, so `lunette.onError` listeners see it.
+    let reporter_session = Rc::clone(session);
+    set_reporter(
+        lua,
+        Rc::new(move |lua: &Lua, failure: &PluginFailure| {
+            callback_error::report(
+                lua,
+                &reporter_session.listeners(ERROR),
+                &failure.context(),
+                &failure.lua_error(),
+            );
+        }),
+    )?;
 
     // Before the module, and unconditionally: the gate belongs to the state
     // and not to the module. A configuration that never requires `lunette`

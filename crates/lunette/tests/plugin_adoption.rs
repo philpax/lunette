@@ -8,11 +8,14 @@ extern crate lunette_lovr;
 
 use std::{cell::Cell, rc::Rc};
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, UserData, Value};
+
+mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "setreadonly",
         lua.create_function(|_, (table, readonly): (Table, bool)| {
@@ -248,22 +251,10 @@ fn complete_placement_cleanup_attempts_all_operations_after_errors() -> mlua::Re
                     "failed cleanup retained its source payload"
                 );
             }
-            let errors = attachment::shutdown_all(&lua);
-            assert!(!errors.is_empty(), "cleanup failure must remain visible");
-            assert!(
-                errors
-                    .iter()
-                    .any(|error| error.contains("fixture: membership remove failure")),
-                "{errors:?}"
-            );
-            if extra_failure {
-                assert!(
-                    errors
-                        .iter()
-                        .any(|error| error.contains("fixture: implicit destroy failure")),
-                    "{errors:?}"
-                );
-            }
+            // The cleanup failures are raised to the fixture's destroy or
+            // dispose call, which asserts that they aggregate.
+            let errors = plugin_support::shutdown(&lua);
+            assert!(errors.is_empty(), "{errors:?}");
             witness
                 .get::<Function>("releaseCallbacks")?
                 .call::<()>(())?;
@@ -306,7 +297,7 @@ fn adoption_complete_placement_lifetime_releases_tags_and_sources() -> mlua::Res
             "rules placement retained its source payload"
         );
     }
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert_eq!(
         errors.len(),
         6,
@@ -331,7 +322,7 @@ fn adoption_failed_consumer_initialization_rolls_back() -> mlua::Result<()> {
     fixture
         .get::<Function>("failInitialization")?
         .call::<()>(())?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert_eq!(
         errors.len(),
         1,
@@ -352,7 +343,7 @@ fn adoption_caught_enumeration_failure_cleans_up_and_allows_retry() -> mlua::Res
         .set_name("plugin_adoption/fixtures/adoption.lua")
         .eval()?;
     fixture.get::<Function>("failEnumeration")?.call::<()>(())?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -365,7 +356,7 @@ fn adoption_cancelled_caller_and_copied_callbacks_are_inert() -> mlua::Result<()
         .set_name("plugin_adoption/fixtures/adoption.lua")
         .eval()?;
     fixture.get::<Function>("cancelCaller")?.call::<()>(())?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -377,7 +368,7 @@ fn adoption_uses_real_provider_graph_and_preserves_native_windows() -> mlua::Res
         .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
         .set_name("plugin_adoption/fixtures/adoption.lua")
         .eval()?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }

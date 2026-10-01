@@ -52,8 +52,10 @@ return function(plugin)
         end
       end)
     end))
+    -- The cancelled acquisition is withdrawn at once; the graph then drains
+    -- the consumer before the provider.
     assert(
-      table.concat(events, ',') == 'consumer-1,acquired-1,provider-1',
+      table.concat(events, ',') == 'acquired-1,consumer-1,provider-1',
       'graph cleanup order: ' .. table.concat(events, ',')
     )
     runtime:close()

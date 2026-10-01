@@ -73,10 +73,9 @@ impl fmt::Display for ProviderGeneration {
 
 /// A contract name together with the exact schema it implements or requires.
 ///
-/// Names are compared for reservation, while the complete key is compared for
-/// dependency resolution. Consequently, two providers cannot reserve the same
-/// name with different schemas, and a requirement never binds to an inexact
-/// schema.
+/// Reservation and dependency resolution both compare the complete key. Two
+/// enabled instances may therefore provide `x@1` and `x@2`, one instance may
+/// provide both, and a requirement never binds to an inexact schema.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ContractKey {
     name: String,

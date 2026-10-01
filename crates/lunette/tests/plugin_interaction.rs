@@ -1,12 +1,15 @@
 //! Interaction lifecycle and grab behavior through the production plugin facade.
 extern crate lunette_lovr;
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
+
+mod plugin_support;
 
 #[test]
 fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "collectResources",
         lua.create_function(|lua, ()| lua.gc_collect())?,
@@ -96,17 +99,9 @@ fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> 
     lua.load(include_str!("plugin_interaction/runtime.lua"))
         .set_name("interaction/runtime")
         .exec()?;
-    let errors = attachment::shutdown_all(&lua);
-    assert_eq!(
-        errors.len(),
-        2,
-        "provider and owner cleanup errors: {errors:?}"
-    );
-    assert!(
-        errors
-            .iter()
-            .all(|error| error.contains("native button release failed")),
-        "unexpected cleanup errors: {errors:?}"
-    );
+    // The failing release is raised to the fixture's destroy call, which
+    // asserts it; nothing is left to report.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "unexpected cleanup errors: {errors:?}");
     Ok(())
 }

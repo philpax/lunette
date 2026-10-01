@@ -7,11 +7,14 @@
 
 extern crate lunette_lovr;
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
+
+mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "collectResources",
         lua.create_function(|lua, ()| lua.gc_collect())?,
@@ -310,7 +313,7 @@ fn production_facade_composes_interaction_and_laser_with_borrowed_seat_cleanup()
     modules.set("seat", lua.globals().get::<Value>("fake_seat")?)?;
     fixture.call::<Value>((plugin, modules))?;
 
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     let seat: Table = lua.globals().get("fake_seat")?;
     assert!(!seat.get::<bool>("dead")?);
@@ -358,7 +361,7 @@ fn followup_records_input_rendering_haptics_and_replacement_cleanup() -> mlua::R
     modules.set("borrowedSeat", lua.globals().get::<Value>("borrowedSeat")?)?;
     fixture.call::<Value>((plugin, modules))?;
 
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }

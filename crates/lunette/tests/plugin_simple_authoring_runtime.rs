@@ -2,8 +2,10 @@
 
 extern crate lunette_lovr;
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
+
+mod plugin_support;
 
 #[test]
 fn runtime_enforces_declared_access_publication_and_native_lifecycle() -> mlua::Result<()> {
@@ -11,7 +13,7 @@ fn runtime_enforces_declared_access_publication_and_native_lifecycle() -> mlua::
     lua.load(include_str!("plugin_simple_authoring/runtime.lua"))
         .set_name("plugin-facade-runtime")
         .exec()?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     for expected in [
         "missing provision service",
         "duplicate provision service",
@@ -19,19 +21,19 @@ fn runtime_enforces_declared_access_publication_and_native_lifecycle() -> mlua::
         "provision service was nil",
         "initializer must return nothing",
         "production partial initializer failure",
-        "requires missing contract fixture/production-failure-cancelled@1",
     ] {
         assert!(
             errors.iter().any(|error| error.contains(expected)),
             "missing {expected}: {errors:#?}"
         );
     }
-    assert_eq!(errors.len(), 7, "{errors:#?}");
+    assert_eq!(errors.len(), 6, "{errors:#?}");
     Ok(())
 }
 
 fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "setreadonly",
         lua.create_function(|_, (table, readonly): (Table, bool)| {

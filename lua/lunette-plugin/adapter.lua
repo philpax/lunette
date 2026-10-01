@@ -56,16 +56,14 @@ export type Instance<C> = {
   read disable: (Instance<C>) -> (),
   read dispose: (Instance<C>) -> (),
   read reload: (Instance<C>, C) -> (),
+  read state: (Instance<C>) -> native.PluginState,
+  read diagnostic: (Instance<C>) -> string?,
 }
 
 export type Runtime = {
   read use: <C>(Runtime, Definition<C>, C) -> Instance<C>,
   read close: (Runtime) -> (),
   read drain: (Runtime) -> (),
-}
-
-type ContextRecord = Context & {
-  read nativeContext: NativeContext,
 }
 
 type ErasedDeclaration = { [string]: unknown }
@@ -106,9 +104,27 @@ local function unwrapDefinition<C>(definition: Definition<C>): NativeDefinition
   return ((definition :: unknown) :: DefinitionRecord<C>).nativeDefinition
 end
 
+-- The native context behind each wrapped context, keyed by the wrapper's
+-- identity. A table a caller builds is not a key, so it cannot pose as an
+-- owner; the native side then checks that the context is a live dependent.
+local nativeContexts: { [Context]: NativeContext } = setmetatable({}, { __mode = 'k' }) :: any
+
+local function ownerContext(owner: Owner): NativeContext
+  local nativeContext = nativeContexts[(owner :: unknown) :: Context]
+  if nativeContext == nil then
+    error('plugin checkOwner: the owner is not a plugin context', 3)
+  end
+  return nativeContext
+end
+
+-- Names a definition for diagnostics by where its initializer is defined.
+local function definitionName(init: (...any) -> ...any): string
+  local source, line = debug.info(init, 'sl')
+  return string.format('%s:%d', source, line)
+end
+
 local function wrapContext(nativeContext: NativeContext, required: Declaration): Context
   local wrapped = {
-    nativeContext = nativeContext,
     services = function(_self: Context): unknown
       return nativeContext:services()
     end,
@@ -126,13 +142,15 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
       return (instance :: unknown) :: Instance<C>
     end,
     checkOwner = function(_self: Context, caller: Owner): ()
-      nativeContext:checkOwner(((caller :: unknown) :: ContextRecord).nativeContext)
+      nativeContext:checkOwner(ownerContext(caller))
     end,
     active = function(_self: Context): boolean
       return nativeContext:active()
     end,
   }
-  return (freeze(wrapped) :: unknown) :: Context
+  local context = (freeze(wrapped) :: unknown) :: Context
+  nativeContexts[context] = nativeContext
+  return context
 end
 
 function adapter.capability<T>(token: native.PluginContractToken, witness: (T) -> T): Capability<T>
@@ -213,7 +231,8 @@ function adapter.define<C>(
         error 'plugin provision: initializer must return nothing'
       end
       return stagedValues(values, called, providedSnapshot)
-    end
+    end,
+    definitionName(init)
   )
   return freeze {
     configWitness = configWitness,

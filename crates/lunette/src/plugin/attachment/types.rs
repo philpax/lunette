@@ -1,19 +1,22 @@
-//! Concrete userdata and state records for the plugin attachment.
+//! The userdata handles the plugin attachment exposes to Lua.
 
 use std::{
-    cell::{Cell, RefCell},
-    collections::{BTreeMap, VecDeque},
+    cell::RefCell,
     rc::{Rc, Weak},
 };
 
-use lunette_luau::{Parameter, Type, Typed};
+use lunette_luau::{Parameter, Type, Typed, closed_set};
 use mlua::{FromLua, Function, IntoLua, Lua, UserData, UserDataMethods, UserDataRef, Value};
 
 use crate::{
     lua::declarations::{MethodSpec, MethodSurface, MethodsDescribed, Receiver},
     plugin::{
-        contracts::{ContractId, ContractRegistry, ContractToken},
-        graph::{ActivationId, ContractKey, Graph, InstanceId},
+        attachment::{
+            context, lifecycle,
+            state::{DefinitionData, RuntimeState},
+        },
+        contracts::ContractToken,
+        graph::{ActivationId, InstanceId, LifecycleState},
     },
 };
 
@@ -101,6 +104,52 @@ impl Typed for PluginAcquire {
     }
 }
 
+closed_set! {
+    /// The lifecycle state of an instance as Lua sees it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum PluginState {
+        /// Installed and not loaded; it may be waiting for a provider.
+        Inactive = "inactive",
+        /// Its initializer is running.
+        Loading = "loading",
+        /// Its services are published.
+        Active = "active",
+        /// Its cleanup is running.
+        Unloading = "unloading",
+        /// Its last load failed.
+        Failed = "failed",
+        /// A cleanup inverse failed, so it never loads again.
+        Quarantined = "quarantined",
+        /// It was disposed and removed, or its runtime closed.
+        Removed = "removed",
+    }
+}
+
+impl From<LifecycleState> for PluginState {
+    fn from(state: LifecycleState) -> Self {
+        match state {
+            LifecycleState::Inactive => Self::Inactive,
+            LifecycleState::Loading => Self::Loading,
+            LifecycleState::Active => Self::Active,
+            LifecycleState::Unloading => Self::Unloading,
+            LifecycleState::Failed => Self::Failed,
+            LifecycleState::Quarantined => Self::Quarantined,
+        }
+    }
+}
+
+impl IntoLua for PluginState {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        self.as_str().into_lua(lua)
+    }
+}
+
+impl Typed for PluginState {
+    fn luau() -> Type {
+        Type::Named("PluginState")
+    }
+}
+
 /// A reusable plugin definition.
 #[derive(Clone)]
 pub struct PluginDefinition {
@@ -134,25 +183,24 @@ impl UserData for PluginRuntime {
 }
 
 fn runtime_use(
-    lua: &Lua,
+    _: &Lua,
     this: &PluginRuntime,
     (definition, config): (UserDataRef<PluginDefinition>, Unknown),
 ) -> mlua::Result<PluginInstance> {
-    super::use_definition(
-        lua,
+    Ok(lifecycle::use_definition(
         &this.state,
         Rc::clone(&definition.data),
         config.0,
         None,
-    )
+    )?)
 }
 
 fn runtime_close(lua: &Lua, this: &PluginRuntime, _: ()) -> mlua::Result<()> {
-    super::close_runtime(lua, &this.state)
+    Ok(lifecycle::close_runtime(lua, &this.state)?)
 }
 
 fn runtime_drain(lua: &Lua, this: &PluginRuntime, _: ()) -> mlua::Result<()> {
-    super::drain_runtime(lua, &this.state)
+    Ok(lifecycle::drain_runtime(lua, &this.state)?)
 }
 
 impl MethodsDescribed for PluginRuntime {
@@ -178,7 +226,7 @@ impl MethodsDescribed for PluginRuntime {
         surface.method(
             MethodSpec {
                 name: "drain",
-                doc: "Processes queued lifecycle work and records graph diagnostics.",
+                doc: "Performs pending lifecycle work and reports graph diagnostics.",
                 receiver: Receiver::Own,
                 parameters: &[],
             },
@@ -207,19 +255,43 @@ impl UserData for PluginInstance {
 }
 
 fn instance_enable(lua: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<()> {
-    super::request_instance(lua, &this.runtime, Command::Enable(this.id))
+    Ok(lifecycle::request_instance(
+        lua,
+        &this.runtime,
+        lifecycle::Request::Enable(this.id),
+    )?)
 }
 
 fn instance_disable(lua: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<()> {
-    super::request_instance(lua, &this.runtime, Command::Disable(this.id))
+    Ok(lifecycle::request_instance(
+        lua,
+        &this.runtime,
+        lifecycle::Request::Disable(this.id),
+    )?)
 }
 
 fn instance_dispose(lua: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<()> {
-    super::request_instance(lua, &this.runtime, Command::Dispose(this.id))
+    Ok(lifecycle::request_instance(
+        lua,
+        &this.runtime,
+        lifecycle::Request::Dispose(this.id),
+    )?)
 }
 
 fn instance_reload(lua: &Lua, this: &PluginInstance, (config,): (Unknown,)) -> mlua::Result<()> {
-    super::request_instance(lua, &this.runtime, Command::Reload(this.id, config.0))
+    Ok(lifecycle::request_instance(
+        lua,
+        &this.runtime,
+        lifecycle::Request::Reload(this.id, config.0),
+    )?)
+}
+
+fn instance_state(_: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<PluginState> {
+    Ok(lifecycle::instance_state(&this.runtime, this.id))
+}
+
+fn instance_diagnostic(_: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<Option<String>> {
+    Ok(lifecycle::instance_diagnostic(&this.runtime, this.id))
 }
 
 impl MethodsDescribed for PluginInstance {
@@ -227,7 +299,7 @@ impl MethodsDescribed for PluginInstance {
         for (name, doc, body) in [
             (
                 "enable",
-                "Enables this plugin instance.",
+                "Enables this plugin instance and reserves its provided contracts.",
                 instance_enable as fn(&Lua, &Self, ()) -> _,
             ),
             (
@@ -237,7 +309,7 @@ impl MethodsDescribed for PluginInstance {
             ),
             (
                 "dispose",
-                "Disables and retires this plugin instance.",
+                "Disables and permanently retires this plugin instance.",
                 instance_dispose,
             ),
         ] {
@@ -259,6 +331,24 @@ impl MethodsDescribed for PluginInstance {
                 parameters: &["config"],
             },
             instance_reload,
+        );
+        surface.method(
+            MethodSpec {
+                name: "state",
+                doc: "Reports this instance's lifecycle state.",
+                receiver: Receiver::Own,
+                parameters: &[],
+            },
+            instance_state,
+        );
+        surface.method(
+            MethodSpec {
+                name: "diagnostic",
+                doc: "Describes why this instance last failed or is not loading, if it has a reason.",
+                receiver: Receiver::Own,
+                parameters: &[],
+            },
+            instance_diagnostic,
         );
     }
 }
@@ -284,7 +374,7 @@ impl UserData for PluginContext {
 }
 
 fn context_services(lua: &Lua, this: &PluginContext, _: ()) -> mlua::Result<Unknown> {
-    super::services(lua, this)
+    Ok(context::services(lua, this)?)
 }
 
 fn context_effect(
@@ -292,27 +382,27 @@ fn context_effect(
     this: &PluginContext,
     (acquire,): (PluginAcquire,),
 ) -> mlua::Result<PluginEffect> {
-    super::effect(lua, this, acquire.0)
+    context::effect(lua, this, acquire.0)
 }
 
 fn context_child(
-    lua: &Lua,
+    _: &Lua,
     this: &PluginContext,
     (definition, config): (UserDataRef<PluginDefinition>, Unknown),
 ) -> mlua::Result<PluginInstance> {
-    super::child(lua, this, Rc::clone(&definition.data), config.0)
+    Ok(context::child(this, Rc::clone(&definition.data), config.0)?)
 }
 
 fn context_check_owner(
-    lua: &Lua,
+    _: &Lua,
     this: &PluginContext,
     (caller,): (UserDataRef<PluginContext>,),
 ) -> mlua::Result<()> {
-    super::check_owner(lua, this, &caller)
+    Ok(context::check_owner(this, &caller)?)
 }
 
 fn context_active(_: &Lua, this: &PluginContext, _: ()) -> mlua::Result<bool> {
-    Ok(super::context_active(this))
+    Ok(context::context_active(this))
 }
 
 impl MethodsDescribed for PluginContext {
@@ -338,7 +428,7 @@ impl MethodsDescribed for PluginContext {
         surface.method(
             MethodSpec {
                 name: "child",
-                doc: "Installs a child definition owned by this plugin.",
+                doc: "Installs a child definition owned by this activation.",
                 receiver: Receiver::Own,
                 parameters: &["definition", "config"],
             },
@@ -347,7 +437,7 @@ impl MethodsDescribed for PluginContext {
         surface.method(
             MethodSpec {
                 name: "checkOwner",
-                doc: "Checks that another context is an owner of this plugin's service.",
+                doc: "Checks that another context is a live dependent of this plugin's current generation.",
                 receiver: Receiver::Own,
                 parameters: &["caller"],
             },
@@ -371,8 +461,7 @@ pub struct PluginEffect {
     pub(super) runtime: Weak<RefCell<RuntimeState>>,
     pub(super) instance: InstanceId,
     pub(super) activation: ActivationId,
-    pub(super) ordinal: usize,
-    pub(super) disposed: Cell<bool>,
+    pub(super) ordinal: u64,
 }
 
 impl Typed for PluginEffect {
@@ -388,10 +477,7 @@ impl UserData for PluginEffect {
 }
 
 fn effect_dispose(lua: &Lua, this: &PluginEffect, _: ()) -> mlua::Result<()> {
-    if this.disposed.replace(true) {
-        return Ok(());
-    }
-    super::dispose_effect(lua, this)
+    context::dispose_effect(lua, this)
 }
 
 impl MethodsDescribed for PluginEffect {
@@ -399,86 +485,11 @@ impl MethodsDescribed for PluginEffect {
         surface.method(
             MethodSpec {
                 name: "dispose",
-                doc: "Disposes this effect once.",
+                doc: "Runs this effect's inverse once. Disposing an effect whose activation, instance, or runtime has ended does nothing.",
                 receiver: Receiver::Own,
                 parameters: &[],
             },
             effect_dispose,
         );
     }
-}
-
-pub(super) struct AttachmentHost {
-    pub(super) registry: ContractRegistry,
-    pub(super) contract_keys: std::collections::HashMap<ContractId, ContractKey>,
-    pub(super) runtimes: Vec<Rc<RefCell<RuntimeState>>>,
-    pub(super) definitions: Vec<Weak<DefinitionData>>,
-    pub(super) callback_depth: usize,
-}
-
-impl AttachmentHost {
-    pub(super) fn new() -> Self {
-        Self {
-            registry: ContractRegistry::new(),
-            contract_keys: std::collections::HashMap::new(),
-            runtimes: Vec::new(),
-            definitions: Vec::new(),
-            callback_depth: 0,
-        }
-    }
-}
-
-pub(super) struct DefinitionData {
-    pub(super) host: Weak<RefCell<AttachmentHost>>,
-    pub(super) required: Vec<DeclarationField>,
-    pub(super) provided: Vec<DeclarationField>,
-    pub(super) init: RefCell<Option<Function>>,
-}
-
-#[derive(Clone)]
-pub(super) struct DeclarationField {
-    pub(super) field: String,
-    pub(super) key: ContractKey,
-}
-
-pub(super) struct RuntimeState {
-    pub(super) host: Weak<RefCell<AttachmentHost>>,
-    pub(super) graph: Graph,
-    pub(super) instances: BTreeMap<InstanceId, InstanceState>,
-    pub(super) queue: VecDeque<Command>,
-    pub(super) draining: bool,
-    pub(super) closed: bool,
-    pub(super) closing: bool,
-    pub(super) errors: Vec<String>,
-}
-
-// Retained graph allocations preserve dependency reads, not permission to acquire during cleanup.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ActivationAuthority {
-    Detached,
-    Resources(ActivationId),
-    Cleanup(ActivationId),
-}
-
-impl ActivationAuthority {
-    pub(super) fn permits_resources(self, activation: ActivationId) -> bool {
-        self == Self::Resources(activation)
-    }
-}
-
-pub(super) struct InstanceState {
-    pub(super) authority: ActivationAuthority,
-    pub(super) definition: Rc<DefinitionData>,
-    pub(super) config: Value,
-    pub(super) effects: Vec<Option<Function>>,
-    pub(super) service: Option<Value>,
-    pub(super) cancelled: bool,
-}
-
-pub(super) enum Command {
-    Enable(InstanceId),
-    Disable(InstanceId),
-    Reload(InstanceId, Value),
-    Dispose(InstanceId),
-    Shutdown,
 }

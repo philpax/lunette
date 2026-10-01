@@ -8,6 +8,7 @@ return function(plugin)
     local providerLoads = 0
     local providerDefinition = plugin.define({}, { service = dependency }, function(context)
       providerLoads += 1
+      providerAlive = true
       context:effect(function()
         return function()
           table.insert(events, 'provider')
@@ -69,9 +70,20 @@ return function(plugin)
     end)
     runtime:use(observer, {}):enable()
     instance:enable()
+    assert(instance:state() == 'quarantined', 'failed publication rollback was not quarantined')
+    -- The quarantined consumer holds no allocation, so it does not pin the
+    -- provider: the requested disable or reload is carried out.
+    assert(
+      table.concat(events, ',') == 'broken,remaining,provider',
+      'rollback inverse order: ' .. table.concat(events, ',')
+    )
     provider:enable()
-    instance:enable()
-    instance:reload {}
+    assert(not pcall(function()
+      instance:enable()
+    end), 'quarantined instance accepted enable')
+    assert(not pcall(function()
+      instance:reload {}
+    end), 'quarantined instance accepted reload')
     instance:disable()
     instance:dispose()
     runtime:drain()
@@ -79,14 +91,14 @@ return function(plugin)
     assert(observerLoads == 0, 'invalid consumer was published')
     assert(not escaped:active(), 'invalid consumer context remains active')
     assert(brokenCalls == 1, 'failed inverse retried')
-    assert(providerLoads == 1 and providerAlive, 'quarantine released the exact dependency generation')
+    assert(providerLoads == 2 and providerAlive, 'the provider was not replaced')
+    local duplicate = runtime:use(definition, {})
     assert(not pcall(function()
-      runtime:use(definition, {})
+      duplicate:enable()
     end), 'failed publication rollback released its reservation')
-    assert(table.concat(events, ',') == 'broken,remaining', 'rollback inverse order: ' .. table.concat(events, ','))
     runtime:close()
     assert(
-      table.concat(events, ',') == 'broken,remaining,provider',
+      table.concat(events, ',') == 'broken,remaining,provider,provider',
       'shutdown dependency order: ' .. table.concat(events, ',')
     )
     assert(brokenCalls == 1, 'shutdown retried failed rollback')

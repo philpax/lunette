@@ -47,6 +47,9 @@ mlua = "=0.12.0"
 mlua-sys = "=0.11.0"
 parking_lot = "=0.12.5"
 pretty_assertions = "=1.4.1"
+# The plugin graph's model checker generates operation sequences and shrinks
+# a failing one to a minimal reproduction.
+proptest = "=1.11.0"
 serde = "=1.0.229"
 smallvec = "=1.15.2"
 # `default-features = false` is set here, not at the member. The default

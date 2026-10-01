@@ -265,12 +265,14 @@ fn failure_shutdown_finishes_real_graph_before_native_and_external_close() -> ml
         "host context was not logged: {log}"
     );
     assert!(
-        log.contains("plugin shutdown callback(s) failed"),
+        log.contains("cleanup continued") && log.contains("shutdown cleanup failure"),
         "cleanup failure was swallowed: {log}"
     );
+    // The disposal failure was raised to its caller before shutdown, and
+    // shutdown reports only its own failures.
     assert!(
-        log.contains("explicit disposer failure"),
-        "failure diagnostic was not logged: {log}"
+        !log.contains("explicit disposer failure"),
+        "shutdown reported an earlier failure again: {log}"
     );
     drop(external);
     Ok(())
@@ -340,8 +342,8 @@ fn reload_retires_the_attachment_before_rebuilding_the_epoch() -> mlua::Result<(
     );
     let stale_message = stale_error.to_string()?;
     assert!(
-        stale_message.contains("callback references were cleared"),
-        "stale activation should report a retired callback, got {stale_message}"
+        stale_message.contains("belongs to a retired contract epoch"),
+        "a stale definition should be rejected when it is used, got {stale_message}"
     );
     assert!(!lua.globals().get::<bool>("old_active")?);
 
@@ -396,6 +398,7 @@ fn install_failure_runtime(lua: &Lua, dropped: &Rc<Cell<bool>>) -> mlua::Result<
                 'provider unavailable during A')
               table.insert(cleanup_events, 'A')
               table.insert(cleanup_commands, 'A')
+              error('shutdown cleanup failure')
             end
           end)
           explicit_disposer = context:effect(function()
@@ -429,12 +432,10 @@ fn install_failure_runtime(lua: &Lua, dropped: &Rc<Cell<bool>>) -> mlua::Result<
 }
 
 fn install_runtime(lua: &Lua) -> mlua::Result<()> {
-    attachment::install(lua)?;
-    let plugin = lua.create_table()?;
-    for descriptor in attachment::native_descriptors() {
-        (descriptor.install)(lua, &plugin)?;
-    }
-    lua.globals().set("plugin", plugin)?;
+    let module = lua.create_table()?;
+    declarations::install(lua, &module)?;
+    lua.globals()
+        .set("plugin", module.get::<Table>("plugin")?)?;
     lua.load(
         r#"
         cleanup_payload = 'pending payload'

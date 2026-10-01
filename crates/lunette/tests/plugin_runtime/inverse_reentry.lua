@@ -48,7 +48,12 @@ return function(plugin)
       end)
       assert(not ok and string.find(tostring(message), 'reentrant inverse failure'), 'explicit failure lost its cause')
       effect:dispose()
-      assert(#events == 1 and events[1] == 'broken', 'explicit failure drained pending inverses')
+      -- The reload requested inside the inverse unloads the activation, which
+      -- runs its remaining inverse and then quarantines it.
+      assert(
+        table.concat(events, ',') == 'broken,remaining',
+        'explicit failure cleanup order: ' .. table.concat(events, ',')
+      )
     else
       assert(not pcall(function()
         context:effect(function()
@@ -61,15 +66,20 @@ return function(plugin)
         'cancelled activation inverses out of order'
       )
     end
-    instance:enable()
-    instance:reload {}
+    assert(not pcall(function()
+      instance:enable()
+    end), 'quarantined instance accepted enable')
+    assert(not pcall(function()
+      instance:reload {}
+    end), 'quarantined instance accepted reload')
     instance:dispose()
     runtime:drain()
     assert(loads == 1, 'failed old inverse permitted a replacement activation')
     assert(inverseCalls == 1, 'failed inverse retried')
     assert(not context:active(), 'failed allocation remains published')
+    local duplicate = runtime:use(definition, {})
     assert(not pcall(function()
-      runtime:use(definition, {})
+      duplicate:enable()
     end), 'failed cleanup released its provided reservation')
     assert(providerAlive, 'failed cleanup released its dependency')
     runtime:close()

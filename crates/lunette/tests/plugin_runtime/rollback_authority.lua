@@ -92,19 +92,23 @@ return function(plugin)
         end)
       end), 'completed rollback context remains usable')
       if broken then
+        assert(instance:state() == 'quarantined', 'failed rollback was not quarantined')
         provider:disable()
         provider:reload {}
         provider:enable()
-        instance:enable()
-        instance:reload {}
+        assert(not pcall(function()
+          instance:enable()
+        end), 'quarantined instance accepted enable')
+        assert(not pcall(function()
+          instance:reload {}
+        end), 'quarantined instance accepted reload')
         instance:dispose()
         runtime:drain()
-        assert(
-          loads == 1 and providerLoads == 1 and providerAlive,
-          'failed rollback released its exact allocation or dependency'
-        )
+        assert(loads == 1, 'failed rollback was retried')
+        assert(providerLoads == 2, 'quarantine pinned its dependency')
+        local duplicate = runtime:use(definition, {})
         assert(not pcall(function()
-          runtime:use(definition, {})
+          duplicate:enable()
         end), 'failed rollback released its reservation')
       end
       assert(
@@ -114,9 +118,10 @@ return function(plugin)
         'rollback child attempt reserved a contract'
       )
       runtime:close()
+      local expected = if broken then '3,2,1,provider,provider' else '3,2,1,provider'
       assert(
-        table.concat(events, ',') == '3,2,1,provider',
-        'shutdown retried rollback or released dependencies out of order'
+        table.concat(events, ',') == expected,
+        'shutdown retried rollback or released dependencies out of order: ' .. table.concat(events, ',')
       )
       assert(acquired == 0 and childLoads == 0, 'rollback resource leaked after close')
     end

@@ -8,11 +8,14 @@ extern crate lunette_lovr;
 
 use std::{cell::Cell, rc::Rc};
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, UserData, Value};
+
+mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "setreadonly",
         lua.create_function(|_, (table, readonly): (Table, bool)| {
@@ -174,7 +177,7 @@ fn provider_uses_real_facade_with_unmanaged_native_fakes() -> mlua::Result<()> {
     let source = include_str!("plugin_panels/panels.lua");
     let callback: Function = lua.load(source).set_name("plugin_panels").eval()?;
     let _: Value = callback.call(())?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -186,7 +189,7 @@ fn initial_claim_failure_keeps_registry_unchanged_and_allows_retry() -> mlua::Re
     lua.load(include_str!("plugin_panels/acquisition_failure.lua"))
         .set_name("plugin_panels/acquisition_failure.lua")
         .exec()?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -221,7 +224,7 @@ fn destroyed_panels_release_payloads_while_provider_is_active() -> mlua::Result<
         assert_eq!(dropped.get(), count, "destroyed panel retained its source");
     }
     fixture.get::<Function>("close")?.call::<()>(())?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }

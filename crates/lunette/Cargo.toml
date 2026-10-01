@@ -53,6 +53,7 @@ lunette-capture = { path = "../lunette-capture", features = ["test-fakes"] }
 # against a real Wayland compositor with no graphics device.
 lunette-compositor = { path = "../lunette-compositor", features = ["test-fakes"] }
 pretty_assertions.workspace = true
+proptest.workspace = true
 tempfile.workspace = true
 
 [lints]

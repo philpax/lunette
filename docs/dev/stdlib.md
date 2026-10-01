@@ -54,7 +54,7 @@ Safe mode is compiled into the binary and requires `lunette` alone. It does not 
 
 The host's source reload retains the Lua state. It shuts down plugin runtimes, clears native subscribers and configuration callbacks, drops unprotected modules from `package.loaded`, advances the plugin contract epoch, and runs `main.lua` and `lovr.load` again. It does not call `mullion.teardown.run()`.
 
-Plugin implementations register cleanup effects with their context or owner. The native runtime runs these effects during disable, instance reload, disposal, and shutdown. An expired activation cannot use its context or publisher. Cleanup failures are reported and quarantined; the runtime does not retry an inverse that already failed.
+Plugin implementations register cleanup effects with their context or owner. The native runtime runs these effects during disable, instance reload, disposal, and shutdown. An expired activation cannot use its context or publisher. A cleanup failure quarantines the instance: the runtime does not retry an inverse that already failed, runs the instance's remaining inverses when its attachment ends, and never loads it again. A quarantined instance keeps its contract reservations but does not hold back its providers or parent. Cleanup failures during a drain are reported through `lunette.onError`; a failing `effect:dispose()` raises to its caller.
 
 The Lua teardown registry remains available for modules that explicitly call it. It is not part of the host's source-reload or hard-restart sequence. A Lua module that owns native resources outside the plugin runtime must not rely on that registry being called automatically. This lifecycle gap remains open.
 

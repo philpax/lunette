@@ -1,88 +1,116 @@
-//! Runtime graph execution, callback validation, and cleanup for the plugin attachment.
+//! Runtime graph execution: requests, drains, loads, unloads, and failure
+//! reporting for the plugin attachment.
+//!
+//! Requests apply to the graph immediately, in the order they are made, and
+//! return the graph's rejection to the caller. Planning is derived from graph
+//! state, so a request made while a drain is running is picked up by that
+//! drain, and work a drain does not reach is found by the next one.
 
 use std::{
-    cell::{Cell, RefCell},
-    collections::HashSet,
+    cell::RefCell,
+    collections::{BTreeMap, HashSet},
     rc::{Rc, Weak},
 };
 
-use mlua::{FromLua, Function, Lua, Table, Value};
-use tracing::error;
+use mlua::{Lua, Value};
+use tracing::{debug, error, info};
 
-use super::{
-    ActivationAuthority, AttachmentHost, Command, DeclarationField, DefinitionData, InstanceState,
-    PluginContext, PluginEffect, PluginInstance, RuntimeState, graph_error,
-};
-use crate::plugin::graph::{
-    Action, ActivationId, AttachmentState, InstanceId, Intent, LoadOutcome,
+use crate::plugin::{
+    attachment::{
+        PluginContext, PluginInstance,
+        error::{AttachmentError, FailureCause, FailurePhase, PluginFailure, ProvisionError},
+        state::{
+            ActivationAuthority, AttachmentHost, CallbackGuard, DeclarationField, DefinitionData,
+            DrainGuard, InstanceState, RuntimeState,
+        },
+        types::PluginState,
+    },
+    graph::{
+        Action, ActivationId, GraphError, InstanceId, Intent, LifecycleState, LoadOutcome,
+        LoadResolution, Severity,
+    },
 };
 
+/// A lifecycle request made through an instance handle.
+pub(super) enum Request {
+    Enable(InstanceId),
+    Disable(InstanceId),
+    Reload(InstanceId, Value),
+    Dispose(InstanceId),
+}
+
+/// Applies a request and drains, unless a drain is already running.
 pub(super) fn request_instance(
     lua: &Lua,
     weak: &Weak<RefCell<RuntimeState>>,
-    command: Command,
-) -> mlua::Result<()> {
-    let runtime = weak
-        .upgrade()
-        .ok_or_else(|| mlua::Error::runtime("plugin runtime: runtime is gone"))?;
+    request: Request,
+) -> Result<(), AttachmentError> {
+    let runtime = weak.upgrade().ok_or(AttachmentError::RuntimeGone)?;
     {
         let mut state = runtime.borrow_mut();
         if state.closed || state.closing {
-            return Err(mlua::Error::runtime("plugin runtime: runtime is closed"));
+            return Err(AttachmentError::RuntimeClosed);
         }
-        if state.draining {
-            if state.queue.len() >= 256 {
-                return Err(mlua::Error::runtime(
-                    "plugin runtime: lifecycle queue is full",
-                ));
-            }
-            state.queue.push_back(command);
-            return Ok(());
+        let (operation, intent) = match &request {
+            Request::Enable(id) => ("enable", Intent::Enable(*id)),
+            Request::Disable(id) => ("disable", Intent::Disable(*id)),
+            Request::Reload(id, _) => ("reload", Intent::Reload(*id)),
+            Request::Dispose(id) => ("dispose", Intent::Dispose(*id)),
+        };
+        state
+            .graph
+            .request(intent)
+            .map_err(|source| AttachmentError::Graph { operation, source })?;
+        if let Request::Reload(id, config) = request
+            && let Some(instance) = state.instances.get_mut(&id)
+        {
+            instance.config = config;
         }
-        state.queue.push_back(command);
     }
     drain_runtime(lua, &runtime)
 }
 
 pub(super) fn use_definition(
-    _lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
     definition: Rc<DefinitionData>,
     config: Value,
     parent: Option<InstanceId>,
-) -> mlua::Result<PluginInstance> {
-    if definition.host.upgrade().is_none() {
-        return Err(mlua::Error::runtime(
-            "plugin definition: attachment is gone",
-        ));
+) -> Result<PluginInstance, AttachmentError> {
+    let host = definition
+        .host
+        .upgrade()
+        .ok_or(AttachmentError::NotInstalled)?;
+    if host.borrow().epoch != definition.epoch {
+        return Err(AttachmentError::StaleDefinition {
+            plugin: definition.name.clone(),
+        });
     }
     let mut state = runtime.borrow_mut();
     if state.closed || state.closing {
-        return Err(mlua::Error::runtime("plugin runtime: runtime is closed"));
+        return Err(AttachmentError::RuntimeClosed);
     }
-    let required = definition
-        .required
-        .iter()
-        .map(|field| field.key.clone())
-        .collect();
-    let provided = definition
-        .provided
-        .iter()
-        .map(|field| field.key.clone())
-        .collect();
+    let keys = |fields: &[DeclarationField]| fields.iter().map(|field| field.key.clone()).collect();
     let id = state
         .graph
-        .install(required, provided, parent)
-        .map_err(graph_error)?;
+        .install(
+            keys(&definition.required),
+            keys(&definition.provided),
+            parent,
+        )
+        .map_err(|source| AttachmentError::Graph {
+            operation: "install",
+            source,
+        })?;
     state.instances.insert(
         id,
         InstanceState {
             authority: ActivationAuthority::Detached,
             definition,
             config,
-            effects: Vec::new(),
+            effects: BTreeMap::new(),
+            next_effect: 0,
             service: None,
-            cancelled: false,
+            last_diagnostic: None,
         },
     );
     Ok(PluginInstance {
@@ -91,167 +119,158 @@ pub(super) fn use_definition(
     })
 }
 
-pub(super) fn child(
-    lua: &Lua,
-    context: &PluginContext,
-    definition: Rc<DefinitionData>,
-    config: Value,
-) -> mlua::Result<PluginInstance> {
-    validate_context(lua, context, true)?;
-    let runtime = context
-        .runtime
+pub(super) fn instance_state(runtime: &Weak<RefCell<RuntimeState>>, id: InstanceId) -> PluginState {
+    runtime
         .upgrade()
-        .ok_or_else(|| mlua::Error::runtime("plugin context: runtime is gone"))?;
-    use_definition(lua, &runtime, definition, config, Some(context.instance))
+        .and_then(|runtime| runtime.borrow().graph.state(id).ok())
+        .map_or(PluginState::Removed, PluginState::from)
 }
 
-pub(super) fn drain_runtime(lua: &Lua, runtime: &Rc<RefCell<RuntimeState>>) -> mlua::Result<()> {
+pub(super) fn instance_diagnostic(
+    runtime: &Weak<RefCell<RuntimeState>>,
+    id: InstanceId,
+) -> Option<String> {
+    let runtime = runtime.upgrade()?;
+    let state = runtime.borrow();
+    state.instances.get(&id)?.last_diagnostic.clone()
+}
+
+/// Performs lifecycle work until the graph has none, or until the action
+/// budget is spent.
+///
+/// The budget scales with the number of installed instances. It exists to
+/// stop a defect from looping forever; reaching it reports an error and
+/// leaves the remaining work in the graph for the next drain.
+pub(super) fn drain_runtime(
+    lua: &Lua,
+    runtime: &Rc<RefCell<RuntimeState>>,
+) -> Result<(), AttachmentError> {
+    {
+        let state = runtime.borrow();
+        if state.closed || state.draining {
+            return Ok(());
+        }
+    }
+    let result = {
+        let _draining = DrainGuard::enter(runtime);
+        drain_actions(lua, runtime)
+    };
+    let finished_closing = {
+        let mut state = runtime.borrow_mut();
+        let finished = state.closing && !state.closed;
+        if finished {
+            state.closed = true;
+        }
+        finished
+    };
+    if finished_closing {
+        let released = std::mem::take(&mut runtime.borrow_mut().instances);
+        drop(released);
+        prune_closed_runtimes(runtime);
+    }
+    result
+}
+
+fn drain_actions(lua: &Lua, runtime: &Rc<RefCell<RuntimeState>>) -> Result<(), AttachmentError> {
+    let mut performed = 0usize;
+    loop {
+        let budget = drain_budget(&runtime.borrow());
+        if performed >= budget {
+            return Err(AttachmentError::DrainBudget { budget });
+        }
+        let action = runtime.borrow_mut().graph.next_action();
+        publish_diagnostics(lua, runtime);
+        prune_instances(runtime);
+        let Some(action) = action else {
+            return Ok(());
+        };
+        performed += 1;
+        if let Err(error) = execute_action(lua, runtime, action) {
+            if !runtime.borrow().closing {
+                return Err(error);
+            }
+            // Shutdown attempts every remaining cleanup even after an internal failure.
+            record_error(runtime, error);
+        }
+    }
+}
+
+fn drain_budget(state: &RuntimeState) -> usize {
+    state.graph.len().saturating_mul(8).saturating_add(64)
+}
+
+pub(super) fn close_runtime(
+    lua: &Lua,
+    runtime: &Rc<RefCell<RuntimeState>>,
+) -> Result<(), AttachmentError> {
     {
         let mut state = runtime.borrow_mut();
         if state.closed {
             return Ok(());
         }
+        state.closing = true;
+        state
+            .graph
+            .request(Intent::Shutdown)
+            .map_err(|source| AttachmentError::Graph {
+                operation: "close",
+                source,
+            })?;
         if state.draining {
             return Ok(());
         }
-        state.draining = true;
     }
-
-    let mut processed = 0usize;
-    let mut failure = None;
-    loop {
-        processed += 1;
-        let budget = {
-            let state = runtime.borrow();
-            if state.closing {
-                state.instances.len().saturating_mul(2).saturating_add(258)
-            } else {
-                256
-            }
-        };
-        if processed > budget {
-            failure = Some(mlua::Error::runtime(
-                "plugin drain: request budget exhausted",
-            ));
-            break;
-        }
-        let command = runtime.borrow_mut().queue.pop_front();
-        if let Some(command) = command {
-            if let Err(error) = apply_command(runtime, command) {
-                failure = Some(error);
-                break;
-            }
-            continue;
-        }
-        let action = runtime.borrow_mut().graph.next_action();
-        let Some(action) = action else {
-            let diagnostics = runtime.borrow_mut().graph.take_diagnostics();
-            for diagnostic in diagnostics {
-                record_error(runtime, diagnostic.to_string());
-            }
-            break;
-        };
-        if let Err(error) = execute_action(lua, runtime, action) {
-            if runtime.borrow().closing {
-                record_error(runtime, error.to_string());
-                continue;
-            }
-            failure = Some(error);
-            break;
-        }
-    }
-
-    if runtime.borrow().closing && !runtime.borrow().closed {
-        runtime.borrow_mut().closed = true;
-        clear_runtime_references(runtime);
-    }
-    runtime.borrow_mut().draining = false;
-    if let Some(error) = failure {
-        record_error(runtime, error.to_string());
-        return Err(error);
-    }
-    Ok(())
+    drain_runtime(lua, runtime)
 }
 
-fn flush_commands(runtime: &Rc<RefCell<RuntimeState>>) -> mlua::Result<()> {
-    loop {
-        let command = {
-            let mut state = runtime.borrow_mut();
-            let priority = state
-                .queue
-                .iter()
-                .position(|command| !matches!(command, Command::Enable(_)));
-            match priority {
-                Some(index) => state.queue.remove(index),
-                None => state.queue.pop_front(),
-            }
-        };
-        let Some(command) = command else {
-            return Ok(());
-        };
-        apply_command(runtime, command)?;
-    }
-}
-
-fn apply_command(runtime: &Rc<RefCell<RuntimeState>>, command: Command) -> mlua::Result<()> {
-    let mut state = runtime.borrow_mut();
-    match &command {
-        Command::Disable(id) | Command::Dispose(id) | Command::Reload(id, _) => {
-            if let Some(instance) = state.instances.get_mut(id) {
-                instance.cancelled = true;
-            }
-        }
-        Command::Shutdown => {
-            for instance in state.instances.values_mut() {
-                instance.cancelled = true;
-            }
-        }
-        Command::Enable(_) => {}
-    }
-    let intent = match &command {
-        Command::Enable(id) => Intent::Enable(*id),
-        Command::Disable(id) => Intent::Disable(*id),
-        Command::Reload(id, _) => Intent::Reload(*id),
-        Command::Dispose(id) => Intent::Dispose(*id),
-        Command::Shutdown => Intent::Shutdown,
+/// Runs an operation that may acquire or release resources, then performs
+/// the lifecycle work it caused.
+///
+/// The operation's result is accounted for before queued work can replace its
+/// allocation, because no drain runs while it does.
+pub(super) fn lifecycle_operation<R>(
+    lua: &Lua,
+    runtime: &Rc<RefCell<RuntimeState>>,
+    operation: impl FnOnce() -> mlua::Result<R>,
+) -> mlua::Result<R> {
+    let nested = runtime.borrow().draining;
+    let result = {
+        let _draining = DrainGuard::enter(runtime);
+        operation()
     };
-    state.graph.enqueue(intent).map_err(graph_error)?;
-    if let Command::Enable(id) = command
-        && state
-            .instances
-            .get(&id)
-            .is_some_and(|instance| instance.cancelled)
-        && state
-            .graph
-            .attachment(id)
-            .map_err(graph_error)?
-            .is_some_and(|view| view.state == AttachmentState::Active)
-    {
-        state
-            .graph
-            .enqueue(Intent::Reload(id))
-            .map_err(graph_error)?;
+    if nested {
+        return result;
     }
-    if let Command::Reload(id, config) = command {
-        let instance = state
-            .instances
-            .get_mut(&id)
-            .ok_or_else(|| mlua::Error::runtime("plugin runtime: unknown instance"))?;
-        instance.config = config;
-    }
-    Ok(())
+    let drained = drain_runtime(lua, runtime);
+    let value = result?;
+    drained?;
+    Ok(value)
+}
+
+/// Calls plugin code with the callback depth raised for its duration.
+pub(super) fn callback_call<R>(
+    runtime: &Rc<RefCell<RuntimeState>>,
+    callback: impl FnOnce() -> mlua::Result<R>,
+) -> mlua::Result<R> {
+    let host = runtime
+        .borrow()
+        .host
+        .upgrade()
+        .ok_or_else(|| mlua::Error::from(AttachmentError::NotInstalled))?;
+    let _depth = CallbackGuard::enter(host);
+    callback()
 }
 
 fn execute_action(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
     action: Action,
-) -> mlua::Result<()> {
+) -> Result<(), AttachmentError> {
     match action {
         Action::BeginLoad {
             instance,
             activation,
-            bindings: _,
+            ..
         } => begin_load(lua, runtime, instance, activation),
         Action::BeginUnload {
             instance,
@@ -260,137 +279,151 @@ fn execute_action(
     }
 }
 
+struct Prepared {
+    definition: Rc<DefinitionData>,
+    config: Value,
+    init: mlua::Function,
+}
+
+fn prepare_load(
+    runtime: &Rc<RefCell<RuntimeState>>,
+    instance: InstanceId,
+    activation: ActivationId,
+) -> Result<Prepared, FailureCause> {
+    let mut state = runtime.borrow_mut();
+    let instance_state = state
+        .instances
+        .get_mut(&instance)
+        .ok_or(FailureCause::MissingRecord)?;
+    instance_state.authority = ActivationAuthority::Resources(activation);
+    let init = instance_state
+        .definition
+        .init
+        .borrow()
+        .as_ref()
+        .cloned()
+        .ok_or(FailureCause::InitializerCleared)?;
+    Ok(Prepared {
+        definition: Rc::clone(&instance_state.definition),
+        config: instance_state.config.clone(),
+        init,
+    })
+}
+
 fn begin_load(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
-    activation: crate::plugin::graph::ActivationId,
-) -> mlua::Result<()> {
-    if let Some(instance_state) = runtime.borrow_mut().instances.get_mut(&instance) {
-        instance_state.cancelled = false;
-        instance_state.authority = ActivationAuthority::Resources(activation);
-    }
-    let (definition, config, init) = {
-        let state = runtime.borrow();
-        let instance_state = state.instances.get(&instance).ok_or_else(|| {
-            mlua::Error::runtime("plugin runtime: graph returned unknown instance")
-        })?;
-        let init = instance_state
-            .definition
-            .init
-            .borrow()
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| {
-                mlua::Error::runtime("plugin definition: callback references were cleared")
-            })?;
-        (
-            Rc::clone(&instance_state.definition),
-            instance_state.config.clone(),
-            init,
-        )
+    activation: ActivationId,
+) -> Result<(), AttachmentError> {
+    let prepared = match prepare_load(runtime, instance, activation) {
+        Ok(prepared) => prepared,
+        Err(cause) => return fail_load(lua, runtime, instance, activation, cause),
     };
-    let context = lua.create_userdata(PluginContext {
+    let context = match lua.create_userdata(PluginContext {
         runtime: Rc::downgrade(runtime),
         instance,
         activation,
-    })?;
-    let result = callback_call(runtime, lua, || init.call::<Value>((context, config)));
-    let service = match result {
-        Ok(service) => match validate_service(&service, &definition.provided) {
-            Ok(()) => service,
-            Err(error) => {
-                complete_load_failure(lua, runtime, instance, activation, error.to_string())?;
-                return Ok(());
-            }
-        },
+    }) {
+        Ok(context) => context,
         Err(error) => {
-            complete_load_failure(lua, runtime, instance, activation, error.to_string())?;
-            return Ok(());
+            return fail_load(lua, runtime, instance, activation, FailureCause::Lua(error));
         }
     };
-
-    if let Err(error) = flush_commands(runtime) {
-        complete_load_failure(lua, runtime, instance, activation, error.to_string())?;
-        return Ok(());
-    }
-    let cancelled = runtime
-        .borrow()
-        .instances
-        .get(&instance)
-        .is_some_and(|state| state.cancelled);
-    if cancelled {
-        rollback_effects(lua, runtime, instance, activation)?;
-    }
-    if runtime
-        .borrow()
-        .graph
-        .attachment(instance)
-        .map_err(graph_error)?
-        .is_some_and(|view| view.state == AttachmentState::Failed)
-    {
-        return Ok(());
-    }
-    let published = {
-        let mut state = runtime.borrow_mut();
-        state
-            .graph
-            .complete_load(
-                instance,
-                activation,
-                if cancelled {
-                    LoadOutcome::Cancelled
-                } else {
-                    LoadOutcome::Success
-                },
-            )
-            .map_err(graph_error)?;
-        state
-            .graph
-            .attachment(instance)
-            .map_err(graph_error)?
-            .is_some_and(|view| view.state == AttachmentState::Active)
+    let result = callback_call(runtime, || {
+        prepared.init.call::<Value>((context, prepared.config))
+    });
+    let service = match result.map_err(FailureCause::Callback).and_then(|service| {
+        validate_service(&service, &prepared.definition.provided)
+            .map(|()| service)
+            .map_err(FailureCause::Provision)
+    }) {
+        Ok(service) => service,
+        Err(cause) if load_was_cancelled(runtime, instance, activation)? => {
+            debug!(
+                "plugin load: {} ended after its activation was cancelled: {cause}",
+                runtime.borrow().label(instance)
+            );
+            return cancel_load(lua, runtime, instance, activation);
+        }
+        Err(cause) => return fail_load(lua, runtime, instance, activation, cause),
     };
-    if published {
-        runtime
-            .borrow_mut()
-            .instances
-            .get_mut(&instance)
-            .ok_or_else(|| mlua::Error::runtime("plugin runtime: instance disappeared"))?
-            .service = Some(service);
-    } else if !cancelled && rollback_effects(lua, runtime, instance, activation)? {
-        runtime
-            .borrow_mut()
-            .graph
-            .complete_load(instance, activation, LoadOutcome::Cancelled)
-            .map_err(graph_error)?;
+    let resolution = runtime
+        .borrow_mut()
+        .graph
+        .complete_load(instance, activation, LoadOutcome::Success)
+        .map_err(graph_error("complete a load"))?;
+    match resolution {
+        LoadResolution::Published(_) => {
+            if let Some(instance_state) = runtime.borrow_mut().instances.get_mut(&instance) {
+                instance_state.service = Some(service);
+                instance_state.last_diagnostic = None;
+            }
+            Ok(())
+        }
+        LoadResolution::Rejected => cancel_load(lua, runtime, instance, activation),
+        LoadResolution::Ended(_) => Ok(()),
     }
-    Ok(())
 }
 
-fn complete_load_failure(
+/// A load whose activation was cancelled by an intent ended because of that
+/// cancellation, not because the plugin failed. A load whose cleanup failed
+/// is a failure even though it can no longer publish.
+fn load_was_cancelled(
+    runtime: &Rc<RefCell<RuntimeState>>,
+    instance: InstanceId,
+    activation: ActivationId,
+) -> Result<bool, AttachmentError> {
+    let state = runtime.borrow();
+    let valid = state
+        .graph
+        .activation_is_valid(instance, activation)
+        .map_err(graph_error("check a load"))?;
+    let quarantined = state
+        .graph
+        .cleanup_failed(instance)
+        .map_err(graph_error("check a load"))?;
+    Ok(!valid && !quarantined)
+}
+
+fn fail_load(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
-    activation: crate::plugin::graph::ActivationId,
-    message: String,
-) -> mlua::Result<()> {
-    record_error(runtime, format!("plugin load: {message}"));
+    activation: ActivationId,
+    cause: FailureCause,
+) -> Result<(), AttachmentError> {
+    let plugin = runtime.borrow().label(instance);
+    record_failure(
+        lua,
+        runtime,
+        PluginFailure {
+            phase: FailurePhase::Load,
+            plugin,
+            cause,
+        },
+    );
     rollback_effects(lua, runtime, instance, activation)?;
-    if runtime
-        .borrow()
-        .graph
-        .attachment(instance)
-        .map_err(graph_error)?
-        .is_some_and(|view| view.state == AttachmentState::Failed)
-    {
-        return Ok(());
-    }
     runtime
         .borrow_mut()
         .graph
         .complete_load(instance, activation, LoadOutcome::Failed)
-        .map_err(graph_error)?;
+        .map_err(graph_error("complete a failed load"))?;
+    Ok(())
+}
+
+fn cancel_load(
+    lua: &Lua,
+    runtime: &Rc<RefCell<RuntimeState>>,
+    instance: InstanceId,
+    activation: ActivationId,
+) -> Result<(), AttachmentError> {
+    rollback_effects(lua, runtime, instance, activation)?;
+    runtime
+        .borrow_mut()
+        .graph
+        .complete_load(instance, activation, LoadOutcome::Cancelled)
+        .map_err(graph_error("complete a cancelled load"))?;
     Ok(())
 }
 
@@ -398,553 +431,236 @@ fn begin_unload(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
-    activation: crate::plugin::graph::ActivationId,
-) -> mlua::Result<()> {
-    enter_cleanup(runtime, instance, activation)?;
+    activation: ActivationId,
+) -> Result<(), AttachmentError> {
     let effects = {
         let mut state = runtime.borrow_mut();
-        let instance_state = state.instances.get_mut(&instance).ok_or_else(|| {
-            mlua::Error::runtime("plugin runtime: graph returned unknown instance")
-        })?;
-        instance_state.service = None;
-        std::mem::take(&mut instance_state.effects)
-    };
-    let mut success = true;
-    for effect in effects.into_iter().rev().flatten() {
-        if let Err(error) = callback_call(runtime, lua, || effect.call::<()>(())) {
-            success = false;
-            record_error(runtime, format!("plugin cleanup: {error}"));
+        match state.instances.get_mut(&instance) {
+            Some(instance_state) => {
+                instance_state.authority = ActivationAuthority::Cleanup(activation);
+                instance_state.service = None;
+                Some(std::mem::take(&mut instance_state.effects))
+            }
+            None => None,
         }
-    }
+    };
+    let success = match effects {
+        Some(effects) => run_inverses(lua, runtime, instance, effects, FailurePhase::Cleanup),
+        None => {
+            let plugin = runtime.borrow().label(instance);
+            record_failure(
+                lua,
+                runtime,
+                PluginFailure {
+                    phase: FailurePhase::Cleanup,
+                    plugin,
+                    cause: FailureCause::MissingRecord,
+                },
+            );
+            false
+        }
+    };
     runtime
         .borrow_mut()
         .graph
         .complete_unload(instance, activation, success)
-        .map_err(graph_error)
+        .map_err(graph_error("complete an unload"))
 }
 
-fn validate_service(value: &Value, fields: &[DeclarationField]) -> mlua::Result<()> {
-    let Value::Table(table) = value else {
-        return Err(mlua::Error::runtime(
-            "plugin load: init must return a table",
-        ));
-    };
-    let expected: HashSet<&str> = fields.iter().map(|field| field.field.as_str()).collect();
-    let mut seen = HashSet::new();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair?;
-        let Value::String(key) = key else {
-            return Err(mlua::Error::runtime(
-                "plugin load: provided record keys must be strings",
-            ));
-        };
-        let key = key.to_str()?.to_owned();
-        if value.is_nil() {
-            return Err(mlua::Error::runtime(format!(
-                "plugin load: provided field '{key}' is nil"
-            )));
-        }
-        if !expected.contains(key.as_str()) {
-            return Err(mlua::Error::runtime(format!(
-                "plugin load: provided record has unexpected field '{key}'"
-            )));
-        }
-        seen.insert(key);
-    }
-    if seen.len() != expected.len() {
-        let missing = expected
-            .iter()
-            .find(|field| !seen.contains(**field))
-            .copied()
-            .unwrap_or("<unknown>");
-        return Err(mlua::Error::runtime(format!(
-            "plugin load: provided record is missing field '{missing}'"
-        )));
-    }
-    Ok(())
-}
-
-pub(super) fn services(lua: &Lua, context: &PluginContext) -> mlua::Result<super::Unknown> {
-    let runtime = context
-        .runtime
-        .upgrade()
-        .ok_or_else(|| mlua::Error::runtime("plugin context: runtime is gone"))?;
-    {
-        let state = runtime.borrow();
-        let view = state
-            .graph
-            .attachment(context.instance)
-            .map_err(graph_error)?
-            .ok_or_else(|| mlua::Error::runtime("plugin context: attachment is stale"))?;
-        if view.activation != context.activation
-            || !matches!(
-                view.state,
-                AttachmentState::Loading | AttachmentState::Active | AttachmentState::Unloading
-            )
-        {
-            return Err(mlua::Error::runtime("plugin context: context is stale"));
-        }
-        state
-            .graph
-            .validate_attachment(context.instance, context.activation, &view.bindings)
-            .map_err(graph_error)?;
-    }
-    let (bindings, definition, provider_values) = {
-        let state = runtime.borrow();
-        let view = state
-            .graph
-            .attachment(context.instance)
-            .map_err(graph_error)?
-            .ok_or_else(|| mlua::Error::runtime("plugin context: attachment is stale"))?;
-        let definition = state
-            .instances
-            .get(&context.instance)
-            .map(|instance| Rc::clone(&instance.definition))
-            .ok_or_else(|| mlua::Error::runtime("plugin context: instance is gone"))?;
-        let mut values = Vec::new();
-        for binding in &view.bindings {
-            let provider = state
-                .instances
-                .get(&binding.provider)
-                .ok_or_else(|| mlua::Error::runtime("plugin context: provider is gone"))?;
-            let service =
-                provider.service.as_ref().cloned().ok_or_else(|| {
-                    mlua::Error::runtime("plugin context: provider is not active")
-                })?;
-            let provider_field = provider
-                .definition
-                .provided
-                .iter()
-                .find(|field| field.key == binding.contract)
-                .map(|field| field.field.clone())
-                .ok_or_else(|| mlua::Error::runtime("plugin context: provider field is missing"))?;
-            values.push((binding.clone(), provider_field, service));
-        }
-        (view.bindings, definition, values)
-    };
-    let table = lua.create_table()?;
-    for (binding, provider_field, service) in provider_values {
-        let consumer_field = definition
-            .required
-            .iter()
-            .find(|field| field.key == binding.contract)
-            .map(|field| field.field.clone())
-            .ok_or_else(|| mlua::Error::runtime("plugin context: required field is missing"))?;
-        let service = Table::from_lua(service, lua)?;
-        let value: Value = service.get(provider_field)?;
-        table.set(consumer_field, value)?;
-    }
-    let _ = bindings;
-    Ok(super::Unknown(Value::Table(table)))
-}
-
-pub(super) fn effect(
-    lua: &Lua,
-    context: &PluginContext,
-    acquire: Function,
-) -> mlua::Result<PluginEffect> {
-    let runtime = validate_context(lua, context, true)?;
-    lifecycle_operation(lua, &runtime, || {
-        let inverse = callback_call(&runtime, lua, || acquire.call::<Function>(()))?;
-        let ordinal = {
-            let mut state = runtime.borrow_mut();
-            let view = state
-                .graph
-                .attachment(context.instance)
-                .map_err(graph_error)?
-                .ok_or_else(|| mlua::Error::runtime("plugin effect: attachment is stale"))?;
-            if view.activation != context.activation {
-                return Err(mlua::Error::runtime("plugin effect: context is stale"));
-            }
-            let instance = state
-                .instances
-                .get_mut(&context.instance)
-                .ok_or_else(|| mlua::Error::runtime("plugin effect: instance is gone"))?;
-            instance.effects.push(Some(inverse));
-            instance.effects.len() - 1
-        };
-        flush_commands(&runtime)?;
-        if validate_context(lua, context, true).is_err() {
-            let loading = runtime
-                .borrow()
-                .graph
-                .attachment(context.instance)
-                .map_err(graph_error)?
-                .is_some_and(|view| {
-                    view.activation == context.activation && view.state == AttachmentState::Loading
-                });
-            if loading {
-                rollback_effects(lua, &runtime, context.instance, context.activation)?;
-            }
-            return Err(mlua::Error::runtime("plugin effect: acquisition cancelled"));
-        }
-        Ok(PluginEffect {
-            runtime: Rc::downgrade(&runtime),
-            instance: context.instance,
-            activation: context.activation,
-            ordinal,
-            disposed: Cell::new(false),
-        })
-    })
-}
-
-pub(super) fn dispose_effect(lua: &Lua, effect: &PluginEffect) -> mlua::Result<()> {
-    let Some(runtime) = effect.runtime.upgrade() else {
-        return Ok(());
-    };
-    let inverse = {
-        let mut state = runtime.borrow_mut();
-        let Some(view) = state
-            .graph
-            .attachment(effect.instance)
-            .map_err(graph_error)?
-        else {
-            return Ok(());
-        };
-        if view.activation != effect.activation {
-            return Ok(());
-        }
-        let Some(instance) = state.instances.get_mut(&effect.instance) else {
-            return Ok(());
-        };
-        instance
-            .effects
-            .get_mut(effect.ordinal)
-            .and_then(Option::take)
-    };
-    let Some(inverse) = inverse else {
-        return Ok(());
-    };
-    lifecycle_operation(lua, &runtime, || {
-        let previous = enter_cleanup(&runtime, effect.instance, effect.activation)?;
-        if let Err(error) = callback_call(&runtime, lua, || inverse.call::<()>(())) {
-            runtime
-                .borrow_mut()
-                .graph
-                .mark_cleanup_failed(effect.instance, effect.activation)
-                .map_err(graph_error)?;
-            record_error(&runtime, format!("plugin cleanup: {error}"));
-            return Err(error);
-        }
-        // Successful explicit disposal ends only this inverse's scope; rollback never restores authority.
-        let mut state = runtime.borrow_mut();
-        let view = state
-            .graph
-            .attachment(effect.instance)
-            .map_err(graph_error)?;
-        if view.is_some_and(|view| {
-            view.activation == effect.activation
-                && matches!(
-                    view.state,
-                    AttachmentState::Loading | AttachmentState::Active
-                )
-        }) && let Some(instance) = state.instances.get_mut(&effect.instance)
-            && instance.authority == ActivationAuthority::Cleanup(effect.activation)
-        {
-            instance.authority = previous;
-        }
-        Ok(())
-    })
-}
-
-pub(super) fn check_owner(
-    lua: &Lua,
-    provider: &PluginContext,
-    caller: &PluginContext,
-) -> mlua::Result<()> {
-    let runtime = validate_context(lua, provider, false)?;
-    if !Rc::ptr_eq(
-        &runtime,
-        &caller
-            .runtime
-            .upgrade()
-            .ok_or_else(|| mlua::Error::runtime("plugin context: caller runtime is gone"))?,
-    ) {
-        return Err(mlua::Error::runtime(
-            "plugin context: caller belongs to another runtime",
-        ));
-    }
-    let state = runtime.borrow();
-    let provider_view = state
-        .graph
-        .attachment(provider.instance)
-        .map_err(graph_error)?
-        .ok_or_else(|| mlua::Error::runtime("plugin context: provider attachment is stale"))?;
-    if provider_view.state != AttachmentState::Active {
-        return Err(mlua::Error::runtime(
-            "plugin context: provider is not active",
-        ));
-    }
-    let caller_view = state
-        .graph
-        .attachment(caller.instance)
-        .map_err(graph_error)?
-        .ok_or_else(|| mlua::Error::runtime("plugin context: caller attachment is stale"))?;
-    if caller_view.activation != caller.activation
-        || !state
-            .instances
-            .get(&caller.instance)
-            .is_some_and(|instance| instance.authority.permits_resources(caller.activation))
-        || !matches!(
-            caller_view.state,
-            AttachmentState::Loading | AttachmentState::Active
-        )
-    {
-        return Err(mlua::Error::runtime(
-            "plugin context: caller is not active or loading",
-        ));
-    }
-    let provider_generation = provider_view
-        .generation
-        .ok_or_else(|| mlua::Error::runtime("plugin context: provider has no generation"))?;
-    if !caller_view.bindings.iter().any(|binding| {
-        binding.provider == provider.instance && binding.generation == provider_generation
-    }) {
-        return Err(mlua::Error::runtime(
-            "plugin context: caller does not own this provider",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn context_active(context: &PluginContext) -> bool {
-    let Some(runtime) = context.runtime.upgrade() else {
-        return false;
-    };
-    let state = runtime.borrow();
-    state
-        .graph
-        .attachment(context.instance)
-        .ok()
-        .flatten()
-        .is_some_and(|view| {
-            view.activation == context.activation
-                && state
-                    .instances
-                    .get(&context.instance)
-                    .is_some_and(|instance| {
-                        instance.authority.permits_resources(context.activation)
-                    })
-                && matches!(
-                    view.state,
-                    AttachmentState::Loading | AttachmentState::Active
-                )
-        })
-}
-
-fn validate_context(
-    _lua: &Lua,
-    context: &PluginContext,
-    allow_loading: bool,
-) -> mlua::Result<Rc<RefCell<RuntimeState>>> {
-    let runtime = context
-        .runtime
-        .upgrade()
-        .ok_or_else(|| mlua::Error::runtime("plugin context: runtime is gone"))?;
-    flush_commands(&runtime)?;
-    let state = runtime.borrow();
-    if !state
-        .instances
-        .get(&context.instance)
-        .is_some_and(|instance| instance.authority.permits_resources(context.activation))
-    {
-        return Err(mlua::Error::runtime(
-            "plugin context: activation is cleanup-only",
-        ));
-    }
-    if allow_loading
-        && (state.closing
-            || state
-                .instances
-                .get(&context.instance)
-                .is_some_and(|instance| instance.cancelled))
-    {
-        return Err(mlua::Error::runtime("plugin context: activation cancelled"));
-    }
-    let view = state
-        .graph
-        .attachment(context.instance)
-        .map_err(graph_error)?
-        .ok_or_else(|| mlua::Error::runtime("plugin context: attachment is stale"))?;
-    let valid_state = if allow_loading {
-        matches!(
-            view.state,
-            AttachmentState::Loading | AttachmentState::Active
-        )
-    } else {
-        view.state == AttachmentState::Active
-    };
-    if view.activation != context.activation || !valid_state {
-        return Err(mlua::Error::runtime("plugin context: context is stale"));
-    }
-    if allow_loading
-        && !state
-            .graph
-            .activation_is_valid(context.instance, context.activation)
-            .map_err(graph_error)?
-    {
-        return Err(mlua::Error::runtime("plugin context: activation cancelled"));
-    }
-    drop(state);
-    Ok(runtime)
-}
-
-fn enter_cleanup(
-    runtime: &Rc<RefCell<RuntimeState>>,
-    instance: InstanceId,
-    activation: ActivationId,
-) -> mlua::Result<ActivationAuthority> {
-    let mut state = runtime.borrow_mut();
-    let view = state
-        .graph
-        .attachment(instance)
-        .map_err(graph_error)?
-        .ok_or_else(|| mlua::Error::runtime("plugin cleanup: attachment is stale"))?;
-    if view.activation != activation {
-        return Err(mlua::Error::runtime("plugin cleanup: activation is stale"));
-    }
-    let instance = state
-        .instances
-        .get_mut(&instance)
-        .ok_or_else(|| mlua::Error::runtime("plugin cleanup: instance is gone"))?;
-    let previous = instance.authority;
-    instance.authority = ActivationAuthority::Cleanup(activation);
-    Ok(previous)
-}
-
-fn rollback_effects(
+/// Runs every inverse of a loading allocation in reverse order, quarantining
+/// the allocation if one fails.
+pub(super) fn rollback_effects(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
     activation: ActivationId,
-) -> mlua::Result<bool> {
-    enter_cleanup(runtime, instance, activation)?;
+) -> Result<bool, AttachmentError> {
     let effects = {
         let mut state = runtime.borrow_mut();
-        let view = state
-            .graph
-            .attachment(instance)
-            .map_err(graph_error)?
-            .ok_or_else(|| mlua::Error::runtime("plugin rollback: attachment is stale"))?;
-        if view.activation != activation {
-            return Err(mlua::Error::runtime("plugin rollback: activation is stale"));
-        }
-        let instance = state
-            .instances
-            .get_mut(&instance)
-            .ok_or_else(|| mlua::Error::runtime("plugin rollback: instance is gone"))?;
-        std::mem::take(&mut instance.effects)
+        let Some(instance_state) = state.instances.get_mut(&instance) else {
+            return Ok(true);
+        };
+        instance_state.authority = ActivationAuthority::Cleanup(activation);
+        std::mem::take(&mut instance_state.effects)
     };
-    let mut success = true;
-    for effect in effects.into_iter().rev().flatten() {
-        if let Err(error) = callback_call(runtime, lua, || effect.call::<()>(())) {
-            success = false;
-            record_error(runtime, format!("plugin rollback: {error}"));
-        }
-    }
+    let success = run_inverses(lua, runtime, instance, effects, FailurePhase::Rollback);
     if !success {
         runtime
             .borrow_mut()
             .graph
             .mark_cleanup_failed(instance, activation)
-            .map_err(graph_error)?;
+            .map_err(graph_error("quarantine a rollback"))?;
     }
     Ok(success)
 }
 
-fn lifecycle_operation<R>(
+fn run_inverses(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
-    operation: impl FnOnce() -> mlua::Result<R>,
-) -> mlua::Result<R> {
-    let already_draining = {
-        let mut state = runtime.borrow_mut();
-        let already_draining = state.draining;
-        state.draining = true;
-        already_draining
-    };
-    // The callback result must be accounted for before queued work can replace its allocation.
-    let result = operation();
-    if already_draining {
-        return result;
+    instance: InstanceId,
+    effects: BTreeMap<u64, mlua::Function>,
+    phase: FailurePhase,
+) -> bool {
+    let mut success = true;
+    for (_, inverse) in effects.into_iter().rev() {
+        if let Err(error) = callback_call(runtime, || inverse.call::<()>(())) {
+            success = false;
+            let plugin = runtime.borrow().label(instance);
+            record_failure(
+                lua,
+                runtime,
+                PluginFailure {
+                    phase,
+                    plugin,
+                    cause: FailureCause::Callback(error),
+                },
+            );
+        }
     }
-    runtime.borrow_mut().draining = false;
-    let drain_result = drain_runtime(lua, runtime);
-    match (result, drain_result) {
-        (Err(error), _) => Err(error),
-        (Ok(_), Err(error)) => Err(error),
-        (Ok(value), Ok(())) => Ok(value),
+    success
+}
+
+fn validate_service(value: &Value, fields: &[DeclarationField]) -> Result<(), ProvisionError> {
+    let Value::Table(table) = value else {
+        return Err(ProvisionError::NotATable);
+    };
+    let expected: HashSet<&str> = fields.iter().map(|field| field.field.as_str()).collect();
+    let mut seen = HashSet::new();
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair.map_err(|error| ProvisionError::Unreadable(error.to_string()))?;
+        let Value::String(key) = key else {
+            return Err(ProvisionError::KeyNotString);
+        };
+        let key = key
+            .to_str()
+            .map_err(|error| ProvisionError::Unreadable(error.to_string()))?
+            .to_owned();
+        if value.is_nil() {
+            return Err(ProvisionError::NilField(key));
+        }
+        if !expected.contains(key.as_str()) {
+            return Err(ProvisionError::UnexpectedField(key));
+        }
+        seen.insert(key);
+    }
+    if let Some(missing) = expected.iter().find(|field| !seen.contains(**field)) {
+        return Err(ProvisionError::MissingField((*missing).to_owned()));
+    }
+    Ok(())
+}
+
+/// Moves graph diagnostics onto their instances and reports them.
+///
+/// A waiting condition, such as a consumer enabled before its provider, is
+/// logged at information level. Anything that needs the configuration to
+/// change is reported as a failure.
+fn publish_diagnostics(lua: &Lua, runtime: &Rc<RefCell<RuntimeState>>) {
+    let diagnostics = runtime.borrow_mut().graph.take_diagnostics();
+    for diagnostic in diagnostics {
+        let (plugin, description) = {
+            let mut state = runtime.borrow_mut();
+            let description = diagnostic
+                .kind
+                .describe(&|instance| state.label(instance).to_string());
+            if let Some(instance_state) = state.instances.get_mut(&diagnostic.instance) {
+                instance_state.last_diagnostic = Some(description.clone());
+            }
+            (state.label(diagnostic.instance), description)
+        };
+        match diagnostic.kind.severity() {
+            Severity::Waiting => info!("plugin wiring: {plugin}: {description}"),
+            Severity::Error => record_failure(
+                lua,
+                runtime,
+                PluginFailure {
+                    phase: FailurePhase::Wiring,
+                    plugin,
+                    cause: FailureCause::Blocked(description),
+                },
+            ),
+        }
     }
 }
 
-fn callback_call<R>(
-    runtime: &Rc<RefCell<RuntimeState>>,
+/// Drops the attachment's record of every instance the graph has removed,
+/// and the Lua values a quarantined instance can never use again.
+fn prune_instances(runtime: &Rc<RefCell<RuntimeState>>) {
+    let released = {
+        let mut state = runtime.borrow_mut();
+        let state = &mut *state;
+        let mut released = Vec::new();
+        state
+            .instances
+            .retain(|id, instance| match state.graph.state(*id) {
+                Err(_) => false,
+                Ok(LifecycleState::Quarantined) => {
+                    released.push(std::mem::replace(&mut instance.config, Value::Nil));
+                    released.extend(instance.service.take());
+                    true
+                }
+                Ok(_) => true,
+            });
+        released
+    };
+    drop(released);
+}
+
+fn prune_closed_runtimes(runtime: &Rc<RefCell<RuntimeState>>) {
+    let Some(host) = runtime.borrow().host.upgrade() else {
+        return;
+    };
+    let Ok(mut host) = host.try_borrow_mut() else {
+        return;
+    };
+    host.runtimes
+        .retain(|candidate| candidate.try_borrow().map_or(true, |state| !state.closed));
+}
+
+/// Records a plugin failure on its instance and reports it.
+pub(super) fn record_failure(
     lua: &Lua,
-    callback: impl FnOnce() -> mlua::Result<R>,
-) -> mlua::Result<R> {
-    let host = runtime
-        .borrow()
-        .host
-        .upgrade()
-        .ok_or_else(|| mlua::Error::runtime("plugin callback: attachment is gone"))?;
-    {
-        let mut host_state = host.borrow_mut();
-        host_state.callback_depth += 1;
-    }
-    let result = callback();
-    {
-        let mut host_state = host.borrow_mut();
-        host_state.callback_depth = host_state.callback_depth.saturating_sub(1);
-    }
-    let _ = lua;
-    result
-}
-
-pub(super) fn close_runtime(lua: &Lua, runtime: &Rc<RefCell<RuntimeState>>) -> mlua::Result<()> {
-    {
+    runtime: &Rc<RefCell<RuntimeState>>,
+    failure: PluginFailure,
+) {
+    let collect = {
         let mut state = runtime.borrow_mut();
-        if state.closed {
-            return Ok(());
+        if let Some(instance) = state.instances.get_mut(&failure.plugin.instance) {
+            instance.last_diagnostic = Some(failure.to_string());
         }
-        state.closing = true;
-        state.queue.clear();
-        state.queue.push_front(Command::Shutdown);
-        if state.draining {
-            return Ok(());
-        }
+        state.collect_failures
+    };
+    if collect {
+        runtime
+            .borrow_mut()
+            .collected
+            .push(AttachmentError::Plugin(failure));
+        return;
     }
-    drain_runtime(lua, runtime)
+    let host = runtime.borrow().host.upgrade();
+    report(lua, host, &failure);
 }
 
-fn clear_runtime_references(runtime: &Rc<RefCell<RuntimeState>>) {
-    let dropped = {
-        let mut state = runtime.borrow_mut();
-        (
-            std::mem::take(&mut state.instances),
-            std::mem::take(&mut state.queue),
-        )
-    };
-    drop(dropped);
-}
-
-pub(super) fn clear_host_references(host: &Rc<RefCell<AttachmentHost>>) {
-    let definitions = {
-        let mut host = host.borrow_mut();
-        let definitions = host
-            .definitions
-            .iter()
-            .filter_map(Weak::upgrade)
-            .collect::<Vec<_>>();
-        host.definitions.clear();
-        definitions
-    };
-    for definition in definitions {
-        let callback = definition.init.borrow_mut().take();
-        drop(callback);
+fn record_error(runtime: &Rc<RefCell<RuntimeState>>, error: AttachmentError) {
+    if runtime.borrow().collect_failures {
+        runtime.borrow_mut().collected.push(error);
+    } else {
+        error!("{error}");
     }
 }
 
-fn record_error(runtime: &Rc<RefCell<RuntimeState>>, message: String) {
-    error!("{message}");
-    runtime.borrow_mut().errors.push(message);
+fn report(lua: &Lua, host: Option<Rc<RefCell<AttachmentHost>>>, failure: &PluginFailure) {
+    let reporter = host
+        .as_ref()
+        .and_then(|host| host.borrow().reporter.clone());
+    match (reporter, host) {
+        (Some(reporter), Some(host)) => {
+            let _depth = CallbackGuard::enter(host);
+            reporter(lua, failure);
+        }
+        _ => error!("{failure}"),
+    }
+}
+
+fn graph_error(operation: &'static str) -> impl Fn(GraphError) -> AttachmentError {
+    move |source| AttachmentError::Graph { operation, source }
 }

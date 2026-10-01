@@ -2,12 +2,15 @@
 
 extern crate lunette_lovr;
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
+
+mod plugin_support;
 
 #[test]
 fn keyboard_uses_real_dependency_providers() -> mlua::Result<()> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "collectResources",
         lua.create_function(|lua, ()| lua.gc_collect())?,
@@ -114,7 +117,7 @@ fn keyboard_uses_real_dependency_providers() -> mlua::Result<()> {
         .load(include_str!("plugin_keyboard/behavior.lua"))
         .eval()?;
     let _: Value = callback.call(())?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }

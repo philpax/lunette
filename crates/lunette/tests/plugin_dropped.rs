@@ -2,11 +2,14 @@
 
 extern crate lunette_lovr;
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
+
+mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "collectResources",
         lua.create_function(|lua, ()| lua.gc_collect())?,
@@ -126,7 +129,7 @@ fn dropped_is_owned_filtered_disposable_and_emitted_before_pose_storage() -> mlu
     lua.load(include_str!("plugin_dropped/fixture.lua"))
         .set_name("plugin_dropped/fixture.lua")
         .exec()?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }

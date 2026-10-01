@@ -163,12 +163,15 @@ return function(fixture, payload, mode, extraFailure)
   assert(unrelatedTag:has(unrelatedPanel) and not unrelatedTag.dead and observer:active())
   assert(source.closeCalls == 0)
   assert(not callerOwner:active(), 'cleanup failure must quarantine the caller activation')
-  caller:enable()
+  assert(not pcall(function()
+    caller:enable()
+  end), 'a quarantined caller must reject enable')
   assert(loads == 1, 'cleanup failure must not reactivate the failed caller')
   if mode == 'adoption' then
     assert(subscriptions == 1 and unsubscriptions == 1)
+    local duplicate = runtime:use(require '@lunette-plugins/adoption', {})
     assert(not pcall(function()
-      runtime:use(require '@lunette-plugins/adoption', {})
+      duplicate:enable()
     end), 'failed provider cleanup must retain its exact reservation')
   end
   if started then

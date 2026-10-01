@@ -2,8 +2,10 @@
 
 extern crate lunette_lovr;
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
+
+mod plugin_support;
 
 #[test]
 fn persistence_bindings_follow_provider_activations() -> mlua::Result<()> {
@@ -12,19 +14,10 @@ fn persistence_bindings_follow_provider_activations() -> mlua::Result<()> {
         .set_name("persistence runtime")
         .exec()?;
     assert!(lua.globals().get::<bool>("persistenceRuntimeVerified")?);
-    let errors = attachment::shutdown_all(&lua);
-    assert_eq!(
-        errors.len(),
-        9,
-        "three outages suspend three consumers: {errors:?}"
-    );
-    assert!(
-        errors.iter().all(|error| {
-            error.starts_with("plugin graph: instance ")
-                && error.ends_with(" requires missing contract lunette/panels@1")
-        }),
-        "unexpected runtime errors: {errors:?}"
-    );
+    // Three outages suspend three consumers, which wait for the provider
+    // without reporting an error.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "unexpected runtime errors: {errors:?}");
     Ok(())
 }
 
@@ -35,12 +28,13 @@ fn mounted_persistence_specs_run_every_case() -> mlua::Result<()> {
         .set_name("persistence specs")
         .exec()?;
     assert_eq!(lua.globals().get::<u32>("persistenceSpecCases")?, 48);
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
 fn persistence_vm() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "setreadonly",
         lua.create_function(|_, (table, flag): (Table, bool)| {

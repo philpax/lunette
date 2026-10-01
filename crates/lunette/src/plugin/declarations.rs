@@ -13,8 +13,8 @@ use mlua::{FromLuaMulti, IntoLuaMulti, Lua, MaybeSend, Table, UserDataRef};
 use crate::{
     lua::declarations::{Signature, collect_methods},
     plugin::attachment::{
-        self, PluginContext, PluginContractToken, PluginDefinition, PluginEffect, PluginInit,
-        PluginInstance, PluginRuntime, Unknown,
+        self, DefineArguments, PluginContext, PluginContractToken, PluginDefinition, PluginEffect,
+        PluginInstance, PluginRuntime, PluginState, Unknown,
     },
 };
 
@@ -40,7 +40,7 @@ pub struct FunctionSpec {
 enum NativeFunction {
     Contract(fn(&Lua, (String, u64)) -> mlua::Result<PluginContractToken>),
     Bind(fn(&Lua, UserDataRef<PluginContractToken>, Unknown) -> mlua::Result<()>),
-    Define(fn(&Lua, (Unknown, Unknown, PluginInit)) -> mlua::Result<PluginDefinition>),
+    Define(fn(&Lua, DefineArguments) -> mlua::Result<PluginDefinition>),
     Runtime(fn(&Lua, ()) -> mlua::Result<PluginRuntime>),
 }
 
@@ -101,16 +101,15 @@ pub fn functions() -> &'static [FunctionSpec] {
 /// state and therefore must exist even when a configuration has not required
 /// the native module yet: reload cleanup retires its epoch unconditionally.
 pub fn install_attachment(lua: &Lua) -> mlua::Result<()> {
-    attachment::install(lua)
+    Ok(attachment::install(lua)?)
 }
 
-/// Installs the nested `lunette.plugin` table from the attachment descriptors.
+/// Installs the nested `lunette.plugin` table from the function descriptors.
 ///
-/// The attachment remains the source of native behavior. A missing or unknown
-/// descriptor is an error rather than a silently omitted function, so adding a
-/// native entry cannot leave the generated facade and runtime table divergent.
+/// The same descriptors generate the `PluginApi` declaration, so the runtime
+/// table and the generated facade cannot diverge.
 pub fn install(lua: &Lua, module: &Table) -> mlua::Result<()> {
-    attachment::install(lua)?;
+    attachment::install(lua).map_err(mlua::Error::from)?;
     let plugin = lua.create_table()?;
     for function in functions() {
         function.callback.install(lua, &plugin, function.name)?;
@@ -121,6 +120,14 @@ pub fn install(lua: &Lua, module: &Table) -> mlua::Result<()> {
 
 /// Renders the plugin handle and nested-module declarations.
 pub(crate) fn render_types(out: &mut String) {
+    out.push('\n');
+    render_doc(out, "The lifecycle state of a plugin instance.", "");
+    let _ = writeln!(
+        out,
+        "export type {} = {}",
+        PluginState::luau(),
+        Type::literals(PluginState::NAMES)
+    );
     for handle in HANDLES {
         out.push('\n');
         render_doc(out, handle.doc, "");
@@ -162,8 +169,8 @@ const FUNCTIONS: [FunctionSpec; 4] = [
     },
     FunctionSpec {
         name: "define",
-        parameters: &["required", "provided", "init"],
-        doc: "Defines a reusable plugin from required and provided contract records.",
+        parameters: &["required", "provided", "init", "name"],
+        doc: "Defines a reusable plugin from required and provided contract records. The optional name labels it in diagnostics; without one, it is named for where its initializer is defined.",
         callback: NativeFunction::Define(attachment::define),
     },
     FunctionSpec {

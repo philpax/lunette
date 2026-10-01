@@ -1,14 +1,15 @@
 //! Real configuration modules and plugin attachment with unmanaged boundaries substituted.
 use std::{fs, path::Path};
 
-use lunette::{
-    plugin::{attachment, declarations},
-    reload,
-};
+use lunette::{plugin::declarations, reload};
 use mlua::{Function, Lua, Table};
+
+#[path = "../plugin_support/mod.rs"]
+mod plugin_support;
 
 pub fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "setreadonly",
         lua.create_function(|_, (table, flag): (Table, bool)| {
@@ -97,7 +98,7 @@ pub fn start(lua: &Lua) -> mlua::Result<()> {
 }
 
 pub fn shutdown(lua: &Lua) -> mlua::Result<Vec<String>> {
-    let errors = attachment::shutdown_all(lua);
+    let errors = plugin_support::shutdown(lua);
     lua.load("assertResourcesReleased()").exec()?;
     Ok(errors)
 }

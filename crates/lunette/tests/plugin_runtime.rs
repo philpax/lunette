@@ -10,8 +10,11 @@ use std::{cell::Cell, rc::Rc};
 use lunette::plugin::{attachment, declarations};
 use mlua::{Function, Lua, Table, UserData, Value};
 
+mod plugin_support;
+
 fn state() -> mlua::Result<(Lua, Table)> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     let setreadonly = lua.create_function(|_, (table, readonly): (Table, bool)| {
         table.set_readonly(readonly);
         Ok(())
@@ -76,7 +79,7 @@ fn leaked_effect_payload_is_released_by_shutdown() -> mlua::Result<()> {
     lua.globals().set("witness_instance", Value::Nil)?;
     let payload: Table = lua.globals().get("witness_payload")?;
     assert!(!payload.get::<bool>("released")?);
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     assert!(payload.get::<bool>("released")?);
     lua.gc_collect()?;
     Ok(())
@@ -86,16 +89,21 @@ fn leaked_effect_payload_is_released_by_shutdown() -> mlua::Result<()> {
 fn rollback_and_explicit_dispose_failures_quarantine() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "cleanup_failure")?;
-    let errors = attachment::shutdown_all(&lua);
+    // The rollback failure happens while a drain loads the instance, so it is
+    // reported. The explicit disposal failure is raised to its caller, and the
+    // fixture asserts it through the instance's diagnostic.
+    let errors = plugin_support::shutdown(&lua);
     assert!(
         errors
             .iter()
-            .any(|error| error.contains("inverse failed rollback"))
+            .any(|error| error.contains("inverse failed rollback")),
+        "{errors:?}"
     );
     assert!(
-        errors
+        !errors
             .iter()
-            .any(|error| error.contains("inverse failed explicit"))
+            .any(|error| error.contains("inverse failed explicit")),
+        "{errors:?}"
     );
     Ok(())
 }
@@ -104,7 +112,7 @@ fn rollback_and_explicit_dispose_failures_quarantine() -> mlua::Result<()> {
 fn cancelled_initializer_reenable_publishes_only_fresh_generation() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "cancel_reenable")?;
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -112,13 +120,9 @@ fn cancelled_initializer_reenable_publishes_only_fresh_generation() -> mlua::Res
 fn pending_failed_cleanup_precedes_provider_and_parent_cleanup() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "pending_cleanup")?;
-    let errors = attachment::shutdown_all(&lua);
-    assert_eq!(errors.len(), 2, "unexpected cleanup errors: {errors:?}");
-    assert!(
-        errors
-            .iter()
-            .all(|error| error.contains("pending cleanup failure"))
-    );
+    // The failing disposal is raised to the fixture, which catches it.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "unexpected cleanup errors: {errors:?}");
     Ok(())
 }
 
@@ -126,7 +130,7 @@ fn pending_failed_cleanup_precedes_provider_and_parent_cleanup() -> mlua::Result
 fn cancellation_is_observed_at_acquisition_boundary() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "cancel_boundary")?;
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -134,7 +138,7 @@ fn cancellation_is_observed_at_acquisition_boundary() -> mlua::Result<()> {
 fn active_acquisition_serializes_close_disable_and_reload() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "active_acquisition")?;
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -142,12 +146,9 @@ fn active_acquisition_serializes_close_disable_and_reload() -> mlua::Result<()> 
 fn active_provider_acquisition_cancellation_preserves_graph_cleanup_order() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "active_provider_acquisition")?;
-    let errors = attachment::shutdown_all(&lua);
-    assert_eq!(errors.len(), 1, "unexpected errors: {errors:?}");
-    assert!(
-        errors[0].contains("requires missing contract audit/active-provider-disable@1"),
-        "unexpected errors: {errors:?}"
-    );
+    // A consumer waiting for a disabled provider is not an error.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     Ok(())
 }
 
@@ -155,8 +156,10 @@ fn active_provider_acquisition_cancellation_preserves_graph_cleanup_order() -> m
 fn reentrant_inverse_failure_quarantines_the_original_activation() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "inverse_reentry")?;
-    let errors = attachment::shutdown_all(&lua);
-    assert_eq!(errors.len(), 2, "unexpected errors: {errors:?}");
+    // The withdrawn acquisition's failing inverse is reported; the explicit
+    // disposal's failure is raised to the fixture instead.
+    let errors = plugin_support::shutdown(&lua);
+    assert_eq!(errors.len(), 1, "unexpected errors: {errors:?}");
     assert!(
         errors
             .iter()
@@ -169,12 +172,24 @@ fn reentrant_inverse_failure_quarantines_the_original_activation() -> mlua::Resu
 fn invalid_dependency_publication_retains_failed_rollback_allocation() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "dependency_publication")?;
-    let errors = attachment::shutdown_all(&lua);
-    assert_eq!(errors.len(), 2, "unexpected errors: {errors:?}");
-    assert!(
+    let errors = plugin_support::shutdown(&lua);
+    assert_eq!(errors.len(), 4, "unexpected errors: {errors:?}");
+    assert_eq!(
         errors
             .iter()
-            .all(|error| error.contains("dependency publication rollback failure"))
+            .filter(|error| error.contains("dependency publication rollback failure"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.starts_with("plugin wiring: ")
+                && error.contains("is quarantined after a cleanup failure"))
+            .count(),
+        2,
+        "the observer must name the quarantined provider: {errors:?}"
     );
     Ok(())
 }
@@ -191,7 +206,7 @@ fn public_facade_rollback_uses_native_cleanup_authority() -> mlua::Result<()> {
         include_str!("../../../lua/lunette-plugin/init.lua"),
         include_str!("../../../lua/lunette-plugin/adapter.lua"),
     ))?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert_eq!(errors.len(), 2, "unexpected errors: {errors:?}");
     assert!(
         errors
@@ -208,14 +223,9 @@ fn explicit_cleanup_temporarily_revokes_resource_authority_and_preserves_live_ow
 -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "explicit_cleanup_authority")?;
-    let errors = attachment::shutdown_all(&lua);
-    assert_eq!(errors.len(), 2, "unexpected errors: {errors:?}");
-    assert!(
-        errors
-            .iter()
-            .all(|error| error.contains("explicit authority inverse failure")),
-        "unexpected errors: {errors:?}"
-    );
+    // Both failing disposals are raised to the fixture, which asserts them.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     Ok(())
 }
 
@@ -223,7 +233,7 @@ fn explicit_cleanup_temporarily_revokes_resource_authority_and_preserves_live_ow
 fn failed_load_rollback_revokes_resource_authority_before_inverses() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "rollback_authority")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert_eq!(errors.len(), 9, "unexpected errors: {errors:?}");
     assert_eq!(
         errors
@@ -245,7 +255,7 @@ fn failed_load_rollback_revokes_resource_authority_before_inverses() -> mlua::Re
 fn shutdown_bypasses_queue_and_action_limits() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "shutdown_stress")?;
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -253,7 +263,7 @@ fn shutdown_bypasses_queue_and_action_limits() -> mlua::Result<()> {
 fn exact_caller_activation_and_cleanup_read_authority() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "authority")?;
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -262,7 +272,7 @@ fn production_bindings_preserve_arbitrary_service_identity_and_share_definitions
 -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "identity")?;
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -270,7 +280,7 @@ fn production_bindings_preserve_arbitrary_service_identity_and_share_definitions
 fn production_bindings_roll_back_exact_provided_records_and_effects() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "effects")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -280,7 +290,7 @@ fn production_runtime_roots_survive_runtime_userdata_collection() -> mlua::Resul
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "ownership")?;
     lua.gc_collect()?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -289,7 +299,7 @@ fn production_runtime_roots_survive_runtime_userdata_collection() -> mlua::Resul
 fn production_contexts_queue_reentrant_requests_and_bound_shutdown() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "reentrant")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -298,7 +308,7 @@ fn production_contexts_queue_reentrant_requests_and_bound_shutdown() -> mlua::Re
 fn production_children_unload_before_parents() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "children")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -313,7 +323,7 @@ fn production_rejects_malformed_provisions_and_rolls_back_nested_acquisition() -
     assert_eq!(nested_events.get::<String>(1)?, "outer-acquire");
     assert_eq!(nested_events.get::<String>(2)?, "inner-acquire");
     assert_eq!(nested_events.get::<String>(3)?, "inner-release");
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(
         errors
             .iter()
@@ -328,7 +338,7 @@ fn production_rejects_stale_contexts_and_yielding_acquisition() -> mlua::Result<
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "stale")?;
     run_fixture(&lua, &module, "yield")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(
         errors.iter().any(|error| error.contains("yield")),
         "cleanup errors: {errors:?}"
@@ -340,7 +350,7 @@ fn production_rejects_stale_contexts_and_yielding_acquisition() -> mlua::Result<
 fn production_cancels_loading_acquisition_before_publication() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "cancel")?;
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -348,7 +358,7 @@ fn production_cancels_loading_acquisition_before_publication() -> mlua::Result<(
 fn production_releases_payload_and_quarantines_failed_cleanup() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "quarantine")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(
         errors.iter().any(|error| error.contains("cleanup failed")),
         "cleanup errors: {errors:?}"
@@ -379,7 +389,7 @@ fn binding_requires_frozen_table_and_is_one_time() -> mlua::Result<()> {
     mutable.set_readonly(true);
     bind.call::<()>((contract.clone(), mutable.clone()))?;
     assert!(bind.call::<()>((contract, mutable)).is_err());
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }
 
@@ -407,7 +417,7 @@ fn failed_cleanup_releases_config_while_runtime_is_retained() -> mlua::Result<()
         .eval()?;
     setup.call::<()>((module, witness))?;
     assert!(!dropped.get());
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(
         errors
             .iter()
@@ -452,7 +462,7 @@ fn shutdown_releases_escaped_definition_initializer_references() -> mlua::Result
         .call((required, provided, init))?;
     let _escaped = definition;
     assert!(!witness_dropped.get());
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     lua.gc_collect()?;
     assert!(witness_dropped.get());
     Ok(())

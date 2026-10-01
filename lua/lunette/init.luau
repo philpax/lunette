@@ -414,6 +414,9 @@ export type LayerRevokedEvent = {
   claim: Claim,
 }
 
+-- The lifecycle state of a plugin instance.
+export type PluginState = 'inactive' | 'loading' | 'active' | 'unloading' | 'failed' | 'quarantined' | 'removed'
+
 -- An opaque native token naming one contract declaration.
 export type PluginContractToken = {}
 
@@ -426,20 +429,25 @@ export type PluginRuntime = {
   read use: (self: PluginRuntime, definition: PluginDefinition, config: unknown) -> PluginInstance,
   -- Disposes every instance in this runtime.
   read close: (self: PluginRuntime) -> (),
-  -- Processes queued lifecycle work and records graph diagnostics.
+  -- Performs pending lifecycle work and reports graph diagnostics.
   read drain: (self: PluginRuntime) -> (),
 }
 
 -- A plugin installed in a runtime.
 export type PluginInstance = {
-  -- Enables this plugin instance.
+  -- Enables this plugin instance and reserves its provided contracts.
   read enable: (self: PluginInstance) -> (),
   -- Disables this plugin instance.
   read disable: (self: PluginInstance) -> (),
-  -- Disables and retires this plugin instance.
+  -- Disables and permanently retires this plugin instance.
   read dispose: (self: PluginInstance) -> (),
   -- Replaces this instance's configuration and reloads it.
   read reload: (self: PluginInstance, config: unknown) -> (),
+  -- Reports this instance's lifecycle state.
+  read state: (self: PluginInstance) -> PluginState,
+  -- Describes why this instance last failed or is not loading, if it has a
+  -- reason.
+  read diagnostic: (self: PluginInstance) -> string?,
 }
 
 -- A context bound to one plugin activation.
@@ -448,9 +456,10 @@ export type PluginContext = {
   read services: (self: PluginContext) -> unknown,
   -- Acquires a resource and registers its inverse for cleanup.
   read effect: (self: PluginContext, acquire: () -> () -> ()) -> PluginEffect,
-  -- Installs a child definition owned by this plugin.
+  -- Installs a child definition owned by this activation.
   read child: (self: PluginContext, definition: PluginDefinition, config: unknown) -> PluginInstance,
-  -- Checks that another context is an owner of this plugin's service.
+  -- Checks that another context is a live dependent of this plugin's current
+  -- generation.
   read checkOwner: (self: PluginContext, caller: PluginContext) -> (),
   -- Reports whether this context's activation is still live.
   read active: (self: PluginContext) -> boolean,
@@ -458,7 +467,8 @@ export type PluginContext = {
 
 -- A one-shot resource effect.
 export type PluginEffect = {
-  -- Disposes this effect once.
+  -- Runs this effect's inverse once. Disposing an effect whose activation,
+  -- instance, or runtime has ended does nothing.
   read dispose: (self: PluginEffect) -> (),
 }
 
@@ -468,11 +478,14 @@ export type PluginApi = {
   read contract: (name: string, schema: number) -> PluginContractToken,
   -- Binds one erased native wrapper to a contract token.
   read bind: (token: PluginContractToken, wrapper: unknown) -> (),
-  -- Defines a reusable plugin from required and provided contract records.
+  -- Defines a reusable plugin from required and provided contract records. The
+  -- optional name labels it in diagnostics; without one, it is named for where
+  -- its initializer is defined.
   read define: (
     required: unknown,
     provided: unknown,
-    init: (context: PluginContext, config: unknown) -> unknown
+    init: (context: PluginContext, config: unknown) -> unknown,
+    name: string?
   ) -> PluginDefinition,
   -- Creates an independent plugin runtime in the current Lua state.
   read runtime: () -> PluginRuntime,

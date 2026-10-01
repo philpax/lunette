@@ -8,11 +8,14 @@ extern crate lunette_lovr;
 
 use std::{cell::Cell, rc::Rc};
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, UserData, Value};
+
+mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
+    plugin_support::collect_reports(&lua)?;
     lua.globals().set(
         "setreadonly",
         lua.create_function(|_, (table, readonly): (Table, bool)| {
@@ -89,6 +92,7 @@ fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
         "provision_failures" => include_str!("plugin_facade_execution/provision_failures.lua"),
         "cancellation" => include_str!("plugin_facade_execution/cancellation.lua"),
         "payload_release" => include_str!("plugin_facade_execution/payload_release.lua"),
+        "forged_owner" => include_str!("plugin_facade_execution/forged_owner.lua"),
         other => return Err(mlua::Error::runtime(format!("unknown fixture {other}"))),
     };
     let callback: Function = lua.load(source).set_name(name).eval()?;
@@ -118,7 +122,7 @@ impl Drop for DropWitness {
 fn provision_failures_roll_back_and_publish_no_consumers() -> mlua::Result<()> {
     let lua = state()?;
     run_fixture(&lua, "provision_failures")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     let expected = [
         "missing provision missing",
         "duplicate provision duplicate",
@@ -127,7 +131,6 @@ fn provision_failures_roll_back_and_publish_no_consumers() -> mlua::Result<()> {
         "initializer must return nothing",
         "escaped initializer failure",
         "partial initializer failure",
-        "requires missing contract local/failure-cancelled@1",
     ];
     assert_eq!(errors.len(), expected.len(), "diagnostics: {errors:?}");
     for message in expected {
@@ -143,13 +146,10 @@ fn provision_failures_roll_back_and_publish_no_consumers() -> mlua::Result<()> {
 fn cancellation_during_effect_rolls_back_once_without_publication() -> mlua::Result<()> {
     let lua = state()?;
     run_fixture(&lua, "cancellation")?;
-    let errors = attachment::shutdown_all(&lua);
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("plugin effect: acquisition cancelled")),
-        "cancellation diagnostic absent: {errors:?}"
-    );
+    // The initializer raises the cancellation its own disable caused. A
+    // cancelled load is not a failure, so nothing is reported.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     Ok(())
 }
 
@@ -163,7 +163,7 @@ fn service_payload_is_released_with_an_escaped_provision_callback() -> mlua::Res
     lua.globals().set("escaped_provide", escaped)?;
     lua.globals().set("payload_witness", Value::Nil)?;
     assert!(!dropped.get());
-    assert!(attachment::shutdown_all(&lua).is_empty());
+    assert!(plugin_support::shutdown(&lua).is_empty());
     lua.gc_collect()?;
     assert!(dropped.get());
     Ok(())
@@ -173,7 +173,7 @@ fn service_payload_is_released_with_an_escaped_provision_callback() -> mlua::Res
 fn local_plugin_without_mullion() -> mlua::Result<()> {
     let lua = state()?;
     run_fixture(&lua, "local_plugin_without_mullion")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -182,7 +182,7 @@ fn local_plugin_without_mullion() -> mlua::Result<()> {
 fn definition_require_inert() -> mlua::Result<()> {
     let lua = state()?;
     run_fixture(&lua, "definition_require_inert")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
@@ -191,7 +191,7 @@ fn definition_require_inert() -> mlua::Result<()> {
 fn multiple_provisions_runtime() -> mlua::Result<()> {
     let lua = state()?;
     run_fixture(&lua, "multiple_provisions_runtime")?;
-    let errors = attachment::shutdown_all(&lua);
+    let errors = plugin_support::shutdown(&lua);
     let expected = [
         "provision missing was nil",
         "missing provision spare",
@@ -205,5 +205,14 @@ fn multiple_provisions_runtime() -> mlua::Result<()> {
             "missing {message}: {errors:?}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn check_owner_rejects_a_forged_owner() -> mlua::Result<()> {
+    let lua = state()?;
+    run_fixture(&lua, "forged_owner")?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "{errors:?}");
     Ok(())
 }

@@ -39,17 +39,12 @@ pub fn terminal_shutdown<Runtime, Subscribers, Flush, Native, Close>(
 
 /// Retires every runtime attached to `lua`.
 ///
-/// Attachment cleanup is best effort. The attachment drains every callback it
-/// can and returns the names of callbacks that failed; the host logs those
-/// names and continues with subscriber, frame, native, and Lua cleanup.
+/// Attachment cleanup is best effort. The attachment attempts every cleanup
+/// callback and returns the failures of this shutdown; the host logs each one
+/// and continues with subscriber, frame, native, and Lua cleanup.
 pub fn shutdown(lua: &Lua, context: &str) {
-    let failures = attachment::shutdown_all(lua);
-    if !failures.is_empty() {
-        warn!(
-            "{context}: {} plugin shutdown callback(s) failed and cleanup continued: {}",
-            failures.len(),
-            failures.join(", "),
-        );
+    for failure in attachment::shutdown_all(lua) {
+        warn!("{context}: {failure}; cleanup continued");
     }
 }
 
@@ -57,9 +52,11 @@ pub fn shutdown(lua: &Lua, context: &str) {
 ///
 /// # Errors
 ///
-/// Returns the attachment's Lua-state error without changing the epoch.
+/// Returns the attachment's error. The new epoch has started even then: an
+/// error lists shutdown failures, or reports that the registry could not
+/// advance its epoch.
 pub fn reset_epoch(lua: &Lua) -> mlua::Result<()> {
-    attachment::reset_epoch(lua)
+    Ok(attachment::reset_epoch(lua)?)
 }
 
 /// Returns whether a plugin callback is currently running for `lua`.

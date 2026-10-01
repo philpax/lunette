@@ -307,7 +307,7 @@ mod tests {
         let output = render();
 
         assert!(output.contains(
-            "  read define: (\n    required: unknown,\n    provided: unknown,\n    init: (context: PluginContext, config: unknown) -> unknown\n  ) -> PluginDefinition,\n"
+            "  read define: (\n    required: unknown,\n    provided: unknown,\n    init: (context: PluginContext, config: unknown) -> unknown,\n    name: string?\n  ) -> PluginDefinition,\n"
         ));
     }
 }
