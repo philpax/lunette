@@ -114,7 +114,14 @@ for _ = 1, 3 do
   providers.keyboard:enable()
   assert(#surfaceBroker:all() == 3)
   local wrist = surfaceBroker:all()[3]
-  wrist:onPress(nil, nil, {})
+  local pulses = 0
+  wrist:onPress(nil, nil, {
+    vibrate = function()
+      pulses += 1
+      return true
+    end,
+  })
+  assert(pulses == 1, 'the wrist button pulses the pointer that pressed it')
   assert(#surfaceBroker:all() == 4, 'recovery lazily creates one keyboard')
   providers.display:disable()
   assert(subscriptionCount 'onError' == 0)

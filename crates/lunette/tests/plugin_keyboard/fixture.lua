@@ -7,9 +7,6 @@ function require(name)
   package.loaded[name] = value
   return value
 end
-native.modifierNames = function()
-  return { 'shift', 'control', 'alt', 'logo', 'capsLock', 'mod5' }
-end
 native.seats = function()
   return {}
 end

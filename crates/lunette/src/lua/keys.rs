@@ -55,6 +55,19 @@ impl Aliased for KeyName {
     };
 }
 
+/// `lunette.modifierNames()`: every modifier a seat accepts.
+///
+/// Read from [`KeyModifier`] and not listed, so what the keyboard provider
+/// builds a keyboard from and what the runtime accepts from it are one set.
+/// The order is the keymap's own modifier numbering; a caller reporting held
+/// modifiers should report them in that order.
+pub fn modifier_names() -> Vec<String> {
+    KeyModifier::NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
 /// The modifiers a keymap reports as locked rather than depressed: a press
 /// turns one on and the next press turns it off.
 pub fn locking_modifier_names() -> Vec<String> {

@@ -139,6 +139,10 @@ local function build(context: plugin.Context, settings: Settings): Service
   local function newPointer(owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
     context:checkOwner(owner)
     local seat: lunette.Seat? = options and options.seat
+    local pulse = options and options.vibrate
+    if pulse ~= nil and type(pulse) ~= 'function' then
+      error("interaction: a pointer's vibrate is a function, not a " .. type(pulse), 3)
+    end
     local state: {
       tuning: contracts.Tuning,
       handPosition: { number }?,
@@ -335,6 +339,13 @@ local function build(context: plugin.Context, settings: Settings): Service
           return false
         end
         return carrying.endGrab(self)
+      end,
+      vibrate = function(_self: Pointer, haptic: contracts.Haptic): boolean
+        local send = pulse
+        if not live() or not send then
+          return false
+        end
+        return send(haptic) == true
       end,
       update = function(self: Pointer, input: contracts.Input, surfaces: { Surface })
         if not live() then

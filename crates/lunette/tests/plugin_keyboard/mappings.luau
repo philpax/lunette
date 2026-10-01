@@ -15,8 +15,8 @@ local consumer = plugin.define {
     local keyboardService: keyboard.Service = context:require(keyboard.capability)
     panelService:update()
     local pointers: { interaction.Pointer } = interactionService:pointers()
-    local keyboards: { keyboard.Keyboard } = keyboardService:all()
-    assert(#pointers == 0 and #keyboards == 0)
+    local board: keyboard.Keyboard = keyboardService:new(context)
+    assert(#pointers == 0 and not board.dead)
   end,
 }
 

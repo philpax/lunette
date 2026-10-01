@@ -164,7 +164,23 @@ fn every_provider_validates_and_applies_its_configuration() -> mlua::Result<()> 
         errors.iter().all(|error| error.contains("unknown option")
             || error.contains(" is a ")
             || error.contains("pointer button")
+            || error.contains("plugin keyboard: option rows")
             || error.contains("requires missing contract")),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_wrist_keyboard_draws_its_own_keyboard_and_pulses_the_pressing_hand() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/keyboard.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert_eq!(errors.len(), 3, "{errors:?}");
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.contains("plugin desktop/keyboard: ")),
         "{errors:?}"
     );
     Ok(())

@@ -1,35 +1,53 @@
 -- The keyboard provider; resources are acquired during activation.
 --
--- `style` sets the default key size, spacing, depths, and colours that a
--- keyboard's own options override. `rows` sets the default key rows, which are
--- a compact ANSI arrangement unless configured; a keyboard's own `rows`
--- option overrides them.
+-- `rows` is the base layer, a compact ANSI arrangement unless configured, and
+-- `layers` are further layers by name, which an action key switches to.
+-- `style` sets the key size, spacing, depths, and colours. `modifierKeys`
+-- says which key latches which modifier and `locks` which modifiers stay on
+-- until pressed again; both default to @lunette-contracts/keys. `onKey` and
+-- `drawKey` are around hooks: each receives its arguments and then the
+-- default, and calls the default to keep it. A keyboard's own options
+-- override `rows`, `layers`, and `style`.
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
+local keys = require '@lunette-contracts/keys'
+local board = require '@lunette-plugins/keyboard/board'
 local build = require '@lunette-plugins/keyboard/service'
 local rows = require '@lunette-plugins/keyboard/rows'
+local validation = require '@lunette-plugins/keyboard/validation'
 
 export type Settings = build.Settings
+export type Key = keyboard.Key
+export type KeyRow = keyboard.KeyRow
+export type Action = keyboard.Action
+export type Style = keyboard.Style
 export type Service = keyboard.Service
+export type Board = board.Board
+export type RenderedKey = board.RenderedKey
+export type KeyState = board.KeyState
+export type OnKey = board.OnKey
+export type DrawKey = board.DrawKey
 
 -- What a configuration gives: every option optional.
 export type Config = {
   read rows: { keyboard.KeyRow }?,
-  read style: {
-    read keyUnit: number?,
-    read gap: number?,
-    read plateDepth: number?,
-    read legendDepth: number?,
-    read margin: number?,
-    read plateColor: { number }?,
-    read keyColor: { number }?,
-    read heldColor: { number }?,
-    read hoverColor: { number }?,
-    read legendColor: { number }?,
-    read legendHeight: number?,
-  }?,
+  read layers: { [string]: { keyboard.KeyRow } }?,
+  read style: keyboard.StyleOptions?,
+  read modifierKeys: { [number]: string }?,
+  read locks: { string }?,
+  read onKey: OnKey?,
+  read drawKey: DrawKey?,
 }
+
+local function onKey(target: Board, key: RenderedKey, pointer: board.Pointer, base: board.Press): ()
+  base(target, key, pointer)
+end
+
+local function drawKey(pass: Pass, key: RenderedKey, state: KeyState, base: board.Paint): ()
+  base(pass, key, state)
+end
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'keyboard',
@@ -37,6 +55,7 @@ return plugin.provider<<Config, Settings, Service>> {
   requires = { interaction = interaction.capability },
   defaults = {
     rows = rows,
+    layers = {},
     style = {
       keyUnit = 0.028,
       gap = 0.004,
@@ -50,6 +69,11 @@ return plugin.provider<<Config, Settings, Service>> {
       legendColor = { 1, 1, 1, 1 },
       legendHeight = 0.012,
     },
+    modifierKeys = keys.MODIFIER_KEYS,
+    locks = lunette.lockingModifierNames(),
+    onKey = onKey,
+    drawKey = drawKey,
   },
+  validate = validation.settings,
   build = build,
 }

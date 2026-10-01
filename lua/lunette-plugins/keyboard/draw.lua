@@ -1,76 +1,76 @@
 -- Keyboard drawing.
 --
--- Drawing is independent of the service registry. It receives the complete
--- render state and uses only the two pass operations needed by a keyboard.
+-- Drawing is independent of the keyboard's state. It receives the plate's
+-- pose and size, and each key with the state it is drawn in, and uses only
+-- the pass operations a keyboard needs. `key` is the default the `drawKey`
+-- hook receives as its base; `face` and `legend` are its two halves, so a
+-- hook that draws its own face can keep the default legend.
 
-local layout = require '@lunette-plugins/keyboard/layout'
+local keyboard = require '@lunette-contracts/keyboard'
+local board = require '@lunette-plugins/keyboard/board'
 
 local draw = {}
 
-export type Appearance = {
-  read gap: number,
-  read plateDepth: number,
-  read legendDepth: number,
-  read margin: number,
-  read plateColor: { number },
-  read keyColor: { number },
-  read heldColor: { number },
-  read hoverColor: { number },
-  read legendColor: { number },
-  read legendHeight: number,
-}
-
-export type KeyState = {
-  read held: (layout.RenderedKey) -> boolean,
-  read hovered: (layout.RenderedKey) -> boolean,
-}
-
-function draw.keyboard(
-  pass: Pass,
-  pose: Mat4,
-  keys: { layout.RenderedKey },
-  width: number,
-  height: number,
-  style: Appearance,
-  state: KeyState
-): ()
+-- The plate behind the keys, `width` by `height` metres plus the margin.
+function draw.plate(pass: Pass, pose: Mat4, width: number, height: number, style: keyboard.Style): ()
   local color = style.plateColor
   pass:setColor(color[1], color[2], color[3], color[4])
-
   local plate = lovr.math.newMat4()
   plate:set(pose)
   plate:translate(0, 0, -style.plateDepth)
   plate:scale(width + style.margin * 2, height + style.margin * 2, 1)
   pass:plane(plate, 'fill', 1, 1)
-
-  for _, key in ipairs(keys) do
-    local x = key.x + key.width / 2 - width / 2
-    local y = height / 2 - (key.y + key.height / 2)
-    local keyColor = style.keyColor
-    if state.held(key) then
-      keyColor = style.heldColor
-    end
-    if state.hovered(key) then
-      keyColor = style.hoverColor
-    end
-    pass:setColor(keyColor[1], keyColor[2], keyColor[3], keyColor[4])
-
-    local face = lovr.math.newMat4()
-    face:set(pose)
-    face:translate(x, y, 0)
-    face:scale(key.width - style.gap, key.height - style.gap, 1)
-    pass:plane(face, 'fill', 1, 1)
-
-    local legend = style.legendColor
-    pass:setColor(legend[1], legend[2], legend[3], legend[4])
-    local text = lovr.math.newMat4()
-    text:set(pose)
-    text:translate(x, y, style.legendDepth)
-    text:scale(vector.pack(style.legendHeight))
-    pass:text(key.legend, text, 0, 'center', 'middle')
-  end
-
   pass:setColor(1, 1, 1, 1)
+end
+
+-- The colour a key's face has in its state: hovered over held over plain.
+function draw.faceColor(state: board.KeyState): { number }
+  local style = state.style
+  if state.hovered then
+    return style.hoverColor
+  elseif state.held then
+    return style.heldColor
+  end
+  return style.keyColor
+end
+
+-- A key's face: a flat rectangle, inset by the style's gap.
+function draw.face(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()
+  local color = draw.faceColor(state)
+  pass:setColor(color[1], color[2], color[3], color[4])
+  local face = lovr.math.newMat4()
+  face:set(state.pose)
+  face:scale(key.width - state.style.gap, key.height - state.style.gap, 1)
+  pass:plane(face, 'fill', 1, 1)
+  pass:setColor(1, 1, 1, 1)
+end
+
+-- A key's legend, just in front of its face.
+function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()
+  local style = state.style
+  local color = style.legendColor
+  pass:setColor(color[1], color[2], color[3], color[4])
+  local text = lovr.math.newMat4()
+  text:set(state.pose)
+  text:translate(0, 0, style.legendDepth)
+  text:scale(vector.pack(style.legendHeight))
+  pass:text(key.legend, text, 0, 'center', 'middle')
+  pass:setColor(1, 1, 1, 1)
+end
+
+-- One key: its face and then its legend. This is the base `drawKey`
+-- receives.
+function draw.key(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()
+  draw.face(pass, key, state)
+  draw.legend(pass, key, state)
+end
+
+-- The centre of a key's face on a plate at `pose`, `width` by `height`.
+function draw.keyPose(pose: Mat4, key: board.RenderedKey, width: number, height: number): Mat4
+  local centre = lovr.math.newMat4()
+  centre:set(pose)
+  centre:translate(key.x + key.width / 2 - width / 2, height / 2 - (key.y + key.height / 2), 0)
+  return centre
 end
 
 return draw

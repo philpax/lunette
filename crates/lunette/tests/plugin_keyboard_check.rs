@@ -18,6 +18,8 @@ fn keyboard_provider_and_consumer_graph_typechecks() {
             root.join("lua/lunette-plugins/interaction/grab.lua"),
             root.join("lua/lunette-plugins/keyboard/init.lua"),
             root.join("lua/lunette-plugins/keyboard/service.lua"),
+            root.join("lua/lunette-plugins/keyboard/board.lua"),
+            root.join("lua/lunette-plugins/keyboard/validation.lua"),
             root.join("lua/lunette-plugins/keyboard/layout.lua"),
             root.join("lua/lunette-plugins/keyboard/draw.lua"),
             root.join("lua/lunette-plugins/keyboard/rows.lua"),

@@ -1,58 +1,116 @@
--- Keyboard resources and their registry belong to one provider activation.
+-- Keyboards belong to the owner that asked for one.
 --
 -- A keyboard is a resource of the owner that asked for it. Its release runs as
 -- an inverse on that owner, so a native release that fails is the owner's
--- failure rather than this provider's.
+-- failure rather than this provider's. The provider keeps no registry: each
+-- owner draws and offers its own keyboards.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
 local keyVocabulary = require '@lunette-contracts/keys'
 local quad = require '@lunette-contracts/quad'
+local board = require '@lunette-plugins/keyboard/board'
 local drawing = require '@lunette-plugins/keyboard/draw'
 local layout = require '@lunette-plugins/keyboard/layout'
+local validation = require '@lunette-plugins/keyboard/validation'
 
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
 -- The resolved options. Each activation receives its own frozen copy, so no
--- consumer can restyle another's keyboards. Resizing a keyboard makes it a new
--- style table.
+-- consumer can restyle another's keyboards.
 export type Settings = {
   read rows: { keyboard.KeyRow },
+  read layers: { [string]: { keyboard.KeyRow } },
   read style: keyboard.Style,
+  read modifierKeys: { [number]: string },
+  read locks: { string },
+  read onKey: board.OnKey,
+  read drawKey: board.DrawKey,
 }
 
+type Board = board.Board
+type RenderedKey = board.RenderedKey
+type Pointer = board.Pointer
+
+-- The settings one keyboard uses: the provider's, with the keyboard's own
+-- rows, layers, and style over them.
+local function settingsFor(settings: Settings, options: keyboard.Options?): Settings
+  if not options or (options.rows == nil and options.layers == nil and options.style == nil) then
+    return settings
+  end
+  local resolved = plugin.options {
+    name = 'keyboard',
+    defaults = { rows = settings.rows, layers = settings.layers, style = settings.style },
+    config = { rows = options.rows, layers = options.layers, style = options.style },
+  }
+  local merged: Settings = {
+    rows = resolved.rows,
+    layers = resolved.layers,
+    style = resolved.style,
+    modifierKeys = settings.modifierKeys,
+    locks = settings.locks,
+    onKey = settings.onKey,
+    drawKey = settings.drawKey,
+  }
+  validation.settings(merged, 'keyboard')
+  return merged
+end
+
+local function scaled(style: keyboard.Style, scale: number): keyboard.Style
+  return table.freeze {
+    keyUnit = style.keyUnit * scale,
+    gap = style.gap * scale,
+    margin = style.margin * scale,
+    plateDepth = style.plateDepth * scale,
+    legendDepth = style.legendDepth * scale,
+    legendHeight = style.legendHeight * scale,
+    plateColor = style.plateColor,
+    keyColor = style.keyColor,
+    heldColor = style.heldColor,
+    hoverColor = style.hoverColor,
+    legendColor = style.legendColor,
+  }
+end
+
+-- The widest and tallest of a keyboard's layers, in key units.
+local function extentOf(settings: Settings): (number, number)
+  local width, height = layout.extentOf(settings.rows)
+  for _, rows in settings.layers do
+    local layerWidth, layerHeight = layout.extentOf(rows)
+    width, height = math.max(width, layerWidth), math.max(height, layerHeight)
+  end
+  return width, height
+end
+
 local function create(
+  settings: Settings,
   options: keyboard.Options?,
-  defaults: Settings,
   interactionService: interaction.Service,
-  remove: (keyboard.Keyboard) -> (),
   dispose: () -> ()
-): (keyboard.Keyboard, () -> ())
-  local rows: { keyboard.KeyRow } = options and options.rows or defaults.rows
-  local style: keyboard.Style = options and options.style or defaults.style
-  local width, height = layout.extentOf(rows, style)
+): (Board, () -> ())
+  local unitsWide, unitsHigh = extentOf(settings)
+  local style = settings.style
   local target: keyboard.Target = options and options.target or function()
     return interactionService:focused()
   end
+  local locks: { [string]: boolean } = {}
+  for _, name in ipairs(settings.locks) do
+    locks[name] = true
+  end
   local latched: { [string]: boolean } = {}
   local locked: { [string]: boolean } = {}
-  local hovered: { [keyboard.HoverSource]: keyboard.RenderedKey? } = {}
+  local hovered: { [Pointer]: RenderedKey } = {}
   local state = {
     kind = nil,
     source = nil,
     dead = false,
     grabbable = true,
     pose = options and options.pose and lovr.math.newMat4(options.pose) or lovr.math.newMat4(),
-    rows = rows,
-    style = style,
-    target = target,
-    width = width,
-    height = height,
+    width = unitsWide * style.keyUnit,
+    height = unitsHigh * style.keyUnit,
     visible = true,
-    latched = latched,
-    locked = locked,
-    hovered = hovered,
+    layer = 'base',
   }
   local heldSink: lunette.Sink? = nil
   local heldSeat: lunette.Seat? = nil
@@ -115,11 +173,22 @@ local function create(
     return nil
   end
 
-  local function keys(): { keyboard.RenderedKey }
+  local function rowsOf(layer: string): { keyboard.KeyRow }
+    if layer == 'base' then
+      return settings.rows
+    end
+    return settings.layers[layer]
+  end
+
+  local function keys(): { RenderedKey }
     local seat, held = legendSeat(), modifiers()
-    return layout.keysOf(rows, state.style, function(entry: keyboard.Key): string
-      return layout.legendFor(entry, seat, held)
-    end)
+    return layout.keysOf(rowsOf(state.layer), {
+      keyUnit = style.keyUnit,
+      modifierKeys = settings.modifierKeys,
+      legendFor = function(entry: keyboard.Key): string
+        return layout.legendFor(entry, seat, held)
+      end,
+    })
   end
 
   local function raycast(
@@ -141,32 +210,23 @@ local function create(
     }, origin, direction)
   end
 
-  local function toggleModifier(_self: keyboard.Keyboard, name: string): ()
-    if state.dead then
-      return
+  local function sendLatched(seat: lunette.Seat?, sink: lunette.Sink?): ()
+    if next(latched) then
+      table.clear(latched)
+      if sink and not sink.dead and (not seat or not seat.dead) then
+        sink:modifiers(modifiers(), seat)
+      end
     end
-    local set = if keyVocabulary.LOCKS[name] then locked else latched
-    set[name] = not set[name] or nil
   end
 
-  local function clearLatched(_self: keyboard.Keyboard, seat: lunette.Seat?, sink: lunette.Sink?): boolean
-    if not next(latched) then
-      return false
-    end
-    table.clear(latched)
-    if sink and not sink.dead and (not seat or not seat.dead) then
-      sink:modifiers(modifiers(), seat)
-    end
-    return true
-  end
-
-  local function pressKey(self: keyboard.Keyboard, code: number): boolean
+  local function pressKey(_self: keyboard.Keyboard, code: number): boolean
     if state.dead then
       return false
     end
-    local modifier = keyVocabulary.MODIFIER_KEYS[code]
+    local modifier = settings.modifierKeys[code]
     if modifier then
-      toggleModifier(self, modifier)
+      local set = if locks[modifier] then locked else latched
+      set[modifier] = not set[modifier] or nil
       return true
     end
     local seat, sink = useTarget()
@@ -174,24 +234,98 @@ local function create(
       return false
     end
     stroke(sink, seat, code, modifiers())
-    clearLatched(self, seat, sink)
+    sendLatched(seat, sink)
     return true
   end
 
-  local function isHovered(_self: keyboard.Keyboard, code: number): boolean
-    for _, entry in pairs(hovered) do
-      if entry and entry.code == code then
+  local function typeText(_self: keyboard.Keyboard, text: string): boolean
+    local seat, sink = useTarget()
+    if not sink then
+      return false
+    end
+    if not seat then
+      return sink:typeText(text)
+    end
+    local pending: { string } = {}
+    local function flush(): ()
+      if #pending > 0 then
+        sink:typeText(table.concat(pending), seat)
+        table.clear(pending)
+      end
+    end
+    for character in text:gmatch(CHARACTER) do
+      local binding = seat:strokeFor(character)
+      if binding then
+        flush()
+        stroke(sink, seat, binding.keycode, binding.modifiers)
+      else
+        pending[#pending + 1] = character
+      end
+    end
+    flush()
+    sink:modifiers(modifiers(), seat)
+    return true
+  end
+
+  local function chord(code: number, held: { string }): ()
+    local seat, sink = useTarget()
+    if sink then
+      stroke(sink, seat, code, held)
+      sink:modifiers(modifiers(), seat)
+    end
+  end
+
+  local function setLayer(_self: Board, layer: string): ()
+    if layer ~= 'base' and settings.layers[layer] == nil then
+      error('keyboard: there is no layer named ' .. tostring(layer), 2)
+    end
+    if not state.dead and state.layer ~= layer then
+      state.layer = layer
+      table.clear(hovered)
+    end
+  end
+
+  local function setVisible(_self: keyboard.Keyboard, visible: boolean): ()
+    state.visible = visible
+  end
+
+  -- What a key does when nothing overrides it: the base of `onKey`.
+  local function perform(self: Board, key: RenderedKey, _pointer: Pointer): ()
+    local code, action = key.code, key.action
+    if code then
+      pressKey(self, code)
+    elseif not action then
+      return
+    elseif action.kind == 'hide' then
+      setVisible(self, false)
+    elseif action.kind == 'layer' then
+      setLayer(self, action.layer)
+    elseif action.kind == 'text' then
+      typeText(self, action.text)
+    elseif action.kind == 'chord' then
+      chord(action.code, action.modifiers)
+    end
+  end
+
+  local function isHovered(key: RenderedKey): boolean
+    for _, entry in hovered do
+      if entry.source == key.source then
         return true
       end
     end
     return false
   end
 
-  local function isHeld(_self: keyboard.Keyboard, held: { string }, name: string): boolean
-    return table.find(held, name) ~= nil
+  local function isHeld(key: RenderedKey, held: { string }): boolean
+    local action = key.action
+    if action and action.kind == 'layer' then
+      return action.layer ~= 'base' and action.layer == state.layer
+    end
+    return key.modifier ~= nil and table.find(held, key.modifier) ~= nil
   end
 
   local release: () -> boolean
+  local created: Board
 
   local methods = {
     setPose = function(_self: keyboard.Surface, pose: Mat4): ()
@@ -199,113 +333,58 @@ local function create(
         state.pose:set(pose)
       end
     end,
+    -- The height follows the width, so the keys keep their shape.
     setSize = function(_self: keyboard.Surface, wanted: number?, _height: number?): ()
       if state.dead or not wanted or wanted <= 0 or state.width <= 0 then
         return
       end
-      local scale = wanted / state.width
-      local old = state.style
-      state.style = {
-        keyUnit = old.keyUnit * scale,
-        gap = old.gap * scale,
-        margin = old.margin * scale,
-        plateDepth = old.plateDepth * scale,
-        legendDepth = old.legendDepth * scale,
-        legendHeight = old.legendHeight * scale,
-        plateColor = old.plateColor,
-        keyColor = old.keyColor,
-        heldColor = old.heldColor,
-        hoverColor = old.hoverColor,
-        legendColor = old.legendColor,
-      }
-      state.width, state.height = layout.extentOf(rows, state.style)
+      style = scaled(style, wanted / state.width)
+      state.width, state.height = unitsWide * style.keyUnit, unitsHigh * style.keyUnit
     end,
     raycast = raycast,
-    onHover = function(_self: keyboard.Surface, x: number?, y: number?, source: keyboard.HoverSource?): ()
+    onHover = function(_self: keyboard.Surface, x: number?, y: number?, pointer: Pointer): ()
       if not state.dead and x and y then
-        hovered[source or 'default'] = layout.keyAt(keys(), x, y)
+        hovered[pointer] = layout.keyAt(keys(), x, y)
       end
     end,
-    onLeave = function(_self: keyboard.Surface, source: keyboard.HoverSource?): ()
-      hovered[source or 'default'] = nil
+    onLeave = function(_self: keyboard.Surface, pointer: Pointer): ()
+      hovered[pointer] = nil
     end,
-    onPress = function(_self: keyboard.Surface, _x: number?, _y: number?, _pointer: unknown?): () end,
-    setHovered = function(_self: keyboard.Keyboard, entry: keyboard.RenderedKey?, source: keyboard.HoverSource?): ()
-      if not state.dead then
-        hovered[source or 'default'] = entry
+    onPress = function(_self: keyboard.Surface, x: number?, y: number?, pointer: Pointer): ()
+      if state.dead or not x or not y then
+        return
+      end
+      local key = layout.keyAt(keys(), x, y)
+      if key then
+        settings.onKey(created, key, pointer, perform)
       end
     end,
-    isHovered = isHovered,
-    setVisible = function(_self: keyboard.Keyboard, visible: boolean): ()
-      state.visible = visible
-    end,
+    setVisible = setVisible,
     modifiers = function(_self: keyboard.Keyboard): { string }
       return modifiers()
     end,
-    toggleModifier = toggleModifier,
-    keys = function(_self: keyboard.Keyboard): { keyboard.RenderedKey }
-      return keys()
-    end,
-    legendSeat = function(_self: keyboard.Keyboard): lunette.Seat?
-      return legendSeat()
-    end,
-    legendFor = function(_self: keyboard.Keyboard, entry: keyboard.Key, seat: lunette.Seat?, held: { string }): string
-      return layout.legendFor(entry, seat, held)
-    end,
-    hit = function(
-      self: keyboard.Keyboard,
-      origin: vector,
-      direction: vector,
-      backFace: boolean?
-    ): (keyboard.RenderedKey?, number?)
-      local x, y, distance = raycast(self, origin, direction, backFace)
-      if not x or not y or not distance then
-        return nil, nil
-      end
-      return layout.keyAt(keys(), x, y), distance
-    end,
     pressKey = pressKey,
-    typeText = function(_self: keyboard.Keyboard, text: string): boolean
-      local seat, sink = useTarget()
-      if not sink then
-        return false
-      end
-      if not seat then
-        return sink:typeText(text)
-      end
-      local pending: { string } = {}
-      local function flush(): ()
-        if #pending > 0 then
-          sink:typeText(table.concat(pending), seat)
-          table.clear(pending)
-        end
-      end
-      for character in text:gmatch(CHARACTER) do
-        local binding = seat:strokeFor(character)
-        if binding then
-          flush()
-          stroke(sink, seat, binding.keycode, binding.modifiers)
-        else
-          pending[#pending + 1] = character
-        end
-      end
-      flush()
-      sink:modifiers(modifiers(), seat)
-      return true
+    typeText = typeText,
+    setLayer = setLayer,
+    keys = function(_self: Board): { RenderedKey }
+      return keys()
     end,
     draw = function(self: keyboard.Keyboard, pass: Pass): ()
       if state.dead or not state.visible then
         return
       end
+      local width, height = state.width, state.height
+      drawing.plate(pass, state.pose, width, height, style)
       local held = modifiers()
-      drawing.keyboard(pass, state.pose, keys(), state.width, state.height, state.style, {
-        held = function(entry: keyboard.RenderedKey): boolean
-          return entry.modifier ~= nil and isHeld(self, held, entry.modifier)
-        end,
-        hovered = function(entry: keyboard.RenderedKey): boolean
-          return isHovered(self, entry.code)
-        end,
-      })
+      for _, key in ipairs(keys()) do
+        settings.drawKey(pass, key, {
+          keyboard = created,
+          pose = drawing.keyPose(state.pose, key, width, height),
+          style = style,
+          held = isHeld(key, held),
+          hovered = isHovered(key),
+        }, drawing.key)
+      end
     end,
     destroy = function(_self: keyboard.Keyboard): boolean
       if state.dead then
@@ -313,16 +392,13 @@ local function create(
       end
       return release()
     end,
-    isHeld = isHeld,
-    clearLatched = clearLatched,
   }
-  local created: keyboard.Keyboard = setmetatable(state, { __index = methods })
+  created = setmetatable(state, { __index = methods })
   local function releaseRaw(): ()
     if state.dead then
       return
     end
     state.dead = true
-    remove(created)
     table.clear(latched)
     table.clear(locked)
     table.clear(hovered)
@@ -338,42 +414,25 @@ local function create(
     end
     return true
   end
-  methods.onPress = function(_self: keyboard.Surface, x: number?, y: number?, _pointer: unknown?): ()
-    if state.dead or not x or not y then
-      return
-    end
-    local entry = layout.keyAt(keys(), x, y)
-    if entry then
-      pressKey(created, entry.code)
-    end
-  end
   return created, releaseRaw
 end
 
 local function build(context: plugin.Context, settings: Settings): keyboard.Service
   local interactionService: interaction.Service = context:require(interaction.capability)
-  local entries: { keyboard.Keyboard } = {}
-  local function remove(created: keyboard.Keyboard): ()
-    local index = table.find(entries, created)
-    if index then
-      table.remove(entries, index)
-    end
-  end
-  local service: keyboard.Service = {
-    STYLE = settings.style,
+  return {
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       context:checkOwner(owner)
-      local result: keyboard.Keyboard? = nil
+      local own = settingsFor(settings, options)
+      local result: Board? = nil
       local cleanupEffect: plugin.Effect? = nil
       local acquired = owner:effect(function(): () -> ()
-        local created, releaseRaw = create(options, settings, interactionService, remove, function(): ()
+        local created, releaseRaw = create(own, options, interactionService, function(): ()
           local effect = cleanupEffect
           cleanupEffect = nil
           if effect then
             effect:dispose()
           end
         end)
-        entries[#entries + 1] = created
         result = created
         return function(): ()
           cleanupEffect = nil
@@ -386,24 +445,7 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
       end
       return result
     end,
-    all = function(_self: keyboard.Service): { keyboard.Keyboard }
-      return table.clone(entries)
-    end,
-    draw = function(_self: keyboard.Service, pass: Pass): ()
-      for _, created in ipairs(entries) do
-        created:draw(pass)
-      end
-    end,
-    keyAt = function(
-      _self: keyboard.Service,
-      rendered: { keyboard.RenderedKey },
-      x: number,
-      y: number
-    ): keyboard.RenderedKey?
-      return layout.keyAt(rendered, x, y)
-    end,
   }
-  return service
 end
 
 return build

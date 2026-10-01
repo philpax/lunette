@@ -44,7 +44,27 @@ local rejections = {
   {
     id = 'keyboard',
     config = { layout = {} },
-    message = 'plugin keyboard: unknown option layout; the options are rows, style',
+    message = 'plugin keyboard: unknown option layout; the options are drawKey, layers, locks, modifierKeys, onKey, rows, style',
+  },
+  {
+    id = 'keyboard',
+    config = { rows = { { { code = 30, widht = 2 } } } },
+    message = 'plugin keyboard: option rows[1][1] has an unknown field widht',
+  },
+  {
+    id = 'keyboard',
+    config = { rows = { { { action = { kind = 'layer', layer = 'numpad' } } } } },
+    message = 'plugin keyboard: option rows[1][1].action.layer names no layer: numpad',
+  },
+  {
+    id = 'keyboard',
+    config = { onKey = 'click' },
+    message = 'plugin keyboard: option onKey is a function, not a string',
+  },
+  {
+    id = 'keyboard',
+    config = { locks = { 'shift', 'hyper' } },
+    message = 'plugin keyboard: option locks[2] is a modifier name, not hyper',
   },
   { id = 'rules', config = { precedance = 1 }, message = 'plugin rules: unknown option precedance' },
   { id = 'adoption', config = { precedence = '300' }, message = 'plugin adoption: option precedence is a number' },
@@ -143,12 +163,16 @@ assert(services.interaction:pick({ near }, vector.pack(0, 0, 0), vector.pack(0, 
 
 assert(services.laser.STYLE.length == 2.5 and services.laser.STYLE.cursorRadius == 0.006)
 
-assert(services.keyboard.STYLE.keyUnit == 0.056 and services.keyboard.STYLE.gap == 0.004)
 local typed = services.keyboard:new(owner, {})
-assert(typed.style.keyUnit == 0.056, 'a new keyboard takes the configured style')
-assert(#typed.rows == 1 and #typed.rows[1] == 2, 'a new keyboard takes the configured rows')
-assert(typed.width == 3 * 0.056, 'the configured rows set the keyboard width')
+assert(typed.width == 3 * 0.056 and typed.height == 0.056, 'the configured rows and style set the keyboard size')
+assert(#typed:keys() == 2 and typed:keys()[2].width == 2 * 0.056, 'a new keyboard takes the configured rows')
 typed:destroy()
+local own = services.keyboard:new(owner, { style = { keyUnit = 0.01 } })
+assert(own.width == 3 * 0.01, "a keyboard's own style merges over the configured one")
+own:destroy()
+raises('plugin keyboard: unknown option style.keyUnits', function()
+  services.keyboard:new(owner, { style = { keyUnits = 0.01 } })
+end)
 
 assert(services.rules.DEFAULT_PRECEDENCE == 150)
 services.rules:setRules(owner, { name = 'probe', rules = {} })

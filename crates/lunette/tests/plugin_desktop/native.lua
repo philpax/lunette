@@ -85,9 +85,6 @@ end
 native.seats = function()
   return events.seats
 end
-native.modifierNames = function()
-  return { 'shift', 'control', 'alt', 'logo', 'capsLock', 'mod5' }
-end
 native.spawn = function(options)
   local process = { id = #events.spawned + 1, argv = options.argv, dead = false }
   events.spawned[#events.spawned + 1] = process
@@ -260,8 +257,9 @@ lovr = {
     getAxis = function()
       return 0, 0
     end,
-    vibrate = function()
+    vibrate = function(device, strength, duration)
       events.haptics = (events.haptics or 0) + 1
+      events.haptic = { device = device, strength = strength, duration = duration }
       return true
     end,
   },
@@ -302,6 +300,7 @@ for _, name in ipairs {
   'setShader',
   'setMaterial',
   'setBlendMode',
+  'roundrect',
 } do
   pass[name] = function(_, ...)
     events.draw[#events.draw + 1] = { name, ... }

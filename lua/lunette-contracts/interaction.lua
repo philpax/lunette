@@ -27,6 +27,7 @@ export type Pointer = vocabulary.Pointer
 
 export type ButtonState = vocabulary.ButtonState
 export type Push = vocabulary.Push
+export type Haptic = vocabulary.Haptic
 
 -- What setFocus gives an owner's focus to: a seat's keyboard and the sink
 -- that receives it. A nil sink withdraws the seat's focus.
@@ -44,9 +45,13 @@ export type Scroll = {
   read tuning: Tuning?,
 }
 
+-- What newPointer takes. `vibrate` pulses the device that drives the
+-- pointer, and is what Pointer:vibrate calls; a pointer made without one
+-- answers false. The laser supplies it for the controller of its hand.
 export type PointerOptions = {
   read seat: lunette.Seat?,
   read tuning: Tuning?,
+  read vibrate: ((Haptic) -> boolean)?,
 }
 
 export type Service = {

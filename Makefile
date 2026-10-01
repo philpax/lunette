@@ -67,7 +67,7 @@ check: check-format check-rust check-definitions check-luau
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
-	stylua --check lua etc/xdg/lunette $(wildcard crates/lunette/tests/plugin_*/)
+	stylua --check lua etc/xdg/lunette examples $(wildcard crates/lunette/tests/plugin_*/)
 
 # The target splits in two because clippy and the tests share no artifacts.
 # The clippy build runs through RUSTC_WORKSPACE_WRAPPER and produces its own
@@ -89,11 +89,12 @@ check-test:
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 
-# The check includes every shipped root and the ordinary spec harness modules.
+# The check includes every shipped root, the ordinary spec harness modules,
+# the default configuration, and the examples.
 # Negative specs and probe runners stay out; their dedicated tests assert those
 # diagnostics and the runner's computed requires are not statically followable.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua $$(find examples -type f -name '*.lua' -print | sort)
 
 install: install-binary install-lua install-config
 

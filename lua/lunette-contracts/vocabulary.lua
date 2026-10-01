@@ -148,6 +148,13 @@ export type Push = {
   read dt: number,
 }
 
+-- What Pointer:vibrate takes: the strength, from 0 to 1, and the duration in
+-- seconds of one pulse on the device that drives the pointer.
+export type Haptic = {
+  read strength: number,
+  read duration: number,
+}
+
 export type Pointer = {
   read seat: lunette.Seat?,
   read tuning: Tuning,
@@ -175,6 +182,9 @@ export type Pointer = {
   read push: (Pointer, Push) -> (),
   read dragTo: (Pointer, Mat4?) -> (),
   read endGrab: (Pointer) -> boolean,
+  -- Pulses the device that drives the pointer, and answers whether a pulse
+  -- was sent. A pointer whose creator gave it no device answers false.
+  read vibrate: (Pointer, Haptic) -> boolean,
 }
 
 type SurfaceFields = {

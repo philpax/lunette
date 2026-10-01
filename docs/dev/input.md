@@ -101,7 +101,7 @@ WayVR addresses this with libmonado (`inspiration/wayvr/wayvr/src/backend/openxr
 - libmonado is an optional, runtime-detected dependency. On a non-Monado runtime, the call returns `false` and Lua handles the degraded case. lunette does not hard-depend on Monado.
 - Blocking policy is decided in Lua. The standard library's default rule matches WayVR's: block while a laser is hovering a panel. Because this is policy, it is implemented in Lua rather than in the native layer.
 
-Haptics use `lovr.headset.vibrate`. No new API is added for this.
+Haptics use `lovr.headset.vibrate`. No new native API is added for this. In the plugin layer a pointer carries `vibrate`, which the laser supplies for its hand's controller, so a surface a pointer presses can pulse the hand that pressed it; [Keyboard](lua-api.md#keyboard) states it.
 
 ## Decisions
 

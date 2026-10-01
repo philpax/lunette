@@ -55,8 +55,9 @@ pub struct Cli {
 pub enum Command {
     /// Typecheck a configuration and the standard library it uses.
     Check {
-        /// The files to check. Defaults to the files in the configuration
-        /// directory.
+        /// The files to check, such as a configuration's `main.lua` and the
+        /// modules it requires by path. Each `@` alias resolves through the
+        /// `.luaurc` beside the file.
         #[arg(value_name = "FILE")]
         roots: Vec<PathBuf>,
 

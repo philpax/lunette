@@ -2,7 +2,7 @@
 use std::path::Path;
 
 use lunette::{
-    lua::keys::{KeyCodes, locking_modifier_names},
+    lua::keys::{KeyCodes, locking_modifier_names, modifier_names},
     plugin::declarations,
     reload,
 };
@@ -13,7 +13,14 @@ mod plugin_sources;
 #[path = "../plugin_support/mod.rs"]
 mod plugin_support;
 
+/// A state whose configuration is the shipped one.
 pub fn state() -> mlua::Result<Lua> {
+    state_for(Path::new("etc/xdg/lunette"))
+}
+
+/// A state whose configuration is the directory `configuration`, relative to
+/// the repository root, registered as the configuration root resolves it.
+pub fn state_for(configuration: &Path) -> mlua::Result<Lua> {
     let lua = Lua::new();
     plugin_support::collect_reports(&lua)?;
     lua.globals().set(
@@ -35,12 +42,16 @@ pub fn state() -> mlua::Result<Lua> {
         .exec()?;
     let native = lua.create_table()?;
     declarations::install(&lua, &native)?;
-    // The real key vocabulary, so the default rows resolve to the codes a
-    // session hands them.
+    // The real key vocabulary, so the default rows and modifier sets resolve
+    // to what a session hands them.
     native.set("keyCodes", lua.create_function(|_, ()| Ok(KeyCodes))?)?;
     native.set(
         "lockingModifierNames",
         lua.create_function(|_, ()| Ok(locking_modifier_names()))?,
+    )?;
+    native.set(
+        "modifierNames",
+        lua.create_function(|_, ()| Ok(modifier_names()))?,
     )?;
     native.set(
         "reload",
@@ -62,7 +73,7 @@ pub fn state() -> mlua::Result<Lua> {
     )?;
     plugin_sources::register(&lua, &loaders)?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    plugin_sources::register_directory(&lua, &loaders, &root.join("etc/xdg/lunette"), "")?;
+    plugin_sources::register_directory(&lua, &loaders, &root.join(configuration), "")?;
     loaders.set(
         "fixture/graph",
         lua.load(include_str!("graph.lua"))

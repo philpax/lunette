@@ -88,7 +88,6 @@ return function()
   focus:setFocus(owner, { seat = seat, sink = sink })
   assert(seat.focus == sink)
   local board = service:new(owner)
-  assert(#service:all() == 1 and #otherService:all() == 0)
   local keys = board:keys()
   local wanted
   for _, key in ipairs(keys) do
@@ -104,10 +103,6 @@ return function()
   board:pressKey(58)
   board:pressKey(30)
   assert(board:modifiers()[1] == 'capsLock')
-  board:setHovered(keys[1], 'left')
-  board:setHovered(keys[2], 'right')
-  board:onLeave 'left'
-  assert(not board:isHovered(keys[1].code) and board:isHovered(keys[2].code))
   local width = board.width
   board:setSize(width * 2)
   assert(board.width == width * 2)
@@ -118,7 +113,7 @@ return function()
   board:typeText 'qüßQ'
   assert(events[4][1] == 'text' and events[4][2] == 'üß')
   consumer:disable()
-  assert(board.dead and #service:all() == 0)
+  assert(board.dead)
   assert(seat.focus == nil, 'the focus the consumer held ends with it')
   assert(events[#events][1] == 'modifiers' and #events[#events][2] == 0)
   local count = #events
@@ -129,7 +124,7 @@ return function()
   end))
   provider:disable()
   provider:enable()
-  assert(#otherService:all() == 0)
+  assert(otherService:new(otherOwner), "another runtime's provider is unaffected")
   -- A keyboard release that fails while its owner unloads is that owner's
   -- failure: the owner is quarantined and the keyboard provider keeps serving.
   local failRuntime, failProvider, failConsumer, failService, failOwner, failFocus = setup()

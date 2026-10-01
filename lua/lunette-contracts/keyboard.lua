@@ -1,37 +1,51 @@
 -- The keyboard service contract.
 --
--- Keyboard creation is owner-scoped. Key geometry is ordinary data and remains
--- in this contract because consumers need the same public layout vocabulary.
+-- Keyboard creation is owner-scoped, and each owner draws and offers the
+-- keyboards it made. Key geometry is ordinary data and remains in this
+-- contract, because a configuration writes rows for whichever provider serves
+-- it. What a keyboard does with a press, how it lays out and draws its keys,
+-- and its layers are the provider's own.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
-local interaction = require '@lunette-contracts/interaction'
 local surface = require '@lunette-contracts/surface'
 
 local keyboard = {}
 
 export type Owner = owner.Owner
 export type Surface = surface.Surface
-export type HoverSource = string | interaction.Pointer
+export type Pointer = surface.Pointer
 
+-- What a key does other than send its keycode. `hide` hides the keyboard;
+-- `layer` shows the named layer, where `base` names the rows; `text` types its
+-- text; `chord` sends one key with the named modifiers held, as in ctrl+alt+t;
+-- `custom` does nothing by default and is for a hook to give meaning to.
+export type Action =
+  { read kind: 'hide' }
+  | { read kind: 'layer', read layer: string }
+  | { read kind: 'text', read text: string }
+  | { read kind: 'chord', read code: number, read modifiers: { string } }
+  | { read kind: 'custom', read name: string }
+
+-- One key of a row. A key has an evdev `code`, an `action`, or neither, in
+-- which case it is a spacer: it takes up room and is neither drawn nor
+-- pressed. `width` and `height` are in key units and default to one. `x` is
+-- room left empty before the key, in key units, and defaults to zero. `label`
+-- is the legend drawn in place of the one the seat's keymap gives.
 export type Key = {
-  read code: number,
+  read code: number?,
+  read action: Action?,
   read label: string?,
   read width: number?,
+  read height: number?,
+  read x: number?,
 }
 
+-- A row of keys, laid out left to right. A row advances the next one by the
+-- height of its shortest key, so a two-unit key reaches into the row below,
+-- which leaves a spacer where it lands; an empty row advances by one unit.
 export type KeyRow = { Key }
-
-export type RenderedKey = {
-  read code: number,
-  read modifier: string?,
-  read legend: string,
-  read x: number,
-  read y: number,
-  read width: number,
-  read height: number,
-}
 
 export type Style = {
   read keyUnit: number,
@@ -47,56 +61,63 @@ export type Style = {
   read legendHeight: number,
 }
 
+-- Style options, each merged over the provider's.
+export type StyleOptions = {
+  read keyUnit: number?,
+  read gap: number?,
+  read plateDepth: number?,
+  read legendDepth: number?,
+  read margin: number?,
+  read plateColor: { number }?,
+  read keyColor: { number }?,
+  read heldColor: { number }?,
+  read hoverColor: { number }?,
+  read legendColor: { number }?,
+  read legendHeight: number?,
+}
+
 export type Target = () -> (lunette.Seat?, lunette.Sink?)
 
+-- What `new` takes. `rows`, `layers`, and `style` override the provider's for
+-- this keyboard. `target` answers where keys go, by default the interaction
+-- provider's focused seat and sink.
 export type Options = {
   read rows: { KeyRow }?,
-  read style: Style?,
+  read layers: { [string]: { KeyRow } }?,
+  read style: StyleOptions?,
   read pose: Mat4?,
   read target: Target?,
 }
 
-export type Keyboard = surface.Surface & {
+-- A keyboard is a surface an owner places, offers, and draws. Its width and
+-- height cover the widest and tallest of its layers, and `setSize` keeps its
+-- proportions. The type states the surface fields a keyboard always has
+-- rather than intersecting `Surface`, whose optional methods would make a
+-- call through the intersection ambiguous; a keyboard is still a `Surface`.
+export type Keyboard = {
+  read kind: nil,
+  read dead: boolean,
+  read grabbable: boolean,
   read pose: Mat4,
-  read rows: { KeyRow },
-  read style: Style,
-  read target: Target,
   read width: number,
   read height: number,
   read visible: boolean,
-  read latched: { [string]: boolean },
-  read locked: { [string]: boolean },
-  read hovered: { [HoverSource]: RenderedKey? },
-  read grabbable: boolean,
+  read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
-  read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
-  read onHover: (Surface, number?, number?, HoverSource?) -> (),
-  read onLeave: (Surface, HoverSource?) -> (),
-  read onPress: (Surface, number?, number?, unknown?) -> (),
-  read setHovered: (Keyboard, RenderedKey?, HoverSource?) -> (),
-  read isHovered: (Keyboard, number) -> boolean,
+  read onHover: (Surface, number?, number?, Pointer) -> (),
+  read onLeave: (Surface, Pointer) -> (),
+  read onPress: (Surface, number?, number?, Pointer) -> (),
   read setVisible: (Keyboard, boolean) -> (),
-  read modifiers: (Keyboard) -> { string },
-  read toggleModifier: (Keyboard, string) -> (),
-  read keys: (Keyboard) -> { RenderedKey },
-  read legendSeat: (Keyboard) -> lunette.Seat?,
-  read legendFor: (Keyboard, Key, lunette.Seat?, { string }) -> string,
-  read hit: (Keyboard, vector, vector, boolean?) -> (RenderedKey?, number?),
   read pressKey: (Keyboard, number) -> boolean,
   read typeText: (Keyboard, string) -> boolean,
+  read modifiers: (Keyboard) -> { string },
   read draw: (Keyboard, Pass) -> (),
   read destroy: (Keyboard) -> boolean,
-  read isHeld: (Keyboard, { string }, string) -> boolean,
-  read clearLatched: (Keyboard, lunette.Seat?, lunette.Sink?) -> boolean,
 }
 
 export type Service = {
-  read STYLE: Style,
   read new: (Service, Owner, Options?) -> Keyboard,
-  read all: (Service) -> { Keyboard },
-  read draw: (Service, Pass) -> (),
-  read keyAt: (Service, { RenderedKey }, number, number) -> RenderedKey?,
 }
 
 export type Capability = plugin.Capability<Service>

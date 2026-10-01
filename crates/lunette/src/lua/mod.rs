@@ -77,8 +77,8 @@ use std::{
 
 use lunette_compositor::{
     protocol::{
-        Argv, Command, KeyModifier, OutputId, PixelSize, ProcessId, SeatId, Snapshot, SpawnRequest,
-        WindowId, WindowSnapshot,
+        Argv, Command, OutputId, PixelSize, ProcessId, SeatId, Snapshot, SpawnRequest, WindowId,
+        WindowSnapshot,
     },
     state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
@@ -105,7 +105,7 @@ use crate::{
     lua::{
         claim::{ClaimLayer, claim_layer},
         declarations::{FunctionSpec, NullTexture, Options, Record, Type, module, record},
-        keys::{KeyCodes, locking_modifier_names},
+        keys::{KeyCodes, locking_modifier_names, modifier_names},
         monitor::monitors,
         output::{NewOutput, new_output, outputs},
         seat::{NewSeat, new_seat, seats},
@@ -768,19 +768,6 @@ fn window_handles<T: LuaTexture>(
         .iter()
         .map(|window| Window::new(Rc::clone(session), window))
         .collect())
-}
-
-/// `lunette.modifierNames()`: every modifier a seat accepts.
-///
-/// Read from [`KeyModifier`] and not listed, so what the keyboard provider
-/// builds a keyboard from and what the runtime accepts from it are one set. The order is the
-/// keymap's own modifier numbering; a caller reporting held modifiers should
-/// report them in that order.
-fn modifier_names() -> Vec<String> {
-    KeyModifier::NAMES
-        .iter()
-        .map(|name| (*name).to_owned())
-        .collect()
 }
 
 /// `lunette.scaleSteps()`: the scale ladder, ascending, as plain numbers.

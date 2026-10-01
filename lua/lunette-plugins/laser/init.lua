@@ -80,8 +80,18 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
   local acquired = owner:effect(function()
     state.context:checkOwner(owner)
     local seat = settings.seat or lunette.newSeat(settings.name or ('laser.' .. hand))
+    local controller = input.controllers[hand]
+    -- The pointer's haptics reach this hand's controller, so whatever the
+    -- pointer presses can answer with a pulse on the hand that pressed it.
+    local function pulse(haptic: interaction.Haptic): boolean
+      local headset = lovr.headset
+      if not state.active or not headset or not headset.vibrate then
+        return false
+      end
+      return headset.vibrate(controller, haptic.strength, haptic.duration, 0) and true
+    end
     local made, pointer = pcall(function()
-      return interactionService:newPointer(state.context, { seat = seat, tuning = settings.tuning })
+      return interactionService:newPointer(state.context, { seat = seat, tuning = settings.tuning, vibrate = pulse })
     end)
     if not made then
       if not settings.seat and not seat.dead then
@@ -95,7 +105,7 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
       owner = owner,
       hand = hand,
       device = device,
-      controller = input.controllers[hand],
+      controller = controller,
       seat = seat,
       ownsSeat = settings.seat == nil,
       readInput = settings.readInput or function(which: Hand): Input?
@@ -128,14 +138,10 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
         draw.laser(self, pass)
       end,
       vibrate = function(self: Laser): boolean
-        if self.dead or not state.active then
+        if self.dead then
           return false
         end
-        local headset = lovr.headset
-        if not headset or not headset.vibrate then
-          return false
-        end
-        return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration, 0) and true
+        return pulse { strength = self.style.hapticStrength, duration = self.style.hapticDuration }
       end,
       -- The release runs here, on the caller's stack, so its failure is the
       -- caller's; the owner's effect is then disposed with nothing left to do.

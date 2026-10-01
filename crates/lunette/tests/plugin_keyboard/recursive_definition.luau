@@ -17,9 +17,8 @@ local consumer = plugin.define {
   requires = { keyboard = keyboard.capability },
   init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
     local service: keyboard.Service = context:require(keyboard.capability)
-    local keys: { keyboard.Keyboard } = service:all()
-    service:keyAt({}, 0, 0)
-    assert(#keys == 0)
+    local board: keyboard.Keyboard = service:new(context)
+    assert(board:modifiers()[1] == nil)
   end,
 }
 

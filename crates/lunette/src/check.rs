@@ -52,7 +52,7 @@ fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
 /// skips its input reports a clean result for a file it never reads.
 pub fn run(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> ExitCode {
     if roots.is_empty() {
-        error!("check: no files were named");
+        error!("check: no files were named; name the files to check, such as main.lua");
         return ExitCode::FAILURE;
     }
 

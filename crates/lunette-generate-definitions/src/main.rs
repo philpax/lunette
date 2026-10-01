@@ -69,8 +69,9 @@ type AliasFile = (&'static str, &'static str, fn(&str) -> String);
 /// each one reaches the standard library by. The path is written as Luau
 /// resolves it: relative to the file's own directory.
 ///
-/// The development file includes the spec root. The default configuration
-/// and installed Lua-root metadata do not: specs are not installed modules.
+/// The development file includes the spec root. The default configuration,
+/// the examples, and installed Lua-root metadata do not: specs are not
+/// installed modules, and an example is a configuration.
 /// The installed metadata resolves relative to its destination, `lua/.luaurc`,
 /// so neither the installation prefix nor a staging directory is embedded.
 /// All files are generated from [`lunette::aliases`].
@@ -84,6 +85,16 @@ const ALIAS_FILES: &[AliasFile] = &[
     (
         "etc/lunette/installed.luaurc",
         ".",
+        lunette::aliases::installed_luaurc,
+    ),
+    (
+        "examples/first-plugin/.luaurc",
+        "../../lua",
+        lunette::aliases::installed_luaurc,
+    ),
+    (
+        "examples/keyboard/.luaurc",
+        "../../lua",
         lunette::aliases::installed_luaurc,
     ),
 ];

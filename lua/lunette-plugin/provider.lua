@@ -13,12 +13,17 @@ local options = require '@lunette-plugin/options'
 local provider = {}
 
 -- The fields `plugin.provider` accepts. `defaults` is every option with its
--- default value, and `build` receives the resolved options.
+-- default value, and `build` receives the resolved options. `validate`, when
+-- given, receives the resolved options and the definition's name before
+-- `build` or `define` uses them, and raises for what the defaults cannot
+-- describe, such as a value outside a closed set or a malformed entry of a
+-- list. Its error names the plugin by that name, as option errors do.
 export type Spec<S, T> = {
   read name: string,
   read capability: adapter.Capability<T>,
   read requires: adapter.Declaration?,
   read defaults: S,
+  read validate: ((S, string) -> ())?,
   read build: (adapter.Context, S) -> T,
 }
 
@@ -36,6 +41,7 @@ local specKeys: { [string]: boolean } = {
   capability = true,
   requires = true,
   defaults = true,
+  validate = true,
   build = true,
 }
 
@@ -47,7 +53,7 @@ function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
     'provider',
     (spec :: unknown) :: { [unknown]: unknown },
     specKeys,
-    'name, capability, requires, defaults, and build',
+    'name, capability, requires, defaults, validate, and build',
     4
   )
   local name, capability, build = spec.name, spec.capability, spec.build
@@ -57,12 +63,20 @@ function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
   if type(build) ~= 'function' then
     error('plugin provider: build is a function, not a ' .. type(build), 3)
   end
+  local validate = spec.validate
+  if validate ~= nil and type(validate) ~= 'function' then
+    error('plugin provider: validate is a function, not a ' .. type(validate), 3)
+  end
   local requires: adapter.Declaration = table.freeze(table.clone(spec.requires or {}))
   local provides: adapter.Declaration = { service = (capability :: unknown) :: any }
   table.freeze(provides)
 
   local function resolve(label: string, defaults: S, config: unknown): S
-    return options.resolve { name = label, defaults = defaults, config = config }
+    local resolved = options.resolve { name = label, defaults = defaults, config = config }
+    if validate then
+      validate(resolved, label)
+    end
+    return resolved
   end
 
   local function definitionFor(label: string, defaults: S): adapter.Definition<C>

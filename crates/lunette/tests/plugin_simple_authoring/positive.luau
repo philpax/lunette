@@ -10,23 +10,8 @@ local function build(
   keyboardService: keyboard.Service
 )
   local implementation: keyboard.Service = {
-    STYLE = keyboardService.STYLE,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       return keyboardService:new(owner, options)
-    end,
-    all = function(_self: keyboard.Service): { keyboard.Keyboard }
-      return keyboardService:all()
-    end,
-    draw = function(_self: keyboard.Service, pass: Pass)
-      keyboardService:draw(pass)
-    end,
-    keyAt = function(
-      _self: keyboard.Service,
-      rendered: { keyboard.RenderedKey },
-      x: number,
-      y: number
-    ): keyboard.RenderedKey?
-      return keyboardService:keyAt(rendered, x, y)
     end,
   }
   local provider = api.define {
@@ -62,10 +47,7 @@ local function build(
         run = function(panel, droppedPointer)
           panel:setSize(nil, config.height)
           droppedPointer:withdraw()
-          local all: { keyboard.Keyboard } = ctx:require(keyboard.capability):all()
-          for _, current in all do
-            current:setVisible(true)
-          end
+          board:setVisible(true)
         end,
       })
       local allPanels: { panels.Panel } = panelRegistry:all()

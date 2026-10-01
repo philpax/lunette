@@ -23,10 +23,12 @@ lunette/
   lua/spec/                       development-only Lua specifications
   etc/lunette/                    the generated Luau definitions
   etc/xdg/lunette/                the default configuration
+  examples/                       example configurations, each with a generated .luaurc
   vendor/lovr/                    submodule → LÖVR with lunette's patch branch (recursive)
   vendor/lovr-docs/               submodule → the API metadata and its Luau generator, on lunette's branch
   vendor/mlua/                    submodule → mlua with lunette's Luau ABI patches
-  docs/dev/                           this
+  docs/dev/                       this
+  docs/guide/                     user-facing guides; not normative
   inspiration/                    reference checkouts, gitignored
 ```
 
@@ -68,7 +70,7 @@ The source and install roots are described by `crates/lunette/src/aliases.rs`. I
 
 The `@lunette` API is registered at runtime and is not loaded from `lua/lunette/`. Its checked-in declaration is generated from the Rust registration surface. The plugin facade, provider, and desktop roots are ordinary Lua modules mounted under reserved aliases. The desktop root is required because the default configuration runs it; safe mode is compiled into the binary and needs none of the installed roots. `@mullion` is optional because nothing in the required roots or the default configuration requires it, which `crates/lunette/tests/optional_library.rs` checks. A configuration cannot shadow these mounts with files at the configuration root.
 
-`make check-definitions` checks the generated Luau definitions, native API declarations, `.luaurc` files, and alias metadata. `make check-luau` checks the shipped roots, the ordinary spec harness modules, and the default configuration. It runs the Luau checker as a separate process; startup does not run that checker.
+`make check-definitions` checks the generated Luau definitions, native API declarations, `.luaurc` files, and alias metadata. `make check-luau` checks the shipped roots, the ordinary spec harness modules, the default configuration, and the configurations under `examples/`, each of which has a generated `.luaurc` naming the source tree's roots. It runs the Luau checker as a separate process; startup does not run that checker.
 
 ## Where things live at runtime
 
@@ -119,7 +121,7 @@ End-to-end testing runs via `lunctl`, and it is Rust rather than a shell script.
 
 The half that is not covered is a client: a session with `modules.graphics = false` never lends a device to the compositor thread, so the thread does not start and nothing can connect to the Wayland socket it would serve. Spawning a client and asserting it appears in `lunette.windows()` therefore needs the GPU-headless tier above, and until that exists it is a human gate rather than a test. `crates/lunette-compositor/tests/` covers the client half against the compositor in-process, which is the same protocol traffic without the frame loop under it.
 
-The standing checks are listed in [CONTRIBUTING.md](../../CONTRIBUTING.md) and run via `make check`. `lunette check` is one of them, which typechecks the standard library and the shipped configuration in strict mode, catching a local referenced before its declaration and an accidental global before a session sees them. The LÖVR metadata defines `LovrConfiguration` with the `lovr.conf` callback fields. `crates/lunette-generate-definitions` generates the checked-in definition from that metadata.
+The standing checks are listed in [CONTRIBUTING.md](../../CONTRIBUTING.md) and run via `make check`. `lunette check` is one of them, which typechecks the standard library, the shipped configuration, and the examples in strict mode, catching a local referenced before its declaration and an accidental global before a session sees them. The LÖVR metadata defines `LovrConfiguration` with the `lovr.conf` callback fields. `crates/lunette-generate-definitions` generates the checked-in definition from that metadata.
 
 ## Decisions
 

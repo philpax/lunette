@@ -32,10 +32,12 @@ lua/mullion/                          optional Lua policy modules
 lua/spec/                             development-only Lua specifications
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
+examples/                             example configurations, checked and tested like the default one
 vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
 vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
 docs/dev/                             the design specification
+docs/guide/                           user-facing guides
 inspiration/                          reference checkouts, gitignored
 ```
 
@@ -43,7 +45,7 @@ inspiration/                          reference checkouts, gitignored
 
 ## Documentation
 
-`docs/dev/` is the design specification, not a description of the code. It is normative. A change that alters behaviour described there updates the relevant document in the same change.
+`docs/dev/` is the design specification, not a description of the code. It is normative. `docs/guide/` is for users writing configurations and plugins; it is not normative, follows the specification, and changes with it. Its examples live under `examples/`, where they are checked and tested. A change that alters behaviour described there updates the relevant document in the same change.
 
 A document that has decisions, known gaps, or deliberately-open questions about its own subject records them in a `Decisions`, `Known gaps`, or `Deliberately left open` section at its end. A decision carries the reasoning that produced it and, where an alternative was rejected, what it was and why; a change that reverses one updates that section and states why. This exists so that settled questions are not reopened by accident, and it puts each decision beside its subject, so a reader of the document sees what shaped it. Facts that belong to no one document, such as licensing, are in [CREDITS.md](CREDITS.md).
 
@@ -87,13 +89,13 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 
 ### Formatting
 
-`stylua.toml` configures StyLua for the tree, and `stylua --check lua etc/xdg/lunette` is one of the standing checks. The settings describe what the tree already did rather than imposing something new: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width, which is where the code already sat.
+`stylua.toml` configures StyLua for the tree, and `stylua --check lua etc/xdg/lunette examples` is one of the standing checks. The settings describe what the tree already did rather than imposing something new: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width, which is where the code already sat.
 
 `syntax = "Luau"` is set because the tree carries type annotations that the Lua grammars reject.
 
 ### The Luau static check
 
-`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, `lua/mullion`, the ordinary spec harness modules, and the shipped configuration against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
+`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, `lua/mullion`, the ordinary spec harness modules, the shipped configuration, and the configurations under `examples/` against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
 
 The checker is strict mode. `etc/lunette/definitions.luau` declares the LÖVR runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. Lua modules carry their own service and configuration types. The checker checks those local shapes but does not prove that a complete plugin graph is wired correctly; the plugin runtime validates declarations and providers separately.
 

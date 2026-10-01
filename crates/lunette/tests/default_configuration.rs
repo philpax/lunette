@@ -1,10 +1,14 @@
-//! The shipped configuration parses and activates its real provider graph.
+//! The shipped configuration and the examples parse and activate their real
+//! provider graphs.
 extern crate lunette_lovr;
 
 #[path = "plugin_desktop/mod.rs"]
 mod plugin_desktop;
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[test]
 fn shipped_configuration_files_compile() -> mlua::Result<()> {
@@ -39,6 +43,25 @@ fn definitions_are_inert_and_default_load_activates_real_providers() -> mlua::Re
         )?
     );
     assert!(!plugin_desktop::callback(&lua, "quit")?.call::<bool>(())?);
+    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn the_keyboard_example_runs_its_patched_desktop() -> mlua::Result<()> {
+    let lua = plugin_desktop::state_for(Path::new("examples/keyboard"))?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/example_keyboard.lua"))?;
+    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn the_first_plugin_example_runs_its_inserted_plugins() -> mlua::Result<()> {
+    let lua = plugin_desktop::state_for(Path::new("examples/first-plugin"))?;
+    plugin_desktop::execute(
+        &lua,
+        include_str!("plugin_desktop/example_first_plugin.lua"),
+    )?;
     assert!(plugin_desktop::shutdown(&lua)?.is_empty());
     Ok(())
 }
