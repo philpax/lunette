@@ -4,6 +4,7 @@ extern crate lunette_lovr;
 use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
 
+mod plugin_sources;
 mod plugin_support;
 
 #[test]
@@ -20,66 +21,7 @@ fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> 
     loaded.set("@lunette", native)?;
     lua.globals().set("loaded", loaded)?;
     let modules = lua.create_table()?;
-    for (name, source) in [
-        (
-            "@lunette-plugin",
-            include_str!("../../../lua/lunette-plugin/init.lua"),
-        ),
-        (
-            "@lunette-plugin/adapter",
-            include_str!("../../../lua/lunette-plugin/adapter.lua"),
-        ),
-        (
-            "@lunette-contracts/owner",
-            include_str!("../../../lua/lunette-contracts/owner.lua"),
-        ),
-        (
-            "@lunette-contracts/vocabulary",
-            include_str!("../../../lua/lunette-contracts/vocabulary.lua"),
-        ),
-        (
-            "@lunette-contracts/surface",
-            include_str!("../../../lua/lunette-contracts/surface.lua"),
-        ),
-        (
-            "@lunette-contracts/panels",
-            include_str!("../../../lua/lunette-contracts/panels.lua"),
-        ),
-        (
-            "@lunette-contracts/interaction",
-            include_str!("../../../lua/lunette-contracts/interaction.lua"),
-        ),
-        (
-            "@lunette-plugins/panels",
-            include_str!("../../../lua/lunette-plugins/panels/init.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/events",
-            include_str!("../../../lua/lunette-plugins/panels/events.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/layer",
-            include_str!("../../../lua/lunette-plugins/panels/layer.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/raycast",
-            include_str!("../../../lua/lunette-plugins/panels/raycast.lua"),
-        ),
-        (
-            "@lunette-plugins/interaction",
-            include_str!("../../../lua/lunette-plugins/interaction/init.lua"),
-        ),
-        (
-            "@lunette-plugins/interaction/grab",
-            include_str!("../../../lua/lunette-plugins/interaction/grab.lua"),
-        ),
-        (
-            "@lunette-plugins/interaction/pose",
-            include_str!("../../../lua/lunette-plugins/interaction/pose.lua"),
-        ),
-    ] {
-        modules.set(name, lua.load(source).set_name(name).into_function()?)?;
-    }
+    plugin_sources::register(&lua, &modules)?;
     lua.globals().set("modules", modules)?;
     lua.globals().set(
         "require",
@@ -99,9 +41,13 @@ fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> 
     lua.load(include_str!("plugin_interaction/runtime.lua"))
         .set_name("interaction/runtime")
         .exec()?;
-    // The failing release is raised to the fixture's destroy call, which
-    // asserts it; nothing is left to report.
+    // The first failing release is raised to the fixture's destroy call. The
+    // second fails while its owner unloads, so it is reported against that
+    // owner, and nothing else is.
     let errors = plugin_support::shutdown(&lua);
-    assert!(errors.is_empty(), "unexpected cleanup errors: {errors:?}");
+    assert!(
+        errors.len() == 1 && errors[0].contains("native button release failed"),
+        "unexpected cleanup errors: {errors:?}"
+    );
     Ok(())
 }

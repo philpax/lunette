@@ -1,8 +1,14 @@
 -- Owner-scoped pointer interaction with activation-local focus and grab state.
+--
+-- A pointer and a setFocus grant are resources of the owner that asked for
+-- them. Their release runs as an inverse on that owner, so a native release
+-- that fails is the owner's failure, not this provider's.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/interaction'
 local panelsContract = require '@lunette-contracts/panels'
+local vocabulary = require '@lunette-contracts/vocabulary'
+local focus = require '@lunette-plugins/interaction/focus'
 local grab = require '@lunette-plugins/interaction/grab'
 local pose = require '@lunette-plugins/interaction/pose'
 
@@ -11,19 +17,24 @@ type Pointer = contracts.Pointer
 type Surface = contracts.Surface
 type PointerState = grab.PointerState
 
-local TUNING: contracts.Tuning = {
-  reach = 8,
-  grabDeadZone = 0.006,
-  scrollScale = 900,
-  scrollDeadZone = 0.2,
-  reachScale = 1.2,
-  reachMinimum = 0.2,
-  reachMaximum = 6,
-  resizeMinimum = 0.15,
-  resizeMaximum = 4,
-  button = 'left',
-}
-local POSE_PROPERTY = 'mullion.pose'
+-- Each activation receives its own frozen tuning, so no consumer can retune
+-- another's pointers.
+local function defaultTuning(): contracts.Tuning
+  local tuning: contracts.Tuning = {
+    reach = 8,
+    grabDeadZone = 0.006,
+    scrollScale = 900,
+    scrollDeadZone = 0.2,
+    reachScale = 1.2,
+    reachMinimum = 0.2,
+    reachMaximum = 6,
+    resizeMinimum = 0.15,
+    resizeMaximum = 4,
+    button = 'left',
+  }
+  return table.freeze(tuning)
+end
+local POSE_PROPERTY = vocabulary.POSE_PROPERTY
 
 local function deadZone(value: number, dead: number): number
   if value ~= value or not (dead < 1) or math.abs(value) <= dead then
@@ -88,10 +99,11 @@ end
 
 local function init(context: plugin.Context): Service
   local active = true
+  local TUNING = defaultTuning()
   local pointers: { Pointer } = {}
   local states: { [Pointer]: PointerState } = {}
-  local focusedSeat: lunette.Seat? = nil
-  local focusedSink: lunette.Sink? = nil
+  local focused = focus.new()
+  local granted: { [contracts.Owner]: { holder: focus.Holder, effect: plugin.Effect? } } = {}
   local panels: panelsContract.Service = context:require(panelsContract.capability)
   local carrying = grab.new {
     pointers = function(): { PointerState }
@@ -152,14 +164,22 @@ local function init(context: plugin.Context): Service
         pressedSurface = nil,
       }
     local fields = state
+    local holder = focus.holder()
     local function live(): boolean
       return active and context:active() and not state.dead
     end
-    local function focus(sink: lunette.Sink?)
-      if seat and not seat.dead then
-        seat:setFocus(sink)
+    local function giveFocus(sink: lunette.Sink?)
+      focus.grant(focused, holder, seat, sink)
+    end
+    -- Another live pointer of this activation still hovering a surface keeps
+    -- its highlight on when this one leaves.
+    local function hoveredByAnother(target: Surface): boolean
+      for other, otherState in pairs(states) do
+        if other ~= state.pointer and not otherState.dead and other.hovered == target then
+          return true
+        end
       end
-      focusedSeat, focusedSink = seat, sink
+      return false
     end
     local function hover(pointer: Pointer, hit: Surface?)
       local previous = fields.hovered
@@ -171,7 +191,7 @@ local function init(context: plugin.Context): Service
         hit:setHighlighted(true)
       end
       if previous then
-        if previous.setHighlighted then
+        if previous.setHighlighted and not hoveredByAnother(previous) then
           previous:setHighlighted(false)
         end
         local sink = previous.sink and previous:sink()
@@ -192,7 +212,7 @@ local function init(context: plugin.Context): Service
         if sink and not sink.dead and (not seat or not seat.dead) then
           fields.pressedSink = sink
           sink:button(state.tuning.button, true, seat)
-          focus(sink)
+          giveFocus(sink)
         elseif surface and surface.onPress then
           fields.pressedSurface = surface
           surface:onPress(fields.hitX, fields.hitY, pointer)
@@ -217,17 +237,26 @@ local function init(context: plugin.Context): Service
       fields.gripped = false
     end
     local cleanupEffect: plugin.Effect? = nil
+    -- The registry forgets the pointer before any native release, and every
+    -- release is attempted before a failure is raised to whoever ended it.
     local function destroyRaw(self: Pointer): boolean
       if state.dead then
         return false
       end
       state.dead = true
-      withdraw(self)
       local index = table.find(pointers, self)
       if index then
         table.remove(pointers, index)
       end
+      local withdrawn, withdrawal = pcall(withdraw, self)
+      local revoked, revocation = pcall(focus.revoke, focused, holder)
       states[self] = nil
+      if not withdrawn then
+        error(withdrawal, 0)
+      end
+      if not revoked then
+        error(revocation, 0)
+      end
       return true
     end
     local methods = {
@@ -238,7 +267,7 @@ local function init(context: plugin.Context): Service
       end,
       focus = function(_self: Pointer, sink: lunette.Sink?)
         if live() then
-          focus(sink)
+          giveFocus(sink)
         end
       end,
       setButton = function(self: Pointer, pressed: boolean, sink: lunette.Sink?, surface: Surface?)
@@ -251,16 +280,22 @@ local function init(context: plugin.Context): Service
           withdraw(self)
         end
       end,
+      -- The release runs here, on the caller's stack, so its failure is the
+      -- caller's; the owner's effect is then disposed with nothing left to do.
       destroy = function(self: Pointer): boolean
         if state.dead then
           return false
         end
         local effect = cleanupEffect
+        cleanupEffect = nil
+        local ok, failure = pcall(destroyRaw, self)
         if effect then
           effect:dispose()
-          return true
         end
-        return destroyRaw(self)
+        if not ok then
+          error(failure, 0)
+        end
+        return true
       end,
       beginGrab = function(self: Pointer, target: Surface, handPose: Mat4?): boolean
         if not live() or target.dead then
@@ -342,14 +377,9 @@ local function init(context: plugin.Context): Service
     local acquired = owner:effect(function()
       pointers[#pointers + 1] = public
       states[public] = state
-      local nativeCleanup = context:effect(function()
-        return function()
-          destroyRaw(public)
-        end
-      end)
       return function()
         cleanupEffect = nil
-        nativeCleanup:dispose()
+        destroyRaw(public)
       end
     end)
     if not state.dead then
@@ -357,13 +387,16 @@ local function init(context: plugin.Context): Service
     end
     return public
   end
+  -- Owners unload before this provider, so their pointers and grants have
+  -- normally ended already. Anything left is released here.
   context:effect(function()
     return function()
       active = false
       for _, pointer in ipairs(table.clone(pointers)) do
         pointer:destroy()
       end
-      focusedSeat, focusedSink = nil, nil
+      table.clear(granted)
+      focus.clear(focused)
     end
   end)
   -- The published service is revoked with this activation, so its methods
@@ -399,10 +432,36 @@ local function init(context: plugin.Context): Service
       return table.clone(pointers)
     end,
     focused = function(_self: Service): (lunette.Seat?, lunette.Sink?)
-      return focusedSeat, focusedSink
+      return focus.focused(focused)
     end,
-    setFocus = function(_self: Service, seat: lunette.Seat?, sink: lunette.Sink?)
-      focusedSeat, focusedSink = seat, sink
+    -- One grant per owner: a later call moves the owner's grant rather than
+    -- adding another effect. The grant ends with the owner.
+    setFocus = function(
+      _self: Service,
+      owner: contracts.Owner,
+      seat: lunette.Seat?,
+      sink: lunette.Sink?
+    ): plugin.Effect
+      local existing = granted[owner]
+      local effect = existing and existing.effect
+      if existing and effect then
+        context:checkOwner(owner)
+        focus.grant(focused, existing.holder, seat, sink)
+        return effect
+      end
+      local entry: { holder: focus.Holder, effect: plugin.Effect? } = { holder = focus.holder(), effect = nil }
+      local acquired = context:acquire(owner, function(): () -> ()
+        focus.grant(focused, entry.holder, seat, sink)
+        granted[owner] = entry
+        return function()
+          if granted[owner] == entry then
+            granted[owner] = nil
+          end
+          focus.revoke(focused, entry.holder)
+        end
+      end)
+      entry.effect = acquired
+      return acquired
     end,
   }
 end

@@ -85,7 +85,12 @@ return function()
     events[#events + 1] = { 'text', text }
     return true
   end
-  focus:setFocus(seat, sink)
+  function seat:setFocus(target)
+    self.focus = target
+    return true
+  end
+  focus:setFocus(owner, seat, sink)
+  assert(seat.focus == sink)
   local board = service:new(owner)
   assert(#service:all() == 1 and #otherService:all() == 0)
   local keys = board:keys()
@@ -118,6 +123,7 @@ return function()
   assert(events[4][1] == 'text' and events[4][2] == 'üß')
   consumer:disable()
   assert(board.dead and #service:all() == 0)
+  assert(seat.focus == nil, 'the focus the consumer held ends with it')
   assert(events[#events][1] == 'modifiers' and #events[#events][2] == 0)
   local count = #events
   assert(not board:destroy())

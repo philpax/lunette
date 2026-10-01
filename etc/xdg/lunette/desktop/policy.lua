@@ -39,7 +39,10 @@ local function define(): plugin.Definition<Config>
       local ruleService: rules.Service = context:require(rules.capability)
       local adoptionService: adoption.Service = context:require(adoption.capability)
       local arc: layout.ArcService = context:require(layout.arc)
-      local workspace = tagService:find(WORKSPACE) or tagService:new(context, WORKSPACE, { selected = true })
+      -- The workspace tag is this activation's own. A tag of that name held by
+      -- another owner raises here rather than being borrowed without a say in
+      -- its lifetime.
+      local workspace = tagService:new(context, WORKSPACE, { selected = true })
       local unplaced: { panels.WindowPanel } = {}
 
       ruleService:setRules(context, {

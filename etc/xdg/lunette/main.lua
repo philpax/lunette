@@ -13,6 +13,7 @@ local arc = require '@lunette-plugins/layout/arc'
 local errorDisplay = require '@lunette-plugins/error-display'
 
 local base = require './desktop/base'
+local pointing = require './desktop/pointing'
 local input = require './desktop/input'
 local wristKeyboard = require './desktop/keyboard'
 local errors = require './desktop/errors'
@@ -38,6 +39,7 @@ callbacks.install(function(): ()
   graph:use(arc, {}):enable()
   graph:use(errorDisplay.definition, {}):enable()
   graph:use(base, { callbacks = callbacks }):enable()
+  graph:use(pointing, { callbacks = callbacks }):enable()
   graph:use(input, { callbacks = callbacks }):enable()
   graph:use(wristKeyboard, { callbacks = callbacks }):enable()
   graph:use(errors, { callbacks = callbacks }):enable()

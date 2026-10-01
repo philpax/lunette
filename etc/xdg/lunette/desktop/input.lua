@@ -52,8 +52,17 @@ return plugin.define(
   function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
     local callbacks = config.callbacks
     local service: interaction.Service = context:require(interaction.capability)
-    local function stroke(keycode: number, modifiers: { string }): ()
+    -- The focused seat and sink, or nothing when either has died since focus
+    -- was given: a handle does not survive its native object.
+    local function focused(): (lunette.Seat?, lunette.Sink?)
       local seat, sink = service:focused()
+      if not seat or seat.dead or not sink or sink.dead then
+        return nil, nil
+      end
+      return seat, sink
+    end
+    local function stroke(keycode: number, modifiers: { string }): ()
+      local seat, sink = focused()
       if not seat or not sink then
         return
       end
@@ -79,7 +88,7 @@ return plugin.define(
       if named then
         stroke(named, held)
       elseif #held > 0 and #key == 1 then
-        local seat = service:focused()
+        local seat = focused()
         local found = seat and seat:strokeFor(key)
         if found then
           stroke(found.keycode, held)
@@ -87,7 +96,7 @@ return plugin.define(
       end
     end)
     callbacks.onTextinput(context, function(text: string, _code: number)
-      local seat, sink = service:focused()
+      local seat, sink = focused()
       if not seat or not sink or #heldModifiers() > 0 then
         return
       end

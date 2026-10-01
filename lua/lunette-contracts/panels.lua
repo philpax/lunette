@@ -2,13 +2,22 @@
 --
 -- A panel registry belongs to one service instance. Creation is owner-scoped so
 -- a provider can reject a caller from another plugin lifetime before it creates
--- a native layer claim or registers a panel.
+-- a native layer claim or registers a panel. Only the owner that created a
+-- panel destroys it.
+--
+-- onAdded and onRemoved are owner-scoped listeners. onAdded is called after a
+-- panel enters the registry, from inside the call that created it. onRemoved
+-- is called once a panel is dead, whatever ended it: its owner destroying it
+-- or unloading, its source dying, or the provider unloading. A listener that
+-- raises is reported through lunette.reportError and does not stop the others,
+-- and it does not fail the operation that added or removed the panel.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
 local surface = require '@lunette-contracts/surface'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local quad = require '@lunette-contracts/quad'
 
 local panels = {}
 
@@ -56,7 +65,7 @@ type PanelFields = {
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read drawChrome: (Panel, Pass) -> (),
-  read destroy: (Panel) -> boolean,
+  read destroy: (Panel, Owner) -> boolean,
 }
 
 export type WindowPanel = PanelFields & { read kind: 'window', read source: lunette.Window }
@@ -65,15 +74,9 @@ export type Panel =
   PanelFields
   & ({ read kind: 'window', read source: lunette.Window } | { read kind: 'monitor', read source: lunette.Monitor })
 export type DroppedCallback = (Panel, vocabulary.Pointer) -> ()
+export type PanelCallback = (Panel) -> ()
 
-export type Quad = {
-  read pose: Mat4,
-  read width: number,
-  read height: number,
-  read pixelWidth: number,
-  read pixelHeight: number,
-  read backFace: boolean?,
-}
+export type Quad = quad.Quad
 
 export type Service = {
   read STYLE: Style,
@@ -91,6 +94,8 @@ export type Service = {
   read opaqueShader: (Service, Owner) -> Shader?,
   read onDropped: (Service, Owner, Panel?, DroppedCallback) -> plugin.Effect,
   read emitDropped: (Service, Owner, Panel, vocabulary.Pointer) -> (),
+  read onAdded: (Service, Owner, PanelCallback) -> plugin.Effect,
+  read onRemoved: (Service, Owner, Panel?, PanelCallback) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>

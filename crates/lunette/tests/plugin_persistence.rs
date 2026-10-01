@@ -5,6 +5,7 @@ extern crate lunette_lovr;
 use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
 
+mod plugin_sources;
 mod plugin_support;
 
 #[test]
@@ -66,87 +67,8 @@ fn persistence_vm() -> mlua::Result<Lua> {
         "@lunette",
         lua.create_function(move |_, ()| Ok(native.clone()))?,
     )?;
+    plugin_sources::register(&lua, &loaders)?;
     for (name, source) in [
-        (
-            "@lunette-plugin",
-            include_str!("../../../lua/lunette-plugin/init.lua"),
-        ),
-        (
-            "@lunette-plugin/adapter",
-            include_str!("../../../lua/lunette-plugin/adapter.lua"),
-        ),
-        (
-            "@lunette-contracts/owner",
-            include_str!("../../../lua/lunette-contracts/owner.lua"),
-        ),
-        (
-            "@lunette-contracts/surface",
-            include_str!("../../../lua/lunette-contracts/surface.lua"),
-        ),
-        (
-            "@lunette-contracts/vocabulary",
-            include_str!("../../../lua/lunette-contracts/vocabulary.lua"),
-        ),
-        (
-            "@lunette-contracts/panels",
-            include_str!("../../../lua/lunette-contracts/panels.lua"),
-        ),
-        (
-            "@lunette-contracts/tags",
-            include_str!("../../../lua/lunette-contracts/tags.lua"),
-        ),
-        (
-            "@lunette-contracts/rules",
-            include_str!("../../../lua/lunette-contracts/rules.lua"),
-        ),
-        (
-            "@lunette-plugins/panels",
-            include_str!("../../../lua/lunette-plugins/panels/init.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/events",
-            include_str!("../../../lua/lunette-plugins/panels/events.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/layer",
-            include_str!("../../../lua/lunette-plugins/panels/layer.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/raycast",
-            include_str!("../../../lua/lunette-plugins/panels/raycast.lua"),
-        ),
-        (
-            "@lunette-plugins/tags",
-            include_str!("../../../lua/lunette-plugins/tags/init.lua"),
-        ),
-        (
-            "@lunette-plugins/tags/service",
-            include_str!("../../../lua/lunette-plugins/tags/service.lua"),
-        ),
-        (
-            "@lunette-plugins/rules",
-            include_str!("../../../lua/lunette-plugins/rules/init.lua"),
-        ),
-        (
-            "@lunette-plugins/rules/policy",
-            include_str!("../../../lua/lunette-plugins/rules/policy.lua"),
-        ),
-        (
-            "@lunette-plugins/rules/service",
-            include_str!("../../../lua/lunette-plugins/rules/service.lua"),
-        ),
-        (
-            "@mullion/persist",
-            include_str!("../../../lua/mullion/persist/init.lua"),
-        ),
-        (
-            "@mullion/persist/format",
-            include_str!("../../../lua/mullion/persist/format.lua"),
-        ),
-        (
-            "@mullion/pose",
-            include_str!("../../../lua/mullion/pose.lua"),
-        ),
         ("@spec/suite", include_str!("../../../lua/spec/suite.lua")),
         ("@spec/expect", include_str!("../../../lua/spec/expect.lua")),
         (

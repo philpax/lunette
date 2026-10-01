@@ -1,5 +1,11 @@
 -- Persistent arrangement state outlives provider activations, while each provider
--- binding owns only the source and callback registered for that activation.
+-- binding owns only the source and listeners registered for that activation.
+--
+-- A binding saves when a grab drops a panel; the configuration saves again at
+-- quit. Its rules source and its arrival listener read the arrangement last
+-- loaded or saved. A window holds its saved slot from its panel's creation
+-- until the window dies, and a monitor panel that appears after the binding is
+-- restored as it appears.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -7,7 +13,8 @@ local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local format = require '@mullion/persist/format'
-local pose = require '@mullion/pose'
+local slots = require '@mullion/persist/slots'
+local arrangements = require '@mullion/persist/arrangement'
 
 local persist = {}
 
@@ -23,6 +30,7 @@ export type Dependencies = {
   read filesystem: Filesystem?,
   read report: ((string) -> ())?,
 }
+export type Slots = slots.Slots
 export type SaveOptions = { read force: boolean? }
 export type Binding = {
   read active: (Binding) -> boolean,
@@ -50,6 +58,7 @@ type BindingState = {
   tags: tagsContract.Service?,
   sourceEffect: plugin.Effect?,
   droppedEffect: plugin.Effect?,
+  addedEffect: plugin.Effect?,
   ownerEffect: plugin.Effect?,
 }
 
@@ -97,158 +106,19 @@ function persist.path(filesystem: Filesystem?): string
   return selected.getSaveDirectory() .. '/' .. FILE
 end
 
-local function sourceKey(target: panelsContract.Panel): string?
-  local key: string?
-  if target.kind == 'window' then
-    local source = target.source
-    if source.dead then
-      return nil
-    end
-    key = source.appId
-  else
-    local source = target.source
-    if source.dead then
-      return nil
-    end
-    local monitorId = source.id
-    if type(monitorId) == 'string' then
-      key = monitorId
-    end
-  end
-  if type(key) ~= 'string' or key == '' then
-    return nil
-  end
-  return key
-end
-
-local function slotKey(kind: string, key: string, slot: number): string
-  return kind .. '\0' .. key .. '\0' .. slot
-end
-
-local function slotsFor(file: format.File): { [string]: Entry }
-  local available: { [string]: Entry } = {}
-  for _, entry in ipairs(format.entries(file)) do
-    available[slotKey(entry.kind, entry.key, entry.slot)] = entry
-  end
-  return available
-end
-
-function persist.source(file: format.File): (lunette.Window) -> rulesContract.Properties?
-  local available = slotsFor(file)
-  local assigned: { [number]: Entry } = {}
-  local counts: { [string]: number } = {}
-
+-- A rules source over one file. Resolving is a pure query: a window answers
+-- the slot it holds in held, or the lowest slot no live window holds, and
+-- resolving never takes a slot. A window takes its slot when it is held. With
+-- no slots given, no window holds one.
+function persist.source(file: format.File, held: slots.Slots?): (lunette.Window) -> rulesContract.Properties?
+  local available = arrangements.slotsFor(file)
+  local holding = held or slots.new()
   return function(window: lunette.Window): rulesContract.Properties?
-    local appId = window.appId
-    if type(appId) ~= 'string' or appId == '' then
-      return nil
-    end
-
-    local identity = window.id
-    local existing = assigned[identity]
-    if existing then
-      return { pose = existing.pose, width = existing.width, height = existing.height, tags = existing.tags }
-    end
-
-    local slot = (counts[appId] or 0) + 1
-    counts[appId] = slot
-    local entry = available[slotKey('window', appId, slot)]
-    if not entry then
-      return nil
-    end
-    assigned[identity] = entry
-    return { pose = entry.pose, width = entry.width, height = entry.height, tags = entry.tags }
+    return arrangements.answer(available, holding, window)
   end
 end
 
-local function capture(report: (string) -> (), panels: panelsContract.Service, tags: tagsContract.Service): format.File
-  local entries: { Entry } = {}
-  local counts: { [string]: number } = {}
-  for _, target in ipairs(panels:all()) do
-    if not target.dead then
-      local key = sourceKey(target)
-      if key then
-        local counted = target.kind .. '\0' .. key
-        local slot = (counts[counted] or 0) + 1
-        counts[counted] = slot
-        local names: { string } = {}
-        for _, existing in ipairs(tags:all()) do
-          if existing:has(target) then
-            names[#names + 1] = existing.name
-          end
-        end
-        entries[#entries + 1] = {
-          kind = target.kind,
-          key = key,
-          slot = slot,
-          pose = pose.encode(target.pose),
-          width = target.width,
-          height = target.height,
-          tags = names,
-        }
-      else
-        report('a ' .. target.kind .. ' panel has no identity, so it is not saved')
-      end
-    end
-  end
-  return format.newFile(entries)
-end
-
-local function restore(
-  report: (string) -> (),
-  context: plugin.Context,
-  panels: panelsContract.Service,
-  tags: tagsContract.Service,
-  file: format.File
-): ({ panelsContract.Panel }, { Entry })
-  local available = slotsFor(file)
-  local restored: { panelsContract.Panel } = {}
-  local matched: { [Entry]: boolean } = {}
-  local counts: { [string]: number } = {}
-
-  for _, target in ipairs(panels:all()) do
-    if not target.dead then
-      local key = sourceKey(target)
-      if key then
-        local counted = target.kind .. '\0' .. key
-        local slot = (counts[counted] or 0) + 1
-        counts[counted] = slot
-        local entry = available[slotKey(target.kind, key, slot)]
-        if entry then
-          local placed = pose.decode(entry.pose)
-          if placed then
-            target:setPose(placed)
-            if entry.width or entry.height then
-              target:setSize(entry.width, entry.height)
-            end
-            for _, name in ipairs(entry.tags) do
-              local found = tags:find(name)
-              if found then
-                found:add(target)
-              else
-                local created = tags:new(context, name)
-                created:add(target)
-              end
-            end
-            restored[#restored + 1] = target
-            matched[entry] = true
-          else
-            report("the pose saved for '" .. entry.key .. "' is not sixteen numbers")
-          end
-        end
-      end
-    end
-  end
-
-  local stale: { Entry } = {}
-  for _, entry in ipairs(format.entries(file)) do
-    if not matched[entry] then
-      stale[#stale + 1] = entry
-      report('nothing matched the saved ' .. entry.kind .. " '" .. entry.key .. "'")
-    end
-  end
-  return restored, stale
-end
+persist.slots = slots.new
 
 local function bindingLive(binding: BindingState): boolean
   local context = binding.context
@@ -273,6 +143,8 @@ local function deactivate(binding: BindingState): ()
     return
   end
   binding.active = false
+  local addedFailure = disposeEffect(binding.addedEffect)
+  binding.addedEffect = nil
   local droppedFailure = disposeEffect(binding.droppedEffect)
   binding.droppedEffect = nil
   local sourceFailure = disposeEffect(binding.sourceEffect)
@@ -281,6 +153,9 @@ local function deactivate(binding: BindingState): ()
   binding.panels = nil
   binding.tags = nil
   binding.ownerEffect = nil
+  if addedFailure then
+    error(addedFailure)
+  end
   if droppedFailure then
     error(droppedFailure)
   end
@@ -302,6 +177,9 @@ function persist.new(dependencies: Dependencies?): State
 
   local arrangement: format.File = format.newFile {}
   local declined: string? = nil
+  -- Held across bindings, so a provider outage does not move a live window to
+  -- another window's slot.
+  local held = slots.new()
   if loaded.kind == 'arrangement' then
     arrangement = loaded.file
   elseif loaded.kind == 'broken' then
@@ -331,7 +209,7 @@ function persist.new(dependencies: Dependencies?): State
       return declined
     end,
     capture = function(_self: State, panels: panelsContract.Service, tags: tagsContract.Service): format.File
-      return capture(report, panels, tags)
+      return arrangements.capture(report, held, panels, tags)
     end,
     bind = function(
       _self: State,
@@ -351,9 +229,21 @@ function persist.new(dependencies: Dependencies?): State
         tags = tags,
         sourceEffect = nil,
         droppedEffect = nil,
+        addedEffect = nil,
         ownerEffect = nil,
       }
-      local resolve = persist.source(arrangement)
+      -- The source and the arrival listener read the arrangement when they
+      -- run, so a save made through this binding reaches the windows and
+      -- monitors that appear after it.
+      local cachedFile: format.File? = nil
+      local cachedSlots: { [string]: Entry } = {}
+      local function available(): { [string]: Entry }
+        if cachedFile ~= arrangement then
+          cachedFile = arrangement
+          cachedSlots = arrangements.slotsFor(arrangement)
+        end
+        return cachedSlots
+      end
       local function save(options: SaveOptions?): (boolean, string?)
         if not bindingLive(binding) then
           return false, 'mullion.persist: the provider binding is no longer active'
@@ -366,7 +256,7 @@ function persist.new(dependencies: Dependencies?): State
         if not currentPanels or not currentTags then
           return false, 'mullion.persist: the provider binding is no longer active'
         end
-        local file = capture(report, currentPanels, currentTags)
+        local file = arrangements.capture(report, held, currentPanels, currentTags)
         if not bindingLive(binding) then
           return false, 'mullion.persist: the provider binding is no longer active'
         end
@@ -396,7 +286,7 @@ function persist.new(dependencies: Dependencies?): State
           if not bindingLive(binding) then
             return nil
           end
-          return resolve(window)
+          return arrangements.answer(available(), held, window)
         end
         binding.sourceEffect = rules:addSource(context, SOURCE, PRECEDENCE, source)
         binding.droppedEffect = panels:onDropped(context, nil, function()
@@ -407,7 +297,12 @@ function persist.new(dependencies: Dependencies?): State
             end
           end
         end)
-        restore(report, context, panels, tags, arrangement)
+        arrangements.restore(report, held, context, panels, tags, arrangement)
+        binding.addedEffect = panels:onAdded(context, function(target: panelsContract.Panel)
+          if bindingLive(binding) then
+            arrangements.arrived(report, held, context, panels, tags, arrangement, target)
+          end
+        end)
         binding.ownerEffect = context:effect(function(): () -> ()
           return function(): ()
             deactivate(binding)
@@ -416,6 +311,7 @@ function persist.new(dependencies: Dependencies?): State
       end)
       if not ok then
         binding.active = false
+        disposeEffect(binding.addedEffect)
         disposeEffect(binding.droppedEffect)
         disposeEffect(binding.sourceEffect)
         binding.context = nil

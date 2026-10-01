@@ -410,6 +410,8 @@ Every user callback runs under `xpcall` with a traceback. An error is logged and
 
 The native side of the callback boundary is `crates/lunette/src/callback_error.rs`. It splits the message from the traceback, logs it, and notifies every `lunette.onError` listener. It does not look up a Lua handler or rate-limit errors. Each listener handles the event independently, so a configuration can omit the error-display provider. A session without a listener still gets native logging, but repeated errors are not rate-limited.
 
+`lunette.reportError(context, message, traceback)` reports an error through the same boundary: it is logged and every `lunette.onError` listener receives it, with `context` leading the message and the traceback optional. A listener that raises does not make it raise. A Lua dispatcher that calls several handlers from one callback protects each handler and reports a handler's error with it, so one handler's defect does not stop the handlers after it. The shipped configuration's callback registry does this for `lovr.update`, `lovr.draw`, `lovr.quit`, `lovr.keypressed`, `lovr.textinput`, and the surface list, so a raising draw handler does not hide the error display that draws after it. The panels provider reports a raising panel listener the same way.
+
 A plugin failure that happens while lifecycle work drains takes the same path. Its context names the phase and the definition, for example `plugin load: <definition> (instance 3)`, and the traceback of a raising callback is kept apart from the message. A plugin instance that is waiting for a provider is logged at information level and is not reported.
 
 The built-in error-display provider subscribes to `lunette.onError`, formats and rate-limits reports, and draws a floating quad through a configuration-owned desktop consumer. It does not use the panels provider because an error report has no textured source. `mullion.error` and `mullion.error.panel` remain optional Lua alternatives; the shipped configuration does not use them.
@@ -546,6 +548,10 @@ The built-in error-display provider draws a quad rather than using `mullion.erro
 Safe mode is triggered by wrapping `lovr.boot`, not by installing a `lovr.errhand`. `lovr.boot` is the function whose failure means the configuration did not load. `lovr.errhand` handles errors that escape callback boundaries and remains part of LÖVR's callback handling. Replacing it with the error-display provider would use the wrong boundary and couple the configuration's error policy to LÖVR's loop recovery.
 
 The wrapper includes `lovr.load` failures because `lovr.boot` ends with `return lovr.run()`, and `lovr.run` calls `lovr.load` before it returns the frame loop. Safe mode replaces a configuration whose setup failed before its callbacks can run. Errors from `lovr.update`, `lovr.draw`, and the `lun*` callbacks occur after the frame loop has been returned and use [the callback boundary](#errors) instead.
+
+### A Lua dispatcher reports through the native boundary
+
+`lunette.reportError` exists so that a dispatcher written in Lua reports a handler's error exactly as a raising callback is reported. Before it, the shipped callback registry ran every handler of a callback inside one call, and a handler that raised stopped the handlers after it every frame, including the error display that would have shown the failure. Reporting from Lua through `lovr.log` alone was rejected because it reaches no `lunette.onError` listener, so the error display and any other listener would not hear it. Raising and relying on the host's boundary was rejected because it is the behaviour being fixed.
 
 ### Plugin failures are reported, not raised from the request
 

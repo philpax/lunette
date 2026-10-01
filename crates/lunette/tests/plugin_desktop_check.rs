@@ -13,6 +13,7 @@ fn shipped_desktop_composition_is_strictly_typed() {
             "desktop/callbacks.lua",
             "desktop/logging.lua",
             "desktop/base.lua",
+            "desktop/pointing.lua",
             "desktop/input.lua",
             "desktop/keyboard.lua",
             "desktop/errors.lua",

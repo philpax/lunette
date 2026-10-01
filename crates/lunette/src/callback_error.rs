@@ -42,11 +42,19 @@ use crate::lua::ErrorEvent;
 /// Never raises. The callback boundary has no reporting path below this one,
 /// so a failure would leave the error unreported.
 pub fn report(lua: &Lua, listeners: &[Function], context: &str, error: &mlua::Error) {
-    let traced = TracedError::of(context, error);
+    report_traced(lua, listeners, &TracedError::of(context, error));
+}
 
+/// Reports an error whose message and traceback are already apart.
+///
+/// `lunette.reportError` reaches the boundary through this, so a Lua
+/// dispatcher that protects each of its handlers reports a handler's error the
+/// way a raising callback is reported. Never raises, for the reason
+/// [`report`] does not.
+pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
     error!("lua: {}\n{}", traced.message, traced.traceback);
 
-    if let Err(failure) = offer_to_listeners(lua, listeners, &traced) {
+    if let Err(failure) = offer_to_listeners(lua, listeners, traced) {
         error!("lua: a lunette.onError listener raised while being told about it: {failure}");
     }
 }

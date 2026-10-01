@@ -42,18 +42,18 @@ return function(fixture, payload, mode, extraFailure)
   local unrelatedPanel = services.panels:fromWindow(observer, unrelatedSource)
   local unrelatedClaim = claims[#claims]
   local unrelatedTag = services.tags:new(observer, 'unrelated-cleanup-tag')
-  unrelatedTag:add(unrelatedPanel)
+  unrelatedTag:add(observer, unrelatedPanel)
   local ordinary = services.tags:new(observer, 'ordinary-cleanup-tag')
   local throwing = services.tags:new(observer, 'throwing-cleanup-tag')
   local ordinaryRemove = ordinary.remove
-  ordinary.remove = function(self, panel)
+  ordinary.remove = function(self, owner, panel)
     record 'ordinary.remove'
-    return ordinaryRemove(self, panel)
+    return ordinaryRemove(self, owner, panel)
   end
   local throwingRemove = throwing.remove
-  throwing.remove = function(self, panel)
+  throwing.remove = function(self, owner, panel)
     record 'throwing.remove'
-    throwingRemove(self, panel)
+    throwingRemove(self, owner, panel)
     error 'fixture: membership remove failure'
   end
   local source = window(1202)
@@ -92,10 +92,11 @@ return function(fixture, payload, mode, extraFailure)
   )
   caller:enable()
   local panel
+  local placement
   local started
   local settings = { tags = { 'first-cleanup-implicit', 'second-cleanup-implicit', ordinary, throwing } }
   if mode == 'direct' then
-    panel = services.rules:place(callerOwner, source, settings)
+    panel, _, placement = services.rules:place(callerOwner, source, settings)
   else
     started = services.adoption:start(callerOwner, {
       defaults = settings,
@@ -113,9 +114,9 @@ return function(fixture, payload, mode, extraFailure)
   for _, name in ipairs { 'first-cleanup-implicit', 'second-cleanup-implicit' } do
     local tag = assert(services.tags:find(name))
     local remove = tag.remove
-    tag.remove = function(self, target)
+    tag.remove = function(self, owner, target)
       record(name .. '.remove')
-      return remove(self, target)
+      return remove(self, owner, target)
     end
     local destroy = tag.destroy
     tag.destroy = function(self)
@@ -129,15 +130,15 @@ return function(fixture, payload, mode, extraFailure)
   end
   local destroy = panel.destroy
   local testingCleanup = true
-  panel.destroy = function(self)
-    if testingCleanup and self.dead then
-      record 'panel.cleanupDestroy'
+  panel.destroy = function(self, owner)
+    if testingCleanup then
+      record 'panel.destroy'
     end
-    return destroy(self)
+    return destroy(self, owner)
   end
   local ok, failure = pcall(function()
     if mode == 'direct' then
-      panel:destroy()
+      placement:dispose()
     else
       started:dispose()
     end
@@ -153,9 +154,11 @@ return function(fixture, payload, mode, extraFailure)
   assert(calls['throwing.remove'] == 1)
   assert(calls['ordinary.remove'] == 1, 'one throwing removal must not skip another membership')
   assert(calls['second-cleanup-implicit.remove'] == 1 and calls['first-cleanup-implicit.remove'] == 1)
-  assert(calls['panel.cleanupDestroy'] == 1 and calls['claim.release'] == 1)
+  assert(calls['panel.destroy'] == 1 and calls['claim.release'] == 1)
   assert(calls['second-cleanup-implicit.destroy'] == 1 and calls['first-cleanup-implicit.destroy'] == 1)
-  assert(order[1] == 'claim.release' and order[2] == 'throwing.remove')
+  -- Memberships are removed, most recent first, before the panel is destroyed.
+  assert(order[1] == 'throwing.remove' and order[2] == 'ordinary.remove')
+  assert(table.find(order, 'claim.release') > table.find(order, 'first-cleanup-implicit.remove'))
   assert(panel.dead and claim.dead and not services.panels:forSource(source))
   assert(not services.tags:find 'first-cleanup-implicit' and not services.tags:find 'second-cleanup-implicit')
   assert(not ordinary.dead and not throwing.dead and #ordinary.members == 0 and #throwing.members == 0)
@@ -192,7 +195,7 @@ return function(fixture, payload, mode, extraFailure)
         'second-cleanup-implicit.remove',
         'first-cleanup-implicit.destroy',
         'second-cleanup-implicit.destroy',
-        'panel.cleanupDestroy',
+        'panel.destroy',
         'claim.release',
       } do
         assert(calls[name] == 1, name .. ' must be attempted exactly once')

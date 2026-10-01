@@ -545,6 +545,11 @@ export type Lunette = {
   -- stops it. The standard library's error module subscribes to draw a panel;
   -- without a subscription, the error reaches the log and nothing else.
   read onError: (handler: (event: ErrorEvent) -> ()) -> () -> (),
+  -- Reports an error as a raising callback is reported: it is logged and every
+  -- `lunette.onError` listener is notified. `context` leads the message. A
+  -- dispatcher that protects each of several handlers reports one handler's
+  -- error with it and continues with the next.
+  read reportError: (context: string, message: string, traceback: string?) -> (),
   -- Every modifier name a seat accepts, in the order a keymap numbers them.
   -- `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
   read modifierNames: () -> { string },

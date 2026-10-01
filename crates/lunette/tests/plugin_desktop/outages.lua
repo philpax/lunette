@@ -32,6 +32,7 @@ local function use(name)
   return instance
 end
 local base = use 'base'
+use 'pointing'
 use 'input'
 use 'keyboard'
 use 'errors'
@@ -144,11 +145,11 @@ events.monitors[monitor.id] = monitor
 emit('onMonitorAdded', { id = monitor.id, monitor = monitor })
 assert(service:forSource(monitor), 'reconnected output gets a new owned panel')
 providers.display:disable()
-events.logs = {}
+events.reported = {}
 events.writeMode = 'refuse'
 assert(lovr.quit() == false)
 assert(
-  #events.logs == 1 and events.logs[1][1]:find('arrangement was not saved', 1, true),
-  'native log survives display outage'
+  #events.reported == 1 and events.reported[1].message:find('arrangement was not saved', 1, true),
+  'the native report survives a display outage'
 )
 assertResourcesReleased()

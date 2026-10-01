@@ -7,7 +7,6 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/error-display'
-local panels = require '@lunette-contracts/panels'
 local format = require '@lunette-plugins/error-display/format'
 local limiterModule = require '@lunette-plugins/error-display/limiter'
 local panel = require '@lunette-plugins/error-display/panel'
@@ -34,7 +33,11 @@ local WIDTH = 1.1
 local TEXT_HEIGHT = 0.045
 local COLUMNS = 64
 local LINES = 6
-local BACKGROUND: { number } = { 0.15, 0.03, 0.03, 0.85 }
+-- Each activation receives its own frozen colour, so no consumer can recolour
+-- another's display.
+local function background(): { number }
+  return table.freeze { 0.15, 0.03, 0.03, 0.85 }
+end
 
 local function clock(): number
   if lovr and lovr.timer and lovr.timer.getTime then
@@ -48,6 +51,7 @@ local function reportText(message: string, traceback: string, suppressed: number
 end
 
 local function makeState(context: Context, config: Config): (State, Service)
+  local BACKGROUND = background()
   local current: State = {
     context = context,
     clock = clock,
@@ -121,7 +125,7 @@ local function makeState(context: Context, config: Config): (State, Service)
 end
 
 local provided: plugin.Declaration = { errorDisplay = contracts.capability }
-local required: plugin.Declaration = { panels = panels.capability }
+local required: plugin.Declaration = {}
 
 -- The published service is revoked with this activation, so its methods need
 -- no liveness guard. The subscription is an effect of the activation, and it

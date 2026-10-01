@@ -31,7 +31,7 @@ return {
       panel:update()
       assert(panel.dead)
     else
-      assert(panel:destroy())
+      assert(panel:destroy(owner))
     end
     assert(not panel:destroy())
     assert(#service:all() == 0)

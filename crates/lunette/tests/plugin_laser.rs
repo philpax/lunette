@@ -10,6 +10,7 @@ extern crate lunette_lovr;
 use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, Value};
 
+mod plugin_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
@@ -157,119 +158,7 @@ end"#,
         "@lunette",
         lua.create_function(move |_, _: String| Ok(native.clone()))?,
     )?;
-    preload.set(
-        "@lunette-plugin",
-        lua.load(include_str!("../../../lua/lunette-plugin/init.lua"))
-            .set_name("@lunette-plugin/init.lua")
-            .into_function()?,
-    )?;
-    preload.set(
-        "@lunette-plugin/adapter",
-        lua.load(include_str!("../../../lua/lunette-plugin/adapter.lua"))
-            .set_name("@lunette-plugin/adapter.lua")
-            .into_function()?,
-    )?;
-
-    for (name, source, path) in [
-        (
-            "laser",
-            include_str!("../../../lua/lunette-contracts/laser.lua"),
-            "lua/lunette-contracts/laser.lua",
-        ),
-        (
-            "interaction",
-            include_str!("../../../lua/lunette-contracts/interaction.lua"),
-            "lua/lunette-contracts/interaction.lua",
-        ),
-        (
-            "owner",
-            include_str!("../../../lua/lunette-contracts/owner.lua"),
-            "lua/lunette-contracts/owner.lua",
-        ),
-        (
-            "panels",
-            include_str!("../../../lua/lunette-contracts/panels.lua"),
-            "lua/lunette-contracts/panels.lua",
-        ),
-        (
-            "surface",
-            include_str!("../../../lua/lunette-contracts/surface.lua"),
-            "lua/lunette-contracts/surface.lua",
-        ),
-        (
-            "vocabulary",
-            include_str!("../../../lua/lunette-contracts/vocabulary.lua"),
-            "lua/lunette-contracts/vocabulary.lua",
-        ),
-    ] {
-        preload.set(
-            format!("@lunette-contracts/{name}"),
-            lua.load(source).set_name(path).into_function()?,
-        )?;
-    }
-
-    for (name, source, path) in [
-        (
-            "panels",
-            include_str!("../../../lua/lunette-plugins/panels/init.lua"),
-            "lua/lunette-plugins/panels/init.lua",
-        ),
-        (
-            "panels/events",
-            include_str!("../../../lua/lunette-plugins/panels/events.lua"),
-            "lua/lunette-plugins/panels/events.lua",
-        ),
-        (
-            "panels/layer",
-            include_str!("../../../lua/lunette-plugins/panels/layer.lua"),
-            "lua/lunette-plugins/panels/layer.lua",
-        ),
-        (
-            "panels/raycast",
-            include_str!("../../../lua/lunette-plugins/panels/raycast.lua"),
-            "lua/lunette-plugins/panels/raycast.lua",
-        ),
-        (
-            "interaction",
-            include_str!("../../../lua/lunette-plugins/interaction/init.lua"),
-            "lua/lunette-plugins/interaction/init.lua",
-        ),
-        (
-            "interaction/grab",
-            include_str!("../../../lua/lunette-plugins/interaction/grab.lua"),
-            "lua/lunette-plugins/interaction/grab.lua",
-        ),
-        (
-            "interaction/pose",
-            include_str!("../../../lua/lunette-plugins/interaction/pose.lua"),
-            "lua/lunette-plugins/interaction/pose.lua",
-        ),
-        (
-            "laser",
-            include_str!("../../../lua/lunette-plugins/laser/init.lua"),
-            "lua/lunette-plugins/laser/init.lua",
-        ),
-        (
-            "laser/input",
-            include_str!("../../../lua/lunette-plugins/laser/input.lua"),
-            "lua/lunette-plugins/laser/input.lua",
-        ),
-        (
-            "laser/draw",
-            include_str!("../../../lua/lunette-plugins/laser/draw.lua"),
-            "lua/lunette-plugins/laser/draw.lua",
-        ),
-        (
-            "laser/registry",
-            include_str!("../../../lua/lunette-plugins/laser/registry.lua"),
-            "lua/lunette-plugins/laser/registry.lua",
-        ),
-    ] {
-        preload.set(
-            format!("@lunette-plugins/{name}"),
-            lua.load(source).set_name(path).into_function()?,
-        )?;
-    }
+    plugin_sources::register(&lua, &preload)?;
 
     Ok(lua)
 }

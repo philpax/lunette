@@ -94,8 +94,41 @@ end))
 invalid:dispose()
 local tag = services.tags:new(owner, 'primary', { selected = true })
 assert(tag.selected)
-assert(tag:setSelected(false) and not tag.selected)
-assert(tag:setSelected(true))
+assert(tag:setSelected(owner, false) and not tag.selected)
+assert(tag:setSelected(owner, true))
+
+-- Another owner's selection and membership changes are its own, and they end
+-- with it: the most recent live override decides the selection.
+local borrower, borrowerTags
+local borrowing = runtime:use(
+  plugin.define(function(value)
+    return value
+  end, { tags = tags.capability }, {}, function(context)
+    borrower, borrowerTags = context, context:require(tags.capability)
+  end),
+  {}
+)
+borrowing:enable()
+local borrowed = { dead = false }
+assert(tag:setSelected(borrower, false) and not tag.selected)
+assert(tag:add(borrower, borrowed) and tag:has(borrowed))
+borrowerTags:only(borrower, tag)
+assert(tag.selected, 'only selects the chosen tag for its owner')
+assert(tag:setSelected(borrower, false) and not tag.selected)
+borrowing:disable()
+assert(tag.selected, "an unloading owner's selection override is reverted")
+assert(not tag:has(borrowed), "an unloading owner's membership is removed")
+assert(tag:add(owner, borrowed) and not tag:add(owner, borrowed))
+borrowing:enable()
+assert(tag:add(borrower, borrowed))
+local ownerOnly = { dead = false }
+assert(tag:add(owner, ownerOnly))
+assert(not pcall(function()
+  tag:remove(borrower, ownerOnly)
+end), 'an owner cannot remove a membership it does not hold')
+assert(tag:remove(owner, borrowed) and not tag:has(borrowed), "the tag's owner removes every hold")
+assert(tag:remove(owner, ownerOnly))
+borrowing:disable()
 local weakTags = setmetatable({}, { __mode = 'v' })
 for index = 1, 12 do
   do
@@ -120,11 +153,17 @@ end
 for cycle = 1, 12 do
   do
     local first = sourceWithPayload(cycle)
+    assert(not pcall(function()
+      services.rules:addSource(owner, 'same', 100, function()
+        return nil
+      end)
+    end), 'a duplicate source name raises')
+    assert(#services.rules:sources() == 1, 'a duplicate does not replace the registration')
+    first:dispose()
+    first:dispose()
     local replacement = services.rules:addSource(owner, 'same', 100, function()
       return { width = cycle, tags = { 'primary', 'implicit' } }
     end)
-    first:dispose()
-    first:dispose()
     collectgarbage()
     collectgarbage()
     assert(oldPayloads[cycle] == nil, 'replaced source payload retained by active owner')
@@ -136,19 +175,22 @@ for cycle = 1, 12 do
   end
 end
 local first = sourceWithPayload(13)
+first:dispose()
 local second = services.rules:addSource(owner, 'same', 100, function()
   return { width = 3, tags = { 'primary', 'implicit' } }
 end)
-first:dispose()
 collectgarbage()
 collectgarbage()
 assert(oldPayloads[13] == nil, 'replaced source payload retained by active owner')
 local registered = services.rules:sources()[1]
 assert(registered.name == 'same' and registered.precedence == 100)
 assert(#services.rules:sources() == 1)
-local panel, resolved = services.rules:place(owner, window, { height = 1, chrome = false })
+local panel, resolved, placement = services.rules:place(owner, window, { height = 1, chrome = false })
 assert(resolved.width == 3 and panel.width == 3 and panel.height == 1)
-assert(tag:has(panel) and not tag:add(panel))
+assert(tag:has(panel), 'the placement holds the membership')
+assert(not pcall(function()
+  panel:destroy(owner)
+end), 'a placed panel belongs to the rules provider')
 assert(#services.tags:panelsOf { tag, services.tags:find 'implicit' } == 1)
 services.arc:apply(tag)
 assert(panel.pose.x == 0 and panel.pose.y == 1.5 and panel.pose.z == -1.6)
@@ -187,10 +229,18 @@ lovr.log = nil
 assert(#services.panels:all() == before, 'rollback panel count: ' .. #services.panels:all() .. ' expected ' .. before)
 assert(not services.tags:find 'rollback')
 assert(claims[#claims].dead)
-assert(panel:destroy() and not panel:destroy())
-assert(not services.tags:find 'implicit', 'destroying a rules panel must release its implicit tag')
+-- A panel removed by its source dying ends the placement it belongs to.
+window.dead = true
+services.panels:update()
+assert(panel.dead)
+assert(not services.tags:find 'implicit', 'removing a rules panel must release its implicit tag')
 assert(services.tags:find 'primary' == tag and not tag.dead)
-assert(#tag.members == 0, 'destroying a rules panel must remove its membership immediately')
+assert(#tag.members == 0, 'removing a rules panel must remove its membership immediately')
+placement:dispose()
+window.dead = false
+local again, _, replaced = services.rules:place(owner, window, { height = 1, chrome = false })
+replaced:dispose()
+assert(again.dead and #tag.members == 0, 'disposing a placement removes its panel')
 consumer:disable()
 assert(panel.dead and tag.dead and claims[1].dead)
 assert(#services.panels:all() == 0 and #services.tags:all() == 0)

@@ -56,6 +56,10 @@ local COVERAGE = {
   -- Split along the module's own seam: one half is arrangements and panels, the
   -- other is the file on disk.
   ['persist/init.lua'] = { 'persist/arrangement_spec.lua', 'persist/file_spec.lua' },
+  -- Capture and restore, exercised through a state's capture and bind.
+  ['persist/arrangement.lua'] = 'persist/arrangement_spec.lua',
+  -- Slot holds, exercised through the source a spec builds over them.
+  ['persist/slots.lua'] = 'persist/arrangement_spec.lua',
   ['pose.lua'] = 'pose_spec.lua',
   ['rules.lua'] = 'rules_spec.lua',
   ['scale.lua'] = 'scale_spec.lua',

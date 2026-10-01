@@ -2,11 +2,18 @@
 --
 -- This module has no state and issues no capability. Keeping both sides of the
 -- recursive relationship here lets surface.lua and interaction.lua remain
--- independently requireable without a runtime cycle.
+-- independently requireable without a runtime cycle. Constants that several
+-- providers agree on also live here, so agreeing on one does not make a
+-- provider require another's contract.
 
 local lunette = require '@lunette'
 
 local vocabulary = {}
+
+-- The per-window property a window's kept pose is stored under. The
+-- interaction provider writes it on a drop and the adoption provider reads it
+-- as a placement source.
+vocabulary.POSE_PROPERTY = 'mullion.pose'
 
 export type Tuning = {
   read reach: number,

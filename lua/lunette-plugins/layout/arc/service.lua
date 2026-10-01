@@ -47,11 +47,12 @@ end
 
 local function init(context: plugin.Context): Service
   local tags: tagsContract.Service = context:require(tagsContract.capability)
-  local tuning: contracts.Tuning = {
+  -- Frozen, so no consumer can retune the layout another consumer applies.
+  local tuning: contracts.Tuning = table.freeze {
     radius = 1.6,
     step = 0.55,
     span = math.pi * 1.2,
-    center = { 0, 1.5, 0 },
+    center = table.freeze { 0, 1.5, 0 },
   }
   local service: Service
   local implementation = {

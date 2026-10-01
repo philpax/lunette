@@ -1,7 +1,7 @@
 -- LÖVR callbacks dispatched only to active configuration scopes.
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local surface = require '@lunette-contracts/surface'
-local logging = require '../desktop/logging'
 
 local callbacks = {}
 
@@ -56,26 +56,42 @@ function callbacks.onSurfaces(context: plugin.Context, callback: () -> { surface
   register(context, slots.surfaces, callback, nil)
 end
 
-function callbacks.surfaces(): { surface.Surface }
-  local result: { surface.Surface } = {}
-  local function add(value: surface.Surface): ()
-    result[#result + 1] = value
+-- Every handler of a callback runs under its own protected call. A handler's
+-- error is reported through lunette.reportError, the path a raising callback
+-- takes, and the handlers after it still run: one consumer's defect must not
+-- hide another's frame, including the error display that would show it.
+local function protected(callback: string, run: () -> ()): boolean
+  local message: string? = nil
+  local traceback = ''
+  xpcall(run, function(raised: unknown)
+    message = tostring(raised)
+    traceback = debug.traceback('', 2)
+  end)
+  if message then
+    lunette.reportError('lovr.' .. callback, message, traceback)
+    return false
   end
-  for _, handler in ipairs(table.clone(slots.surfaces)) do
-    if handler.context:active() then
-      for _, candidate in ipairs(handler.callback()) do
-        add(candidate)
-      end
-    end
-  end
-  return result
+  return true
 end
 
-local function protected(callback: () -> ()): ()
-  local ok, failure = pcall(callback)
-  if not ok then
-    logging.report('quit callback failed: ' .. tostring(failure), 'error')
+local function dispatch<T>(callback: string, list: { Handler<T> }, call: (T) -> ()): ()
+  for _, handler in ipairs(table.clone(list)) do
+    if handler.context:active() then
+      protected(callback, function()
+        call(handler.callback)
+      end)
+    end
   end
+end
+
+function callbacks.surfaces(): { surface.Surface }
+  local result: { surface.Surface } = {}
+  dispatch('surfaces', slots.surfaces, function(offer: () -> { surface.Surface })
+    for _, candidate in ipairs(offer()) do
+      result[#result + 1] = candidate
+    end
+  end)
+  return result
 end
 
 function callbacks.install(start: () -> (), stop: () -> ()): ()
@@ -84,46 +100,37 @@ function callbacks.install(start: () -> (), stop: () -> ()): ()
   end
 
   function lovr.update(dt: number)
-    for _, handler in ipairs(table.clone(slots.update)) do
-      if handler.context:active() then
-        handler.callback(dt)
-      end
-    end
+    dispatch('update', slots.update, function(handler: (number) -> ())
+      handler(dt)
+    end)
   end
 
   function lovr.draw(pass: Pass): boolean
-    for _, handler in ipairs(table.clone(slots.draw)) do
-      if handler.context:active() then
-        handler.callback(pass)
-      end
-    end
+    dispatch('draw', slots.draw, function(handler: (Pass) -> ())
+      handler(pass)
+    end)
     return false
   end
 
+  -- Returning false never vetoes the quit, whatever a handler raised.
   function lovr.quit(): boolean
-    for _, handler in ipairs(table.clone(slots.quit)) do
-      if handler.context:active() then
-        protected(handler.callback)
-      end
-    end
-    protected(stop)
+    dispatch('quit', slots.quit, function(handler: () -> ())
+      handler()
+    end)
+    protected('quit', stop)
     return false
   end
 
   function lovr.keypressed(key: KeyCode, scancode: number, isrepeat: boolean)
-    for _, handler in ipairs(table.clone(slots.keypressed)) do
-      if handler.context:active() then
-        handler.callback(key, scancode, isrepeat)
-      end
-    end
+    dispatch('keypressed', slots.keypressed, function(handler: (KeyCode, number, boolean) -> ())
+      handler(key, scancode, isrepeat)
+    end)
   end
 
   function lovr.textinput(text: string, code: number)
-    for _, handler in ipairs(table.clone(slots.textinput)) do
-      if handler.context:active() then
-        handler.callback(text, code)
-      end
-    end
+    dispatch('textinput', slots.textinput, function(handler: (string, number) -> ())
+      handler(text, code)
+    end)
   end
 end
 

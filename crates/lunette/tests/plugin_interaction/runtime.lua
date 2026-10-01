@@ -105,6 +105,17 @@ function target:sink()
 end
 local first = service:newPointer(owner, { seat = seat })
 local second = service:newPointer(owner)
+-- A surface two pointers hover stays highlighted until both have left.
+local shared = { dead = false }
+function shared:setHighlighted(value)
+  self.highlighted = value
+end
+first:hover(shared)
+second:hover(shared)
+first:hover(nil)
+assert(shared.highlighted, 'another pointer still hovers the surface')
+second:hover(nil)
+assert(not shared.highlighted, 'the last pointer to leave clears the highlight')
 first:hover(target)
 assert(first.hovered == target and target.highlighted)
 first:setButton(true, sink, target)
@@ -127,6 +138,8 @@ assert(first.grabbed == nil)
 second:scaleWith(matrix { x = 2 })
 assert(second.scaling == nil and second.grab ~= nil)
 consumer:disable()
+assert(seat.focus == nil, 'a destroyed pointer withdraws the native focus it gave')
+assert(service:focused() == nil, 'a destroyed pointer is no longer answered as focused')
 assert(first.dead and second.dead and not first.pressed)
 assert(up == 1 and leaves == 1 and #service:pointers() == 0 and not target.highlighted)
 assert(not first:beginGrab(target, matrix()))
@@ -136,6 +149,23 @@ assert(not pcall(function()
   service:newPointer(owner)
 end))
 consumer:enable()
+-- A focus set through the service is held by its owner, and one owner holds
+-- one grant however often it moves it.
+local granted = { dead = false }
+function granted:setFocus(sink)
+  self.focus = sink
+end
+local otherSink = { dead = false }
+local grant = service:setFocus(owner, granted, sink)
+assert(granted.focus == sink and service:focused() == granted)
+assert(service:setFocus(owner, granted, otherSink) == grant)
+assert(granted.focus == otherSink and select(2, service:focused()) == otherSink)
+consumer:disable()
+assert(granted.focus == nil and service:focused() == nil, 'an unloading owner takes its focus back')
+consumer:enable()
+grant = service:setFocus(owner, granted, sink)
+grant:dispose()
+assert(granted.focus == nil and service:focused() == nil, 'disposing the grant takes its focus back')
 local otherOwner
 local survivor = runtime:use(
   plugin.define(function(v)
@@ -158,9 +188,15 @@ local broken = service:newPointer(owner)
 broken:setButton(true, brokenSink)
 assert(not pcall(function()
   broken:destroy()
-end))
+end), 'a direct destroy raises its release failure to its caller')
 assert(failedReleases == 1 and not broken:destroy())
-assert(not pcall(function()
-  service:newPointer(otherOwner)
-end), 'provider must be quarantined')
+assert(service:newPointer(otherOwner), 'the provider still serves after a consumer release failed')
+-- A release that fails while its owner unloads is that owner's failure.
+local leaking = service:newPointer(owner)
+leaking:setButton(true, brokenSink)
+consumer:disable()
+assert(failedReleases == 2 and leaking.dead)
+assert(consumer:state() == 'quarantined', 'the failing owner is quarantined: ' .. consumer:state())
+assert(provider:state() == 'active', 'the provider is not quarantined: ' .. provider:state())
+assert(service:newPointer(otherOwner))
 runtime:close()

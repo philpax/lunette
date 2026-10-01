@@ -1,5 +1,7 @@
 -- The RULES provider. Matching and resolving are pure queries over an activation's
--- ordered source registry; registrations and placement are owner-scoped.
+-- ordered source registry; registrations and placement are owner-scoped. A
+-- placement ends when its owner disposes it or unloads, or when its panel is
+-- removed for any reason, which the panels contract announces.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -8,7 +10,6 @@ local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local pose = require '@mullion/pose'
 local policy = require '@lunette-plugins/rules/policy'
-local panelEvents = require '@lunette-plugins/panels/events'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -20,7 +21,6 @@ export type Tag = contracts.Tag
 type Source = contracts.Source & {
   resolve: (lunette.Window) -> Properties?,
   sequence: number,
-  cleanup: plugin.Effect?,
 }
 
 type ProviderState = {
@@ -41,7 +41,7 @@ type MutableService = {
   setRules: (Service, Owner, { Rule }) -> plugin.Effect,
   matches: (Service, contracts.Match?, lunette.Window) -> boolean,
   resolve: (Service, lunette.Window) -> Resolved,
-  place: (Service, Owner, lunette.Window, Resolved?) -> (panelsContract.WindowPanel, Resolved),
+  place: (Service, Owner, lunette.Window, Resolved?) -> (panelsContract.WindowPanel, Resolved, plugin.Effect),
 }
 
 local function byPrecedence(left: Source, right: Source): boolean
@@ -151,7 +151,7 @@ local function applyTags(
     else
       report(state, 'a tag is named by a string or is a tag, not a ' .. type(named))
     end
-    if found and found:add(created) then
+    if found and found:add(state.context, created) then
       memberships[#memberships + 1] = found
     end
   end
@@ -162,18 +162,21 @@ local function acquirePlacement(
   owner: Owner,
   window: lunette.Window,
   properties: Resolved
-): panelsContract.WindowPanel
+): (panelsContract.WindowPanel, plugin.Effect)
   local panels: panelsContract.Service = state.context:require(panelsContract.capability)
   local created: panelsContract.WindowPanel?
   local made: { Tag } = {}
   local memberships: { Tag } = {}
+  local removal: plugin.Effect? = nil
   local function cleanup()
     local panel = created
     local added = memberships
     local owned = made
+    local listener = removal
     created = nil
     memberships = {}
     made = {}
+    removal = nil
     local failures: { string } = {}
     local function attempt(operation: string, action: () -> ())
       local ok, failure = pcall(action)
@@ -181,17 +184,21 @@ local function acquirePlacement(
         failures[#failures + 1] = operation .. ': ' .. tostring(failure)
       end
     end
+    if listener then
+      attempt('stop removal listener', function()
+        listener:dispose()
+      end)
+    end
     if panel then
-      panelEvents.detachCleanup(panel)
       for index = #added, 1, -1 do
         local tag = added[index]
         added[index] = nil
         attempt('remove membership', function()
-          tag:remove(panel)
+          tag:remove(state.context, panel)
         end)
       end
       attempt('destroy panel', function()
-        panel:destroy()
+        panel:destroy(state.context)
       end)
     end
     for index = #owned, 1, -1 do
@@ -234,11 +241,14 @@ local function acquirePlacement(
   if panel.dead then
     acquired:dispose()
   else
-    panelEvents.attachCleanup(panel, function()
+    -- The listener belongs to this provider and is stopped by the cleanup, so a
+    -- panel removed by its source dying or by the panels provider ends the
+    -- placement it belongs to.
+    removal = panels:onRemoved(state.context, panel, function()
       acquired:dispose()
     end)
   end
-  return panel
+  return panel, acquired
 end
 
 local function init(context: plugin.Context): Service
@@ -276,7 +286,7 @@ local function init(context: plugin.Context): Service
       _owner: Owner,
       _window: lunette.Window,
       _options: Resolved?
-    ): (panelsContract.WindowPanel, Resolved)
+    ): (panelsContract.WindowPanel, Resolved, plugin.Effect)
       error 'rules: service is not initialized'
     end,
   }
@@ -319,25 +329,23 @@ local function init(context: plugin.Context): Service
       error('rules: a source resolver is a function, not a ' .. type(resolve), 2)
     end
 
+    -- A name names one registration. Replacing another owner's source would
+    -- end a resource that owner still holds, so a duplicate raises; an owner
+    -- replaces its own source by disposing it first.
+    for _, previous in ipairs(state.sources) do
+      if previous.name == name then
+        error("rules: a source named '" .. name .. "' is already registered", 2)
+      end
+    end
     local registered: Source?
     local effect = owner:effect(function(): () -> ()
       context:checkOwner(owner)
-      for index = #state.sources, 1, -1 do
-        local previous = state.sources[index]
-        if previous.name == name then
-          table.remove(state.sources, index)
-          if previous.cleanup then
-            previous.cleanup:dispose()
-          end
-        end
-      end
       state.registrations += 1
       local source: Source = {
         name = name,
         precedence = precedence,
         resolve = resolve,
         sequence = state.registrations,
-        cleanup = nil,
       }
       registered = source
       state.sources[#state.sources + 1] = source
@@ -348,9 +356,6 @@ local function init(context: plugin.Context): Service
         end
       end
     end)
-    if registered then
-      registered.cleanup = effect
-    end
     return effect
   end
 
@@ -393,7 +398,7 @@ local function init(context: plugin.Context): Service
     owner: Owner,
     window: lunette.Window,
     options: Resolved?
-  ): (panelsContract.WindowPanel, Resolved)
+  ): (panelsContract.WindowPanel, Resolved, plugin.Effect)
     if window == nil then
       error('rules: a window is placed, and nil is not one', 2)
     end
@@ -406,8 +411,8 @@ local function init(context: plugin.Context): Service
         end
       end
     end
-    local panel = acquirePlacement(state, owner, window, properties)
-    return panel, properties
+    local panel, placement = acquirePlacement(state, owner, window, properties)
+    return panel, properties, placement
   end
 
   return service

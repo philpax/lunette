@@ -3,6 +3,12 @@
 -- Pure picking, scrolling, and pose-store operations stay ordinary methods.
 -- Creating a pointer is owner-scoped because the provider owns its pointer
 -- registry and the native sinks a pointer can drive.
+--
+-- Keyboard focus is held. A pointer that gives a seat's keyboard to a sink
+-- holds that focus until it is destroyed or its owner unloads, and setFocus
+-- holds a focus for its owner until the owner unloads or the returned effect
+-- is disposed. When a holder ends, the seat it focused is withdrawn natively
+-- and focused stops answering it, unless a later holder has taken that seat.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -34,7 +40,7 @@ export type Service = {
   read newPointer: (Service, Owner, PointerOptions?) -> Pointer,
   read pointers: (Service) -> { Pointer },
   read focused: (Service) -> (lunette.Seat?, lunette.Sink?),
-  read setFocus: (Service, lunette.Seat?, lunette.Sink?) -> (),
+  read setFocus: (Service, Owner, lunette.Seat?, lunette.Sink?) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>

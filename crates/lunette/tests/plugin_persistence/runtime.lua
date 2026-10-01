@@ -111,13 +111,16 @@ end)
 assert(rules:resolve(first).width == 3, 'native source at 300 wins')
 nativeEffect:dispose()
 assert(rules:resolve(first).width == 2, 'persisted source at 200 wins over rules at 100')
-assert(rules:resolve(second).width == 4, 'second window consumes the second saved slot')
+assert(rules:resolve(second).width == 2, 'resolving is a query: a window takes no slot until its panel exists')
+local firstPanel = panels:fromWindow(context, first)
+assert(rules:resolve(first).width == 2, 'a window holds its slot once its panel exists')
+assert(rules:resolve(second).width == 4, 'the next window answers the next free slot')
 local sourceList = rules:sources()
 assert(#sourceList == 2)
 assert(sourceList[1].precedence == 100 and sourceList[2].name == persist.SOURCE and sourceList[2].precedence == 200)
 local firstBinding = binding
 local oldPanels, oldTags, oldRules = panels, tags, rules
-local weakServices = setmetatable({ panels, tags, rules }, { __mode = 'v' })
+local weakServices = setmetatable({ panels, rules }, { __mode = 'v' })
 
 -- No save precedes the outage, so rebind must retain the initially loaded file.
 filesystem.text = 'return { version = 99, entries = {} }'
@@ -133,30 +136,35 @@ assert(not pcall(function()
 end), 'old rules service is retired')
 panelsInstance:enable()
 assert(binding ~= firstBinding and binding:active(), 'consumer rebinds automatically')
-assert(panels ~= oldPanels and tags ~= oldTags and rules ~= oldRules)
-assert(rules:resolve(second).width == 2, 'recovered activation starts fresh window slots')
-assert(rules:resolve(first).width == 4, 'old window IDs do not retain old assignments')
+assert(firstPanel.dead, 'the outage removed the panel')
+assert(panels ~= oldPanels and tags == oldTags and rules ~= oldRules, 'tags does not depend on panels')
+assert(rules:resolve(first).width == 2, 'a live window keeps its slot across a provider outage')
+assert(rules:resolve(second).width == 4, 'and another window does not take it')
+-- A window that closes frees its slot, and a window that opens takes it.
+first.dead = true
+local reopened = window(23)
+assert(rules:resolve(reopened).width == 2, 'a reopened window answers the slot the closed one left')
+panels:fromWindow(context, reopened):destroy(context)
+assert(rules:resolve(second).width == 4, 'the reopened window holds that slot')
+second.dead = true
+reopened.dead = true
 assert(filesystem.reads == 1 and state:declined() == nil, 'activation never reloads the file')
 oldPanels, oldTags, oldRules = nil, nil, nil
 collectgarbage 'collect'
 collectgarbage 'collect'
-assert(
-  weakServices[1] == nil and weakServices[2] == nil and weakServices[3] == nil,
-  'state and old binding release services'
-)
+assert(weakServices[1] == nil and weakServices[2] == nil, 'state and old binding release services')
 
 local target = panels:fromWindow(context, window(19), { width = 1.5 })
-tags:new(context, 'saved'):add(target)
+tags:new(context, 'saved'):add(context, target)
 panels:emitDropped(context, target, {})
 assert(filesystem.writes == 1, 'an active drop saves live panels')
 local captured = state:arrangement()
 assert(persist.entries(captured)[1].width == 1.5)
 assert(persist.entries(captured)[1].tags[1] == 'saved')
 local afterSave = window(22)
-assert(rules:resolve(afterSave).width == 1, 'a new window does not claim a saved slot until the next activation')
-assert(rules:resolve(afterSave).width == 1, 'repeated lookups do not change the new window assignment')
-assert(rules:resolve(second).width == 2, 'saving preserves an existing window assignment')
-assert(rules:resolve(second).width == 2, 'repeated lookups keep the existing assignment')
+assert(rules:resolve(target.source).width == 1.5, 'the source reads the arrangement the save wrote')
+assert(rules:resolve(afterSave).width == 1, 'the saved window holds the only saved slot')
+assert(rules:resolve(afterSave).width == 1, 'repeated lookups do not change the answer')
 local observerContext
 local observer = runtime:use(
   plugin.define(function(value)
@@ -180,6 +188,7 @@ beforeCleanup = nil
 observer:disable()
 owner:enable()
 assert(state:arrangement() == captured and filesystem.reads == 1)
+target.source.dead = true
 assert(rules:resolve(window(20)).width == 1.5, 'successful save becomes the next activation arrangement')
 local liveBinding = binding
 binding:dispose()

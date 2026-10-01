@@ -11,6 +11,7 @@ use std::{cell::Cell, rc::Rc};
 use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, UserData, Value};
 
+mod plugin_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
@@ -59,110 +60,7 @@ fn state() -> mlua::Result<Lua> {
         lua.create_function(move |_, _: String| Ok(native.clone()))?,
     )?;
 
-    for (name, source) in [
-        (
-            "@lunette-plugin",
-            include_str!("../../../lua/lunette-plugin/init.lua"),
-        ),
-        (
-            "@lunette-plugin/adapter",
-            include_str!("../../../lua/lunette-plugin/adapter.lua"),
-        ),
-        (
-            "@lunette-contracts/adoption",
-            include_str!("../../../lua/lunette-contracts/adoption.lua"),
-        ),
-        (
-            "@lunette-contracts/interaction",
-            include_str!("../../../lua/lunette-contracts/interaction.lua"),
-        ),
-        (
-            "@lunette-contracts/owner",
-            include_str!("../../../lua/lunette-contracts/owner.lua"),
-        ),
-        (
-            "@lunette-contracts/panels",
-            include_str!("../../../lua/lunette-contracts/panels.lua"),
-        ),
-        (
-            "@lunette-contracts/rules",
-            include_str!("../../../lua/lunette-contracts/rules.lua"),
-        ),
-        (
-            "@lunette-contracts/surface",
-            include_str!("../../../lua/lunette-contracts/surface.lua"),
-        ),
-        (
-            "@lunette-contracts/tags",
-            include_str!("../../../lua/lunette-contracts/tags.lua"),
-        ),
-        (
-            "@lunette-contracts/vocabulary",
-            include_str!("../../../lua/lunette-contracts/vocabulary.lua"),
-        ),
-        (
-            "@lunette-plugins/adoption",
-            include_str!("../../../lua/lunette-plugins/adoption/init.lua"),
-        ),
-        (
-            "@lunette-plugins/adoption/service",
-            include_str!("../../../lua/lunette-plugins/adoption/service.lua"),
-        ),
-        (
-            "@lunette-plugins/interaction",
-            include_str!("../../../lua/lunette-plugins/interaction/init.lua"),
-        ),
-        (
-            "@lunette-plugins/interaction/grab",
-            include_str!("../../../lua/lunette-plugins/interaction/grab.lua"),
-        ),
-        (
-            "@lunette-plugins/interaction/pose",
-            include_str!("../../../lua/lunette-plugins/interaction/pose.lua"),
-        ),
-        (
-            "@lunette-plugins/panels",
-            include_str!("../../../lua/lunette-plugins/panels/init.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/events",
-            include_str!("../../../lua/lunette-plugins/panels/events.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/layer",
-            include_str!("../../../lua/lunette-plugins/panels/layer.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/raycast",
-            include_str!("../../../lua/lunette-plugins/panels/raycast.lua"),
-        ),
-        (
-            "@lunette-plugins/rules",
-            include_str!("../../../lua/lunette-plugins/rules/init.lua"),
-        ),
-        (
-            "@lunette-plugins/rules/policy",
-            include_str!("../../../lua/lunette-plugins/rules/policy.lua"),
-        ),
-        (
-            "@lunette-plugins/rules/service",
-            include_str!("../../../lua/lunette-plugins/rules/service.lua"),
-        ),
-        (
-            "@lunette-plugins/tags",
-            include_str!("../../../lua/lunette-plugins/tags/init.lua"),
-        ),
-        (
-            "@lunette-plugins/tags/service",
-            include_str!("../../../lua/lunette-plugins/tags/service.lua"),
-        ),
-        (
-            "@mullion/pose",
-            include_str!("../../../lua/mullion/pose.lua"),
-        ),
-    ] {
-        preload.set(name, lua.load(source).set_name(name).into_function()?)?;
-    }
+    plugin_sources::register(&lua, &preload)?;
 
     lua.load(
         r#"

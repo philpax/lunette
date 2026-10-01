@@ -83,6 +83,7 @@ const CONFIG_ARTIFACTS: &[&str] = &[
     "desktop/input.lua",
     "desktop/keyboard.lua",
     "desktop/logging.lua",
+    "desktop/pointing.lua",
     "desktop/policy.lua",
 ];
 
@@ -323,6 +324,7 @@ mod tests {
                 "desktop/input.lua",
                 "desktop/keyboard.lua",
                 "desktop/logging.lua",
+                "desktop/pointing.lua",
                 "desktop/policy.lua",
             ]
         );
@@ -343,6 +345,7 @@ mod tests {
             (PathBuf::from("desktop/input.lua"), ConfigEntryKind::File),
             (PathBuf::from("desktop/keyboard.lua"), ConfigEntryKind::File),
             (PathBuf::from("desktop/logging.lua"), ConfigEntryKind::File),
+            (PathBuf::from("desktop/pointing.lua"), ConfigEntryKind::File),
             (PathBuf::from("desktop/policy.lua"), ConfigEntryKind::File),
         ];
         assert!(validate_config_entries(&entries).is_ok());

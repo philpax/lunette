@@ -8,8 +8,8 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
 local panelsContract = require '@lunette-contracts/panels'
-local interactionContract = require '@lunette-contracts/interaction'
 local rulesContract = require '@lunette-contracts/rules'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 export type Service = adoption.Service
 export type Owner = adoption.Owner
@@ -18,12 +18,6 @@ export type Properties = adoption.Properties
 
 local SOURCE = 'lunette.adoption'
 local PRECEDENCE = 300
-
-type Required = {
-  read panels: panelsContract.Capability,
-  read interaction: interactionContract.Capability,
-  read rules: rulesContract.Capability,
-}
 
 type State = {
   active: boolean,
@@ -50,9 +44,7 @@ end
 
 local function properties(state: State, window: lunette.Window): rulesContract.Resolved?
   checkWindow(window)
-  local interaction: interactionContract.Service = state.context:require(interactionContract.capability)
-  local key = interaction.POSE_PROPERTY
-  local kept = window:getProperty(key)
+  local kept = window:getProperty(vocabulary.POSE_PROPERTY)
   if type(kept) ~= 'string' then
     return nil
   end
@@ -166,40 +158,43 @@ local function init(context: plugin.Context): Service
       return active and current.context:owns(owner)
     end
 
+    -- An adoption ends with its panel. The removal listener and the rules
+    -- placement belong to this provider and are released by the adoption's
+    -- inverse on the caller's owner, so neither outlives the window's panel and
+    -- the caller holds no effect for a window that is gone.
     local function place(window: lunette.Window)
       if not live() or window.dead or adoptedIds[window.id] or panels:forSource(window) then
         return
       end
-      local entered = false
       local panel: panelsContract.WindowPanel?
       local resolved: rulesContract.Resolved?
-      local placement: plugin.Effect?
-      local ok, failure = pcall(function()
-        placement = owner:effect(function(): () -> ()
-          entered = true
-          current.context:checkOwner(owner)
-          adoptedIds[window.id] = true
-          local created, properties = rules:place(current.context, window, settings.defaults)
-          panel, resolved = created, properties
-          return function()
-            created:destroy()
-          end
+      local acquired: plugin.Effect
+      acquired = owner:effect(function(): () -> ()
+        current.context:checkOwner(owner)
+        adoptedIds[window.id] = true
+        local created, properties, placed = rules:place(current.context, window, settings.defaults)
+        panel, resolved = created, properties
+        local removal = panels:onRemoved(current.context, created, function()
+          acquired:dispose()
         end)
-      end)
-      if not ok then
-        if entered then
-          error(failure)
+        return function()
+          adoptedIds[window.id] = nil
+          local index = table.find(adopted, acquired)
+          if index then
+            table.remove(adopted, index)
+          end
+          removal:dispose()
+          placed:dispose()
         end
-        return
-      end
-      local acquired = assert(placement)
-      if not live() then
+      end)
+      local created = assert(panel)
+      if not live() or created.dead then
         acquired:dispose()
         return
       end
       adopted[#adopted + 1] = acquired
       if settings.onPlaced then
-        settings.onPlaced(assert(panel), assert(resolved))
+        settings.onPlaced(created, assert(resolved))
       end
     end
 
@@ -211,9 +206,19 @@ local function init(context: plugin.Context): Service
           subscription()
           subscription = nil
         end
-        for index = #adopted, 1, -1 do
-          adopted[index]:dispose()
-          adopted[index] = nil
+        -- Every adoption is released before the first failure is raised.
+        local failure: unknown = nil
+        for _, placement in ipairs(table.clone(adopted)) do
+          local ok, raised = pcall(function()
+            placement:dispose()
+          end)
+          if not ok and failure == nil then
+            failure = raised
+          end
+        end
+        table.clear(adopted)
+        if failure ~= nil then
+          error(failure, 0)
         end
       end
     end)

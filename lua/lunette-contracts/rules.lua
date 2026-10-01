@@ -1,8 +1,12 @@
 -- The rules service contract.
 --
--- Matching is pure policy. Source registration and placement acquire caller-
--- owned state. Disposing a source effect removes only that registration, never
--- a newer replacement with the same name.
+-- Matching is pure policy, and resolve is a pure query: a source answers
+-- without consuming anything. Source registration and placement acquire
+-- caller-owned state. A source name names one registration, and registering a
+-- name that is already registered raises. place answers the placement effect;
+-- disposing it, or the owner unloading, removes the panel, its tag
+-- memberships, and the tags placement created. A placement whose panel is
+-- removed by other means ends with it.
 --
 -- Named match predicates receive the native field type, including nil for title
 -- and appId. Unsupported match keys raise rather than matching an absent field.
@@ -86,7 +90,7 @@ export type Service = {
   read setRules: (Service, Owner, { Rule }) -> plugin.Effect,
   read matches: (Service, Match?, lunette.Window) -> boolean,
   read resolve: (Service, lunette.Window) -> Resolved,
-  read place: (Service, Owner, lunette.Window, Resolved?) -> (panels.WindowPanel, Resolved),
+  read place: (Service, Owner, lunette.Window, Resolved?) -> (panels.WindowPanel, Resolved, plugin.Effect),
 }
 
 export type Capability = plugin.Capability<Service>

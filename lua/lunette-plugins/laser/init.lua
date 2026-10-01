@@ -1,6 +1,7 @@
 -- The LASER provider. Each activation owns an independent two-hand registry.
 -- Native headset reads are isolated from the pointer and drawing logic, and every
--- acquired pointer or seat is released through the caller's owner effect.
+-- acquired pointer or seat is released through the caller's owner effect, so a
+-- release that fails is the caller's failure rather than this provider's.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -18,14 +19,18 @@ export type Hand = contracts.Hand
 export type Surface = contracts.Surface
 export type Input = contracts.Input
 
-local STYLE: contracts.Style = {
-  length = 1.5,
-  color = { 0.55, 0.7, 1, 0.5 },
-  hoverColor = { 0.75, 0.9, 1, 0.9 },
-  cursorRadius = 0.006,
-  hapticStrength = 0.2,
-  hapticDuration = 0.01,
-}
+-- Each activation receives its own frozen style, so no consumer can restyle
+-- another's lasers.
+local function defaultStyle(): contracts.Style
+  return table.freeze {
+    length = 1.5,
+    color = table.freeze { 0.55, 0.7, 1, 0.5 },
+    hoverColor = table.freeze { 0.75, 0.9, 1, 0.9 },
+    cursorRadius = 0.006,
+    hapticStrength = 0.2,
+    hapticDuration = 0.01,
+  }
+end
 
 local HANDS: { Hand } = { 'left', 'right' }
 
@@ -67,10 +72,19 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
   local acquired = owner:effect(function()
     state.context:checkOwner(owner)
     local seat = settings.seat or lunette.newSeat(settings.name or ('laser.' .. hand))
-    local pointer = interactionService:newPointer(state.context, { seat = seat, tuning = settings.tuning })
+    local made, pointer = pcall(function()
+      return interactionService:newPointer(state.context, { seat = seat, tuning = settings.tuning })
+    end)
+    if not made then
+      if not settings.seat and not seat.dead then
+        seat:destroy()
+      end
+      error(pointer, 0)
+    end
     local frameInput: Input? = nil
     local target: MutableLaser
     target = {
+      owner = owner,
       hand = hand,
       device = device,
       controller = input.controllers[hand],
@@ -115,29 +129,29 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
         end
         return headset.vibrate(self.controller, self.style.hapticStrength, self.style.hapticDuration, 0) and true
       end,
+      -- The release runs here, on the caller's stack, so its failure is the
+      -- caller's; the owner's effect is then disposed with nothing left to do.
       destroy = function(self: Laser): boolean
         if self.dead then
           return false
         end
         local effect = cleanupEffect
+        cleanupEffect = nil
+        local ok, failure = pcall(registry.destroy, state, target)
         if effect then
           effect:dispose()
-          return true
         end
-        return registry.destroy(state, target)
+        if not ok then
+          error(failure, 0)
+        end
+        return true
       end,
     }
     created = target
     state.lasers[#state.lasers + 1] = target
-    local nativeCleanup = state.context:effect(function()
-      return function()
-        registry.destroy(state, target)
-        created = nil
-      end
-    end)
     return function()
       cleanupEffect = nil
-      nativeCleanup:dispose()
+      registry.destroy(state, target)
     end
   end)
 
@@ -160,16 +174,28 @@ local function initialize(context: plugin.Context): Service
     HANDS = HANDS,
     DEVICES = input.devices,
     CONTROLLERS = input.controllers,
-    STYLE = STYLE,
+    STYLE = defaultStyle(),
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
       state.context:checkOwner(owner)
       return makeLaser(state, owner, hand, options)
     end,
+    -- A hand has one laser. attach answers the owner's own laser for a hand
+    -- it already holds, makes one for a free hand, and raises for a hand
+    -- another owner holds rather than handing that owner's laser over.
     attach = function(_self: Service, owner: Owner, options: Options?): { Laser }
       state.context:checkOwner(owner)
+      local held: { [Hand]: MutableLaser } = {}
+      for _, target in ipairs(state.lasers) do
+        if not target.dead then
+          if target.owner ~= owner then
+            error("laser: the '" .. target.hand .. "' hand already has a laser another owner holds", 2)
+          end
+          held[target.hand] = target
+        end
+      end
       local attached: { Laser } = {}
       for _, hand in ipairs(HANDS) do
-        attached[#attached + 1] = service:forHand(hand) or service:new(owner, hand, options)
+        attached[#attached + 1] = held[hand] or makeLaser(state, owner, hand, options)
       end
       return attached
     end,

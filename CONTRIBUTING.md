@@ -10,7 +10,7 @@ The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code.
 
 ## Current status
 
-The workspace contains the compositor, capture, native API, Luau checker, standard-library modules, and plugin runtime. The shipped desktop configuration selects built-in providers and configuration-local desktop consumers. Its policy owns arrangement state across provider activations and writes it on panel removal and normal quit. Integration tests cover provider outages, placement precedence, save failures, and ten production source reloads. The full `make check` passes. An actual XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. The roadmap records the remaining milestones and human gates.
+The workspace contains the compositor, capture, native API, Luau checker, standard-library modules, and plugin runtime. The shipped desktop configuration selects built-in providers and configuration-local desktop consumers. Its policy owns arrangement state across provider activations and writes it when a grab drops a panel and at normal quit. Integration tests cover provider outages, placement precedence, save failures, monitor hotplug, reopened windows, substitute providers, and ten production source reloads. The full `make check` passes. An actual XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. The roadmap records the remaining milestones and human gates.
 
 ## Repository layout
 

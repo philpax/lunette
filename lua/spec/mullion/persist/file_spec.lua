@@ -196,11 +196,14 @@ spec('saved bytes restore pose, size, and tags in a new configuration state', fu
       pose = lovr.math.newMat4():translate(-0.5, 1.75, -2.25),
       width = 1.6,
     })
-    tags:new(context, 'main'):add(panel)
+    tags:new(context, 'main'):add(context, panel)
     expect.equal(binding:save(), true, 'the save')
   end)
   local recovered = newState(fs)
-  withBinding(recovered, function(_binding, context, panels, tags)
+  withBinding(recovered, function(binding, context, panels, tags)
+    -- One binding per source name: the first is released before the panel
+    -- exists, so the second restores it at bind.
+    binding:dispose()
     local panel = panels:fromMonitor(context, { id = 'fixture.monitor', dead = false, width = 1920, height = 1080 })
     local second = recovered:bind(context, panels, tags, context:require(rulesContract.capability))
     local x, y, z = panel.pose:getPosition()

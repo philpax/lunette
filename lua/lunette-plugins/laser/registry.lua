@@ -13,6 +13,7 @@ export type Laser = contracts.Laser
 export type Hand = contracts.Hand
 
 export type MutableLaser = {
+  owner: contracts.Owner,
   hand: Hand,
   device: contracts.Device,
   controller: contracts.Device,
@@ -45,17 +46,24 @@ local function remove(state: State, target: Laser)
   end
 end
 
+-- The registry forgets the laser first, and both releases are attempted
+-- before a failure is raised to whoever ended it.
 function registry.destroy(state: State, target: MutableLaser): boolean
   if target.dead then
     return false
   end
 
   target.dead = true
-  target.pointer:destroy()
+  remove(state, target)
+  local released, failure = pcall(function()
+    target.pointer:destroy()
+  end)
   if target.ownsSeat and not target.seat.dead then
     target.seat:destroy()
   end
-  remove(state, target)
+  if not released then
+    error(failure, 0)
+  end
   return true
 end
 

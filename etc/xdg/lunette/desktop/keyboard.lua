@@ -1,12 +1,12 @@
 -- The left-wrist keyboard button and its lazily created keyboard.
 local plugin = require '@lunette-plugin'
 local keyboard = require '@lunette-contracts/keyboard'
-local panels = require '@lunette-contracts/panels'
+local quad = require '@lunette-contracts/quad'
 local surface = require '@lunette-contracts/surface'
 local callbackModule = require '../desktop/callbacks'
 export type Config = { read callbacks: typeof(callbackModule) }
 
-local required: plugin.Declaration = { keyboard = keyboard.capability, panels = panels.capability }
+local required: plugin.Declaration = { keyboard = keyboard.capability }
 local HAND: Device = 'hand/left'
 local SIZE = 0.115
 
@@ -19,7 +19,6 @@ return plugin.define(
   function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
     local callbacks = config.callbacks
     local service: keyboard.Service = context:require(keyboard.capability)
-    local panelService: panels.Service = context:require(panels.capability)
     local virtualKeyboard: keyboard.Keyboard? = nil
     local tracked = false
     local pose = lovr.math.newMat4()
@@ -78,7 +77,7 @@ return plugin.define(
         if not tracked then
           return nil, nil, nil
         end
-        return panelService:rayQuadHit({
+        return quad.hit({
           pose = pose,
           width = SIZE,
           height = SIZE,

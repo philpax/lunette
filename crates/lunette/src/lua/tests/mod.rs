@@ -427,6 +427,7 @@ fn the_module_exposes_only_what_this_phase_implements() {
             "outputs".to_owned(),
             "plugin".to_owned(),
             "reload".to_owned(),
+            "reportError".to_owned(),
             "restart".to_owned(),
             "scaleSteps".to_owned(),
             "sceneEnabled".to_owned(),

@@ -1,9 +1,9 @@
--- Declares the tags provider and its panels dependency.
+-- Declares the tags provider. Membership borrows panels without requiring the
+-- panels contract.
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
-local panels = require '@lunette-contracts/panels'
 local create = require '@lunette-plugins/tags/service'
-local required: plugin.Declaration = { panels = panels.capability }
+local required: plugin.Declaration = {}
 local provided: plugin.Declaration = { tags = tags.capability }
 return plugin.define(
   function(config: {}): {}

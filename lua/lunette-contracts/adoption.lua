@@ -8,7 +8,9 @@
 -- start subscribes before enumerating and skips windows already represented by
 -- a live panel. Provider activation and windows never start adoption implicitly.
 -- The caller effect owns subscriptions and panels created by start; disposing
--- it releases those resources without closing the native windows.
+-- it releases those resources without closing the native windows. An adopted
+-- window's placement ends when its panel is removed, so the caller holds
+-- nothing for a window that is gone.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

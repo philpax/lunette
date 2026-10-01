@@ -1,32 +1,37 @@
 -- Keyboard resources and their registry belong to one provider activation.
+--
+-- A keyboard is a resource of the owner that asked for it. Its release runs as
+-- an inverse on that owner, so a native release that fails is the owner's
+-- failure rather than this provider's.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
-local panels = require '@lunette-contracts/panels'
+local quad = require '@lunette-contracts/quad'
 local drawing = require '@lunette-plugins/keyboard/draw'
 local keycodes = require '@mullion/keycodes'
 local layout = require '@lunette-plugins/keyboard/layout'
 
-local required: { read interaction: interaction.Capability, read panels: panels.Capability } = {
+local required: { read interaction: interaction.Capability } = {
   interaction = interaction.capability,
-  panels = panels.capability,
 }
 local provided: { read keyboard: keyboard.Capability } = { keyboard = keyboard.capability }
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
+-- Each activation receives its own frozen style, so no consumer can restyle
+-- another's keyboards. Resizing a keyboard makes it a new style table.
 local function defaultStyle(): keyboard.Style
-  return {
+  return table.freeze {
     keyUnit = 0.028,
     gap = 0.004,
     plateDepth = 0.002,
     legendDepth = 0.001,
     margin = 0.008,
-    plateColor = { 0.1, 0.1, 0.13, 0.92 },
-    keyColor = { 0.2, 0.2, 0.24, 1 },
-    heldColor = { 0.35, 0.55, 0.95, 1 },
-    hoverColor = { 0.4, 0.42, 0.5, 1 },
-    legendColor = { 1, 1, 1, 1 },
+    plateColor = table.freeze { 0.1, 0.1, 0.13, 0.92 },
+    keyColor = table.freeze { 0.2, 0.2, 0.24, 1 },
+    heldColor = table.freeze { 0.35, 0.55, 0.95, 1 },
+    hoverColor = table.freeze { 0.4, 0.42, 0.5, 1 },
+    legendColor = table.freeze { 1, 1, 1, 1 },
     legendHeight = 0.012,
   }
 end
@@ -35,9 +40,8 @@ local function create(
   options: keyboard.Options?,
   defaults: keyboard.Style,
   interactionService: interaction.Service,
-  panelService: panels.Service,
   remove: (keyboard.Keyboard) -> (),
-  dispose: () -> boolean
+  dispose: () -> ()
 ): (keyboard.Keyboard, () -> ())
   local rows: { keyboard.KeyRow } = {}
   if options and options.rows then
@@ -152,7 +156,7 @@ local function create(
     if state.dead or not state.visible then
       return nil, nil, nil
     end
-    return panelService:rayQuadHit({
+    return quad.hit({
       pose = state.pose,
       width = state.width,
       height = state.height,
@@ -211,6 +215,8 @@ local function create(
   local function isHeld(_self: keyboard.Keyboard, held: { string }, name: string): boolean
     return table.find(held, name) ~= nil
   end
+
+  local release: () -> boolean
 
   local methods = {
     setPose = function(_self: keyboard.Surface, pose: Mat4): ()
@@ -326,25 +332,37 @@ local function create(
         end,
       })
     end,
-    destroy = function(self: keyboard.Keyboard): boolean
+    destroy = function(_self: keyboard.Keyboard): boolean
       if state.dead then
         return false
       end
-      if dispose() then
-        return true
-      end
-      state.dead = true
-      remove(self)
-      table.clear(latched)
-      table.clear(locked)
-      table.clear(hovered)
-      releaseInput()
-      return true
+      return release()
     end,
     isHeld = isHeld,
     clearLatched = clearLatched,
   }
   local created: keyboard.Keyboard = setmetatable(state, { __index = methods })
+  local function releaseRaw(): ()
+    if state.dead then
+      return
+    end
+    state.dead = true
+    remove(created)
+    table.clear(latched)
+    table.clear(locked)
+    table.clear(hovered)
+    releaseInput()
+  end
+  -- The release runs on the caller's stack, so its failure is the caller's;
+  -- the owner's effect is then disposed with nothing left to do.
+  function release(): boolean
+    local ok, failure = pcall(releaseRaw)
+    dispose()
+    if not ok then
+      error(failure, 0)
+    end
+    return true
+  end
   methods.onPress = function(_self: keyboard.Surface, x: number?, y: number?, _pointer: unknown?): ()
     if state.dead or not x or not y then
       return
@@ -354,23 +372,11 @@ local function create(
       pressKey(created, entry.code)
     end
   end
-  return created,
-    function()
-      if state.dead then
-        return
-      end
-      state.dead = true
-      remove(created)
-      table.clear(latched)
-      table.clear(locked)
-      table.clear(hovered)
-      releaseInput()
-    end
+  return created, releaseRaw
 end
 
 local function initialize(context: plugin.Context, _config: {}, publish: plugin.Publisher): ()
   local interactionService: interaction.Service = context:require(interaction.capability)
-  local panelService: panels.Service = context:require(panels.capability)
   local entries: { keyboard.Keyboard } = {}
   local defaults = defaultStyle()
   local function remove(created: keyboard.Keyboard): ()
@@ -386,29 +392,18 @@ local function initialize(context: plugin.Context, _config: {}, publish: plugin.
       local result: keyboard.Keyboard? = nil
       local cleanupEffect: plugin.Effect? = nil
       local acquired = owner:effect(function(): () -> ()
-        local created, destroyRaw = create(
-          options,
-          defaults,
-          interactionService,
-          panelService,
-          remove,
-          function(): boolean
-            local effect = cleanupEffect
-            if not effect then
-              return false
-            end
+        local created, releaseRaw = create(options, defaults, interactionService, remove, function(): ()
+          local effect = cleanupEffect
+          cleanupEffect = nil
+          if effect then
             effect:dispose()
-            return true
           end
-        )
+        end)
         entries[#entries + 1] = created
         result = created
-        local nativeCleanup = context:effect(function()
-          return destroyRaw
-        end)
         return function(): ()
           cleanupEffect = nil
-          nativeCleanup:dispose()
+          releaseRaw()
         end
       end)
       assert(result, 'keyboard acquisition did not complete')

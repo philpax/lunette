@@ -1,7 +1,9 @@
 -- The laser service contract.
 --
 -- A laser owns a pointer and, when no seat is supplied, a native seat. Both
--- constructors therefore require the caller owner explicitly.
+-- constructors therefore require the caller owner explicitly. A hand has one
+-- laser under attach: attach answers the caller's own lasers, makes them for
+-- free hands, and raises when another owner holds a hand. forHand is a query.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

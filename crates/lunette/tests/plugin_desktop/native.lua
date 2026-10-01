@@ -45,6 +45,15 @@ function subscriptionCount(name)
   end
   return count
 end
+-- The native reload clears subscriptions after the plugin runtimes have shut
+-- down. A subscription still live at that point is one a plugin forgot to
+-- cancel, so it is a failure rather than something to clear.
+function clearSubscriptions()
+  for name in pairs(events.subscriptions) do
+    assert(subscriptionCount(name) == 0, 'subscription outlived plugin shutdown: ' .. name)
+  end
+  forgetSubscriptions()
+end
 function forgetSubscriptions()
   for _, list in pairs(events.subscriptions) do
     for _, record in ipairs(list) do
@@ -56,6 +65,14 @@ for _, name in ipairs { 'onWindowOpened', 'onWindowClosed', 'onProcessExited', '
   native[name] = function(callback)
     return subscribe(name, callback)
   end
+end
+-- The native boundary logs a reported error and notifies every onError
+-- listener; the fake records the report as the log and notifies the same way.
+events.reported = {}
+native.reportError = function(context, message, traceback)
+  local report = { message = context .. ': ' .. message, traceback = traceback or '' }
+  events.reported[#events.reported + 1] = report
+  emit('onError', report)
 end
 native.windows = function()
   events.enumerations += 1
@@ -223,17 +240,19 @@ lovr = {
     isTracked = function()
       return true
     end,
+    -- The left hand is held aside so only the right beam reaches the panels
+    -- in front; events.handX moves both hands.
     getPose = function(device)
-      return if device == 'hand/left' then -5 else 0, 1.5, 0, 0, 0, 1, 0
+      return (if device:find('left', 1, true) then -5 else 0) + (events.handX or 0), 1.5, 0, 0, 0, 1, 0
     end,
-    getPosition = function()
-      return 0, 1.5, 0
+    getPosition = function(device)
+      return (if device and device:find('left', 1, true) then -5 else 0) + (events.handX or 0), 1.5, 0
     end,
     getDirection = function()
       return 0, 0, -1
     end,
     isDown = function(_device, button)
-      return button == 'trigger' and events.trigger == true
+      return (button == 'trigger' and events.trigger == true) or (button == 'grip' and events.grip == true)
     end,
     getDeltaTime = function()
       return 0.016

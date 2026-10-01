@@ -92,7 +92,7 @@ pub use crate::lua::{
     window::Window,
 };
 use crate::{
-    callback_error,
+    callback_error::{self, TracedError},
     events::{
         ERROR, EventName, EventQueue, EventSink, LuaEvent, install_dispatchers,
         subscription_functions,
@@ -723,6 +723,19 @@ module! {
             Ok(())
         })
         .map(Cancel)
+    }
+
+    /// Reports an error as a raising callback is reported: it is logged and every `lunette.onError` listener is notified. `context` leads the message. A dispatcher that protects each of several handlers reports one handler's error with it and continues with the next.
+    fn reportError(lua, session, context: String, message: String, traceback: Option<String>) -> () {
+        callback_error::report_traced(
+            lua,
+            &session.listeners(ERROR),
+            &TracedError {
+                message: format!("{context}: {message}"),
+                traceback: traceback.unwrap_or_default(),
+            },
+        );
+        Ok(())
     }
 
     /// Every modifier name a seat accepts, in the order a keymap numbers them. `seat:setModifiers` takes these names, and `seat.modifiers` returns them.

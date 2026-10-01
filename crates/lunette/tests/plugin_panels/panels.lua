@@ -110,9 +110,62 @@ return function()
   local rejectedInstance = runtime:use(rejected, {})
   rejectedInstance:enable()
 
-  assert(panel:destroy())
-  assert(not panel:destroy())
+  -- Only the creating owner destroys a panel.
+  local stranger
+  local strangerInstance = runtime:use(
+    plugin.define(identity, { panels = contracts.capability }, {}, function(context)
+      stranger = context
+    end),
+    {}
+  )
+  strangerInstance:enable()
+  assert(not pcall(function()
+    panel:destroy(stranger)
+  end))
+  assert(not panel.dead)
+
+  -- Removal and arrival listeners are owner-scoped and hear every cause.
+  local added, removed, reported = {}, {}, {}
+  require('@lunette').reportError = function(context, message)
+    reported[#reported + 1] = context .. ': ' .. message
+  end
+  service:onAdded(stranger, function(created)
+    added[#added + 1] = created
+  end)
+  service:onAdded(stranger, function()
+    error 'arrival listener failed'
+  end)
+  local removal = service:onRemoved(stranger, panel, function(target)
+    removed[#removed + 1] = target
+  end)
+  service:onRemoved(stranger, nil, function()
+    error 'removal listener failed'
+  end)
+
+  assert(panel:destroy(owner))
+  assert(not panel:destroy(owner))
   assert(panel.dead)
+  assert(#removed == 1 and removed[1] == panel, 'the removal listener hears its panel')
+  assert(#reported == 1 and reported[1]:find('removal listener failed', 1, true), 'a raising listener is reported')
+  removal:dispose()
+
+  local replugged = { id = 'monitor-18', name = 'Replugged', dead = false, width = 1920, height = 1080 }
+  function replugged:getTexture()
+    return false
+  end
+  local first = service:fromMonitor(owner, replugged, { height = 1, chrome = false })
+  assert(#added == 1 and added[1] == first, 'the arrival listener hears a new panel')
+  assert(#reported == 2 and reported[2]:find('arrival listener failed', 1, true))
+  replugged.dead = true
+  local again = { id = 'monitor-18', name = 'Replugged', dead = false, width = 1920, height = 1080 }
+  assert(service:forSource(again) == nil, 'a panel over a dead source is not taken for its replacement')
+  service:update()
+  assert(first.dead and #removed == 1, 'a source that dies removes its panel')
+  strangerInstance:disable()
+
+  assert(not pcall(function()
+    service.STYLE.borderThickness = 1
+  end), 'the style is frozen')
   panel:setHighlighted(false)
   assert(panel.highlighted == true)
   assert(not panel:sink())

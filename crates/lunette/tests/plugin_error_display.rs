@@ -1,14 +1,25 @@
 //! Integration coverage for the error-display provider.
 //!
-//! The plugin facade and runtime, the panels provider, and the error-display
-//! provider are real checked-in implementations. Only the unmanaged native
-//! `onError` subscription seam is replaced by the fixture.
+//! The plugin facade and runtime and the error-display provider are real
+//! checked-in implementations. The fixture keeps the `onError` subscription
+//! list, and errors reach its listeners through the real callback boundary,
+//! `lunette::callback_error`, whose log output the test captures.
 
 extern crate lunette_lovr;
 
-use lunette::plugin::declarations;
-use mlua::{Function, Lua, Table, Value};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
 
+use lunette::{
+    callback_error::{TracedError, report_traced},
+    plugin::declarations,
+};
+use mlua::{Function, Lua, Table, Value};
+use tracing_subscriber::fmt::MakeWriter;
+
+mod plugin_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
@@ -57,72 +68,63 @@ fn state() -> mlua::Result<Lua> {
         lua.create_function(move |_, _: String| Ok(native.clone()))?,
     )?;
 
-    for (name, source) in [
-        (
-            "@lunette-plugin",
-            include_str!("../../../lua/lunette-plugin/init.lua"),
-        ),
-        (
-            "@lunette-plugin/adapter",
-            include_str!("../../../lua/lunette-plugin/adapter.lua"),
-        ),
-        (
-            "@lunette-contracts/error-display",
-            include_str!("../../../lua/lunette-contracts/error-display.lua"),
-        ),
-        (
-            "@lunette-contracts/owner",
-            include_str!("../../../lua/lunette-contracts/owner.lua"),
-        ),
-        (
-            "@lunette-contracts/panels",
-            include_str!("../../../lua/lunette-contracts/panels.lua"),
-        ),
-        (
-            "@lunette-contracts/surface",
-            include_str!("../../../lua/lunette-contracts/surface.lua"),
-        ),
-        (
-            "@lunette-contracts/vocabulary",
-            include_str!("../../../lua/lunette-contracts/vocabulary.lua"),
-        ),
-        (
-            "@lunette-plugins/error-display",
-            include_str!("../../../lua/lunette-plugins/error-display/init.lua"),
-        ),
-        (
-            "@lunette-plugins/error-display/format",
-            include_str!("../../../lua/lunette-plugins/error-display/format.lua"),
-        ),
-        (
-            "@lunette-plugins/error-display/limiter",
-            include_str!("../../../lua/lunette-plugins/error-display/limiter.lua"),
-        ),
-        (
-            "@lunette-plugins/error-display/panel",
-            include_str!("../../../lua/lunette-plugins/error-display/panel.lua"),
-        ),
-        (
-            "@lunette-plugins/panels",
-            include_str!("../../../lua/lunette-plugins/panels/init.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/events",
-            include_str!("../../../lua/lunette-plugins/panels/events.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/layer",
-            include_str!("../../../lua/lunette-plugins/panels/layer.lua"),
-        ),
-        (
-            "@lunette-plugins/panels/raycast",
-            include_str!("../../../lua/lunette-plugins/panels/raycast.lua"),
-        ),
-    ] {
-        preload.set(name, lua.load(source).set_name(name).into_function()?)?;
-    }
+    plugin_sources::register(&lua, &preload)?;
+    install_native_error(&lua)?;
 
     Ok(lua)
+}
+
+/// A log sink the boundary's `tracing` output is captured into.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for Captured {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("captured log poisoned"))?
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'writer> MakeWriter<'writer> for Captured {
+    type Writer = Captured;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// `nativeError(message, traceback)` reports through the real callback
+/// boundary to the fixture's live `onError` listeners and answers what the
+/// boundary logged.
+fn install_native_error(lua: &Lua) -> mlua::Result<()> {
+    let report = lua.create_function(|lua, (message, traceback): (String, String)| {
+        let subscriptions: Table = lua.globals().get("subscriptions")?;
+        let listeners = subscriptions
+            .sequence_values::<Function>()
+            .collect::<mlua::Result<Vec<_>>>()?;
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(captured.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            report_traced(lua, &listeners, &TracedError { message, traceback });
+        });
+        let logged = captured
+            .0
+            .lock()
+            .map_err(|_| mlua::Error::runtime("captured log poisoned"))?
+            .clone();
+        Ok(String::from_utf8_lossy(&logged).into_owned())
+    })?;
+    lua.globals().set("nativeError", report)
 }
 
 #[test]

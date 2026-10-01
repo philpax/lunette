@@ -454,6 +454,33 @@ fn a_handlers_error_reaches_every_subscriber_including_the_standard_library() {
     );
 }
 
+/// A Lua dispatcher that protects each of its handlers reports a handler's
+/// error through `lunette.reportError`, and every listener receives it as it
+/// would a raising callback's, with the context leading the message.
+#[test]
+fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "seen = {}
+         lunette.onError(function() error('a listener that raises') end)
+         lunette.onError(function(event) seen[#seen + 1] = event end)
+         lunette.reportError('lovr.draw', 'a handler failed', 'stack traceback: here')
+         lunette.reportError('lovr.update', 'no traceback')",
+    );
+
+    let (count, first, trace, second, empty): (usize, String, String, String, String) = run(
+        &lua,
+        "return #seen, seen[1].message, seen[1].traceback, seen[2].message, seen[2].traceback",
+    );
+    assert_eq!(count, 2, "a raising listener does not stop the next");
+    assert_eq!(first, "lovr.draw: a handler failed");
+    assert_eq!(trace, "stack traceback: here");
+    assert_eq!(second, "lovr.update: no traceback");
+    assert_eq!(empty, "");
+}
+
 /// The same error raised every frame for two hundred frames.
 ///
 /// The limiter is part of `mullion.error`, so the test installs the standard

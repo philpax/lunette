@@ -13,7 +13,7 @@ fn keyboard_provider_and_consumer_graph_typechecks() {
             root.join("lua/lunette-plugins/panels/init.lua"),
             root.join("lua/lunette-plugins/panels/events.lua"),
             root.join("lua/lunette-plugins/panels/layer.lua"),
-            root.join("lua/lunette-plugins/panels/raycast.lua"),
+            root.join("lua/lunette-plugins/panels/panel.lua"),
             root.join("lua/lunette-plugins/interaction/init.lua"),
             root.join("lua/lunette-plugins/interaction/grab.lua"),
             root.join("lua/lunette-plugins/interaction/pose.lua"),
