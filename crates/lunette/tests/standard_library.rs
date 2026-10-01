@@ -7,7 +7,7 @@
 //!
 //! The mount is installed by wrapping the `package.preload` entry LÖVR creates
 //! `lovr.filesystem` from. `vendor/lovr/etc/boot.lua` creates that module and
-//! runs `main.lua` on the same coroutine resume, leaving the host no moment
+//! runs `main.luau` on the same coroutine resume, leaving the host no moment
 //! between the two. The wrapping is observable on a state the boot sequence
 //! builds and not on a state a unit test creates, because LÖVR's virtual
 //! filesystem does not exist there. A unit test has nothing to mount into.
@@ -90,7 +90,7 @@ fn a_missing_standard_library_does_not_stop_the_session() {
 #[test]
 fn a_configuration_cannot_write_over_the_standard_library() {
     let stdlib = standard_library_tree();
-    let module = stdlib.path().join(ROOT).join("init.lua");
+    let module = stdlib.path().join(ROOT).join("init.luau");
 
     let outcome = run(stdlib.path(), &["readOnly", FIXTURE_MARKER]);
 
@@ -110,7 +110,7 @@ fn standard_library_tree() -> TempDir {
     if let Err(error) = fs::create_dir(&module) {
         panic!("{} could not be created: {error}", module.display());
     }
-    if let Err(error) = fs::write(module.join("init.lua"), FIXTURE_ROOT_MODULE) {
+    if let Err(error) = fs::write(module.join("init.luau"), FIXTURE_ROOT_MODULE) {
         panic!("the fixture's root module could not be written: {error}");
     }
     directory
@@ -124,7 +124,7 @@ fn repository_standard_library() -> PathBuf {
     };
     let lua = root.join("lua");
     assert!(
-        lua.join(ROOT).join("init.lua").is_file(),
+        lua.join(ROOT).join("init.luau").is_file(),
         "{} should hold the plugin facade",
         lua.display()
     );
@@ -155,10 +155,10 @@ fn run(standard_library: &Path, arguments: &[&str]) -> Outcome {
         .join("fixtures")
         .join("require-root");
     // The check runs first. A mislaid fixture then fails at the assert that
-    // names it, and boot.lua's "no main.lua" path is not reached.
+    // names it, and boot.lua's "no main.luau" path is not reached.
     assert!(
-        directory.join("lunette").join("main.lua").is_file(),
-        "the require-root fixture is missing its main.lua"
+        directory.join("lunette").join("main.luau").is_file(),
+        "the require-root fixture is missing its main.luau"
     );
 
     // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and

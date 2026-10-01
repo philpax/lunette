@@ -11,7 +11,7 @@ mod plugin_support;
 #[test]
 fn persistence_bindings_follow_provider_activations() -> mlua::Result<()> {
     let lua = persistence_vm()?;
-    lua.load(include_str!("plugin_persistence/runtime.lua"))
+    lua.load(include_str!("plugin_persistence/runtime.luau"))
         .set_name("persistence runtime")
         .exec()?;
     assert!(lua.globals().get::<bool>("persistenceRuntimeVerified")?);
@@ -25,7 +25,7 @@ fn persistence_bindings_follow_provider_activations() -> mlua::Result<()> {
 #[test]
 fn mounted_persistence_specs_run_every_case() -> mlua::Result<()> {
     let lua = persistence_vm()?;
-    lua.load(include_str!("plugin_persistence/specs.lua"))
+    lua.load(include_str!("plugin_persistence/specs.luau"))
         .set_name("persistence specs")
         .exec()?;
     assert_eq!(lua.globals().get::<u32>("persistenceSpecCases")?, 54);
@@ -69,24 +69,27 @@ fn persistence_vm() -> mlua::Result<Lua> {
     )?;
     plugin_sources::register(&lua, &loaders)?;
     for (name, source) in [
-        ("@spec/suite", include_str!("../../../lua/spec/suite.lua")),
-        ("@spec/expect", include_str!("../../../lua/spec/expect.lua")),
+        ("@spec/suite", include_str!("../../../lua/spec/suite.luau")),
+        (
+            "@spec/expect",
+            include_str!("../../../lua/spec/expect.luau"),
+        ),
         (
             "@spec/lunette-desktop/persist/file_spec",
-            include_str!("../../../lua/spec/lunette-desktop/persist/file_spec.lua"),
+            include_str!("../../../lua/spec/lunette-desktop/persist/file_spec.luau"),
         ),
         (
             "@spec/lunette-desktop/persist/arrangement_spec",
-            include_str!("../../../lua/spec/lunette-desktop/persist/arrangement_spec.lua"),
+            include_str!("../../../lua/spec/lunette-desktop/persist/arrangement_spec.luau"),
         ),
         (
             "@spec/lunette-desktop/persist/format_spec",
-            include_str!("../../../lua/spec/lunette-desktop/persist/format_spec.lua"),
+            include_str!("../../../lua/spec/lunette-desktop/persist/format_spec.luau"),
         ),
     ] {
         loaders.set(name, lua.load(source).set_name(name).into_function()?)?;
     }
-    lua.load(include_str!("plugin_persistence/native.lua"))
+    lua.load(include_str!("plugin_persistence/native.luau"))
         .set_name("persistence unmanaged boundaries")
         .exec()?;
     Ok(lua)

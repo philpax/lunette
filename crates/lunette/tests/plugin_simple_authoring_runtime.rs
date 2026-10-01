@@ -11,7 +11,7 @@ mod plugin_support;
 #[test]
 fn runtime_enforces_declared_access_publication_and_native_lifecycle() -> mlua::Result<()> {
     let lua = state()?;
-    lua.load(include_str!("plugin_simple_authoring/runtime.lua"))
+    lua.load(include_str!("plugin_simple_authoring/runtime.luau"))
         .set_name("plugin-facade-runtime")
         .exec()?;
     let errors = plugin_support::shutdown(&lua);

@@ -44,7 +44,7 @@ fn state() -> mlua::Result<Lua> {
             Ok(())
         })?,
     )?;
-    lua.load(include_str!("plugin_keyboard/fixture.lua"))
+    lua.load(include_str!("plugin_keyboard/fixture.luau"))
         .exec()?;
     Ok(lua)
 }
@@ -53,7 +53,7 @@ fn state() -> mlua::Result<Lua> {
 fn keyboard_uses_real_dependency_providers() -> mlua::Result<()> {
     let lua = state()?;
     let callback: Function = lua
-        .load(include_str!("plugin_keyboard/behavior.lua"))
+        .load(include_str!("plugin_keyboard/behavior.luau"))
         .eval()?;
     let _: Value = callback.call(())?;
     // The one failure is the release the fixture makes fail, reported once
@@ -70,7 +70,7 @@ fn keyboard_uses_real_dependency_providers() -> mlua::Result<()> {
 #[test]
 fn rows_actions_layers_and_hooks_follow_the_options() -> mlua::Result<()> {
     let lua = state()?;
-    lua.load(include_str!("plugin_keyboard/hooks.lua"))
+    lua.load(include_str!("plugin_keyboard/hooks.luau"))
         .set_name("keyboard hooks")
         .exec()?;
     let errors = plugin_support::shutdown(&lua);

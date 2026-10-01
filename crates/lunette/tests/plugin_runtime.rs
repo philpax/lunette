@@ -29,35 +29,35 @@ fn state() -> mlua::Result<(Lua, Table)> {
 
 fn run_fixture(lua: &Lua, module: &Table, name: &str) -> mlua::Result<()> {
     let source = match name {
-        "shutdown_stress" => include_str!("plugin_runtime/shutdown_stress.lua"),
-        "cleanup_failure" => include_str!("plugin_runtime/cleanup_failure.lua"),
-        "authority" => include_str!("plugin_runtime/authority.lua"),
-        "identity" => include_str!("plugin_runtime/identity.lua"),
-        "effects" => include_str!("plugin_runtime/effects.lua"),
-        "fails" => include_str!("plugin_runtime/fails.lua"),
-        "ownership" => include_str!("plugin_runtime/ownership.lua"),
-        "reentrant" => include_str!("plugin_runtime/reentrant.lua"),
-        "children" => include_str!("plugin_runtime/children.lua"),
-        "malformed" => include_str!("plugin_runtime/malformed.lua"),
-        "nested" => include_str!("plugin_runtime/nested.lua"),
-        "cancel_reenable" => include_str!("plugin_runtime/cancel_reenable.lua"),
-        "pending_cleanup" => include_str!("plugin_runtime/pending_cleanup.lua"),
-        "cancel_boundary" => include_str!("plugin_runtime/cancel_boundary.lua"),
-        "active_acquisition" => include_str!("plugin_runtime/active_acquisition.lua"),
+        "shutdown_stress" => include_str!("plugin_runtime/shutdown_stress.luau"),
+        "cleanup_failure" => include_str!("plugin_runtime/cleanup_failure.luau"),
+        "authority" => include_str!("plugin_runtime/authority.luau"),
+        "identity" => include_str!("plugin_runtime/identity.luau"),
+        "effects" => include_str!("plugin_runtime/effects.luau"),
+        "fails" => include_str!("plugin_runtime/fails.luau"),
+        "ownership" => include_str!("plugin_runtime/ownership.luau"),
+        "reentrant" => include_str!("plugin_runtime/reentrant.luau"),
+        "children" => include_str!("plugin_runtime/children.luau"),
+        "malformed" => include_str!("plugin_runtime/malformed.luau"),
+        "nested" => include_str!("plugin_runtime/nested.luau"),
+        "cancel_reenable" => include_str!("plugin_runtime/cancel_reenable.luau"),
+        "pending_cleanup" => include_str!("plugin_runtime/pending_cleanup.luau"),
+        "cancel_boundary" => include_str!("plugin_runtime/cancel_boundary.luau"),
+        "active_acquisition" => include_str!("plugin_runtime/active_acquisition.luau"),
         "active_provider_acquisition" => {
-            include_str!("plugin_runtime/active_provider_acquisition.lua")
+            include_str!("plugin_runtime/active_provider_acquisition.luau")
         }
-        "inverse_reentry" => include_str!("plugin_runtime/inverse_reentry.lua"),
-        "dependency_publication" => include_str!("plugin_runtime/dependency_publication.lua"),
-        "rollback_authority" => include_str!("plugin_runtime/rollback_authority.lua"),
+        "inverse_reentry" => include_str!("plugin_runtime/inverse_reentry.luau"),
+        "dependency_publication" => include_str!("plugin_runtime/dependency_publication.luau"),
+        "rollback_authority" => include_str!("plugin_runtime/rollback_authority.luau"),
         "explicit_cleanup_authority" => {
-            include_str!("plugin_runtime/explicit_cleanup_authority.lua")
+            include_str!("plugin_runtime/explicit_cleanup_authority.luau")
         }
-        "cancel" => include_str!("plugin_runtime/cancel.lua"),
-        "quarantine" => include_str!("plugin_runtime/quarantine.lua"),
-        "witness" => include_str!("plugin_runtime/witness.lua"),
-        "stale" => include_str!("plugin_runtime/stale.lua"),
-        "yield" => include_str!("plugin_runtime/yield.lua"),
+        "cancel" => include_str!("plugin_runtime/cancel.luau"),
+        "quarantine" => include_str!("plugin_runtime/quarantine.luau"),
+        "witness" => include_str!("plugin_runtime/witness.luau"),
+        "stale" => include_str!("plugin_runtime/stale.luau"),
+        "yield" => include_str!("plugin_runtime/yield.luau"),
         other => return Err(mlua::Error::runtime(format!("unknown fixture {other}"))),
     };
     let function: Function = lua.load(source).set_name(name).eval()?;
@@ -199,7 +199,7 @@ fn invalid_dependency_publication_retains_failed_rollback_allocation() -> mlua::
 fn public_facade_rollback_uses_native_cleanup_authority() -> mlua::Result<()> {
     let (lua, module) = state()?;
     let fixture: Function = lua
-        .load(include_str!("plugin_runtime/facade_cleanup_authority.lua"))
+        .load(include_str!("plugin_runtime/facade_cleanup_authority.luau"))
         .set_name("facade_cleanup_authority")
         .eval()?;
     let sources = lua.create_table()?;

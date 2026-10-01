@@ -8,7 +8,7 @@
 //! edit a file.
 //!
 //! Safe mode is embedded in the binary, not installed. Safe mode exists for when
-//! `main.lua` fails to load. A broken standard library, a missing install, or a bad
+//! `main.luau` fails to load. A broken standard library, a missing install, or a bad
 //! `LUNETTE_STDLIB_PATH` can cause the load to fail, so the fallback must not
 //! depend on anything on disk. [`SOURCE`] requires `lunette` and nothing else, and
 //! no module root mounted from disk.
@@ -18,8 +18,8 @@
 //! [`install_trigger`] wraps `lovr.boot`. A failure of `lovr.boot` means the
 //! configuration did not load. `vendor/lovr/etc/boot.lua` calls the wrapped function
 //! under `xpcall`. Every load failure raises inside that call: a source that does not
-//! mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, an error at
-//! the top level of `main.lua`.
+//! mount, a missing `main.luau`, a `conf.luau` that raised, a syntax error, an error at
+//! the top level of `main.luau`.
 //!
 //! # The boundary includes `lovr.load`
 //!
@@ -49,19 +49,19 @@ use crate::reload;
 /// `include_str!` embeds it, not a string literal, so the Lua stays in a file:
 /// syntax highlighting applies, the file diffs against the default configuration
 /// it resembles, and the tests below read the same bytes the session runs.
-pub const SOURCE: &str = include_str!("safe_mode.lua");
+pub const SOURCE: &str = include_str!("safe_mode.luau");
 
 /// What a traceback names the chunk.
 ///
 /// The leading `@` is LuaJIT's marker for a chunk named after a file. It makes
-/// an error inside safe mode read as `safe-mode.lua` with a line number, not as
+/// an error inside safe mode read as `safe-mode.luau` with a line number, not as
 /// the first line of the source quoted back.
-pub const CHUNK_NAME: &str = "@safe-mode.lua";
+pub const CHUNK_NAME: &str = "@safe-mode.luau";
 
 /// Compiles [`SOURCE`] against `lua`, without running it.
 ///
 /// The caller runs it; when it runs is the caller's decision. Safe mode replaces
-/// `main.lua`, so the chunk executes at the point in the boot sequence the
+/// `main.luau`, so the chunk executes at the point in the boot sequence the
 /// configuration would have been.
 ///
 /// # Errors
@@ -126,7 +126,7 @@ fn start(lua: &Lua, failure: &mlua::Error) -> mlua::Result<Value> {
     let reported = failure.to_string();
     error!("lua: the configuration could not be loaded, so safe mode is running: {reported}");
 
-    // A `main.lua` that raised halfway can have installed some of its
+    // A `main.luau` that raised halfway can have installed some of its
     // callbacks, and `lovr.run` keeps calling them. Safe mode installs its
     // own below; clearing the old ones stops the broken configuration's
     // callbacks surviving alongside them.
@@ -195,8 +195,8 @@ mod tests {
             recorded.spawns[#recorded.spawns + 1] = options.argv[1]
             return { id = #recorded.spawns }
           end,
-          -- Faked rather than real: the real one re-runs `main.lua`, and the
-          -- `main.lua` that would not load is why safe mode is running.
+          -- Faked rather than real: the real one re-runs `main.luau`, and the
+          -- `main.luau` that would not load is why safe mode is running.
           reload = function()
             recorded.reloads = recorded.reloads + 1
             return recorded.reloaded, recorded.reloadMessage
@@ -583,13 +583,13 @@ mod tests {
     /// happened. That requirement is the reason the safe mode loop exists.
     #[test]
     fn the_load_error_is_shown_rather_than_only_logged() {
-        let lua = started_after("main.lua:12: '=' expected near 'panel'");
+        let lua = started_after("main.luau:12: '=' expected near 'panel'");
 
         let drawn = drawn(&lua);
 
         assert!(drawn.contains("safe mode"), "{drawn}");
         assert!(
-            drawn.contains("main.lua:12") && drawn.contains("expected near"),
+            drawn.contains("main.luau:12") && drawn.contains("expected near"),
             "the panel should say why the configuration did not load: {drawn}"
         );
         assert!(
@@ -662,7 +662,7 @@ mod tests {
     /// headset.
     #[test]
     fn a_configuration_that_does_not_load_produces_safe_mode() {
-        let lua = booting("error('main.lua:1: a deliberate defect')");
+        let lua = booting("error('main.luau:1: a deliberate defect')");
         install_trigger(&lua).expect("the trigger should install");
 
         assert_eq!(boot(&lua), "safe mode's loop");
@@ -670,20 +670,20 @@ mod tests {
         let drawn = drawn(&lua);
         assert!(drawn.contains("safe mode"), "{drawn}");
         assert!(
-            drawn.contains("main.lua:1"),
+            drawn.contains("main.luau:1"),
             "the load error should have reached safe mode: {drawn}"
         );
     }
 
     /// Safe mode replaces the configuration; it does not join it. A
-    /// `main.lua` that raised halfway has already installed some of its
+    /// `main.luau` that raised halfway has already installed some of its
     /// callbacks, and `lovr.run` would keep calling them.
     #[test]
     fn a_half_installed_configuration_stops_being_called() {
         let lua = booting(
             "function lovr.mousepressed() end
              function lovr.lunwindowopened() end
-             error('main.lua:3: a deliberate defect')",
+             error('main.luau:3: a deliberate defect')",
         );
         install_trigger(&lua).expect("the trigger should install");
 
@@ -724,7 +724,7 @@ mod tests {
     /// one either.
     #[test]
     fn the_trigger_works_with_no_standard_library_anywhere() {
-        let lua = booting("error('main.lua:1: a deliberate defect')");
+        let lua = booting("error('main.luau:1: a deliberate defect')");
         lua.load("package.path = '' package.cpath = ''")
             .exec()
             .expect("the search path should be emptied");

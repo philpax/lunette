@@ -1,7 +1,7 @@
 //! Safe mode is established by breaking a real configuration.
 //!
-//! Safe mode is what a user gets when their `main.lua` does not load. To
-//! establish it, the tests must hand the real binary a `main.lua` that does not
+//! Safe mode is what a user gets when their `main.luau` does not load. To
+//! establish it, the tests must hand the real binary a `main.luau` that does not
 //! load. The unit cases in `crates/lunette/src/safe_mode.rs` run the chunk and
 //! the trigger against fakes. These tests run a whole session: `boot.lua`
 //! produces the load failure, the host prepares the fallback, and `lunctl` can
@@ -51,7 +51,7 @@ const POLL: Duration = Duration::from_millis(20);
 /// from LÖVR's own 1 and from any signal.
 const STOPPED: i32 = 7;
 
-/// A `main.lua` that does not compile produces safe mode: a running session
+/// A `main.luau` that does not compile produces safe mode: a running session
 /// with a panel and a reload key. The alternative is a black headset.
 #[test]
 fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
@@ -81,7 +81,7 @@ fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
         outcome.stderr
     );
     assert!(
-        outcome.stderr.contains("main.lua"),
+        outcome.stderr.contains("main.luau"),
         "the load error should name the file that did not load:\n{}",
         outcome.stderr
     );
@@ -108,7 +108,7 @@ fn a_missing_main_lua_produces_safe_mode_too() {
 }
 
 /// Safe mode requires `lunette` and nothing else, because a broken standard
-/// library is one of the reasons `main.lua` may have failed. The test points
+/// library is one of the reasons `main.luau` may have failed. The test points
 /// the mount at a directory that does not exist, which is that failure.
 #[test]
 fn safe_mode_runs_with_no_standard_library_mounted() {
@@ -201,7 +201,7 @@ impl Session {
     /// The socket appearing is not that condition. The socket is bound before
     /// the Lua state boots, so a failure to bind is reported among the other
     /// startup failures (see `crates/lunette/src/main.rs`), which is before
-    /// `main.lua` loads and fails and before safe mode replaces it. A test that
+    /// `main.luau` loads and fails and before safe mode replaces it. A test that
     /// started asking then would race the boot whose outcome it asserts.
     ///
     /// Answering is the condition and implies the rest: the frame loop services
@@ -335,8 +335,8 @@ fn fixture_directory(fixture: &str) -> PathBuf {
         .join("fixtures")
         .join(fixture);
     assert!(
-        directory.join("lunette").join("conf.lua").is_file(),
-        "the {fixture} fixture is missing its conf.lua"
+        directory.join("lunette").join("conf.luau").is_file(),
+        "the {fixture} fixture is missing its conf.luau"
     );
     directory
 }

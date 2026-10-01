@@ -22,7 +22,7 @@
 //! order once they exist.
 //!
 //! The exit status is read from stack index 1, where `src/main.c:21` reads
-//! index -1. `vendor/lovr/etc/boot.lua:374` returns `result, cookie`, so a
+//! index -1. `vendor/lovr/etc/boot.lua:383` returns `result, cookie`, so a
 //! finished coroutine leaves two values behind and index -1 is the nil cookie.
 //! Upstream's `lua_tointeger` on that nil yields 0, which makes every exit
 //! report success. See [`step`]; matching `main.c` would report success for
@@ -66,7 +66,7 @@ use tracing::{debug, error, info, warn};
 /// positional paths of the same shape are easy to swap.
 #[derive(Debug, Clone, Copy)]
 pub struct SessionPaths<'a> {
-    /// Where LÖVR loads `main.lua` and `conf.lua` from.
+    /// Where LÖVR loads `main.luau` and `conf.luau` from.
     pub config: &'a Path,
     /// The root of the Lua module data from which mounted roots are resolved.
     pub standard_library: &'a Path,
@@ -80,7 +80,7 @@ pub struct SessionPaths<'a> {
 /// `paths` names the configuration directory and the standard library, both
 /// already resolved.
 ///
-/// `session` outlives every Lua state this creates; `main.lua` reaches the
+/// `session` outlives every Lua state this creates; `main.luau` reaches the
 /// compositor through it. A restart closes the state and builds another,
 /// leaving the session, the clients, and their textures untouched; the session
 /// is owned at the outer scope for that reason.
@@ -212,7 +212,7 @@ fn run_session(
         let roots = ModuleRoots::development(paths.standard_library);
         install_standard_library_mount(state, &roots);
 
-        // Before `boot.lua`, because `main.lua` runs inside it and requires the
+        // Before `boot.lua`, because `main.luau` runs inside it and requires the
         // module at its top. After `luaL_openlibs`, because the module is
         // registered through `package.preload`.
         //
@@ -223,7 +223,7 @@ fn run_session(
             return Outcome::LoadFailed;
         }
 
-        // Before `boot.lua`, which requires `main.lua` through it.
+        // Before `boot.lua`, which requires `main.luau` through it.
         if let Err(error) = require::install(&lua_handle) {
             error!("lua: relative require could not be installed: {error}");
             return Outcome::LoadFailed;
@@ -253,7 +253,7 @@ fn run_session(
 
         // After the chunk, because the chunk creates the `lovr` table and the
         // first resume is when `boot.lua` reads `lovr.boot` back. There is no
-        // other moment: the coroutine boots the modules and runs `main.lua` on
+        // other moment: the coroutine boots the modules and runs `main.luau` on
         // the same resume.
         //
         // SAFETY: `state` is live until the `luax_close` below, and the
@@ -545,7 +545,7 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
         }
 
         // Index 1, not the -1 that `src/main.c:21` uses.
-        // `vendor/lovr/etc/boot.lua:374` finishes with `return result, cookie`,
+        // `vendor/lovr/etc/boot.lua:383` finishes with `return result, cookie`,
         // so the resumed coroutine leaves two values on its stack: the status
         // at index 1 and the restart cookie at index 2. Index -1 is the cookie,
         // which is nil on the exit path; `lua_tointeger` on nil is 0, so
@@ -587,7 +587,7 @@ fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
 ///
 /// Mounting needs `lovr.filesystem`, and `vendor/lovr/etc/boot.lua:76` creates
 /// that module inside the coroutine, on the same resume that goes on to run
-/// `main.lua` at `:183`. The host can reach no moment between the two: before
+/// `main.luau` at `:192`. The host can reach no moment between the two: before
 /// the resume the module does not exist, and after it the configuration has
 /// already run. Wrapping the `package.preload` entry the module is created by
 /// puts the mount between them.
@@ -599,7 +599,7 @@ fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
 ///
 /// # Precedence
 ///
-/// The configuration is mounted at the filesystem root by `boot.lua:125`.
+/// The configuration is mounted at the filesystem root by `boot.lua:129`.
 /// Every mounted module root gets the `@` mount point from [`ModuleRoots`], so
 /// a configuration cannot shadow a module root by placing a file at root.
 ///
@@ -609,7 +609,7 @@ fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
 /// file in a module root. What a session writes goes to the save directory
 /// `lovr.filesystem.setIdentity` establishes. That directory is mounted ahead
 /// of everything else when `conf.saveprecedence` is left at LÖVR's default of
-/// true; the shipped `conf.lua` turns it off, and `docs/dev/stdlib.md` records
+/// true; the shipped `conf.luau` turns it off, and `docs/dev/stdlib.md` records
 /// why.
 ///
 /// Optional roots are omitted when their source directory is absent. A missing
@@ -835,11 +835,11 @@ unsafe fn push_arg_table(
 ///
 /// Inserting the configuration directory at index 1 is the purpose of this
 /// function. `src/main.c:43-46` copies `argv` verbatim, which leaves `arg[1]`
-/// holding whatever the user typed. `vendor/lovr/etc/boot.lua:90-102` requires
+/// holding whatever the user typed. `vendor/lovr/etc/boot.lua:90-105` requires
 /// `arg[1]` to name a source: if it is absent or starts with `-`, boot.lua
 /// prints `usage: lovr <source>` and quits. Otherwise it shifts every index
 /// down by one so the source lands at `arg[0]`, and calls
-/// `lovr.filesystem.setSource` on it at `vendor/lovr/etc/boot.lua:131`.
+/// `lovr.filesystem.setSource` on it at `vendor/lovr/etc/boot.lua:132`.
 /// Placing the configuration directory at `arg[1]` points LÖVR at it; lunette
 /// never calls `setSource` itself.
 fn arg_entries(

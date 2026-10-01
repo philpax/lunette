@@ -140,12 +140,12 @@ mod tests {
     #[test]
     fn a_nested_module_requires_its_sibling() {
         let lua = state(&[
-            ("nested/a", "nested/a.lua", "return require './b'"),
-            ("nested/b", "nested/b.lua", "return 'b'"),
+            ("nested/a", "nested/a.luau", "return require './b'"),
+            ("nested/b", "nested/b.luau", "return 'b'"),
         ]);
         let answer: String = lua
             .load("return require './nested/a'")
-            .set_name("@main.lua")
+            .set_name("@main.luau")
             .eval()
             .expect("the require");
         assert_eq!(answer, "b");
@@ -157,14 +157,14 @@ mod tests {
         let lua = state(&[
             (
                 "nested/a",
-                "nested/a.lua",
+                "nested/a.luau",
                 "local ok, b = pcall(require, './b') assert(ok, b) return b",
             ),
-            ("nested/b", "nested/b.lua", "return 'b'"),
+            ("nested/b", "nested/b.luau", "return 'b'"),
         ]);
         let answer: String = lua
             .load("return require './nested/a'")
-            .set_name("@main.lua")
+            .set_name("@main.luau")
             .eval()
             .expect("the require");
         assert_eq!(answer, "b");
@@ -174,12 +174,12 @@ mod tests {
     fn an_alias_reaches_the_loader_as_it_stands() {
         let lua = state(&[(
             "@lunette-contracts/scale",
-            "@lunette-contracts/scale.lua",
+            "@lunette-contracts/scale.luau",
             "return 'scale'",
         )]);
         let answer: String = lua
             .load("return require '@lunette-contracts/scale'")
-            .set_name("@nested/a.lua")
+            .set_name("@nested/a.luau")
             .eval()
             .expect("the require");
         assert_eq!(answer, "scale");
@@ -191,13 +191,13 @@ mod tests {
         let lua = state(&[]);
         let error = lua
             .load("\nrequire '../outside'")
-            .set_name("@main.lua")
+            .set_name("@main.luau")
             .exec()
             .expect_err("an escape");
         let message = error.to_string();
         assert!(
             message.contains(
-                "main.lua:2: require: '../outside' from main.lua leaves the root it starts in"
+                "main.luau:2: require: '../outside' from main.luau leaves the root it starts in"
             ),
             "{message}"
         );

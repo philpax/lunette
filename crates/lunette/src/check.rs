@@ -338,12 +338,12 @@ mod tests {
     fn configuration() -> TempDir {
         let directory = TempDir::new().expect("a temporary directory");
         for file in [
-            "main.lua",
-            "conf.lua",
-            "nested/a.luau",
+            "main.luau",
+            "conf.luau",
+            "nested/a.lua",
             ".luaurc",
             "notes.txt",
-            ".hidden/x.lua",
+            ".hidden/x.luau",
         ] {
             let path = directory.path().join(file);
             fs::create_dir_all(path.parent().expect("a parent")).expect("the directory");
@@ -358,7 +358,7 @@ mod tests {
         let found = targets(&[], directory.path()).expect("the files");
         assert_eq!(
             found,
-            ["conf.lua", "main.lua", "nested/a.luau"].map(|file| directory.path().join(file))
+            ["conf.luau", "main.luau", "nested/a.lua"].map(|file| directory.path().join(file))
         );
     }
 
@@ -367,15 +367,15 @@ mod tests {
         let directory = configuration();
         let elsewhere = configuration();
         let named = [
-            elsewhere.path().join("main.lua"),
+            elsewhere.path().join("main.luau"),
             elsewhere.path().join("nested"),
         ];
         let found = targets(&named, directory.path()).expect("the files");
         assert_eq!(
             found,
             [
-                elsewhere.path().join("main.lua"),
-                elsewhere.path().join("nested/a.luau")
+                elsewhere.path().join("main.luau"),
+                elsewhere.path().join("nested/a.lua")
             ]
         );
     }
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn a_missing_named_path_is_an_error() {
         let directory = configuration();
-        let missing = directory.path().join("absent.lua");
+        let missing = directory.path().join("absent.luau");
         assert!(matches!(
             targets(std::slice::from_ref(&missing), directory.path()),
             Err(TargetError::Missing { path, defaulted: false }) if path == missing

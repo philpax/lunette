@@ -293,8 +293,8 @@ pub struct InstallArtifact {
 
 /// The source and destination paths that make up an installed Luau runtime.
 ///
-/// Directory entries are copied recursively by the installer, but only `.lua`
-/// and `.luau` files are accepted from them. The manifest deliberately does not
+/// Directory entries are copied recursively by the installer, but only `.luau`
+/// files are accepted from them. The manifest deliberately does not
 /// include `lua/spec` or test/probe paths.
 pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
     InstallArtifact {
@@ -601,8 +601,7 @@ mod tests {
                 .all(|artifact| !artifact.source.starts_with("lua/spec"))
         );
         assert!(INSTALL_ARTIFACTS.iter().all(|artifact| {
-            artifact.source.ends_with(".lua")
-                || artifact.source.ends_with(".luau")
+            artifact.source.ends_with(".luau")
                 || artifact.source.starts_with("lua/")
                 || artifact.source == "etc/lunette/installed.luaurc"
         }));

@@ -27,16 +27,16 @@ fn check(paths: &[&str]) {
 
 #[test]
 fn tags_service() {
-    check(&["tags/service.lua"]);
+    check(&["tags/service.luau"]);
 }
 #[test]
 fn rules_service() {
-    check(&["rules/policy.lua", "rules/service.lua"]);
+    check(&["rules/policy.luau", "rules/service.luau"]);
 }
 
 #[test]
 fn placement_service() {
-    check(&["placement/init.lua", "placement/service.lua"]);
+    check(&["placement/init.luau", "placement/service.luau"]);
 }
 
 #[test]
@@ -83,17 +83,17 @@ fn rules_predicates_and_evaluators() {
 }
 #[test]
 fn arc_geometry_and_layouts_broker() {
-    check(&["layout/arc/geometry.lua", "layouts/init.lua"]);
+    check(&["layout/arc/geometry.luau", "layouts/init.luau"]);
 }
 #[test]
 fn full_entrypoints() {
     check(&[
-        "tags/init.lua",
-        "rules/init.lua",
-        "layouts/init.lua",
-        "layout/arc/init.lua",
-        "adoption/init.lua",
-        "placement/init.lua",
-        "errors/init.lua",
+        "tags/init.luau",
+        "rules/init.luau",
+        "layouts/init.luau",
+        "layout/arc/init.luau",
+        "adoption/init.luau",
+        "placement/init.luau",
+        "errors/init.luau",
     ]);
 }

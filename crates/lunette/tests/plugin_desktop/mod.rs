@@ -38,7 +38,7 @@ pub fn state_for(configuration: &Path) -> mlua::Result<Lua> {
     package.set("preload", loaders.clone())?;
     lua.globals().set("package", package)?;
     lua.globals().set("modules", loaders.clone())?;
-    lua.load(include_str!("require.lua"))
+    lua.load(include_str!("require.luau"))
         .set_name("desktop module resolver")
         .exec()?;
     let native = lua.create_table()?;
@@ -88,11 +88,11 @@ pub fn state_for(configuration: &Path) -> mlua::Result<Lua> {
     plugin_sources::register_directory(&lua, &loaders, &root.join(configuration), "")?;
     loaders.set(
         "fixture/graph",
-        lua.load(include_str!("graph.lua"))
+        lua.load(include_str!("graph.luau"))
             .set_name("desktop composition")
             .into_function()?,
     )?;
-    lua.load(include_str!("native.lua"))
+    lua.load(include_str!("native.luau"))
         .set_name("desktop unmanaged boundaries")
         .exec()?;
     Ok(lua)

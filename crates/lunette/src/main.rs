@@ -773,7 +773,7 @@ fn config_directory_candidates(sources: &ConfigDirectorySources) -> Vec<PathBuf>
 /// Picks the configuration directory to load from.
 ///
 /// The first candidate that exists wins. When none exists the highest-priority
-/// candidate is used anyway, so boot.lua's own "no main.lua" message names the
+/// candidate is used anyway, so boot.lua's own "no main.luau" message names the
 /// directory the user is expected to create, not a system path they cannot
 /// write to.
 fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
@@ -1163,21 +1163,21 @@ mod tests {
         let home = TempDir::new().expect("a temporary directory");
         let configuration = home.path().join(".config").join("lunette");
         fs::create_dir_all(&configuration).expect("the configuration directory");
-        fs::write(configuration.join("main.lua"), "").expect("main.lua");
+        fs::write(configuration.join("main.luau"), "").expect("main.luau");
 
         // `$XDG_CONFIG_HOME/lunette` is not there, so the search passes it.
         let candidates =
             config_directory_candidates(&sources(xdg.path().to_str(), home.path().to_str()));
         let searched = select_config_directory(&candidates).expect("a candidate");
         let checked = check::targets(&[], config_directory(None, searched)).expect("the files");
-        assert_eq!(checked, vec![configuration.join("main.lua")]);
+        assert_eq!(checked, vec![configuration.join("main.luau")]);
 
         let named = xdg.path().join("named");
         fs::create_dir_all(&named).expect("the named directory");
-        fs::write(named.join("main.lua"), "").expect("main.lua");
+        fs::write(named.join("main.luau"), "").expect("main.luau");
         let checked =
             check::targets(&[], config_directory(Some(&named), searched)).expect("the files");
-        assert_eq!(checked, vec![named.join("main.lua")]);
+        assert_eq!(checked, vec![named.join("main.luau")]);
     }
 
     #[test]

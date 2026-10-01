@@ -25,13 +25,13 @@ fn state() -> mlua::Result<(Lua, Table)> {
 
 fn run_fixture(lua: &Lua, plugin: &Table, name: &str) -> mlua::Result<()> {
     let source = match name {
-        "cancelled_initializer" => include_str!("plugin_attachment/cancelled_initializer.lua"),
-        "panic" => include_str!("plugin_attachment/panic.lua"),
-        "after_panic" => include_str!("plugin_attachment/after_panic.lua"),
-        "requests" => include_str!("plugin_attachment/requests.lua"),
-        "stale_effects" => include_str!("plugin_attachment/stale_effects.lua"),
-        "fan_out" => include_str!("plugin_attachment/fan_out.lua"),
-        "diagnostics" => include_str!("plugin_attachment/diagnostics.lua"),
+        "cancelled_initializer" => include_str!("plugin_attachment/cancelled_initializer.luau"),
+        "panic" => include_str!("plugin_attachment/panic.luau"),
+        "after_panic" => include_str!("plugin_attachment/after_panic.luau"),
+        "requests" => include_str!("plugin_attachment/requests.luau"),
+        "stale_effects" => include_str!("plugin_attachment/stale_effects.luau"),
+        "fan_out" => include_str!("plugin_attachment/fan_out.luau"),
+        "diagnostics" => include_str!("plugin_attachment/diagnostics.luau"),
         other => return Err(mlua::Error::runtime(format!("unknown fixture {other}"))),
     };
     let callback: Function = lua.load(source).set_name(name).eval()?;

@@ -10,12 +10,12 @@ mod plugin_support;
 
 #[test]
 fn policy_providers_compose_and_release_caller_resources() -> mlua::Result<()> {
-    run(include_str!("plugin_policy/fixtures/policy.lua"))
+    run(include_str!("plugin_policy/fixtures/policy.luau"))
 }
 
 #[test]
 fn tags_are_held_excluded_laid_out_and_announced() -> mlua::Result<()> {
-    run(include_str!("plugin_policy/fixtures/tags.lua"))
+    run(include_str!("plugin_policy/fixtures/tags.luau"))
 }
 
 /// Runs a fixture against the real providers, with the native fixture's
@@ -55,7 +55,7 @@ fn run(fixture: &str) -> mlua::Result<()> {
         lua.create_function(move |_, ()| Ok(native.clone()))?,
     )?;
     plugin_sources::register(&lua, &loaders)?;
-    lua.load(include_str!("plugin_policy/fixtures/native.lua"))
+    lua.load(include_str!("plugin_policy/fixtures/native.luau"))
         .exec()?;
     lua.load(fixture).exec()?;
     let errors = plugin_support::shutdown(&lua);

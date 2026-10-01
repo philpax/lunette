@@ -6,7 +6,7 @@ use lunette_lovr::analyze::{self, Kind, Report, Request};
 
 #[test]
 fn shipped_configuration_is_strictly_typed() {
-    let report = check("etc/xdg/lunette/conf.lua");
+    let report = check("etc/xdg/lunette/conf.luau");
     assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
 }
 

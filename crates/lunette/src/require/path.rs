@@ -8,9 +8,9 @@
 //!   and a directory's `init.lua` or `init.luau` is the module named by the
 //!   directory.
 //! - `./` and `../` start from the directory that holds the module: the parent
-//!   of the module's path. In `keyboard/init.lua`, whose module is `keyboard`,
+//!   of the module's path. In `keyboard/init.luau`, whose module is `keyboard`,
 //!   `./draw` is `draw`, a sibling of the directory.
-//! - `@self` starts from the module's own path. In `keyboard/init.lua`,
+//! - `@self` starts from the module's own path. In `keyboard/init.luau`,
 //!   `@self/draw` is `keyboard/draw`.
 //!
 //! A session's configuration is mounted at the root of LÖVR's virtual
@@ -25,7 +25,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Requirer<'a> {
     /// A chunk loaded from a file, named by its path in the virtual
-    /// filesystem, such as `nested/a.lua` or `@lunette-contracts/scale.lua`.
+    /// filesystem, such as `nested/a.luau` or `@lunette-contracts/scale.luau`.
     File(&'a str),
     /// A chunk with no file, such as one `lunctl eval` sends. It resolves as a
     /// module at the configuration root would, as a REPL resolves against its
@@ -232,34 +232,38 @@ mod tests {
     fn relative_paths_resolve() {
         let cases = [
             // A top-level module requires a sibling.
-            ("@main.lua", "./split", "split"),
+            ("@main.luau", "./split", "split"),
             // A nested module requires its sibling.
-            ("@nested/a.lua", "./b", "nested/b"),
+            ("@nested/a.luau", "./b", "nested/b"),
             // A parent path climbs one directory.
-            ("@nested/deeper/a.lua", "../b", "nested/b"),
+            ("@nested/deeper/a.luau", "../b", "nested/b"),
             // An init file's sibling is beside its directory.
-            ("@nested/init.lua", "./b", "b"),
+            ("@nested/init.luau", "./b", "b"),
             // Self in an init file is its directory.
             ("@nested/init.luau", "@self/b", "nested/b"),
             // Self in any other file is the module's own path.
+            ("@nested/a.luau", "@self/b", "nested/a/b"),
+            // A `.lua` file names its module the same way: LÖVR still loads
+            // a main.lua, and the require path still searches for `.lua`.
             ("@nested/a.lua", "@self/b", "nested/a/b"),
+            ("@nested/init.lua", "@self/b", "nested/b"),
             // A mounted root resolves within itself.
             (
-                "@@lunette-contracts/scale.lua",
+                "@@lunette-contracts/scale.luau",
                 "./pacing",
                 "@lunette-contracts/pacing",
             ),
             (
-                "@@lunette-plugins/keyboard/init.lua",
+                "@@lunette-plugins/keyboard/init.luau",
                 "@self/draw",
                 "@lunette-plugins/keyboard/draw",
             ),
             // Empty components in a chunk name are skipped.
-            ("@//split.lua", "./other", "other"),
+            ("@//split.luau", "./other", "other"),
             // A chunk with no file resolves at the root.
             ("=lunctl", "./tool", "tool"),
             // Dot and empty path components are skipped.
-            ("@nested/a.lua", "./x/./y//z", "nested/x/y/z"),
+            ("@nested/a.luau", "./x/./y//z", "nested/x/y/z"),
         ];
         for (file, path, expected) in cases {
             assert_eq!(
@@ -273,32 +277,32 @@ mod tests {
     #[test]
     fn other_paths_are_left_to_the_loader() {
         for path in ["@lunette-contracts/scale", "main", "@selfish/x"] {
-            assert_eq!(resolved("@nested/a.lua", path), Ok(None), "{path}");
+            assert_eq!(resolved("@nested/a.luau", path), Ok(None), "{path}");
         }
     }
 
     #[test]
     fn unrepresentable_paths_are_errors() {
         let cases = [
-            ("@main.lua", "../x", ResolveErrorKind::Escapes),
+            ("@main.luau", "../x", ResolveErrorKind::Escapes),
             (
-                "@@lunette-contracts/scale.lua",
+                "@@lunette-contracts/scale.luau",
                 "../x",
                 ResolveErrorKind::Escapes,
             ),
             (
-                "@@lunette-contracts/init.lua",
+                "@@lunette-contracts/init.luau",
                 "./x",
                 ResolveErrorKind::Escapes,
             ),
-            ("@nested/a.lua", "../", ResolveErrorKind::NamesRoot),
+            ("@nested/a.luau", "../", ResolveErrorKind::NamesRoot),
             (
-                "@@lunette-contracts/a.lua",
+                "@@lunette-contracts/a.luau",
                 "./",
                 ResolveErrorKind::NamesRoot,
             ),
             (
-                "@nested/a.lua",
+                "@nested/a.luau",
                 "./my.module",
                 ResolveErrorKind::Dotted("my.module".to_owned()),
             ),
@@ -311,10 +315,10 @@ mod tests {
 
     #[test]
     fn an_error_names_the_path_and_the_requiring_file() {
-        let error = resolve(Requirer::File("./nested//a.lua"), "../../x").expect_err("an escape");
+        let error = resolve(Requirer::File("./nested//a.luau"), "../../x").expect_err("an escape");
         assert_eq!(
             error.to_string(),
-            "require: '../../x' from nested/a.lua leaves the root it starts in"
+            "require: '../../x' from nested/a.luau leaves the root it starts in"
         );
     }
 
@@ -338,7 +342,7 @@ mod tests {
                 requirer.push('/');
             }
             requirer.push_str(&file);
-            requirer.push_str(".lua");
+            requirer.push_str(".luau");
 
             let mut expected = root.clone();
             for part in directory.iter().chain(&path) {
@@ -361,7 +365,7 @@ mod tests {
             file in component(),
             target in component(),
         ) {
-            let chunk = format!("@{}/{file}.lua", directory.join("/"));
+            let chunk = format!("@{}/{file}.luau", directory.join("/"));
             let last = directory.last().cloned().unwrap_or_default();
             let direct = resolve(Requirer::from_chunk_name(&chunk), &format!("./{target}"));
             let around = resolve(Requirer::from_chunk_name(&chunk), &format!("../{last}/{target}"));

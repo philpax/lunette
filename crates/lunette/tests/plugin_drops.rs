@@ -68,8 +68,8 @@ fn state() -> mlua::Result<Lua> {
 #[test]
 fn drops_are_owned_disposable_protected_and_emitted_when_a_grab_ends() -> mlua::Result<()> {
     let lua = state()?;
-    lua.load(include_str!("plugin_drops/fixture.lua"))
-        .set_name("plugin_drops/fixture.lua")
+    lua.load(include_str!("plugin_drops/fixture.luau"))
+        .set_name("plugin_drops/fixture.luau")
         .exec()?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");

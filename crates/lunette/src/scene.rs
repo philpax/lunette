@@ -112,7 +112,7 @@ impl Gate {
 /// Called once per Lua state, before `boot.lua` runs. The wrap is of the
 /// `package.preload` loader, not of the module: the module does not exist
 /// until `lovr.boot` requires it, which happens inside the same resume that
-/// goes on to run `main.lua`.
+/// goes on to run `main.luau`.
 ///
 /// A state with no LÖVR in it, such as every test state and any state where
 /// the headset module was not preloaded, is left alone. There is nothing to

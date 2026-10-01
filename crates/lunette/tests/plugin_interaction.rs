@@ -43,7 +43,7 @@ fn state() -> mlua::Result<Lua> {
 #[test]
 fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> {
     let lua = state()?;
-    lua.load(include_str!("plugin_interaction/runtime.lua"))
+    lua.load(include_str!("plugin_interaction/runtime.luau"))
         .set_name("interaction/runtime")
         .exec()?;
     // The first failing release is raised to the fixture's destroy call. The
@@ -60,7 +60,7 @@ fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> 
 #[test]
 fn focus_grants_are_held_per_owner_and_seat_and_announced() -> mlua::Result<()> {
     let lua = state()?;
-    lua.load(include_str!("plugin_interaction/focus.lua"))
+    lua.load(include_str!("plugin_interaction/focus.luau"))
         .set_name("interaction/focus")
         .exec()?;
     let errors = plugin_support::shutdown(&lua);

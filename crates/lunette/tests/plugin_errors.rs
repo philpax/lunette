@@ -131,8 +131,8 @@ fn install_native_error(lua: &Lua) -> mlua::Result<()> {
 fn the_stream_limits_records_and_delivers_native_errors_and_unloads_safely() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Function = lua
-        .load(include_str!("plugin_errors/errors.lua"))
-        .set_name("plugin_errors/errors.lua")
+        .load(include_str!("plugin_errors/errors.luau"))
+        .set_name("plugin_errors/errors.luau")
         .eval()?;
 
     fixture.call::<Value>(())?;

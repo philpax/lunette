@@ -173,8 +173,8 @@ fn production_facade_composes_interaction_and_laser_with_borrowed_seat_cleanup()
     lua.globals().set("fake_seat", seat)?;
 
     let fixture: Function = lua
-        .load(include_str!("plugin_laser/facade.lua"))
-        .set_name("plugin_laser/facade.lua")
+        .load(include_str!("plugin_laser/facade.luau"))
+        .set_name("plugin_laser/facade.luau")
         .eval()?;
     let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
     let modules = lua.create_table()?;
@@ -218,8 +218,8 @@ fn production_facade_composes_interaction_and_laser_with_borrowed_seat_cleanup()
 fn followup_records_input_rendering_haptics_and_replacement_cleanup() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Function = lua
-        .load(include_str!("plugin_laser/followup.lua"))
-        .set_name("plugin_laser/followup.lua")
+        .load(include_str!("plugin_laser/followup.luau"))
+        .set_name("plugin_laser/followup.luau")
         .eval()?;
     let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
     let modules = lua.create_table()?;
@@ -269,8 +269,8 @@ fn followup_records_input_rendering_haptics_and_replacement_cleanup() -> mlua::R
 fn a_failing_laser_release_quarantines_its_owner_not_the_provider() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Function = lua
-        .load(include_str!("plugin_laser/release_failure.lua"))
-        .set_name("plugin_laser/release_failure.lua")
+        .load(include_str!("plugin_laser/release_failure.luau"))
+        .set_name("plugin_laser/release_failure.luau")
         .eval()?;
     let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
     let modules = lua.create_table()?;
@@ -307,8 +307,8 @@ fn a_failing_laser_release_quarantines_its_owner_not_the_provider() -> mlua::Res
 fn draw_and_read_hooks_and_button_mappings_reach_every_laser() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Function = lua
-        .load(include_str!("plugin_laser/hooks.lua"))
-        .set_name("plugin_laser/hooks.lua")
+        .load(include_str!("plugin_laser/hooks.luau"))
+        .set_name("plugin_laser/hooks.luau")
         .eval()?;
     let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
     let modules = lua.create_table()?;

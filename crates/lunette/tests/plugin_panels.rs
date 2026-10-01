@@ -139,7 +139,7 @@ fn install_native_fakes(lua: &Lua) -> mlua::Result<()> {
 fn provider_uses_real_facade_with_unmanaged_native_fakes() -> mlua::Result<()> {
     let lua = state()?;
     install_native_fakes(&lua)?;
-    let source = include_str!("plugin_panels/panels.lua");
+    let source = include_str!("plugin_panels/panels.luau");
     let callback: Function = lua.load(source).set_name("plugin_panels").eval()?;
     let _: Value = callback.call(())?;
     let errors = plugin_support::shutdown(&lua);
@@ -152,8 +152,8 @@ fn a_raising_removal_listener_does_not_fail_the_drain_that_removed_the_panel() -
     let lua = state()?;
     install_native_fakes(&lua)?;
     let callback: Function = lua
-        .load(include_str!("plugin_panels/removal_during_drain.lua"))
-        .set_name("plugin_panels/removal_during_drain.lua")
+        .load(include_str!("plugin_panels/removal_during_drain.luau"))
+        .set_name("plugin_panels/removal_during_drain.luau")
         .eval()?;
     let _: Value = callback.call(())?;
     // The listener's errors went to lunette.reportError, which the fixture
@@ -167,8 +167,8 @@ fn a_raising_removal_listener_does_not_fail_the_drain_that_removed_the_panel() -
 fn initial_claim_failure_keeps_registry_unchanged_and_allows_retry() -> mlua::Result<()> {
     let lua = state()?;
     install_native_fakes(&lua)?;
-    lua.load(include_str!("plugin_panels/acquisition_failure.lua"))
-        .set_name("plugin_panels/acquisition_failure.lua")
+    lua.load(include_str!("plugin_panels/acquisition_failure.luau"))
+        .set_name("plugin_panels/acquisition_failure.luau")
         .exec()?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
@@ -190,7 +190,7 @@ fn destroyed_panels_release_payloads_while_provider_is_active() -> mlua::Result<
     let lua = state()?;
     install_native_fakes(&lua)?;
     let fixture: Table = lua
-        .load(include_str!("plugin_panels/retention.lua"))
+        .load(include_str!("plugin_panels/retention.luau"))
         .set_name("panel_retention")
         .eval()?;
     let cycle: Function = fixture.get("cycle")?;
@@ -215,8 +215,8 @@ fn visibility_overrides_chrome_curves_and_shape_hooks_follow_the_contract() -> m
     let lua = state()?;
     install_native_fakes(&lua)?;
     let callback: Function = lua
-        .load(include_str!("plugin_panels/visibility.lua"))
-        .set_name("plugin_panels/visibility.lua")
+        .load(include_str!("plugin_panels/visibility.luau"))
+        .set_name("plugin_panels/visibility.luau")
         .eval()?;
     let _: Value = callback.call(())?;
     let errors = plugin_support::shutdown(&lua);

@@ -1,14 +1,14 @@
 # Writing plugins
 
-A lunette configuration is a LÖVR project whose `main.lua` composes the shipped desktop and adds or replaces plugins in it. A plugin is a definition: a name, the contracts it requires and provides, and an initializer that runs when the plugin loads. Everything a plugin creates while it loads is undone when it unloads.
+A lunette configuration is a LÖVR project whose `main.luau` composes the shipped desktop and adds or replaces plugins in it. A plugin is a definition: a name, the contracts it requires and provides, and an initializer that runs when the plugin loads. Everything a plugin creates while it loads is undone when it unloads.
 
 The code in this guide is in four example configurations, `examples/first-plugin`, `examples/keyboard`, `examples/layout`, and `examples/desktop`. `make check` typechecks all four and runs them in the desktop test harness, so the code here is code that works. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
 
 ## A configuration to work in
 
-`lunette --dump-config` writes `main.lua` and `conf.lua` to `$XDG_CONFIG_HOME/lunette`, or to a directory given after the flag, together with a `.luaurc` that names the Lua roots by absolute path. The `.luaurc` is what lets `lunette check` and an editor resolve `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`. A configuration copied by hand from the source tree carries a `.luaurc` whose relative paths point nowhere. From a source tree that is not installed, `LUNETTE_STDLIB_PATH=lua cargo run -- --dump-config DIR` writes one that names the tree's roots.
+`lunette --dump-config` writes `main.luau` and `conf.luau` to `$XDG_CONFIG_HOME/lunette`, or to a directory given after the flag, together with a `.luaurc` that names the Lua roots by absolute path. The `.luaurc` is what lets `lunette check` and an editor resolve `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`. A configuration copied by hand from the source tree carries a `.luaurc` whose relative paths point nowhere. From a source tree that is not installed, `LUNETTE_STDLIB_PATH=lua cargo run -- --dump-config DIR` writes one that names the tree's roots.
 
-The shipped `main.lua` is one call:
+The shipped `main.luau` is one call:
 
 ```lua
 require('@lunette-desktop').run()
@@ -16,11 +16,11 @@ require('@lunette-desktop').run()
 
 `run` takes `patches`, which change the desktop's list of plugins. `require('@lunette-desktop').entries()` answers that list; each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in plugins provide services, such as panels, pointers, and the keyboard, and the `desktop/` entries use them: `desktop/render` draws the panels, `desktop/decorations` gives them title bars, `desktop/pointing` points the lasers, and so on.
 
-Plugin modules go in the configuration directory and are required with a relative path such as `require './hello'`. A relative path starts from the directory that holds the requiring module, in a session and in `lunette check` alike, so a plugin split across `myplugin/init.lua` and `myplugin/draw.lua` requires its part as `require '@self/draw'`: an `init.lua` is the module its directory names, so `./draw` from it would be a sibling of the directory. A relative path cannot climb out of the configuration directory.
+Plugin modules go in the configuration directory and are required with a relative path such as `require './hello'`. A relative path starts from the directory that holds the requiring module, in a session and in `lunette check` alike, so a plugin split across `myplugin/init.luau` and `myplugin/draw.luau` requires its part as `require '@self/draw'`: an `init.luau` is the module its directory names, so `./draw` from it would be a sibling of the directory. A relative path cannot climb out of the configuration directory.
 
 ## A first plugin
 
-`examples/first-plugin/hello.lua` draws a line of text over the scene:
+`examples/first-plugin/hello.luau` draws a line of text over the scene:
 
 ```lua
 local plugin = require '@lunette-plugin'
@@ -56,7 +56,7 @@ require('@lunette-desktop').run {
 
 ## Contracts and capabilities
 
-A contract is a module that declares a capability and the type of the service behind it. `examples/first-plugin/clock.lua` is one:
+A contract is a module that declares a capability and the type of the service behind it. `examples/first-plugin/clock.luau` is one:
 
 ```lua
 local plugin = require '@lunette-plugin'
@@ -79,7 +79,7 @@ A plugin that requires a contract loads only while some plugin provides it. When
 
 ## Providing a service
 
-`examples/first-plugin/clock-provider.lua` provides the clock:
+`examples/first-plugin/clock-provider.luau` provides the clock:
 
 ```lua
 return plugin.define {
@@ -103,7 +103,7 @@ return plugin.define {
 
 ## Effects, ownership, and options
 
-`examples/first-plugin/uptime.lua` consumes the clock, takes an option, and counts opened windows:
+`examples/first-plugin/uptime.luau` consumes the clock, takes an option, and counts opened windows:
 
 ```lua
 export type Config = { read prefix: string? }
@@ -135,7 +135,7 @@ A plugin changes state outside itself only through its context. `context:on` sub
 { insert = { id = 'uptime', definition = require './uptime', config = { prefix = 'running for' } } },
 ```
 
-`examples/first-plugin/main.lua` inserts all three plugins.
+`examples/first-plugin/main.luau` inserts all three plugins.
 
 ## Configuring a built-in plugin
 
@@ -158,7 +158,7 @@ desktop.run {
 
 ## Extending the built-in keyboard
 
-Each built-in provider module answers `definition`, the definition the desktop uses; `define`, which makes another definition with other defaults; `build`; and `requires`. `define` is typed, so the checker reads its options. `examples/keyboard/split.lua` is the built-in keyboard with other rows, a numpad layer, a click on every key, and a flash on the key that was pressed.
+Each built-in provider module answers `definition`, the definition the desktop uses; `define`, which makes another definition with other defaults; `build`; and `requires`. `define` is typed, so the checker reads its options. `examples/keyboard/split.luau` is the built-in keyboard with other rows, a numpad layer, a click on every key, and a flash on the key that was pressed.
 
 Rows are lists of keys. A key has an evdev `code` or an `action`; a key with neither is a spacer. `width` and `height` are in key units, and `x` is room left before the key. Codes come from `@lunette-contracts/keys`, and legends come from the seat's keymap, so the rows work on any layout.
 
@@ -231,7 +231,7 @@ return keyboard.define {
 }
 ```
 
-`pointer:vibrate` pulses the controller of the hand that pressed the key; the laser gives each pointer its controller. `key.source` is the row entry the key was made from, which stays the same table from frame to frame, so it can key a table across frames. `drawing` is `@lunette-plugins/keyboard/draw`, which has the default drawing's halves, `face` and `legend`, and `faceColor`. `examples/keyboard/rounded.lua` uses them to draw rounded faces and keep the default legends.
+`pointer:vibrate` pulses the controller of the hand that pressed the key; the laser gives each pointer its controller. `key.source` is the row entry the key was made from, which stays the same table from frame to frame, so it can key a table across frames. `drawing` is `@lunette-plugins/keyboard/draw`, which has the default drawing's halves, `face` and `legend`, and `faceColor`. `examples/keyboard/rounded.luau` uses them to draw rounded faces and keep the default legends.
 
 The definition replaces the desktop's keyboard by id:
 
@@ -239,11 +239,11 @@ The definition replaces the desktop's keyboard by id:
 { id = 'keyboard', definition = require './split' },
 ```
 
-Every plugin that requires the keyboard contract, the wrist button included, then gets the split keyboard. `examples/keyboard/main.lua` does this and moves the wrist button to the right hand.
+Every plugin that requires the keyboard contract, the wrist button included, then gets the split keyboard. `examples/keyboard/main.luau` does this and moves the wrist button to the right hand.
 
 ## Replacing the keyboard
 
-A plugin that provides `lunette/keyboard` itself can take the keyboard entry's place in the same way. The contract is small: `service:new(owner, options)` answers a keyboard, which is a surface with `pose`, `width`, `height`, `visible`, `setPose`, `setSize`, `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`. `examples/keyboard/tiny.lua` implements it with one row of three keys. Its `new` ties each keyboard to the caller:
+A plugin that provides `lunette/keyboard` itself can take the keyboard entry's place in the same way. The contract is small: `service:new(owner, options)` answers a keyboard, which is a surface with `pose`, `width`, `height`, `visible`, `setPose`, `setSize`, `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`. `examples/keyboard/tiny.luau` implements it with one row of three keys. Its `new` ties each keyboard to the caller:
 
 ```lua
 new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
@@ -263,7 +263,7 @@ end,
 
 ## A custom layout
 
-Windows that no rule or saved arrangement places are arranged by the `desktop/arrange` entry, with a layout it names. A layout is a function that poses a list of panels, registered by name with the layouts broker, `lunette/layouts`. The desktop registers the arc layout as `arc`, and a configuration adds another by inserting a plugin that registers it. `examples/layout/grid.lua` registers a grid:
+Windows that no rule or saved arrangement places are arranged by the `desktop/arrange` entry, with a layout it names. A layout is a function that poses a list of panels, registered by name with the layouts broker, `lunette/layouts`. The desktop registers the arc layout as `arc`, and a configuration adds another by inserting a plugin that registers it. `examples/layout/grid.luau` registers a grid:
 
 ```lua
 local plugin = require '@lunette-plugin'
@@ -300,13 +300,13 @@ desktop.configure['desktop/arrange'] { layout = 'grid', options = { grid = { col
 
 `options` gives each layout its options by name, and `desktop/arrange` passes a layout its own whichever tag uses it, so a tag that chooses `grid` with `tag:setLayout` is laid out in three columns too. An inserted entry is enabled after the shipped ones, so the grid registers after `desktop/arrange` has started, and `desktop/arrange` arranges again when it does. If no layout of the chosen name has registered by the first frame, `desktop/arrange` logs a warning naming it.
 
-A layout registered with `continuous = true` is applied on every frame as well. `examples/layout/follow.lua` is one: it keeps the windows on an arc around the head and swings the arc round once the head has turned far enough away from it. It reuses the arc layout's geometry, `@lunette-plugins/layout/arc/geometry`, which spaces panels by their widths so that wide ones do not overlap. `examples/layout/main.lua` inserts both layouts and chooses the grid; `layout = 'follow'` chooses the other.
+A layout registered with `continuous = true` is applied on every frame as well. `examples/layout/follow.luau` is one: it keeps the windows on an arc around the head and swings the arc round once the head has turned far enough away from it. It reuses the arc layout's geometry, `@lunette-plugins/layout/arc/geometry`, which spaces panels by their widths so that wide ones do not overlap. `examples/layout/main.luau` inserts both layouts and chooses the grid; `layout = 'follow'` chooses the other.
 
 To replace the built-in arc rather than add beside it, disable the `layout/arc` entry and register another layout as `arc`. A layout is never overridden in place.
 
 ## Changing how pointers behave
 
-The interaction provider turns each frame of a laser's input into hovering, clicking, scrolling, and carrying. It has two hooks. `constrain(surface, pose, base)` answers where a carried surface goes for where the hand would put it, so a rule about how panels move is one function. `examples/desktop/upright.lua` keeps carried panels level:
+The interaction provider turns each frame of a laser's input into hovering, clicking, scrolling, and carrying. It has two hooks. `constrain(surface, pose, base)` answers where a carried surface goes for where the hand would put it, so a rule about how panels move is one function. `examples/desktop/upright.luau` keeps carried panels level:
 
 ```lua
 local interaction = require '@lunette-plugins/interaction'
@@ -344,7 +344,7 @@ A plugin that moves surfaces for a pointer, as a replacement interaction would, 
 
 ## Key bindings
 
-A key binding is a chord registered with `lunette/bindings`. The bindings provider takes every key press before `desktop/input` sends keys to a window, so a bound key never reaches one, and while the bindings provider is out, keys still reach windows. `examples/desktop/hide-windows.lua` binds control, alt, and H to hide every window and show them again:
+A key binding is a chord registered with `lunette/bindings`. The bindings provider takes every key press before `desktop/input` sends keys to a window, so a bound key never reaches one, and while the bindings provider is out, keys still reach windows. `examples/desktop/hide-windows.luau` binds control, alt, and H to hide every window and show them again:
 
 ```lua
 return plugin.define {
@@ -387,13 +387,13 @@ desktop.configure['desktop/bindings'] { reload = { key = 'f5', modifiers = { 'co
 
 ## Decorations
 
-Panels draw no frame of their own. The `desktop/decorations` entry draws a border round each panel and a title bar above it, and grabbing the bar moves the panel. Its `style` is configuration, as in `examples/desktop/main.lua`:
+Panels draw no frame of their own. The `desktop/decorations` entry draws a border round each panel and a title bar above it, and grabbing the bar moves the panel. Its `style` is configuration, as in `examples/desktop/main.luau`:
 
 ```lua
 desktop.configure['desktop/decorations'] { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
 ```
 
-Decorations of another kind are a plugin that does what `lua/lunette-desktop/decorations.lua` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
+Decorations of another kind are a plugin that does what `lua/lunette-desktop/decorations.luau` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
 
 ## Tags and workspaces
 
@@ -416,7 +416,7 @@ web:add(context, panel)
 web:setLayout(context, { layout = 'grid' })
 ```
 
-The shipped `desktop/workspaces` consumer shows one workspace's windows at a time and hides the rest. It is not in the default desktop; `examples/desktop/main.lua` inserts it with two workspaces on control, alt, and a number:
+The shipped `desktop/workspaces` consumer shows one workspace's windows at a time and hides the rest. It is not in the default desktop; `examples/desktop/main.luau` inserts it with two workspaces on control, alt, and a number:
 
 ```lua
 {
@@ -435,7 +435,7 @@ A window that opens goes to the workspace in view. A workspace consumer of anoth
 
 ## Rules
 
-`desktop/rules` takes the rule list. A rule matches named fields of a window, such as `appId` or `title`, or `where`, a function of the whole window, and its properties say where the window goes and how big it is. `examples/desktop/main.lua` sizes picture-in-picture windows by their title:
+`desktop/rules` takes the rule list. A rule matches named fields of a window, such as `appId` or `title`, or `where`, a function of the whole window, and its properties say where the window goes and how big it is. `examples/desktop/main.luau` sizes picture-in-picture windows by their title:
 
 ```lua
 desktop.configure['desktop/rules'] {
@@ -456,7 +456,7 @@ A rule's `hidden = true` places a window hidden, `adopt = false` leaves it out o
 
 ## Presenting errors
 
-Errors reach plugins through the `lunette/errors` stream, which has already dropped repeats. The shipped `desktop/errors` draws the latest one over the scene; its position, size, and colour are its configuration. Any plugin can present them as well. `examples/desktop/notify-errors.lua` sends each as a desktop notification:
+Errors reach plugins through the `lunette/errors` stream, which has already dropped repeats. The shipped `desktop/errors` draws the latest one over the scene; its position, size, and colour are its configuration. Any plugin can present them as well. `examples/desktop/notify-errors.luau` sends each as a desktop notification:
 
 ```lua
 stream:subscribe(context, {
@@ -480,7 +480,7 @@ The desktop saves where the windows are whenever one is dropped, and at quit. `d
 desktop.configure['desktop/persistence'] { file = 'example.state' },
 ```
 
-It also provides `lunette/arrangement`, so a key can save or put the windows back. `examples/desktop/save-key.lua` binds control, alt, and S to save and control, alt, and R to restore:
+It also provides `lunette/arrangement`, so a key can save or put the windows back. `examples/desktop/save-key.luau` binds control, alt, and S to save and control, alt, and R to restore:
 
 ```lua
 keys:register(context, {
@@ -510,4 +510,4 @@ Each provider takes a hook around its rule. `choose(pacer, observation, base)` a
 
 ## Checking a configuration
 
-`lunette check` typechecks every `.lua` and `.luau` file in the configuration directory a session would load, and every module they require, in strict mode, against the runtime's definitions. Naming files or directories, as in `lunette check main.lua`, checks those instead. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It checks the options of a `desktop.configure` patch but not a plain patch's `config`, and it does not run the plugins: an option error, a malformed row, or an error raised in `init` appears when the session loads the plugin, in the log and in the error panel, naming the plugin.
+`lunette check` typechecks every `.lua` and `.luau` file in the configuration directory a session would load, and every module they require, in strict mode, against the runtime's definitions. Naming files or directories, as in `lunette check main.luau`, checks those instead. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It checks the options of a `desktop.configure` patch but not a plain patch's `config`, and it does not run the plugins: an option error, a malformed row, or an error raised in `init` appears when the session loads the plugin, in the log and in the error panel, naming the plugin.

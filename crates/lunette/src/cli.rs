@@ -82,9 +82,9 @@ pub enum Command {
 /// deliberate packaging change, not an accidental consequence of a tree walk.
 ///
 /// The desktop's consumers are not configuration files: they are the
-/// installed `@lunette-desktop` root, which `main.lua` composes, so a copied
+/// installed `@lunette-desktop` root, which `main.luau` composes, so a copied
 /// configuration patches them rather than carrying copies of them.
-const CONFIG_ARTIFACTS: &[&str] = &["main.lua", "conf.lua"];
+const CONFIG_ARTIFACTS: &[&str] = &["main.luau", "conf.luau"];
 
 /// The contents of each of [`CONFIG_ARTIFACTS`], in its order, as this binary
 /// was built with them.
@@ -97,8 +97,8 @@ const CONFIG_ARTIFACTS: &[&str] = &["main.lua", "conf.lua"];
 /// inventory's, and a test checks that each entry is the shipped file of the
 /// same name.
 const DEFAULT_CONFIGURATION: [&str; CONFIG_ARTIFACTS.len()] = [
-    include_str!("../../../etc/xdg/lunette/main.lua"),
-    include_str!("../../../etc/xdg/lunette/conf.lua"),
+    include_str!("../../../etc/xdg/lunette/main.luau"),
+    include_str!("../../../etc/xdg/lunette/conf.luau"),
 ];
 
 /// Writes the default configuration to `destination`, refusing to overwrite
@@ -284,20 +284,20 @@ mod tests {
 
         assert!(matches!(error, DumpError::NoModuleData { .. }));
         assert!(error.to_string().contains("LUNETTE_STDLIB_PATH"), "{error}");
-        assert!(!destination.path().join("main.lua").exists());
+        assert!(!destination.path().join("main.luau").exists());
     }
 
     #[test]
     fn nothing_is_overwritten() {
         let library = standard_library();
         let destination = TempDir::new().expect("a temporary directory");
-        fs::write(destination.path().join("main.lua"), "-- theirs\n").expect("their main.lua");
+        fs::write(destination.path().join("main.luau"), "-- theirs\n").expect("their main.luau");
 
         let error = dump(destination.path(), library.path()).expect_err("a refusal");
 
         assert!(matches!(error, DumpError::Exists(_)));
         assert_eq!(
-            fs::read_to_string(destination.path().join("main.lua")).expect("their main.lua"),
+            fs::read_to_string(destination.path().join("main.luau")).expect("their main.luau"),
             "-- theirs\n",
         );
     }

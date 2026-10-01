@@ -47,7 +47,7 @@ fn repository_standard_library() -> PathBuf {
     };
     let lua = root.join("lua");
     assert!(
-        lua.join("spec").join("runner.lua").is_file(),
+        lua.join("spec").join("runner.luau").is_file(),
         "{} should hold the spec runner",
         lua.display()
     );
@@ -69,10 +69,10 @@ fn run() -> Outcome {
         .join("fixtures")
         .join("lua-spec");
     // Checked before the run. A mislaid fixture then fails as itself, and
-    // boot.lua's "no main.lua" path never runs.
+    // boot.lua's "no main.luau" path never runs.
     assert!(
-        directory.join("lunette").join("main.lua").is_file(),
-        "the lua-spec fixture is missing its main.lua"
+        directory.join("lunette").join("main.luau").is_file(),
+        "the lua-spec fixture is missing its main.luau"
     );
 
     // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and

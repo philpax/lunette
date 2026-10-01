@@ -19,7 +19,7 @@ const ROOTS: [(&str, &str); 4] = [
 
 /// Sets a loader in `loaders` for every Lua module under the shipped roots.
 ///
-/// An `init.lua` is registered under its directory's name, as the runtime
+/// An `init.luau` is registered under its directory's name, as the runtime
 /// resolves it.
 pub fn register(lua: &Lua, loaders: &Table) -> mlua::Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -49,7 +49,10 @@ pub fn register_directory(
         };
         if path.is_dir() {
             register_directory(lua, loaders, &path, &name)?;
-        } else if path.extension().is_some_and(|extension| extension == "lua") {
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "luau")
+        {
             let name = if stem == "init" { prefix } else { &name };
             let source = fs::read_to_string(&path).map_err(mlua::Error::external)?;
             loaders.set(

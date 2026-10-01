@@ -16,7 +16,7 @@ The series is ordered by how long a patch is expected to live, oldest-lived firs
 
 **Upstream defects**, next. Bugs on a path lunette uses that are nobody's fault but upstream's: the module loader registered into `package.searchers` under `LOVR_USE_LUAU`, where Luau reads `package.loaders`, and `conf.lua` going unread when a project has no `main.lua`. These are reported upstream and disappear when fixed there.
 
-**Upstreamable features**, on top. Work other LÖVR users want: external texture import, the layer limits, the session accessor. Each is shaped as a pull request. If they land, the divergence from upstream shrinks to the base.
+**Upstreamable features**, on top. Work other LÖVR users want: external texture import, the layer limits, the session accessor, and `main.luau` as an entry point. Each is shaped as a pull request. If they land, the divergence from upstream shrinks to the base.
 
 Nothing has been proposed upstream yet.
 
@@ -114,6 +114,12 @@ An overlay that draws a background of its own is what needs it. Drawn while anot
 
 The flag starts false and stays false for a session that never requested the extension, so a runtime that never sends the event reads as nothing behind. That is the direction worth being wrong in: an overlay alone in a headset draws its background, and one sharing the headset does not cover another application by accident. The metadata for the Lua binding is a matching patch to the lovr-docs fork, which is what puts it in the generated definitions.
 
+#### `main.luau` as the entry point under Luau
+
+A Luau build of LÖVR prefers `conf.luau` to `conf.lua`, and its require path searches `?.luau` before `?.lua`, but `boot.lua` named `main.lua` as the only main file. lunette's Lua tree carries type annotations throughout and uses the `.luau` extension so editors highlight and check it as Luau, and its configuration's entry point is `main.luau` for the same reason. The patch resolves the main file the way `conf` is resolved. Under Luau a folder or archive uses `main.luau` when it holds one and `main.lua` when it holds only that, and a single file named on the command line may end in `.luau`. When neither main file is present, the error names `main.luau`. The choice waits until the source is mounted, because `lovr.filesystem.isFile` cannot see into the project before then, and the main module is required with either extension stripped. The usage text names both files under Luau. A build without Luau resolves exactly as before.
+
+lunette keeps `main.lua` working because the patch does: a user configuration written before the rename still boots, and `lunette check` still reads `.lua` files. It is not yet proposed upstream.
+
 ### Rejected: a static library target
 
 LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Adding one would not produce a single binary. glfw, msdfgen, phonon, and joltc are each built shared, through `BUILD_SHARED_LIBS`, `GLFW_LIBRARY_TYPE`, or `JPH_BUILD_SHARED` depending on the dependency, so a statically linked `lunette` would still ship those libraries beside itself and would still need the rpath handling a static link is meant to remove. The single-binary property costs more than one build option, which is why v1 links LÖVR dynamically ([Build and development](build-and-development.md#building)). Revisit when packaging demands it.
@@ -132,7 +138,7 @@ The following require no change to LÖVR.
 - Overlay sessions. `XR_EXTX_overlay` is requested when `t.headset.overlay` is set (`headset.c:509`), and LÖVR switches the layer to alpha-blended when overlay or passthrough is active (`headset.c:3067`).
 - Composition layers. `lovr.headset.newLayer` takes position, orientation, dimensions, `curve`, viewport, and `getTexture`. Quad and cylinder layers are the same mechanism WayVR uses for legible screens.
 - `setLayers{ main = false }` leaves the projection layer out of `xrEndFrame`. It saves almost nothing on its own — the colour swapchain is acquired inside `getPass` and `getTexture`, so what saves the work is not calling those ([Rendering](rendering.md#skipping-the-scene)).
-- Custom events. `lovr.event.push(name, ...)` dispatches through `lovr.handlers`, which `__index`es `lovr` (`etc/boot.lua:345`), so a pushed `'lunwindowopened'` reaches lunette's own dispatcher, which calls everyone who subscribed through `lunette.onWindowOpened`. Native-to-Lua event delivery needs no new machinery. The poll loop unpacks four arguments, so payloads travel as a single table.
+- Custom events. `lovr.event.push(name, ...)` dispatches through `lovr.handlers`, which `__index`es `lovr` (`etc/boot.lua:354`), so a pushed `'lunwindowopened'` reaches lunette's own dispatcher, which calls everyone who subscribed through `lunette.onWindowOpened`. Native-to-Lua event delivery needs no new machinery. The poll loop unpacks four arguments, so payloads travel as a single table.
 - Filesystem mounting. `lovr.filesystem.setSource`/`mount`/`setRequirePath` allow LÖVR to be pointed at the user's config directory and to mount the standard library.
 - Spatialised audio, via bundled Steam Audio. This makes [per-application audio](audio.md) a matter of routing rather than DSP.
 - Windowless operation. `etc/boot.lua` opens a window only when `conf.window` is set, and `lovr.graphics.newReadback` gives pixel readback, so GPU-headless testing is available.
@@ -152,7 +158,7 @@ Per-frame work injects around the existing steps:
 4. `lovr.draw` runs user code.
 5. Frame end: `setLayers` is called once from granted claims; requests queued by Lua are sent to the compositor thread.
 
-Config resolution: `~/.config/lunette/main.lua` if it exists, otherwise `$SYSCONFDIR/xdg/lunette/main.lua`. `lunette --dump-config` writes a copy to start from. This mirrors awesome, which falls back to the system `rc.lua` rather than copying one on first run. This avoids stale forks of a config the user never edited, and lets upgrades improve the default for users who have not customised it.
+Config resolution: `~/.config/lunette/main.luau` if it exists, otherwise `$SYSCONFDIR/xdg/lunette/main.luau`. A configuration directory holding only a `main.lua` boots from it, because LÖVR's `boot.lua` falls back to it ([`main.luau` as the entry point](#mainluau-as-the-entry-point-under-luau)). `lunette --dump-config` writes a copy to start from. This mirrors awesome, which falls back to the system `rc.lua` rather than copying one on first run. This avoids stale forks of a config the user never edited, and lets upgrades improve the default for users who have not customised it.
 
 ## Restart semantics
 
@@ -168,7 +174,7 @@ This is why two reload paths exist ([The Lua API](lua-api.md#reload)): soft relo
 
 lunette does not override `lovr.errhand`. An error that escapes to `boot.lua`'s handler has already unwound the frame loop, and with no `lovr.errhand` the handler prints it and ends the process with status 1, which suits a game but not a window manager. lunette therefore keeps errors from reaching it: event listeners and plugin callbacks run under the host's protected calls, and the shipped configuration dispatches LÖVR's frame callbacks through the frame provider, which protects each handler. Each reported error is logged and emitted through `lunette.onError`, and the error stream provider rate-limits it for its presenters, the shipped one of which draws it. A raw `lovr.update` or `lovr.draw` in a user's configuration is not protected. [The Lua API](lua-api.md#errors) states the boundaries and records the gap.
 
-The native layer owns one failure path of its own, the load-time fallback. If `main.lua` fails to load at all, no configuration exists to report through, so a built-in safe mode takes over.
+The native layer owns one failure path of its own, the load-time fallback. If `main.luau` fails to load at all, no configuration exists to report through, so a built-in safe mode takes over.
 
 ## Decisions
 

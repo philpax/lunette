@@ -41,7 +41,7 @@ fn a_quit_without_a_status_exits_zero() {
 /// LÖVR created, not on one a test built.
 ///
 /// A fixture has no reporting channel other than the exit status. The
-/// fixture's `main.lua` quits with 9 when every assertion held and with a
+/// fixture's `main.luau` quits with 9 when every assertion held and with a
 /// distinct status for each that did not.
 #[test]
 fn a_configuration_can_require_the_lunette_module() {
@@ -64,10 +64,10 @@ fn a_relative_require_resolves_against_the_requiring_file() {
 fn assert_exit_status(fixture: &str, expected: i32) {
     let directory = fixture_directory(fixture);
     // Checked before the run. A mislaid fixture then fails as itself, and
-    // boot.lua's "no main.lua" path never runs.
+    // boot.lua's "no main.luau" path never runs.
     assert!(
-        directory.join("lunette").join("main.lua").is_file(),
-        "the {fixture} fixture is missing its main.lua"
+        directory.join("lunette").join("main.luau").is_file(),
+        "the {fixture} fixture is missing its main.luau"
     );
 
     // `boot.lua` calls `lovr.filesystem.setIdentity` on every run, which

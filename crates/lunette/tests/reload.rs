@@ -10,7 +10,7 @@
 //! The first half runs the lunette binary against a fixture configuration, as
 //! `exit_status.rs` does and for the same reason: the module must be the one
 //! the host registered, the standard library the one the host mounted, and
-//! `main.lua` the file `boot.lua` resolved. A unit test on a Lua state a test
+//! `main.luau` the file `boot.lua` resolved. A unit test on a Lua state a test
 //! built has none of those. The fixtures switch the audio, graphics, and
 //! headset modules off and open no window, so no display, no XR runtime, and
 //! no sound device is needed, and each run points `XDG_DATA_HOME` at a
@@ -55,7 +55,7 @@ fn ten_reloads_leave_the_session_where_one_does() {
 /// A reload whose configuration raises reports the error and leaves the
 /// session running; it does not enter safe mode.
 ///
-/// Safe mode is for a `main.lua` that fails to load at startup. Conflating the
+/// Safe mode is for a `main.luau` that fails to load at startup. Conflating the
 /// two would replace a working session with the fallback over a typo the user
 /// can fix and reload again.
 #[test]
@@ -143,7 +143,7 @@ fn configured_state() -> Lua {
         .expect("package.preload exists");
     let main: Function = lua
         .load("function lovr.draw() end")
-        .set_name("@main.lua")
+        .set_name("@main.luau")
         .into_function()
         .expect("the configuration compiles");
     preload
@@ -162,8 +162,8 @@ fn configured_state() -> Lua {
 fn assert_exit_status(fixture: &str, expected: i32) {
     let directory = fixture_directory(fixture);
     assert!(
-        directory.join("lunette").join("main.lua").is_file(),
-        "the {fixture} fixture is missing its main.lua"
+        directory.join("lunette").join("main.luau").is_file(),
+        "the {fixture} fixture is missing its main.luau"
     );
 
     // Per run, for the reason `exit_status.rs` records: `boot.lua` creates
@@ -219,7 +219,7 @@ fn standard_library() -> PathBuf {
     let lua = root.join("lua");
     assert!(
         lua.join("lunette-contracts")
-            .join("vocabulary.lua")
+            .join("vocabulary.luau")
             .is_file(),
         "{} should hold the shipped Lua roots",
         lua.display()

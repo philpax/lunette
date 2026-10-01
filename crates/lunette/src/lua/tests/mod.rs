@@ -181,7 +181,7 @@ fn mirrored_session(
 const GENEROUS_LAYER_LIMIT: u32 = 128;
 
 /// A Lua state with the module installed and `lunette` already required, the
-/// state a `main.lua` runs in.
+/// state a `main.luau` runs in.
 ///
 /// The `lovr` table and its `handlers` are what `boot.lua` leaves behind. The
 /// module's event dispatchers are installed into them.
@@ -451,7 +451,7 @@ fn the_shipped_configuration_is_valid_lua() {
     // suite would notice.
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../etc/xdg/lunette/main.lua"
+        "/../../etc/xdg/lunette/main.luau"
     );
     let source = std::fs::read_to_string(path).expect("the shipped configuration is readable");
 

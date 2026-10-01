@@ -93,7 +93,7 @@ const HELP: &str = "usage: lunctl [--socket PATH] [CHUNK ...]
 Evaluates a Lua chunk in the running lunette session and prints the result.
 
   lunctl 'return #lunette.windows()'   evaluate each argument in turn
-  lunctl < script.lua                  evaluate what arrives on standard input
+  lunctl < script.luau                 evaluate what arrives on standard input
   lunctl                               an interactive prompt, on a terminal
 
   --socket PATH   the control socket, instead of

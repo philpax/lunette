@@ -9,28 +9,28 @@ fn shipped_desktop_composition_is_strictly_typed() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let request = Request::new(
         Some(root.join("etc/lunette/definitions.luau")),
-        std::iter::once(root.join("etc/xdg/lunette/main.lua"))
+        std::iter::once(root.join("etc/xdg/lunette/main.luau"))
             .chain(
                 [
-                    "init.lua",
-                    "compose.lua",
-                    "logging.lua",
-                    "render.lua",
-                    "monitors.lua",
-                    "hint.lua",
-                    "decorations.lua",
-                    "pointing.lua",
-                    "input.lua",
-                    "bindings.lua",
-                    "keyboard.lua",
-                    "errors.lua",
-                    "workspace.lua",
-                    "rules.lua",
-                    "pose-memory.lua",
-                    "persistence.lua",
-                    "arrange.lua",
-                    "adoption.lua",
-                    "demo-terminal.lua",
+                    "init.luau",
+                    "compose.luau",
+                    "logging.luau",
+                    "render.luau",
+                    "monitors.luau",
+                    "hint.luau",
+                    "decorations.luau",
+                    "pointing.luau",
+                    "input.luau",
+                    "bindings.luau",
+                    "keyboard.luau",
+                    "errors.luau",
+                    "workspace.luau",
+                    "rules.luau",
+                    "pose-memory.luau",
+                    "persistence.luau",
+                    "arrange.luau",
+                    "adoption.luau",
+                    "demo-terminal.luau",
                 ]
                 .into_iter()
                 .map(|path| root.join("lua/lunette-desktop").join(path)),

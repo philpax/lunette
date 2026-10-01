@@ -17,7 +17,7 @@
 //! definitions, callbacks, services, and effects in its attachment.
 //!
 //! This exception is state-bound and explicit. A soft reload shuts down every
-//! plugin runtime, retires the contract epoch, and re-runs `main.lua` in the
+//! plugin runtime, retires the contract epoch, and re-runs `main.luau` in the
 //! same Lua state. Definitions and tokens from the old epoch are therefore
 //! stale, even though the VM survives. A hard restart destroys the state while
 //! the compositor, the clients, and the textures keep running, so the
@@ -132,7 +132,7 @@ pub const MODULE_NAME: &str = "@lunette";
 ///
 /// Called on LÖVR's own state before `boot.lua` runs. The loader builds the
 /// module table on each `require`; the module is not built once and captured.
-/// A soft reload clears `package.loaded` and re-runs `main.lua`, and the next
+/// A soft reload clears `package.loaded` and re-runs `main.luau`, and the next
 /// `require` builds a fresh table against the same session. No Lua value is
 /// held in Rust between calls.
 ///
@@ -656,7 +656,7 @@ fn module<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<Ta
 
     // Here and not in `install`, because `boot.lua` creates
     // `lovr.handlers` after `package.preload` has been populated and before
-    // `main.lua` runs. The first `require` is the earliest moment the table
+    // `main.luau` runs. The first `require` is the earliest moment the table
     // exists, and the only moment the module is known to be needed.
     install_dispatchers(lua, session)?;
     install_plugin(lua, &module)?;

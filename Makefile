@@ -94,7 +94,7 @@ check-definitions:
 # Negative specs and probe runners stay out; their dedicated tests assert those
 # diagnostics and the runner's computed requires are not statically followable.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua $$(find examples -type f -name '*.lua' -print | sort)
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type f -name '*.luau' -print | sort) lua/spec/suite.luau lua/spec/expect.luau etc/xdg/lunette/main.luau $$(find examples -type f -name '*.luau' -print | sort)
 
 install: install-binary install-lua install-config
 
@@ -122,13 +122,13 @@ install-binary: build
 
 # The manifest owns installed modules, declarations, and Lua-root alias metadata.
 # Required entries fail when absent; optional roots may be omitted. Directory
-# entries contribute only Lua and Luau files. Explicit files include .luaurc.
+# entries contribute only Luau files. Explicit files include .luaurc.
 install-lua:
 	@set -e; \
 	manifest="$$( $(install_manifest) )" || exit $$?; \
 	printf '%s\n' "$$manifest" | while read -r source destination required; do \
 		if test -d "$$source"; then \
-			files="$$($(FIND) "$$source" -type f \( -name '*.lua' -o -name '*.luau' \) -print)" || exit $$?; \
+			files="$$($(FIND) "$$source" -type f -name '*.luau' -print)" || exit $$?; \
 			if test -n "$$files"; then \
 				printf '%s\n' "$$files" | while IFS= read -r file; do \
 					relative="$${file#$$source/}"; \

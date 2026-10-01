@@ -8,7 +8,7 @@ fn persistence_state_and_binding_typecheck() {
     let request = Request::new(
         Some(root.join("etc/lunette/definitions.luau")),
         vec![
-            root.join("lua/lunette-desktop/persist/init.lua"),
+            root.join("lua/lunette-desktop/persist/init.luau"),
             root.join("crates/lunette/tests/plugin_persistence/consumer.luau"),
         ],
     );

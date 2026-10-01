@@ -15,7 +15,7 @@ fn the_checker_resolves_relative_requires_against_the_requiring_file() {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/require-relative/lunette");
     let request = Request::new(
         Some(root.join("etc/lunette/definitions.luau")),
-        vec![fixture.join("main.lua")],
+        vec![fixture.join("main.luau")],
     );
     let report =
         analyze::check(&request).unwrap_or_else(|error| panic!("require-relative: {error}"));

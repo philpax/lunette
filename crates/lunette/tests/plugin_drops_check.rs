@@ -9,14 +9,14 @@ fn drops_boundary_typechecks() {
     let request = Request::new(
         Some(root.join("etc/lunette/definitions.luau")),
         vec![
-            root.join("lua/lunette-contracts/drops.lua"),
-            root.join("lua/lunette-contracts/interaction.lua"),
-            root.join("lua/lunette-plugins/drops/init.lua"),
-            root.join("lua/lunette-plugins/interaction/init.lua"),
-            root.join("lua/lunette-plugins/interaction/grab.lua"),
-            root.join("lua/lunette-desktop/pose-memory.lua"),
-            root.join("lua/lunette-desktop/persistence.lua"),
-            root.join("lua/lunette-desktop/arrange.lua"),
+            root.join("lua/lunette-contracts/drops.luau"),
+            root.join("lua/lunette-contracts/interaction.luau"),
+            root.join("lua/lunette-plugins/drops/init.luau"),
+            root.join("lua/lunette-plugins/interaction/init.luau"),
+            root.join("lua/lunette-plugins/interaction/grab.luau"),
+            root.join("lua/lunette-desktop/pose-memory.luau"),
+            root.join("lua/lunette-desktop/persistence.luau"),
+            root.join("lua/lunette-desktop/arrange.luau"),
         ],
     );
     let report = analyze::check(&request).unwrap_or_else(|error| panic!("drops: {error}"));

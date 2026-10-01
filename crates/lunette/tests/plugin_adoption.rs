@@ -124,12 +124,14 @@ fn complete_placement_cleanup_attempts_all_operations_after_errors() -> mlua::Re
         for extra_failure in [false, true] {
             let lua = state()?;
             let fixture: Table = lua
-                .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
-                .set_name("plugin_adoption/fixtures/adoption.lua")
+                .load(include_str!("plugin_adoption/fixtures/adoption.luau"))
+                .set_name("plugin_adoption/fixtures/adoption.luau")
                 .eval()?;
             let run: Function = lua
-                .load(include_str!("plugin_adoption/fixtures/cleanup_failure.lua"))
-                .set_name("plugin_adoption/fixtures/cleanup_failure.lua")
+                .load(include_str!(
+                    "plugin_adoption/fixtures/cleanup_failure.luau"
+                ))
+                .set_name("plugin_adoption/fixtures/cleanup_failure.luau")
                 .eval()?;
             let dropped = Rc::new(Cell::new(0));
             let witness: Table = run.call((
@@ -173,8 +175,8 @@ fn complete_placement_cleanup_attempts_all_operations_after_errors() -> mlua::Re
 fn adoption_complete_placement_lifetime_releases_tags_and_sources() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Table = lua
-        .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
-        .set_name("plugin_adoption/fixtures/adoption.lua")
+        .load(include_str!("plugin_adoption/fixtures/adoption.luau"))
+        .set_name("plugin_adoption/fixtures/adoption.luau")
         .eval()?;
     let cycle: Function = fixture.get("placementLifetime")?;
     let check: Function = fixture.get("checkPlacementCollection")?;
@@ -214,8 +216,8 @@ fn adoption_complete_placement_lifetime_releases_tags_and_sources() -> mlua::Res
 fn adoption_failed_consumer_initialization_rolls_back() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Table = lua
-        .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
-        .set_name("plugin_adoption/fixtures/adoption.lua")
+        .load(include_str!("plugin_adoption/fixtures/adoption.luau"))
+        .set_name("plugin_adoption/fixtures/adoption.luau")
         .eval()?;
     fixture
         .get::<Function>("failInitialization")?
@@ -237,8 +239,8 @@ fn adoption_failed_consumer_initialization_rolls_back() -> mlua::Result<()> {
 fn adoption_caught_enumeration_failure_cleans_up_and_allows_retry() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Table = lua
-        .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
-        .set_name("plugin_adoption/fixtures/adoption.lua")
+        .load(include_str!("plugin_adoption/fixtures/adoption.luau"))
+        .set_name("plugin_adoption/fixtures/adoption.luau")
         .eval()?;
     fixture.get::<Function>("failEnumeration")?.call::<()>(())?;
     let errors = plugin_support::shutdown(&lua);
@@ -250,8 +252,8 @@ fn adoption_caught_enumeration_failure_cleans_up_and_allows_retry() -> mlua::Res
 fn adoption_install_needs_no_rules_dependency_from_its_caller() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Table = lua
-        .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
-        .set_name("plugin_adoption/fixtures/adoption.lua")
+        .load(include_str!("plugin_adoption/fixtures/adoption.luau"))
+        .set_name("plugin_adoption/fixtures/adoption.luau")
         .eval()?;
     fixture
         .get::<Function>("installWithoutRules")?
@@ -265,8 +267,8 @@ fn adoption_install_needs_no_rules_dependency_from_its_caller() -> mlua::Result<
 fn adoption_cancelled_caller_and_copied_callbacks_are_inert() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Table = lua
-        .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
-        .set_name("plugin_adoption/fixtures/adoption.lua")
+        .load(include_str!("plugin_adoption/fixtures/adoption.luau"))
+        .set_name("plugin_adoption/fixtures/adoption.luau")
         .eval()?;
     fixture.get::<Function>("cancelCaller")?.call::<()>(())?;
     let errors = plugin_support::shutdown(&lua);
@@ -278,8 +280,8 @@ fn adoption_cancelled_caller_and_copied_callbacks_are_inert() -> mlua::Result<()
 fn adoption_uses_real_provider_graph_and_preserves_native_windows() -> mlua::Result<()> {
     let lua = state()?;
     let _: Table = lua
-        .load(include_str!("plugin_adoption/fixtures/adoption.lua"))
-        .set_name("plugin_adoption/fixtures/adoption.lua")
+        .load(include_str!("plugin_adoption/fixtures/adoption.luau"))
+        .set_name("plugin_adoption/fixtures/adoption.luau")
         .eval()?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");

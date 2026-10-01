@@ -1,6 +1,6 @@
 //! Per-window state that outlives the Lua state.
 //!
-//! A soft reload discards the Lua state and re-runs `main.lua`
+//! A soft reload discards the Lua state and re-runs `main.luau`
 //! (`docs/dev/architecture.md`); anything the standard library must remember
 //! across a reload cannot be kept in Lua. State a rule can derive comes back
 //! when the rules re-run; a pose the user placed by hand, a size they

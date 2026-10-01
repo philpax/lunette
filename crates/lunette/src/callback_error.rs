@@ -162,7 +162,7 @@ mod tests {
     /// arrives with the traceback mlua appends.
     fn raised(lua: &Lua, body: &str) -> mlua::Error {
         lua.load(body)
-            .set_name("main.lua")
+            .set_name("main.luau")
             .into_function()
             .expect("the chunk compiles")
             .call::<()>(())

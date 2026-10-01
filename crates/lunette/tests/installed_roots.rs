@@ -69,7 +69,7 @@ fn no_installed_root_requires_a_development_only_root() {
     assert!(offenders.is_empty(), "{offenders:#?}");
 }
 
-/// Every `.lua` and `.luau` file under `directory`.
+/// Every `.luau` file under `directory`.
 fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("{} is readable: {error}", directory.display()));
@@ -81,7 +81,7 @@ fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
             collect(&path, found);
         } else if path
             .extension()
-            .is_some_and(|extension| extension == "lua" || extension == "luau")
+            .is_some_and(|extension| extension == "luau")
         {
             found.push(path);
         }

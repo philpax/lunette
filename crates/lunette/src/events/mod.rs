@@ -347,7 +347,7 @@ impl EventQueue {
 ///
 /// Called when the module is built, which is the first `require('lunette')`.
 /// `lovr.handlers` exists by then: `boot.lua` creates it, then runs
-/// `main.lua`. The first `require` is also the earliest point at which the
+/// `main.luau`. The first `require` is also the earliest point at which the
 /// module is known to be in use; nothing earlier indicates that the
 /// configuration needs it.
 ///
@@ -547,13 +547,13 @@ fn handlers_table(lua: &Lua) -> mlua::Result<Table> {
     let lovr = lua.globals().get::<Option<Table>>("lovr")?.ok_or_else(|| {
         mlua::Error::runtime(
             "lunette: the lovr global is missing, so lun* callbacks have nowhere to be delivered; \
-             the module is meant to be required from a LÖVR project's main.lua",
+             the module is meant to be required from a LÖVR project's main.luau",
         )
     })?;
 
     lovr.get::<Option<Table>>("handlers")?.ok_or_else(|| {
         mlua::Error::runtime(
-            "lunette: lovr.handlers is missing, and boot.lua:345 is what creates it; the module \
+            "lunette: lovr.handlers is missing, and boot.lua:354 is what creates it; the module \
              cannot have been required from a running LÖVR session",
         )
     })

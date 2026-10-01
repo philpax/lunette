@@ -72,29 +72,29 @@ fn run_fixture(lua: &Lua, name: &str) -> mlua::Result<()> {
 fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
     let source = match name {
         "local_plugin_with_only_the_facade" => {
-            include_str!("plugin_facade_execution/local_plugin_with_only_the_facade.lua")
+            include_str!("plugin_facade_execution/local_plugin_with_only_the_facade.luau")
         }
         "definition_require_inert" => {
-            include_str!("plugin_facade_execution/definition_require_inert.lua")
+            include_str!("plugin_facade_execution/definition_require_inert.luau")
         }
         "multiple_provisions_runtime" => {
-            include_str!("plugin_facade_execution/multiple_provisions_runtime.lua")
+            include_str!("plugin_facade_execution/multiple_provisions_runtime.luau")
         }
-        "failure" => include_str!("plugin_facade_execution/failure.lua"),
-        "provision_failures" => include_str!("plugin_facade_execution/provision_failures.lua"),
-        "cancellation" => include_str!("plugin_facade_execution/cancellation.lua"),
-        "payload_release" => include_str!("plugin_facade_execution/payload_release.lua"),
-        "forged_owner" => include_str!("plugin_facade_execution/forged_owner.lua"),
-        "revocation" => include_str!("plugin_facade_execution/revocation.lua"),
-        "subscriptions" => include_str!("plugin_facade_execution/subscriptions.lua"),
-        "ownership_helpers" => include_str!("plugin_facade_execution/ownership_helpers.lua"),
-        "schema_mismatch" => include_str!("plugin_facade_execution/schema_mismatch.lua"),
-        "error_positions" => include_str!("plugin_facade_execution/error_positions.lua"),
-        "child_enabled" => include_str!("plugin_facade_execution/child_enabled.lua"),
-        "spec_validation" => include_str!("plugin_facade_execution/spec_validation.lua"),
-        "options" => include_str!("plugin_facade_execution/options.lua"),
+        "failure" => include_str!("plugin_facade_execution/failure.luau"),
+        "provision_failures" => include_str!("plugin_facade_execution/provision_failures.luau"),
+        "cancellation" => include_str!("plugin_facade_execution/cancellation.luau"),
+        "payload_release" => include_str!("plugin_facade_execution/payload_release.luau"),
+        "forged_owner" => include_str!("plugin_facade_execution/forged_owner.luau"),
+        "revocation" => include_str!("plugin_facade_execution/revocation.luau"),
+        "subscriptions" => include_str!("plugin_facade_execution/subscriptions.luau"),
+        "ownership_helpers" => include_str!("plugin_facade_execution/ownership_helpers.luau"),
+        "schema_mismatch" => include_str!("plugin_facade_execution/schema_mismatch.luau"),
+        "error_positions" => include_str!("plugin_facade_execution/error_positions.luau"),
+        "child_enabled" => include_str!("plugin_facade_execution/child_enabled.luau"),
+        "spec_validation" => include_str!("plugin_facade_execution/spec_validation.luau"),
+        "options" => include_str!("plugin_facade_execution/options.luau"),
         "quarantine_pending_provider" => {
-            include_str!("plugin_facade_execution/quarantine_pending_provider.lua")
+            include_str!("plugin_facade_execution/quarantine_pending_provider.luau")
         }
         other => return Err(mlua::Error::runtime(format!("unknown fixture {other}"))),
     };

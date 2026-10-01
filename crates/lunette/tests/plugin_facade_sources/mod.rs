@@ -5,18 +5,18 @@
 pub const FACADE_SOURCES: [(&str, &str); 4] = [
     (
         "@lunette-plugin",
-        include_str!("../../../../lua/lunette-plugin/init.lua"),
+        include_str!("../../../../lua/lunette-plugin/init.luau"),
     ),
     (
         "@lunette-plugin/adapter",
-        include_str!("../../../../lua/lunette-plugin/adapter.lua"),
+        include_str!("../../../../lua/lunette-plugin/adapter.luau"),
     ),
     (
         "@lunette-plugin/options",
-        include_str!("../../../../lua/lunette-plugin/options.lua"),
+        include_str!("../../../../lua/lunette-plugin/options.luau"),
     ),
     (
         "@lunette-plugin/provider",
-        include_str!("../../../../lua/lunette-plugin/provider.lua"),
+        include_str!("../../../../lua/lunette-plugin/provider.luau"),
     ),
 ];
