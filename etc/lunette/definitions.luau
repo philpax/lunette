@@ -145,9 +145,9 @@ export type AudioModule = {
   getVolume: (units: VolumeUnit?) -> number,
   isStarted: (type: AudioType?) -> boolean,
   newAudioMesh:
-    & ((vertices: {}, indices: {}, material: AudioMaterial | {AudioMaterial} | nil | nil) -> AudioMesh)
-    & ((modelData: ModelData, material: AudioMaterial | {AudioMaterial} | nil | nil) -> AudioMesh)
-    & ((mesh: Mesh, material: AudioMaterial | {AudioMaterial} | nil | nil) -> AudioMesh),
+    & ((vertices: {}, indices: {}, material: AudioMaterial | { read [number]: AudioMaterial } | nil | nil) -> AudioMesh)
+    & ((modelData: ModelData, material: AudioMaterial | { read [number]: AudioMaterial } | nil | nil) -> AudioMesh)
+    & ((mesh: Mesh, material: AudioMaterial | { read [number]: AudioMaterial } | nil | nil) -> AudioMesh),
   newSource:
     & ((file: string | Blob, options: { read decode: boolean?, read spatial: boolean?, read pitchable: boolean? }?) -> Source)
     & ((sound: Sound, options: { read decode: boolean?, read spatial: boolean?, read pitchable: boolean? }?) -> Source)
@@ -277,7 +277,7 @@ declare extern type AudioStream extends Object with
   function read(self, count: number?): {number}
   function read(self, count: number?, sound: Sound, offset: number?): number
   function read(self, count: number?, blob: Blob, offset: number?): number
-  function write(self, table: {number}): number
+  function write(self, table: { read [number]: number }): number
   function write(self, sound: Sound): number
   function write(self, blob: Blob): number
 end
@@ -296,21 +296,21 @@ declare extern type Blob extends Object with
   function getU32(self, offset: number?, count: number?): ...number
   function getU8(self, offset: number?, count: number?): ...number
   function setF32(self, offset: number, ...: number)
-  function setF32(self, offset: number, table: {number})
+  function setF32(self, offset: number, table: { read [number]: number })
   function setF64(self, offset: number, ...: number)
-  function setF64(self, offset: number, table: {number})
+  function setF64(self, offset: number, table: { read [number]: number })
   function setI16(self, offset: number, ...: number)
-  function setI16(self, offset: number, table: {number})
+  function setI16(self, offset: number, table: { read [number]: number })
   function setI32(self, offset: number, ...: number)
-  function setI32(self, offset: number, table: {number})
+  function setI32(self, offset: number, table: { read [number]: number })
   function setI8(self, offset: number, ...: number)
-  function setI8(self, offset: number, table: {number})
+  function setI8(self, offset: number, table: { read [number]: number })
   function setU16(self, offset: number, ...: number)
-  function setU16(self, offset: number, table: {number})
+  function setU16(self, offset: number, table: { read [number]: number })
   function setU32(self, offset: number, ...: number)
-  function setU32(self, offset: number, table: {number})
+  function setU32(self, offset: number, table: { read [number]: number })
   function setU8(self, offset: number, ...: number)
-  function setU8(self, offset: number, table: {number})
+  function setU8(self, offset: number, table: { read [number]: number })
 end
 
 declare extern type Image extends Object with
@@ -857,13 +857,13 @@ declare extern type Font extends Object with
   function getKerning(self, first: string | number, second: string | number): number
   function getLineSpacing(self): number
   function getLines(self, string: string, wrap: number): {string}
-  function getLines(self, strings: {}, wrap: number): {string}
+  function getLines(self, strings: { read [number]: any }, wrap: number): {string}
   function getPixelDensity(self): number
   function getRasterizer(self): Rasterizer
   function getVertices(self, string: string, wrap: number?, halign: HorizontalAlign, valign: VerticalAlign): ({number}, Material)
-  function getVertices(self, strings: {}, wrap: number?, halign: HorizontalAlign, valign: VerticalAlign): ({number}, Material)
+  function getVertices(self, strings: { read [number]: any }, wrap: number?, halign: HorizontalAlign, valign: VerticalAlign): ({number}, Material)
   function getWidth(self, string: string): number
-  function getWidth(self, strings: {}): number
+  function getWidth(self, strings: { read [number]: any }): number
   function setLineSpacing(self, spacing: number)
   function setPixelDensity(self, density: number)
   function setPixelDensity(self)
@@ -897,12 +897,12 @@ declare extern type Mesh extends Object with
   function setDrawRange(self, start: number, count: number, offset: number)
   function setDrawRange(self)
   function setIndexBuffer(self, buffer: Buffer)
-  function setIndices(self, t: {number})
+  function setIndices(self, t: { read [number]: number })
   function setIndices(self, blob: Blob, type: DataType)
   function setIndices(self)
   function setMaterial(self, material: Material)
   function setMaterial(self, texture: Texture)
-  function setVertices(self, vertices: {{number}}, index: number?, count: number?)
+  function setVertices(self, vertices: { read [number]: { read [number]: number } }, index: number?, count: number?)
   function setVertices(self, blob: Blob, index: number?, count: number?)
 end
 
@@ -1039,7 +1039,7 @@ declare extern type Pass extends Object with
   function getViewRay(self, x: number, y: number, view: number?): (number, number, number, number, number, number)
   function getWidth(self): number
   function line(self, x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, ...: number)
-  function line(self, t: {number | vector})
+  function line(self, t: { read [number]: number | vector })
   function line(self, v1: vector, v2: vector, ...: vector)
   function mesh(self, vertices: Buffer?, x: number?, y: number?, z: number?, scale: number?, angle: number?, ax: number?, ay: number?, az: number?, start: number?, count: number?, instances: number?)
   function mesh(self, vertices: Buffer?, position: vector, scales: vector, orientation: quaternion, start: number?, count: number?, instances: number?)
@@ -1053,10 +1053,10 @@ declare extern type Pass extends Object with
   function plane(self, position: vector, size: vector, orientation: quaternion, style: DrawStyle?, columns: number?, rows: number?)
   function plane(self, transform: Mat4, style: DrawStyle?, columns: number?, rows: number?)
   function points(self, x: number, y: number, z: number, ...: any)
-  function points(self, t: {number | vector})
+  function points(self, t: { read [number]: number | vector })
   function points(self, v: vector, ...: any)
   function polygon(self, x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, ...: any)
-  function polygon(self, t: {number | vector})
+  function polygon(self, t: { read [number]: number | vector })
   function polygon(self, v1: vector, v2: vector, ...: any)
   function pop(self, stack: StackType?)
   function push(self, stack: StackType?)
@@ -1091,7 +1091,7 @@ declare extern type Pass extends Object with
   function setClear(self, clear: boolean)
   function setClear(self, t: {})
   function setColor(self, r: number, g: number, b: number, a: number?)
-  function setColor(self, t: {number})
+  function setColor(self, t: { read [number]: number })
   function setColor(self, hex: number, a: number?)
   function setColorWrite(self, enable: boolean?)
   function setColorWrite(self, r: boolean, g: boolean, b: boolean, a: boolean)
@@ -1122,7 +1122,7 @@ declare extern type Pass extends Object with
   function setShader(self)
   function setStencilTest(self, test: CompareMode, value: number, mask: number?)
   function setStencilTest(self)
-  function setStencilWrite(self, action: StencilAction | {StencilAction}, value: number?, mask: number?)
+  function setStencilWrite(self, action: StencilAction | { read [number]: StencilAction }, value: number?, mask: number?)
   function setStencilWrite(self)
   function setTallyBuffer(self, buffer: Buffer, offset: number?)
   function setTallyBuffer(self)
@@ -1142,9 +1142,9 @@ declare extern type Pass extends Object with
   function text(self, text: string, x: number?, y: number?, z: number?, scale: number?, angle: number?, ax: number?, ay: number?, az: number?, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
   function text(self, text: string, position: vector, scale: number?, orientation: quaternion, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
   function text(self, text: string, transform: Mat4, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
-  function text(self, colortext: {}, x: number?, y: number?, z: number?, scale: number?, angle: number?, ax: number?, ay: number?, az: number?, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
-  function text(self, colortext: {}, position: vector, scale: number?, orientation: quaternion, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
-  function text(self, colortext: {}, transform: Mat4, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
+  function text(self, colortext: { read [number]: any }, x: number?, y: number?, z: number?, scale: number?, angle: number?, ax: number?, ay: number?, az: number?, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
+  function text(self, colortext: { read [number]: any }, position: vector, scale: number?, orientation: quaternion, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
+  function text(self, colortext: { read [number]: any }, transform: Mat4, wrap: number?, halign: HorizontalAlign?, valign: VerticalAlign?)
   function torus(self, x: number?, y: number?, z: number?, radius: number?, thickness: number?, angle: number?, ax: number?, ay: number?, az: number?, tsegments: number?, psegments: number?)
   function torus(self, position: vector, scale: vector, orientation: quaternion, tsegments: number?, psegments: number?)
   function torus(self, transform: Mat4, tsegments: number?, psegments: number?)
@@ -1204,7 +1204,7 @@ declare extern type Texture extends Object with
   function clear(self)
   function clear(self, hex: number, layer: number?, layerCount: number?, mipmap: number?, mipmapCount: number?)
   function clear(self, r: number, g: number, b: number, a: number, layer: number?, layerCount: number?, mipmap: number?, mipmapCount: number?)
-  function clear(self, t: {number}, layer: number?, layerCount: number?, mipmap: number?, mipmapCount: number?)
+  function clear(self, t: { read [number]: number }, layer: number?, layerCount: number?, mipmap: number?, mipmapCount: number?)
   function clear(self, v: vector, layer: number?, layerCount: number?, mipmap: number?, mipmapCount: number?)
   function generateMipmaps(self, base: number?, count: number?)
   function getDimensions(self): (number, number, number)
@@ -1248,7 +1248,7 @@ export type GraphicsModule = {
     & ((file: string | Blob, atlas: Image?, spread: number?) -> Font)
     & ((size: number?, spread: number?) -> Font)
     & ((rasterizer: Rasterizer, spread: number?) -> Font),
-  newMaterial: (properties: { read color: {number}?, read glow: {number}?, read uvShift: {number}?, read uvScale: {number}?, read metalness: number?, read roughness: number?, read clearcoat: number?, read clearcoatRoughness: number?, read occlusionStrength: number?, read normalScale: number?, read alphaCutoff: number?, read texture: Texture?, read glowTexture: Texture?, read metalnessTexture: Texture?, read roughnessTexture: Texture?, read clearcoatTexture: Texture?, read occlusionTexture: Texture?, read normalTexture: Texture? }) -> Material,
+  newMaterial: (properties: { read color: { read [number]: number }?, read glow: { read [number]: number }?, read uvShift: { read [number]: number }?, read uvScale: { read [number]: number }?, read metalness: number?, read roughness: number?, read clearcoat: number?, read clearcoatRoughness: number?, read occlusionStrength: number?, read normalScale: number?, read alphaCutoff: number?, read texture: Texture?, read glowTexture: Texture?, read metalnessTexture: Texture?, read roughnessTexture: Texture?, read clearcoatTexture: Texture?, read occlusionTexture: Texture?, read normalTexture: Texture? }) -> Material,
   newMesh:
     & ((count: number, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
     & ((vertices: {}, options: { read storage: MeshStorage?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Mesh)
@@ -1264,27 +1264,27 @@ export type GraphicsModule = {
     & ((...Texture) -> Pass)
     & ((canvas: { read depth: { read format: TextureFormat?, read texture: Texture }, read samples: number? }) -> Pass),
   newRaytracer: (capacity: number, options: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }?) -> Raytracer,
-  newSampler: (parameters: { read filter: FilterMode | {FilterMode} | nil, read wrap: WrapMode | {WrapMode} | nil, read compare: CompareMode?, read anisotropy: number?, read mipmaprange: {}? }) -> Sampler,
+  newSampler: (parameters: { read filter: FilterMode | { read [number]: FilterMode } | nil, read wrap: WrapMode | { read [number]: WrapMode } | nil, read compare: CompareMode?, read anisotropy: number?, read mipmaprange: {}? }) -> Sampler,
   newShader:
     & ((vertex: string | DefaultShader | Blob, fragment: string | DefaultShader | Blob, options: { read flags: {}?, read label: string?, read raw: boolean? }?) -> Shader)
     & ((compute: string | Blob, options: { read flags: {}?, read label: string?, read raw: boolean? }?) -> Shader)
     & ((defaultshader: DefaultShader, options: { read flags: {}?, read label: string?, read raw: boolean? }?) -> Shader),
   newTexture:
-    & ((file: string | Blob, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
-    & ((width: number, height: number, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
-    & ((width: number, height: number, layers: number, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
-    & ((image: string, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture)
-    & ((images: {string | Blob | Image}, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: {TextureUsage}?, read label: string? }?) -> Texture),
+    & ((file: string | Blob, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: { read [number]: TextureUsage }?, read label: string? }?) -> Texture)
+    & ((width: number, height: number, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: { read [number]: TextureUsage }?, read label: string? }?) -> Texture)
+    & ((width: number, height: number, layers: number, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: { read [number]: TextureUsage }?, read label: string? }?) -> Texture)
+    & ((image: string, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: { read [number]: TextureUsage }?, read label: string? }?) -> Texture)
+    & ((images: { read [number]: string | Blob | Image }, options: { read type: TextureType?, read format: TextureFormat?, read linear: boolean?, read samples: number?, read mipmaps: boolean | number | nil, read usage: { read [number]: TextureUsage }?, read label: string? }?) -> Texture),
   newTextureView: (parent: Texture, options: { read type: TextureType?, read layer: number?, read layercount: number?, read mipmap: number?, read mipmapcount: number?, read label: string? }?) -> Texture,
   present: () -> (),
   setBackgroundColor:
     & ((r: number, g: number, b: number, a: number?) -> ())
     & ((hex: number, a: number?) -> ())
-    & ((table: {number}) -> ()),
+    & ((table: { read [number]: number }) -> ()),
   setTimingEnabled: (enable: boolean) -> (),
   submit:
     & ((...Pass | boolean | nil) -> boolean)
-    & ((t: {Pass | boolean}) -> boolean),
+    & ((t: { read [number]: Pass | boolean }) -> boolean),
   wait: () -> (),
 }
 
@@ -1378,7 +1378,7 @@ declare extern type Layer extends Object with
   function getTexture(self): Texture
   function getViewport(self): (number, number, number, number)
   function setColor(self, r: number, g: number, b: number, a: number?)
-  function setColor(self, t: {number})
+  function setColor(self, t: { read [number]: number })
   function setColor(self, hex: number, a: number?)
   function setCurve(self, curve: number?)
   function setDimensions(self, width: number, height: number)
@@ -1461,7 +1461,7 @@ export type HeadsetModule = {
     & ((device: Device?) -> Model?),
   pollEvents: () -> (),
   setBackground:
-    & ((background: Image | {Image} | Texture) -> ())
+    & ((background: Image | { read [number]: Image } | Texture) -> ())
     & (() -> ()),
   setButton: (device: Device, button: DeviceButton, down: boolean) -> (),
   setClipDistance: (near: number, far: number) -> (),
@@ -1569,12 +1569,12 @@ export type MathModule = {
   drain: () -> (),
   gammaToLinear:
     & ((gr: number, gg: number, gb: number, a: number?) -> (number, number, number, number?))
-    & ((color: {number}) -> (number, number, number, number?))
+    & ((color: { read [number]: number }) -> (number, number, number, number?))
     & ((x: number) -> number),
   getRandomSeed: () -> number,
   linearToGamma:
     & ((lr: number, lg: number, lb: number, a: number?) -> (number, number, number, number?))
-    & ((color: {number}) -> (number, number, number, number?))
+    & ((color: { read [number]: number }) -> (number, number, number, number?))
     & ((x: number) -> number),
   mat4:
     & ((n: Mat4) -> Mat4)
@@ -2065,7 +2065,7 @@ export type TaskModule = {
   start: (f: () -> (), ...any) -> thread,
   wait:
     & ((...thread) -> ...any)
-    & ((t: {thread}) -> ...any),
+    & ((t: { read [number]: thread }) -> ...any),
 }
 
 declare extern type Channel extends Object with

@@ -160,4 +160,23 @@ for _, malformed in ipairs {
   end), 'a malformed listener raises')
 end
 
+-- Only the owner that made a tag destroys it, and a held tag ends only when
+-- its last holder lets go.
+local mine = service:new(second.owner, 'mine')
+local ok, failure = pcall(function()
+  return mine:destroy(first.owner)
+end)
+assert(not ok and tostring(failure):find("only the owner that made the tag 'mine' destroys it", 1, true), failure)
+assert(not mine.dead, 'a refused destroy leaves the tag')
+assert(mine:destroy(second.owner) and mine.dead, 'its owner destroys it')
+assert(not mine:destroy(second.owner), 'a dead tag answers false')
+local held, holding = service:hold(first.owner, { name = 'shared' })
+ok, failure = pcall(function()
+  return held:destroy(first.owner)
+end)
+assert(not ok and tostring(failure):find("the tag 'shared' is held", 1, true), failure)
+assert(not held.dead)
+holding:dispose()
+assert(held.dead, 'a held tag ends when its last holder lets go')
+
 runtime:close()

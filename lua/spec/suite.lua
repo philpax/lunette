@@ -24,7 +24,7 @@ function metatable:__call(name, run)
   self.cases[#self.cases + 1] = { name = name, run = run }
 end
 
--- A new suite named for the module it covers, such as `@mullion/pose`.
+-- A new suite named for the module it covers, such as `@mullion/scale`.
 function suite.new(name)
   if type(name) ~= 'string' then
     error('spec: a suite is named by a string, not a ' .. type(name), 2)

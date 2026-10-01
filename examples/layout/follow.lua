@@ -70,7 +70,7 @@ local function follow(): ({ layouts.Panel }, unknown?) -> ()
         .newMat4()
         :translate(x - math.sin(around) * options.distance, y, z - math.cos(around) * options.distance)
         :rotate(around, 0, 1, 0)
-      layouts.setPose(panels[index], pose)
+      panels[index]:setPose(pose)
     end
   end
 end

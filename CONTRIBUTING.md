@@ -107,6 +107,8 @@ The check catches the two defect classes static analysis exists for: a local ref
 
 File-backed aliases such as `@lunette-desktop/persist`, `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop` resolve through LÖVR's virtual filesystem in a running session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload` at runtime; the checker reads its generated declarations from `lua/lunette/init.luau`. The development-only `@spec` root has no installed counterpart.
 
+A relative require, `./`, `../`, or `@self`, resolves against the requiring file, by Luau's require-by-string rules, in the checker and in a running session alike; `crates/lunette/src/require` wraps the session's `require` so LÖVR's loader, which knows only the root of its virtual filesystem, agrees with the checker.
+
 `crates/lunette/src/aliases.rs` describes the roots and their runtime resolution. The generator derives `.luaurc` files from those descriptors, and `make check-definitions` verifies them. The Rust install manifest names installed roots and generated declarations; `make install` consumes that manifest. `lunette --dump-config` writes a `.luaurc` beside the copied configuration and names this installation's Lua root by an absolute path.
 
 That last one is why a configuration is copied with the command rather than by hand. A `.luaurc` in the tree resolves its aliases relative to itself, so a copy of it beside a user's own configuration names a directory that is not there and every `require` fails to resolve — for `lunette check` and for their editor both.

@@ -74,7 +74,7 @@ function arc.layout(tuning: Tuning, label: string): ({ layouts.Panel }, unknown?
       widths[index] = panel.width or 0
     end
     for index, pose in ipairs(geometry.poses(widths, chosen)) do
-      layouts.setPose(panels[index], pose)
+      panels[index]:setPose(pose)
     end
   end
 end

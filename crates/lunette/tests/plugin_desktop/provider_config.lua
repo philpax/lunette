@@ -186,8 +186,13 @@ local rejections = {
   -- the arranging consumer that passed them.
   {
     id = 'desktop/arrange',
-    config = { options = { radious = 2 } },
+    config = { options = { arc = { radious = 2 } } },
     message = 'plugin layout/arc: unknown option radious',
+  },
+  {
+    id = 'desktop/arrange',
+    config = { options = { radius = 2 } },
+    message = 'plugin desktop/arrange: option options.radius is a table of options, not a number',
   },
   {
     id = 'desktop/adoption',

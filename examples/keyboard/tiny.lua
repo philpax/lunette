@@ -80,7 +80,7 @@ local function make(focus: focusContract.Service, options: keyboard.Options?): k
       for index, code in ipairs(CODES) do
         local centre = lovr.math.mat4(state.pose):translate((index - 0.5) * KEY - state.width / 2, 0, 0)
         pass:plane(lovr.math.mat4(centre):scale(KEY * 0.9, KEY * 0.9, 1), 'fill')
-        pass:text(tostring(code), lovr.math.mat4(centre):translate(0, 0, 0.001):scale(KEY * 0.4), 0, 'center', 'middle')
+        pass:text(tostring(code), lovr.math.mat4(centre):translate(0, 0, 0.001):scale(KEY * 0.4))
       end
     end,
     destroy = function(_self: keyboard.Keyboard): boolean

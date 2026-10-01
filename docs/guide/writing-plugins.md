@@ -6,7 +6,7 @@ The code in this guide is in four example configurations, `examples/first-plugin
 
 ## A configuration to work in
 
-`lunette --dump-config` writes `main.lua` and `conf.lua` to `$XDG_CONFIG_HOME/lunette`, or to a directory given after the flag, together with a `.luaurc` that names the installed Lua roots by absolute path. The `.luaurc` is what lets `lunette check` and an editor resolve `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`. A configuration copied by hand from the source tree carries a `.luaurc` whose relative paths point nowhere.
+`lunette --dump-config` writes `main.lua` and `conf.lua` to `$XDG_CONFIG_HOME/lunette`, or to a directory given after the flag, together with a `.luaurc` that names the Lua roots by absolute path. The `.luaurc` is what lets `lunette check` and an editor resolve `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`. A configuration copied by hand from the source tree carries a `.luaurc` whose relative paths point nowhere. From a source tree that is not installed, `LUNETTE_STDLIB_PATH=lua cargo run -- --dump-config DIR` writes one that names the tree's roots.
 
 The shipped `main.lua` is one call:
 
@@ -16,7 +16,7 @@ require('@lunette-desktop').run()
 
 `run` takes `patches`, which change the desktop's list of plugins. `require('@lunette-desktop').entries()` answers that list; each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in plugins provide services, such as panels, pointers, and the keyboard, and the `desktop/` entries use them: `desktop/render` draws the panels, `desktop/decorations` gives them title bars, `desktop/pointing` points the lasers, and so on.
 
-Plugin modules go beside `main.lua` and are required with a path such as `require './hello'`. A session resolves a relative require against the configuration directory, and the checker resolves it against the requiring file. The two agree for modules at the top level of the configuration, so a configuration keeps its modules there.
+Plugin modules go in the configuration directory and are required with a relative path such as `require './hello'`. A relative path starts from the directory that holds the requiring module, in a session and in `lunette check` alike, so a plugin split across `myplugin/init.lua` and `myplugin/draw.lua` requires its part as `require '@self/draw'`: an `init.lua` is the module its directory names, so `./draw` from it would be a sibling of the directory. A relative path cannot climb out of the configuration directory.
 
 ## A first plugin
 
@@ -35,7 +35,7 @@ return plugin.define {
     frames:onDraw(context, {
       phase = 'overlay',
       run = function(pass: Pass)
-        pass:text('hello from a plugin', pose, 0, 'center', 'middle')
+        pass:text('hello from a plugin', pose)
       end,
     })
   end,
@@ -141,16 +141,20 @@ A plugin changes state outside itself only through its context. `context:on` sub
 
 A patch with an entry's `id` changes that entry. `config` merges into its configuration: a table with string keys merges key by key, and any other value, a list included, replaces the default. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
+`desktop.configure` makes a configuration patch for each shipped entry that takes options, typed with that entry's options, so the checker reads them:
+
 ```lua
-require('@lunette-desktop').run {
+local desktop = require '@lunette-desktop'
+
+desktop.run {
   patches = {
-    { id = 'laser', config = { style = { color = { 1, 0.4, 0.2, 0.6 } } } },
-    { id = 'desktop/keyboard', config = { hand = 'right', placement = { distance = 0.45 } } },
+    desktop.configure.laser { style = { color = { 1, 0.4, 0.2, 0.6 } } },
+    desktop.configure['desktop/keyboard'] { hand = 'right', placement = { distance = 0.45 } },
   },
 }
 ```
 
-A patch's `config` is not typed, so a misspelt option passes `lunette check` and fails the entry's load with an error that names the option. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
+`desktop.configure['desktop/keyboard'] { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. An id with a slash is indexed as a string. A misspelt key is not a type error in Luau either way; each entry validates its options when it loads and raises an error naming the option. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
 
 ## Extending the built-in keyboard
 
@@ -255,7 +259,7 @@ new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard
 end,
 ```
 
-`context:acquire` checks that the owner is a live plugin and registers the release with the owner, so a keyboard ends with the plugin that asked for it. Each owner draws and offers its own keyboards, so a provider keeps no list of them. A surface callback that answers a ray hit, `raycast`, is annotated `(number?, number?, number?)`; without the annotation the checker infers the return from the first `return nil, nil, nil` and rejects the hit.
+`context:acquire` checks that the owner is a live plugin and registers the release with the owner, so a keyboard ends with the plugin that asked for it. Each owner draws and offers its own keyboards, so a provider keeps no list of them. A surface callback that answers a ray hit, `raycast`, is annotated `(number?, number?, number?)` when it is written as a method or a local function. Luau gives a function with no expected type the return type of its first `return`, so an unannotated `raycast` that misses with `return nil, nil, nil` before it returns the hit is rejected at the hit. A `raycast` written inside a table that is annotated as the surface type takes its type from the contract and needs no annotation.
 
 ## A custom layout
 
@@ -271,7 +275,7 @@ local function grid(panels: { layouts.Panel }, given: unknown?): ()
   local options = plugin.options { name = 'grid', defaults = DEFAULTS, config = given }
   -- Work out each panel's cell from options.columns and the largest panel.
   for index, panel in ipairs(panels) do
-    layouts.setPose(panel, lovr.math.newMat4():translate(x, y, options.center[3]))
+    panel:setPose(lovr.math.newMat4():translate(x, y, options.center[3]))
   end
 end
 
@@ -285,16 +289,16 @@ return plugin.define {
 }
 ```
 
-The layout receives the live panels in the order the caller gives them and the caller's options. It decides nothing about which panels it gets: `desktop/arrange` passes the adopted windows of the workspace tag that were placed without a pose, less any the user has since dragged. `plugin.options` checks the options against the defaults, so a misspelt option raises an error naming it. `layouts.setPose` poses a panel; calling `panel:setPose` directly is reported by the checker as an ambiguous call, because a panel's type joins the surface's optional `setPose` with the panel's own. The registration is owned by the plugin's context, so it ends when the plugin unloads, and a second registration of the same name raises.
+The layout receives the live panels in the order the caller gives them and the caller's options. It decides nothing about which panels it gets: `desktop/arrange` passes the adopted windows of the workspace tag that were placed without a pose, less any the user has since dragged. `plugin.options` checks the options against the defaults, so a misspelt option raises an error naming it. The registration is owned by the plugin's context, so it ends when the plugin unloads, and a second registration of the same name raises.
 
 Two patches add the grid and choose it:
 
 ```lua
 { insert = { id = 'grid-layout', definition = require './grid' } },
-{ id = 'desktop/arrange', config = { layout = 'grid', options = { columns = 3 } } },
+desktop.configure['desktop/arrange'] { layout = 'grid', options = { grid = { columns = 3 } } },
 ```
 
-`options` are the grid's own; `desktop/arrange` passes them through. An inserted entry is enabled after the shipped ones, so the grid registers after `desktop/arrange` has started, and `desktop/arrange` arranges again when it does. If no layout of the chosen name has registered by the first frame, `desktop/arrange` logs a warning naming it.
+`options` gives each layout its options by name, and `desktop/arrange` passes a layout its own whichever tag uses it, so a tag that chooses `grid` with `tag:setLayout` is laid out in three columns too. An inserted entry is enabled after the shipped ones, so the grid registers after `desktop/arrange` has started, and `desktop/arrange` arranges again when it does. If no layout of the chosen name has registered by the first frame, `desktop/arrange` logs a warning naming it.
 
 A layout registered with `continuous = true` is applied on every frame as well. `examples/layout/follow.lua` is one: it keeps the windows on an arc around the head and swings the arc round once the head has turned far enough away from it. It reuses the arc layout's geometry, `@lunette-plugins/layout/arc/geometry`, which spaces panels by their widths so that wide ones do not overlap. `examples/layout/main.lua` inserts both layouts and chooses the grid; `layout = 'follow'` chooses the other.
 
@@ -320,7 +324,7 @@ end
 A hook is an option, so a patch gives it:
 
 ```lua
-{ id = 'interaction', config = { constrain = require './upright' } },
+desktop.configure.interaction { constrain = require './upright' },
 ```
 
 `drive(pointer, input, surfaces, base)` runs for every frame of every pointer, and `base` is the default mapping: grip to grab, buttons to click, the stick to scroll or push. A hook that calls `base` with changed input remaps it, and one that does not call `base` drives the pointer's primitives, `hover`, `setButton`, `beginGrab`, `dragTo`, and `endGrab`, itself. `@lunette-plugins/interaction/picking` has the default's picking and scrolling for such a hook. `focusOnPress = false` stops a click from giving the keyboard to what it clicks.
@@ -328,13 +332,10 @@ A hook is an option, so a patch gives it:
 Which controller button presses which pointer button is the laser's `buttons` option, a list that replaces the default:
 
 ```lua
-{
-  id = 'laser',
-  config = {
-    buttons = {
-      { control = 'trigger', button = 'left' },
-      { control = 'a', button = 'right' },
-    },
+desktop.configure.laser {
+  buttons = {
+    { control = 'trigger', button = 'left' },
+    { control = 'a', button = 'right' },
   },
 },
 ```
@@ -381,7 +382,7 @@ The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches onl
 The reload key is the `desktop/bindings` entry's binding, so it moves with a patch:
 
 ```lua
-{ id = 'desktop/bindings', config = { reload = { key = 'f5', modifiers = { 'control' } } } },
+desktop.configure['desktop/bindings'] { reload = { key = 'f5', modifiers = { 'control' } } },
 ```
 
 ## Decorations
@@ -389,7 +390,7 @@ The reload key is the `desktop/bindings` entry's binding, so it moves with a pat
 Panels draw no frame of their own. The `desktop/decorations` entry draws a border round each panel and a title bar above it, and grabbing the bar moves the panel. Its `style` is configuration, as in `examples/desktop/main.lua`:
 
 ```lua
-{ id = 'desktop/decorations', config = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } } },
+desktop.configure['desktop/decorations'] { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
 ```
 
 Decorations of another kind are a plugin that does what `lua/lunette-desktop/decorations.lua` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
@@ -437,18 +438,15 @@ A window that opens goes to the workspace in view. A workspace consumer of anoth
 `desktop/rules` takes the rule list. A rule matches named fields of a window, such as `appId` or `title`, or `where`, a function of the whole window, and its properties say where the window goes and how big it is. `examples/desktop/main.lua` sizes picture-in-picture windows by their title:
 
 ```lua
-{
-  id = 'desktop/rules',
-  config = {
-    rules = {
-      {
-        match = {
-          where = function(window): boolean
-            return type(window.title) == 'string' and window.title:lower():find('picture', 1, true) ~= nil
-          end,
-        },
-        properties = { width = 0.6, priority = 20 },
+desktop.configure['desktop/rules'] {
+  rules = {
+    {
+      match = {
+        where = function(window): boolean
+          return type(window.title) == 'string' and window.title:lower():find('picture', 1, true) ~= nil
+        end,
       },
+      properties = { width = 0.6, priority = 20 },
     },
   },
 },
@@ -479,7 +477,7 @@ stream:subscribe(context, {
 The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence` takes the file it saves to, the format it writes, and `keyFor`, which says what identifies a window across sessions, by default its application id:
 
 ```lua
-{ id = 'desktop/persistence', config = { file = 'example.state' } },
+desktop.configure['desktop/persistence'] { file = 'example.state' },
 ```
 
 It also provides `lunette/arrangement`, so a key can save or put the windows back. `examples/desktop/save-key.lua` binds control, alt, and S to save and control, alt, and R to restore:
@@ -501,6 +499,4 @@ A format of your own is a `{ read, render }` pair; [Default configuration](../de
 
 ## Checking a configuration
 
-`lunette check main.lua` typechecks `main.lua` and every module it requires, in strict mode, against the runtime's definitions. A module that nothing requires, such as `rounded.lua` in the keyboard example, is checked by naming it too. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It does not check a patch's `config`, and it does not run the plugins: an option error, a malformed row, or an error raised in `init` appears when the session loads the plugin, in the log and in the error panel, naming the plugin.
-
-`pass:text(text, transform)` with only a transform is reported as an ambiguous call because of how LÖVR's overloads are declared; giving the wrap, horizontal, and vertical alignment arguments, as the examples do, selects the transform form.
+`lunette check` typechecks every `.lua` and `.luau` file in the configuration directory a session would load, and every module they require, in strict mode, against the runtime's definitions. Naming files or directories, as in `lunette check main.lua`, checks those instead. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It checks the options of a `desktop.configure` patch but not a plain patch's `config`, and it does not run the plugins: an option error, a malformed row, or an error raised in `init` appears when the session loads the plugin, in the log and in the error panel, naming the plugin.

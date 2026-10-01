@@ -6,6 +6,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::{self, Display, Formatter},
     fs,
     io::{self, IsTerminal},
     ops::Range,
@@ -46,15 +47,28 @@ fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
-/// Typechecks `roots`, drawing what it found.
+/// Typechecks `named`, or the configuration directory when nothing is named,
+/// drawing what it found.
+///
+/// `configuration` is the directory a session started the same way would
+/// load, so `lunette check` with no paths checks what `lunette` would run. A
+/// directory is checked file by file; [`targets`] says which files.
 ///
 /// A root that is not read fails the run on its own. A pass that silently
 /// skips its input reports a clean result for a file it never reads.
-pub fn run(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> ExitCode {
-    if roots.is_empty() {
-        error!("check: no files were named; name the files to check, such as main.lua");
-        return ExitCode::FAILURE;
-    }
+pub fn run(
+    named: &[PathBuf],
+    configuration: &Path,
+    definitions: Option<&Path>,
+    old_solver: bool,
+) -> ExitCode {
+    let roots = match targets(named, configuration) {
+        Ok(roots) => roots,
+        Err(error) => {
+            error!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     let definitions = match resolve_definitions(definitions) {
         Some(path) => path,
@@ -63,7 +77,7 @@ pub fn run(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> E
 
     let request = Request {
         old_solver,
-        ..Request::new(Some(definitions), roots.to_vec())
+        ..Request::new(Some(definitions), roots)
     };
 
     let report = match analyze::check(&request) {
@@ -89,6 +103,127 @@ pub fn run(roots: &[PathBuf], definitions: Option<&Path>, old_solver: bool) -> E
         return ExitCode::SUCCESS;
     }
     ExitCode::FAILURE
+}
+
+/// The files a check reads: each named file, and each `.lua` or `.luau` file
+/// below each named directory, in path order. With nothing named, the files
+/// below `configuration`.
+///
+/// A directory or file whose name begins with `.` is passed over: a
+/// configuration's `.luaurc` is not a module, and neither is anything an
+/// editor or a version-control tool keeps beside it.
+///
+/// # Errors
+///
+/// A path that does not exist, a directory that cannot be read, or a directory
+/// that holds no file to check. Each would otherwise be a clean report about
+/// nothing.
+pub fn targets(named: &[PathBuf], configuration: &Path) -> Result<Vec<PathBuf>, TargetError> {
+    let defaulted = [configuration.to_owned()];
+    let paths = if named.is_empty() {
+        &defaulted[..]
+    } else {
+        named
+    };
+
+    let mut files = Vec::new();
+    for path in paths {
+        if path.is_file() {
+            files.push(path.clone());
+        } else if path.is_dir() {
+            let before = files.len();
+            collect(path, &mut files)?;
+            if files.len() == before {
+                return Err(TargetError::Empty(path.clone()));
+            }
+        } else {
+            return Err(TargetError::Missing {
+                path: path.clone(),
+                defaulted: named.is_empty(),
+            });
+        }
+    }
+    Ok(files)
+}
+
+/// Why `lunette check` has nothing to read.
+#[derive(Debug)]
+pub enum TargetError {
+    /// The path is not there. `defaulted` is set when it is the
+    /// configuration directory, which nobody named.
+    Missing { path: PathBuf, defaulted: bool },
+    /// A directory below the named one could not be read.
+    Read(PathBuf, io::Error),
+    /// The directory holds no `.lua` or `.luau` file.
+    Empty(PathBuf),
+}
+
+impl Display for TargetError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing {
+                path,
+                defaulted: true,
+            } => write!(
+                formatter,
+                "check: no files were named, and the configuration directory {} does not exist; name the files to check, or run lunette --dump-config to create it",
+                path.display()
+            ),
+            Self::Missing {
+                path,
+                defaulted: false,
+            } => write!(formatter, "check: {} does not exist", path.display()),
+            Self::Read(path, error) => {
+                write!(
+                    formatter,
+                    "check: {} could not be read: {error}",
+                    path.display()
+                )
+            }
+            Self::Empty(path) => write!(
+                formatter,
+                "check: {} holds no .lua or .luau file",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TargetError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read(_, error) => Some(error),
+            Self::Missing { .. } | Self::Empty(_) => None,
+        }
+    }
+}
+
+/// Appends the files below `directory` to `files`, in path order.
+fn collect(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), TargetError> {
+    let read = |error| TargetError::Read(directory.to_owned(), error);
+    let mut entries = fs::read_dir(directory)
+        .map_err(read)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(read)?;
+    entries.sort();
+    for path in entries {
+        let hidden = path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with('.'));
+        if hidden {
+            continue;
+        }
+        if path.is_dir() {
+            collect(&path, files)?;
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "lua" || extension == "luau")
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
 }
 
 /// Draws each diagnostic against the source it came from.
@@ -186,5 +321,97 @@ impl Sources {
             .entry(path.to_owned())
             .or_insert_with(|| fs::read_to_string(path).ok().map(Source::from))
             .as_ref()
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
+)]
+mod tests {
+    use pretty_assertions::assert_eq;
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn configuration() -> TempDir {
+        let directory = TempDir::new().expect("a temporary directory");
+        for file in [
+            "main.lua",
+            "conf.lua",
+            "nested/a.luau",
+            ".luaurc",
+            "notes.txt",
+            ".hidden/x.lua",
+        ] {
+            let path = directory.path().join(file);
+            fs::create_dir_all(path.parent().expect("a parent")).expect("the directory");
+            fs::write(&path, "").expect("the file");
+        }
+        directory
+    }
+
+    #[test]
+    fn nothing_named_checks_the_configuration_directory() {
+        let directory = configuration();
+        let found = targets(&[], directory.path()).expect("the files");
+        assert_eq!(
+            found,
+            ["conf.lua", "main.lua", "nested/a.luau"].map(|file| directory.path().join(file))
+        );
+    }
+
+    #[test]
+    fn named_paths_replace_the_configuration_directory() {
+        let directory = configuration();
+        let elsewhere = configuration();
+        let named = [
+            elsewhere.path().join("main.lua"),
+            elsewhere.path().join("nested"),
+        ];
+        let found = targets(&named, directory.path()).expect("the files");
+        assert_eq!(
+            found,
+            [
+                elsewhere.path().join("main.lua"),
+                elsewhere.path().join("nested/a.luau")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_configuration_directory_says_how_to_make_one() {
+        let directory = TempDir::new().expect("a temporary directory");
+        let missing = directory.path().join("lunette");
+        let error = targets(&[], &missing).expect_err("nothing to check");
+        assert!(matches!(
+            &error,
+            TargetError::Missing {
+                defaulted: true,
+                ..
+            }
+        ));
+        assert!(error.to_string().contains("--dump-config"), "{error}");
+    }
+
+    #[test]
+    fn a_directory_with_nothing_to_check_is_an_error() {
+        let directory = TempDir::new().expect("a temporary directory");
+        fs::write(directory.path().join("notes.txt"), "").expect("the file");
+        assert!(matches!(
+            targets(&[], directory.path()),
+            Err(TargetError::Empty(path)) if path == directory.path()
+        ));
+    }
+
+    #[test]
+    fn a_missing_named_path_is_an_error() {
+        let directory = configuration();
+        let missing = directory.path().join("absent.lua");
+        assert!(matches!(
+            targets(std::slice::from_ref(&missing), directory.path()),
+            Err(TargetError::Missing { path, defaulted: false }) if path == missing
+        ));
     }
 }

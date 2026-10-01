@@ -49,6 +49,7 @@ pub mod mirrors;
 pub mod plugin;
 pub mod properties;
 pub mod reload;
+pub mod require;
 pub mod restart;
 pub mod safe_mode;
 pub mod scale;

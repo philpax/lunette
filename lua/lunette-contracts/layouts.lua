@@ -32,10 +32,8 @@ local layouts = {}
 
 export type Owner = owner.Owner
 
--- What a layout poses: a surface it can move.
-export type Panel = surface.Surface & {
-  read setPose: (surface.Surface, Mat4) -> (),
-}
+-- What a layout poses: a surface it can move, posed with `panel:setPose`.
+export type Panel = surface.Movable
 
 -- What register takes. apply receives the live panels in the order the caller
 -- gave them, and the caller's options, which the layout validates.
@@ -71,17 +69,6 @@ export type Service = {
 }
 
 export type Capability = plugin.Capability<Service>
-
--- Poses a panel. Luau reads `panel:setPose` on a Panel as an overload of the
--- surface's optional setPose and the Panel's own and cannot choose between
--- them, so a layout poses each panel through this.
-function layouts.setPose(panel: Panel, pose: Mat4): ()
-  local target: surface.Surface = panel
-  local setPose = target.setPose
-  if setPose then
-    setPose(target, pose)
-  end
-end
 
 layouts.capability = plugin.capability<<Service>> { name = 'lunette/layouts', schema = 1 }
 

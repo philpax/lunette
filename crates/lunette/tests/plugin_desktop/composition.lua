@@ -103,6 +103,24 @@ assert(#replaced[1].config.style.color == 1 and replaced[1].config.style.length 
 assert(custom[1].config.style.length == 1, 'composing leaves its inputs as they were')
 assert(table.isfrozen(merged[1].config.style), 'a composed configuration is frozen')
 
+-- A typed patch is the plain patch for its id, and each names a shipped entry.
+local typed = desktop.configure.laser { style = { length = 2 } }
+assert(typed.id == 'laser' and typed.config.style.length == 2, 'a typed patch names its entry and carries its options')
+local typedMerge = desktop.compose { entries = custom, patches = { typed } }
+assert(typedMerge[1].config.style.length == 2 and typedMerge[1].config.style.color[3] == 1, 'a typed patch merges')
+local shipped = {}
+for _, entry in ipairs(desktop.entries()) do
+  shipped[entry.id] = true
+end
+local typedCount = 0
+for id, make in desktop.configure do
+  assert(shipped[id], 'configure names ' .. id .. ', which is not a shipped entry')
+  assert(make({}).id == id, 'configure.' .. id .. ' patches ' .. id)
+  typedCount += 1
+end
+assert(typedCount == 22, 'every shipped entry with options has a typed patch: ' .. typedCount)
+assert(table.isfrozen(desktop.configure), 'the typed patches are frozen')
+
 -- Malformed compositions raise before anything is defined or enabled, and
 -- each error names the id.
 local hud = plugin.define { name = 'hud', init = function() end }

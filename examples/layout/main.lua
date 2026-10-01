@@ -4,14 +4,18 @@
 -- `lunette --dump-config` wrote, which also holds conf.lua and the .luaurc that
 -- `lunette check` and an editor read. docs/guide/writing-plugins.md walks
 -- through it.
-require('@lunette-desktop').run {
+local desktop = require '@lunette-desktop'
+
+desktop.run {
   patches = {
     -- Each layout is a plugin of its own that registers with the layouts
     -- broker; inserting it makes the layout available by name.
     { insert = { id = 'grid-layout', definition = require './grid' } },
     { insert = { id = 'follow-layout', definition = require './follow' } },
-    -- The arranging consumer names the layout it uses. `options` are the
-    -- grid's own; `layout = 'follow'` would choose the other one.
-    { id = 'desktop/arrange', config = { layout = 'grid', options = { columns = 3 } } },
+    -- The arranging consumer names the layout it uses, and `options` gives
+    -- each layout its own options by name; `layout = 'follow'` would choose
+    -- the other one. `desktop.configure` types the patch with the consumer's
+    -- options, so the checker reads them.
+    desktop.configure['desktop/arrange'] { layout = 'grid', options = { grid = { columns = 3 } } },
   },
 }

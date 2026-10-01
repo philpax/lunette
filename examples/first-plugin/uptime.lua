@@ -26,13 +26,7 @@ return plugin.define {
     frames:onDraw(context, {
       phase = 'overlay',
       run = function(pass: Pass)
-        pass:text(
-          string.format('%s %.0fs, %d windows', settings.prefix, time:elapsed(), opened),
-          pose,
-          0,
-          'center',
-          'middle'
-        )
+        pass:text(string.format('%s %.0fs, %d windows', settings.prefix, time:elapsed(), opened), pose)
       end,
     })
   end,

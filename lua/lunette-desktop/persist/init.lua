@@ -246,6 +246,21 @@ function persist.new(dependencies: Dependencies?): State
     report(message)
   end
 
+  -- A saved entry nothing matched is reported once for each file loaded or
+  -- saved: every restore and every binding finds it again. Weak keys, so a
+  -- replaced arrangement's entries are not retained.
+  local reportedStale: { [Entry]: boolean } = setmetatable({} :: { [Entry]: boolean }, { __mode = 'k' })
+  local function restore(context: plugin.Context, panels: panelsContract.Service, tags: tagsContract.Service): number
+    local restored, stale = arrangements.restore(report, held, context, panels, tags, arrangement)
+    for _, entry in ipairs(stale) do
+      if not reportedStale[entry] then
+        reportedStale[entry] = true
+        report('nothing matched the saved ' .. entry.kind .. " '" .. entry.key .. "'")
+      end
+    end
+    return #restored
+  end
+
   local state: State = {
     loaded = function(_self: State): format.Loaded
       return loaded
@@ -330,8 +345,7 @@ function persist.new(dependencies: Dependencies?): State
           if not bindingLive(binding) or not currentContext or not currentPanels or not currentTags then
             return 0
           end
-          local restored = arrangements.restore(report, held, currentContext, currentPanels, currentTags, arrangement)
-          return #restored
+          return restore(currentContext, currentPanels, currentTags)
         end,
         dispose = function(_binding: Binding): ()
           local effect = binding.ownerEffect
@@ -348,7 +362,7 @@ function persist.new(dependencies: Dependencies?): State
           return arrangements.answer(available(), held, window)
         end
         binding.sourceEffect = rules:addSource(context, { name = SOURCE, precedence = PRECEDENCE, resolve = source })
-        arrangements.restore(report, held, context, panels, tags, arrangement)
+        restore(context, panels, tags)
         binding.addedEffect = panels:onAdded(context, function(target: panelsContract.Panel)
           if bindingLive(binding) then
             arrangements.arrived(report, held, context, panels, tags, arrangement, target)

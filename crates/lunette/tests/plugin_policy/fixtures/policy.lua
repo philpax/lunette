@@ -171,8 +171,8 @@ for index = 1, 12 do
   do
     local temporary = services.tags:new(owner, 'temporary-' .. index)
     weakTags[1] = temporary
-    assert(temporary:destroy())
-    assert(not temporary:destroy())
+    assert(temporary:destroy(owner))
+    assert(not temporary:destroy(owner))
   end
   collectgarbage()
   collectgarbage()

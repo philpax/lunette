@@ -56,7 +56,7 @@ local function grid(panels: { layouts.Panel }, given: unknown?): ()
     local row = (index - 1) // columns
     local x = center[1] + (column - (columns - 1) / 2) * cellWidth
     local y = center[2] + ((rows - 1) / 2 - row) * cellHeight
-    layouts.setPose(panel, lovr.math.newMat4():translate(x, y, center[3]))
+    panel:setPose(lovr.math.newMat4():translate(x, y, center[3]))
   end
 end
 

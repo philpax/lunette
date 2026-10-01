@@ -68,7 +68,7 @@ local function near(a, b)
 end
 
 -- Five windows in three columns: two rows, the first full, on the wall.
-local desktop, owner = started('grid', { columns = 3 })
+local desktop, owner = started('grid', { grid = { columns = 3 } })
 open(5)
 local placed = {}
 for index, window in ipairs(events.windows) do
@@ -107,7 +107,7 @@ events.saved = nil
 require 'fixture/graph' {
   patches = {
     { insert = { id = 'grid-layout', definition = require './grid' } },
-    { id = 'desktop/arrange', config = { layout = 'grid', options = { colums = 3 } } },
+    { id = 'desktop/arrange', config = { layout = 'grid', options = { grid = { colums = 3 } } } },
   },
 }
 open(1)

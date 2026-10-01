@@ -51,7 +51,7 @@ use lunette::{
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install_on_state},
     plugin::host,
-    safe_mode,
+    require, safe_mode,
     texture::LovrTexture,
 };
 use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback};
@@ -220,6 +220,12 @@ fn run_session(
         // `run_steps` returns, and no reference into it is kept.
         if let Err(error) = install_on_state(&lua_handle, session) {
             error!("lua: the lunette module could not be registered: {error}");
+            return Outcome::LoadFailed;
+        }
+
+        // Before `boot.lua`, which requires `main.lua` through it.
+        if let Err(error) = require::install(&lua_handle) {
+            error!("lua: relative require could not be installed: {error}");
             return Outcome::LoadFailed;
         }
 

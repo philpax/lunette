@@ -28,7 +28,7 @@ fn mounted_persistence_specs_run_every_case() -> mlua::Result<()> {
     lua.load(include_str!("plugin_persistence/specs.lua"))
         .set_name("persistence specs")
         .exec()?;
-    assert_eq!(lua.globals().get::<u32>("persistenceSpecCases")?, 53);
+    assert_eq!(lua.globals().get::<u32>("persistenceSpecCases")?, 54);
     assert!(plugin_support::shutdown(&lua).is_empty());
     Ok(())
 }

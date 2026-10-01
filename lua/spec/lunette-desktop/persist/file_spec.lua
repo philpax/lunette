@@ -219,6 +219,37 @@ spec('saved bytes restore pose, size, and tags in a new configuration state', fu
   expect.equal(fs.reads, 2, 'one read per state')
 end)
 
+spec('a saved entry nothing matches is reported once per load', function()
+  local fs = filesystem(nil)
+  withBinding(newState(fs), function(binding, context, panels)
+    panels:fromMonitor(context, { id = 'fixture.unplugged', dead = false, width = 1920, height = 1080 })
+    expect.equal(binding:save(), true, 'the save')
+  end)
+  local function stale(reports)
+    local count = 0
+    for _, message in ipairs(reports) do
+      if message:find("nothing matched the saved monitor 'fixture.unplugged'", 1, true) then
+        count += 1
+      end
+    end
+    return count
+  end
+  local recovered, reports = newState(fs)
+  withBinding(recovered, function(binding, context, panels, tags)
+    expect.equal(stale(reports), 1, 'the bind reports it')
+    binding:restore()
+    binding:restore()
+    expect.equal(stale(reports), 1, 'a restore does not report it again')
+    binding:dispose()
+    local again = recovered:bind(context, panels, tags, context:require(rulesContract.capability))
+    expect.equal(stale(reports), 1, 'a binding of the same load does not report it again')
+    again:dispose()
+  end)
+  local reloaded, fresh = newState(fs)
+  withBinding(reloaded, function() end)
+  expect.equal(stale(fresh), 1, 'a new load reports it again')
+end)
+
 spec('disposed bindings cannot save even with force', function()
   local fs = filesystem(nil)
   withBinding(newState(fs), function(binding)

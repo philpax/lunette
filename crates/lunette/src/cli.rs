@@ -7,7 +7,6 @@
 //! configuration not written to handle it.
 
 use std::{
-    collections::BTreeSet,
     ffi::OsString,
     fmt::{self, Display, Formatter},
     fs, io,
@@ -15,7 +14,7 @@ use std::{
 };
 
 use clap::Parser;
-use lunette::aliases;
+use lunette::aliases::{self, ModuleRoots};
 
 /// What the user asked lunette to do.
 #[derive(Debug, Parser)]
@@ -55,10 +54,16 @@ pub struct Cli {
 pub enum Command {
     /// Typecheck a configuration and the standard library it uses.
     Check {
-        /// The files to check, such as a configuration's `main.lua` and the
-        /// modules it requires by path. Each `@` alias resolves through the
+        /// The files or directories to check. A directory is checked file
+        /// by file: every `.lua` and `.luau` file below it, passing over
+        /// names that begin with `.`. Each `@` alias resolves through the
         /// `.luaurc` beside the file.
-        #[arg(value_name = "FILE")]
+        ///
+        /// Without any, the configuration directory a session would load:
+        /// `--config-path`, then `$LUNETTE_CONFIG_PATH`,
+        /// `$XDG_CONFIG_HOME/lunette`, `$HOME/.config/lunette`, and the system
+        /// directory, the first that exists.
+        #[arg(value_name = "PATH")]
         roots: Vec<PathBuf>,
 
         /// The definitions to check against, naming the runtime globals.
@@ -81,33 +86,53 @@ pub enum Command {
 /// configuration patches them rather than carrying copies of them.
 const CONFIG_ARTIFACTS: &[&str] = &["main.lua", "conf.lua"];
 
-/// Copies `source` to `destination`, refusing to overwrite anything.
+/// The contents of each of [`CONFIG_ARTIFACTS`], in its order, as this binary
+/// was built with them.
+///
+/// The copy is embedded rather than read from `$SYSCONFDIR/xdg/lunette`,
+/// which is fixed when the binary is built: a binary that was never installed
+/// has nothing there, and an installed one could find a configuration from
+/// another version there. The embedded files are the ones written against
+/// the module roots this binary mounts. The array's length is the
+/// inventory's, and a test checks that each entry is the shipped file of the
+/// same name.
+const DEFAULT_CONFIGURATION: [&str; CONFIG_ARTIFACTS.len()] = [
+    include_str!("../../../etc/xdg/lunette/main.lua"),
+    include_str!("../../../etc/xdg/lunette/conf.lua"),
+];
+
+/// Writes the default configuration to `destination`, refusing to overwrite
+/// anything.
 ///
 /// The function refuses to overwrite, because the file it writes is one
 /// the user is about to edit. A copy that replaces an edited configuration
 /// destroys the user's edits.
 ///
-/// The `.luaurc` is written from `standard_library`, not copied, and it
-/// names `standard_library` by an absolute path. The file in the source
-/// tree resolves its aliases relative to itself; copied beside a user's
+/// The `.luaurc` is written from `standard_library`, and it names
+/// `standard_library` by an absolute path. The file in the source tree
+/// resolves its aliases relative to itself; copied beside a user's
 /// configuration, it names a directory that is not there, and every
 /// `require '@lunette-desktop/…'` fails to resolve for the checker and for the
-/// user's editor.
-pub fn dump(
-    source: &Path,
-    destination: &Path,
-    standard_library: &Path,
-) -> Result<Vec<PathBuf>, DumpError> {
-    if !source.is_dir() {
-        return Err(DumpError::NoDefault(source.to_owned()));
+/// user's editor. For the same reason a `standard_library` that lacks a root
+/// the `.luaurc` names is refused: it is what a binary run from a source tree
+/// without `$LUNETTE_STDLIB_PATH` resolves, and the session it would start
+/// could not load the configuration either.
+pub fn dump(destination: &Path, standard_library: &Path) -> Result<Vec<PathBuf>, DumpError> {
+    let roots = ModuleRoots::installed(standard_library);
+    if let Some(missing) = roots
+        .iter()
+        .filter(|root| !root.optional())
+        .find(|root| !root.source.is_dir())
+    {
+        return Err(DumpError::NoModuleData {
+            root: missing.source.clone(),
+            standard_library: standard_library.to_owned(),
+        });
     }
-
-    let entries = read_config_entries(source)?;
-    validate_config_entries(&entries)?;
 
     let targets = CONFIG_ARTIFACTS
         .iter()
-        .map(|artifact| destination.join(artifact))
+        .map(|name| destination.join(name))
         .chain(std::iter::once(destination.join(ALIAS_FILE)))
         .collect::<Vec<_>>();
     if let Some(existing) = targets.iter().find(|target| target.exists()) {
@@ -118,14 +143,9 @@ pub fn dump(
         .map_err(|error| DumpError::Write(destination.to_owned(), error))?;
 
     let mut written = Vec::with_capacity(targets.len());
-    for artifact in CONFIG_ARTIFACTS {
-        let source_path = source.join(artifact);
-        let target = destination.join(artifact);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| DumpError::Write(parent.to_owned(), error))?;
-        }
-        fs::copy(&source_path, &target).map_err(|error| DumpError::Write(target.clone(), error))?;
+    for (name, contents) in CONFIG_ARTIFACTS.iter().zip(DEFAULT_CONFIGURATION) {
+        let target = destination.join(name);
+        fs::write(&target, contents).map_err(|error| DumpError::Write(target.clone(), error))?;
         written.push(target);
     }
 
@@ -140,92 +160,20 @@ pub fn dump(
     Ok(written)
 }
 
-/// Collects source paths and their filesystem kinds without following links.
-fn read_config_entries(source: &Path) -> Result<Vec<(PathBuf, ConfigEntryKind)>, DumpError> {
-    let mut entries = Vec::new();
-    let mut pending = vec![source.to_owned()];
-    while let Some(directory) = pending.pop() {
-        let children =
-            fs::read_dir(&directory).map_err(|error| DumpError::Read(directory.clone(), error))?;
-        for child in children {
-            let child = child.map_err(|error| DumpError::Read(directory.clone(), error))?;
-            let path = child.path();
-            let relative = path
-                .strip_prefix(source)
-                .map_err(|_| DumpError::Unsupported(path.clone()))?
-                .to_owned();
-            let file_type = child
-                .file_type()
-                .map_err(|error| DumpError::Read(path.clone(), error))?;
-            let kind = if file_type.is_dir() {
-                pending.push(path);
-                ConfigEntryKind::Directory
-            } else if file_type.is_file() {
-                ConfigEntryKind::File
-            } else {
-                ConfigEntryKind::Unsupported
-            };
-            entries.push((relative, kind));
-        }
-    }
-    Ok(entries)
-}
-
-/// The filesystem shapes accepted beneath the shipped configuration root.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ConfigEntryKind {
-    Directory,
-    File,
-    Unsupported,
-}
-
-/// Checks the filesystem inventory against the declared shipped artifacts.
-fn validate_config_entries(entries: &[(PathBuf, ConfigEntryKind)]) -> Result<(), DumpError> {
-    let expected = CONFIG_ARTIFACTS
-        .iter()
-        .map(PathBuf::from)
-        .collect::<BTreeSet<_>>();
-    let mut found = BTreeSet::new();
-    for (path, kind) in entries {
-        if path == Path::new(ALIAS_FILE) && *kind == ConfigEntryKind::File {
-            continue;
-        }
-        match kind {
-            ConfigEntryKind::File if expected.contains(path) => {
-                found.insert(path.clone());
-            }
-            ConfigEntryKind::Directory
-                if expected.iter().any(|artifact| artifact.starts_with(path)) => {}
-            ConfigEntryKind::Directory => return Err(DumpError::Unsupported(path.clone())),
-            ConfigEntryKind::File | ConfigEntryKind::Unsupported => {
-                return Err(DumpError::Unsupported(path.clone()));
-            }
-        }
-    }
-    if let Some(missing) = expected.difference(&found).next() {
-        return Err(DumpError::Missing(missing.clone()));
-    }
-    Ok(())
-}
-
 /// What Luau reads a directory's aliases from.
 const ALIAS_FILE: &str = ".luaurc";
 
 /// Why a configuration could not be written.
 #[derive(Debug)]
 pub enum DumpError {
-    /// The path to the installed default configuration does not point at a
-    /// configuration directory.
-    NoDefault(PathBuf),
-    /// The default configuration could not be read.
-    Read(PathBuf, io::Error),
+    /// A root the `.luaurc` would name is not below the standard library.
+    NoModuleData {
+        root: PathBuf,
+        standard_library: PathBuf,
+    },
     /// Something already exists where a copy would go, and the copy is
     /// refused.
     Exists(PathBuf),
-    /// A declared default-configuration file is absent.
-    Missing(PathBuf),
-    /// A filesystem entry is not represented by the shipped artifact manifest.
-    Unsupported(PathBuf),
     /// The copy could not be written.
     Write(PathBuf, io::Error),
 }
@@ -233,29 +181,18 @@ pub enum DumpError {
 impl Display for DumpError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoDefault(path) => write!(
+            Self::NoModuleData {
+                root,
+                standard_library,
+            } => write!(
                 formatter,
-                "dump-config: no default configuration is installed at {}",
-                path.display()
-            ),
-            Self::Read(path, error) => write!(
-                formatter,
-                "dump-config: the default configuration at {} could not be read: {error}",
-                path.display()
+                "dump-config: the Lua roots are not installed at {}, so a .luaurc naming them would resolve nothing ({} is not a directory); install lunette, or set LUNETTE_STDLIB_PATH to a source tree's lua directory",
+                standard_library.display(),
+                root.display()
             ),
             Self::Exists(path) => write!(
                 formatter,
                 "dump-config: {} already exists, and a copy would replace it",
-                path.display()
-            ),
-            Self::Missing(path) => write!(
-                formatter,
-                "dump-config: the declared default-configuration file {} is missing",
-                path.display()
-            ),
-            Self::Unsupported(path) => write!(
-                formatter,
-                "dump-config: the default configuration contains unsupported content at {}",
                 path.display()
             ),
             Self::Write(path, error) => write!(
@@ -270,8 +207,8 @@ impl Display for DumpError {
 impl std::error::Error for DumpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Read(_, error) | Self::Write(_, error) => Some(error),
-            Self::NoDefault(_) | Self::Exists(_) | Self::Missing(_) | Self::Unsupported(_) => None,
+            Self::Write(_, error) => Some(error),
+            Self::NoModuleData { .. } | Self::Exists(_) => None,
         }
     }
 }
@@ -282,108 +219,33 @@ impl std::error::Error for DumpError {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
+    use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
     use super::*;
 
-    /// Builds a default configuration directory carrying the `.luaurc` a
-    /// source tree has, whose aliases resolve relative to the source tree.
-    fn source() -> TempDir {
+    /// A standard library with every root a `.luaurc` names.
+    fn standard_library() -> TempDir {
         let directory = TempDir::new().expect("a temporary directory");
-        for artifact in CONFIG_ARTIFACTS {
-            let path = directory.path().join(artifact);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).expect("artifact directory");
-            }
-            fs::write(&path, format!("-- {artifact}\n")).expect("configuration artifact");
+        for root in ModuleRoots::installed(directory.path()).iter() {
+            fs::create_dir_all(&root.source).expect("a root");
         }
-        fs::write(
-            directory.path().join(".luaurc"),
-            aliases::luaurc("../../../lua"),
-        )
-        .expect("a source .luaurc");
         directory
     }
 
     #[test]
-    fn config_artifact_manifest_names_the_shipped_files() {
-        assert_eq!(CONFIG_ARTIFACTS, &["main.lua", "conf.lua"]);
-    }
-
-    #[test]
-    fn the_manifest_accepts_exact_files() {
-        let entries = [
-            (PathBuf::from("main.lua"), ConfigEntryKind::File),
-            (PathBuf::from("conf.lua"), ConfigEntryKind::File),
-            (PathBuf::from(".luaurc"), ConfigEntryKind::File),
-        ];
-        assert!(validate_config_entries(&entries).is_ok());
-    }
-
-    #[test]
-    fn the_manifest_rejects_the_desktop_consumers_it_no_longer_carries() {
-        let mut entries = CONFIG_ARTIFACTS
-            .iter()
-            .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
-            .collect::<Vec<_>>();
-        entries.push((PathBuf::from("desktop"), ConfigEntryKind::Directory));
-        assert!(matches!(
-            validate_config_entries(&entries),
-            Err(DumpError::Unsupported(path)) if path == Path::new("desktop")
-        ));
-    }
-
-    #[test]
-    fn the_manifest_rejects_missing_and_unsupported_content() {
-        let missing = [(PathBuf::from("main.lua"), ConfigEntryKind::File)];
-        assert!(matches!(
-            validate_config_entries(&missing),
-            Err(DumpError::Missing(_))
-        ));
-
-        let mut unsupported = CONFIG_ARTIFACTS
-            .iter()
-            .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
-            .collect::<Vec<_>>();
-        unsupported.push((PathBuf::from("extra.lua"), ConfigEntryKind::File));
-        assert!(matches!(
-            validate_config_entries(&unsupported),
-            Err(DumpError::Unsupported(path)) if path == Path::new("extra.lua")
-        ));
-
-        let mut symlink = CONFIG_ARTIFACTS
-            .iter()
-            .map(|path| (PathBuf::from(path), ConfigEntryKind::File))
-            .collect::<Vec<_>>();
-        symlink.push((PathBuf::from("link.lua"), ConfigEntryKind::Unsupported));
-        assert!(matches!(
-            validate_config_entries(&symlink),
-            Err(DumpError::Unsupported(path)) if path == Path::new("link.lua")
-        ));
-    }
-
-    #[test]
     fn a_dumped_configuration_carries_aliases_that_resolve_from_where_it_lands() {
-        let source = source();
+        let library = standard_library();
         let destination = TempDir::new().expect("a temporary directory");
         let destination = destination.path().join("lunette");
 
-        let written = dump(
-            source.path(),
-            &destination,
-            Path::new("/usr/local/share/lunette/lua"),
-        )
-        .expect("the configuration to be written");
+        let written = dump(&destination, library.path()).expect("the configuration to be written");
 
         assert!(written.contains(&destination.join(".luaurc")));
         let rendered = fs::read_to_string(destination.join(".luaurc")).expect("the written file");
+        let expected = library.path().join("lunette-desktop");
         assert!(
-            rendered.contains("\"mullion\": \"/usr/local/share/lunette/lua/mullion\""),
-            "{rendered}"
-        );
-        assert!(
-            rendered
-                .contains("\"lunette-desktop\": \"/usr/local/share/lunette/lua/lunette-desktop\""),
+            rendered.contains(&format!("\"lunette-desktop\": \"{}\"", expected.display())),
             "{rendered}"
         );
         assert!(
@@ -393,34 +255,45 @@ mod tests {
     }
 
     #[test]
-    fn the_lua_files_are_copied_as_they_stand() {
-        let source = source();
+    fn the_lua_files_are_the_shipped_configuration() {
+        let library = standard_library();
         let destination = TempDir::new().expect("a temporary directory");
         let destination = destination.path().join("lunette");
 
-        dump(source.path(), &destination, Path::new("/somewhere/lua")).expect("the copy");
+        dump(&destination, library.path()).expect("the copy");
 
+        let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../etc/xdg/lunette");
         for artifact in CONFIG_ARTIFACTS {
             assert_eq!(
-                fs::read_to_string(destination.join(artifact)).expect("configuration artifact"),
-                format!("-- {artifact}\n")
+                fs::read_to_string(destination.join(artifact)).expect("the copy"),
+                fs::read_to_string(shipped.join(artifact)).expect("the shipped file"),
             );
         }
         assert!(destination.join(".luaurc").is_file());
     }
 
+    /// A binary built from a source tree resolves the installed prefix when
+    /// `$LUNETTE_STDLIB_PATH` is unset; a `.luaurc` naming it would resolve
+    /// nothing.
+    #[test]
+    fn a_standard_library_without_its_roots_is_refused() {
+        let library = TempDir::new().expect("a temporary directory");
+        let destination = TempDir::new().expect("a temporary directory");
+
+        let error = dump(destination.path(), library.path()).expect_err("a refusal");
+
+        assert!(matches!(error, DumpError::NoModuleData { .. }));
+        assert!(error.to_string().contains("LUNETTE_STDLIB_PATH"), "{error}");
+        assert!(!destination.path().join("main.lua").exists());
+    }
+
     #[test]
     fn nothing_is_overwritten() {
-        let source = source();
+        let library = standard_library();
         let destination = TempDir::new().expect("a temporary directory");
         fs::write(destination.path().join("main.lua"), "-- theirs\n").expect("their main.lua");
 
-        let error = dump(
-            source.path(),
-            destination.path(),
-            Path::new("/somewhere/lua"),
-        )
-        .expect_err("a refusal");
+        let error = dump(destination.path(), library.path()).expect_err("a refusal");
 
         assert!(matches!(error, DumpError::Exists(_)));
         assert_eq!(

@@ -5,43 +5,40 @@
 -- `lunette --dump-config` wrote, which also holds conf.lua and the .luaurc that
 -- `lunette check` and an editor read. docs/guide/writing-plugins.md walks
 -- through it.
-require('@lunette-desktop').run {
+local desktop = require '@lunette-desktop'
+
+-- Each `desktop.configure` patch is checked against its entry's options.
+desktop.run {
   patches = {
     -- Carried panels stay level, whatever the hand does.
-    { id = 'interaction', config = { constrain = require './upright' } },
+    desktop.configure.interaction { constrain = require './upright' },
     -- The A button right-clicks, beside the trigger's left click.
-    {
-      id = 'laser',
-      config = {
-        buttons = {
-          { control = 'trigger', button = 'left' },
-          { control = 'a', button = 'right' },
-        },
+    desktop.configure.laser {
+      buttons = {
+        { control = 'trigger', button = 'left' },
+        { control = 'a', button = 'right' },
       },
     },
     -- The reload key needs control as well, so F5 alone reaches the client.
-    { id = 'desktop/bindings', config = { reload = { key = 'f5', modifiers = { 'control' } } } },
+    desktop.configure['desktop/bindings'] { reload = { key = 'f5', modifiers = { 'control' } } },
     -- Title bars in another colour.
-    { id = 'desktop/decorations', config = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } } },
+    desktop.configure['desktop/decorations'] { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
     -- Small windows whose title says they are a picture in picture float
     -- above the rest, by a predicate over the whole window.
-    {
-      id = 'desktop/rules',
-      config = {
-        rules = {
-          {
-            match = {
-              where = function(window): boolean
-                return type(window.title) == 'string' and window.title:lower():find('picture', 1, true) ~= nil
-              end,
-            },
-            properties = { width = 0.6, priority = 20 },
+    desktop.configure['desktop/rules'] {
+      rules = {
+        {
+          match = {
+            where = function(window): boolean
+              return type(window.title) == 'string' and window.title:lower():find('picture', 1, true) ~= nil
+            end,
           },
+          properties = { width = 0.6, priority = 20 },
         },
       },
     },
     -- The arrangement goes to a file of its own.
-    { id = 'desktop/persistence', config = { file = 'example.state' } },
+    desktop.configure['desktop/persistence'] { file = 'example.state' },
     { insert = { id = 'hide-windows', definition = require './hide-windows' } },
     { insert = { id = 'save-key', definition = require './save-key' } },
     -- Errors are also sent as desktop notifications.

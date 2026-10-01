@@ -39,7 +39,7 @@ type Mutable = {
   panels: (tags.Tag) -> { Panel },
   setSelected: (tags.Tag, Owner, tags.Selection) -> boolean,
   setLayout: (tags.Tag, Owner, tags.LayoutChoice) -> boolean,
-  destroy: (tags.Tag) -> boolean,
+  destroy: (tags.Tag, Owner) -> boolean,
 }
 
 -- What the registry keeps for a tag beside the tag itself: who may end it.
@@ -49,6 +49,7 @@ type Record = {
   owner: Owner?,
   holders: { [Owner]: plugin.Effect },
   destroyRaw: () -> boolean,
+  retire: () -> boolean,
 }
 
 local LISTENER_KEYS: { [string]: boolean } = { tag = true, run = true }
@@ -261,7 +262,9 @@ local function create(context: plugin.Context): tags.Service
     end
 
     local cleanupEffect: plugin.Effect?
-    local function destroy(_self: tags.Tag): boolean
+    -- Ends the tag, through its owner's effect when it has one, so the owner
+    -- no longer holds an effect for a tag that has ended.
+    local function retire(): boolean
       if created.dead then
         return false
       end
@@ -271,6 +274,21 @@ local function create(context: plugin.Context): tags.Service
         return true
       end
       return destroyRaw()
+    end
+    -- Only the owner that made a tag with new ends it. A tag made by hold has
+    -- no owner, and ends when its last holder lets go.
+    local function destroy(_self: tags.Tag, caller: Owner): boolean
+      context:checkOwner(caller)
+      if created.dead then
+        return false
+      end
+      if tagOwner == nil then
+        error("tags: the tag '" .. name .. "' is held, and ends when its last holder lets go", 2)
+      end
+      if caller ~= tagOwner then
+        error("tags: only the owner that made the tag '" .. name .. "' destroys it", 2)
+      end
+      return retire()
     end
 
     created = {
@@ -429,7 +447,7 @@ local function create(context: plugin.Context): tags.Service
       destroy = destroy,
     }
     local tag: tags.Tag = created
-    record = { tag = tag, owner = tagOwner, holders = {}, destroyRaw = destroyRaw }
+    record = { tag = tag, owner = tagOwner, holders = {}, destroyRaw = destroyRaw, retire = retire }
     records[#records + 1] = record
     if tagOwner then
       local ok, failure = pcall(function(): ()
@@ -618,7 +636,7 @@ local function create(context: plugin.Context): tags.Service
   context:effect(function(): () -> ()
     return function(): ()
       for _, record in ipairs(table.clone(records)) do
-        record.tag:destroy()
+        record.retire()
       end
       table.clear(listeners)
     end

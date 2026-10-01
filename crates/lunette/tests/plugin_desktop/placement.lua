@@ -123,7 +123,7 @@ do
     apply = function(panels)
       arranged[#arranged + 1] = #panels
       for index, panel in ipairs(panels) do
-        layoutsContract.setPose(panel, lovr.math.newMat4():translate(index * 10, 0, 0))
+        panel:setPose(lovr.math.newMat4():translate(index * 10, 0, 0))
       end
     end,
   })
@@ -146,6 +146,54 @@ do
   assert(mx == 0 and my == 1.5, 'another tag keeps the configured layout')
   mailTag:setLayout(found.owner, { layout = 'line' })
   assert(position(desktop.panels:forSource(mail)) == 10, 'each tag is arranged apart')
+  assert(lovr.quit() == false)
+end
+
+-- A window in several tags is arranged by the first selected tag that holds
+-- it, and a layout's options are keyed by its name, whichever tag uses it.
+do
+  events.saved = nil
+  events.windows = {}
+  local desktop = require 'fixture/graph' {
+    patches = {
+      {
+        id = 'desktop/rules',
+        config = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'main', 'mail' } } } } },
+      },
+      { id = 'desktop/arrange', config = { options = { line = { spacing = 10 } } } },
+    },
+  }
+  local found = probe(desktop)
+  for _, registration in ipairs { { name = 'line', sign = 1 }, { name = 'reverse', sign = -1 } } do
+    found.layouts:register(found.owner, {
+      name = registration.name,
+      apply = function(panels, options)
+        local spacing = if options then options.spacing else 1
+        for index, panel in ipairs(panels) do
+          panel:setPose(lovr.math.newMat4():translate(registration.sign * index * spacing, 0, 0))
+        end
+      end,
+    })
+  end
+  local main = assert(found.tags:find 'main')
+  main:setLayout(found.owner, { layout = 'line' })
+  local terminal, mail = newWindow(83), newWindow(84, 'mail')
+  events.windows = { terminal, mail }
+  for _, window in ipairs(events.windows) do
+    emit('onWindowOpened', { window = window })
+  end
+  local mailTag = assert(found.tags:find 'mail')
+  local mailPanel = assert(desktop.panels:forSource(mail))
+  assert(main:has(mailPanel) and mailTag:has(mailPanel), 'the rule puts the window in both tags')
+  assert(main.selected and not mailTag.selected)
+  assert(position(mailPanel) == 20, 'the selected tag arranges it, with its layout options')
+  mailTag:setLayout(found.owner, { layout = 'reverse' })
+  assert(position(mailPanel) == 20, 'an unselected tag does not take it from a selected one')
+  mailTag:setSelected(found.owner, { selected = true })
+  main:setSelected(found.owner, { selected = false })
+  assert(position(mailPanel) == -1, 'selecting the other tag arranges it there, with no options for its layout')
+  main:setSelected(found.owner, { selected = true })
+  assert(position(mailPanel) == 20, 'the first selected tag in order wins')
   assert(lovr.quit() == false)
 end
 

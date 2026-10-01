@@ -5,7 +5,8 @@
 --
 -- A tag is made in one of two ways. new makes a tag that belongs to its
 -- caller: the name is the caller's alone, a second new of it raises, and the
--- tag ends when that owner unloads. hold answers the tag of that name,
+-- tag ends when that owner unloads or calls destroy with itself as the
+-- owner; destroy by another owner, or of a held tag, raises. hold answers the tag of that name,
 -- making it when there is none, and holds it for the caller: a tag hold made
 -- lasts while any owner holds it, so several plugins that need one tag need
 -- not agree on which of them makes it, or in which order they start. Holding
@@ -40,9 +41,7 @@ local surface = require '@lunette-contracts/surface'
 
 local tags = {}
 
-export type Panel = surface.Surface & {
-  read setPose: (surface.Surface, Mat4) -> (),
-}
+export type Panel = surface.Movable
 
 export type Options = {
   read index: number?,
@@ -91,7 +90,7 @@ export type Tag = {
   read panels: (Tag) -> { Panel },
   read setSelected: (Tag, Owner, Selection) -> boolean,
   read setLayout: (Tag, Owner, LayoutChoice) -> boolean,
-  read destroy: (Tag) -> boolean,
+  read destroy: (Tag, Owner) -> boolean,
 }
 
 export type Target = Tag | { Tag } | { Panel }

@@ -203,8 +203,42 @@ type SurfaceFields = {
   read onRelease: ((Surface, Pointer) -> ())?,
 }
 
+-- The fields of a surface whose `setPose` is required. They are restated
+-- rather than derived from SurfaceFields: a generic alias of the fields is
+-- refused, because the fields refer back to Surface, and an intersection
+-- would hold two function types for `setPose`.
+type MovableFields = {
+  read dead: boolean,
+  read grabbable: boolean?,
+  read pose: Mat4?,
+  read width: number?,
+  read height: number?,
+  read sink: ((Surface) -> lunette.Sink?)?,
+  read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
+  read setPose: (Surface, Mat4) -> (),
+  read setSize: ((Surface, number?, number?) -> ())?,
+  read setHighlighted: ((Surface, boolean) -> ())?,
+  read onHover: ((Surface, number?, number?, Pointer) -> ())?,
+  read onLeave: ((Surface, Pointer) -> ())?,
+  read onPress: ((Surface, number?, number?, Pointer) -> ())?,
+  read onRelease: ((Surface, Pointer) -> ())?,
+}
+
 export type Surface =
   SurfaceFields
+  & (
+    { read kind: 'window', read source: lunette.Window }
+    | { read kind: 'monitor', read source: lunette.Monitor }
+    | { read kind: nil }
+  )
+
+-- A surface that can always be posed, such as a panel a layout arranges. Its
+-- `setPose` is required, and stated in the fields rather than intersected
+-- with `Surface`: `Surface & { read setPose: ... }` holds two function types
+-- for one field, and Luau reports `surface:setPose(pose)` on it as an
+-- ambiguous call. A movable surface is still a `Surface`.
+export type Movable =
+  MovableFields
   & (
     { read kind: 'window', read source: lunette.Window }
     | { read kind: 'monitor', read source: lunette.Monitor }

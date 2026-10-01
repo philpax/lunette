@@ -40,7 +40,7 @@ fn nested_input_schemas_preserve_optional_fields_arrays_and_functions() -> mlua:
     assert!(generated.contains("read named: string?"), "{generated}");
     assert!(
         generated.contains(
-            "read nested: { read items: {string | number}?, read callback: (() -> ())? }"
+            "read nested: { read items: { read [number]: string | number }?, read callback: (() -> ())? }"
         ),
         "{generated}"
     );
@@ -85,6 +85,21 @@ fn optional_function_return_does_not_make_the_loop_result_optional() -> mlua::Re
         "{generated}"
     );
     assert!(!generated.contains("() -> any?"), "{generated}");
+    Ok(())
+}
+
+/// An array LÖVR reads from its caller is read-only, so Luau compares it
+/// covariantly: a table literal passed to an overloaded function, and a
+/// caller's narrower array, both answer it. An array LÖVR answers stays
+/// read-write, so a caller can change what it was given.
+#[test]
+fn argument_arrays_are_read_only_and_returned_arrays_are_not() -> mlua::Result<()> {
+    let generated = generate_signature("{ type = '{{number}}' }", "{ type = '{string}' }")?;
+    assert!(
+        generated
+            .contains("fixture: ((t: { read [number]: { read [number]: number } }) -> {string})?"),
+        "{generated}"
+    );
     Ok(())
 }
 

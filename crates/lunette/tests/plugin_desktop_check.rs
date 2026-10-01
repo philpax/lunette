@@ -45,3 +45,27 @@ fn shipped_desktop_composition_is_strictly_typed() {
     );
     assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
 }
+
+/// A typed patch is checked against its entry's options: each call in the
+/// fixture carries one mistake, and each is reported on its own line.
+#[test]
+fn a_typed_patch_is_checked_against_its_entrys_options() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = root.join("crates/lunette/tests/plugin_desktop/configure_checked.luau");
+    let request = Request::new(
+        Some(root.join("etc/lunette/definitions.luau")),
+        vec![fixture.clone()],
+    );
+    let report =
+        analyze::check(&request).unwrap_or_else(|error| panic!("desktop checker: {error}"));
+    assert!(report.skipped(&request).is_empty());
+    let mut lines = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.module.ends_with("configure_checked.luau"))
+        .map(|diagnostic| diagnostic.line)
+        .collect::<Vec<_>>();
+    lines.sort_unstable();
+    lines.dedup();
+    assert_eq!(lines, [8, 9, 10, 11], "{:#?}", report.diagnostics);
+}

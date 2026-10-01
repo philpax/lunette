@@ -118,15 +118,6 @@ local substitutePanels = plugin.define {
         end
       end,
       draw = function() end,
-      opaqueShader = function()
-        return nil
-      end,
-      onDropped = function(_, owner)
-        return context:acquire(owner, function()
-          return function() end
-        end)
-      end,
-      emitDropped = function() end,
       onAdded = function(_, owner)
         return context:acquire(owner, function()
           return function() end

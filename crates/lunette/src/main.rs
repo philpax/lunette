@@ -94,7 +94,8 @@ use lunette_compositor::{
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
-/// Selects the check command before any session configuration or boot work.
+/// Selects the check command before any boot work. The configuration
+/// directory is resolved first, because a check given no paths checks it.
 ///
 /// The command owns its input paths, so this pure selector only borrows them
 /// for the checker and leaves the imperative startup path untouched.
@@ -138,15 +139,16 @@ fn main() -> ExitCode {
 
     let arguments = Cli::parse();
 
-    if let Some((roots, definitions, old_solver)) = check_dispatch(arguments.command.as_ref()) {
-        return check::run(roots, definitions, old_solver);
-    }
-
     let candidates = config_directory_candidates(&ConfigDirectorySources::from_environment());
     let Some(searched) = select_config_directory(&candidates) else {
         error!("config: no configuration directory could be determined");
         return ExitCode::FAILURE;
     };
+
+    if let Some((roots, definitions, old_solver)) = check_dispatch(arguments.command.as_ref()) {
+        let configuration = config_directory(arguments.config_path.as_deref(), searched);
+        return check::run(roots, configuration, definitions, old_solver);
+    }
 
     if let Some(destination) = &arguments.dump_config {
         // An empty value means the flag was given without one, and the first
@@ -157,14 +159,13 @@ fn main() -> ExitCode {
             destination.as_path()
         };
 
-        let source = PathBuf::from(SYSCONFDIR).join("xdg").join("lunette");
         // Absolute, because the file it is written into is one the user may
         // open from anywhere, and a relative alias would resolve against
         // whichever directory the editor happened to start in.
         let module_data = absolute(&module_data_directory(
             &ModuleDataSources::from_environment(),
         ));
-        return match cli::dump(&source, destination, &module_data) {
+        return match cli::dump(destination, &module_data) {
             Ok(written) => {
                 for path in written {
                     info!(path = %path.display(), "wrote");
@@ -178,10 +179,7 @@ fn main() -> ExitCode {
         };
     }
 
-    // An explicit directory is used as given, existing or not. Falling back to
-    // the search path would load a configuration the user did not name, and
-    // report the one they did as though it had been read.
-    let config_directory = arguments.config_path.as_deref().unwrap_or(searched);
+    let config_directory = config_directory(arguments.config_path.as_deref(), searched);
 
     info!(path = %config_directory.display(), "loading the configuration");
 
@@ -785,6 +783,16 @@ fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
         .map(PathBuf::as_path)
 }
 
+/// The configuration directory a session loads, and `lunette check` checks
+/// when it is given no paths.
+///
+/// An explicit directory is used as given, existing or not. Falling back to
+/// the search path would load a configuration the user did not name, and
+/// report the one they did as though it had been read.
+fn config_directory<'a>(named: Option<&'a Path>, searched: &'a Path) -> &'a Path {
+    named.unwrap_or(searched)
+}
+
 /// Accepts an environment value only when it names something.
 fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
     value.filter(|value| !value.is_empty()).map(PathBuf::from)
@@ -818,6 +826,8 @@ fn absolute_path(value: Option<OsString>) -> Option<PathBuf> {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
+    use std::fs;
+
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
@@ -1142,6 +1152,31 @@ mod tests {
             select_config_directory(&candidates),
             Some(Path::new("/definitely/not/a/directory/lunette"))
         );
+    }
+
+    /// `lunette check` with no paths reads the directory a session would
+    /// load: the first existing candidate, unless `--config-path` names one.
+    #[test]
+    fn check_without_paths_reads_the_configuration_a_session_would_load() {
+        let xdg = TempDir::new().expect("a temporary directory");
+        let home = TempDir::new().expect("a temporary directory");
+        let configuration = home.path().join(".config").join("lunette");
+        fs::create_dir_all(&configuration).expect("the configuration directory");
+        fs::write(configuration.join("main.lua"), "").expect("main.lua");
+
+        // `$XDG_CONFIG_HOME/lunette` is not there, so the search passes it.
+        let candidates =
+            config_directory_candidates(&sources(xdg.path().to_str(), home.path().to_str()));
+        let searched = select_config_directory(&candidates).expect("a candidate");
+        let checked = check::targets(&[], config_directory(None, searched)).expect("the files");
+        assert_eq!(checked, vec![configuration.join("main.lua")]);
+
+        let named = xdg.path().join("named");
+        fs::create_dir_all(&named).expect("the named directory");
+        fs::write(named.join("main.lua"), "").expect("main.lua");
+        let checked =
+            check::targets(&[], config_directory(Some(&named), searched)).expect("the files");
+        assert_eq!(checked, vec![named.join("main.lua")]);
     }
 
     #[test]

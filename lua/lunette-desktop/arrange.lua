@@ -10,14 +10,20 @@
 -- an outage of this consumer does not return them to the set either.
 --
 -- The windows are arranged tag by tag: each tag `tags` names, every tag when
--- it is empty, in the tags service's order, poses its arranged members that
--- an earlier tag has not, in the order they were placed. A tag is posed with
--- its own layout when it names one, and otherwise with `layout`; `options`
--- are the options of `layout` only, which replace the default wholesale and
--- which the layout validates, and a tag's own layout is applied with none.
+-- it is empty, poses its arranged members that an earlier tag has not, in the
+-- order they were placed. The selected tags come first, then the rest, each
+-- group in the tags service's order, so a window in several tags is arranged
+-- by the first selected tag that holds it, and by the first tag that holds it
+-- when none of its tags is selected: a window on every workspace is laid out
+-- with the workspace in view. A tag is posed with its own layout when it
+-- names one, and otherwise with `layout`. `options` are keyed by layout name,
+-- and a layout is applied with its own entry, whichever tag uses it, or with
+-- none; each replaces the layout's defaults wholesale, and the layout
+-- validates it.
 -- The set is arranged when the consumer activates, when a window is placed,
 -- when a panel is removed, when a layout is registered or unregistered, and
--- when a tag is made, ends, changes its layout, or changes its members. A
+-- when a tag is made, ends, changes its selection, changes its layout, or
+-- changes its members. A
 -- continuous layout in use is also applied on every frame update, in the
 -- scene phase before the panels update. A layout name that is not
 -- registered is reported once, on the first frame that finds it missing,
@@ -35,13 +41,13 @@ local logging = require '@lunette-desktop/logging'
 -- What a configuration gives: every option optional.
 export type Config = {
   read layout: string?,
-  read options: { [string]: unknown }?,
+  read options: { read [string]: { read [string]: unknown } }?,
   read tags: { string }?,
 }
 
 export type Settings = {
   read layout: string,
-  read options: { [string]: unknown },
+  read options: { read [string]: { read [string]: unknown } },
   read tags: { string },
 }
 
@@ -65,6 +71,17 @@ local function resolve(config: unknown): Settings
   if settings.layout == '' then
     error('plugin desktop/arrange: option layout is a non-empty layout name', 0)
   end
+  for name, options in settings.options do
+    if type(name) ~= 'string' or name == '' then
+      error('plugin desktop/arrange: option options is keyed by layout name, not by ' .. tostring(name), 0)
+    end
+    if type(options) ~= 'table' then
+      error(
+        string.format('plugin desktop/arrange: option options.%s is a table of options, not a %s', name, type(options)),
+        0
+      )
+    end
+  end
   for index, name in ipairs(settings.tags) do
     if type(name) ~= 'string' or name == '' then
       error(string.format('plugin desktop/arrange: option tags[%d] is a non-empty tag name', index), 0)
@@ -80,7 +97,7 @@ local function kept(panel: panels.WindowPanel): boolean
 end
 
 -- Each tag to arrange, with the layout and options it is posed with.
-type Plan = { tag: tags.Tag, layout: string, options: { [string]: unknown }? }
+type Plan = { tag: tags.Tag, layout: string, options: { read [string]: unknown }? }
 
 local function define(): plugin.Definition<Config>
   -- Weak keys, so a panel that has ended is not retained by having been
@@ -124,16 +141,16 @@ local function define(): plugin.Definition<Config>
       end
 
       local function plans(): { Plan }
-        local result: { Plan } = {}
+        local selected: { Plan } = {}
+        local rest: { Plan } = {}
         for _, tag in ipairs(chosen()) do
-          local own = tag.layout
-          if own and own ~= settings.layout then
-            result[#result + 1] = { tag = tag, layout = own, options = nil }
-          else
-            result[#result + 1] = { tag = tag, layout = settings.layout, options = settings.options }
-          end
+          local layout = tag.layout or settings.layout
+          local plan: Plan = { tag = tag, layout = layout, options = settings.options[layout] }
+          local group = if tag.selected then selected else rest
+          group[#group + 1] = plan
         end
-        return result
+        table.move(rest, 1, #rest, #selected + 1, selected)
+        return selected
       end
 
       local function arrange(): ()
@@ -182,10 +199,8 @@ local function define(): plugin.Definition<Config>
         end,
       })
       tagService:onChanged(context, {
-        run = function(change: tags.Change)
-          if change.kind ~= 'selection' then
-            arrange()
-          end
+        run = function(_change: tags.Change)
+          arrange()
         end,
       })
       local reported: { [string]: boolean } = {}

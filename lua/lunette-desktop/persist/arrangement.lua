@@ -131,6 +131,9 @@ function arrangement.apply(
   return true
 end
 
+-- Restores each live panel a saved entry matches. Answers the panels
+-- restored and the entries nothing matched, which the caller reports: it
+-- knows which it has reported already.
 function arrangement.restore(
   report: (string) -> (),
   held: slots.Slots,
@@ -160,7 +163,6 @@ function arrangement.restore(
   for _, entry in ipairs(format.entries(file)) do
     if not matched[entry] then
       stale[#stale + 1] = entry
-      report('nothing matched the saved ' .. entry.kind .. " '" .. entry.key .. "'")
     end
   end
   return restored, stale

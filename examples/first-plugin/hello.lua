@@ -13,7 +13,7 @@ return plugin.define {
     frames:onDraw(context, {
       phase = 'overlay',
       run = function(pass: Pass)
-        pass:text('hello from a plugin', pose, 0, 'center', 'middle')
+        pass:text('hello from a plugin', pose)
       end,
     })
   end,
