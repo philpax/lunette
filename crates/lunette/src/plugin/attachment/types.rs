@@ -413,6 +413,10 @@ fn context_active(_: &Lua, this: &PluginContext, _: ()) -> mlua::Result<bool> {
     Ok(context::context_active(this))
 }
 
+fn context_serving(_: &Lua, this: &PluginContext, _: ()) -> mlua::Result<bool> {
+    Ok(context::context_serving(this))
+}
+
 impl MethodsDescribed for PluginContext {
     fn describe_methods(surface: &mut impl MethodSurface<Self>) {
         surface.method(
@@ -468,6 +472,15 @@ impl MethodsDescribed for PluginContext {
                 parameters: &[],
             },
             context_active,
+        );
+        surface.method(
+            MethodSpec {
+                name: "serving",
+                doc: "Reports whether this context's activation is published and has not begun unloading, so its services may be read.",
+                receiver: Receiver::Own,
+                parameters: &[],
+            },
+            context_serving,
         );
     }
 }

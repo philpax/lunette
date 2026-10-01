@@ -141,6 +141,22 @@ fn provider_uses_real_facade_with_unmanaged_native_fakes() -> mlua::Result<()> {
 }
 
 #[test]
+fn a_raising_removal_listener_does_not_fail_the_drain_that_removed_the_panel() -> mlua::Result<()> {
+    let lua = state()?;
+    install_native_fakes(&lua)?;
+    let callback: Function = lua
+        .load(include_str!("plugin_panels/removal_during_drain.lua"))
+        .set_name("plugin_panels/removal_during_drain.lua")
+        .eval()?;
+    let _: Value = callback.call(())?;
+    // The listener's errors went to lunette.reportError, which the fixture
+    // counted. No plugin load or cleanup failed because of them.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "plugin failures: {errors:?}");
+    Ok(())
+}
+
+#[test]
 fn initial_claim_failure_keeps_registry_unchanged_and_allows_retry() -> mlua::Result<()> {
     let lua = state()?;
     install_native_fakes(&lua)?;

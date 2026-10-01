@@ -35,7 +35,13 @@ fn keyboard_uses_real_dependency_providers() -> mlua::Result<()> {
         .load(include_str!("plugin_keyboard/behavior.lua"))
         .eval()?;
     let _: Value = callback.call(())?;
+    // The one failure is the release the fixture makes fail, reported once
+    // against the owner whose cleanup raised.
     let errors = plugin_support::shutdown(&lua);
-    assert!(errors.is_empty(), "cleanup errors: {errors:?}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("native keyboard release failed"),
+        "{errors:?}"
+    );
     Ok(())
 }

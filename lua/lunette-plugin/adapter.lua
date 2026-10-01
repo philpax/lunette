@@ -245,7 +245,7 @@ local function guardService(value: unknown, contract: string, provider: NativeCo
   if type(value) == 'function' then
     local call = value :: (...unknown) -> ...unknown
     return function(...: unknown): ...unknown
-      if not provider:active() then
+      if not provider:serving() then
         error(revoked(contract), 2)
       end
       return call(...)
@@ -257,7 +257,7 @@ local function guardService(value: unknown, contract: string, provider: NativeCo
   local raw = value :: { [unknown]: unknown }
   local view = {
     __index = function(_proxy: unknown, key: unknown): unknown
-      if not provider:active() then
+      if not provider:serving() then
         error(revoked(contract), 2)
       end
       return raw[key]
@@ -266,7 +266,7 @@ local function guardService(value: unknown, contract: string, provider: NativeCo
       error('plugin service: ' .. contract .. ' is read-only, so ' .. tostring(key) .. ' cannot be assigned', 2)
     end,
     __iter = function(_proxy: unknown): ((unknown, unknown) -> (unknown, unknown), unknown)
-      if not provider:active() then
+      if not provider:serving() then
         error(revoked(contract), 2)
       end
       return next :: any, raw
@@ -279,7 +279,7 @@ local function guardService(value: unknown, contract: string, provider: NativeCo
     if type(rawCall) == 'function' then
       local call = rawCall :: (unknown, ...unknown) -> ...unknown
       view.__call = function(proxy: unknown, ...: unknown): ...unknown
-        if not provider:active() then
+        if not provider:serving() then
           error(revoked(contract), 2)
         end
         return call(proxy, ...)

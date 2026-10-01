@@ -254,3 +254,40 @@ fn followup_records_input_rendering_haptics_and_replacement_cleanup() -> mlua::R
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }
+
+#[test]
+fn a_failing_laser_release_quarantines_its_owner_not_the_provider() -> mlua::Result<()> {
+    let lua = state()?;
+    let fixture: Function = lua
+        .load(include_str!("plugin_laser/release_failure.lua"))
+        .set_name("plugin_laser/release_failure.lua")
+        .eval()?;
+    let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
+    let modules = lua.create_table()?;
+    for (name, module) in [
+        ("panels", "@lunette-plugins/panels"),
+        ("interaction", "@lunette-plugins/interaction"),
+        ("laser", "@lunette-plugins/laser"),
+    ] {
+        modules.set(
+            name,
+            lua.load(format!("return require '{module}'"))
+                .eval::<Value>()?,
+        )?;
+    }
+    modules.set(
+        "laserCapability",
+        lua.load("return require '@lunette-contracts/laser'.capability")
+            .eval::<Value>()?,
+    )?;
+    fixture.call::<Value>((plugin, modules))?;
+
+    // The failure is reported once, against the owner whose cleanup raised.
+    let errors = plugin_support::shutdown(&lua);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("native laser release failed"),
+        "{errors:?}"
+    );
+    Ok(())
+}

@@ -99,6 +99,9 @@ fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
         "schema_mismatch" => include_str!("plugin_facade_execution/schema_mismatch.lua"),
         "error_positions" => include_str!("plugin_facade_execution/error_positions.lua"),
         "child_enabled" => include_str!("plugin_facade_execution/child_enabled.lua"),
+        "quarantine_pending_provider" => {
+            include_str!("plugin_facade_execution/quarantine_pending_provider.lua")
+        }
         other => return Err(mlua::Error::runtime(format!("unknown fixture {other}"))),
     };
     let callback: Function = lua.load(source).set_name(name).eval()?;
@@ -305,6 +308,21 @@ fn a_child_is_enabled_when_it_is_installed() -> mlua::Result<()> {
     run_fixture(&lua, "child_enabled")?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "{errors:?}");
+    Ok(())
+}
+
+#[test]
+fn a_provider_awaiting_quarantine_keeps_serving_its_consumers() -> mlua::Result<()> {
+    let lua = state()?;
+    run_fixture(&lua, "quarantine_pending_provider")?;
+    // The failed disposal raised to its caller and is not reported again. The
+    // consumer, still enabled, then waits on a quarantined provider.
+    let errors = plugin_support::shutdown(&lua);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("is quarantined after a cleanup failure"),
+        "{errors:?}"
+    );
     Ok(())
 }
 

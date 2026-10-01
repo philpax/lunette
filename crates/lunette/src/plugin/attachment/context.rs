@@ -320,6 +320,27 @@ pub(super) fn context_active(context: &PluginContext) -> bool {
             })
 }
 
+/// Reports whether a provider's activation is published and has not begun
+/// unloading.
+///
+/// This is the liveness of the services it published, and it ignores
+/// resource authority: an active provider whose explicit disposal failed
+/// acquires nothing more but keeps serving until it unloads, and a provider
+/// running one of its own inverses is still serving while it does.
+pub(super) fn context_serving(context: &PluginContext) -> bool {
+    context.runtime.upgrade().is_some_and(|runtime| {
+        runtime
+            .borrow()
+            .graph
+            .attachment(context.instance)
+            .ok()
+            .flatten()
+            .is_some_and(|view| {
+                view.activation == context.activation && view.state == AttachmentState::Active
+            })
+    })
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Require {
     /// The activation may acquire resources: it is loading or active, holds

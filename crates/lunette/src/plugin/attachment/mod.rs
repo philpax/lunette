@@ -288,8 +288,6 @@ fn fields_for_declaration(
         .collect()
 }
 
-/// Releases every definition's initializer so escaped definitions do not
-/// keep the old epoch's Lua values alive.
 /// Records the wrappers bound to the registry that is about to be replaced,
 /// so a declaration that still holds one is rejected as retired.
 fn retire_wrappers(lua: &Lua, host: &Rc<RefCell<AttachmentHost>>) -> mlua::Result<()> {
@@ -317,6 +315,8 @@ fn retire_wrappers(lua: &Lua, host: &Rc<RefCell<AttachmentHost>>) -> mlua::Resul
     Ok(())
 }
 
+/// Releases every definition's initializer so escaped definitions do not
+/// keep the old epoch's Lua values alive.
 fn clear_host_references(host: &Rc<RefCell<AttachmentHost>>) {
     let definitions: Vec<Rc<DefinitionData>> = {
         let mut host = host.borrow_mut();

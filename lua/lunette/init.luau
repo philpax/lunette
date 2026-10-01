@@ -483,6 +483,9 @@ export type PluginContext = {
   read owns: (self: PluginContext, caller: PluginContext) -> boolean,
   -- Reports whether this context's activation is still live.
   read active: (self: PluginContext) -> boolean,
+  -- Reports whether this context's activation is published and has not begun
+  -- unloading, so its services may be read.
+  read serving: (self: PluginContext) -> boolean,
 }
 
 -- A one-shot resource effect.

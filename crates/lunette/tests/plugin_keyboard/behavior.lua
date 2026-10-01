@@ -134,6 +134,45 @@ return function()
   provider:disable()
   provider:enable()
   assert(#otherService:all() == 0)
+  -- A keyboard release that fails while its owner unloads is that owner's
+  -- failure: the owner is quarantined and the keyboard provider keeps serving.
+  local failRuntime, failProvider, failConsumer, failService, failOwner, failFocus = setup()
+  local failSeat = { dead = false }
+  function failSeat:setFocus(target)
+    self.focus = target
+    return true
+  end
+  local failing = false
+  local failedReleases = 0
+  local failSink = { dead = false }
+  function failSink:modifiers(_held, _seat)
+    if failing then
+      failedReleases += 1
+      error 'native keyboard release failed'
+    end
+    return true
+  end
+  function failSink:key(_code, _pressed, _seat)
+    return true
+  end
+  failFocus:setFocus(failOwner, failSeat, failSink)
+  local failBoard = failService:new(failOwner)
+  failBoard:pressKey(30)
+  failing = true
+  failConsumer:disable()
+  assert(failedReleases == 1 and failBoard.dead, 'the release ran once')
+  assert(failConsumer:state() == 'quarantined', 'the failing owner is quarantined: ' .. failConsumer:state())
+  assert(failProvider:state() == 'active', 'the keyboard provider is not quarantined: ' .. failProvider:state())
+  local survivorService, survivorOwner
+  local survivor = failRuntime:use(
+    plugin.define(identity, { keyboard = contract.capability }, {}, function(ctx)
+      survivorService, survivorOwner = ctx:require(contract.capability), ctx
+    end),
+    {}
+  )
+  survivor:enable()
+  assert(survivorService:new(survivorOwner), 'the keyboard provider serves another owner')
+  failRuntime:close()
   otherRuntime:close()
   runtime:close()
 end
