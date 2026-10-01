@@ -79,8 +79,8 @@ export type StyleOptions = {
 export type Target = () -> (lunette.Seat?, lunette.Sink?)
 
 -- What `new` takes. `rows`, `layers`, and `style` override the provider's for
--- this keyboard. `target` answers where keys go, by default the interaction
--- provider's focused seat and sink.
+-- this keyboard. `target` answers where keys go, by default the focused seat
+-- and sink of lunette/focus.
 export type Options = {
   read rows: { KeyRow }?,
   read layers: { [string]: { KeyRow } }?,

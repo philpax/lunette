@@ -36,9 +36,62 @@ local rejections = {
   },
   {
     id = 'interaction',
-    config = { tuning = { button = 'thumb' } },
-    message = 'tuning.button is a pointer button, not thumb',
+    config = { focusOnPress = 'yes' },
+    message = 'plugin interaction: option focusOnPress is a boolean, not a string',
   },
+  { id = 'interaction', config = { drive = 'remap' }, message = 'plugin interaction: option drive is a function' },
+  {
+    id = 'laser',
+    config = { buttons = { { control = 'pinch', button = 'left' } } },
+    message = 'plugin laser: option buttons[1].control is a controller button, not pinch',
+  },
+  {
+    id = 'laser',
+    config = { buttons = { { control = 'a', button = 'thumb' } } },
+    message = 'plugin laser: option buttons[1].button is a pointer button, not thumb',
+  },
+  { id = 'panels', config = { chrome = 'on' }, message = 'plugin panels: option chrome is a boolean, not a string' },
+  {
+    id = 'panels',
+    config = { shape = { raycst = function() end } },
+    message = 'plugin panels: unknown option shape.raycst',
+  },
+  { id = 'drops', config = { bogus = 1 }, message = 'plugin drops: unknown option bogus' },
+  { id = 'focus', config = { bogus = 1 }, message = 'plugin focus: unknown option bogus' },
+  { id = 'bindings', config = { bogus = 1 }, message = 'plugin bindings: unknown option bogus' },
+  { id = 'desktop/render', config = { bogus = 1 }, message = 'plugin desktop/render: unknown option bogus' },
+  {
+    id = 'desktop/monitors',
+    config = { placement = { width = 0 } },
+    message = 'plugin desktop/monitors: option placement.width is a positive number, not 0',
+  },
+  {
+    id = 'desktop/monitors',
+    config = { select = { 'DP-1', '' } },
+    message = 'plugin desktop/monitors: option select[2] is a non-empty name',
+  },
+  { id = 'desktop/hint', config = { size = 0 }, message = 'plugin desktop/hint: option size is a positive number' },
+  {
+    id = 'desktop/decorations',
+    config = { style = { barHeight = -1 } },
+    message = 'plugin desktop/decorations: option style.barHeight is a positive number',
+  },
+  {
+    id = 'desktop/pointing',
+    config = { laser = { seat = {} } },
+    message = 'plugin desktop/pointing: unknown option laser.seat',
+  },
+  {
+    id = 'desktop/pointing',
+    config = { laser = { style = 'red' } },
+    message = 'plugin desktop/pointing: option laser.style is a table, not a string',
+  },
+  {
+    id = 'desktop/bindings',
+    config = { reload = { key = 'f5', modifiers = { 'hyper' } } },
+    message = 'chord.modifiers[1] is one of control, alt, logo, shift, not hyper',
+  },
+  { id = 'desktop/pose-memory', config = { bogus = 1 }, message = 'plugin desktop/pose-memory: unknown option bogus' },
   { id = 'laser', config = { style = 'red' }, message = 'plugin laser: option style is a table, not a string' },
   { id = 'keyboard', config = { rows = 'qwerty' }, message = 'plugin keyboard: option rows is a table, not a string' },
   {
@@ -166,6 +219,7 @@ local running = desktop.start(desktop.compose {
     { id = 'panels', config = { height = 1.2, style = { borderThickness = 0.02 } } },
     { id = 'interaction', config = { tuning = { reach = 0.5 } } },
     { id = 'laser', config = { style = { length = 2.5 } } },
+    { id = 'desktop/pointing', config = { laser = { style = { color = { 0.9, 0.9, 0.9, 1 } } } } },
     {
       id = 'keyboard',
       config = { rows = { { { code = 30 }, { code = 31, width = 2 } } }, style = { keyUnit = 0.056 } },
@@ -181,23 +235,31 @@ for id, instance in pairs(running.instances) do
   assert(instance:state() == 'active', id .. ': ' .. tostring(instance:diagnostic()))
 end
 
-assert(services.panels.DEFAULT_HEIGHT == 1.2 and services.panels.DEFAULT_PRIORITY == 10)
 assert(services.panels.STYLE.borderThickness == 0.02 and services.panels.STYLE.borderDepth == 0.001)
 assert(table.isfrozen(services.panels.STYLE), 'a configured style is frozen')
 local window = newWindow(90)
 local panel = services.panels:fromWindow(owner, window, {})
 assert(panel.height == 1.2, 'a panel given no size takes the configured height')
+assert(panel.priority == 10 and panel.chrome == false, 'what is not configured keeps its default')
 
-assert(services.interaction.TUNING.reach == 0.5 and services.interaction.TUNING.button == 'left')
+assert(services.interaction.TUNING.reach == 0.5 and services.interaction.TUNING.scrollScale == 900)
 local near = {
   dead = false,
   raycast = function()
     return 0.5, 0.5, 1
   end,
 }
-assert(services.interaction:pick({ near }, vector.pack(0, 0, 0), vector.pack(0, 0, -1)) == nil, 'reach limits picking')
+local probePointer = services.interaction:newPointer(owner)
+probePointer:update(
+  { origin = vector.pack(0, 0, 0), direction = vector.pack(0, 0, -1), buttons = {}, grip = false },
+  { near }
+)
+assert(probePointer.hovered == nil, 'reach limits picking')
+probePointer:destroy()
 
 assert(services.laser.STYLE.length == 2.5 and services.laser.STYLE.cursorRadius == 0.006)
+local left = assert(services.laser:forHand 'left')
+assert(left.style.color[1] == 0.9 and left.style.length == 2.5, 'desktop/pointing attaches with its laser options')
 
 local typed = services.keyboard:new(owner, {})
 assert(typed.width == 3 * 0.056 and typed.height == 0.056, 'the configured rows and style set the keyboard size')

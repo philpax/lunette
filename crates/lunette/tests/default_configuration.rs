@@ -64,6 +64,14 @@ fn the_layout_example_arranges_by_grid_and_follows_the_head() -> mlua::Result<()
 }
 
 #[test]
+fn the_desktop_example_changes_behaviour_through_hooks_and_bindings() -> mlua::Result<()> {
+    let lua = plugin_desktop::state_for(Path::new("examples/desktop"))?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/example_desktop.lua"))?;
+    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn the_first_plugin_example_runs_its_inserted_plugins() -> mlua::Result<()> {
     let lua = plugin_desktop::state_for(Path::new("examples/first-plugin"))?;
     plugin_desktop::execute(

@@ -243,6 +243,7 @@ local function acquirePlacement(
         title = properties.title,
         priority = properties.priority,
         chrome = properties.chrome,
+        curve = properties.curve,
       })
       created = panel
       if properties.tags then
@@ -284,7 +285,7 @@ local function build(context: plugin.Context, settings: Settings): Service
   local implementation: MutableService = {
     DEFAULT_PRECEDENCE = settings.precedence,
     DEFAULT_SOURCE = 'lunette.rules',
-    PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chrome' },
+    PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chrome', 'curve' },
     report = function(_self: Service, _report: contracts.Report) end,
     addSource = function(_self: Service, _owner: Owner, _registration: contracts.SourceRegistration): plugin.Effect
       error 'rules: service is not initialized'

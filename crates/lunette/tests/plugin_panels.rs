@@ -80,6 +80,7 @@ fn install_native_fakes(lua: &Lua) -> mlua::Result<()> {
             setPosition = function() end,
             setOrientation = function() end,
             setDimensions = function() end,
+            setCurve = function() end,
           }
           local claim = {
             dead = false,
@@ -97,6 +98,12 @@ fn install_native_fakes(lua: &Lua) -> mlua::Result<()> {
           claims[#claims + 1] = claim
           return claim
         end
+        local vectorMeta = {}
+        vector = {
+          pack = function(x, y, z)
+            return setmetatable({ x = x, y = y, z = z }, vectorMeta)
+          end,
+        }
         lovr = {
           graphics = {
             newShader = function()
@@ -198,6 +205,20 @@ fn destroyed_panels_release_payloads_while_provider_is_active() -> mlua::Result<
         assert_eq!(dropped.get(), count, "destroyed panel retained its source");
     }
     fixture.get::<Function>("close")?.call::<()>(())?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "cleanup errors: {errors:?}");
+    Ok(())
+}
+
+#[test]
+fn visibility_overrides_chrome_curves_and_shape_hooks_follow_the_contract() -> mlua::Result<()> {
+    let lua = state()?;
+    install_native_fakes(&lua)?;
+    let callback: Function = lua
+        .load(include_str!("plugin_panels/visibility.lua"))
+        .set_name("plugin_panels/visibility.lua")
+        .eval()?;
+    let _: Value = callback.call(())?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())

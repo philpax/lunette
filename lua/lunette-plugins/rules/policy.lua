@@ -11,6 +11,7 @@ local named: { [string]: boolean } = {
   title = true,
   priority = true,
   chrome = true,
+  curve = true,
   tags = true,
 }
 local matchFields: { [string]: boolean } = {
@@ -113,7 +114,7 @@ end
 
 function policy.evaluate(properties: rules.Properties, window: lunette.Window): rules.Resolved
   local pose, width, height, title = properties.pose, properties.width, properties.height, properties.title
-  local priority, chrome, tags = properties.priority, properties.chrome, properties.tags
+  local priority, chrome, curve, tags = properties.priority, properties.chrome, properties.curve, properties.tags
   local result: rules.Resolved = {
     pose = if type(pose) == 'function' then pose(window, 'pose') else pose,
     width = if type(width) == 'function' then width(window, 'width') else width,
@@ -121,6 +122,7 @@ function policy.evaluate(properties: rules.Properties, window: lunette.Window): 
     title = if type(title) == 'function' then title(window, 'title') else title,
     priority = if type(priority) == 'function' then priority(window, 'priority') else priority,
     chrome = if type(chrome) == 'function' then chrome(window, 'chrome') else chrome,
+    curve = if type(curve) == 'function' then curve(window, 'curve') else curve,
     tags = if type(tags) == 'function' then tags(window, 'tags') else tags,
   }
   for key, value in pairs(properties) do

@@ -1,6 +1,6 @@
 //! Real plugin-facade coverage for the LASER provider.
 //!
-//! The interaction and panels providers are the checked-in implementations.
+//! The interaction, drops, and focus providers are the checked-in implementations.
 //! Only the headset and seat boundaries are represented by fakes: those are
 //! unmanaged native resources, while the plugin runtime, contexts, effects,
 //! and interaction pointer registry are production implementations.
@@ -179,8 +179,13 @@ fn production_facade_composes_interaction_and_laser_with_borrowed_seat_cleanup()
     let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
     let modules = lua.create_table()?;
     modules.set(
-        "panels",
-        lua.load("return require('@lunette-plugins/panels').definition")
+        "drops",
+        lua.load("return require('@lunette-plugins/drops').definition")
+            .eval::<Value>()?,
+    )?;
+    modules.set(
+        "focus",
+        lua.load("return require('@lunette-plugins/focus').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
@@ -219,8 +224,13 @@ fn followup_records_input_rendering_haptics_and_replacement_cleanup() -> mlua::R
     let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
     let modules = lua.create_table()?;
     modules.set(
-        "panels",
-        lua.load("return require('@lunette-plugins/panels').definition")
+        "drops",
+        lua.load("return require('@lunette-plugins/drops').definition")
+            .eval::<Value>()?,
+    )?;
+    modules.set(
+        "focus",
+        lua.load("return require('@lunette-plugins/focus').definition")
             .eval::<Value>()?,
     )?;
     modules.set(
@@ -265,7 +275,8 @@ fn a_failing_laser_release_quarantines_its_owner_not_the_provider() -> mlua::Res
     let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
     let modules = lua.create_table()?;
     for (name, module) in [
-        ("panels", "@lunette-plugins/panels"),
+        ("drops", "@lunette-plugins/drops"),
+        ("focus", "@lunette-plugins/focus"),
         ("interaction", "@lunette-plugins/interaction"),
         ("laser", "@lunette-plugins/laser"),
     ] {
@@ -289,5 +300,46 @@ fn a_failing_laser_release_quarantines_its_owner_not_the_provider() -> mlua::Res
         errors[0].contains("native laser release failed"),
         "{errors:?}"
     );
+    Ok(())
+}
+
+#[test]
+fn draw_and_read_hooks_and_button_mappings_reach_every_laser() -> mlua::Result<()> {
+    let lua = state()?;
+    let fixture: Function = lua
+        .load(include_str!("plugin_laser/hooks.lua"))
+        .set_name("plugin_laser/hooks.lua")
+        .eval()?;
+    let plugin: Table = lua.load("return require '@lunette-plugin'").eval()?;
+    let modules = lua.create_table()?;
+    for (name, module) in [
+        ("drops", "@lunette-plugins/drops"),
+        ("focus", "@lunette-plugins/focus"),
+        ("interaction", "@lunette-plugins/interaction"),
+    ] {
+        modules.set(
+            name,
+            lua.load(format!("return require('{module}').definition"))
+                .eval::<Value>()?,
+        )?;
+    }
+    modules.set(
+        "laserModule",
+        lua.load("return require '@lunette-plugins/laser'")
+            .eval::<Value>()?,
+    )?;
+    modules.set(
+        "laserCapability",
+        lua.load("return require '@lunette-contracts/laser'.capability")
+            .eval::<Value>()?,
+    )?;
+    let events: Table = lua.globals().get("events")?;
+    modules.set("pass", events.get::<Value>("pass")?)?;
+    modules.set("events", events.clone())?;
+    fixture.call::<Value>((plugin, modules))?;
+    assert!(events.get::<bool>("hooks")?);
+
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())
 }

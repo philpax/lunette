@@ -39,6 +39,7 @@ export type Properties = {
   read title: Valued<string>?,
   read priority: Valued<number>?,
   read chrome: Valued<boolean>?,
+  read curve: Valued<number>?,
   read tags: Valued<{ read [number]: string | Tag }>?,
   read evaluate: Evaluators?,
   [string]: unknown,
@@ -51,6 +52,7 @@ export type Resolved = {
   read title: string?,
   read priority: number?,
   read chrome: boolean?,
+  read curve: number?,
   read tags: { read [number]: string | Tag }?,
   [string]: unknown,
 }

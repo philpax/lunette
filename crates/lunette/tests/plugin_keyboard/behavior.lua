@@ -1,25 +1,23 @@
 return function()
   local plugin = require '@lunette-plugin'
   local contract = require '@lunette-contracts/keyboard'
-  local interaction = require '@lunette-contracts/interaction'
+  local focusContract = require '@lunette-contracts/focus'
   local definition = require('@lunette-plugins/keyboard').definition
   assert(allocations == 0)
   assert(require('@lunette-plugins/keyboard').definition == definition)
-  local panelsDefinition = require('@lunette-plugins/panels').definition
-  local interactionDefinition = require('@lunette-plugins/interaction').definition
+  local focusDefinition = require('@lunette-plugins/focus').definition
   local function setup()
     local runtime = plugin.runtime()
-    runtime:use(panelsDefinition, {}):enable()
-    runtime:use(interactionDefinition, {}):enable()
+    runtime:use(focusDefinition, {}):enable()
     local provider = runtime:use(definition, {})
     provider:enable()
     local service, owner, focus
     local consumer = runtime:use(
       plugin.define {
         name = 'behavior-1',
-        requires = { keyboard = contract.capability, interaction = interaction.capability },
+        requires = { keyboard = contract.capability, focus = focusContract.capability },
         init = function(ctx)
-          service, owner, focus = ctx:require(contract.capability), ctx, ctx:require(interaction.capability)
+          service, owner, focus = ctx:require(contract.capability), ctx, ctx:require(focusContract.capability)
         end,
       },
       {}

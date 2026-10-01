@@ -4,6 +4,7 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/keyboard'
 local interaction = require '@lunette-contracts/interaction'
+local focusContract = require '@lunette-contracts/focus'
 local keyboardModule = require '@lunette-plugins/keyboard'
 
 vector = setmetatable({
@@ -74,19 +75,28 @@ rejects('option rows[1][1].action.modifiers[1] is a modifier name, not ctrl', {
 })
 
 local runtime = plugin.runtime()
-runtime:use(require('@lunette-plugins/panels').definition, {}):enable()
+runtime:use(require('@lunette-plugins/drops').definition, {}):enable()
+runtime:use(require('@lunette-plugins/focus').definition, {}):enable()
 runtime:use(require('@lunette-plugins/interaction').definition, {}):enable()
 local provider = runtime:use(definition, {})
 provider:enable()
 assert(provider:state() == 'active', tostring(provider:diagnostic()))
-local service, owner, pointers
+local service, owner, pointers, focus
 runtime
   :use(
     plugin.define {
       name = 'hooks-consumer',
-      requires = { keyboard = contract.capability, interaction = interaction.capability },
+      requires = {
+        keyboard = contract.capability,
+        interaction = interaction.capability,
+        focus = focusContract.capability,
+      },
       init = function(ctx)
-        service, owner, pointers = ctx:require(contract.capability), ctx, ctx:require(interaction.capability)
+        service, owner, pointers, focus =
+          ctx:require(contract.capability),
+          ctx,
+          ctx:require(interaction.capability),
+          ctx:require(focusContract.capability)
       end,
     },
     {}
@@ -121,7 +131,7 @@ function sink:typeText(text)
   events[#events + 1] = { 'text', text }
   return true
 end
-pointers:setFocus(owner, { seat = seat, sink = sink })
+focus:setFocus(owner, { seat = seat, sink = sink })
 
 local pulses = {}
 local pointer = pointers:newPointer(owner, {

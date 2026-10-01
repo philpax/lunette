@@ -10,7 +10,7 @@
 -- override `rows`, `layers`, and `style`.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local interaction = require '@lunette-contracts/interaction'
+local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local keys = require '@lunette-contracts/keys'
 local board = require '@lunette-plugins/keyboard/board'
@@ -52,7 +52,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'keyboard',
   capability = keyboard.capability,
-  requires = { interaction = interaction.capability },
+  requires = { focus = focus.capability },
   defaults = {
     rows = rows,
     layers = {},

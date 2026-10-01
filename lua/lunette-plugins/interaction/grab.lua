@@ -1,13 +1,15 @@
 -- Grab, push, drag, and two-handed scaling for one interaction instance.
 --
--- The returned methods close over the instance's pointer registry and pose
--- writer. No module-global host is shared by separate provider activations.
+-- The returned methods close over the instance's pointer registry, its drop
+-- emitter, and its pose constraint. No module-global host is shared by
+-- separate provider activations.
 
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local grab = {}
 
 type Surface = vocabulary.Surface
+type Pointer = vocabulary.Pointer
 
 export type GrabState = {
   offset: Mat4,
@@ -20,29 +22,40 @@ export type GrabState = {
   moving: boolean,
 }
 
+-- A two-handed grab: the other pointer holding the same surface, the hands'
+-- separation when the second hand took hold, and the surface's width then.
+export type Scaling = {
+  partner: PointerState,
+  separation: number,
+  width: number,
+}
+
+-- What the grab arithmetic reads and writes of one pointer.
 export type PointerState = {
   tuning: vocabulary.Tuning,
   handPosition: { number }?,
   grabbed: Surface?,
   grab: GrabState?,
-  scaling: vocabulary.Scaling?,
+  scaling: Scaling?,
   dead: boolean,
-  pointer: vocabulary.Pointer?,
+  pointer: Pointer?,
 }
 
 export type Methods = {
-  beginGrab: (vocabulary.Pointer, Surface, Mat4?) -> boolean,
-  scaleWith: (vocabulary.Pointer, Mat4?) -> (),
-  push: (vocabulary.Pointer, number, number) -> (),
-  dragTo: (vocabulary.Pointer, Mat4?) -> (),
-  endGrab: (vocabulary.Pointer) -> boolean,
+  beginGrab: (Pointer, Surface, Mat4?) -> boolean,
+  scaleWith: (Pointer, Mat4?) -> (),
+  push: (Pointer, number, number) -> (),
+  dragTo: (Pointer, Mat4?) -> (),
+  endGrab: (Pointer) -> boolean,
 }
 
 type Host = {
   read pointers: () -> { PointerState },
-  read state: (vocabulary.Pointer) -> PointerState,
-  read storePose: (Surface) -> boolean,
-  read emitDropped: (Surface, vocabulary.Pointer) -> (),
+  read state: (Pointer) -> PointerState,
+  -- Announces that a grab ended, before the pointer forgets the surface.
+  read dropped: (Surface, Pointer) -> (),
+  -- The pose a carried surface takes for the pose the hand would give it.
+  read constrain: (Surface, Mat4) -> Mat4,
 }
 
 local function distanceBetween(first: { number }?, second: { number }?): number?
@@ -53,10 +66,10 @@ local function distanceBetween(first: { number }?, second: { number }?): number?
   return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
-local function grabberOf(host: Host, target: Surface, except: vocabulary.Pointer): PointerState?
-  for _, pointer in ipairs(host.pointers()) do
-    if pointer.pointer ~= except and pointer.grabbed == target then
-      return pointer
+local function grabberOf(host: Host, target: Surface, except: Pointer): PointerState?
+  for _, state in ipairs(host.pointers()) do
+    if state.pointer ~= except and state.grabbed == target then
+      return state
     end
   end
   return nil
@@ -82,20 +95,33 @@ local function ordinaryGrab(target: Surface, handPose: Mat4): GrabState?
   }
 end
 
+local function place(host: Host, target: Surface, pose: Mat4): ()
+  local setPose = target.setPose
+  if not setPose then
+    return
+  end
+  local constrained = host.constrain(target, pose)
+  if constrained == nil then
+    error('interaction: constrain answered nothing, not a pose', 0)
+  end
+  setPose(target, constrained)
+end
+
 function grab.new(host: Host): Methods
-  local function beginGrab(self: vocabulary.Pointer, target: Surface, handPose: Mat4?): boolean
+  local function beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolean
     local state = host.state(self)
     if not handPose or not target.setPose then
       return false
     end
 
     local x: number, y: number, z: number = handPose:getPosition()
+    state.handPosition = { x, y, z }
     state.grabbed = target
 
     local partner = grabberOf(host, target, self)
     local separation = partner and distanceBetween({ x, y, z }, partner.handPosition)
-    if partner and partner.pointer and separation and target.width and separation > 0 then
-      state.scaling = { partner = partner.pointer, separation = separation, width = target.width }
+    if partner and separation and target.width and separation > 0 then
+      state.scaling = { partner = partner, separation = separation, width = target.width }
       return true
     end
 
@@ -108,22 +134,23 @@ function grab.new(host: Host): Methods
     return true
   end
 
-  local function scaleWith(self: vocabulary.Pointer, handPose: Mat4?): ()
+  local function scaleWith(self: Pointer, handPose: Mat4?): ()
     local state = host.state(self)
     local scaling = state.scaling
     local target = state.grabbed
     if not scaling or not target or not handPose then
       return
     end
+    state.handPosition = { handPose:getPosition() }
 
     local partner = scaling.partner
-    if not partner or partner.grabbed ~= target or partner.dead then
+    if partner.grabbed ~= target or partner.dead then
       state.scaling = nil
       state.grab = ordinaryGrab(target, handPose)
       return
     end
 
-    local separation = distanceBetween({ handPose:getPosition() }, partner.handPosition)
+    local separation = distanceBetween(state.handPosition, partner.handPosition)
     if not separation or separation <= 0 then
       return
     end
@@ -134,9 +161,13 @@ function grab.new(host: Host): Methods
     if target.setSize then
       target:setSize(width)
     end
+    local pose = target.pose
+    if pose then
+      place(host, target, lovr.math.newMat4(pose))
+    end
   end
 
-  local function push(self: vocabulary.Pointer, deflection: number, dt: number): ()
+  local function push(self: Pointer, deflection: number, dt: number): ()
     local state = host.state(self)
     local current = state.grab
     if not current or not current.base or dt <= 0 then
@@ -161,7 +192,7 @@ function grab.new(host: Host): Methods
     current.moving = true
   end
 
-  local function dragTo(self: vocabulary.Pointer, handPose: Mat4?): ()
+  local function dragTo(self: Pointer, handPose: Mat4?): ()
     local state = host.state(self)
     local current = state.grab
     if not handPose or not current then
@@ -169,6 +200,7 @@ function grab.new(host: Host): Methods
     end
 
     local x: number, y: number, z: number = handPose:getPosition()
+    state.handPosition = { x, y, z }
     if not current.moving then
       local dx, dy, dz = x - current.x, y - current.y, z - current.z
       if dx * dx + dy * dy + dz * dz <= state.tuning.grabDeadZone ^ 2 then
@@ -178,24 +210,28 @@ function grab.new(host: Host): Methods
     end
 
     local target = state.grabbed
-    if not target or not target.setPose then
+    if not target then
       return
     end
-    target:setPose(lovr.math.newMat4():set(handPose):mul(current.offset))
+    place(host, target, lovr.math.newMat4():set(handPose):mul(current.offset))
   end
 
-  local function endGrab(self: vocabulary.Pointer): boolean
+  -- Answers whether the pointer was carrying a surface. The drop is
+  -- announced while the pointer still names the surface as grabbed, so a
+  -- listener that asks the pointer sees what it let go of.
+  local function endGrab(self: Pointer): boolean
     local state = host.state(self)
     local target = state.grabbed
-    state.grabbed, state.grab, state.scaling = nil, nil, nil
     if not target then
+      state.grab, state.scaling = nil, nil
       return false
     end
-    host.emitDropped(target, self)
-    if target.dead then
-      return false
+    local ok, failure = pcall(host.dropped, target, self)
+    state.grabbed, state.grab, state.scaling = nil, nil, nil
+    if not ok then
+      error(failure, 0)
     end
-    return host.storePose(target)
+    return true
   end
 
   return {

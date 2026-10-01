@@ -1,4 +1,4 @@
-//! Interaction lifecycle and grab behavior through the production plugin facade.
+//! Interaction and focus lifecycle and behavior through the production plugin facade.
 extern crate lunette_lovr;
 
 use lunette::plugin::declarations;
@@ -7,8 +7,7 @@ use mlua::{Function, Lua, Table, Value};
 mod plugin_sources;
 mod plugin_support;
 
-#[test]
-fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> {
+fn state() -> mlua::Result<Lua> {
     let lua = Lua::new();
     plugin_support::collect_reports(&lua)?;
     lua.globals().set(
@@ -38,6 +37,12 @@ fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> 
             Ok(result)
         })?,
     )?;
+    Ok(lua)
+}
+
+#[test]
+fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> {
+    let lua = state()?;
     lua.load(include_str!("plugin_interaction/runtime.lua"))
         .set_name("interaction/runtime")
         .exec()?;
@@ -49,5 +54,16 @@ fn pointers_share_grab_state_and_release_on_owner_cleanup() -> mlua::Result<()> 
         errors.len() == 1 && errors[0].contains("native button release failed"),
         "unexpected cleanup errors: {errors:?}"
     );
+    Ok(())
+}
+
+#[test]
+fn focus_grants_are_held_per_owner_and_seat_and_announced() -> mlua::Result<()> {
+    let lua = state()?;
+    lua.load(include_str!("plugin_interaction/focus.lua"))
+        .set_name("interaction/focus")
+        .exec()?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "unexpected cleanup errors: {errors:?}");
     Ok(())
 }

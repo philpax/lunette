@@ -1,7 +1,7 @@
--- Keyboard focus that pointers and owners hold through one interaction activation.
+-- Keyboard focus that grants hold through one focus activation.
 --
--- Focus is held, not merely set. A holder is a pointer or an owner's setFocus
--- effect, and a holder that ends takes back what it gave: the seat it focused
+-- Focus is held, not merely set. A holder is one grant an owner holds for a
+-- seat through setFocus, and a holder that ends takes back what it gave: the seat it focused
 -- is withdrawn natively, and the service stops answering it as the focused
 -- seat. A holder that gave a seat's focus away to a later holder takes back
 -- nothing. The native seat and the answer the service gives therefore never
@@ -97,7 +97,7 @@ function focus.clear(state: Focus): ()
   end
   state.current = nil
   if #failures > 0 then
-    error('interaction: focus withdrawal: ' .. table.concat(failures, '; '), 0)
+    error('focus: withdrawal: ' .. table.concat(failures, '; '), 0)
   end
 end
 

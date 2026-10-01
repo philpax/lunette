@@ -52,7 +52,8 @@ function layer.sync(self: Claimant, pixelWidth: number, pixelHeight: number)
 end
 
 -- Applies the current grant and returns whether the panel is on a layer.
-function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number): boolean
+-- `place` puts the held layer where the panel is; the viewport is set here.
+function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number, place: (Layer) -> ()): boolean
   if not self.claim then
     return false
   end
@@ -75,9 +76,7 @@ function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number): b
     self.appliedWidth, self.appliedHeight = pixelWidth, pixelHeight
   end
 
-  held:setPosition(self.pose:getPosition())
-  held:setOrientation(self.pose:getOrientation())
-  held:setDimensions(self.width, self.height)
+  place(held)
 
   self.granted = true
   return true

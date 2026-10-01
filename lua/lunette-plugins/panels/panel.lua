@@ -1,4 +1,5 @@
--- One panel over a window or a monitor: its geometry, layer claim, and drawing.
+-- One panel over a window or a monitor: its geometry, visibility, layer claim,
+-- and drawing.
 --
 -- A panel reaches its provider activation through the host it is made with,
 -- not through a module-global registry, so separate activations share nothing.
@@ -7,8 +8,9 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/panels'
 local surface = require '@lunette-contracts/surface'
-local quad = require '@lunette-contracts/quad'
 local layer = require '@lunette-plugins/panels/layer'
+local shape = require '@lunette-plugins/panels/shape'
+local drawing = require '@lunette-plugins/panels/draw'
 
 local panel = {}
 
@@ -16,14 +18,34 @@ export type Owner = contracts.Owner
 export type Panel = contracts.Panel
 export type Options = contracts.Options
 
--- The resolved options of the activation that made a panel: its style, and
+-- The shape hooks. Each receives its arguments and then the default, and
+-- calls the default to keep it. The defaults pick and draw a flat quad, or
+-- the piece of a cylinder a positive curve describes, and place a layer at
+-- the panel's pose with the panel's size and curve. A default answers for
+-- the panel the hook was called for.
+export type RaycastBase = (Panel, vector, vector, boolean?) -> (number?, number?, number?)
+export type Raycast = (Panel, vector, vector, boolean?, RaycastBase) -> (number?, number?, number?)
+export type DrawBase = (Panel, Pass) -> ()
+export type Draw = (Panel, Pass, DrawBase) -> ()
+export type LayerBase = (Panel, Layer) -> ()
+export type ApplyLayer = (Panel, Layer, LayerBase) -> ()
+export type Shape = {
+  read raycast: Raycast,
+  read draw: Draw,
+  read applyLayer: ApplyLayer,
+}
+
+-- The resolved options of the activation that made a panel: its chrome style,
 -- the priority, height, and aspect ratio a panel takes when it is given none
--- and its source has no size.
+-- and its source has no size, whether a panel draws chrome when it is not
+-- told, and the shape hooks.
 export type Settings = {
   read style: contracts.Style,
   read priority: number,
   read height: number,
   read aspect: number,
+  read chrome: boolean,
+  read shape: Shape,
 }
 
 -- What a panel needs from the activation that made it.
@@ -32,11 +54,20 @@ export type Host = {
   read active: () -> boolean,
   -- Raises unless the owner is still a live owner of this activation.
   read checkOwner: (Owner) -> (),
+  -- Checks the owner and registers a resource with its lifetime.
+  read acquire: (Owner, () -> () -> ()) -> plugin.Effect,
   read settings: Settings,
   -- The activation's opaque shader, or nil when none can be made.
   read opaqueShader: () -> Shader?,
   -- Called once a panel is dead and its claim released.
   read removed: (State) -> (),
+}
+
+-- One owner's visibility override.
+type Override = {
+  owner: Owner,
+  hidden: boolean,
+  effect: plugin.Effect?,
 }
 
 type MutablePanel = {
@@ -46,6 +77,8 @@ type MutablePanel = {
   priority: number,
   title: string?,
   chrome: boolean,
+  curve: number,
+  hidden: boolean,
   highlighted: boolean,
   read setHighlighted: (surface.Surface, boolean) -> (),
   granted: boolean,
@@ -55,6 +88,9 @@ type MutablePanel = {
   appliedHeight: number?,
   owner: Owner,
   host: Host,
+  overrides: { Override },
+  mesh: Mesh?,
+  meshKey: string?,
   -- The owner's effect that holds this panel, once the acquisition returns.
   effect: plugin.Effect?,
   read setPose: (surface.Surface, Mat4) -> (),
@@ -64,7 +100,7 @@ type MutablePanel = {
   read sourceSize: (Panel) -> (number?, number?),
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
-  read drawChrome: (Panel, Pass) -> (),
+  read setHidden: (Panel, Owner, contracts.Visibility) -> plugin.Effect,
   read destroy: (Panel, Owner) -> boolean,
 }
 export type Source =
@@ -72,13 +108,28 @@ export type Source =
   | { read kind: 'monitor', read source: lunette.Monitor }
 export type State = MutablePanel & Source
 
+-- A curve is a finite number, zero or more.
+local function checkCurve(curve: unknown, level: number): number
+  if type(curve) ~= 'number' or curve ~= curve or curve < 0 or curve == math.huge then
+    error('panels: a curve is a finite number, zero or more, not ' .. tostring(curve), level)
+  end
+  return curve :: number
+end
+
 -- Creates a panel's state without registering it or acquiring a claim.
 function panel.new(host: Host, owner: Owner, source: Source, options: Options?): State
   if source.source == nil then
     error('panels: a panel is over a source, and nil is not one', 4)
   end
   local settings: Options = options or {}
+  local curve = checkCurve(if settings.curve == nil then 0 else settings.curve, 4)
   local created: State
+  local function raycastBase(_self: Panel, origin: vector, direction: vector, backFace: boolean?)
+    return panel.raycast(created, origin, direction, backFace)
+  end
+  local function drawBase(_self: Panel, pass: Pass)
+    drawing.content(created, pass, host.opaqueShader)
+  end
   local exposed = {
     setHighlighted = function(_self: surface.Surface, value: boolean)
       if not created.dead then
@@ -91,8 +142,16 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     setSize = function(_self: surface.Surface, width: number?, height: number?)
       panel.resize(created, width, height)
     end,
-    raycast = function(_self: surface.Surface, origin: vector, direction: vector, backFace: boolean?)
-      return panel.raycast(created, origin, direction, backFace)
+    raycast = function(
+      _self: surface.Surface,
+      origin: vector,
+      direction: vector,
+      backFace: boolean?
+    ): (number?, number?, number?)
+      if created.dead or created.hidden then
+        return nil, nil, nil
+      end
+      return host.settings.shape.raycast(created, origin, direction, backFace, raycastBase)
     end,
     sink = function(_self: surface.Surface): lunette.Sink?
       if created.dead or created.source.dead then
@@ -107,10 +166,27 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       panel.update(created)
     end,
     draw = function(_self: Panel, pass: Pass)
-      panel.draw(created, pass)
+      if created.dead or created.hidden or created.source.dead then
+        return
+      end
+      if created.chrome then
+        drawing.chrome(created, pass, host.settings.style)
+      end
+      if created.granted then
+        return
+      end
+      host.settings.shape.draw(created, pass, drawBase)
     end,
-    drawChrome = function(_self: Panel, pass: Pass)
-      panel.drawChrome(created, pass)
+    setHidden = function(_self: Panel, caller: Owner, visibility: contracts.Visibility): plugin.Effect
+      if type(visibility) ~= 'table' or type(visibility.hidden) ~= 'boolean' then
+        error('panels: setHidden takes { hidden = boolean }', 2)
+      end
+      for key, _ in visibility :: { [unknown]: unknown } do
+        if key ~= 'hidden' then
+          error('panels: setHidden: unknown field ' .. tostring(key) .. '; the field is hidden', 2)
+        end
+      end
+      return panel.setHidden(created, caller, visibility.hidden)
     end,
     destroy = function(_self: Panel, caller: Owner): boolean
       if created.dead then
@@ -125,10 +201,12 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   local metatable = { __index = exposed }
   local pose = settings.pose and lovr.math.newMat4(settings.pose) or lovr.math.newMat4()
   local priority = settings.priority or host.settings.priority
-  local chrome = settings.chrome ~= false
+  local chrome = if settings.chrome == nil then host.settings.chrome else settings.chrome
   local noClaim: layer.Claim? = nil
   local noSize: number? = nil
   local noEffect: plugin.Effect? = nil
+  local noMesh: Mesh? = nil
+  local noKey: string? = nil
   local descriptor: Source = source
   if descriptor.kind == 'window' then
     local window: lunette.Window = descriptor.source
@@ -141,6 +219,8 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       priority = priority,
       title = settings.title,
       chrome = chrome,
+      curve = curve,
+      hidden = false,
       highlighted = false,
       granted = false,
       dead = false,
@@ -149,6 +229,9 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       appliedHeight = noSize,
       owner = owner,
       host = host,
+      overrides = {},
+      mesh = noMesh,
+      meshKey = noKey,
       effect = noEffect,
     }, metatable)
     created = target
@@ -163,6 +246,8 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       priority = priority,
       title = settings.title,
       chrome = chrome,
+      curve = curve,
+      hidden = false,
       highlighted = false,
       granted = false,
       dead = false,
@@ -171,6 +256,9 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       appliedHeight = noSize,
       owner = owner,
       host = host,
+      overrides = {},
+      mesh = noMesh,
+      meshKey = noKey,
       effect = noEffect,
     }, metatable)
     created = target
@@ -184,18 +272,40 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   return created
 end
 
--- Marks a panel dead, releases its claim, and tells the host. Answers false
--- for a panel that was already dead.
+-- Gives up a panel's layer claim, so the panel is drawn in the scene again,
+-- or not at all while it is hidden.
+local function releaseClaim(target: State): ()
+  local claim = target.claim
+  target.claim = nil
+  target.granted = false
+  target.appliedWidth, target.appliedHeight = nil, nil
+  if claim and not claim.dead then
+    claim:release()
+  end
+end
+
+-- Marks a panel dead, releases its claim, mesh, and visibility overrides,
+-- and tells the host. Answers false for a panel that was already dead.
 function panel.release(target: State): boolean
   if target.dead then
     return false
   end
   target.dead = true
-  target.granted = false
-  local claim = target.claim
-  target.claim = nil
-  if claim then
-    claim:release()
+  local overrides = table.clone(target.overrides)
+  table.clear(target.overrides)
+  target.hidden = false
+  local mesh = target.mesh
+  target.mesh, target.meshKey = nil, nil
+  releaseClaim(target)
+  if mesh then
+    mesh:release()
+  end
+  for _, override in ipairs(overrides) do
+    local effect = override.effect
+    override.effect = nil
+    if effect then
+      effect:dispose()
+    end
   end
   target.host.removed(target)
   return true
@@ -221,6 +331,54 @@ function panel.retire(target: State): boolean
     error(failure, 0)
   end
   return true
+end
+
+-- The most recent live override decides; with none the panel is shown.
+-- Hiding gives up the layer claim at once, so a layer the compositor draws
+-- does not outlast the decision by a frame.
+local function settle(target: State): ()
+  local top = target.overrides[#target.overrides]
+  local hidden = if top then top.hidden else false
+  if target.hidden == hidden then
+    return
+  end
+  target.hidden = hidden
+  if hidden then
+    releaseClaim(target)
+  end
+end
+
+function panel.setHidden(target: State, caller: Owner, hidden: boolean): plugin.Effect
+  -- A moved override becomes the most recent.
+  for index, override in ipairs(target.overrides) do
+    local effect = override.effect
+    if override.owner == caller and effect then
+      target.host.checkOwner(caller)
+      table.remove(target.overrides, index)
+      override.hidden = hidden
+      table.insert(target.overrides, override)
+      settle(target)
+      return effect
+    end
+  end
+  local entry: Override = { owner = caller, hidden = hidden, effect = nil }
+  local acquired = target.host.acquire(caller, function(): () -> ()
+    if not target.dead then
+      table.insert(target.overrides, entry)
+      settle(target)
+    end
+    return function(): ()
+      local index = table.find(target.overrides, entry)
+      if index then
+        table.remove(target.overrides, index)
+        settle(target)
+      end
+    end
+  end)
+  if not target.dead then
+    entry.effect = acquired
+  end
+  return acquired
 end
 
 function panel.sourceSize(target: State): (number?, number?)
@@ -249,6 +407,7 @@ function panel.resize(target: State, width: number?, height: number?)
   target.width, target.height = w, h
 end
 
+-- The default raycast: the flat quad, or the arc a positive curve gives.
 function panel.raycast(
   target: State,
   origin: vector,
@@ -262,13 +421,14 @@ function panel.raycast(
   if not pixelWidth or not pixelHeight then
     return nil, nil, nil
   end
-  return quad.hit({
+  return shape.hit({
     pose = target.pose,
     width = target.width,
     height = target.height,
     pixelWidth = pixelWidth,
     pixelHeight = pixelHeight,
     backFace = backFace,
+    curve = target.curve,
   }, origin, direction)
 end
 
@@ -286,8 +446,9 @@ local function needsClaim(target: State, pixelWidth: number, pixelHeight: number
 end
 
 -- Acquires or replaces a window panel's layer claim when its source needs one.
+-- A hidden panel holds none.
 function panel.claim(target: State)
-  if target.dead or target.source.dead then
+  if target.dead or target.hidden or target.source.dead then
     return
   end
   local pixelWidth, pixelHeight = panel.sourceSize(target)
@@ -300,12 +461,28 @@ function panel.claim(target: State)
   end
 end
 
+-- The default layer placement: the panel's pose, size, and curve.
+local function applyLayerBase(target: State): LayerBase
+  return function(_self: Panel, held: Layer): ()
+    held:setPosition(target.pose:getPosition())
+    held:setOrientation(target.pose:getOrientation())
+    held:setDimensions(target.width, target.height)
+    held:setCurve(target.curve)
+  end
+end
+
 function panel.update(target: State)
   if target.dead then
     return
   end
   if target.source.dead then
     panel.retire(target)
+    return
+  end
+  if target.hidden then
+    if target.claim then
+      releaseClaim(target)
+    end
     return
   end
 
@@ -318,79 +495,11 @@ function panel.update(target: State)
   end
   panel.claim(target)
   if target.kind == 'window' then
-    layer.drive(target, pixelWidth, pixelHeight)
+    local base = applyLayerBase(target)
+    layer.drive(target, pixelWidth, pixelHeight, function(held: Layer): ()
+      target.host.settings.shape.applyLayer(target, held, base)
+    end)
   end
-end
-
-function panel.draw(target: State, pass: Pass)
-  local source: lunette.Textured = target.source
-  if target.dead or source.dead then
-    return
-  end
-
-  if target.chrome then
-    panel.drawChrome(target, pass)
-  end
-  if target.granted then
-    return
-  end
-
-  local texture: Texture | false
-  local shader: Shader?
-  local described: Source = target
-  if described.kind == 'window' then
-    local window = described.source
-    texture = window:getTexture()
-    if window.opaque then
-      shader = target.host.opaqueShader()
-    end
-  else
-    texture = described.source:getTexture()
-  end
-  if not texture then
-    return
-  end
-
-  pass:setBlendMode('alpha', 'premultiplied')
-  if shader then
-    pass:setShader(shader)
-  end
-
-  pass:setMaterial(texture)
-  local transform = lovr.math.newMat4():set(target.pose):scale(target.width, target.height, 1)
-  pass:plane(transform, 'fill', 1, 1)
-  pass:setMaterial(nil)
-  if shader then
-    pass:setShader()
-  end
-  pass:setBlendMode('alpha', 'alphamultiply')
-end
-
-function panel.drawChrome(target: State, pass: Pass)
-  local style = target.host.settings.style
-  local color = target.highlighted and style.borderHighlightColor or style.borderColor
-
-  pass:setColor(color[1], color[2], color[3], color[4])
-  local borderTransform = lovr.math
-    .newMat4()
-    :set(target.pose)
-    :translate(0, 0, -style.borderDepth)
-    :scale(target.width + style.borderThickness * 2, target.height + style.borderThickness * 2, 1)
-  pass:plane(borderTransform, 'fill', 1, 1)
-
-  local title: string? = target.title
-  if not title then
-    title = if target.kind == 'window' then target.source.title else target.source.name
-  end
-  if title then
-    pass:setColor(style.titleColor[1], style.titleColor[2], style.titleColor[3], style.titleColor[4])
-    local above = lovr.math
-      .mat4(target.pose)
-      :translate(0, target.height / 2 + style.titleMargin + style.titleHeight / 2, 0)
-      :scale(vector.pack(style.titleHeight))
-    pass:text(title, above, 0, 'center', 'middle')
-  end
-  pass:setColor(1, 1, 1, 1)
 end
 
 return panel

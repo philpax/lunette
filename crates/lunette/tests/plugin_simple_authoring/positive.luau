@@ -2,6 +2,8 @@ local api = require './api'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
+local focus = require '@lunette-contracts/focus'
+local drops = require '@lunette-contracts/drops'
 
 type Config = { read title: string, read height: number }
 local function build(
@@ -28,25 +30,39 @@ local function build(
   }
   local consumer = api.define {
     name = 'consumer',
-    requires = { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
+    requires = {
+      panels = panels.capability,
+      interaction = interaction.capability,
+      keyboard = keyboard.capability,
+      focus = focus.capability,
+      drops = drops.capability,
+    },
     init = function(ctx, config, _provide)
       local panelRegistry: panels.Service = ctx:require(panels.capability)
       local input: interaction.Service = ctx:require(interaction.capability)
       local keys: keyboard.Service = ctx:require(keyboard.capability)
+      local focused: focus.Service = ctx:require(focus.capability)
+      local dropped: drops.Service = ctx:require(drops.capability)
       panelRegistry:update()
       local pointer: interaction.Pointer = input:newPointer(ctx)
       pointer:withdraw()
       local board: keyboard.Keyboard = keys:new(ctx, {
         target = function()
-          return input:focused()
+          return focused:focused()
         end,
       })
       board:typeText(config.title)
       board:setSize(nil, config.height)
-      panelRegistry:onDropped(ctx, {
-        run = function(panel, droppedPointer)
-          panel:setSize(nil, config.height)
-          droppedPointer:withdraw()
+      dropped:onDropped(ctx, {
+        run = function(drop: drops.Drop)
+          local surface = drop.surface
+          if surface.kind == 'window' then
+            local panel = panelRegistry:forSource(surface.source)
+            if panel then
+              panel:setSize(nil, config.height)
+            end
+          end
+          drop.pointer:withdraw()
           board:setVisible(true)
         end,
       })

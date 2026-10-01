@@ -11,8 +11,8 @@ local lunette = require '@lunette'
 local vocabulary = {}
 
 -- The per-window property a window's kept pose is stored under. The
--- interaction provider writes it on a drop and the adoption provider reads it
--- as a placement source. Its value is `encodePose`'s string.
+-- desktop's pose memory writes it when a drop ends a grab, and the adoption
+-- provider reads it as a placement source. Its value is `encodePose`'s string.
 vocabulary.POSE_PROPERTY = 'lunette.pose'
 
 -- How many numbers a pose is written as.
@@ -100,42 +100,29 @@ export type Tuning = {
   read reachMaximum: number,
   read resizeMinimum: number,
   read resizeMaximum: number,
-  read button: lunette.PointerButton,
 }
 
--- One frame of a pointing device: where it is, which way it points, and what
--- is held. A laser reads one per hand and a pointer is driven by it.
+-- The pointer buttons a pointer presses, in the order a pointer reports them.
+vocabulary.POINTER_BUTTONS = table.freeze { 'left', 'right', 'middle', 'back', 'forward' } :: { lunette.PointerButton }
+
+-- One frame of a pointing device: where it is, which way it points, which
+-- pointer buttons are held, and whether it grips. A laser reads one per hand
+-- and a pointer is driven by it. A button absent from `buttons` is up.
 export type Input = {
   read pose: Mat4?,
   read origin: vector,
   read direction: vector,
-  read trigger: boolean,
+  read buttons: { [lunette.PointerButton]: boolean },
   read grip: boolean,
   read scrollX: number?,
   read scrollY: number?,
   read dt: number?,
 }
 
-export type Grab = {
-  read offset: Mat4,
-  read base: Mat4,
-  read pushed: number,
-  read reach: number,
-  read x: number,
-  read y: number,
-  read z: number,
-  read moving: boolean,
-}
-
-export type Scaling = {
-  read partner: Pointer,
-  read separation: number,
-  read width: number,
-}
-
--- What Pointer:setButton takes: whether the button is held, and the sink and
--- surface it presses or releases on.
+-- What Pointer:setButton takes: the button, `left` when none is named;
+-- whether it is held; and the sink and surface it presses or releases on.
 export type ButtonState = {
+  read button: lunette.PointerButton?,
   read pressed: boolean,
   read sink: lunette.Sink?,
   read surface: Surface?,
@@ -155,6 +142,9 @@ export type Haptic = {
   read duration: number,
 }
 
+-- A pointer as its creator and the surfaces it reaches see it: what it
+-- hovers and carries, read-only, and the primitives that drive it. Grab and
+-- press bookkeeping belong to the provider.
 export type Pointer = {
   read seat: lunette.Seat?,
   read tuning: Tuning,
@@ -163,13 +153,6 @@ export type Pointer = {
   read hitY: number?,
   read distance: number?,
   read grabbed: Surface?,
-  read grab: Grab?,
-  read scaling: Scaling?,
-  read gripped: boolean,
-  read pressed: boolean,
-  read pressedSink: lunette.Sink?,
-  read pressedSurface: Surface?,
-  read handPosition: { number }?,
   read dead: boolean,
   read update: (Pointer, Input, { Surface }) -> (),
   read withdraw: (Pointer) -> (),

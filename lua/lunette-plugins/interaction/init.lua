@@ -1,93 +1,49 @@
--- Owner-scoped pointer interaction with activation-local focus and grab state.
+-- Owner-scoped pointer interaction with activation-local grab state.
 --
--- A pointer and a setFocus grant are resources of the owner that asked for
--- them. Their release runs as an inverse on that owner, so a native release
--- that fails is the owner's failure, not this provider's.
+-- A pointer is a resource of the owner that asked for it. Its release runs as
+-- an inverse on that owner, so a native release that fails is the owner's
+-- failure, not this provider's. A pointer gives keyboard focus through the
+-- focus contract and announces the end of each grab through the drops
+-- contract; both are held by this provider's own context, inside the
+-- pointer's owner's lifetime.
 --
--- `tuning` sets the default reach, dead zones, scroll and resize scales, and
--- the button a trigger presses; a pointer's own options override it.
+-- `tuning` sets the default reach, dead zones, and scroll and resize scales; a
+-- pointer's own options override it. `focusOnPress` gives a seat's keyboard to
+-- the sink a pointer presses. `drive` and `constrain` are around hooks: each
+-- receives its arguments and then the default, and calls the default to keep
+-- it. `drive(pointer, input, surfaces, base)` maps one frame of input onto the
+-- pointer's primitives; the default grips to grab, pushes a grabbed surface
+-- along the ray with the stick, scales with a second grip, and presses the
+-- buttons the input holds. `constrain(surface, pose, base)` answers the pose a
+-- carried surface takes for the pose the hand would give it; the default
+-- answers the pose unchanged.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/interaction'
-local panelsContract = require '@lunette-contracts/panels'
+local dropsContract = require '@lunette-contracts/drops'
+local focusContract = require '@lunette-contracts/focus'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local focus = require '@lunette-plugins/interaction/focus'
 local grab = require '@lunette-plugins/interaction/grab'
+local picking = require '@lunette-plugins/interaction/picking'
 
 type Service = contracts.Service
 type Pointer = contracts.Pointer
 type Surface = contracts.Surface
-type PointerState = grab.PointerState
 
-local POSE_PROPERTY = vocabulary.POSE_PROPERTY
-
-local function deadZone(value: number, dead: number): number
-  if value ~= value or not (dead < 1) or math.abs(value) <= dead then
-    return 0
-  end
-  return (value < 0 and -1 or 1) * (math.abs(value) - dead) / (1 - dead)
-end
-
-local function pick(
-  surfaces: { Surface },
-  origin: vector,
-  direction: vector,
-  tuning: contracts.Tuning
-): (Surface?, number?, number?, number?)
-  local length = direction:length()
-  if not (length > 0) then
-    return nil, nil, nil, nil
-  end
-  local ray = direction * (1 / length)
-  local hit: Surface?, x: number?, y: number?, distance: number?
-  for _, candidate in ipairs(surfaces) do
-    if not candidate.dead then
-      local cx, cy, cd = candidate:raycast(origin, ray)
-      if cx and cy and cd and cd <= tuning.reach and (not distance or cd < distance) then
-        hit, x, y, distance = candidate, cx, cy, cd
-      end
-    end
-  end
-  return hit, x, y, distance
-end
-
-local function storePose(target: Surface): boolean
-  if target.dead or target.kind ~= 'window' or target.source.dead or not target.pose then
-    return false
-  end
-  return target.source:setProperty(POSE_PROPERTY, vocabulary.encodePose(target.pose)) and true
-end
-
-local function restorePose(target: Surface): boolean
-  if target.dead or target.kind ~= 'window' or target.source.dead then
-    return false
-  end
-  local kept = vocabulary.decodePose(target.source:getProperty(POSE_PROPERTY))
-  if not kept or not target.setPose then
-    return false
-  end
-  target:setPose(kept)
-  return true
-end
-
-local function emitDropped(context: plugin.Context, panels: panelsContract.Service, target: Surface, pointer: Pointer)
-  if not context:active() then
-    return
-  end
-  if target.kind == 'window' or target.kind == 'monitor' then
-    local panel = panels:forSource(target.source)
-    if panel then
-      panels:emitDropped(context, panel, pointer)
-    end
-  end
-end
-
-local BUTTONS: { [string]: boolean } = { left = true, right = true, middle = true, back = true, forward = true }
+-- The default pointer mapping a `drive` hook receives as `base`.
+export type DriveBase = (Pointer, contracts.Input, { Surface }) -> ()
+export type Drive = (Pointer, contracts.Input, { Surface }, DriveBase) -> ()
+-- The default constraint a `constrain` hook receives as `base`.
+export type ConstrainBase = (Surface, Mat4) -> Mat4
+export type Constrain = (Surface, Mat4, ConstrainBase) -> Mat4
 
 -- The resolved options. Each activation receives its own frozen copy, so no
 -- consumer can retune another's pointers.
 export type Settings = {
   read tuning: contracts.Tuning,
+  read focusOnPress: boolean,
+  read drive: Drive,
+  read constrain: Constrain,
 }
 
 -- What a configuration gives: every option optional.
@@ -102,24 +58,73 @@ export type Config = {
     read reachMaximum: number?,
     read resizeMinimum: number?,
     read resizeMaximum: number?,
-    read button: lunette.PointerButton?,
   }?,
+  read focusOnPress: boolean?,
+  read drive: Drive?,
+  read constrain: Constrain?,
 }
+
+type State = {
+  tuning: contracts.Tuning,
+  handPosition: { number }?,
+  grabbed: Surface?,
+  grab: grab.GrabState?,
+  scaling: grab.Scaling?,
+  dead: boolean,
+  pointer: Pointer?,
+  seat: lunette.Seat?,
+  pulse: ((contracts.Haptic) -> boolean)?,
+  hovered: Surface?,
+  hitX: number?,
+  hitY: number?,
+  distance: number?,
+  gripped: boolean,
+  pressed: { [lunette.PointerButton]: boolean },
+  pressedSink: { [lunette.PointerButton]: lunette.Sink },
+  pressedSurface: { [lunette.PointerButton]: Surface },
+}
+
+-- The fields a pointer answers. Everything else of a pointer's state is the
+-- provider's bookkeeping.
+local READABLE: { [string]: boolean } = {
+  seat = true,
+  tuning = true,
+  hovered = true,
+  hitX = true,
+  hitY = true,
+  distance = true,
+  grabbed = true,
+  dead = true,
+}
+
+local BUTTONS: { [string]: boolean } = {}
+for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
+  BUTTONS[button] = true
+end
+
+-- The key a focus grant for a pointer without a seat is kept under.
+local NO_SEAT = table.freeze {}
+
+local function unchanged(_surface: Surface, pose: Mat4): Mat4
+  return pose
+end
 
 local function build(context: plugin.Context, settings: Settings): Service
   local active = true
   local TUNING = settings.tuning
-  if not BUTTONS[TUNING.button] then
-    error('plugin interaction: option tuning.button is a pointer button, not ' .. tostring(TUNING.button), 0)
-  end
   local pointers: { Pointer } = {}
-  local states: { [Pointer]: PointerState } = {}
-  local focused = focus.new()
-  local granted: { [contracts.Owner]: { holder: focus.Holder, effect: plugin.Effect? } } = {}
-  local panels: panelsContract.Service = context:require(panelsContract.capability)
+  local states: { [Pointer]: State } = {}
+  local dropService: dropsContract.Service = context:require(dropsContract.capability)
+  local focusService: focusContract.Service = context:require(focusContract.capability)
+  -- The pointer that last gave each seat's focus, and the grant it gave it
+  -- through. A pointer that ends withdraws a grant only while it is the last
+  -- to have given it.
+  local grantors: { [unknown]: State } = {}
+  local grants: { [unknown]: plugin.Effect } = {}
+
   local carrying = grab.new {
-    pointers = function(): { PointerState }
-      local result: { PointerState } = {}
+    pointers = function(): { grab.PointerState }
+      local result: { grab.PointerState } = {}
       for _, pointer in ipairs(pointers) do
         local state = states[pointer]
         if state and not state.dead then
@@ -128,145 +133,231 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return result
     end,
-    state = function(pointer: Pointer): PointerState
+    state = function(pointer: Pointer): grab.PointerState
       return assert(states[pointer], 'interaction: unknown pointer')
     end,
-    storePose = storePose,
-    emitDropped = function(target: Surface, pointer: Pointer)
-      emitDropped(context, panels, target, pointer)
+    -- A grab ended by this activation's own teardown is not announced: the
+    -- context can no longer act as an owner.
+    dropped = function(target: Surface, pointer: Pointer)
+      if active and context:active() then
+        dropService:emit(context, { surface = target, pointer = pointer })
+      end
+    end,
+    constrain = function(target: Surface, pose: Mat4): Mat4
+      return settings.constrain(target, pose, unchanged)
     end,
   }
+
+  local function live(state: State): boolean
+    return active and context:active() and not state.dead
+  end
+
+  local function giveFocus(state: State, sink: lunette.Sink?): ()
+    local key: unknown = state.seat or NO_SEAT
+    grants[key] = focusService:setFocus(context, { seat = state.seat, sink = sink })
+    grantors[key] = state
+  end
+
+  local function withdrawFocus(state: State): ()
+    local key: unknown = state.seat or NO_SEAT
+    if grantors[key] ~= state then
+      return
+    end
+    grantors[key] = nil
+    local effect = grants[key]
+    grants[key] = nil
+    if effect then
+      effect:dispose()
+    end
+  end
+
+  -- Another live pointer of this activation still hovering a surface keeps
+  -- its highlight on when this one leaves.
+  local function hoveredByAnother(state: State, target: Surface): boolean
+    for _, other in pairs(states) do
+      if other ~= state and not other.dead and other.hovered == target then
+        return true
+      end
+    end
+    return false
+  end
+
+  local function seatLive(state: State): boolean
+    local seat = state.seat
+    return not seat or not seat.dead
+  end
+
+  local function hover(state: State, pointer: Pointer, hit: Surface?)
+    local previous = state.hovered
+    if previous == hit then
+      return
+    end
+    state.hovered = hit
+    if hit and hit.setHighlighted then
+      hit:setHighlighted(true)
+    end
+    if previous then
+      if previous.setHighlighted and not hoveredByAnother(state, previous) then
+        previous:setHighlighted(false)
+      end
+      local sink = previous.sink and previous:sink()
+      if sink and not sink.dead and seatLive(state) then
+        sink:leave(state.seat)
+      end
+      if previous.onLeave then
+        previous:onLeave(pointer)
+      end
+    end
+  end
+
+  local function press(
+    state: State,
+    pointer: Pointer,
+    button: lunette.PointerButton,
+    pressed: boolean,
+    sink: lunette.Sink?,
+    surface: Surface?
+  )
+    if pressed == (state.pressed[button] == true) then
+      return
+    end
+    state.pressed[button] = if pressed then true else nil
+    if pressed then
+      if sink and not sink.dead and seatLive(state) then
+        state.pressedSink[button] = sink
+        sink:button(button, true, state.seat)
+        if settings.focusOnPress then
+          giveFocus(state, sink)
+        end
+      elseif surface and surface.onPress then
+        state.pressedSurface[button] = surface
+        surface:onPress(state.hitX, state.hitY, pointer)
+      end
+      return
+    end
+    local target, released = state.pressedSink[button], state.pressedSurface[button]
+    state.pressedSink[button], state.pressedSurface[button] = nil, nil
+    if target and not target.dead and seatLive(state) then
+      target:button(button, false, state.seat)
+    end
+    if released and released.onRelease then
+      released:onRelease(pointer)
+    end
+  end
+
+  local function withdraw(state: State, pointer: Pointer)
+    if state.grabbed then
+      carrying.endGrab(pointer)
+    end
+    for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
+      press(state, pointer, button, false, nil, nil)
+    end
+    hover(state, pointer, nil)
+    state.gripped = false
+  end
+
+  -- The default mapping: what a `drive` hook receives as `base`.
+  local function defaultDrive(pointer: Pointer, input: contracts.Input, surfaces: { Surface }): ()
+    local state = states[pointer]
+    if not state then
+      error('interaction: drive was given a pointer this activation did not make', 2)
+    end
+    if not live(state) then
+      return
+    end
+    state.handPosition = input.pose and { input.pose:getPosition() } or nil
+    local gripped = input.grip
+    local grabbed = state.grabbed
+    if grabbed then
+      if grabbed.dead or not gripped then
+        carrying.endGrab(pointer)
+      elseif state.scaling then
+        carrying.scaleWith(pointer, input.pose)
+      else
+        carrying.push(pointer, input.scrollY or 0, input.dt or 0)
+        carrying.dragTo(pointer, input.pose)
+      end
+      state.gripped = gripped
+      return
+    end
+    local hit, x, y, distance = picking.pick(surfaces, input.origin, input.direction, state.tuning.reach)
+    hover(state, pointer, hit)
+    state.hitX, state.hitY, state.distance = x, y, distance
+    if
+      hit
+      and gripped
+      and not state.gripped
+      and hit.grabbable ~= false
+      and carrying.beginGrab(pointer, hit, input.pose)
+    then
+      state.gripped = true
+      return
+    end
+    state.gripped = gripped
+    local sink = hit and hit.sink and hit:sink() or nil
+    if sink and not sink.dead and seatLive(state) and x and y then
+      sink:pointer(x, y, state.seat)
+      local dx, dy = picking.scrollDelta {
+        x = input.scrollX or 0,
+        y = input.scrollY or 0,
+        dt = input.dt,
+        tuning = state.tuning,
+      }
+      if dx ~= 0 or dy ~= 0 then
+        sink:scroll(dx, dy, state.seat)
+      end
+    elseif hit and hit.onHover then
+      hit:onHover(x, y, pointer)
+    end
+    local held = input.buttons or {}
+    for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
+      press(state, pointer, button, held[button] == true, sink, hit)
+    end
+  end
+
   local function newPointer(owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
     context:checkOwner(owner)
-    local seat: lunette.Seat? = options and options.seat
     local pulse = options and options.vibrate
     if pulse ~= nil and type(pulse) ~= 'function' then
       error("interaction: a pointer's vibrate is a function, not a " .. type(pulse), 3)
     end
-    local state: {
-      tuning: contracts.Tuning,
-      handPosition: { number }?,
-      grabbed: Surface?,
-      grab: grab.GrabState?,
-      scaling: contracts.Scaling?,
-      dead: boolean,
-      pointer: Pointer?,
-      seat: lunette.Seat?,
-      hovered: Surface?,
-      hitX: number?,
-      hitY: number?,
-      distance: number?,
-      gripped: boolean,
-      pressed: boolean,
-      pressedSink: lunette.Sink?,
-      pressedSurface: Surface?,
-    } =
-      {
-        tuning = options and options.tuning or TUNING,
-        handPosition = nil,
-        grabbed = nil,
-        grab = nil,
-        scaling = nil,
-        dead = false,
-        pointer = nil,
-        seat = seat,
-        hovered = nil,
-        hitX = nil,
-        hitY = nil,
-        distance = nil,
-        gripped = false,
-        pressed = false,
-        pressedSink = nil,
-        pressedSurface = nil,
-      }
-    local fields = state
-    local holder = focus.holder()
-    local function live(): boolean
-      return active and context:active() and not state.dead
-    end
-    local function giveFocus(sink: lunette.Sink?)
-      focus.grant(focused, holder, seat, sink)
-    end
-    -- Another live pointer of this activation still hovering a surface keeps
-    -- its highlight on when this one leaves.
-    local function hoveredByAnother(target: Surface): boolean
-      for other, otherState in pairs(states) do
-        if other ~= state.pointer and not otherState.dead and other.hovered == target then
-          return true
-        end
-      end
-      return false
-    end
-    local function hover(pointer: Pointer, hit: Surface?)
-      local previous = fields.hovered
-      if previous == hit then
-        return
-      end
-      fields.hovered = hit
-      if hit and hit.setHighlighted then
-        hit:setHighlighted(true)
-      end
-      if previous then
-        if previous.setHighlighted and not hoveredByAnother(previous) then
-          previous:setHighlighted(false)
-        end
-        local sink = previous.sink and previous:sink()
-        if sink and not sink.dead and (not seat or not seat.dead) then
-          sink:leave(seat)
-        end
-        if previous.onLeave then
-          previous:onLeave(pointer)
-        end
-      end
-    end
-    local function button(pointer: Pointer, pressed: boolean, sink: lunette.Sink?, surface: Surface?)
-      if pressed == fields.pressed then
-        return
-      end
-      fields.pressed = pressed
-      if pressed then
-        if sink and not sink.dead and (not seat or not seat.dead) then
-          fields.pressedSink = sink
-          sink:button(state.tuning.button, true, seat)
-          giveFocus(sink)
-        elseif surface and surface.onPress then
-          fields.pressedSurface = surface
-          surface:onPress(fields.hitX, fields.hitY, pointer)
-        end
-        return
-      end
-      local target, released = fields.pressedSink, fields.pressedSurface
-      fields.pressedSink, fields.pressedSurface = nil, nil
-      if target and not target.dead and (not seat or not seat.dead) then
-        target:button(state.tuning.button, false, seat)
-      end
-      if released and released.onRelease then
-        released:onRelease(pointer)
-      end
-    end
-    local function withdraw(pointer: Pointer)
-      if state.grabbed then
-        carrying.endGrab(pointer)
-      end
-      button(pointer, false, nil, nil)
-      hover(pointer, nil)
-      fields.gripped = false
-    end
+    local state: State = {
+      tuning = if options and options.tuning
+        then (plugin.merge { base = TUNING :: any, over = options.tuning :: any } :: any) :: contracts.Tuning
+        else TUNING,
+      handPosition = nil,
+      grabbed = nil,
+      grab = nil,
+      scaling = nil,
+      dead = false,
+      pointer = nil,
+      seat = options and options.seat,
+      pulse = pulse,
+      hovered = nil,
+      hitX = nil,
+      hitY = nil,
+      distance = nil,
+      gripped = false,
+      pressed = {},
+      pressedSink = {},
+      pressedSurface = {},
+    }
     local cleanupEffect: plugin.Effect? = nil
+    local public: Pointer
     -- The registry forgets the pointer before any native release, and every
     -- release is attempted before a failure is raised to whoever ended it.
-    local function destroyRaw(self: Pointer): boolean
+    local function destroyRaw(): boolean
       if state.dead then
         return false
       end
       state.dead = true
-      local index = table.find(pointers, self)
+      local withdrawn, withdrawal = pcall(withdraw, state, public)
+      local index = table.find(pointers, public)
       if index then
         table.remove(pointers, index)
       end
-      local withdrawn, withdrawal = pcall(withdraw, self)
-      local revoked, revocation = pcall(focus.revoke, focused, holder)
-      states[self] = nil
+      local revoked, revocation = pcall(withdrawFocus, state)
+      states[public] = nil
       if not withdrawn then
         error(withdrawal, 0)
       end
@@ -277,34 +368,38 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     local methods = {
       hover = function(self: Pointer, hit: Surface?)
-        if live() then
-          hover(self, hit)
+        if live(state) then
+          hover(state, self, hit)
         end
       end,
       focus = function(_self: Pointer, sink: lunette.Sink?)
-        if live() then
-          giveFocus(sink)
+        if live(state) then
+          giveFocus(state, sink)
         end
       end,
-      setButton = function(self: Pointer, state: contracts.ButtonState)
-        if live() then
-          button(self, state.pressed, state.sink, state.surface)
+      setButton = function(self: Pointer, given: contracts.ButtonState)
+        local button = given.button or 'left'
+        if not BUTTONS[button] then
+          error('interaction: setButton presses a pointer button, not ' .. tostring(button), 2)
+        end
+        if live(state) then
+          press(state, self, button, given.pressed, given.sink, given.surface)
         end
       end,
       withdraw = function(self: Pointer)
         if not state.dead then
-          withdraw(self)
+          withdraw(state, self)
         end
       end,
       -- The release runs here, on the caller's stack, so its failure is the
       -- caller's; the owner's effect is then disposed with nothing left to do.
-      destroy = function(self: Pointer): boolean
+      destroy = function(_self: Pointer): boolean
         if state.dead then
           return false
         end
         local effect = cleanupEffect
         cleanupEffect = nil
-        local ok, failure = pcall(destroyRaw, self)
+        local ok, failure = pcall(destroyRaw)
         if effect then
           effect:dispose()
         end
@@ -314,95 +409,64 @@ local function build(context: plugin.Context, settings: Settings): Service
         return true
       end,
       beginGrab = function(self: Pointer, target: Surface, handPose: Mat4?): boolean
-        if not live() or target.dead then
+        if not live(state) or target.dead then
           return false
         end
         return carrying.beginGrab(self, target, handPose)
       end,
       scaleWith = function(self: Pointer, handPose: Mat4?)
-        if live() then
+        if live(state) then
           carrying.scaleWith(self, handPose)
         end
       end,
-      push = function(self: Pointer, push: contracts.Push)
-        if live() then
-          carrying.push(self, push.deflection, push.dt)
+      push = function(self: Pointer, given: contracts.Push)
+        if live(state) then
+          carrying.push(self, given.deflection, given.dt)
         end
       end,
       dragTo = function(self: Pointer, handPose: Mat4?)
-        if live() then
+        if live(state) then
           carrying.dragTo(self, handPose)
         end
       end,
       endGrab = function(self: Pointer): boolean
-        if not live() then
+        if not live(state) then
           return false
         end
         return carrying.endGrab(self)
       end,
       vibrate = function(_self: Pointer, haptic: contracts.Haptic): boolean
-        local send = pulse
-        if not live() or not send then
+        local send = state.pulse
+        if not live(state) or not send then
           return false
         end
         return send(haptic) == true
       end,
       update = function(self: Pointer, input: contracts.Input, surfaces: { Surface })
-        if not live() then
-          return
+        if live(state) then
+          settings.drive(self, input, surfaces, defaultDrive)
         end
-        state.handPosition = input.pose and { input.pose:getPosition() } or nil
-        local gripped = input.grip
-        local grabbed = state.grabbed
-        if grabbed then
-          if grabbed.dead or not gripped then
-            carrying.endGrab(self)
-          elseif state.scaling then
-            carrying.scaleWith(self, input.pose)
-          else
-            carrying.push(self, input.scrollY or 0, input.dt or 0)
-            carrying.dragTo(self, input.pose)
-          end
-          fields.gripped = gripped
-          return
-        end
-        local hit, x, y, distance = pick(surfaces, input.origin, input.direction, state.tuning)
-        hover(self, hit)
-        fields.hitX, fields.hitY, fields.distance = x, y, distance
-        if
-          hit
-          and gripped
-          and not fields.gripped
-          and hit.grabbable ~= false
-          and carrying.beginGrab(self, hit, input.pose)
-        then
-          fields.gripped = true
-          return
-        end
-        fields.gripped = gripped
-        local sink = hit and hit.sink and hit:sink() or nil
-        if sink and not sink.dead and (not seat or not seat.dead) and x and y then
-          sink:pointer(x, y, seat)
-          local scale = state.tuning.scrollScale * (input.dt or 0)
-          local dx = deadZone(input.scrollX or 0, state.tuning.scrollDeadZone) * scale
-          local dy = -deadZone(input.scrollY or 0, state.tuning.scrollDeadZone) * scale
-          if dx ~= 0 or dy ~= 0 then
-            sink:scroll(dx, dy, seat)
-          end
-        elseif hit and hit.onHover then
-          hit:onHover(x, y, self)
-        end
-        button(self, input.trigger, sink, hit)
       end,
     }
-    local public: Pointer = setmetatable(state, { __index = methods })
+    local view = setmetatable({}, {
+      __index = function(_view: unknown, key: unknown): unknown
+        if type(key) == 'string' and READABLE[key] then
+          return (state :: any)[key]
+        end
+        return (methods :: any)[key]
+      end,
+      __newindex = function(_view: unknown, key: unknown): ()
+        error('interaction: a pointer is read-only, so ' .. tostring(key) .. ' cannot be assigned', 2)
+      end,
+    })
+    public = (view :: any) :: Pointer
     state.pointer = public
     local acquired = owner:effect(function()
       pointers[#pointers + 1] = public
       states[public] = state
       return function()
         cleanupEffect = nil
-        destroyRaw(public)
+        destroyRaw()
       end
     end)
     if not state.dead then
@@ -410,16 +474,16 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     return public
   end
-  -- Owners unload before this provider, so their pointers and grants have
-  -- normally ended already. Anything left is released here.
+  -- Owners unload before this provider, so their pointers have normally ended
+  -- already. Anything left is released here.
   context:effect(function()
     return function()
       active = false
       for _, pointer in ipairs(table.clone(pointers)) do
         pointer:destroy()
       end
-      table.clear(granted)
-      focus.clear(focused)
+      table.clear(grantors)
+      table.clear(grants)
     end
   end)
   -- The published service is revoked with this activation, so its methods
@@ -427,68 +491,27 @@ local function build(context: plugin.Context, settings: Settings): Service
   -- check the activation themselves.
   return {
     TUNING = TUNING,
-    POSE_PROPERTY = POSE_PROPERTY,
-    pick = function(
-      _self: Service,
-      surfaces: { Surface },
-      origin: vector,
-      direction: vector,
-      tuning: contracts.Tuning?
-    )
-      return pick(surfaces, origin, direction, tuning or TUNING)
-    end,
-    scrollDelta = function(_self: Service, scroll: contracts.Scroll)
-      local current = scroll.tuning or TUNING
-      local scale = current.scrollScale * (scroll.dt or 0)
-      return deadZone(scroll.x, current.scrollDeadZone) * scale, -deadZone(scroll.y, current.scrollDeadZone) * scale
-    end,
-    storePose = function(_self: Service, target: Surface): boolean
-      return storePose(target)
-    end,
-    restorePose = function(_self: Service, target: Surface): boolean
-      return restorePose(target)
-    end,
     newPointer = function(_self: Service, owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
       return newPointer(owner, options)
     end,
     pointers = function(_self: Service): { Pointer }
       return table.clone(pointers)
     end,
-    focused = function(_self: Service): (lunette.Seat?, lunette.Sink?)
-      return focus.focused(focused)
-    end,
-    -- One grant per owner: a later call moves the owner's grant rather than
-    -- adding another effect. The grant ends with the owner.
-    setFocus = function(_self: Service, owner: contracts.Owner, target: contracts.Focus): plugin.Effect
-      local seat, sink = target.seat, target.sink
-      local existing = granted[owner]
-      local effect = existing and existing.effect
-      if existing and effect then
-        context:checkOwner(owner)
-        focus.grant(focused, existing.holder, seat, sink)
-        return effect
-      end
-      local entry: { holder: focus.Holder, effect: plugin.Effect? } = { holder = focus.holder(), effect = nil }
-      local acquired = context:acquire(owner, function(): () -> ()
-        focus.grant(focused, entry.holder, seat, sink)
-        granted[owner] = entry
-        return function()
-          if granted[owner] == entry then
-            granted[owner] = nil
-          end
-          focus.revoke(focused, entry.holder)
-        end
-      end)
-      entry.effect = acquired
-      return acquired
-    end,
   }
+end
+
+local function drive(pointer: Pointer, input: contracts.Input, surfaces: { Surface }, base: DriveBase): ()
+  base(pointer, input, surfaces)
+end
+
+local function constrain(surface: Surface, pose: Mat4, base: ConstrainBase): Mat4
+  return base(surface, pose)
 end
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'interaction',
   capability = contracts.capability,
-  requires = { panels = panelsContract.capability },
+  requires = { drops = dropsContract.capability, focus = focusContract.capability },
   defaults = {
     tuning = {
       reach = 8,
@@ -500,8 +523,10 @@ return plugin.provider<<Config, Settings, Service>> {
       reachMaximum = 6,
       resizeMinimum = 0.15,
       resizeMaximum = 4,
-      button = 'left',
     },
+    focusOnPress = true,
+    drive = drive,
+    constrain = constrain,
   },
   build = build,
 }

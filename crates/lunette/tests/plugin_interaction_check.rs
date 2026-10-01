@@ -13,8 +13,12 @@ fn interaction_provider_typechecks() {
             root.join("lua/lunette-plugins/panels/events.lua"),
             root.join("lua/lunette-plugins/panels/layer.lua"),
             root.join("lua/lunette-plugins/panels/panel.lua"),
+            root.join("lua/lunette-plugins/drops/init.lua"),
+            root.join("lua/lunette-plugins/focus/init.lua"),
+            root.join("lua/lunette-plugins/focus/holders.lua"),
             root.join("lua/lunette-plugins/interaction/init.lua"),
             root.join("lua/lunette-plugins/interaction/grab.lua"),
+            root.join("lua/lunette-plugins/interaction/picking.lua"),
         ],
     );
     let report = analyze::check(&request).unwrap_or_else(|error| panic!("interaction: {error}"));
@@ -32,8 +36,10 @@ fn laser_provider_and_consumer_graph_typechecks() {
             root.join("lua/lunette-plugins/panels/events.lua"),
             root.join("lua/lunette-plugins/panels/layer.lua"),
             root.join("lua/lunette-plugins/panels/panel.lua"),
+            root.join("lua/lunette-plugins/panels/shape.lua"),
             root.join("lua/lunette-plugins/interaction/init.lua"),
             root.join("lua/lunette-plugins/interaction/grab.lua"),
+            root.join("lua/lunette-plugins/interaction/picking.lua"),
             root.join("lua/lunette-plugins/laser/init.lua"),
             root.join("lua/lunette-plugins/laser/input.lua"),
             root.join("lua/lunette-plugins/laser/draw.lua"),

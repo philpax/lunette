@@ -6,14 +6,17 @@
 -- provider resources through effects, and a panel's end is announced to
 -- owner-scoped removal listeners.
 --
--- `style` sets the border and title appearance. `priority`, `height`, and
--- `aspect` are what a panel takes when its own options give none.
+-- `style` sets the border and title a panel with chrome draws, and `chrome`
+-- whether a panel draws them when its own options do not say; it is off, as
+-- decorations are a consumer's. `priority`, `height`, and `aspect` are what a
+-- panel takes when its own options give none. `shape` holds three around
+-- hooks, `raycast`, `draw`, and `applyLayer`, which pick, draw, and place a
+-- layer for a panel; each receives its arguments and then the default, and
+-- the defaults are the flat quad, or the arc of a positive curve.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/panels'
-local vocabulary = require '@lunette-contracts/vocabulary'
-local quad = require '@lunette-contracts/quad'
 local panel = require '@lunette-plugins/panels/panel'
 local events = require '@lunette-plugins/panels/events'
 
@@ -40,6 +43,13 @@ local OPAQUE_FRAGMENT = [[
 ]]
 
 export type Settings = panel.Settings
+export type Shape = panel.Shape
+export type Raycast = panel.Raycast
+export type RaycastBase = panel.RaycastBase
+export type Draw = panel.Draw
+export type DrawBase = panel.DrawBase
+export type ApplyLayer = panel.ApplyLayer
+export type LayerBase = panel.LayerBase
 
 -- What a configuration gives: every option optional.
 export type Config = {
@@ -55,6 +65,12 @@ export type Config = {
   read priority: number?,
   read height: number?,
   read aspect: number?,
+  read chrome: boolean?,
+  read shape: {
+    read raycast: Raycast?,
+    read draw: Draw?,
+    read applyLayer: ApplyLayer?,
+  }?,
 }
 
 local function livePanels(state: ProviderState): { Panel }
@@ -144,6 +160,9 @@ local function build(context: plugin.Context, settings: Settings): Service
     checkOwner = function(owner: Owner)
       context:checkOwner(owner)
     end,
+    acquire = function(owner: Owner, acquire: () -> () -> ()): plugin.Effect
+      return context:acquire(owner, acquire)
+    end,
     settings = settings,
     opaqueShader = function(): Shader?
       return opaqueShader(state)
@@ -183,13 +202,6 @@ local function build(context: plugin.Context, settings: Settings): Service
   -- they are created, and they check their activation through their host.
   local service: Service = {
     STYLE = settings.style,
-    DEFAULT_PRIORITY = settings.priority,
-    DEFAULT_HEIGHT = settings.height,
-    DEFAULT_ASPECT = settings.aspect,
-    OPAQUE_FRAGMENT = OPAQUE_FRAGMENT,
-    rayQuadHit = function(_self: Service, target: contracts.Quad, origin: vector, direction: vector)
-      return quad.hit(target, origin, direction)
-    end,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
       local target = create(state, owner, { kind = 'window', source = window }, options)
       if target.kind ~= 'window' then
@@ -232,17 +244,6 @@ local function build(context: plugin.Context, settings: Settings): Service
         target:draw(pass)
       end
     end,
-    opaqueShader = function(_self: Service, owner: Owner): Shader?
-      context:checkOwner(owner)
-      return opaqueShader(state)
-    end,
-    onDropped = function(_self: Service, owner: Owner, listener: contracts.DroppedListener): plugin.Effect
-      checkListener('onDropped', listener)
-      return events.onDropped(state.events, context, owner, listener.panel, listener.run)
-    end,
-    emitDropped = function(_self: Service, owner: Owner, target: Panel, pointer: vocabulary.Pointer)
-      events.emitDropped(state.events, context, owner, target, pointer)
-    end,
     onAdded = function(_self: Service, owner: Owner, callback: contracts.PanelCallback): plugin.Effect
       return events.onAdded(state.events, context, owner, callback)
     end,
@@ -270,6 +271,18 @@ return plugin.provider<<Config, Settings, Service>> {
     priority = 10,
     height = 0.8,
     aspect = 16 / 9,
+    chrome = false,
+    shape = {
+      raycast = function(target: Panel, origin: vector, direction: vector, backFace: boolean?, base: RaycastBase)
+        return base(target, origin, direction, backFace)
+      end,
+      draw = function(target: Panel, pass: Pass, base: DrawBase): ()
+        base(target, pass)
+      end,
+      applyLayer = function(target: Panel, held: Layer, base: LayerBase): ()
+        base(target, held)
+      end,
+    },
   },
   build = build,
 }

@@ -26,14 +26,16 @@ local walk
 -- consumers that the Rust integration tests under `crates/lunette/tests/`
 -- drive through the plugin runtime. The modules here are the ones with
 -- behaviour a spec can reach without a runtime: the optional library, the
--- desktop's persistence, the shared vocabulary, and the keyboard's default
--- rows.
+-- desktop's persistence, the shared vocabulary, the keyboard's default
+-- rows, the pointer picking arithmetic, and a curved panel's geometry.
 tree.MODULE_ROOTS = {
   '@mullion',
   '@lunette-desktop/persist',
   '@lunette-contracts/keys.lua',
   '@lunette-contracts/vocabulary.lua',
   '@lunette-plugins/keyboard/rows.lua',
+  '@lunette-plugins/interaction/picking.lua',
+  '@lunette-plugins/panels/shape.lua',
 }
 tree.SPEC_ROOT = '@spec'
 

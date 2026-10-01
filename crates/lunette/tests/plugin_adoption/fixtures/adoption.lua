@@ -2,19 +2,17 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 local rules = require '@lunette-contracts/rules'
-local interaction = require '@lunette-contracts/interaction'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local adoption = require '@lunette-contracts/adoption'
 
 local runtime = plugin.runtime()
 local panelProvider = runtime:use(require('@lunette-plugins/panels').definition, {})
 local tagProvider = runtime:use(require('@lunette-plugins/tags').definition, {})
 local rulesProvider = runtime:use(require('@lunette-plugins/rules').definition, {})
-local interactionProvider = runtime:use(require('@lunette-plugins/interaction').definition, {})
 local adoptionProvider = runtime:use(require('@lunette-plugins/adoption').definition, {})
 panelProvider:enable()
 tagProvider:enable()
 rulesProvider:enable()
-interactionProvider:enable()
 adoptionProvider:enable()
 
 local services
@@ -26,7 +24,6 @@ local consumer = runtime:use(
       panels = panels.capability,
       tags = tags.capability,
       rules = rules.capability,
-      interaction = interaction.capability,
       adoption = adoption.capability,
     },
     init = function(context)
@@ -34,7 +31,6 @@ local consumer = runtime:use(
         panels = context:require(panels.capability),
         tags = context:require(tags.capability),
         rules = context:require(rules.capability),
-        interaction = context:require(interaction.capability),
         adoption = context:require(adoption.capability),
       }
       owner = context
@@ -86,7 +82,7 @@ local function window(id, pose)
     return table.clone(self.stored)
   end
   if pose then
-    target.stored[services.interaction.POSE_PROPERTY] = pose
+    target.stored[vocabulary.POSE_PROPERTY] = pose
   end
   return target
 end
@@ -171,7 +167,7 @@ local started = services.adoption:start(owner, {
 assert(subscribeCalls == 1 and enumerateCalls == 1 and enumerateWhileSubscribed)
 assert(#placed == 2)
 assert(placed[1].resolved.title == 'persisted-title')
-assert(placed[1].resolved.pose == saved.stored[services.interaction.POSE_PROPERTY])
+assert(placed[1].resolved.pose == saved.stored[vocabulary.POSE_PROPERTY])
 assert(placed[2].resolved.title == 'persisted-title')
 assert(#services.panels:all() == 2)
 assert(saved.closeCalls == 0 and ordinary.closeCalls == 0)
@@ -206,7 +202,7 @@ assert(
 )
 
 local sourceCallback = services.adoption:source()
-assert(sourceCallback(saved).pose == saved.stored[services.interaction.POSE_PROPERTY])
+assert(sourceCallback(saved).pose == saved.stored[vocabulary.POSE_PROPERTY])
 replaced:dispose()
 persisted:dispose()
 low:dispose()

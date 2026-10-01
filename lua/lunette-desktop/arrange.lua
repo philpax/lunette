@@ -17,6 +17,7 @@
 -- `layout`, the consumer reports it once, and it arranges as soon as one is.
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
+local drops = require '@lunette-contracts/drops'
 local frame = require '@lunette-contracts/frame'
 local layouts = require '@lunette-contracts/layouts'
 local panels = require '@lunette-contracts/panels'
@@ -44,6 +45,7 @@ local UPDATE_ORDER = -10
 
 local required: plugin.Declaration = {
   adoption = adoption.capability,
+  drops = drops.capability,
   frame = frame.capability,
   layouts = layouts.capability,
   panels = panels.capability,
@@ -71,6 +73,7 @@ local function define(): plugin.Definition<Config>
     init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
       local settings = resolve(config)
       local adoptionService: adoption.Service = context:require(adoption.capability)
+      local dropService: drops.Service = context:require(drops.capability)
       local frameService: frame.Service = context:require(frame.capability)
       local layoutService: layouts.Service = context:require(layouts.capability)
       local panelService: panels.Service = context:require(panels.capability)
@@ -98,9 +101,17 @@ local function define(): plugin.Definition<Config>
         layoutService:apply { name = settings.layout, panels = arranged(), options = settings.options }
       end
 
-      panelService:onDropped(context, {
-        run = function(panel: panels.Panel)
-          dropped[panel] = true
+      -- A drop of a surface that stands for a panel, such as a title bar, is a
+      -- drop of that panel.
+      dropService:onDropped(context, {
+        run = function(drop: drops.Drop)
+          local surface = drop.surface
+          if surface.kind == 'window' or surface.kind == 'monitor' then
+            local panel = panelService:forSource(surface.source)
+            if panel then
+              dropped[panel] = true
+            end
+          end
         end,
       })
       panelService:onRemoved(context, {

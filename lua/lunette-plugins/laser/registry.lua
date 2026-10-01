@@ -4,7 +4,6 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/laser'
 local interaction = require '@lunette-contracts/interaction'
-local draw = require '@lunette-plugins/laser/draw'
 
 local registry = {}
 
@@ -90,9 +89,11 @@ function registry.update(state: State, surfaces: { contracts.Surface })
   end
 end
 
+-- Each laser draws through its own draw, so the provider's draw hook is what
+-- the service draws.
 function registry.draw(state: State, pass: Pass)
   for _, target in ipairs(registry.live(state)) do
-    draw.laser(target, pass)
+    target:draw(pass)
   end
 end
 

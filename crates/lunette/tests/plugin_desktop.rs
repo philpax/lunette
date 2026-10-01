@@ -181,8 +181,8 @@ fn every_provider_validates_and_applies_its_configuration() -> mlua::Result<()> 
     assert!(
         errors.iter().all(|error| error.contains("unknown option")
             || error.contains(" is a ")
-            || error.contains("pointer button")
             || error.contains("plugin keyboard: option rows")
+            || error.contains("bindings register: chord")
             || error.contains("rules: rule 1 has an unknown field")
             || error.contains("requires missing contract")),
         "{errors:?}"
@@ -200,6 +200,53 @@ fn the_wrist_keyboard_draws_its_own_keyboard_and_pulses_the_pressing_hand() -> m
         errors
             .iter()
             .all(|error| error.contains("plugin desktop/keyboard: ")),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn title_bars_move_their_panels_and_hidden_panels_are_neither_drawn_nor_offered() -> mlua::Result<()>
+{
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/decorations.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.starts_with("plugin graph: instance ")
+                && error.contains(" requires missing contract ")),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn monitor_mirrors_are_laid_side_by_side_selected_and_tagged() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/monitors.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.starts_with("plugin graph: instance ")
+                && error.contains(" requires missing contract ")),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn bindings_take_their_chords_before_delivery_and_the_reload_key_is_configurable()
+-> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/bindings.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.starts_with("plugin graph: instance ")
+                && error.contains(" requires missing contract ")),
         "{errors:?}"
     );
     Ok(())

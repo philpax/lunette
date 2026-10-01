@@ -1,4 +1,4 @@
--- Owned dropped, added, and removed listeners for one panels activation.
+-- Owned added and removed listeners for one panels activation.
 --
 -- Each registry belongs to one provider activation. A listener is an effect of
 -- its owner, and it is delivered to only while the provider still owns that
@@ -6,7 +6,6 @@
 
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
-local vocabulary = require '@lunette-contracts/vocabulary'
 local protected = require '@lunette-plugins/protected'
 
 local events = {}
@@ -19,7 +18,6 @@ type Listener<T> = {
 }
 
 export type Registry = {
-  dropped: { Listener<panels.DroppedCallback> },
   added: { Listener<panels.PanelCallback> },
   removed: { Listener<panels.PanelCallback> },
 }
@@ -27,7 +25,7 @@ export type Registry = {
 export type Context = plugin.Context
 
 function events.new(): Registry
-  return { dropped = {}, added = {}, removed = {} }
+  return { added = {}, removed = {} }
 end
 
 local function release<T>(listener: Listener<T>)
@@ -88,16 +86,6 @@ local function deliver(kind: string, callback: panels.PanelCallback, panel: pane
   end)
 end
 
-function events.onDropped(
-  registry: Registry,
-  context: Context,
-  owner: panels.Owner,
-  panel: panels.Panel?,
-  callback: panels.DroppedCallback
-): plugin.Effect
-  return listen(registry.dropped, context, owner, panel, callback)
-end
-
 function events.onAdded(
   registry: Registry,
   context: Context,
@@ -115,22 +103,6 @@ function events.onRemoved(
   callback: panels.PanelCallback
 ): plugin.Effect
   return listen(registry.removed, context, owner, panel, callback)
-end
-
-function events.emitDropped(
-  registry: Registry,
-  context: Context,
-  owner: panels.Owner,
-  panel: panels.Panel,
-  pointer: vocabulary.Pointer
-): ()
-  context:checkOwner(owner)
-  for _, listener in ipairs(reached(registry.dropped, panel)) do
-    local callback = live(listener, context)
-    if callback then
-      callback(panel, pointer)
-    end
-  end
 end
 
 function events.emitAdded(registry: Registry, context: Context, panel: panels.Panel): ()
@@ -152,7 +124,7 @@ function events.emitRemoved(registry: Registry, context: Context, panel: panels.
 end
 
 function events.clear(registry: Registry)
-  for _, list in ipairs { registry.dropped, registry.added, registry.removed } do
+  for _, list in ipairs { registry.added, registry.removed } do
     for _, listener in ipairs(list) do
       release(listener)
     end

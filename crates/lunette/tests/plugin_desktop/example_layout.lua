@@ -87,7 +87,7 @@ end
 -- A window dropped elsewhere leaves the grid; the others close up when one
 -- closes, and the dropped one stays.
 placed[2]:setPose(lovr.math.newMat4():translate(4, 1, -3))
-desktop.panels:emitDropped(owner, placed[2], {})
+desktop.drop(placed[2])
 events.windows[5].dead = true
 emit('onWindowClosed', { window = events.windows[5] })
 lovr.update(0.016)

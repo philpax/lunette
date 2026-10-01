@@ -1,23 +1,9 @@
 -- The arrangement of adopted windows in the shipped composition: a window the
 -- user drops leaves the arranged set, so closing another window does not
 -- snap it back.
-local plugin = require '@lunette-plugin'
-local panels = require '@lunette-contracts/panels'
 
 local desktop = require 'fixture/graph'()
-local service, owner
-desktop.runtime
-  :use(
-    plugin.define {
-      name = 'arrange-probe',
-      requires = { panels = panels.capability },
-      init = function(context)
-        service, owner = context:require(panels.capability), context
-      end,
-    },
-    {}
-  )
-  :enable()
+local service = desktop.panels
 
 local function position(panel)
   local x, y, z = panel.pose:getPosition()
@@ -35,7 +21,7 @@ assert(arcY == 1.5, 'an adopted window is arranged on the arc')
 
 -- The user drags the first window away and drops it.
 dragged:setPose(lovr.math.newMat4():translate(3, 2, -4))
-service:emitDropped(owner, dragged, {})
+desktop.drop(dragged)
 
 -- Another window closes, and the remaining ones are arranged again.
 second.dead = true

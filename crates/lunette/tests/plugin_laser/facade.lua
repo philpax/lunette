@@ -1,6 +1,7 @@
 return function(plugin, modules)
   local runtime = plugin.runtime()
-  local panelsInstance = runtime:use(modules.panels, {})
+  runtime:use(modules.drops, {}):enable()
+  runtime:use(modules.focus, {}):enable()
   local interactionInstance = runtime:use(modules.interaction, {})
   local laserInstance = runtime:use(modules.laser, {})
   local events = modules.events
@@ -59,7 +60,6 @@ return function(plugin, modules)
   }
 
   local caller = runtime:use(callerDefinition, {})
-  panelsInstance:enable()
   interactionInstance:enable()
   laserInstance:enable()
   caller:enable()

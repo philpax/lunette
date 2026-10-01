@@ -1,4 +1,4 @@
-//! The dropped event is owned by the panels provider and emitted by interaction.
+//! The drops broker, and the interaction provider emitting through it.
 
 extern crate lunette_lovr;
 
@@ -66,10 +66,10 @@ fn state() -> mlua::Result<Lua> {
 }
 
 #[test]
-fn dropped_is_owned_filtered_disposable_and_emitted_before_pose_storage() -> mlua::Result<()> {
+fn drops_are_owned_disposable_protected_and_emitted_when_a_grab_ends() -> mlua::Result<()> {
     let lua = state()?;
-    lua.load(include_str!("plugin_dropped/fixture.lua"))
-        .set_name("plugin_dropped/fixture.lua")
+    lua.load(include_str!("plugin_drops/fixture.lua"))
+        .set_name("plugin_drops/fixture.lua")
         .exec()?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");

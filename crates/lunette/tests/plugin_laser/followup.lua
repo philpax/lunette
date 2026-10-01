@@ -1,6 +1,7 @@
 return function(plugin, modules)
   local runtime = plugin.runtime()
-  local panels = runtime:use(modules.panels, {})
+  runtime:use(modules.drops, {}):enable()
+  runtime:use(modules.focus, {}):enable()
   local interaction = runtime:use(modules.interaction, {})
   local laser = runtime:use(modules.laser, {})
   local events = modules.events
@@ -19,7 +20,7 @@ return function(plugin, modules)
         pose = lovr.math.newMat4(),
         origin = vector.pack(0, 0, 0),
         direction = vector.pack(0, 0, -1),
-        trigger = false,
+        buttons = {},
         grip = false,
         dt = 1 / 60,
       }
@@ -27,7 +28,7 @@ return function(plugin, modules)
         pose = lovr.math.newMat4(),
         origin = vector.pack(0, 0, 0),
         direction = vector.pack(0, 1, 0),
-        trigger = false,
+        buttons = {},
         grip = false,
         dt = 1 / 60,
       }
@@ -73,7 +74,6 @@ return function(plugin, modules)
   }
 
   local caller = runtime:use(callerDefinition, {})
-  panels:enable()
   interaction:enable()
   laser:enable()
   caller:enable()

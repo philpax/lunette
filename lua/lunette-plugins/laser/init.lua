@@ -4,12 +4,20 @@
 -- release that fails is the caller's failure rather than this provider's.
 --
 -- `style` sets the default beam length, colours, cursor size, and hover haptic
--- that a laser's own options override.
+-- that a laser's own options override. `buttons` maps controller buttons to
+-- the pointer buttons they press, as a list of `{ control, button }`; the
+-- default presses `left` with the trigger. `readInput` and `draw` are around
+-- hooks: each receives its arguments and then the default, and calls the
+-- default to keep it. `readInput(hand, base)` answers one frame of a hand's
+-- input, and `base` reads the headset through `buttons`. `draw(laser, pass,
+-- base)` draws a laser, and `base` draws the beam and the cursor. A laser's
+-- own `readInput` option replaces the hook for that laser.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/laser'
 local interaction = require '@lunette-contracts/interaction'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local input = require '@lunette-plugins/laser/input'
 local draw = require '@lunette-plugins/laser/draw'
 local registry = require '@lunette-plugins/laser/registry'
@@ -22,10 +30,21 @@ export type Hand = contracts.Hand
 export type Surface = contracts.Surface
 export type Input = contracts.Input
 
+-- The default reader a `readInput` hook receives as `base`.
+export type ReadBase = (Hand) -> Input?
+export type ReadInput = (Hand, ReadBase) -> Input?
+-- The default drawing a `draw` hook receives as `base`.
+export type DrawBase = (Laser, Pass) -> ()
+export type Draw = (Laser, Pass, DrawBase) -> ()
+export type Mapping = input.Mapping
+
 -- The resolved options. Each activation receives its own frozen copy, so no
 -- consumer can restyle another's lasers.
 export type Settings = {
   read style: contracts.Style,
+  read buttons: { Mapping },
+  read readInput: ReadInput,
+  read draw: Draw,
 }
 
 -- What a configuration gives: every option optional.
@@ -38,6 +57,9 @@ export type Config = {
     read hapticStrength: number?,
     read hapticDuration: number?,
   }?,
+  read buttons: { Mapping }?,
+  read readInput: ReadInput?,
+  read draw: Draw?,
 }
 
 local HANDS: { Hand } = { 'left', 'right' }
@@ -47,8 +69,6 @@ type MutableLaser = registry.MutableLaser
 
 type MutableService = {
   HANDS: { Hand },
-  DEVICES: { [string]: contracts.Device },
-  CONTROLLERS: { [string]: contracts.Device },
   STYLE: contracts.Style,
   new: (Service, Owner, Hand, Options?) -> Laser,
   attach: (Service, Owner, Options?) -> { Laser },
@@ -56,19 +76,10 @@ type MutableService = {
   all: (Service) -> { Laser },
   update: (Service, { Surface }) -> (),
   draw: (Service, Pass) -> (),
-  headsetInput: (Service, Hand) -> Input?,
 }
 
-local function headsetInput(hand: Hand): Input?
-  local headset = lovr.headset
-  if not headset then
-    return nil
-  end
-  return input.fromHeadset(hand, headset)
-end
-
-local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options: Options?): Laser
-  local settings: Options = options or {}
+local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
+  local given: Options = options or {}
   local device = input.devices[hand]
   if not device then
     error("laser: '" .. tostring(hand) .. "' is not a hand a laser is made for", 2)
@@ -79,7 +90,7 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
   local cleanupEffect: plugin.Effect? = nil
   local acquired = owner:effect(function()
     state.context:checkOwner(owner)
-    local seat = settings.seat or lunette.newSeat(settings.name or ('laser.' .. hand))
+    local seat = given.seat or lunette.newSeat(given.name or ('laser.' .. hand))
     local controller = input.controllers[hand]
     -- The pointer's haptics reach this hand's controller, so whatever the
     -- pointer presses can answer with a pulse on the hand that pressed it.
@@ -91,10 +102,10 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
       return headset.vibrate(controller, haptic.strength, haptic.duration, 0) and true
     end
     local made, pointer = pcall(function()
-      return interactionService:newPointer(state.context, { seat = seat, tuning = settings.tuning, vibrate = pulse })
+      return interactionService:newPointer(state.context, { seat = seat, tuning = given.tuning, vibrate = pulse })
     end)
     if not made then
-      if not settings.seat and not seat.dead then
+      if not given.seat and not seat.dead then
         seat:destroy()
       end
       error(pointer, 0)
@@ -107,12 +118,20 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
       device = device,
       controller = controller,
       seat = seat,
-      ownsSeat = settings.seat == nil,
-      readInput = settings.readInput or function(which: Hand): Input?
-        return headsetInput(which)
+      ownsSeat = given.seat == nil,
+      readInput = given.readInput or function(which: Hand): Input?
+        return settings.readInput(which, function(asked: Hand): Input?
+          local headset = lovr.headset
+          if not headset then
+            return nil
+          end
+          return input.fromHeadset(asked, headset, settings.buttons)
+        end)
       end,
       pointer = pointer,
-      style = settings.style or state.service.STYLE,
+      style = if given.style
+        then (plugin.merge { base = settings.style :: any, over = given.style :: any } :: any) :: contracts.Style
+        else settings.style,
       input = frameInput,
       dead = false,
       update = function(self: Laser, surfaces: { Surface })
@@ -135,7 +154,7 @@ local function makeLaser(state: ProviderState, owner: Owner, hand: Hand, options
         if self.dead or not state.active then
           return
         end
-        draw.laser(self, pass)
+        settings.draw(self, pass, draw.laser)
       end,
       vibrate = function(self: Laser): boolean
         if self.dead then
@@ -186,12 +205,10 @@ local function build(context: plugin.Context, settings: Settings): Service
   local state: ProviderState
   local implementation: MutableService = {
     HANDS = HANDS,
-    DEVICES = input.devices,
-    CONTROLLERS = input.controllers,
     STYLE = settings.style,
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
       state.context:checkOwner(owner)
-      return makeLaser(state, owner, hand, options)
+      return makeLaser(state, settings, owner, hand, options)
     end,
     -- A hand has one laser. attach answers the owner's own laser for a hand
     -- it already holds, makes one for a free hand, and raises for a hand
@@ -209,7 +226,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       local attached: { Laser } = {}
       for _, hand in ipairs(HANDS) do
-        attached[#attached + 1] = held[hand] or makeLaser(state, owner, hand, options)
+        attached[#attached + 1] = held[hand] or makeLaser(state, settings, owner, hand, options)
       end
       return attached
     end,
@@ -230,9 +247,6 @@ local function build(context: plugin.Context, settings: Settings): Service
     draw = function(_self: Service, pass: Pass): ()
       registry.draw(state, pass)
     end,
-    headsetInput = function(_self: Service, hand: Hand): Input?
-      return headsetInput(hand)
-    end,
   }
   service = implementation
 
@@ -252,6 +266,46 @@ local function build(context: plugin.Context, settings: Settings): Service
   return service
 end
 
+local function readInput(hand: Hand, base: ReadBase): Input?
+  return base(hand)
+end
+
+local function drawLaser(laser: Laser, pass: Pass, base: DrawBase): ()
+  base(laser, pass)
+end
+
+local POINTER_BUTTONS: { [string]: boolean } = {}
+for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
+  POINTER_BUTTONS[button] = true
+end
+
+local CONTROLS: { [string]: boolean } = {}
+for _, control in ipairs(input.CONTROLS) do
+  CONTROLS[control] = true
+end
+
+-- The mapping list replaces its default wholesale, so its entries are checked
+-- here rather than against the defaults.
+local function validate(settings: Settings, name: string): ()
+  for index, mapping in ipairs(settings.buttons) do
+    local where = string.format('plugin %s: option buttons[%d]', name, index)
+    if type(mapping) ~= 'table' then
+      error(where .. ' is a table of control and button, not a ' .. type(mapping), 0)
+    end
+    for key, _ in mapping :: { [unknown]: unknown } do
+      if key ~= 'control' and key ~= 'button' then
+        error(where .. ' has an unknown field ' .. tostring(key) .. '; the fields are control and button', 0)
+      end
+    end
+    if not CONTROLS[mapping.control] then
+      error(where .. '.control is a controller button, not ' .. tostring(mapping.control), 0)
+    end
+    if not POINTER_BUTTONS[mapping.button] then
+      error(where .. '.button is a pointer button, not ' .. tostring(mapping.button), 0)
+    end
+  end
+end
+
 return plugin.provider<<Config, Settings, Service>> {
   name = 'laser',
   capability = contracts.capability,
@@ -265,6 +319,10 @@ return plugin.provider<<Config, Settings, Service>> {
       hapticStrength = 0.2,
       hapticDuration = 0.01,
     },
+    buttons = { { control = 'trigger', button = 'left' } },
+    readInput = readInput,
+    draw = drawLaser,
   },
+  validate = validate,
   build = build,
 }

@@ -157,8 +157,8 @@ assert(weakServices[1] == nil and weakServices[2] == nil, 'state and old binding
 
 local target = panels:fromWindow(context, window(19), { width = 1.5 })
 tags:new(context, 'saved'):add(context, target)
-panels:emitDropped(context, target, {})
-assert(filesystem.writes == 1, 'an active drop saves live panels')
+assert(binding:save())
+assert(filesystem.writes == 1, 'an active binding saves live panels')
 local captured = state:arrangement()
 assert(persist.entries(captured)[1].width == 1.5)
 assert(persist.entries(captured)[1].tags[1] == 'saved')
@@ -166,29 +166,15 @@ local afterSave = window(22)
 assert(rules:resolve(target.source).width == 1.5, 'the source reads the arrangement the save wrote')
 assert(rules:resolve(afterSave).width == 1, 'the saved window holds the only saved slot')
 assert(rules:resolve(afterSave).width == 1, 'repeated lookups do not change the answer')
-local observerContext
-local observer = runtime:use(
-  plugin.define {
-    name = 'runtime-2',
-    requires = { panels = panelsContract.capability },
-    init = function(current)
-      observerContext = current
-    end,
-  },
-  {}
-)
-observer:enable()
-beforeCleanup = function(currentBinding, currentPanels, currentRules)
+beforeCleanup = function(currentBinding, _currentPanels, currentRules)
   assert(#currentRules:sources() == 2, 'persistence source inverse has not run yet')
   assert(not currentBinding:save(), 'ordinary cleanup save is refused')
-  currentPanels:emitDropped(observerContext, target, {})
-  assert(filesystem.writes == 1, 'unload-time dropped callbacks cannot save')
+  assert(filesystem.writes == 1, 'unload-time saves write nothing')
 end
 owner:disable()
 assert(filesystem.writes == 1 and not binding:active())
 assert(#rules:sources() == 0, 'binding and caller rules are removed exactly')
 beforeCleanup = nil
-observer:disable()
 owner:enable()
 assert(state:arrangement() == captured and filesystem.reads == 1)
 target.source.dead = true
@@ -198,8 +184,6 @@ binding:dispose()
 binding:dispose()
 assert(not liveBinding:active() and not liveBinding:save { force = true })
 assert(#rules:sources() == 1, 'dispose removes only persistence source')
-panels:emitDropped(context, panels:fromWindow(context, window(21)), {})
-assert(filesystem.writes == 1, 'disposed drop listener is removed')
 owner:disable()
 
 for _, text in ipairs { 'return { version = 99, entries = {}, future = true }', 'return {' } do

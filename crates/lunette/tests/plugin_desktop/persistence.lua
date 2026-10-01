@@ -1,7 +1,7 @@
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
 local panels = require '@lunette-contracts/panels'
-local interaction = require '@lunette-contracts/interaction'
+local drops = require '@lunette-contracts/drops'
 local persist = require '@lunette-desktop/persist'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local runtime = plugin.runtime()
@@ -14,7 +14,7 @@ frame.install {
 local definitions = {
   frame.definition,
   require('@lunette-plugins/panels').definition,
-  require('@lunette-plugins/interaction').definition,
+  require('@lunette-plugins/drops').definition,
   require('@lunette-plugins/tags').definition,
   require('@lunette-plugins/rules').definition,
   require('@lunette-plugins/adoption').definition,
@@ -26,14 +26,14 @@ for index, definition in ipairs(definitions) do
   providers[index] = runtime:use(definition, {})
   providers[index]:enable()
 end
-local service, owner
+local service, dropService, owner
 runtime
   :use(
     plugin.define {
       name = 'persistence-1',
-      requires = { panels = panels.capability },
+      requires = { panels = panels.capability, drops = drops.capability },
       init = function(ctx)
-        service, owner = ctx:require(panels.capability), ctx
+        service, dropService, owner = ctx:require(panels.capability), ctx:require(drops.capability), ctx
       end,
     },
     {}
@@ -44,7 +44,7 @@ runtime
 local FACTORIES = { persistence = true, arrange = true }
 local function policy()
   local instances = {}
-  for _, name in ipairs { 'workspace', 'rules', 'persistence', 'arrange', 'adoption' } do
+  for _, name in ipairs { 'workspace', 'rules', 'pose-memory', 'persistence', 'arrange', 'adoption' } do
     local module = require('@lunette-desktop/' .. name)
     local instance = runtime:use(if FACTORIES[name] then module() else module, {})
     instance:enable()
@@ -64,7 +64,7 @@ events.windows = { window }
 emit('onWindowOpened', { window = window })
 local created = service:forSource(window)
 created:setPose(lovr.math.newMat4():translate(4, 3, -6))
-service:emitDropped(owner, created, {})
+dropService:emit(owner, { surface = created, pointer = {} })
 assert(events.writes == 1)
 local saved = events.saved
 first:dispose()
@@ -89,7 +89,7 @@ for _ = 1, 3 do
   assert(events.writes == writes, 'unloading cannot overwrite unreadable file')
   providers[4]:enable()
   created = service:forSource(window)
-  service:emitDropped(owner, created, {})
+  dropService:emit(owner, { surface = created, pointer = {} })
   assert(events.writes == writes and events.saved == 'invalid arrangement')
   assert(events.reads == reads, 'refusal state survives reactivation')
 end

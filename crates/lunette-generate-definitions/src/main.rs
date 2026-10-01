@@ -88,6 +88,11 @@ const ALIAS_FILES: &[AliasFile] = &[
         lunette::aliases::installed_luaurc,
     ),
     (
+        "examples/desktop/.luaurc",
+        "../../lua",
+        lunette::aliases::installed_luaurc,
+    ),
+    (
         "examples/first-plugin/.luaurc",
         "../../lua",
         lunette::aliases::installed_luaurc,

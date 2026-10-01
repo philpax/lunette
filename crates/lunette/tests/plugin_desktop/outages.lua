@@ -2,7 +2,7 @@ local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
 local surfacesContract = require '@lunette-contracts/surfaces'
 local panels = require '@lunette-contracts/panels'
-local interaction = require '@lunette-contracts/interaction'
+local drops = require '@lunette-contracts/drops'
 local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -18,6 +18,9 @@ local definitions = {
   frame = frame.definition,
   surfaces = require('@lunette-plugins/surfaces').definition,
   panels = require('@lunette-plugins/panels').definition,
+  drops = require('@lunette-plugins/drops').definition,
+  focus = require('@lunette-plugins/focus').definition,
+  bindings = require('@lunette-plugins/bindings').definition,
   interaction = require('@lunette-plugins/interaction').definition,
   laser = require('@lunette-plugins/laser').definition,
   keyboard = require('@lunette-plugins/keyboard').definition,
@@ -33,6 +36,9 @@ for _, name in ipairs {
   'frame',
   'surfaces',
   'panels',
+  'drops',
+  'focus',
+  'bindings',
   'interaction',
   'laser',
   'keyboard',
@@ -55,30 +61,34 @@ local function use(name)
   instance:enable()
   return instance
 end
-local base = use 'base'
+use 'render'
+local monitors = use 'monitors'
+use 'hint'
+use 'decorations'
 use 'pointing'
 use 'input'
+use 'bindings'
 use 'keyboard'
 use 'errors'
-for _, name in ipairs { 'workspace', 'rules', 'persistence', 'arrange', 'adoption', 'demo-terminal' } do
+for _, name in ipairs { 'workspace', 'rules', 'pose-memory', 'persistence', 'arrange', 'adoption', 'demo-terminal' } do
   use(name)
 end
-local service, focus, placement, tagService, surfaceBroker, owner
+local service, dropService, placement, tagService, surfaceBroker, owner
 runtime
   :use(
     plugin.define {
       name = 'outages-1',
       requires = {
         panels = panels.capability,
-        interaction = interaction.capability,
+        drops = drops.capability,
         rules = rules.capability,
         tags = tags.capability,
         surfaces = surfacesContract.capability,
       },
       init = function(ctx)
-        service, focus, placement, tagService, surfaceBroker, owner =
+        service, dropService, placement, tagService, surfaceBroker, owner =
           ctx:require(panels.capability),
-          ctx:require(interaction.capability),
+          ctx:require(drops.capability),
           ctx:require(rules.capability),
           ctx:require(tags.capability),
           ctx:require(surfacesContract.capability),
@@ -105,7 +115,7 @@ assert(firefox.width == 2)
 local x = firefox.pose:getPosition()
 assert(x == -1.4, 'configured rule pose remains outside the arc')
 initial:setPose(lovr.math.newMat4():translate(3, 2, -4))
-service:emitDropped(owner, initial, {})
+dropService:emit(owner, { surface = initial, pointer = {} })
 assert(events.writes == 1)
 local stable = service
 for _ = 1, 3 do
@@ -113,13 +123,13 @@ for _ = 1, 3 do
   assert(service == stable and service:forSource(events.windows[1]) == initial)
   assert(subscriptionCount 'onError' == 1 and subscriptionCount 'onWindowOpened' == 1)
   local surfaces = surfaceBroker:all()
-  assert(#surfaces == 2, 'keyboard outage removes only wrist/keyboard surfaces')
+  assert(#surfaces == 4, 'keyboard outage removes only wrist/keyboard surfaces')
   lovr.update(0.016)
   assert(lovr.draw(events.pass) == false)
   sources()
   providers.keyboard:enable()
-  assert(#surfaceBroker:all() == 3)
-  local wrist = surfaceBroker:all()[3]
+  assert(#surfaceBroker:all() == 5)
+  local wrist = surfaceBroker:all()[5]
   local pulses = 0
   wrist:onPress(nil, nil, {
     vibrate = function()
@@ -128,7 +138,7 @@ for _ = 1, 3 do
     end,
   })
   assert(pulses == 1, 'the wrist button pulses the pointer that pressed it')
-  assert(#surfaceBroker:all() == 4, 'recovery lazily creates one keyboard')
+  assert(#surfaceBroker:all() == 6, 'recovery lazily creates one keyboard')
   providers.display:disable()
   assert(subscriptionCount 'onError' == 0)
   assert(service:forSource(events.windows[1]) == initial)
@@ -164,14 +174,14 @@ local monitor = newMonitor 'fixture-output'
 events.monitors[monitor.id] = monitor
 emit('onMonitorAdded', { id = monitor.id, monitor = monitor })
 assert(service:forSource(monitor))
-base:disable()
-assert(service:forSource(monitor) == nil, 'base owns its mirrors')
+monitors:disable()
+assert(service:forSource(monitor) == nil, 'the monitors consumer owns its mirrors')
 assert(not events.windows[1].dead and events.closed == 0)
-assert(events.unmirrored == 1, 'base cleanup stops its capture')
-base:enable()
-assert(service:forSource(monitor), 'base recovery remirrors connected outputs')
+assert(events.unmirrored == 1, 'the monitors consumer stops its capture as it unloads')
+monitors:enable()
+assert(service:forSource(monitor), 'recovery remirrors connected outputs')
 assert(events.mirrored == 2)
-base:reload {}
+monitors:reload {}
 assert(events.mirrored == 3 and events.unmirrored == 2, 'replacement releases previous capture')
 monitor.dead = true
 lovr.update(0.016)

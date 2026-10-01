@@ -90,8 +90,7 @@ for _, case in ipairs {
     entries = {
       { id = 'frame', definition = require('@lunette-plugins/frame').definition },
       { id = 'surfaces', definition = require('@lunette-plugins/surfaces').definition },
-      { id = 'panels', definition = require('@lunette-plugins/panels').definition },
-      { id = 'interaction', definition = require('@lunette-plugins/interaction').definition },
+      { id = 'focus', definition = require('@lunette-plugins/focus').definition },
       { id = 'keyboard', definition = keyboardModule.definition },
       { id = 'desktop/keyboard', definition = require '@lunette-desktop/keyboard', config = case.config },
     },

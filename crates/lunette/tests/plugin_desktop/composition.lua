@@ -39,6 +39,9 @@ local DEFAULT_IDS = table.concat({
   'frame',
   'surfaces',
   'panels',
+  'drops',
+  'focus',
+  'bindings',
   'interaction',
   'laser',
   'keyboard',
@@ -48,13 +51,18 @@ local DEFAULT_IDS = table.concat({
   'layouts',
   'layout/arc',
   'error-display',
-  'desktop/base',
+  'desktop/render',
+  'desktop/hint',
+  'desktop/decorations',
   'desktop/pointing',
   'desktop/input',
+  'desktop/bindings',
   'desktop/keyboard',
   'desktop/errors',
   'desktop/workspace',
+  'desktop/monitors',
   'desktop/rules',
+  'desktop/pose-memory',
   'desktop/persistence',
   'desktop/arrange',
   'desktop/adoption',
@@ -191,7 +199,7 @@ assert(
     true
   )
 )
-assert(rejected.instances['desktop/base']:state() == 'active')
+assert(rejected.instances['desktop/render']:state() == 'active')
 rejected.runtime:close()
 
 -- A provider built, wrapped, and published by a user definition replaces the

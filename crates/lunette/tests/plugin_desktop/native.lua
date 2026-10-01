@@ -344,7 +344,14 @@ function newWindow(id, appId)
   return window
 end
 function newMonitor(id)
-  local monitor = { id = id, name = id, dead = false, width = 1920, height = 1080, sink = { domain = 'host' } }
+  local sink = { domain = 'host' }
+  for _, name in ipairs { 'key', 'modifiers', 'pointer', 'motion', 'button', 'scroll', 'enter', 'leave' } do
+    sink[name] = function(_, ...)
+      events.input[#events.input + 1] = { name, ... }
+      return true
+    end
+  end
+  local monitor = { id = id, name = id, dead = false, width = 1920, height = 1080, sink = sink }
   function monitor:mirror()
     events.mirrored = (events.mirrored or 0) + 1
     return true

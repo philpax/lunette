@@ -2,7 +2,7 @@
 
 A lunette configuration is a LÖVR project whose `main.lua` composes the shipped desktop and adds or replaces plugins in it. A plugin is a definition: a name, the contracts it requires and provides, and an initializer that runs when the plugin loads. Everything a plugin creates while it loads is undone when it unloads.
 
-The code in this guide is in three example configurations, `examples/first-plugin`, `examples/keyboard`, and `examples/layout`. `make check` typechecks all three and runs them in the desktop test harness, so the code here is code that works. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
+The code in this guide is in four example configurations, `examples/first-plugin`, `examples/keyboard`, `examples/layout`, and `examples/desktop`. `make check` typechecks all four and runs them in the desktop test harness, so the code here is code that works. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
 
 ## A configuration to work in
 
@@ -14,7 +14,7 @@ The shipped `main.lua` is one call:
 require('@lunette-desktop').run()
 ```
 
-`run` takes `patches`, which change the desktop's list of plugins. `require('@lunette-desktop').entries()` answers that list; each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`.
+`run` takes `patches`, which change the desktop's list of plugins. `require('@lunette-desktop').entries()` answers that list; each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in plugins provide services, such as panels, pointers, and the keyboard, and the `desktop/` entries use them: `desktop/render` draws the panels, `desktop/decorations` gives them title bars, `desktop/pointing` points the lasers, and so on.
 
 Plugin modules go beside `main.lua` and are required with a path such as `require './hello'`. A session resolves a relative require against the configuration directory, and the checker resolves it against the requiring file. The two agree for modules at the top level of the configuration, so a configuration keeps its modules there.
 
@@ -299,6 +299,100 @@ Two patches add the grid and choose it:
 A layout registered with `continuous = true` is applied on every frame as well. `examples/layout/follow.lua` is one: it keeps the windows on an arc around the head and swings the arc round once the head has turned far enough away from it. It reuses the arc layout's geometry, `@lunette-plugins/layout/arc/geometry`, which spaces panels by their widths so that wide ones do not overlap. `examples/layout/main.lua` inserts both layouts and chooses the grid; `layout = 'follow'` chooses the other.
 
 To replace the built-in arc rather than add beside it, disable the `layout/arc` entry and register another layout as `arc`. A layout is never overridden in place.
+
+## Changing how pointers behave
+
+The interaction provider turns each frame of a laser's input into hovering, clicking, scrolling, and carrying. It has two hooks. `constrain(surface, pose, base)` answers where a carried surface goes for where the hand would put it, so a rule about how panels move is one function. `examples/desktop/upright.lua` keeps carried panels level:
+
+```lua
+local interaction = require '@lunette-plugins/interaction'
+local surface = require '@lunette-contracts/surface'
+
+return function(target: surface.Surface, pose: Mat4, base: interaction.ConstrainBase): Mat4
+  local kept = base(target, pose)
+  local x, y, z = kept:getPosition()
+  local forwardX, _, forwardZ = kept:mul(0, 0, -1, 0)
+  local yaw = math.atan2(-forwardX, -forwardZ)
+  return lovr.math.newMat4():translate(x, y, z):rotate(yaw, 0, 1, 0)
+end
+```
+
+A hook is an option, so a patch gives it:
+
+```lua
+{ id = 'interaction', config = { constrain = require './upright' } },
+```
+
+`drive(pointer, input, surfaces, base)` runs for every frame of every pointer, and `base` is the default mapping: grip to grab, buttons to click, the stick to scroll or push. A hook that calls `base` with changed input remaps it, and one that does not call `base` drives the pointer's primitives, `hover`, `setButton`, `beginGrab`, `dragTo`, and `endGrab`, itself. `@lunette-plugins/interaction/picking` has the default's picking and scrolling for such a hook. `focusOnPress = false` stops a click from giving the keyboard to what it clicks.
+
+Which controller button presses which pointer button is the laser's `buttons` option, a list that replaces the default:
+
+```lua
+{
+  id = 'laser',
+  config = {
+    buttons = {
+      { control = 'trigger', button = 'left' },
+      { control = 'a', button = 'right' },
+    },
+  },
+},
+```
+
+A plugin that moves surfaces for a pointer, as a replacement interaction would, announces each drop through `lunette/drops`. The desktop remembers a dropped window's place, saves the arrangement, and keeps a dropped window out of the automatic arrangement only because it hears those drops.
+
+## Key bindings
+
+A key binding is a chord registered with `lunette/bindings`. `desktop/input` offers every key press to the bindings before it sends the key to a window, so a bound key never reaches one. `examples/desktop/hide-windows.lua` binds control, alt, and H to hide every window and show them again:
+
+```lua
+return plugin.define {
+  name = 'hide-windows',
+  requires = { bindings = bindings.capability, panels = panels.capability },
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+    local keys: bindings.Service = context:require(bindings.capability)
+    local panelService: panels.Service = context:require(panels.capability)
+    local overrides: { plugin.Effect } = {}
+    keys:register(context, {
+      chord = { key = 'h', modifiers = { 'control', 'alt' } },
+      run = function(_press: bindings.Press)
+        if #overrides > 0 then
+          for _, override in ipairs(overrides) do
+            override:dispose()
+          end
+          table.clear(overrides)
+          return
+        end
+        for _, panel in ipairs(panelService:all()) do
+          if panel.kind == 'window' then
+            overrides[#overrides + 1] = panel:setHidden(context, { hidden = true })
+          end
+        end
+      end,
+    })
+  end,
+}
+```
+
+The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches only with exactly those held. A chord is bound once: binding one that is bound raises, so two plugins cannot both take a key. The binding ends when the plugin unloads.
+
+`panel:setHidden(context, { hidden = true })` hides a panel for as long as the plugin holds the returned effect. A hidden panel is not drawn and cannot be pointed at; it keeps its place. Several plugins can hide or show one panel, and the most recent one still holding an override decides, so disposing this plugin's overrides shows only what it hid.
+
+The reload key is the `desktop/bindings` entry's binding, so it moves with a patch:
+
+```lua
+{ id = 'desktop/bindings', config = { reload = { key = 'f5', modifiers = { 'control' } } } },
+```
+
+## Decorations
+
+Panels draw no frame of their own. The `desktop/decorations` entry draws a border round each panel and a title bar above it, and grabbing the bar moves the panel. Its `style` is configuration, as in `examples/desktop/main.lua`:
+
+```lua
+{ id = 'desktop/decorations', config = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } } },
+```
+
+Decorations of another kind are a plugin that does what `lua/lunette-desktop/decorations.lua` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
 
 ## Checking a configuration
 

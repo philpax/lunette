@@ -13,6 +13,9 @@ local compose = require '@lunette-desktop/compose'
 local frame = require '@lunette-plugins/frame'
 local surfaces = require '@lunette-plugins/surfaces'
 local panels = require '@lunette-plugins/panels'
+local drops = require '@lunette-plugins/drops'
+local focus = require '@lunette-plugins/focus'
+local bindings = require '@lunette-plugins/bindings'
 local interaction = require '@lunette-plugins/interaction'
 local laser = require '@lunette-plugins/laser'
 local keyboard = require '@lunette-plugins/keyboard'
@@ -22,13 +25,18 @@ local adoption = require '@lunette-plugins/adoption'
 local layouts = require '@lunette-plugins/layouts'
 local arc = require '@lunette-plugins/layout/arc'
 local errorDisplay = require '@lunette-plugins/error-display'
-local base = require '@lunette-desktop/base'
+local render = require '@lunette-desktop/render'
+local monitors = require '@lunette-desktop/monitors'
+local hint = require '@lunette-desktop/hint'
+local decorations = require '@lunette-desktop/decorations'
 local pointing = require '@lunette-desktop/pointing'
 local input = require '@lunette-desktop/input'
+local desktopBindings = require '@lunette-desktop/bindings'
 local wristKeyboard = require '@lunette-desktop/keyboard'
 local errors = require '@lunette-desktop/errors'
 local workspace = require '@lunette-desktop/workspace'
 local defaultRules = require '@lunette-desktop/rules'
+local poseMemory = require '@lunette-desktop/pose-memory'
 local persistence = require '@lunette-desktop/persistence'
 local arrange = require '@lunette-desktop/arrange'
 local adoptionConsumer = require '@lunette-desktop/adoption'
@@ -62,6 +70,9 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'frame', definition = frame.definition },
   { id = 'surfaces', definition = surfaces.definition },
   { id = 'panels', definition = panels.definition },
+  { id = 'drops', definition = drops.definition },
+  { id = 'focus', definition = focus.definition },
+  { id = 'bindings', definition = bindings.definition },
   { id = 'interaction', definition = interaction.definition },
   { id = 'laser', definition = laser.definition },
   { id = 'keyboard', definition = keyboard.definition },
@@ -71,13 +82,18 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'layouts', definition = layouts.definition },
   { id = 'layout/arc', definition = arc.definition },
   { id = 'error-display', definition = errorDisplay.definition },
-  { id = 'desktop/base', definition = base },
+  { id = 'desktop/render', definition = render },
+  { id = 'desktop/hint', definition = hint },
+  { id = 'desktop/decorations', definition = decorations },
   { id = 'desktop/pointing', definition = pointing },
   { id = 'desktop/input', definition = input },
+  { id = 'desktop/bindings', definition = desktopBindings },
   { id = 'desktop/keyboard', definition = wristKeyboard },
   { id = 'desktop/errors', definition = errors },
   { id = 'desktop/workspace', definition = workspace },
+  { id = 'desktop/monitors', definition = monitors },
   { id = 'desktop/rules', definition = defaultRules },
+  { id = 'desktop/pose-memory', definition = poseMemory },
   { id = 'desktop/persistence', factory = persistence },
   { id = 'desktop/arrange', factory = arrange },
   { id = 'desktop/adoption', definition = adoptionConsumer },

@@ -3,14 +3,14 @@
 -- the keyboard entry's place as it does split.lua.
 local plugin = require '@lunette-plugin'
 local keyboard = require '@lunette-contracts/keyboard'
-local interaction = require '@lunette-contracts/interaction'
+local focusContract = require '@lunette-contracts/focus'
 local quad = require '@lunette-contracts/quad'
 local keys = require '@lunette-contracts/keys'
 
 local CODES = { keys.CODES.y, keys.CODES.n, keys.CODES.enter }
 local KEY = 0.05
 
-local function make(focus: interaction.Service, options: keyboard.Options?): keyboard.Keyboard
+local function make(focus: focusContract.Service, options: keyboard.Options?): keyboard.Keyboard
   local state = {
     kind = nil,
     dead = false,
@@ -97,10 +97,10 @@ end
 
 return plugin.define {
   name = 'tiny-keyboard',
-  requires = { interaction = interaction.capability },
+  requires = { focus = focusContract.capability },
   provides = { keyboard = keyboard.capability },
   init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
-    local focus: interaction.Service = context:require(interaction.capability)
+    local focus: focusContract.Service = context:require(focusContract.capability)
     publish:provide(keyboard.capability, {
       new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
         local made: keyboard.Keyboard? = nil

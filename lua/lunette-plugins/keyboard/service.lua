@@ -6,7 +6,7 @@
 -- owner draws and offers its own keyboards.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local interaction = require '@lunette-contracts/interaction'
+local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local keyVocabulary = require '@lunette-contracts/keys'
 local quad = require '@lunette-contracts/quad'
@@ -86,13 +86,13 @@ end
 local function create(
   settings: Settings,
   options: keyboard.Options?,
-  interactionService: interaction.Service,
+  focusService: focus.Service,
   dispose: () -> ()
 ): (Board, () -> ())
   local unitsWide, unitsHigh = extentOf(settings)
   local style = settings.style
   local target: keyboard.Target = options and options.target or function()
-    return interactionService:focused()
+    return focusService:focused()
   end
   local locks: { [string]: boolean } = {}
   for _, name in ipairs(settings.locks) do
@@ -418,7 +418,7 @@ local function create(
 end
 
 local function build(context: plugin.Context, settings: Settings): keyboard.Service
-  local interactionService: interaction.Service = context:require(interaction.capability)
+  local focusService: focus.Service = context:require(focus.capability)
   return {
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       context:checkOwner(owner)
@@ -426,7 +426,7 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
       local result: Board? = nil
       local cleanupEffect: plugin.Effect? = nil
       local acquired = owner:effect(function(): () -> ()
-        local created, releaseRaw = create(own, options, interactionService, function(): ()
+        local created, releaseRaw = create(own, options, focusService, function(): ()
           local effect = cleanupEffect
           cleanupEffect = nil
           if effect then

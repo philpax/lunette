@@ -1,8 +1,8 @@
 -- Persistent arrangement state outlives provider activations, while each provider
 -- binding owns only the source and listeners registered for that activation.
 --
--- A binding saves when a grab drops a panel; the configuration saves again at
--- quit. Its rules source and its arrival listener read the arrangement last
+-- A binding saves when its caller asks: the desktop saves when a grab drops a
+-- panel and again at quit. Its rules source and its arrival listener read the arrangement last
 -- loaded or saved. A window holds its saved slot from its panel's creation
 -- until the window dies, and a monitor panel that appears after the binding is
 -- restored as it appears.
@@ -57,7 +57,6 @@ type BindingState = {
   panels: panelsContract.Service?,
   tags: tagsContract.Service?,
   sourceEffect: plugin.Effect?,
-  droppedEffect: plugin.Effect?,
   addedEffect: plugin.Effect?,
   ownerEffect: plugin.Effect?,
 }
@@ -145,8 +144,6 @@ local function deactivate(binding: BindingState): ()
   binding.active = false
   local addedFailure = disposeEffect(binding.addedEffect)
   binding.addedEffect = nil
-  local droppedFailure = disposeEffect(binding.droppedEffect)
-  binding.droppedEffect = nil
   local sourceFailure = disposeEffect(binding.sourceEffect)
   binding.sourceEffect = nil
   binding.context = nil
@@ -155,9 +152,6 @@ local function deactivate(binding: BindingState): ()
   binding.ownerEffect = nil
   if addedFailure then
     error(addedFailure)
-  end
-  if droppedFailure then
-    error(droppedFailure)
   end
   if sourceFailure then
     error(sourceFailure)
@@ -228,7 +222,6 @@ function persist.new(dependencies: Dependencies?): State
         panels = panels,
         tags = tags,
         sourceEffect = nil,
-        droppedEffect = nil,
         addedEffect = nil,
         ownerEffect = nil,
       }
@@ -289,16 +282,6 @@ function persist.new(dependencies: Dependencies?): State
           return arrangements.answer(available(), held, window)
         end
         binding.sourceEffect = rules:addSource(context, { name = SOURCE, precedence = PRECEDENCE, resolve = source })
-        binding.droppedEffect = panels:onDropped(context, {
-          run = function()
-            if bindingLive(binding) then
-              local written, message = save(nil)
-              if not written and message then
-                report(message)
-              end
-            end
-          end,
-        })
         arrangements.restore(report, held, context, panels, tags, arrangement)
         binding.addedEffect = panels:onAdded(context, function(target: panelsContract.Panel)
           if bindingLive(binding) then
@@ -314,7 +297,6 @@ function persist.new(dependencies: Dependencies?): State
       if not ok then
         binding.active = false
         disposeEffect(binding.addedEffect)
-        disposeEffect(binding.droppedEffect)
         disposeEffect(binding.sourceEffect)
         binding.context = nil
         binding.panels = nil

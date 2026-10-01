@@ -1,12 +1,22 @@
--- Desktop keyboard input follows the interaction provider's focused seat.
+-- Desktop keyboard input: bindings first, then the focused seat.
+--
+-- Every key press is offered to the bindings broker in the frame provider's
+-- binding phase, with the modifiers the desktop keyboard holds, and a press a
+-- binding matches goes no further. Other keys and text go to the sink
+-- lunette/focus answers, in the delivery phase. The consumer takes no
+-- options.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local bindings = require '@lunette-contracts/bindings'
+local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
-local interaction = require '@lunette-contracts/interaction'
 local keys = require '@lunette-contracts/keys'
-local logging = require '@lunette-desktop/logging'
 
-local required: plugin.Declaration = { frame = frame.capability, interaction = interaction.capability }
+local required: plugin.Declaration = {
+  bindings = bindings.capability,
+  focus = focus.capability,
+  frame = frame.capability,
+}
 
 local function heldModifiers(): { string }
   local held: { string } = {}
@@ -21,6 +31,16 @@ local function heldModifiers(): { string }
   return held
 end
 
+-- The modifiers a chord is matched against: those forwarded with a key, and
+-- shift, which forwarding leaves to the seat's stroke for each character.
+local function chordModifiers(): { string }
+  local held = heldModifiers()
+  if lovr.system.isKeyDown 'lshift' or lovr.system.isKeyDown 'rshift' then
+    held[#held + 1] = 'shift'
+  end
+  return held
+end
+
 return plugin.define {
   name = 'desktop/input',
   requires = required,
@@ -28,7 +48,8 @@ return plugin.define {
     -- The consumer takes no options, so any option is a mistake worth naming.
     plugin.options { name = 'desktop/input', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
-    local service: interaction.Service = context:require(interaction.capability)
+    local bindingService: bindings.Service = context:require(bindings.capability)
+    local service: focus.Service = context:require(focus.capability)
     -- The focused seat and sink, or nothing when either has died since focus
     -- was given: a handle does not survive its native object.
     local function focused(): (lunette.Seat?, lunette.Sink?)
@@ -52,19 +73,14 @@ return plugin.define {
         sink:modifiers({}, seat)
       end
     end
-    -- The reload key is a binding, so it is consumed before delivery and a
-    -- binding another plugin registers can take a key before the client does.
     frameService:onKey(context, {
       phase = 'binding',
       run = function(event: frame.KeyEvent): boolean?
-        if event.key ~= 'f5' then
-          return nil
-        end
-        local reloaded, message = lunette.reload()
-        if not reloaded then
-          logging.report('configuration was not reloaded: ' .. tostring(message), 'error')
-        end
-        return true
+        return bindingService:dispatch {
+          key = event.key,
+          modifiers = chordModifiers(),
+          isRepeat = event.isRepeat,
+        }
       end,
     })
     frameService:onKey(context, {

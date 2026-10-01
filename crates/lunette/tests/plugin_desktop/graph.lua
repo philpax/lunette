@@ -4,6 +4,7 @@
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
 local desktopRoot = require '@lunette-desktop'
+local drops = require '@lunette-contracts/drops'
 local panels = require '@lunette-contracts/panels'
 local surfaces = require '@lunette-contracts/surfaces'
 
@@ -32,10 +33,15 @@ return function(options)
     :use(
       plugin.define {
         name = 'graph-1',
-        requires = { panels = panels.capability, surfaces = surfaces.capability },
+        requires = { drops = drops.capability, panels = panels.capability, surfaces = surfaces.capability },
         init = function(ctx)
           desktop.panels = ctx:require(panels.capability)
           desktop.surfaces = ctx:require(surfaces.capability)
+          desktop.drops = ctx:require(drops.capability)
+          -- Announces that a grab let go of a surface, as interaction does.
+          desktop.drop = function(surface)
+            desktop.drops:emit(ctx, { surface = surface, pointer = {} })
+          end
         end,
       },
       {}

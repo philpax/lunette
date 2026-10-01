@@ -44,6 +44,8 @@ local COVERAGE = {
   ['lunette-contracts/keys.lua'] = 'lunette-contracts/keys_spec.lua',
   ['lunette-contracts/vocabulary.lua'] = 'lunette-contracts/vocabulary_spec.lua',
   ['lunette-plugins/keyboard/rows.lua'] = 'lunette-plugins/keyboard/rows_spec.lua',
+  ['lunette-plugins/interaction/picking.lua'] = 'lunette-plugins/interaction/picking_spec.lua',
+  ['lunette-plugins/panels/shape.lua'] = 'lunette-plugins/panels/shape_spec.lua',
 }
 
 -- The specs that cover the suite itself. The check below does not require a

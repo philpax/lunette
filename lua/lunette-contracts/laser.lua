@@ -4,6 +4,11 @@
 -- constructors therefore require the caller owner explicitly. A hand has one
 -- laser under attach: attach answers the caller's own lasers, makes them for
 -- free hands, and raises when another owner holds a hand. forHand is a query.
+--
+-- A laser reads one frame of input for its hand with its `readInput`, drives
+-- its pointer with it, and draws its beam with its `draw`; update and draw on
+-- the service do the same for every live laser, so whatever a laser's own
+-- methods do is what the service does.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -56,8 +61,6 @@ export type Laser = {
 
 export type Service = {
   read HANDS: { Hand },
-  read DEVICES: { [string]: Device },
-  read CONTROLLERS: { [string]: Device },
   read STYLE: Style,
   read new: (Service, Owner, Hand, Options?) -> Laser,
   read attach: (Service, Owner, Options?) -> { Laser },
@@ -65,7 +68,6 @@ export type Service = {
   read all: (Service) -> { Laser },
   read update: (Service, { Surface }) -> (),
   read draw: (Service, Pass) -> (),
-  read headsetInput: (Service, Hand) -> Input?,
 }
 
 export type Capability = plugin.Capability<Service>

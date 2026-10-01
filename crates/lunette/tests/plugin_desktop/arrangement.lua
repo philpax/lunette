@@ -57,7 +57,7 @@ collectgarbage()
 assert(next(gone) == nil, 'replugged monitors are not retained by their ended mirrors')
 
 -- The mirror is restored again when the consumer that mirrors it reloads.
-desktop.consumers.base:reload {}
+desktop.consumers.monitors:reload {}
 assert(x(assert(service:forSource(monitor))) == 3, 'a reloaded mirror takes its saved placement')
 
 -- Two windows of one application take the two saved slots. One closes, and a
@@ -95,7 +95,8 @@ for _, name in ipairs(PLACEMENT) do
   assert(desktop.consumers[name]:state() ~= 'active', 'a tags outage unloads desktop/' .. name)
 end
 assert(desktop.providers['layout/arc']:state() == 'active', 'a layout needs no tags')
-assert(desktop.consumers.base:state() == 'active', 'a tags outage keeps rendering')
+assert(desktop.consumers.render:state() == 'active', 'a tags outage keeps rendering')
+assert(desktop.consumers.monitors:state() == 'active', 'a tags outage keeps the mirrors')
 assert(adopted.dead and service:forSource(reopened) == nil, 'a tags outage withdraws adopted panels')
 desktop.providers.tags:enable()
 for _, name in ipairs(PLACEMENT) do
