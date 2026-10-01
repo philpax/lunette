@@ -9,23 +9,18 @@ use crate::plugin::graph::{ContractKey, InstanceId};
 pub enum GraphError {
     /// Another enabled instance already holds the reservation for a provided contract.
     ContractConflict {
-        /// The contested contract, by name and schema.
         key: ContractKey,
         /// The enabled instance that holds the reservation.
         owner: InstanceId,
     },
     /// A quarantined instance holds the reservation for a provided contract.
     ContractQuarantined {
-        /// The contested contract, by name and schema.
         key: ContractKey,
         /// The quarantined instance that holds the reservation.
         owner: InstanceId,
     },
     /// A descriptor provides the same contract key more than once.
-    DuplicateProvided {
-        /// The duplicated contract key.
-        key: ContractKey,
-    },
+    DuplicateProvided { key: ContractKey },
     /// An operation references an instance the graph does not hold.
     UnknownInstance(InstanceId),
     /// The instance is retired, and retirement is permanent.
@@ -95,40 +90,26 @@ pub enum Severity {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DiagnosticKind {
     /// No installed instance provides the required contract.
-    MissingProvider {
-        /// The exact key that was required.
-        required: ContractKey,
-    },
+    MissingProvider { required: ContractKey },
     /// An installed provider exists but is not enabled.
     ProviderDisabled {
-        /// The exact key that was required.
         required: ContractKey,
-        /// The disabled provider.
         provider: InstanceId,
     },
     /// A provider exposes the required name with a different schema.
     SchemaMismatch {
-        /// The exact key that was required.
         required: ContractKey,
         /// The key the provider exposes instead.
         provided: ContractKey,
-        /// The provider exposing the other schema.
         provider: InstanceId,
     },
     /// The provider of a required contract is quarantined.
     ProviderQuarantined {
-        /// The exact key that was required.
         required: ContractKey,
-        /// The quarantined provider.
         provider: InstanceId,
     },
     /// A quarantined instance still holds a contract this instance provides.
-    ContractQuarantined {
-        /// The contract this instance provides.
-        key: ContractKey,
-        /// The quarantined instance holding it.
-        owner: InstanceId,
-    },
+    ContractQuarantined { key: ContractKey, owner: InstanceId },
     /// The declarations form a cycle, so no member can load first.
     DependencyCycle {
         /// The cycle's instance path, including its closing instance.
@@ -136,12 +117,7 @@ pub enum DiagnosticKind {
     },
     /// A load completed but another instance held a provided contract, so the
     /// load failed instead of publishing.
-    PublishConflict {
-        /// The contested contract.
-        key: ContractKey,
-        /// The instance holding it.
-        owner: InstanceId,
-    },
+    PublishConflict { key: ContractKey, owner: InstanceId },
 }
 
 impl DiagnosticKind {
@@ -158,10 +134,8 @@ impl DiagnosticKind {
         }
     }
 
-    /// Describes the condition, naming every instance through `label`.
-    ///
-    /// The graph knows instances only by identity. The attachment supplies a
-    /// label that names each instance's definition.
+    /// Describes the condition, naming every instance through `label`, since
+    /// the graph knows instances only by identity.
     #[must_use]
     pub fn describe(&self, label: &dyn Fn(InstanceId) -> String) -> String {
         match self {
@@ -206,9 +180,7 @@ impl DiagnosticKind {
 /// A planning diagnostic about one instance.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
-    /// The instance the diagnostic concerns.
     pub instance: InstanceId,
-    /// What is blocking it.
     pub kind: DiagnosticKind,
 }
 

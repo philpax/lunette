@@ -1,8 +1,5 @@
--- Scoped native-window adoption over the rules and placement providers.
---
--- Installation is deliberately separate from startup. Installation contributes
--- only the native pose source; startup owns the event subscription and every
--- panel it creates. Native windows remain caller-owned and are never closed.
+-- Scoped native-window adoption over the rules and placement providers. Install contributes only the native
+-- pose source; start owns the subscription and every panel it creates. Windows are never closed.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -100,9 +97,8 @@ local function build(context: plugin.Context, settings: Settings): Service
   local service: Service = implementation
   local state: State = { active = true, context = context, service = service }
 
-  -- The published service is revoked with this activation, so its methods
-  -- need no liveness guard. The source closure and event callbacks are not
-  -- reached through the service, and they check the activation themselves.
+  -- The published service is revoked with this activation, so its methods need no liveness guard; the
+  -- source and event callbacks check the activation themselves.
   context:effect(function(): () -> ()
     return function()
       state.active = false
@@ -117,9 +113,8 @@ local function build(context: plugin.Context, settings: Settings): Service
     return source(state)
   end
 
-  -- The source is registered under this provider's own rules binding, inside
-  -- an effect on the caller's owner. The caller's lifetime still bounds the
-  -- registration, and the caller does not need to require rules itself.
+  -- The source is registered through this provider's rules binding, inside an effect on the caller's owner,
+  -- so the caller need not require rules.
   function implementation.install(self: Service, owner: Owner, options: adoption.InstallOptions?): plugin.Effect
     context:checkOwner(owner)
     if options ~= nil and type(options) ~= 'table' then
@@ -176,12 +171,9 @@ local function build(context: plugin.Context, settings: Settings): Service
       return active and current.context:owns(owner)
     end
 
-    -- An adoption ends with its panel. The placement belongs to this provider
-    -- and is released by the adoption's inverse on the caller's owner, so it
-    -- does not outlive the window's panel and the caller holds no effect for
-    -- a window that is gone. The window is placed before the inverse is
-    -- registered, so placement's listeners do not run inside the caller's
-    -- acquisition.
+    -- An adoption ends with its panel, and its placement is released by the adoption's inverse on the
+    -- caller's owner. The window is placed before the inverse is registered, so placement's listeners do
+    -- not run inside the caller's acquisition.
     local function place(window: lunette.Window)
       if not live() or window.dead or adoptedIds[window.id] or panels:forSource(window) then
         return

@@ -1,21 +1,8 @@
--- Mirrors of the host's monitors, laid side by side.
+-- Mirrors of the host's monitors, laid side by side. Each monitor `select` names, or every monitor, gets one
+-- monitor panel, now and on hotplug, and the capture ends with the panel.
 --
--- The consumer mirrors each monitor `select` names, every monitor when it is
--- empty, as one monitor panel, now and as monitors are plugged in. A mirror
--- lasts as long as its panel: the capture ends when the panel is removed,
--- whether the monitor went away or the panel was destroyed.
---
--- `placement` lays the mirrors in a row facing the user: each is `width`
--- metres wide, with `gap` metres between neighbours, and the row is centred
--- on `center`. A mirror takes the lowest free place in the row, counting
--- outward from the centre and the right before the left, so mirrors never
--- overlap, and a mirror that goes away leaves its place to the next. The
--- monitors present at activation are placed in the order of their names.
---
--- `tags` are tags each mirror joins. Tagging is a child plugin of its own,
--- so an outage of the tags provider leaves the mirrors in place. A tag that
--- does not exist when a mirror is placed is joined when it is made, which
--- the tags contract's onChanged announces.
+-- Mirrors take the lowest free place in a row centred on `center`, counting outward and right before left,
+-- so they never overlap. Tagging is a child plugin, so a tags outage leaves the mirrors in place.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
@@ -89,9 +76,7 @@ local function offsetOf(place: number): number
   return -place / 2
 end
 
--- What the tagging child and the mirrors share for one activation: the
--- mirrors by monitor id, and the function that tags a mirror while the child
--- is loaded.
+-- What the tagging child and the mirrors share for one activation.
 type Shared = {
   mirrors: { [unknown]: panels.MonitorPanel },
   tag: ((panels.MonitorPanel) -> ())?,

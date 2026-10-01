@@ -1,7 +1,4 @@
--- Capturing panels into an arrangement and restoring an arrangement onto them.
---
--- The functions here read and write panels and tags through their services
--- and slot holds through a Slots record. They keep no state of their own.
+-- Capturing panels into an arrangement and restoring an arrangement onto them. Stateless.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -106,8 +103,8 @@ function arrangement.capture(
   return format.newFile(entries)
 end
 
--- Applies a saved entry to a panel. Memberships and the holds on the tags
--- they join are effects of the binding's context, so they end with it. Answers whether the entry was applied.
+-- Applies a saved entry to a panel, answering whether it applied. Memberships and tag holds are effects of
+-- the binding's context, so they end with it.
 function arrangement.apply(
   report: (string) -> (),
   context: plugin.Context,
@@ -131,9 +128,8 @@ function arrangement.apply(
   return true
 end
 
--- Restores each live panel a saved entry matches. Answers the panels
--- restored and the entries nothing matched, which the caller reports: it
--- knows which it has reported already.
+-- Restores each live panel a saved entry matches. Answers the panels restored and the unmatched entries,
+-- which the caller reports because it knows what it has reported already.
 function arrangement.restore(
   report: (string) -> (),
   held: slots.Slots,
@@ -168,9 +164,8 @@ function arrangement.restore(
   return restored, stale
 end
 
--- Restores a monitor panel that appears after the binding, such as a monitor
--- that is plugged in or mirrored again. A window panel that appears takes its
--- slot instead: its saved properties reached it through the rules source.
+-- Restores a monitor panel that appears after the binding. A window panel takes its slot through the rules
+-- source instead.
 function arrangement.arrived(
   report: (string) -> (),
   held: slots.Slots,

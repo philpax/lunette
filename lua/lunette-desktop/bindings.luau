@@ -1,9 +1,5 @@
--- The desktop's own key bindings.
---
--- `reload` is the chord that reloads the configuration, `{ key, modifiers }`,
--- F5 with no modifiers unless configured. The binding is registered with the
--- bindings broker, so it is consumed before any key reaches a client, and a
--- configuration moves it with a patch or removes it by disabling this entry.
+-- The desktop's own key bindings: `reload`, F5 unless configured, registered with the bindings broker so it
+-- is consumed before any key reaches a client.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'

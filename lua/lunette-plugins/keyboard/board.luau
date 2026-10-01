@@ -1,9 +1,5 @@
--- The keyboard provider's own view of a keyboard, and its hooks.
---
--- This module holds types only. A hook receives a `Board`, which is the
--- contract's keyboard with the provider's layers and laid-out keys, so a hook
--- written for this provider can switch layers without the contract asking
--- every keyboard to have them.
+-- The keyboard provider's own view of a keyboard, for its hooks: the contract's keyboard plus the
+-- provider's layers and laid-out keys. Types only.
 
 local keyboard = require '@lunette-contracts/keyboard'
 local layout = require '@lunette-plugins/keyboard/layout'

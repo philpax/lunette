@@ -1,22 +1,15 @@
-//! Host-owned lifecycle operations for the Lua plugin attachment.
-//!
-//! The attachment owns the runtime graph and serializes callback requests. This
-//! module keeps host policy at the boundary: shutdown failures are diagnostic
-//! and never skip the remaining host cleanup, while an epoch reset is a state
-//! transition whose error must reach the reload caller.
+//! Host-owned lifecycle operations for the Lua plugin attachment. Shutdown
+//! failures are logged and never skip the remaining host cleanup, while an
+//! epoch reset's error reaches the reload caller.
 
 use mlua::Lua;
 use tracing::warn;
 
 use crate::plugin::attachment;
 
-/// Runs the terminal host sequence in its required ownership order.
-///
-/// Runtime-owned Lua values and cleanup callbacks are retired first. Subscriber
-/// handles are then cleared, the final frame is flushed, native state is made
-/// quiescent or stopped, and the external Lua state is closed last. Keeping the
-/// sequence here lets boot and lifecycle tests exercise the same orchestration;
-/// each caller still supplies the concrete native and close operations it owns.
+/// Runs the terminal host sequence in its required order: retire runtimes,
+/// clear subscribers, flush the final frame, quiesce native state, and close
+/// the Lua state last. Boot and the lifecycle tests share this sequence.
 pub fn terminal_shutdown<Runtime, Subscribers, Flush, Native, Close>(
     runtime_shutdown: Runtime,
     clear_subscribers: Subscribers,
@@ -37,11 +30,8 @@ pub fn terminal_shutdown<Runtime, Subscribers, Flush, Native, Close>(
     close_external();
 }
 
-/// Retires every runtime attached to `lua`.
-///
-/// Attachment cleanup is best effort. The attachment attempts every cleanup
-/// callback and returns the failures of this shutdown; the host logs each one
-/// and continues with subscriber, frame, native, and Lua cleanup.
+/// Retires every runtime attached to `lua`, logging each cleanup failure and
+/// continuing.
 pub fn shutdown(lua: &Lua, context: &str) {
     for failure in attachment::shutdown_all(lua) {
         warn!("{context}: {failure}; cleanup continued");
@@ -49,12 +39,7 @@ pub fn shutdown(lua: &Lua, context: &str) {
 }
 
 /// Starts the next runtime epoch after the previous attachment has retired.
-///
-/// # Errors
-///
-/// Returns the attachment's error. The new epoch has started even then: an
-/// error lists shutdown failures, or reports that the registry could not
-/// advance its epoch.
+/// The epoch starts even when this returns an error.
 pub fn reset_epoch(lua: &Lua) -> mlua::Result<()> {
     Ok(attachment::reset_epoch(lua)?)
 }

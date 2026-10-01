@@ -1,7 +1,4 @@
--- The drops provider: a broker between what ends grabs and what reacts.
---
--- Each activation keeps its own listeners. A listener belongs to the owner
--- that registered it and ends with that owner. The provider takes no options.
+-- The drops provider: a broker between what ends grabs and what reacts, with owner-scoped listeners.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/drops'

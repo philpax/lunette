@@ -1,10 +1,5 @@
--- Keyboard drawing.
---
--- Drawing is independent of the keyboard's state. It receives the plate's
--- pose and size, and each key with the state it is drawn in, and uses only
--- the pass operations a keyboard needs. `key` is the default the `drawKey`
--- hook receives as its base; `face` and `legend` are its two halves, so a
--- hook that draws its own face can keep the default legend.
+-- Keyboard drawing, independent of the keyboard's state. `key` is the base the `drawKey` hook receives, and
+-- `face` and `legend` its halves, so a hook can replace one and keep the other.
 
 local keyboard = require '@lunette-contracts/keyboard'
 local board = require '@lunette-plugins/keyboard/board'

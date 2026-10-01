@@ -1,22 +1,7 @@
--- The key bindings service contract.
---
--- A broker for desktop key chords. A plugin registers a chord and what it
--- runs. The provider takes the desktop's key presses itself, before anything
--- delivers them, and a press a binding matches goes no further; the shipped
--- provider does this in the frame provider's binding phase. dispatch offers
--- a press from another source, such as an on-screen keyboard.
---
--- A registration is owner-scoped: it lasts until the returned effect is
--- disposed or its owner unloads. A chord names one registration, and
--- registering a chord that is registered raises. A built-in binding is
--- replaced by disabling the composition entry that registers it, never by
--- overriding a registration in place.
---
--- A chord matches a press of its key while exactly its modifiers are held.
--- The modifiers are the names in MODIFIERS. A repeated press of a matched
--- chord is consumed and does not run the binding again. run is called under
--- a protected call; its error is reported through lunette.reportError, and
--- the press is still consumed.
+-- The key bindings service contract: a broker for desktop key chords. The provider takes key presses before
+-- delivery, and a matched press goes no further, repeats included. dispatch offers a press from another
+-- source, such as an on-screen keyboard. A chord has one owner-scoped registration. See
+-- docs/dev/lua-api.md#bindings.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'

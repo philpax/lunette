@@ -1,9 +1,5 @@
-//! Real plugin-facade coverage for the LASER provider.
-//!
-//! The interaction, drops, and focus providers are the checked-in implementations.
-//! Only the headset and seat boundaries are represented by fakes: those are
-//! unmanaged native resources, while the plugin runtime, contexts, effects,
-//! and interaction pointer registry are production implementations.
+//! Coverage for the laser provider with the real interaction, drops, and focus
+//! providers; only the headset and seat are faked.
 
 extern crate lunette_lovr;
 

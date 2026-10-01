@@ -1,12 +1,5 @@
--- The desktop's error panel: the latest report, drawn over the scene.
---
--- A presenter of the lunette/errors stream. It shows the most recent report
--- it heard, or the latest in the stream's history when it activates, with a
--- count of the reports so far, and nothing once the stream is cleared. It is
--- a floating quad rather than a panels-provider panel, because a report has
--- no textured source. Options: `position`, the centre of the quad; `width`;
--- `textHeight`; `columns` and `lines`, how much text it wraps to and shows;
--- and `background`, a colour. Native logging is independent of it.
+-- The desktop's error panel: a lunette/errors presenter showing the latest report over the scene. It is a
+-- floating quad rather than a panel because a report has no textured source.
 local plugin = require '@lunette-plugin'
 local errors = require '@lunette-contracts/errors'
 local frame = require '@lunette-contracts/frame'

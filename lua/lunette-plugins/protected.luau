@@ -1,19 +1,11 @@
--- A protected call that reports its error rather than raising it.
---
--- A provider that calls several callbacks owned by other plugins, such as a
--- frame dispatcher or a listener registry, calls each one through this. An
--- error is reported through lunette.reportError, which is the path a raising
--- native callback takes, so every lunette.onError listener hears it, and the
--- caller goes on to the next callback: one plugin's defect does not hide
--- another's.
+-- A protected call that reports its error through lunette.reportError rather than raising it, so a
+-- provider calling other plugins' callbacks goes on to the next and one defect does not hide another.
 
 local lunette = require '@lunette'
 
 local protected = {}
 
--- Calls run, answering whether it returned. When it raised, its error is
--- reported under context. A caller that needs what run computed assigns it to
--- a local of its own from inside run.
+-- Calls run, answering whether it returned; when it raised, its error is reported under context.
 function protected.call(context: string, run: () -> ()): boolean
   local message: string? = nil
   local traceback = ''

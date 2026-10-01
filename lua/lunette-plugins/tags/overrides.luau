@@ -1,11 +1,6 @@
--- Owner-held overrides of one value, the most recent live one deciding.
---
--- Each owner holds at most one override. Setting it again moves it to the
--- top and changes its value. An override is an effect of its owner, so it
--- ends when the owner unloads; the value then falls back to the most recent
--- override left, or to the fallback when none is. Reverting to the value
--- from before an override is not what happens, because that would depend on
--- the order owners unload in.
+-- Owner-held overrides of one value, the most recent live one deciding. An override ends with its owner,
+-- and the value then falls back to the most recent one left rather than the value before it, which would
+-- depend on unload order.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
@@ -19,7 +14,6 @@ type Entry<T> = { owner: Owner, value: T, effect: plugin.Effect? }
 export type Stack<T> = {
   -- Sets the owner's override, and answers whether the decided value changed.
   read set: (Stack<T>, Owner, T) -> boolean,
-  -- The decided value.
   read value: (Stack<T>) -> T,
   -- Forgets every override and answers their effects, for the caller to
   -- dispose once its own state is consistent.

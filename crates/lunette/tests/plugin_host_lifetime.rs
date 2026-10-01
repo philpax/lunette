@@ -78,8 +78,6 @@ fn runtime_state_close_sequence_releases_effect_before_native_and_external_close
         },
     );
 
-    // The error-returning assertion above is kept inside the production seam's
-    // runtime phase; verify the final fake/native and real-close witnesses here.
     assert_eq!(
         final_order.borrow().as_slice(),
         [

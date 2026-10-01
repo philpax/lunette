@@ -1,11 +1,6 @@
--- Pure geometry of a curved panel: a piece of a vertical cylinder.
---
--- A curve is LÖVR's layer curve: the cylinder's radius is 1 / curve, its axis
--- is vertical, and its centre is in front of the panel, on the side a viewer
--- stands, so the panel wraps toward the viewer. The panel's centre lies on the
--- cylinder at the panel's pose, and its width is measured along the arc. A
--- curve of zero or less is a flat panel, which `@lunette-contracts/quad`
--- describes.
+-- Pure geometry of a curved panel, using LÖVR's layer curve: a vertical cylinder of radius 1 / curve with
+-- its centre on the viewer's side, the panel's centre on it at the panel's pose, and the width measured
+-- along the arc. A curve of zero or less is flat.
 
 local quad = require '@lunette-contracts/quad'
 
@@ -24,10 +19,8 @@ function shape.halfAngle(width: number, curve: number): number
   return math.min(width * curve / 2, math.pi)
 end
 
--- Returns the pixel coordinate and the distance along the ray where it meets
--- the arc's inner face, or nothing. The pixel origin is the top-left corner,
--- as for a flat quad, and the horizontal coordinate is measured along the arc,
--- which is the width unless the width is wider than the circumference.
+-- Returns the pixel coordinate, from the top-left and along the arc, and the distance along the ray where
+-- it meets the arc's inner face, or nothing.
 function shape.hit(target: Curved, origin: vector, direction: vector): (number?, number?, number?)
   local curve = target.curve
   if not (curve > 0) or curve == math.huge then

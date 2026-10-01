@@ -1,9 +1,6 @@
-//! The native plugin facade and its generated Luau surface.
-//!
-//! The attachment owns the implementations. This module owns the facade shape:
-//! the native descriptor names are matched against these declarations, and the
-//! same function descriptors drive the nested `lunette.plugin` table and the
-//! generated `PluginApi` type.
+//! The native plugin facade and its generated Luau surface. One set of
+//! function descriptors drives both the `lunette.plugin` table and the
+//! generated `PluginApi` type, so the two cannot diverge.
 
 use std::fmt::Write as _;
 
@@ -27,7 +24,6 @@ pub const API_TYPE_NAME: &str = "PluginApi";
 /// for the generated argument and return types.
 #[derive(Clone, Copy, Debug)]
 pub struct FunctionSpec {
-    /// The Lua field name.
     pub name: &'static str,
     /// The parameter names used in the generated declaration.
     pub parameters: &'static [&'static str],
@@ -94,20 +90,14 @@ pub fn functions() -> &'static [FunctionSpec] {
     &FUNCTIONS
 }
 
-/// Installs the state-local attachment.
-///
-/// This is separate from [`install`], which builds a fresh nested module table
-/// each time `@lunette` is required. The attachment itself belongs to the Lua
-/// state and therefore must exist even when a configuration has not required
-/// the native module yet: reload cleanup retires its epoch unconditionally.
+/// Installs the state-local attachment. It is separate from [`install`]
+/// because reload cleanup retires its epoch even when no configuration has
+/// required `@lunette`.
 pub fn install_attachment(lua: &Lua) -> mlua::Result<()> {
     Ok(attachment::install(lua)?)
 }
 
 /// Installs the nested `lunette.plugin` table from the function descriptors.
-///
-/// The same descriptors generate the `PluginApi` declaration, so the runtime
-/// table and the generated facade cannot diverge.
 pub fn install(lua: &Lua, module: &Table) -> mlua::Result<()> {
     attachment::install(lua).map_err(mlua::Error::from)?;
     let plugin = lua.create_table()?;
@@ -224,13 +214,10 @@ const HANDLES: [HandleSpec; 6] = [
 
 /// Explains the phantom field every handle declares.
 ///
-/// A handle is native userdata, and a structural table type would accept any
-/// table with the same methods; an empty one would accept any table at all.
-/// The field exists only in the declaration, so a value of the handle type
-/// comes from the native function that returns it or from a deliberate
-/// forgery. Its type is the handle's name as a singleton string rather than
-/// `never`, because Luau treats a table with a `never` property as
-/// uninhabited and then rejects casts to any type that contains the handle.
+/// The field makes the handle type nominal, so a structural table cannot
+/// satisfy it. Its type is a singleton string rather than `never`, because
+/// Luau treats a table with a `never` property as uninhabited and rejects
+/// casts to any type containing it.
 const BRAND_DOC: &str =
     "A type brand that makes this handle nominal. The field does not exist at runtime.";
 

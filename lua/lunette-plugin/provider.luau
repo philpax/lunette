@@ -1,23 +1,13 @@
--- The shape every built-in provider module exports.
---
--- A provider module answers `definition`, the default instance; `define`,
--- which makes another definition with changed defaults; `build`, which makes
--- the service without publishing it, so a plugin can wrap it; and
--- `requires`, the capabilities `build` reads from its context. The
--- configuration a definition is used with is merged over its defaults and
--- validated against them at every activation.
+-- The shape every built-in provider module exports: `definition`, the default instance; `define`, for other
+-- defaults; `build`, which makes the service unpublished so a plugin can wrap it; and `requires`.
 
 local adapter = require '@lunette-plugin/adapter'
 local options = require '@lunette-plugin/options'
 
 local provider = {}
 
--- The fields `plugin.provider` accepts. `defaults` is every option with its
--- default value, and `build` receives the resolved options. `validate`, when
--- given, receives the resolved options and the definition's name before
--- `build` or `define` uses them, and raises for what the defaults cannot
--- describe, such as a value outside a closed set or a malformed entry of a
--- list. Its error names the plugin by that name, as option errors do.
+-- The fields `plugin.provider` accepts. `build` receives the resolved options, and `validate`, when given,
+-- checks what the defaults cannot describe, such as a closed set.
 export type Spec<S, T> = {
   read name: string,
   read capability: adapter.Capability<T>,

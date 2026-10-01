@@ -1,9 +1,5 @@
--- The focus provider: which seat's keyboard goes to which sink.
---
--- Each activation keeps its own grants and listeners. A grant is held by the
--- owner that asked for it, one per owner and seat, and its release runs as an
--- inverse on that owner, so a native withdrawal that fails is the owner's
--- failure rather than this provider's. The provider takes no options.
+-- The focus provider: which seat's keyboard goes to which sink. A grant is held by its owner, one per owner
+-- and seat, and released as an inverse on that owner, so a failing withdrawal is the owner's failure.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -66,8 +62,7 @@ local function create(context: plugin.Context): contract.Service
     announce(seat, sink)
   end
 
-  -- Takes back every grant at the activation's end. Owners unload before
-  -- this provider, so their grants have normally ended already.
+  -- Takes back any grants left at the activation's end; owners normally unload first.
   context:effect(function(): () -> ()
     return function(): ()
       table.clear(grants)

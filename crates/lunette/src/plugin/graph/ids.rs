@@ -11,7 +11,6 @@ impl InstanceId {
         Self(value)
     }
 
-    /// Returns the stable numeric representation of this instance identity.
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0
@@ -34,7 +33,6 @@ impl ActivationId {
         Self(value)
     }
 
-    /// Returns the stable numeric representation of this activation identity.
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0
@@ -58,7 +56,6 @@ impl ProviderGeneration {
         Self(value)
     }
 
-    /// Returns the stable numeric representation of this provider generation.
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0
@@ -72,10 +69,7 @@ impl fmt::Display for ProviderGeneration {
 }
 
 /// A contract name together with the exact schema it implements or requires.
-///
-/// Reservation and dependency resolution both compare the complete key. Two
-/// enabled instances may therefore provide `x@1` and `x@2`, one instance may
-/// provide both, and a requirement never binds to an inexact schema.
+/// Reservation and binding compare the complete key.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ContractKey {
     name: String,
@@ -83,7 +77,6 @@ pub struct ContractKey {
 }
 
 impl ContractKey {
-    /// Creates a contract key from its public name and schema number.
     #[must_use]
     pub fn new(name: impl Into<String>, schema: u32) -> Self {
         Self {
@@ -92,13 +85,11 @@ impl ContractKey {
         }
     }
 
-    /// Returns the contract's public name.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Returns the exact schema required or provided by this key.
     #[must_use]
     pub const fn schema(&self) -> u32 {
         self.schema
@@ -114,9 +105,7 @@ impl fmt::Display for ContractKey {
 /// A requirement bound to the exact published generation that satisfies it.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Binding {
-    /// The exact requirement being satisfied.
     pub contract: ContractKey,
-    /// The provider instance satisfying the requirement.
     pub provider: InstanceId,
     /// The provider generation observed during allocation.
     pub generation: ProviderGeneration,

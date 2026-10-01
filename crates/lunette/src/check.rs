@@ -50,10 +50,6 @@ fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
 /// Typechecks `named`, or the configuration directory when nothing is named,
 /// drawing what it found.
 ///
-/// `configuration` is the directory a session started the same way would
-/// load, so `lunette check` with no paths checks what `lunette` would run. A
-/// directory is checked file by file; [`targets`] says which files.
-///
 /// A root that is not read fails the run on its own. A pass that silently
 /// skips its input reports a clean result for a file it never reads.
 pub fn run(
@@ -107,17 +103,10 @@ pub fn run(
 
 /// The files a check reads: each named file, and each `.lua` or `.luau` file
 /// below each named directory, in path order. With nothing named, the files
-/// below `configuration`.
+/// below `configuration`. Names beginning with `.` are passed over.
 ///
-/// A directory or file whose name begins with `.` is passed over: a
-/// configuration's `.luaurc` is not a module, and neither is anything an
-/// editor or a version-control tool keeps beside it.
-///
-/// # Errors
-///
-/// A path that does not exist, a directory that cannot be read, or a directory
-/// that holds no file to check. Each would otherwise be a clean report about
-/// nothing.
+/// A missing path, an unreadable directory, or one with nothing to check is
+/// an error rather than a clean report about nothing.
 pub fn targets(named: &[PathBuf], configuration: &Path) -> Result<Vec<PathBuf>, TargetError> {
     let defaulted = [configuration.to_owned()];
     let paths = if named.is_empty() {

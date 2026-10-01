@@ -1,8 +1,5 @@
--- One panel over a window or a monitor: its geometry, visibility, layer claim,
--- and drawing.
---
--- A panel reaches its provider activation through the host it is made with,
--- not through a module-global registry, so separate activations share nothing.
+-- One panel over a window or a monitor: its geometry, visibility, layer claim, and drawing. A panel reaches
+-- its activation through its host rather than a module-global registry.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -18,11 +15,7 @@ export type Owner = contracts.Owner
 export type Panel = contracts.Panel
 export type Options = contracts.Options
 
--- The shape hooks. Each receives its arguments and then the default, and
--- calls the default to keep it. The defaults pick and draw a flat quad, or
--- the piece of a cylinder a positive curve describes, and place a layer at
--- the panel's pose with the panel's size and curve. A default answers for
--- the panel the hook was called for.
+-- The shape hooks, as around hooks over the flat quad or the arc of a positive curve.
 export type RaycastBase = (Panel, vector, vector, boolean?) -> (number?, number?, number?)
 export type Raycast = (Panel, vector, vector, boolean?, RaycastBase) -> (number?, number?, number?)
 export type DrawBase = (Panel, Pass) -> ()
@@ -35,10 +28,7 @@ export type Shape = {
   read applyLayer: ApplyLayer,
 }
 
--- The resolved options of the activation that made a panel: its chrome style,
--- the priority, height, and aspect ratio a panel takes when it is given none
--- and its source has no size, whether a panel draws chrome when it is not
--- told, and the shape hooks.
+-- The resolved options of the activation that made a panel.
 export type Settings = {
   read style: contracts.Style,
   read priority: number,
@@ -50,7 +40,6 @@ export type Settings = {
 
 -- What a panel needs from the activation that made it.
 export type Host = {
-  -- Whether the activation is still live.
   read active: () -> boolean,
   -- Raises unless the owner is still a live owner of this activation.
   read checkOwner: (Owner) -> (),
@@ -311,12 +300,9 @@ function panel.release(target: State): boolean
   return true
 end
 
--- Ends a panel and then disposes its owner's effect, so the effect does not
--- outlive it. The release runs here rather than as the effect's inverse: an
--- owner's authority is withheld while one of its inverses runs, and removal
--- listeners, the panel's own owner among them, must hear the removal as live
--- owners. A release that fails raises to the caller, and the effect's inverse
--- then has nothing left to do.
+-- Ends a panel and then disposes its owner's effect. The release runs here rather than as the effect's
+-- inverse because an owner's authority is withheld while its inverse runs, and removal listeners, the
+-- panel's owner among them, must hear the removal as live owners.
 function panel.retire(target: State): boolean
   if target.dead then
     return false
@@ -333,9 +319,8 @@ function panel.retire(target: State): boolean
   return true
 end
 
--- The most recent live override decides; with none the panel is shown.
--- Hiding gives up the layer claim at once, so a layer the compositor draws
--- does not outlast the decision by a frame.
+-- The most recent live override decides; with none the panel is shown. Hiding releases the layer claim at
+-- once so the compositor does not draw it for another frame.
 local function settle(target: State): ()
   local top = target.overrides[#target.overrides]
   local hidden = if top then top.hidden else false

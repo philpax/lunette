@@ -1,18 +1,6 @@
--- A neutral panels provider.
---
--- Each activation owns one independent registry. Panel acquisition is tied to the
--- caller's owner, while queries remain usable without an owner. No module-global
--- teardown, signal, or cleanup registry is used: the plugin context owns all
--- provider resources through effects, and a panel's end is announced to
--- owner-scoped removal listeners.
---
--- `style` sets the border and title a panel with chrome draws, and `chrome`
--- whether a panel draws them when its own options do not say; it is off, as
--- decorations are a consumer's. `priority`, `height`, and `aspect` are what a
--- panel takes when its own options give none. `shape` holds three around
--- hooks, `raycast`, `draw`, and `applyLayer`, which pick, draw, and place a
--- layer for a panel; each receives its arguments and then the default, and
--- the defaults are the flat quad, or the arc of a positive curve.
+-- The panels provider. Each activation owns one independent registry, and the plugin context owns every
+-- provider resource through effects. The options and the `shape` around hooks are in
+-- docs/dev/lua-api.md#panels.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -184,9 +172,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     host = host,
   }
   state = created
-  -- Registered first, so it runs last: the panels the activation still holds
-  -- are released while removal listeners can hear it, and only then are the
-  -- listeners cleared.
+  -- Registered first so it runs last: held panels are released while removal listeners can still hear it.
   context:effect(function()
     return function()
       state.active = false
@@ -197,9 +183,8 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end)
 
-  -- The published service is revoked with this activation, so its methods
-  -- need no liveness guard. Panels are not reached through the service after
-  -- they are created, and they check their activation through their host.
+  -- The published service is revoked with this activation, so its methods need no liveness guard; panels
+  -- check their activation through their host.
   local service: Service = {
     STYLE = settings.style,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
@@ -219,9 +204,8 @@ local function build(context: plugin.Context, settings: Settings): Service
     all = function(_self: Service): { Panel }
       return livePanels(state)
     end,
-    -- A panel whose source has died is not answered, even before the next
-    -- update retires it, so a source that comes back under the same identity
-    -- before then is not taken for the old one.
+    -- A dead source's panel is not answered even before the next update retires it, so a source that
+    -- returns under the same identity is not taken for the old one.
     forSource = function(_self: Service, source: contracts.Source): Panel?
       if source == nil then
         return nil

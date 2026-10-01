@@ -18,17 +18,8 @@ local tree = {}
 -- comes first in the file.
 local walk
 
--- The modules the Lua specs own, as paths in the virtual filesystem. Each is
--- a directory, walked for every `.luau` file under it, or a single file. The
--- paths start with the same `@` roots that `require` resolves.
---
--- The rest of the shipped roots are providers, contracts, and desktop
--- consumers that the Rust integration tests under `crates/lunette/tests/`
--- drive through the plugin runtime. The modules here are the ones with
--- behaviour a spec can reach without a runtime: the desktop's persistence,
--- the shared vocabulary, the keyboard's default rows, the pointer picking
--- arithmetic, a curved panel's geometry, and the frame pacing and output
--- scale rules.
+-- The modules the Lua specs own, as directories or single files under the `@` roots `require` resolves.
+-- The other shipped modules need the plugin runtime and are driven by the Rust integration tests.
 tree.MODULE_ROOTS = {
   '@lunette-desktop/persist',
   '@lunette-contracts/keys.luau',
@@ -69,9 +60,8 @@ function tree.modules()
   return found
 end
 
--- Every spec file, as paths such as
--- `@spec/lunette-desktop/persist/file_spec.luau`. The suite's own specs are
--- under `@spec/` directly and are included.
+-- Every spec file, as paths such as `@spec/lunette-desktop/persist/file_spec.luau`, including the suite's
+-- own specs directly under `@spec/`.
 --
 -- Files that are not specs, such as `tree.luau`, are left
 -- out. The specs are the files that hold cases.

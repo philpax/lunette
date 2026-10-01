@@ -38,10 +38,8 @@ local function moving(width)
   return panel
 end
 
--- The arc does not overlap panels that fit its span: the angular extents of
--- adjacent panels, seen from the centre, are disjoint and the gap apart. When
--- they do not fit, the separations shrink to fill the span exactly. The
--- widths are a fixed pseudo-random sequence, so the case is the same each run.
+-- The arc does not overlap panels that fit its span, and shrinks the separations to fill the span exactly
+-- when they do not. The widths are a fixed pseudo-random sequence.
 local tuning = { radius = 1.6, step = 0.55, span = math.pi * 1.2, gap = 0.05, center = { 0, 1.5, 0 } }
 assert(#geometry.angles({}, tuning) == 0)
 assert(#geometry.angles({ 3 }, tuning) == 1 and geometry.angles({ 3 }, tuning)[1] == 0, 'one panel is centred')
@@ -70,7 +68,7 @@ for count = 2, 9 do
     assert(math.abs(extent - tuning.span) < 1e-12, 'an arc that does not fit fills the span')
   end
 end
--- Narrow panels keep the minimum step, as the arc always did.
+-- Narrow panels keep the minimum step.
 local narrow = geometry.angles({ 0.1, 0.1, 0.1 }, tuning)
 assert(math.abs(narrow[2] - narrow[1] - tuning.step) < 1e-12)
 
@@ -93,10 +91,8 @@ raises('layouts register: arc is already registered', function()
   layouts:register(owner, { name = 'arc', apply = function() end })
 end)
 
--- A change listener hears registrations begin and end; one that raises is
--- reported and does not stop the next. The listeners belong to an owner of
--- their own: an owner has no authority while its own effect is disposed, so
--- its own listeners do not hear what its disposal ends.
+-- A change listener hears registrations begin and end, and one that raises does not stop the next. The
+-- listeners have an owner of their own, because an owner has no authority while its own effect is disposed.
 local listening = probe(desktop, 'layouts-listener')
 local heard = 0
 listening.layouts:onChanged(listening.owner, {

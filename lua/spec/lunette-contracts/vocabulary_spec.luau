@@ -1,10 +1,5 @@
--- Covers lua/lunette-contracts/vocabulary.luau.
---
--- The module's behaviour is its pose encoding; the rest is types and names.
--- The round-trip tests the encoding. The encoded string
--- goes into the native property store and a file on disk, and both outlive
--- the process that wrote them. A decoder that lost the last digit would move
--- every panel a little further from where the user put it at every reload.
+-- Covers lua/lunette-contracts/vocabulary.luau: its pose encoding, whose round trip must be exact because
+-- the string outlives the process and a lossy decoder would drift panels at every reload.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
@@ -30,8 +25,7 @@ spec('a translated pose round-trips exactly', function()
 end)
 
 spec('a rotated and scaled pose round-trips exactly', function()
-  -- The encoding writes sixteen numbers because a decomposition into a
-  -- position and an orientation would drop the rotation and scale.
+  -- A decomposition into position and orientation would drop the scale.
   local original = lovr.math.newMat4():translate(0.1, 2, -1.25):rotate(0.7, 0, 1, 0):scale(2, 3, 1)
 
   expectSame(vocabulary.decodePose(vocabulary.encodePose(original)), original, 'the recovered pose')

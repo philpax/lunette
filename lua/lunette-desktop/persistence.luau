@@ -1,22 +1,10 @@
 -- The desktop's saved arrangement, kept across this consumer's outages.
 --
--- The module is a definition factory. Each definition it makes keeps one
--- persistence state from `@lunette-desktop/persist`, made at its first
--- activation and kept outside any activation, so the loaded arrangement, the
--- slots live windows hold, and a refusal to overwrite an unreadable or newer
--- file survive the consumer being disabled and enabled again. Each
--- activation binds the state: the arrangement becomes a rules source, a drop
--- heard through lunette/drops saves it, and a normal quit saves it once
--- more. A drop save that fails is logged; a quit save that fails raises, and
--- the frame provider reports it without vetoing the quit. The consumer
--- provides lunette/arrangement, so a key binding can save or restore.
---
--- Options: `file`, the file in LÖVR's save directory; `format`, `{ read,
--- render }`, how the file is read and written, by default persist.FORMAT;
--- and `keyFor`, the identity a window or monitor is saved under, by default
--- persist.defaultKey. A format's read answers the loads persist's
--- constructors make, and answers fromTheFuture for a version it cannot write
--- back whole.
+-- A definition factory: each definition keeps one `@lunette-desktop/persist` state outside any activation,
+-- so the loaded arrangement, held slots, and a refusal to overwrite survive a disable and enable. Each
+-- activation binds the state as a rules source, saves on a drop and at quit, and provides
+-- lunette/arrangement. A failed drop save is logged; a failed quit save raises without vetoing the quit.
+-- Options: `file`, `format`, and `keyFor`, as persist.Dependencies describes.
 local plugin = require '@lunette-plugin'
 local arrangementContract = require '@lunette-contracts/arrangement'
 local drops = require '@lunette-contracts/drops'

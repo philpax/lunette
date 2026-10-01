@@ -266,7 +266,7 @@ fn duplicate_contract_keys_in_one_descriptor_are_rejected() {
     );
 }
 
-// G1: a provider that unloads because a dependency left is still enabled, so
+// A provider that unloads because a dependency left is still enabled, so
 // its reservation must hold and a second provider cannot take the name.
 #[test]
 fn an_enabled_provider_keeps_its_reservation_while_unloaded_for_a_dependency() {
@@ -294,7 +294,7 @@ fn an_enabled_provider_keeps_its_reservation_while_unloaded_for_a_dependency() {
     assert!(graph.next_action().is_none());
 }
 
-// G1b: reservations are by name and schema.
+// Reservations are by name and schema.
 #[test]
 fn different_schemas_of_one_name_coexist() {
     let mut graph = Graph::new();
@@ -323,7 +323,7 @@ fn different_schemas_of_one_name_coexist() {
     assert_eq!((bound(old), bound(new)), (first, second));
 }
 
-// G2: a child installed during a load that fails or is cancelled is retired
+// A child installed during a load that fails or is cancelled is retired
 // with that activation.
 #[test]
 fn children_of_a_failed_or_cancelled_load_are_retired() {
@@ -355,7 +355,7 @@ fn children_of_a_failed_or_cancelled_load_are_retired() {
     }
 }
 
-// G3: a reload requested while loading must not strand the instance.
+// A reload requested while loading must not strand the instance.
 #[test]
 fn reload_while_loading_restarts_the_load() {
     let mut graph = Graph::new();
@@ -370,7 +370,7 @@ fn reload_while_loading_restarts_the_load() {
     assert_eq!(graph.state(instance).unwrap(), LifecycleState::Active);
 }
 
-// G4: retirement is monotone, and a retired parent accepts no children.
+// Retirement is monotone, and a retired parent accepts no children.
 #[test]
 fn retirement_is_permanent() {
     let mut graph = Graph::new();
@@ -408,7 +408,7 @@ fn a_child_needs_a_live_parent_activation() {
     );
 }
 
-// G5: a consumer is not published against a provider whose own provider is leaving.
+// A consumer is not published against a provider whose own provider is leaving.
 #[test]
 fn a_consumer_does_not_bind_to_a_transitively_leaving_provider() {
     let mut graph = Graph::new();
@@ -436,7 +436,7 @@ fn a_consumer_does_not_bind_to_a_transitively_leaving_provider() {
     assert!(graph.next_action().is_none());
 }
 
-// G6: there is no queue to exhaust; many intents never block an unload.
+// There is no queue to exhaust; many intents never block an unload.
 #[test]
 fn many_intents_never_block_unloads() {
     let mut graph = Graph::new();
@@ -454,7 +454,7 @@ fn many_intents_never_block_unloads() {
     assert!(graph.next_action().is_none());
 }
 
-// G7: a quarantined consumer no longer pins its provider or parent.
+// A quarantined consumer no longer pins its provider or parent.
 #[test]
 fn quarantine_does_not_pin_providers_or_parents() {
     for child in [false, true] {
@@ -533,7 +533,7 @@ fn quarantine_after_a_replacement_enabled_blocks_the_replacement() {
     );
 }
 
-// G8: a cycle through a disabled member is still a cycle.
+// A cycle through a disabled member is still a cycle.
 #[test]
 fn cycles_are_found_from_declarations() {
     let mut graph = Graph::new();
@@ -601,7 +601,7 @@ fn self_requirement_is_a_cycle() {
     );
 }
 
-// G8 and G13: blocked reasons are distinguished, and waiting is not an error.
+// Blocked reasons are distinguished, and waiting is not an error.
 #[test]
 fn blocked_reasons_are_distinguished() {
     let mut graph = Graph::new();
@@ -645,7 +645,7 @@ fn blocked_reasons_are_distinguished() {
     load(&mut graph, consumer);
 }
 
-// G9: disabling an instance that never loaded releases its reservation.
+// Disabling an instance that never loaded releases its reservation.
 #[test]
 fn disabling_a_failed_instance_releases_its_reservation() {
     let mut graph = Graph::new();
@@ -661,7 +661,7 @@ fn disabling_a_failed_instance_releases_its_reservation() {
     load(&mut graph, replacement);
 }
 
-// G10: a cleanup failure reported during an unload still completes it.
+// A cleanup failure reported during an unload still completes it.
 #[test]
 fn a_cleanup_failure_during_unload_quarantines_on_completion() {
     let mut graph = Graph::new();
@@ -677,7 +677,7 @@ fn a_cleanup_failure_during_unload_quarantines_on_completion() {
     assert_eq!(graph.state(instance).unwrap(), LifecycleState::Quarantined);
 }
 
-// G11: a failed load retries only when its target view changes.
+// A failed load retries only when its target view changes.
 #[test]
 fn a_failed_load_retries_only_against_a_changed_environment() {
     let mut graph = Graph::new();
@@ -715,7 +715,7 @@ fn an_explicit_enable_retries_a_failed_load() {
     load(&mut graph, instance);
 }
 
-// G12: enable and reload of a quarantined instance are rejected.
+// Enable and reload of a quarantined instance are rejected.
 #[test]
 fn a_quarantined_instance_rejects_enable_and_reload() {
     let mut graph = Graph::new();

@@ -1,15 +1,9 @@
 //! The installed roots do not require a development-only root.
 //!
-//! `@spec` is present in a source tree and absent from an installation, and
-//! the development `.luaurc` the checker reads names it, so a shipped module
-//! that required it would check clean and fail in every installed session. The
-//! test reads the checked-in sources of every installed root, and of the
-//! shipped configuration, and refuses any string literal naming a root that
-//! is not installed, which is the form a `require` of it takes; a computed
-//! module name would pass, and the shipped roots compute none.
-//!
-//! Both lists come from `lunette::aliases`, so a root added to either is
-//! covered without editing the test.
+//! `@spec` exists only in a source tree, so a shipped module requiring it would
+//! check clean and fail in every installed session. The test refuses any
+//! string literal naming a non-installed root in the installed roots and the
+//! shipped configuration. Both lists come from `lunette::aliases`.
 
 use std::{
     fs,

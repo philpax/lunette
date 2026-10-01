@@ -1,7 +1,5 @@
--- The scoped adoption provider.
---
--- `precedence` is the precedence install registers the native pose source at
--- when it is given none, by default vocabulary.PRECEDENCE.native.
+-- The scoped adoption provider. `precedence` is the native pose source's default, by default
+-- vocabulary.PRECEDENCE.native.
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
 local panels = require '@lunette-contracts/panels'

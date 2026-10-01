@@ -1,10 +1,5 @@
--- The keyboard service contract.
---
--- Keyboard creation is owner-scoped, and each owner draws and offers the
--- keyboards it made. Key geometry is ordinary data and remains in this
--- contract, because a configuration writes rows for whichever provider serves
--- it. What a keyboard does with a press, how it lays out and draws its keys,
--- and its layers are the provider's own.
+-- The keyboard service contract. Key geometry is data here because a configuration writes rows for
+-- whichever provider serves it; behaviour, layout, drawing, and layers are the provider's.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -89,11 +84,8 @@ export type Options = {
   read target: Target?,
 }
 
--- A keyboard is a surface an owner places, offers, and draws. Its width and
--- height cover the widest and tallest of its layers, and `setSize` keeps its
--- proportions. The type states the surface fields a keyboard always has
--- rather than intersecting `Surface`, whose optional methods would make a
--- call through the intersection ambiguous; a keyboard is still a `Surface`.
+-- A keyboard is a surface an owner places, offers, and draws. It states the surface fields rather than
+-- intersecting `Surface`, whose optional methods would make calls ambiguous.
 export type Keyboard = {
   read kind: nil,
   read dead: boolean,

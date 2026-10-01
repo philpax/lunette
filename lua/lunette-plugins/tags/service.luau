@@ -1,14 +1,5 @@
--- Named groups of borrowed panels, scoped to one provider activation.
---
--- Every change a caller makes to a tag is an effect of that caller's owner.
--- A membership is held by the owners that added it and an exclusion by the
--- owners that excluded it; a panel is a member while a membership remains
--- and no exclusion does. A selection and a layout are overrides: each owner
--- holds at most one of each per tag, and the most recent live override
--- decides. A tag made by new ends with its owner; a tag made by hold ends
--- when its last holder lets go. An owner that unloads therefore takes back
--- its memberships, exclusions, overrides, and holds, and leaves those of
--- other owners as they were.
+-- Named groups of borrowed panels, scoped to one provider activation. Every membership, exclusion, and
+-- override is an effect of the owner that made it, so an unloading owner takes back only its own.
 
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
@@ -124,8 +115,7 @@ local function create(context: plugin.Context): tags.Service
     local record: Record
     -- Each panel ever added and still held, in the order it was first held.
     local held: { Panel } = {}
-    -- Each held panel's holders, keyed by owner, with the effect each holds
-    -- it by; likewise each excluded panel's excluders.
+    -- Each held panel's holders and each excluded panel's excluders, keyed by owner, with their effects.
     local holds: { [Panel]: { [Owner]: plugin.Effect } } = {}
     local exclusions: { [Panel]: { [Owner]: plugin.Effect } } = {}
 
@@ -161,9 +151,8 @@ local function create(context: plugin.Context): tags.Service
       end
     end
 
-    -- Releases the holds and exclusions of panels that have died, so an
-    -- owner does not keep one effect per panel it ever tagged. A dead panel
-    -- leaves without an announcement; panels:onRemoved announces it.
+    -- Releases the holds and exclusions of dead panels, so an owner does not accumulate an effect per panel
+    -- it ever tagged. panels:onRemoved announces the death.
     local function prune(): ()
       local ended: { plugin.Effect } = {}
       for index = #held, 1, -1 do
@@ -331,9 +320,8 @@ local function create(context: plugin.Context): tags.Service
         settleMembers()
         return true
       end,
-      -- An owner removes its own hold. The owner of a tag new made removes
-      -- every hold, as the tag is its own state; any other owner cannot
-      -- remove a membership it does not hold, and excludes the panel instead.
+      -- An owner removes its own hold; the owner of a tag new made removes every hold. Any other owner
+      -- excludes the panel instead.
       remove = function(_self: tags.Tag, caller: Owner, panel: Panel): boolean
         context:checkOwner(caller)
         local holders = holds[panel]

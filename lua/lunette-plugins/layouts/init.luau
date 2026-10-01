@@ -1,8 +1,4 @@
--- The layouts provider: a broker for named layouts.
---
--- Each activation keeps its own registrations, keyed by name, and its own
--- change listeners. A registration and a listener belong to the owner that
--- made them and end with that owner. The provider takes no options.
+-- The layouts provider: a broker for named layouts, with owner-scoped registrations and listeners.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/layouts'

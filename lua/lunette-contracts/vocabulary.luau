@@ -1,10 +1,5 @@
--- Recursive surface and pointer vocabulary shared by neutral contracts.
---
--- This module has no state and issues no capability. Keeping both sides of the
--- recursive relationship here lets surface.luau and interaction.luau remain
--- independently requireable without a runtime cycle. Constants and encodings
--- that several providers agree on also live here, so agreeing on one does not
--- make a provider require another's contract.
+-- Recursive surface and pointer vocabulary, and constants and encodings several providers share, kept here
+-- so neither side of a recursive relationship, nor any provider, must require another's contract.
 
 local lunette = require '@lunette'
 
@@ -15,13 +10,8 @@ local vocabulary = {}
 -- provider reads it as a placement source. Its value is `encodePose`'s string.
 vocabulary.POSE_PROPERTY = 'lunette.pose'
 
--- The precedences the desktop's rules sources are registered at, by name. A
--- source with a higher precedence is merged later and wins a conflicting
--- property. `rules` is a configured rule list, `persisted` the saved
--- arrangement, and `native` what the session kept on each window, such as a
--- hand-placed pose. A source of a configuration's own names its place
--- relative to these, as in `PRECEDENCE.persisted + 50`, rather than a number
--- whose meaning lives in another file.
+-- The precedences the desktop's rules sources are registered at, by name. A higher precedence merges later
+-- and wins. A configuration places its own source relative to these, as in `PRECEDENCE.persisted + 50`.
 export type Precedences = {
   read rules: number,
   read persisted: number,
@@ -33,15 +23,9 @@ vocabulary.PRECEDENCE = precedences
 
 -- How many numbers a pose is written as.
 --
--- The per-window property store takes a number, a string, or a boolean and
--- refuses a table (docs/dev/lua-api.md#per-window-properties), so a pose is
--- encoded into a string. The property store, a rule's `pose` given as text,
--- and a saved arrangement on disk share this one encoding.
---
--- The format uses sixteen elements, not a position and an orientation,
--- because a pose may carry a scale and a decomposition would drop it. Nine
--- significant digits return a 32-bit float to its original value, so the
--- round trip is exact.
+-- The property store refuses tables, so the property store, a rule's textual `pose`, and a saved arrangement
+-- share this string encoding. All sixteen elements are kept so a scale survives, and nine significant digits
+-- make the 32-bit round trip exact.
 vocabulary.POSE_ELEMENTS = 16
 
 -- A `Mat4` as a string of sixteen numbers.
@@ -54,12 +38,8 @@ function vocabulary.encodePose(matrix: Mat4): string
   return table.concat(encoded, ' ')
 end
 
--- What `encodePose` wrote, as a fresh `Mat4`, or nothing.
---
--- Anything that is not sixteen finite numbers returns nothing, and no
--- partly-filled matrix is returned. A stored value persists after the Lua
--- state that wrote it is gone, and a configuration that sets the property
--- directly is as likely a source as this module is.
+-- What `encodePose` wrote, as a fresh `Mat4`, or nothing for anything but sixteen finite numbers. A stored
+-- value outlives the state that wrote it and may have been set by a configuration directly.
 function vocabulary.decodePose(text: boolean | number | string | nil): Mat4?
   if type(text) ~= 'string' then
     return nil
@@ -74,9 +54,7 @@ function vocabulary.decodePose(text: boolean | number | string | nil): Mat4?
       return nil
     end
     local number = tonumber(word)
-    -- An infinity or a nan places a panel nowhere, and the value stays in the
-    -- store across reloads. A nan is not equal to itself, so `number ~= number`
-    -- catches it.
+    -- A non-finite element places a panel nowhere and would persist across reloads.
     if not number or number ~= number or number == math.huge or number == -math.huge then
       return nil
     end
@@ -203,10 +181,8 @@ type SurfaceFields = {
   read onRelease: ((Surface, Pointer) -> ())?,
 }
 
--- The fields of a surface whose `setPose` is required. They are restated
--- rather than derived from SurfaceFields: a generic alias of the fields is
--- refused, because the fields refer back to Surface, and an intersection
--- would hold two function types for `setPose`.
+-- The fields of a surface whose `setPose` is required, restated because a generic alias of SurfaceFields is
+-- refused for its recursion and an intersection would hold two `setPose` function types.
 type MovableFields = {
   read dead: boolean,
   read grabbable: boolean?,
@@ -232,11 +208,8 @@ export type Surface =
     | { read kind: nil }
   )
 
--- A surface that can always be posed, such as a panel a layout arranges. Its
--- `setPose` is required, and stated in the fields rather than intersected
--- with `Surface`: `Surface & { read setPose: ... }` holds two function types
--- for one field, and Luau reports `surface:setPose(pose)` on it as an
--- ambiguous call. A movable surface is still a `Surface`.
+-- A surface that can always be posed, such as a panel a layout arranges. It is stated whole rather than as
+-- `Surface & { read setPose: ... }`, on which Luau reports `surface:setPose(pose)` as ambiguous.
 export type Movable =
   MovableFields
   & (

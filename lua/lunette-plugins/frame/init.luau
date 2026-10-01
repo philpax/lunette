@@ -1,14 +1,6 @@
--- The frame provider, and the binding of LÖVR's callbacks to it.
---
--- `definition` provides lunette/frame, and `define`, `build`, and `requires`
--- follow the shape of the other providers; the provider takes no options. Each
--- activation keeps its own handler lists and, while it is loaded, is the
--- activation LÖVR's callbacks reach.
--- `install` assigns the LÖVR callbacks once, outside any plugin, before the
--- runtime starts: lovr.load starts the runtime, and lovr.quit runs the quit
--- handlers and then stops it. The callbacks find the loaded activation when
--- they are called, so they do nothing while no activation is loaded, such as
--- between an instance reload's unload and load.
+-- The frame provider, and the binding of LÖVR's callbacks to it. `install` assigns the callbacks once,
+-- before the runtime starts; they reach whichever activation is loaded when called and do nothing while
+-- none is, such as during an instance reload.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/frame'
@@ -220,9 +212,8 @@ export type Config = {}
 export type Settings = {}
 export type Service = contract.Service
 
--- Binding the activation to LÖVR's callbacks is an effect of the activation,
--- not a publication, so a plugin that builds the service to wrap it still
--- receives the callbacks.
+-- Binding to LÖVR's callbacks is an effect, not a publication, so a plugin that wraps the built service
+-- still receives the callbacks.
 local function build(context: plugin.Context, _settings: Settings): Service
   local service, dispatcher = create(context)
   context:effect(function(): () -> ()
@@ -250,11 +241,8 @@ frame.define = provider.define
 frame.build = provider.build
 frame.requires = provider.requires
 
--- Assigns lovr.load, lovr.update, lovr.draw, lovr.keypressed, lovr.textinput,
--- and lovr.quit. start runs from lovr.load and creates the runtime; stop runs
--- from lovr.quit after the quit handlers, under its own protected call.
--- Returning false from lovr.quit never vetoes the quit, whatever a handler
--- raised.
+-- Assigns lovr.load, lovr.update, lovr.draw, lovr.keypressed, lovr.textinput, and lovr.quit. start runs
+-- from lovr.load; stop runs from lovr.quit after the quit handlers. lovr.quit never vetoes the quit.
 function frame.install(hooks: Hooks): ()
   if type(hooks) ~= 'table' then
     error('frame install: the hooks are a table of fields, not a ' .. type(hooks), 2)

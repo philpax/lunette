@@ -1,11 +1,8 @@
 //! Errors raised by the plugin attachment, and the plugin failures it reports.
 //!
-//! An operation a caller invoked raises an [`AttachmentError`] to that caller.
-//! A failure that happens while the attachment drains lifecycle work on behalf
-//! of some instance, such as an initializer or cleanup inverse raising, is a
-//! [`PluginFailure`]: it is reported through the error-reporting path and
-//! recorded as the instance's diagnostic, and it is not raised to whichever
-//! caller happened to trigger the drain.
+//! An operation raises an [`AttachmentError`] to its caller. A failure during
+//! a lifecycle drain is a [`PluginFailure`], reported and recorded as the
+//! instance's diagnostic rather than raised to whichever caller triggered it.
 
 use std::{error::Error, fmt, sync::Arc};
 
@@ -26,20 +23,14 @@ pub enum AttachmentError {
     /// Shutdown was requested from inside a plugin callback.
     ShutdownInCallback,
     /// A definition from a retired epoch was installed.
-    StaleDefinition {
-        /// The definition's name.
-        plugin: Arc<str>,
-    },
+    StaleDefinition { plugin: Arc<str> },
     /// A capability wrapper was not a table.
     WrapperNotTable {
         /// The Lua type that was supplied instead.
         found: &'static str,
     },
     /// A contract schema does not fit the graph's key.
-    SchemaRange {
-        /// The schema that was supplied.
-        schema: u64,
-    },
+    SchemaRange { schema: u64 },
     /// A declaration names a token the graph has no key for.
     UnmappedToken,
     /// A plugin context cannot perform an operation.
@@ -51,28 +42,21 @@ pub enum AttachmentError {
     },
     /// The lifecycle graph rejected a request.
     Graph {
-        /// The request that was rejected.
         operation: &'static str,
-        /// The graph's reason.
         source: GraphError,
     },
     /// The contract registry rejected a declaration or binding.
     Contract(ContractError),
     /// A Lua value could not be created or read.
     Lua {
-        /// What the attachment was doing.
         operation: &'static str,
-        /// The Lua error.
         source: mlua::Error,
     },
     /// A plugin failure that is raised rather than reported.
     Plugin(PluginFailure),
     /// A drain performed its action budget and stopped. The remaining work is
     /// derived from graph state, so the next drain resumes it.
-    DrainBudget {
-        /// The number of actions the drain was allowed.
-        budget: usize,
-    },
+    DrainBudget { budget: usize },
     /// Shutdown attempted every cleanup and some failed.
     Shutdown(Vec<AttachmentError>),
 }
@@ -251,9 +235,7 @@ impl fmt::Display for FailurePhase {
 /// An instance named by its definition.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PluginLabel {
-    /// The definition's name.
     pub name: Arc<str>,
-    /// The instance's identity within its runtime.
     pub instance: InstanceId,
 }
 
@@ -297,11 +279,8 @@ impl fmt::Display for FailureCause {
 /// A failure inside a plugin's lifecycle, attributed to the instance it belongs to.
 #[derive(Clone, Debug)]
 pub struct PluginFailure {
-    /// When it happened.
     pub phase: FailurePhase,
-    /// Whose it is.
     pub plugin: PluginLabel,
-    /// What failed.
     pub cause: FailureCause,
 }
 

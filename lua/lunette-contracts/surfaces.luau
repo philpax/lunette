@@ -1,15 +1,6 @@
--- The surfaces service contract.
---
--- A broker for the surfaces a pointer can pick. A plugin offers a named list
--- that the broker calls whenever the surfaces are asked for, so the list is
--- always this frame's. An offer is owner-scoped: it lasts until the returned
--- effect is disposed or its owner unloads. A name names one offer, and
--- offering a name that is already offered raises.
---
--- all answers every offer's surfaces, offers in registration order. Each list
--- runs under its own protected call; a list that raises, or answers something
--- other than a table, is reported through lunette.reportError and contributes
--- nothing.
+-- The surfaces service contract: a broker for the surfaces a pointer can pick. Each owner-scoped offer is a
+-- named list called on demand, so it is always this frame's; a list that raises contributes nothing. See
+-- docs/dev/lua-api.md#frame-and-surfaces.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'

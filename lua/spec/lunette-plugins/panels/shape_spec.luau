@@ -1,8 +1,5 @@
--- Covers lua/lunette-plugins/panels/shape.luau.
---
--- The geometry is checked against the cylinder it describes rather than
--- against restated formulas: a ray leaving the cylinder's axis meets the arc
--- one radius away, and every vertex of the drawn arc lies on the cylinder.
+-- Covers lua/lunette-plugins/panels/shape.luau, checking against the cylinder rather than restated
+-- formulas.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'

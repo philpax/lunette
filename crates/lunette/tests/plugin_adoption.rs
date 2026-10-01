@@ -1,8 +1,5 @@
-//! Execution coverage for the neutral adoption provider.
-//!
-//! The plugin facade and all controlled providers are real. Native windows,
-//! property storage, event registration, and layer/matrix primitives are fakes;
-//! those are unmanaged boundaries owned by the host.
+//! Execution coverage for the adoption provider, with native windows,
+//! properties, events, and layer primitives faked.
 
 extern crate lunette_lovr;
 

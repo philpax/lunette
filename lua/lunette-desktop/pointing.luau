@@ -1,9 +1,5 @@
--- Two-hand pointing at every surface the desktop's plugins offer.
---
--- `laser` are the options each hand's laser is attached with: `name`, the
--- seat name; `tuning`, the pointer tuning; `style`; and `readInput`, which
--- answers a hand's input in place of the provider's reader. They replace the
--- default, which is none, wholesale.
+-- Two-hand pointing at every surface the desktop's plugins offer. `laser` is the options each hand's laser
+-- is attached with, replacing the default wholesale.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local laser = require '@lunette-contracts/laser'
@@ -33,9 +29,8 @@ local required: plugin.Declaration = {
   surfaces = surfaces.capability,
 }
 
--- The laser options replace their default wholesale, so their fields are
--- checked here rather than against the defaults. A seat is not among them:
--- two hands sharing one seat would share one keyboard focus and pointer.
+-- The laser options replace their default wholesale, so they are checked here. A seat is not among them:
+-- two hands sharing a seat would share focus and pointer.
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/pointing', defaults = DEFAULTS, config = config }
   for key, value in settings.laser :: { [unknown]: unknown } do

@@ -1,17 +1,6 @@
--- The LASER provider. Each activation owns an independent two-hand registry.
--- Native headset reads are isolated from the pointer and drawing logic, and every
--- acquired pointer or seat is released through the caller's owner effect, so a
--- release that fails is the caller's failure rather than this provider's.
---
--- `style` sets the default beam length, colours, cursor size, and hover haptic
--- that a laser's own options override. `buttons` maps controller buttons to
--- the pointer buttons they press, as a list of `{ control, button }`; the
--- default presses `left` with the trigger. `readInput` and `draw` are around
--- hooks: each receives its arguments and then the default, and calls the
--- default to keep it. `readInput(hand, base)` answers one frame of a hand's
--- input, and `base` reads the headset through `buttons`. `draw(laser, pass,
--- base)` draws a laser, and `base` draws the beam and the cursor. A laser's
--- own `readInput` option replaces the hook for that laser.
+-- The laser provider. Each activation owns an independent two-hand registry, and every pointer or seat is
+-- released through the caller's owner effect, so a failing release is the caller's failure. The options
+-- and the `readInput` and `draw` around hooks are in docs/dev/lua-api.md#lasers.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -38,8 +27,7 @@ export type DrawBase = (Laser, Pass) -> ()
 export type Draw = (Laser, Pass, DrawBase) -> ()
 export type Mapping = input.Mapping
 
--- The resolved options. Each activation receives its own frozen copy, so no
--- consumer can restyle another's lasers.
+-- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read style: contracts.Style,
   read buttons: { Mapping },
@@ -199,9 +187,8 @@ end
 
 local function build(context: plugin.Context, settings: Settings): Service
   local service: Service
-  -- The published service is revoked with this activation, so its methods
-  -- need no liveness guard. Lasers outlive the call that made them and check
-  -- the activation themselves.
+  -- The published service is revoked with this activation, so its methods need no liveness guard; lasers
+  -- outlive the call that made them and check the activation themselves.
   local state: ProviderState
   local implementation: MutableService = {
     HANDS = HANDS,
@@ -210,9 +197,8 @@ local function build(context: plugin.Context, settings: Settings): Service
       state.context:checkOwner(owner)
       return makeLaser(state, settings, owner, hand, options)
     end,
-    -- A hand has one laser. attach answers the owner's own laser for a hand
-    -- it already holds, makes one for a free hand, and raises for a hand
-    -- another owner holds rather than handing that owner's laser over.
+    -- A hand has one laser: attach answers the owner's own, makes one for a free hand, and raises for a hand
+    -- another owner holds.
     attach = function(_self: Service, owner: Owner, options: Options?): { Laser }
       state.context:checkOwner(owner)
       local held: { [Hand]: MutableLaser } = {}

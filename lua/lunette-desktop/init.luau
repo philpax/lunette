@@ -1,10 +1,5 @@
--- The shipped desktop: its plugins as a list of entries, and the run that
--- binds LÖVR's callbacks and starts them.
---
--- `entries` answers the default list, read-only, so a configuration can see
--- the ids it patches. `compose` applies patches to a list. `start` makes a
--- runtime and enables a list's entries in it. `run` does both from LÖVR's
--- callbacks and is what a configuration calls:
+-- The shipped desktop: its plugins as a list of entries, and the run that binds LÖVR's callbacks and starts
+-- them. A configuration calls `run`:
 --
 --   require('@lunette-desktop').run { patches = { { id = 'keyboard', disabled = true } } }
 
@@ -61,17 +56,9 @@ export type Running = {
   read instances: { read [string]: plugin.Instance<any> },
 }
 
--- Each entry's id is its definition's name. Persistence and arrangement are
--- factories: the state each keeps outlives its own activations, and starting a
--- runtime makes a new one.
---
--- The order is the order entries are enabled in, and the order the graph
--- loads them again after an outage of something they share. The rule list
--- and the saved arrangement are rules sources before adoption resolves the
--- first window, which is the one order the placement entries rely on. Tags
--- are held rather than made, so the workspace tag does not depend on the
--- workspace entry coming first, and the arrangement arranges what was
--- placed before it activated.
+-- Each entry's id is its definition's name. Persistence and arrangement are factories, because their state
+-- outlives their activations. The rule list and saved arrangement must be rules sources before adoption
+-- resolves the first window; no other entry depends on order.
 local DEFAULT: { Entry } = compose.apply({
   { id = 'frame', definition = frame.definition },
   { id = 'surfaces', definition = surfaces.definition },
@@ -111,15 +98,9 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'desktop/scale', definition = scale },
 }, nil)
 
--- A typed patch for each shipped entry that takes options: a function of the
--- entry's own Config type answering `{ id = <entry id>, config = <options> }`.
--- `desktop.configure.laser { style = ... }` is checked against the laser's
--- options where `{ id = 'laser', config = { ... } }` is checked against
--- nothing, because a patch list mixes entries and its config field cannot be
--- typed per id. An id with a slash is indexed as a string:
--- `desktop.configure['desktop/arrange'] { layout = 'arc' }`. The options are
--- validated again when the entry loads, which is what reports a field Luau
--- does not flag, such as a misspelt key in a table literal.
+-- A typed patch for each shipped entry that takes options, answering `{ id = <entry id>, config = ... }`.
+-- A plain patch list's config cannot be typed per id, so `desktop.configure.laser { style = ... }` is what
+-- gets checked. An id with a slash is indexed as a string: `desktop.configure['desktop/arrange'] { ... }`.
 export type Configure = {
   read panels: (panels.Config) -> Patch,
   read interaction: (interaction.Config) -> Patch,
@@ -188,17 +169,14 @@ function desktop.entries(): { Entry }
   return DEFAULT
 end
 
--- Answers the entries, by default the shipped desktop's, with the patches
--- applied. Raises an error naming the id for an unknown id, a duplicate id, an
--- unknown field, or conflicting patches.
+-- Answers the entries, by default the shipped desktop's, with the patches applied, raising for an unknown or
+-- duplicate id, an unknown field, or conflicting patches.
 function desktop.compose(options: Options?): { Entry }
   return compose.apply(DEFAULT, options)
 end
 
--- Makes a runtime, uses and enables every entry in order, calling each
--- factory once, and drains the runtime. A failure closes the runtime and is
--- raised. A configuration error is a plugin's own failure: the instance
--- fails to load and its error is reported, as for any other initializer.
+-- Makes a runtime, enables every entry in order, and drains it. A failure closes the runtime and is raised;
+-- an entry's configuration error is that instance's load failure.
 function desktop.start(entries: { Entry }): Running
   local checked = compose.apply(entries, nil)
   local runtime = plugin.runtime()
@@ -223,10 +201,8 @@ function desktop.start(entries: { Entry }): Running
   return table.freeze { runtime = runtime, instances = table.freeze(instances) }
 end
 
--- Composes the desktop and binds LÖVR's callbacks to it: lovr.load starts it,
--- and lovr.quit runs its quit handlers and then closes it. The composition is
--- checked here, as the configuration loads, so a malformed patch fails the
--- load rather than the first frame.
+-- Composes the desktop and binds LÖVR's callbacks to it. The composition is checked as the configuration
+-- loads, so a malformed patch fails the load rather than the first frame.
 function desktop.run(options: Options?): ()
   local entries = desktop.compose(options)
   -- Source reload retains globals, so desktop/demo-terminal does not open

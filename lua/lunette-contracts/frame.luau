@@ -1,30 +1,6 @@
--- The frame service contract.
---
--- The provider dispatches LÖVR's frame and input callbacks to handlers that
--- plugins register. Every registration is owner-scoped: it lasts until the
--- returned effect is disposed or its owner unloads.
---
--- Update and draw handlers run phase by phase in the order PHASES lists, and
--- within a phase by ascending order, then by registration. The phases are:
---
--- input: reads devices and input state before the scene moves; in a draw,
--- what is drawn beneath everything else.
--- scene: the panels and other surfaces the scene is made of.
--- pointing: what picks against or points at the scene, such as lasers, which
--- read this frame's surface poses.
--- overlay: what is drawn over everything else, such as an error display.
---
--- Key and text handlers run binding handlers before delivery handlers, then
--- by ascending order and registration. A handler that answers true consumes
--- the event, and the handlers after it do not see it. A binding is a hotkey or
--- other interception; delivery is forwarding to a client. Key and text are
--- separate streams: LÖVR reports a printable key as a key press and as text,
--- so consuming one does not consume the other.
---
--- Every handler runs under its own protected call. A handler's error is
--- reported through lunette.reportError, and the handlers after it still run;
--- a key or text handler that raises does not consume the event. Quit handlers
--- run in registration order and cannot veto the quit.
+-- The frame service contract: owner-scoped handlers for LÖVR's frame and input callbacks, run by phase,
+-- then order, then registration. A key or text handler that answers true consumes the event. See
+-- docs/dev/lua-api.md#frame-and-surfaces.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
@@ -35,8 +11,7 @@ export type Owner = owner.Owner
 export type Phase = 'input' | 'scene' | 'pointing' | 'overlay'
 export type InputPhase = 'binding' | 'delivery'
 
--- What lovr.keypressed reports. isRepeat is LÖVR's isrepeat argument; repeat
--- is a reserved word, so a field of that name could not be read as one.
+-- What lovr.keypressed reports. `isRepeat` is LÖVR's isrepeat, renamed because `repeat` is reserved.
 export type KeyEvent = {
   read key: KeyCode,
   read scancode: number,

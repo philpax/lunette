@@ -1,7 +1,4 @@
--- Pure picking and scrolling arithmetic for pointers.
---
--- These are the default pointer mapping's building blocks, exported so that a
--- `drive` hook that replaces the mapping picks and scrolls the same way.
+-- Pure picking and scrolling arithmetic, exported so a `drive` hook picks and scrolls as the default does.
 
 local vocabulary = require '@lunette-contracts/vocabulary'
 

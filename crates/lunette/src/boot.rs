@@ -592,10 +592,9 @@ fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
 /// already run. Wrapping the `package.preload` entry the module is created by
 /// puts the mount between them.
 ///
-/// The wrapper is a C closure holding the original loader and a Lua data table
-/// as upvalues, not a Rust closure holding Lua values. Rust keeps no reference
-/// into the state. A hard restart discards the state and the closure with it;
-/// a soft reload keeps this state and does not recreate this hook.
+/// The wrapper is a C closure holding the original loader and a data table as
+/// upvalues, so Rust keeps no reference into the state. A soft reload keeps
+/// the state and this hook.
 ///
 /// # Precedence
 ///
@@ -606,17 +605,12 @@ fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
 /// # Read-only
 ///
 /// A physfs mount is read-only, so `lovr.filesystem.write` cannot modify a
-/// file in a module root. What a session writes goes to the save directory
-/// `lovr.filesystem.setIdentity` establishes. That directory is mounted ahead
-/// of everything else when `conf.saveprecedence` is left at LÖVR's default of
-/// true; the shipped `conf.luau` turns it off, and `docs/dev/stdlib.md` records
-/// why.
+/// file in a module root. Writes go to the save directory, whose precedence
+/// `docs/dev/stdlib.md` records.
 ///
-/// Optional roots are omitted when their source directory is absent. A missing
-/// required root is still passed to LÖVR, and its failed mount is logged; a
-/// configuration that does not require that root can continue to safe mode.
-/// The development-only `@spec` root is therefore available in a development
-/// tree without ever becoming an installed requirement.
+/// Optional roots are omitted when absent. A missing required root is still
+/// passed to LÖVR and its failed mount logged, so a configuration that does
+/// not require it can still reach safe mode.
 ///
 /// # Safety
 ///

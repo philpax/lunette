@@ -208,9 +208,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       error('rules: a source resolver is a function, not a ' .. type(resolve), 2)
     end
 
-    -- A name names one registration. Replacing another owner's source would
-    -- end a resource that owner still holds, so a duplicate raises; an owner
-    -- replaces its own source by disposing it first.
+    -- Replacing another owner's source would end a resource that owner still holds, so a duplicate raises.
     for _, previous in ipairs(state.sources) do
       if previous.name == name then
         error("rules: a source named '" .. name .. "' is already registered", 2)

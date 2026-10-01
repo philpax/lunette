@@ -1,9 +1,5 @@
-//! Registers the checked-in Lua roots as module loaders for a test state.
-//!
-//! A harness that names each module it loads must be edited whenever a
-//! provider is split into another file. Walking the roots registers every
-//! module under the name the runtime resolves it by, so a harness lists only
-//! the fakes and fixtures that are its own.
+//! Registers the checked-in Lua roots as module loaders for a test state, so a
+//! harness lists only its own fakes and fixtures.
 
 use std::{fs, path::Path};
 
@@ -17,10 +13,8 @@ const ROOTS: [(&str, &str); 4] = [
     ("lua/lunette-desktop", "@lunette-desktop"),
 ];
 
-/// Sets a loader in `loaders` for every Lua module under the shipped roots.
-///
-/// An `init.luau` is registered under its directory's name, as the runtime
-/// resolves it.
+/// Sets a loader in `loaders` for every Lua module under the shipped roots,
+/// with an `init.luau` named for its directory.
 pub fn register(lua: &Lua, loaders: &Table) -> mlua::Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (directory, alias) in ROOTS {

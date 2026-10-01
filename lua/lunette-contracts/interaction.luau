@@ -1,15 +1,8 @@
--- The interaction service contract.
+-- The interaction service contract: owner-scoped pointers that press, scroll, grab, and carry surfaces.
 --
--- Creating a pointer is owner-scoped because the provider owns its pointer
--- registry and the native sinks a pointer can drive. A pointer is driven
--- frame by frame with update, or through its primitives, and it presses,
--- scrolls, grabs, and carries the surfaces it is given.
---
--- A provider of this contract emits a drop through lunette/drops whenever a
--- grab ends while it is live, and gives keyboard focus through lunette/focus.
--- Pose memory, the arrangement save, and the arrangement of unplaced windows
--- hear drops only through lunette/drops, so a replacement that does not emit
--- them loses all three without an error.
+-- A provider must emit a drop through lunette/drops whenever a grab ends and give focus through
+-- lunette/focus; pose memory and the arrangement save hear drops only there, so a replacement that does not
+-- emit them loses both silently.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -28,9 +21,7 @@ export type ButtonState = vocabulary.ButtonState
 export type Push = vocabulary.Push
 export type Haptic = vocabulary.Haptic
 
--- What newPointer takes. `vibrate` pulses the device that drives the
--- pointer, and is what Pointer:vibrate calls; a pointer made without one
--- answers false. The laser supplies it for the controller of its hand.
+-- What newPointer takes. `vibrate` is what Pointer:vibrate calls; a pointer made without one answers false.
 export type PointerOptions = {
   read seat: lunette.Seat?,
   read tuning: Tuning?,

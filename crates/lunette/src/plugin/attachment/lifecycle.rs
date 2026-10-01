@@ -1,10 +1,9 @@
 //! Runtime graph execution: requests, drains, loads, unloads, and failure
 //! reporting for the plugin attachment.
 //!
-//! Requests apply to the graph immediately, in the order they are made, and
-//! return the graph's rejection to the caller. Planning is derived from graph
-//! state, so a request made while a drain is running is picked up by that
-//! drain, and work a drain does not reach is found by the next one.
+//! Requests apply to the graph immediately and return its rejection to the
+//! caller. Planning derives from graph state, so a drain picks up requests
+//! made while it runs, and the next drain finds work this one did not reach.
 
 use std::{
     cell::RefCell,
@@ -135,12 +134,9 @@ pub(super) fn instance_diagnostic(
     state.instances.get(&id)?.last_diagnostic.clone()
 }
 
-/// Performs lifecycle work until the graph has none, or until the action
-/// budget is spent.
-///
-/// The budget scales with the number of installed instances. It exists to
-/// stop a defect from looping forever; reaching it reports an error and
-/// leaves the remaining work in the graph for the next drain.
+/// Performs lifecycle work until the graph has none or the action budget is
+/// spent. The budget, which scales with the instance count, stops a defect
+/// from looping forever.
 pub(super) fn drain_runtime(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
@@ -549,11 +545,8 @@ fn validate_service(value: &Value, fields: &[DeclarationField]) -> Result<(), Pr
     Ok(())
 }
 
-/// Moves graph diagnostics onto their instances and reports them.
-///
-/// A waiting condition, such as a consumer enabled before its provider, is
-/// logged at information level. Anything that needs the configuration to
-/// change is reported as a failure.
+/// Moves graph diagnostics onto their instances and reports them: a waiting
+/// condition is logged, and one that needs a configuration change is a failure.
 fn publish_diagnostics(lua: &Lua, runtime: &Rc<RefCell<RuntimeState>>) {
     let diagnostics = runtime.borrow_mut().graph.take_diagnostics();
     for diagnostic in diagnostics {

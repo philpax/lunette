@@ -1,11 +1,6 @@
--- Persistent arrangement state outlives provider activations, while each provider
--- binding owns only the source and listeners registered for that activation.
---
--- A binding saves when its caller asks: the desktop saves when a grab drops a
--- panel and again at quit. Its rules source and its arrival listener read the arrangement last
--- loaded or saved. A window holds its saved slot from its panel's creation
--- until the window dies, and a monitor panel that appears after the binding is
--- restored as it appears.
+-- Persistent arrangement state that outlives provider activations; each binding owns only its activation's
+-- source and listeners. A binding saves when asked, the desktop asking on a drop and at quit. A window holds
+-- its saved slot from its panel's creation until it dies.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -27,20 +22,14 @@ export type Filesystem = {
   write: (string, string) -> boolean,
   getSaveDirectory: () -> string,
 }
--- How an arrangement is written as text and read back. `read` answers a load
--- that format.arrangement, format.fromTheFuture, format.broken, or
--- format.empty made, and `render` the text of an arrangement newFile made.
--- A format keeps its own version: a reader answers fromTheFuture for a
--- version it cannot represent, so a file it cannot write back whole is left
--- alone rather than written over.
+-- How an arrangement is written as text and read back. A reader answers fromTheFuture for a version it
+-- cannot represent, so a file it could not write back whole is left alone.
 export type Format = {
   read read: (unknown) -> format.Loaded,
   read render: (format.File) -> string,
 }
--- What a persistence state is made from. `file` names the file in the save
--- directory, by default FILE; `format` reads and renders it, by default this
--- module's own; and `keyFor` answers the identity a window or monitor is
--- saved under, by default slots.defaultKey.
+-- What a persistence state is made from: the save-directory `file`, its `format`, and `keyFor`, the
+-- identity a window or monitor is saved under.
 export type Dependencies = {
   read filesystem: Filesystem?,
   read report: ((string) -> ())?,
@@ -133,10 +122,8 @@ function persist.path(filesystem: Filesystem?, file: string?): string
   return selected.getSaveDirectory() .. '/' .. (file or FILE)
 end
 
--- A rules source over one file. Resolving is a pure query: a window answers
--- the slot it holds in held, or the lowest slot no live window holds, and
--- resolving never takes a slot. A window takes its slot when it is held. With
--- no slots given, no window holds one.
+-- A rules source over one file. Resolving is pure: a window answers the slot it holds, or the lowest free
+-- one, and takes a slot only when held.
 function persist.source(file: format.File, held: slots.Slots?): (lunette.Window) -> rulesContract.Properties?
   local available = arrangements.slotsFor(file)
   local holding = held or slots.new()
@@ -186,9 +173,8 @@ local function deactivate(binding: BindingState): ()
   end
 end
 
--- Reads the file through the format, as a load. A reader that raises or
--- answers something that is not a load makes a broken load, so the file is
--- left alone.
+-- Reads the file through the format. A reader that raises or answers a non-load makes a broken load, so the
+-- file is left alone.
 local function load(chosen: Format, text: string): format.Loaded
   local ok, answered = pcall(chosen.read, text)
   if not ok then
@@ -246,9 +232,8 @@ function persist.new(dependencies: Dependencies?): State
     report(message)
   end
 
-  -- A saved entry nothing matched is reported once for each file loaded or
-  -- saved: every restore and every binding finds it again. Weak keys, so a
-  -- replaced arrangement's entries are not retained.
+  -- An unmatched saved entry is reported once per file loaded or saved. Weak keys, so a replaced
+  -- arrangement's entries are not retained.
   local reportedStale: { [Entry]: boolean } = setmetatable({} :: { [Entry]: boolean }, { __mode = 'k' })
   local function restore(context: plugin.Context, panels: panelsContract.Service, tags: tagsContract.Service): number
     local restored, stale = arrangements.restore(report, held, context, panels, tags, arrangement)
@@ -294,9 +279,7 @@ function persist.new(dependencies: Dependencies?): State
         addedEffect = nil,
         ownerEffect = nil,
       }
-      -- The source and the arrival listener read the arrangement when they
-      -- run, so a save made through this binding reaches the windows and
-      -- monitors that appear after it.
+      -- Read when they run, so a save through this binding reaches windows that appear after it.
       local cachedFile: format.File? = nil
       local cachedSlots: { [string]: Entry } = {}
       local function available(): { [string]: Entry }

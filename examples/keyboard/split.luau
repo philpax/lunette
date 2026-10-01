@@ -111,9 +111,7 @@ local numpad: { keyboard.KeyRow } = {
   },
 }
 
--- When each key was last pressed, by the row entry it was made from. The
--- entry is the same table for as long as the keyboard shows the same rows, so
--- it identifies a key from one frame to the next.
+-- When each key was last pressed, by the row entry it was made from, which identifies a key across frames.
 local pressedAt: { [keyboard.Key]: number } = setmetatable({}, { __mode = 'k' })
 
 return keyboard.define {

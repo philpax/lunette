@@ -1,11 +1,5 @@
--- The placement provider: windows placed as panels, by resolved properties.
---
--- `panelOptions(properties, window, base)` is an around hook that answers the
--- options a window's panel is made with, and `base` maps pose, width, height,
--- title, priority, chrome, and curve. A hook that forwards a property of its
--- own, such as a curve chosen by a window's title, calls `base` and adds to
--- what it answers. Hiding and tags are not panel options: placement applies
--- `hidden` and `tags` itself after the panel is made.
+-- The placement provider: windows placed as panels, by resolved properties. The `panelOptions` around hook
+-- is in docs/dev/lua-api.md#rules-and-placement; `hidden` and `tags` are applied after the panel is made.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'

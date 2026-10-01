@@ -60,18 +60,14 @@ pub enum Intent {
 pub enum Action {
     /// Load the instance and give it the exact provider generations allocated by the graph.
     BeginLoad {
-        /// The instance to load.
         instance: InstanceId,
-        /// The unique load attempt.
         activation: ActivationId,
         /// Requirements in deterministic contract order.
         bindings: Vec<Binding>,
     },
     /// Clean up the instance's current attachment.
     BeginUnload {
-        /// The instance to clean up.
         instance: InstanceId,
-        /// The activation being cleaned up.
         activation: ActivationId,
     },
 }
@@ -102,11 +98,8 @@ pub enum LoadResolution {
 /// The state visible to a reader that needs the exact attachment token.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttachmentState {
-    /// The attachment is being loaded.
     Loading,
-    /// The attachment is published.
     Active,
-    /// The attachment is being cleaned up.
     Unloading,
 }
 
@@ -115,22 +108,18 @@ pub enum AttachmentState {
 pub struct AttachmentView {
     /// The lifecycle state for which this view is valid.
     pub state: AttachmentState,
-    /// The unique activation token.
     pub activation: ActivationId,
     /// The exact provider generations allocated at load start.
     pub bindings: Vec<Binding>,
-    /// The published provider generation for this instance, if it is active.
     pub generation: Option<ProviderGeneration>,
 }
 
 /// Pure, deterministic lifecycle graph state.
 ///
-/// The graph does not run plugin code. The coordinator installs descriptors,
-/// applies intents, performs returned actions, and reports their completion.
-/// A load action is an allocation proposal, not publication: the graph checks
-/// the intent and every provider generation again in [`Graph::complete_load`].
-/// This is the boundary that prevents a reentrant disable or reload from
-/// exposing a transient consumer.
+/// The coordinator performs the actions it returns. A load action is only an
+/// allocation proposal: [`Graph::complete_load`] rechecks the intent and every
+/// provider generation, so a reentrant disable or reload cannot publish a
+/// transient consumer.
 #[derive(Debug, Default)]
 pub struct Graph {
     pub(super) instances: BTreeMap<InstanceId, Instance>,
@@ -143,19 +132,15 @@ pub struct Graph {
 }
 
 impl Graph {
-    /// Creates an empty graph.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Installs a descriptor. Installation reserves nothing and does not
-    /// enable or load the instance.
+    /// Installs a descriptor without reserving, enabling, or loading it.
     ///
-    /// A parent must be installed, not retired, and hold a loading or active
-    /// attachment: a child belongs to that activation and is retired when the
-    /// activation ends, whether it ends by unloading, failing, or being
-    /// cancelled.
+    /// A parent must hold a loading or active attachment. The child is retired
+    /// when that activation ends.
     pub fn install(
         &mut self,
         mut required: Vec<ContractKey>,
@@ -211,12 +196,10 @@ impl Graph {
 
     /// Applies an intent.
     ///
-    /// Enable and reload reserve every provided contract: they are rejected
-    /// when another enabled instance or a quarantined instance provides the
-    /// same name and schema. Enable and reload of a retired or quarantined
-    /// instance are rejected. Disable, reload, and dispose condemn a live
-    /// attachment, so a disable followed by an enable restarts the instance
-    /// rather than cancelling each other.
+    /// Enable and reload reserve every provided contract and are rejected on a
+    /// conflicting provider or a retired or quarantined instance. Disable,
+    /// reload, and dispose condemn a live attachment, so a disable then an enable
+    /// restarts the instance.
     pub fn request(&mut self, intent: Intent) -> Result<(), GraphError> {
         let instance = match intent {
             Intent::Shutdown => {
@@ -266,10 +249,9 @@ impl Graph {
 
     /// Reports the outcome of the exact load action returned by [`Self::next_action`].
     ///
-    /// A failed or cancelled load must already be rolled back. A rejected
-    /// success keeps its allocation; the coordinator rolls it back and reports
-    /// [`LoadOutcome::Cancelled`], or quarantines it with
-    /// [`Self::mark_cleanup_failed`] first if an inverse fails.
+    /// A failed or cancelled load must already be rolled back. A rejected success
+    /// keeps its allocation for the coordinator to roll back and report as
+    /// [`LoadOutcome::Cancelled`].
     pub fn complete_load(
         &mut self,
         instance: InstanceId,
@@ -307,11 +289,8 @@ impl Graph {
 
     /// Records that an inverse of a live allocation failed.
     ///
-    /// The allocation is quarantined when it ends: the instance never loads
-    /// again and keeps its contract reservations until shutdown completes. A
-    /// loading allocation is not published. An active one keeps serving until
-    /// something unloads it, when its remaining inverses run in the usual
-    /// order. Repeated marks are idempotent.
+    /// The instance is quarantined when the allocation ends: it never loads again
+    /// and keeps its reservations until shutdown. Repeated marks are idempotent.
     pub fn mark_cleanup_failed(
         &mut self,
         instance: InstanceId,
@@ -357,30 +336,25 @@ impl Graph {
         Ok(())
     }
 
-    /// Returns the current lifecycle state for an installed instance.
     pub fn state(&self, instance: InstanceId) -> Result<LifecycleState, GraphError> {
         self.node(instance).map(|node| node.phase.state())
     }
 
-    /// Reports whether the graph still holds an instance.
     #[must_use]
     pub fn contains(&self, instance: InstanceId) -> bool {
         self.instances.contains_key(&instance)
     }
 
-    /// Returns the number of installed instances.
     #[must_use]
     pub fn len(&self) -> usize {
         self.instances.len()
     }
 
-    /// Reports whether the graph holds no instances.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.instances.is_empty()
     }
 
-    /// Returns the persistent enabled and retired intent for an instance.
     pub fn intent_state(&self, instance: InstanceId) -> Result<IntentState, GraphError> {
         self.node(instance).map(|node| node.intent)
     }
@@ -406,9 +380,8 @@ impl Graph {
 
     /// Validates an attachment token and exact bindings for a callback or read.
     ///
-    /// This remains valid while an attachment is unloading, which lets the
-    /// coordinator keep read authority until cleanup completes without allowing
-    /// a new consumer to bind to that attachment.
+    /// An unloading attachment stays valid, so cleanup keeps read authority while
+    /// no new consumer can bind to it.
     pub fn validate_attachment(
         &self,
         instance: InstanceId,
@@ -427,9 +400,8 @@ impl Graph {
 
     /// Checks whether an exact allocation may acquire resources or publish services.
     ///
-    /// The allocation must be loading or active and must not be condemned,
-    /// directly or through a provider or parent that will unload. Read
-    /// authority during unloading is separate from this lifecycle check.
+    /// The allocation must be loading or active and not condemned, directly or
+    /// through a provider or parent.
     pub fn activation_is_valid(
         &self,
         instance: InstanceId,

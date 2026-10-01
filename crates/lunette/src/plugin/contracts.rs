@@ -1,9 +1,7 @@
 //! State-local contract identities, native capability tokens, and declarations.
 //!
-//! A [`ContractRegistry`] is explicitly shared by the runtimes that belong to
-//! one Lua state epoch. Lua receives only [`ContractToken`] userdata created by
-//! native code. A declaration is copied into [`ValidatedDeclaration`] before
-//! the graph sees it, so the graph never retains a mutable Lua table.
+//! Lua sees only native [`ContractToken`] userdata, and a declaration is
+//! copied into a [`ValidatedDeclaration`] so the graph never retains a Lua table.
 
 use std::{
     cell::{Cell, RefCell},
@@ -25,11 +23,8 @@ pub struct ContractName {
 }
 
 impl ContractName {
-    /// Creates an authority-qualified contract name.
-    ///
-    /// The slash form is used when the name is rendered. Neither component
-    /// may contain a slash, because accepting one would make qualification
-    /// ambiguous.
+    /// Creates an authority-qualified contract name. Neither component may
+    /// contain a slash, which would make the qualified form ambiguous.
     pub fn new(
         authority: impl Into<String>,
         name: impl Into<String>,
@@ -50,19 +45,16 @@ impl ContractName {
         Self::new(authority, name)
     }
 
-    /// Returns the authority that owns this contract name.
     #[must_use]
     pub fn authority(&self) -> &str {
         &self.authority
     }
 
-    /// Returns the authority-local part of this contract name.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Returns the authority-qualified spelling of this name.
     #[must_use]
     pub fn qualified(&self) -> String {
         format!("{}/{}", self.authority, self.name)
@@ -86,17 +78,14 @@ impl ContractSchema {
         NonZeroU64::new(value).map(Self)
     }
 
-    /// Returns the positive schema number.
     #[must_use]
     pub fn get(self) -> u64 {
         self.0.get()
     }
 }
 
-/// An opaque identifier for a declared contract.
-///
-/// IDs are meaningful only with the registry epoch that produced them. The
-/// fields stay private so Lua and graph callers cannot manufacture one.
+/// An opaque identifier for a declared contract, meaningful only within the
+/// registry epoch that produced it.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ContractId {
     epoch: u64,
@@ -104,13 +93,11 @@ pub struct ContractId {
 }
 
 impl ContractId {
-    /// Returns the epoch in which this ID was declared.
     #[must_use]
     pub fn epoch(self) -> u64 {
         self.epoch
     }
 
-    /// Returns the registry-local ordinal of this ID.
     #[must_use]
     pub fn ordinal(self) -> u64 {
         self.ordinal
@@ -119,10 +106,7 @@ impl ContractId {
 
 /// A native token that names one contract declaration.
 ///
-/// The userdata deliberately registers no fields or methods. Its contents are
-/// private Rust state, and every use must pass through the registry that made
-/// it. A token is therefore not a Lua table, a user-created record, or a bare
-/// integer that Lua can forge.
+/// The userdata registers no fields or methods, so Lua cannot read or forge one.
 #[derive(Clone)]
 pub struct PluginContractToken {
     registry: Weak<RegistryInner>,
@@ -131,7 +115,6 @@ pub struct PluginContractToken {
     identity: ContractIdentity,
 }
 
-/// The native token type used by the contract registry.
 pub type ContractToken = PluginContractToken;
 
 impl fmt::Debug for PluginContractToken {
@@ -164,13 +147,11 @@ impl ValidatedDeclaration {
         self.bindings.iter().map(|(name, id)| (name.as_str(), *id))
     }
 
-    /// Returns the number of declared bindings.
     #[must_use]
     pub fn len(&self) -> usize {
         self.bindings.len()
     }
 
-    /// Returns whether the declaration contains no bindings.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.bindings.is_empty()
@@ -314,12 +295,7 @@ impl fmt::Display for ContractError {
 
 impl Error for ContractError {}
 
-/// A registry shared by the runtimes in one state epoch.
-///
-/// Cloning this value shares the registry. Constructing a second registry does
-/// not share declarations, even when both registries declare the same identity.
-/// The coordinator owns one value per Lua state and may clone it into the
-/// runtime objects associated with that state.
+/// A registry shared by the runtimes in one state epoch. Cloning shares it.
 #[derive(Clone)]
 pub struct ContractRegistry {
     inner: Rc<RegistryInner>,
@@ -332,7 +308,6 @@ impl Default for ContractRegistry {
 }
 
 impl ContractRegistry {
-    /// Creates an empty registry at epoch one.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -346,17 +321,13 @@ impl ContractRegistry {
         }
     }
 
-    /// Returns the current registry epoch.
     #[must_use]
     pub fn epoch(&self) -> u64 {
         self.inner.epoch.get()
     }
 
-    /// Declares a new name/schema identity and returns its native token.
-    ///
-    /// The exact identity may be declared only once in an epoch. A different
-    /// schema is a different identity, while an epoch retirement permits the
-    /// old identity to be declared again.
+    /// Declares a new name/schema identity and returns its native token. An
+    /// identity may be declared once per epoch.
     pub fn declare(&self, name: ContractName, schema: u64) -> Result<ContractToken, ContractError> {
         let schema = ContractSchema::new(schema).ok_or(ContractError::InvalidSchema { schema })?;
         let identity = ContractIdentity { name, schema };
@@ -392,11 +363,8 @@ impl ContractRegistry {
         })
     }
 
-    /// Retires all tokens and declarations in the current epoch.
-    ///
-    /// The registry remains usable after retirement. The result is an error
-    /// only if the epoch number would overflow, which keeps stale epochs
-    /// distinguishable instead of wrapping into a live epoch.
+    /// Retires all tokens and declarations in the current epoch. The epoch
+    /// number never wraps, so a stale epoch cannot alias a live one.
     pub fn retire_epoch(&self) -> Result<(), ContractError> {
         let epoch = self.epoch();
         let Some(next_epoch) = epoch.checked_add(1) else {
@@ -471,10 +439,8 @@ impl ContractRegistry {
         Ok(())
     }
 
-    /// Returns every capability wrapper bound to this registry, in any epoch.
-    ///
-    /// The attachment records them when it replaces the registry, so a
-    /// wrapper from a retired epoch is named as retired rather than unbound.
+    /// Returns every capability wrapper bound to this registry, in any epoch, so
+    /// a wrapper from a retired epoch can be named as retired rather than unbound.
     #[must_use]
     pub fn bound_wrappers(&self) -> Vec<Table> {
         self.inner
@@ -499,12 +465,8 @@ impl ContractRegistry {
         self.bind_token(token, &wrapper)
     }
 
-    /// Validates and copies a Lua declaration record.
-    ///
-    /// The input must be a finite table whose keys are UTF-8 strings and whose
-    /// values are native contract token userdata or capability wrappers bound
-    /// to this registry's active epoch. The returned map owns every key and
-    /// contains IDs only.
+    /// Validates and copies a Lua declaration record whose keys are strings and
+    /// whose values are tokens or wrappers bound in the active epoch.
     pub fn validate_declaration(
         &self,
         value: Value,
@@ -558,10 +520,7 @@ impl ContractRegistry {
         Ok(ValidatedDeclaration { bindings })
     }
 
-    /// Creates Lua userdata for a token that was produced by this registry.
-    ///
-    /// This check keeps native call sites from accidentally exporting a token
-    /// after its registry epoch has been retired.
+    /// Creates Lua userdata for a token, refusing one from a retired epoch.
     pub fn token_value(&self, lua: &Lua, token: &ContractToken) -> Result<Value, ContractError> {
         self.validate_token(token)?;
         lua.create_userdata(token.clone())

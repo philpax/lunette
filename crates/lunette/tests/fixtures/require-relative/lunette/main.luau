@@ -1,19 +1,9 @@
--- Requires modules by relative path from a nested directory.
---
--- The checker resolves `./` and `../` against the requiring file, as Luau's
--- require-by-string rules say, and the session resolves them the same way.
--- Each module answers where it is, typed as a singleton, so the checker
--- reports a module that resolved to the wrong file, and the session quits with
--- a status naming the first assertion that did not hold.
---
--- The top-level `b.luau` is the file a session that resolved against the
--- configuration root would load for `nested/a.luau`'s `./b`. The module
--- `nested/a.luau` reaches as `./b` is the one `main.luau` reaches as
--- `./nested/b`, because both are cached under the resolved name.
+-- Requires modules by relative path from a nested directory. Each module answers where it is as a
+-- singleton type, so the checker reports a wrong resolution, and the session quits with a status naming
+-- the first failed assertion. The top-level `b.luau` is what a root-relative resolution of
+-- `nested/a.luau`'s `./b` would wrongly load.
 
--- The requires run under a protected call, so a module that does not
--- resolve quits with a status. An error at the top level would start safe
--- mode, which does not quit.
+-- Protected, because an error at the top level would start safe mode, which does not quit.
 local function modules()
   return require './nested/a', require './tools', require './b', require './nested/b'
 end

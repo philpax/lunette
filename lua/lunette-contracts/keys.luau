@@ -1,20 +1,6 @@
--- Keyboard vocabulary: what the native seat and sink API's evdev codes are
--- called, which of them are modifiers, and how LÖVR's desktop key names map
--- onto them.
---
--- An evdev keycode names a position on a keyboard and not a letter. Keycode
--- 30 is the first key of the home row on every layout, and what it types
--- belongs to the layout. The names here name positions, and a seat's keymap
--- names letters.
---
--- The names and codes are the runtime's: `lunette.keyCodes()` answers them,
--- and `lunette.lockingModifierNames()` and `lunette.modifierNames()` answer
--- the modifier sets. A copy here would go stale the moment the runtime's set
--- changed. What this module adds is policy several consumers agree on: which
--- key latches which modifier, and the LÖVR translation.
---
--- The module holds no state and starts nothing, so a reload leaves nothing
--- behind.
+-- Keyboard vocabulary: evdev code names, which of them are modifiers, and how LÖVR's desktop key names map
+-- onto them. The names name positions, not letters, and the names and codes come from the runtime; this
+-- module adds the policy consumers share. It holds no state.
 
 local lunette = require '@lunette'
 
@@ -27,11 +13,8 @@ export type Codes = { [lunette.KeyName]: number }
 local codes: Codes = table.freeze(lunette.keyCodes())
 keys.CODES = codes
 
--- Which modifier each modifier key latches, by evdev code.
---
--- A key here latches and sends nothing on an on-screen keyboard. The names are
--- the set `sink:modifiers` takes. Right alt is `mod5`, the level-three shift
--- that AltGr selects on the layouts that have one.
+-- Which modifier each modifier key latches, by evdev code. Right alt is `mod5`, the level-three shift AltGr
+-- selects.
 local modifierKeys: { [number]: string } = {
   [codes.leftShift] = 'shift',
   [codes.rightShift] = 'shift',
@@ -52,8 +35,7 @@ for _, name in ipairs(lunette.lockingModifierNames()) do
 end
 keys.LOCKS = table.freeze(locks)
 
--- The order modifiers are reported in. A fixed order keeps the order a client
--- receives independent of table iteration order.
+-- The order modifiers are reported in, independent of table iteration.
 keys.MODIFIER_ORDER = table.freeze(lunette.modifierNames())
 
 -- LÖVR's names for the desktop keys that type no text, as evdev codes. A
@@ -84,9 +66,8 @@ export type LovrModifier = {
   read modifier: string,
 }
 
--- The modifiers a desktop keyboard holds, by the LÖVR keys that hold them.
--- Shift is not listed: typed text reaches a sink through the seat's stroke for
--- each character, and that stroke carries its own shift.
+-- The modifiers a desktop keyboard holds, by the LÖVR keys that hold them. Shift is omitted because each
+-- character's seat stroke carries its own.
 local lovrModifiers: { LovrModifier } = {
   { keys = { 'lctrl', 'rctrl' }, modifier = 'control' },
   { keys = { 'lalt', 'ralt' }, modifier = 'alt' },

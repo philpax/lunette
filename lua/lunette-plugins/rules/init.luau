@@ -1,8 +1,5 @@
--- The rules provider: window placement policy as ordered sources.
---
--- `precedence` is the precedence a rule set takes when it names none, by
--- default vocabulary.PRECEDENCE.rules. The provider requires no other
--- contract; lunette/placement turns resolved properties into panels.
+-- The rules provider: window placement policy as ordered sources. `precedence` is a rule set's default,
+-- by default vocabulary.PRECEDENCE.rules.
 local plugin = require '@lunette-plugin'
 local rules = require '@lunette-contracts/rules'
 local vocabulary = require '@lunette-contracts/vocabulary'

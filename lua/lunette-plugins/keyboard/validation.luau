@@ -1,10 +1,6 @@
--- Checks the keyboard options the generic option validation cannot see into.
---
--- Rows and layers are lists, and a list replaces its default wholesale, so
--- the facade checks only that each is a table. A misspelt key field, a key
--- with both a code and an action, or an action naming a layer that does not
--- exist would otherwise draw nothing or do nothing, so each is raised here,
--- naming the option by its path.
+-- Checks the keyboard options the generic validation cannot see into: rows and layers replace their
+-- defaults wholesale, so misspelt fields, keys with both a code and an action, and unknown layers are
+-- raised here, naming the option by its path.
 
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'

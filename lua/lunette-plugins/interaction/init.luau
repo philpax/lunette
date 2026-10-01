@@ -1,22 +1,8 @@
 -- Owner-scoped pointer interaction with activation-local grab state.
 --
--- A pointer is a resource of the owner that asked for it. Its release runs as
--- an inverse on that owner, so a native release that fails is the owner's
--- failure, not this provider's. A pointer gives keyboard focus through the
--- focus contract and announces the end of each grab through the drops
--- contract; both are held by this provider's own context, inside the
--- pointer's owner's lifetime.
---
--- `tuning` sets the default reach, dead zones, and scroll and resize scales; a
--- pointer's own options override it. `focusOnPress` gives a seat's keyboard to
--- the sink a pointer presses. `drive` and `constrain` are around hooks: each
--- receives its arguments and then the default, and calls the default to keep
--- it. `drive(pointer, input, surfaces, base)` maps one frame of input onto the
--- pointer's primitives; the default grips to grab, pushes a grabbed surface
--- along the ray with the stick, scales with a second grip, and presses the
--- buttons the input holds. `constrain(surface, pose, base)` answers the pose a
--- carried surface takes for the pose the hand would give it; the default
--- answers the pose unchanged.
+-- A pointer's release runs as an inverse on its owner, so a failing native release is the owner's failure.
+-- Focus and drops are held by this provider's context within the pointer owner's lifetime. The options and
+-- the `drive` and `constrain` around hooks are in docs/dev/lua-api.md#pointers-and-interaction.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/interaction'
@@ -37,8 +23,7 @@ export type Drive = (Pointer, contracts.Input, { Surface }, DriveBase) -> ()
 export type ConstrainBase = (Surface, Mat4) -> Mat4
 export type Constrain = (Surface, Mat4, ConstrainBase) -> Mat4
 
--- The resolved options. Each activation receives its own frozen copy, so no
--- consumer can retune another's pointers.
+-- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read tuning: contracts.Tuning,
   read focusOnPress: boolean,
@@ -84,8 +69,7 @@ type State = {
   pressedSurface: { [lunette.PointerButton]: Surface },
 }
 
--- The fields a pointer answers. Everything else of a pointer's state is the
--- provider's bookkeeping.
+-- The fields a pointer answers; the rest of its state is the provider's bookkeeping.
 local READABLE: { [string]: boolean } = {
   seat = true,
   tuning = true,
@@ -116,9 +100,8 @@ local function build(context: plugin.Context, settings: Settings): Service
   local states: { [Pointer]: State } = {}
   local dropService: dropsContract.Service = context:require(dropsContract.capability)
   local focusService: focusContract.Service = context:require(focusContract.capability)
-  -- The pointer that last gave each seat's focus, and the grant it gave it
-  -- through. A pointer that ends withdraws a grant only while it is the last
-  -- to have given it.
+  -- The pointer that last gave each seat's focus, with its grant. A pointer that ends withdraws a grant only
+  -- while it is the last to have given it.
   local grantors: { [unknown]: State } = {}
   local grants: { [unknown]: plugin.Effect } = {}
 
@@ -474,8 +457,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     return public
   end
-  -- Owners unload before this provider, so their pointers have normally ended
-  -- already. Anything left is released here.
+  -- Owners unload before this provider, so this releases only stragglers.
   context:effect(function()
     return function()
       active = false
@@ -486,9 +468,8 @@ local function build(context: plugin.Context, settings: Settings): Service
       table.clear(grants)
     end
   end)
-  -- The published service is revoked with this activation, so its methods
-  -- need no liveness guard. Pointers outlive the call that made them and
-  -- check the activation themselves.
+  -- The published service is revoked with this activation, so its methods need no liveness guard; pointers
+  -- outlive the call that made them and check the activation themselves.
   return {
     TUNING = TUNING,
     newPointer = function(_self: Service, owner: contracts.Owner, options: contracts.PointerOptions?): Pointer

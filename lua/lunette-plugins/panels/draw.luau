@@ -1,8 +1,5 @@
--- Drawing one panel: its content on the flat quad or the arc a curve gives,
--- and the border and title of a panel whose chrome is on.
---
--- The functions take what they read rather than a panel's host, so the panel
--- module can require this one without a cycle.
+-- Drawing one panel: its content on the flat quad or the arc, and its chrome. It takes what it reads rather
+-- than the panel's host, so panel.luau can require it without a cycle.
 
 local lunette = require '@lunette'
 local contracts = require '@lunette-contracts/panels'

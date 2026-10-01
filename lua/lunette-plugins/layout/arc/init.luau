@@ -1,13 +1,6 @@
--- The arc layout: registers a layout with the layouts broker that poses panels
--- on an arc in front of a centre.
---
--- The module answers `definition`, the shipped registration; `define`, which
--- makes another with other defaults; and `requires`, what the registration
--- needs. Its options are `layout`, the name it registers under, and `tuning`,
--- the radius, minimum angular step, total span, gap between panel edges, and
--- centre that `@lunette-plugins/layout/arc/geometry` lays panels out with.
--- The options a caller passes to `layouts:apply` are a tuning of their own,
--- every field optional, merged over the configured one for that call.
+-- The arc layout: registers a layout that poses panels on an arc in front of a centre. Its options are
+-- `layout`, the registered name, and `tuning`, which `@lunette-plugins/layout/arc/geometry` takes; a call's
+-- options to `layouts:apply` merge over the tuning.
 
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'

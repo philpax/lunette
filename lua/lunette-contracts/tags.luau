@@ -1,39 +1,6 @@
--- The tag service contract.
---
--- Tag creation registers caller-owned state even though it acquires no native
--- handle. Membership borrows panels rather than owning their lifetimes.
---
--- A tag is made in one of two ways. new makes a tag that belongs to its
--- caller: the name is the caller's alone, a second new of it raises, and the
--- tag ends when that owner unloads or calls destroy with itself as the
--- owner; destroy by another owner, or of a held tag, raises. hold answers the tag of that name,
--- making it when there is none, and holds it for the caller: a tag hold made
--- lasts while any owner holds it, so several plugins that need one tag need
--- not agree on which of them makes it, or in which order they start. Holding
--- a tag that new made borrows it and does not extend its life. The options
--- of new and hold apply only when the call makes the tag.
---
--- Every change to a tag names the owner making it and lasts as long as that
--- owner. add holds a membership for the owner, and exclude holds an
--- exclusion: a panel is a member while any owner holds its membership and no
--- owner holds an exclusion of it, so a plugin moves a window that another
--- plugin added out of a tag by excluding it. remove drops the owner's own
--- hold, and the owner of a tag that new made may drop every hold.
--- setSelected and setLayout set the owner's override; the most recent
--- override that is still live decides a tag's selection or layout, and a tag
--- with none has the value it was made with.
---
--- A tag's layout is the name of a layout in the lunette/layouts broker, or
--- nil. The tags service does not resolve it: whatever arranges a tag looks
--- the name up, so a tag depends on no layout.
---
--- onChanged hears every tag, or only the tag it names. A change is announced
--- after it is made: a tag being made or ending, its selection or layout
--- changing, and its members changing because an owner added, removed, or
--- excluded one. A panel that dies leaves its tags without an announcement;
--- the panels contract's onRemoved announces it. A listener is owner-scoped,
--- runs under its own protected call, and its error is reported through
--- lunette.reportError.
+-- The tag service contract: owner-scoped groups of borrowed panels. A tag is owned through `new` or shared
+-- through `hold`, and every membership, exclusion, selection, and layout change lasts as long as the owner
+-- that made it. A tag's layout is a name the layouts broker resolves. See docs/dev/lua-api.md#tags.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'

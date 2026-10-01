@@ -1,17 +1,6 @@
--- Borders and title bars for the desktop's panels.
---
--- The consumer decorates every panel the panels provider announces through
--- onAdded, and forgets it on onRemoved. Each decoration is a border behind
--- the panel, lit while a pointer hovers the panel or its bar, and a title bar
--- above it with the window's title or the monitor's name. The bars are
--- offered to pointers as the `desktop/decorations` surfaces: grabbing a bar
--- and dragging it moves its panel, and a bar stands for its panel's window or
--- monitor, so a drop of a bar is heard as a drop of the panel. A hidden panel
--- is not decorated, and neither is one that draws its own chrome.
---
--- `style` sets the bar's height and colours, the gap between the bar and the
--- panel, the border's thickness, depth behind the panel, and colours, and the
--- title's height and colour.
+-- Borders and title bars for the desktop's panels, from the panels provider's onAdded and onRemoved. A bar
+-- is offered as a `desktop/decorations` surface that moves its panel when dragged and stands for the panel
+-- in a drop. Hidden panels and panels with their own chrome are not decorated.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'

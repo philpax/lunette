@@ -16,11 +16,8 @@ use crate::plugin::{
     graph::{ActivationId, ContractKey, Graph, InstanceId},
 };
 
-/// Receives plugin failures that happen while lifecycle work drains.
-///
-/// The session installs one that logs the failure and notifies every
-/// `lunette.onError` listener, which is the path a configuration callback's
-/// error takes. Without one, a failure is logged.
+/// Receives plugin failures that happen while lifecycle work drains. Without
+/// one, a failure is only logged.
 pub type Reporter = Rc<dyn Fn(&Lua, &PluginFailure)>;
 
 pub(super) struct AttachmentHost {

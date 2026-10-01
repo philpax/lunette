@@ -1,11 +1,5 @@
--- Panel rendering, and the panels offered to pointers.
---
--- The consumer updates and draws every panel in the scene phase. Offering the
--- shown panels as the `desktop/panels` surfaces is a child plugin of its own,
--- so an outage of the surfaces provider stops pointing at panels and leaves
--- them updating and drawing; the child loads again when a surfaces provider
--- returns. Pointing is a separate consumer, so a laser or interaction outage
--- leaves rendering alone too. The consumer takes no options.
+-- Panel rendering, and the panels offered to pointers. Offering is a child plugin, so a surfaces outage stops
+-- pointing but leaves panels updating and drawing.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'

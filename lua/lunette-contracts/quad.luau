@@ -1,9 +1,5 @@
--- Pure ray intersection with a flat quad.
---
--- The calculation depends on no provider, panel, or native resource. It is
--- neutral vocabulary rather than a panels-provider method so a surface that is
--- not a panel, such as a keyboard or a wrist button, picks with the same
--- geometry without requiring the panels contract.
+-- Pure ray intersection with a flat quad, kept out of the panels provider so a keyboard or wrist button
+-- picks with the same geometry.
 
 local quad = {}
 
@@ -16,9 +12,8 @@ export type Quad = {
   read backFace: boolean?,
 }
 
--- Returns the pixel coordinate and the distance along the ray, or nothing.
--- The pixel origin is the quad's top-left corner. A surface's pixels start
--- there, and `sink:pointer` uses the same origin.
+-- Returns the pixel coordinate, from the top-left as `sink:pointer` takes it, and the distance along the ray,
+-- or nothing.
 function quad.hit(target: Quad, origin: vector, direction: vector): (number?, number?, number?)
   if target.width <= 0 or target.height <= 0 or target.pixelWidth <= 0 or target.pixelHeight <= 0 then
     return nil, nil, nil
@@ -51,8 +46,7 @@ function quad.hit(target: Quad, origin: vector, direction: vector): (number?, nu
     return nil, nil, nil
   end
 
-  -- The coordinates convert from metres to pixels. The vertical axis flips:
-  -- the quad's +y is up and a surface's +y is down.
+  -- The quad's +y is up and a surface's +y is down.
   local pixelX = (hitX + halfWidth) / target.width * target.pixelWidth
   local pixelY = (halfHeight - hitY) / target.height * target.pixelHeight
   return pixelX, pixelY, distance

@@ -1,10 +1,5 @@
--- Desktop keyboard input: keys and text to the focused seat.
---
--- Keys and text go to the sink lunette/focus answers, in the frame
--- provider's delivery phase, so a press a binding consumed in the binding
--- phase never arrives here. The consumer does not require lunette/bindings:
--- the bindings provider takes its presses itself, so an outage of it leaves
--- typing working. The consumer takes no options.
+-- Desktop keyboard input: keys and text to the focused seat in the delivery phase, after bindings consume
+-- theirs. It does not require lunette/bindings, so a bindings outage leaves typing working.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
@@ -28,8 +23,7 @@ return plugin.define {
     plugin.options { name = 'desktop/input', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
     local service: focus.Service = context:require(focus.capability)
-    -- The focused seat and sink, or nothing when either has died since focus
-    -- was given: a handle does not survive its native object.
+    -- The focused seat and sink, or nothing when either has died since focus was given.
     local function focused(): (lunette.Seat?, lunette.Sink?)
       local seat, sink = service:focused()
       if not seat or seat.dead or not sink or sink.dead then

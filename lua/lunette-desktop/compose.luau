@@ -1,11 +1,5 @@
--- The desktop's entry list and the patches applied to it.
---
--- An entry is a definition, or a factory that makes one, under an id, with
--- the configuration it is used with. A patch names an entry by id and
--- disables it, replaces its definition, or merges configuration into it, or
--- it inserts a new entry. Composing is pure: it validates the list and the
--- patches and answers a new frozen list, and it neither defines nor enables
--- anything.
+-- The desktop's entry list and the patches applied to it. Composing is pure: it validates and answers a new
+-- frozen list, defining and enabling nothing.
 
 local plugin = require '@lunette-plugin'
 
@@ -14,9 +8,8 @@ local compose = {}
 export type Definition = plugin.Definition<any>
 export type Config = { [string]: any }
 
--- One plugin of the desktop. Exactly one of `definition` and `factory` is
--- given; a factory is called once for each runtime the desktop starts, so the
--- definition it makes can keep state across its own provider outages.
+-- One plugin of the desktop: exactly one of `definition` and `factory`. A factory is called once per runtime,
+-- so its definition can keep state across its own provider outages.
 export type Entry = {
   read id: string,
   read definition: Definition?,
@@ -24,11 +17,8 @@ export type Entry = {
   read config: Config?,
 }
 
--- A change to the entry list. A patch with `id` changes that entry: `disabled`
--- removes it, `definition` or `factory` replaces what it is made from, and
--- `config` is merged into its configuration. A patch with `insert` adds an
--- entry, at the end, or just `before` or `after` the entry it names, and
--- carries nothing else.
+-- A change to the entry list. A patch with `id` disables, replaces, or merges `config` into that entry; a
+-- patch with `insert` adds an entry at the end, or `before` or `after` the one it names.
 export type Patch = {
   read id: string?,
   read disabled: boolean?,
@@ -216,10 +206,8 @@ local function patched(entry: Entry, patch: Keyed): Entry
   return checkedEntry({ id = entry.id, definition = definition, factory = factory, config = config }, 'entry')
 end
 
--- Answers the entries with the patches applied, as a frozen list of frozen
--- entries. Raises an error naming the id for a malformed entry or patch, two
--- entries or two patches with one id, a patch naming no entry, and a patch
--- that both disables and changes an entry.
+-- Answers the entries with the patches applied, frozen, raising with the id for a malformed entry or patch,
+-- a duplicate id, a patch naming no entry, or one that both disables and changes an entry.
 function compose.apply(entries: { Entry }, options: Options?): { Entry }
   local given: Raw = {}
   if options ~= nil then

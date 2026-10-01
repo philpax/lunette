@@ -1,11 +1,5 @@
--- Which saved slot each live window of an identity holds.
---
--- A file saves the windows that share an identity as numbered slots. The
--- identity is what a key function answers for a window or a monitor, by
--- default a window's application id and a monitor's id. A window holds a slot
--- from the moment its panel is created until the window dies, so a window
--- closed and reopened takes the slot it left. Answering which slot a window
--- would take is a pure query: only hold records anything.
+-- Which saved slot each live window of an identity holds. A window holds its slot from its panel's creation
+-- until it dies, so a reopened window takes the slot it left. Only hold records anything.
 
 local lunette = require '@lunette'
 
@@ -23,12 +17,9 @@ export type Identified =
 export type KeyFor = (Identified) -> string?
 
 export type Slots = {
-  -- The identity of a window or a monitor, or nil.
   read key: (Slots, Identified) -> string?,
-  -- The slot a window holds, or nil.
   read held: (Slots, lunette.Window) -> number?,
-  -- The slot a window holds, or the one it would take: the lowest slot no live
-  -- window of its application holds. Records nothing.
+  -- The slot a window holds, or the lowest one no live window of its identity holds. Records nothing.
   read slotFor: (Slots, lunette.Window) -> number?,
   -- Records that a window holds its slot, and answers the slot.
   read hold: (Slots, lunette.Window) -> number?,

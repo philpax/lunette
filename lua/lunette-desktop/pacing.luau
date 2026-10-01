@@ -1,28 +1,10 @@
--- Frame pacing for the panels in the scene.
+-- Frame pacing for the panels in the scene: each frame, every window panel's pacer is given what was
+-- observed, and a changed rate is applied with `window:setFrameRate`.
 --
--- Every frame, after the scene and the pointers have moved, the consumer
--- gives each window panel's pacer what it observed: whether the panel is
--- shown, the window's content-type hint, and whether the client committed a
--- new buffer since the previous frame. It applies the rate the pacer answers
--- with `window:setFrameRate` when the rate changes. A hidden panel's window
--- falls to the pacing provider's background rate, about 1 Hz, unless it is
--- exempt as video; a shown panel's window is unthrottled.
---
--- Whether the client drew is observed only while its window is unthrottled.
--- A throttled client commits at most at its rate, so its commits describe the
--- throttle rather than what the client wants, and counting them would end a
--- video's exemption a second after its panel was hidden.
---
--- A window without a panel is not paced, because what presents it is not
--- known; a window whose panel is removed is returned to unthrottled and
--- forgotten. A monitor panel is not a window and has no frame rate: while
--- `pauseMonitors` is true, the default, a hidden monitor panel's capture is
--- paused with `monitor:setPaused` and resumed when it is shown again.
---
--- Unloading returns every window this activation throttled to unthrottled,
--- which is where every window starts, and resumes every capture it paused.
--- The consumer is the only setter of these rates it expects; a rate another
--- plugin set on a paced window is replaced at its next change.
+-- Commits are observed only while a window is unthrottled, because a throttled client's commits describe
+-- the throttle and would end a video's exemption a second after its panel was hidden. A hidden monitor
+-- panel's capture is paused while `pauseMonitors` holds. Unloading unthrottles and resumes everything this
+-- activation changed.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'

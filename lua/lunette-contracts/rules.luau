@@ -1,23 +1,6 @@
--- The rules service contract.
---
--- Matching is pure policy, and resolve is a pure query: a source answers
--- without consuming anything. Source registration acquires caller-owned
--- state. A source name names one registration, and registering a name that is
--- already registered raises. Rules neither makes panels nor joins tags:
--- lunette/placement turns what resolve answers into a panel.
---
--- Named match predicates receive the native field type, including nil for title
--- and appId. where is a predicate over the whole window, for what no named
--- field describes. Unsupported match keys raise rather than matching an absent
--- field. Named properties accept literals or evaluators. Other keys preserve
--- literal values, including functions; dynamic extension values belong in
--- evaluate. evaluate is reserved metadata, merged per key in source order and
--- omitted from resolved output. A literal and evaluator for the same key in
--- one source raise, as does an extension evaluator naming a built-in property.
---
--- The desktop's sources sit at the precedences
--- @lunette-contracts/vocabulary's PRECEDENCE names: a configured rule list,
--- then the saved arrangement, then what the session kept on each window.
+-- The rules service contract: named, precedence-ordered sources that resolve a window's properties as a
+-- pure query. Rules makes no panels and joins no tags; lunette/placement does. Unsupported match keys raise
+-- rather than matching an absent field. See docs/dev/lua-api.md#rules-and-placement.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

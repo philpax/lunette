@@ -1,23 +1,9 @@
--- Workspaces: one tag shown at a time, switched with key chords.
---
--- Shipped but not in the default entries; a configuration adds it with
+-- Workspaces: one tag shown at a time, switched with key chords. Not in the default entries; add it with
 -- `{ insert = { id = 'desktop/workspaces', definition = require '@lunette-desktop/workspaces' } }`.
 --
--- `workspaces` is the list of workspaces, each `{ name, key }`: the tag it
--- shows and the key that selects it, held with `modifiers`. The consumer
--- holds every workspace's tag and selects one, the first that is already
--- selected or else the first in the list. A panel that is a member of some
--- workspace's tag and of no selected one is hidden through its visibility
--- override, which the consumer withdraws rather than overrides when the
--- panel is to be shown, so a panel another plugin hid stays hidden. A panel
--- in no workspace's tag is left alone. With `follow`, a window placed into
--- workspaces none of which is shown leaves them for the shown one, so a
--- window opens where the user is; a window a rule placed in another
--- workspace then follows too, so a configuration that places windows by
--- workspace turns `follow` off.
---
--- The chords are a child plugin, so an outage of the bindings provider
--- leaves the workspaces as they are rather than showing every panel.
+-- A panel in some workspace's tag and no selected one is hidden by an override this consumer withdraws
+-- rather than overrides, so a panel another plugin hid stays hidden. With `follow`, a window placed only in
+-- hidden workspaces moves to the shown one, so a configuration that places windows by workspace turns it off.
 local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'
 local panels = require '@lunette-contracts/panels'
@@ -146,8 +132,7 @@ return plugin.define {
       end
       for panel, hide in pairs(wanted) do
         if hide and not hiding[panel] and not panel.dead then
-          -- A tag's members are the panels the panels provider made, which
-          -- the tags contract types only as surfaces.
+          -- The tags contract types members only as surfaces.
           local real = (panel :: any) :: panels.Panel
           hiding[panel] = real:setHidden(context, { hidden = true })
         end

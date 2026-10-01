@@ -16,11 +16,8 @@
 //!
 //! # Sessions without the error stream
 //!
-//! A configuration that does not enable the error stream provider is
-//! supported. There is then no limiter: the error is logged and each listener
-//! is notified, and an error raised every frame is logged every frame. Enabling
-//! the provider installs the limiter that suppresses the repetition before any
-//! presenter sees it.
+//! Without the error stream provider there is no limiter, so an error raised
+//! every frame is logged every frame.
 //!
 //! A listener that raises does not stop the ones after it. A session whose
 //! error display itself raises still reaches every other listener.

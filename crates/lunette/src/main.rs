@@ -96,9 +96,6 @@ use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 /// Selects the check command before any boot work. The configuration
 /// directory is resolved first, because a check given no paths checks it.
-///
-/// The command owns its input paths, so this pure selector only borrows them
-/// for the checker and leaves the imperative startup path untouched.
 fn check_dispatch(command: Option<&cli::Command>) -> Option<(&[PathBuf], Option<&Path>, bool)> {
     match command {
         Some(cli::Command::Check {
@@ -635,10 +632,8 @@ pub(crate) const PREFIX: &str = match option_env!("LUNETTE_PREFIX") {
 
 /// The development override for where the module data is read from.
 ///
-/// Pointing it at a working tree is the development loop for the Lua module
-/// roots, the plugin facade, contracts, providers, and desktop; the override
-/// wins outright, because a first consultation could be shadowed by an
-/// installed copy.
+/// Pointing it at a working tree is the development loop for the Lua roots,
+/// so it wins outright rather than being shadowed by an installed copy.
 const STDLIB_PATH: &str = "LUNETTE_STDLIB_PATH";
 
 /// The development override for which configuration directory is loaded.

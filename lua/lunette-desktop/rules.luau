@@ -1,9 +1,5 @@
--- The desktop's rule list, registered as a rules source.
---
--- `rules` is the list, which replaces the default list wholesale rather than
--- merging with it. It is registered under the rules provider's default source
--- name and precedence, so a plugin that registers a rule list of its own names
--- it. The default list sizes and places Firefox.
+-- The desktop's rule list, registered as a rules source under the provider's default name and precedence.
+-- `rules` replaces the default list wholesale.
 local plugin = require '@lunette-plugin'
 local rules = require '@lunette-contracts/rules'
 

@@ -1,14 +1,7 @@
 //! The names Lua gives the keys a sink accepts by evdev code.
 //!
-//! `sink:key` takes an evdev keycode, and `lunette.keyCodes()` answers with
-//! every key lunette names, so a configuration presses `codes.leftShift` and
-//! not `42`. The set is [`VirtualKey`]: the keys a host sink can emit, which
-//! are also ordinary keys on a window's seat. One closed set serves both, so a
-//! named key reaches either sink. Its codes are checked against
-//! xkeyboard-config's evdev table in `lunette-capture`'s tests.
-//!
-//! The names are camelCase, as the rest of the API is. A key outside the set
-//! still reaches a window's seat by number; it has no name here.
+//! The set is [`VirtualKey`], shared by host sinks and window seats so a named
+//! key reaches either. A key outside the set still reaches a seat by number.
 
 use lunette_capture::hid::VirtualKey;
 use lunette_compositor::protocol::KeyModifier;
@@ -55,12 +48,8 @@ impl Aliased for KeyName {
     };
 }
 
-/// `lunette.modifierNames()`: every modifier a seat accepts.
-///
-/// Read from [`KeyModifier`] and not listed, so what the keyboard provider
-/// builds a keyboard from and what the runtime accepts from it are one set.
-/// The order is the keymap's own modifier numbering; a caller reporting held
-/// modifiers should report them in that order.
+/// `lunette.modifierNames()`: every modifier a seat accepts, from
+/// [`KeyModifier`] in the keymap's own modifier order.
 pub fn modifier_names() -> Vec<String> {
     KeyModifier::NAMES
         .iter()

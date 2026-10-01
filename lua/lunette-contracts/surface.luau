@@ -1,8 +1,5 @@
--- Neutral surface vocabulary shared by panels, pointers, and keyboards.
---
--- This module has no capability and no state. The recursive shapes live in the
--- types-only vocabulary sibling so providers can name checked receivers without
--- importing the interaction service.
+-- Neutral surface vocabulary shared by panels, pointers, and keyboards. The recursive shapes live in
+-- vocabulary.luau so providers can name receivers without importing the interaction service.
 
 local vocabulary = require '@lunette-contracts/vocabulary'
 

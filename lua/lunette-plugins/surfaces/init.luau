@@ -1,8 +1,4 @@
--- The surfaces provider: a broker for the surfaces a pointer can pick.
---
--- Each activation keeps its own offers, keyed by name. An offer belongs to
--- the owner that made it and ends with that owner. The provider takes no
--- options.
+-- The surfaces provider: a broker for the surfaces a pointer can pick, with owner-scoped named offers.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/surfaces'

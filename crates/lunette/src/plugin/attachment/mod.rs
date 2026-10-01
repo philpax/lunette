@@ -1,13 +1,8 @@
 //! Native mlua attachment bridge for the plugin contract registry and lifecycle graph.
 //!
-//! The attachment owns only Lua-state data. It does not retain a compositor
-//! session. A state owns one contract epoch and can have several independent
-//! runtime graphs. Definitions and contract tokens are shared by those graphs;
-//! instances, services, effects, and configuration values remain runtime-local.
-//!
-//! Plugin callbacks are synchronous and must not yield. A failure inside a
-//! drain is reported through the installed [`Reporter`] and recorded as the
-//! instance's diagnostic; an operation a caller invoked raises its own error.
+//! A Lua state owns one contract epoch shared by several independent runtime
+//! graphs; instances, services, effects, and configuration stay runtime-local.
+//! Plugin callbacks are synchronous and must not yield.
 
 mod context;
 mod error;
@@ -43,10 +38,8 @@ use crate::plugin::{
     graph::ContractKey,
 };
 
-/// Installs the state-bound contract registry if it is not already present.
-///
-/// Calling this more than once is harmless and does not replace the current
-/// contract epoch.
+/// Installs the state-bound contract registry if absent, keeping the current
+/// epoch.
 pub fn install(lua: &Lua) -> Result<(), AttachmentError> {
     if lua.app_data_ref::<Rc<RefCell<AttachmentHost>>>().is_none() {
         lua.set_app_data(Rc::new(RefCell::new(AttachmentHost::new())));
@@ -62,12 +55,11 @@ pub fn set_reporter(lua: &Lua, reporter: Reporter) -> Result<(), AttachmentError
     Ok(())
 }
 
-/// Shuts down every runtime attached to this Lua state.
+/// Shuts down every runtime attached to this Lua state, attempting every
+/// cleanup.
 ///
-/// Every runtime and every cleanup callback is attempted. The failures of
-/// this shutdown are returned rather than reported to listeners, because the
-/// listeners belong to the configuration being torn down. Failures reported
-/// before shutdown are not returned again.
+/// Failures are returned rather than reported, because the listeners belong
+/// to the configuration being torn down.
 #[must_use]
 pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
     let Some(host) = host_inner(lua) else {
@@ -104,13 +96,8 @@ pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
     errors
 }
 
-/// Retires the current contract epoch after shutting down its runtimes.
-///
-/// # Errors
-///
-/// The new epoch starts even when shutdown reports failures; the error then
-/// lists them. An error is also returned if the registry cannot advance its
-/// epoch.
+/// Retires the current contract epoch after shutting down its runtimes. The
+/// new epoch starts even when shutdown fails; the error lists the failures.
 pub fn reset_epoch(lua: &Lua) -> Result<(), AttachmentError> {
     let failures = shutdown_all(lua);
     install(lua)?;
@@ -173,15 +160,11 @@ pub fn bind(
         .map_err(AttachmentError::Contract)?)
 }
 
-/// The arguments of [`define`]: required and provided declarations, the
-/// initializer, and an optional name.
+/// The arguments of [`define`].
 pub type DefineArguments = (Unknown, Unknown, PluginInit, Option<String>);
 
 /// Defines a reusable plugin from exact required/provided token records.
-///
-/// The optional name labels the definition in logs, reports, and
-/// diagnostics. Without one, the definition is named for where its
-/// initializer is defined.
+/// Without a name, the definition is named for where its initializer is defined.
 pub fn define(
     lua: &Lua,
     (required, provided, init, name): DefineArguments,
@@ -244,9 +227,7 @@ fn require_host(lua: &Lua) -> Result<Rc<RefCell<AttachmentHost>>, AttachmentErro
 }
 
 /// Validates a declaration, naming a wrapper from a retired epoch as such.
-///
-/// The registry is replaced when an epoch is retired, so it no longer knows
-/// the wrappers bound before; the host's record of them does.
+/// The replaced registry no longer knows those wrappers; the host's record does.
 fn validate_declaration(
     host: &AttachmentHost,
     declaration: Value,

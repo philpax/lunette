@@ -7,14 +7,9 @@ use crate::require::path::{Requirer, resolve};
 /// Wraps the state's global `require` so a relative path resolves against the
 /// requiring chunk.
 ///
-/// The wrapper is Lua, and calls the original `require` from Lua, so a module's
-/// own error reaches its caller as the loader raised it rather than wrapped by
-/// a native call. Only the resolution is native: it reads the requiring
-/// chunk's full name, which Lua's `debug.info` would answer only shortened.
-///
-/// # Errors
-///
-/// When the state has no global `require`, or the wrapper cannot be built.
+/// The wrapper is Lua, so a module's own error reaches its caller unwrapped.
+/// Only resolution is native, because `debug.info` answers a shortened chunk
+/// name.
 pub fn install(lua: &Lua) -> mlua::Result<()> {
     let globals = lua.globals();
     let original: Function = globals.get("require")?;

@@ -1,13 +1,5 @@
--- The keyboard provider; resources are acquired during activation.
---
--- `rows` is the base layer, a compact ANSI arrangement unless configured, and
--- `layers` are further layers by name, which an action key switches to.
--- `style` sets the key size, spacing, depths, and colours. `modifierKeys`
--- says which key latches which modifier and `locks` which modifiers stay on
--- until pressed again; both default to @lunette-contracts/keys. `onKey` and
--- `drawKey` are around hooks: each receives its arguments and then the
--- default, and calls the default to keep it. A keyboard's own options
--- override `rows`, `layers`, and `style`.
+-- The keyboard provider. The options and the `onKey` and `drawKey` around hooks are in
+-- docs/dev/lua-api.md#keyboard; a keyboard's own options override `rows`, `layers`, and `style`.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'

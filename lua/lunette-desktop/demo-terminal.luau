@@ -1,12 +1,5 @@
--- A terminal opened at the first start of a session with no windows, so the
--- desktop shows something.
---
--- `programs` are tried in order: a program that fails to spawn gives way to
--- the next, and when none spawns a warning is logged. An empty list opens
--- nothing. The terminal is opened once per Lua state: source reload keeps
--- `_G.lunetteDemonstrationSpawned`, which `@lunette-desktop`'s `run`
--- initialises, so a reload does not open another, and neither does a start
--- that finds a window already open.
+-- A terminal opened at the first start of a session with no windows, trying `programs` in order. Source
+-- reload keeps `_G.lunetteDemonstrationSpawned`, so a reload does not open another.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local logging = require '@lunette-desktop/logging'

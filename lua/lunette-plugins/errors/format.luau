@@ -1,9 +1,5 @@
--- Pure error report formatting.
---
--- A report keeps the native event's message and traceback together. `key`
--- is what the limiter recognises a repeat by, `report` the text a presenter
--- shows, and `lines` that text wrapped and cut for a small surface such as
--- the desktop's error panel.
+-- Pure error report formatting: `key` identifies a repeat for the limiter, `report` is the text to show,
+-- and `lines` wraps and cuts it for a small surface.
 
 local format = {}
 

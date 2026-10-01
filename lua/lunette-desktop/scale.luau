@@ -1,23 +1,8 @@
--- Output scale for the panels in the scene.
+-- Output scale for the panels in the scene: each frame, every output's chooser is given the head's distance
+-- to its nearest shown window panel, and a changed scale is applied with `output:setMode`.
 --
--- Every frame, after the scene and the pointers have moved, the consumer
--- finds each output's nearest shown window panel, measures the distance from
--- the head to the panel's centre, and gives it to the output's chooser. It
--- sets the scale the chooser answers with `output:setMode` when the scale
--- changes, so a client re-lays-out only when its output crosses a step.
---
--- An output is a window's `window.output`, which several windows may share; a
--- shared output takes the scale of the nearest of them, so the nearest panel
--- is sharp and the others render more pixels than their distance needs, which
--- is cheaper than the nearest one being blurred. An output with no shown
--- window panel keeps its scale. Hidden panels give no distance, because nobody
--- sees them, and monitor panels give none, because a monitor's scale is its
--- host's and not an output's. Nothing is done while the headset reports no
--- head position.
---
--- Unloading sets every output this activation changed back to the scale it
--- had before the first change, unless its scale is no longer the one this
--- activation set, which means something else has set it since.
+-- A shared output takes the nearest panel's scale, since extra pixels are cheaper than a blurred panel.
+-- Unloading restores each output's original scale unless something else has set it since.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'

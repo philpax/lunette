@@ -1,11 +1,6 @@
--- Keyboard focus that grants hold through one focus activation.
---
--- Focus is held, not merely set. A holder is one grant an owner holds for a
--- seat through setFocus, and a holder that ends takes back what it gave: the seat it focused
--- is withdrawn natively, and the service stops answering it as the focused
--- seat. A holder that gave a seat's focus away to a later holder takes back
--- nothing. The native seat and the answer the service gives therefore never
--- name a focus whose holder has gone.
+-- Keyboard focus held through one focus activation. A holder is one owner's grant for a seat; when it ends
+-- it withdraws the seat natively, unless a later holder has taken that seat, so neither the seat nor the
+-- service names a focus whose holder has gone.
 
 local lunette = require '@lunette'
 

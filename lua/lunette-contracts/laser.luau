@@ -1,14 +1,6 @@
--- The laser service contract.
---
--- A laser owns a pointer and, when no seat is supplied, a native seat. Both
--- constructors therefore require the caller owner explicitly. A hand has one
--- laser under attach: attach answers the caller's own lasers, makes them for
--- free hands, and raises when another owner holds a hand. forHand is a query.
---
--- A laser reads one frame of input for its hand with its `readInput`, drives
--- its pointer with it, and draws its beam with its `draw`; update and draw on
--- the service do the same for every live laser, so whatever a laser's own
--- methods do is what the service does.
+-- The laser service contract. A laser owns a pointer and, unless one is supplied, a native seat, so both
+-- constructors take an owner. attach holds one laser per hand and raises when another owner holds the
+-- hand. The service's update and draw do what each laser's own methods do. See docs/dev/lua-api.md#lasers.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

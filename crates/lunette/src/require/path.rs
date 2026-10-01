@@ -1,23 +1,14 @@
-//! What a relative require names, as a pure function of the requiring chunk's
-//! name and the required path.
+//! Resolves a relative require as a pure function of the requiring chunk's
+//! name and the required path, following Luau's require-by-string rules:
 //!
-//! The rules are Luau's require-by-string rules, which the checker applies
-//! through Luau's own navigator:
+//! - A module's path is its file's path without the suffix, and `init.luau`
+//!   names its directory.
+//! - `./` and `../` start from the parent of the module's path, so in
+//!   `keyboard/init.luau`, `./draw` is `draw`.
+//! - `@self` starts from the module's own path, so `@self/draw` is `keyboard/draw`.
 //!
-//! - A module's path is its file's path without the `.lua` or `.luau` suffix,
-//!   and a directory's `init.lua` or `init.luau` is the module named by the
-//!   directory.
-//! - `./` and `../` start from the directory that holds the module: the parent
-//!   of the module's path. In `keyboard/init.luau`, whose module is `keyboard`,
-//!   `./draw` is `draw`, a sibling of the directory.
-//! - `@self` starts from the module's own path. In `keyboard/init.luau`,
-//!   `@self/draw` is `keyboard/draw`.
-//!
-//! A session's configuration is mounted at the root of LÖVR's virtual
-//! filesystem and each module root at its `@` alias, so a resolved path names
-//! a module the session's loader finds. A path cannot leave the root it
-//! starts in: the checker would resolve one that does against the directory
-//! tree on disk, which the session's virtual filesystem does not have.
+//! A path cannot leave the root it starts in, because the checker would
+//! resolve it against a directory tree the session's virtual filesystem lacks.
 
 use std::fmt;
 
@@ -27,9 +18,8 @@ pub enum Requirer<'a> {
     /// A chunk loaded from a file, named by its path in the virtual
     /// filesystem, such as `nested/a.luau` or `@lunette-contracts/scale.luau`.
     File(&'a str),
-    /// A chunk with no file, such as one `lunctl eval` sends. It resolves as a
-    /// module at the configuration root would, as a REPL resolves against its
-    /// working directory.
+    /// A chunk with no file, such as one `lunctl eval` sends. It resolves at
+    /// the configuration root.
     Unnamed,
 }
 
@@ -45,16 +35,8 @@ impl<'a> Requirer<'a> {
     }
 }
 
-/// Resolves `path` as `requirer` requires it.
-///
-/// Answers `None` for a path that is not relative, such as an alias
-/// (`@lunette-contracts/scale`), which the session's loader resolves as it stands.
-///
-/// # Errors
-///
-/// A relative path that leaves its root, names a root rather than a module,
-/// carries a component the session's loader would misread, or is `@self` in a
-/// chunk with no file.
+/// Resolves `path` as `requirer` requires it, or `None` for a non-relative
+/// path such as an alias, which the session's loader resolves as it stands.
 pub fn resolve(requirer: Requirer<'_>, path: &str) -> Result<Option<String>, ResolveError> {
     let (start, rest) = if let Some(rest) = path.strip_prefix("@self") {
         if !(rest.is_empty() || rest.starts_with('/')) {
@@ -122,9 +104,7 @@ pub fn resolve(requirer: Requirer<'_>, path: &str) -> Result<Option<String>, Res
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolveError {
     pub kind: ResolveErrorKind,
-    /// The path as the chunk gave it.
     pub path: String,
-    /// The requiring file, or `None` for a chunk with no file.
     pub requirer: Option<String>,
 }
 

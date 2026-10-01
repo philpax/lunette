@@ -1,8 +1,5 @@
--- Owned added and removed listeners for one panels activation.
---
--- Each registry belongs to one provider activation. A listener is an effect of
--- its owner, and it is delivered to only while the provider still owns that
--- owner: unloading invalidates the owner before its listener inverse runs.
+-- Owned added and removed listeners for one panels activation. A listener is delivered to only while its
+-- owner is live, since unloading invalidates the owner before its inverse runs.
 
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'

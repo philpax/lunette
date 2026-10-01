@@ -1,8 +1,4 @@
--- Keyboard geometry and legends.
---
--- This module is pure. It keeps no registry, installs no hooks, and only reads
--- the key rows, measurements, and seat supplied by its caller. A plugin that
--- lays out or picks keys the way the keyboard provider does can require it.
+-- Keyboard geometry and legends, as pure functions of the caller's rows, measurements, and seat.
 
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -13,11 +9,9 @@ export type Key = keyboard.Key
 export type KeyRow = keyboard.KeyRow
 export type Action = keyboard.Action
 
--- A key placed on a keyboard. `source` is the row entry it was made from, and
--- stays the same table for as long as the keyboard shows the same rows, so it
--- identifies a key across frames. `x` and `y` are the top left corner, in
--- metres from the top left of the rows, and `y` grows downwards. `modifier` is
--- the modifier the key latches, if any. Spacers are not placed.
+-- A key placed on a keyboard. `source` is the row entry it came from, which identifies the key across
+-- frames. `x` and `y` are its top-left corner in metres from the rows' top-left, `y` growing downwards.
+-- Spacers are not placed.
 export type RenderedKey = {
   read source: Key,
   read code: number?,

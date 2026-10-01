@@ -1,15 +1,6 @@
--- The wrist keyboard button and its lazily created keyboard.
---
--- The button sits on one hand's wrist. Pressing it shows or hides a keyboard
--- in front of the head and pulses the hand that pressed it. The consumer
--- offers and draws only the keyboard it made, so another plugin's keyboard is
--- that plugin's to offer and draw.
---
--- `hand` is the wrist the button is on, `left` or `right`. `size` is the
--- button's edge in metres, and `offset` is where it sits in the hand's space.
--- `placement` puts the keyboard `distance` metres ahead of the head, `drop`
--- metres below it, tilted back by `tilt` radians. `haptic` is the pulse a
--- press gives.
+-- The wrist keyboard button and its lazily created keyboard. Pressing the button on `hand`'s wrist shows or
+-- hides a keyboard ahead of the head, at `placement`, and pulses the hand. Only this consumer's own
+-- keyboard is offered and drawn here.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local keyboard = require '@lunette-contracts/keyboard'

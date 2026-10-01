@@ -1,12 +1,6 @@
--- The key bindings provider: a broker for desktop key chords.
---
--- Each activation keeps its own registrations, keyed by chord. A registration
--- belongs to the owner that made it and ends with that owner. The provider
--- takes every desktop key press in the frame provider's binding phase, with
--- the modifiers LÖVR reports held, and a press a binding matches goes no
--- further, so nothing that delivers keys needs to know about bindings.
--- dispatch is for any other source of presses, such as an on-screen keyboard.
--- The provider takes no options.
+-- The key bindings provider: a broker for desktop key chords, keyed by chord and owner-scoped. It takes
+-- every desktop press in the frame provider's binding phase, so nothing that delivers keys knows about
+-- bindings.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/bindings'

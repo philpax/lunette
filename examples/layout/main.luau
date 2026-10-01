@@ -12,10 +12,8 @@ desktop.run {
     -- broker; inserting it makes the layout available by name.
     { insert = { id = 'grid-layout', definition = require './grid' } },
     { insert = { id = 'follow-layout', definition = require './follow' } },
-    -- The arranging consumer names the layout it uses, and `options` gives
-    -- each layout its own options by name; `layout = 'follow'` would choose
-    -- the other one. `desktop.configure` types the patch with the consumer's
-    -- options, so the checker reads them.
+    -- The arranging consumer names the layout it uses, and `options` gives each layout its own options by
+    -- name. `desktop.configure` lets the checker read them against the consumer's options.
     desktop.configure['desktop/arrange'] { layout = 'grid', options = { grid = { columns = 3 } } },
   },
 }

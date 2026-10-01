@@ -1,14 +1,5 @@
--- The frame pacing provider: pacers built from `@lunette-plugins/pacing/pacer`.
---
--- Options: `tuning`, which `pacer.Tuning` describes, and `choose`, an around
--- hook. `choose(pacer, observation, base)` answers the rate a window is paced
--- at for one observation, in hertz or nil for unthrottled, and `base` is the
--- default rule: unthrottled in view, `tuning.exempt` for an exempt window out
--- of view, and `tuning.background` otherwise. A hook that paces a window in
--- view below full rate, or that exempts a window by its title, answers its
--- own rate and calls `base` for the rest. The provider requires nothing and
--- holds no resource, so a replacement is any plugin that provides
--- `lunette/pacing`.
+-- The frame pacing provider: pacers built from `@lunette-plugins/pacing/pacer`. The `tuning` and `choose`
+-- options are in docs/dev/lua-api.md#frame-pacing-and-output-scale.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/pacing'
@@ -29,8 +20,7 @@ export type Settings = {
   read choose: Choose,
 }
 
--- What a configuration gives: every option optional, and a tuning field
--- given alone merges over the rest.
+-- What a configuration gives: every option optional, and a tuning field merges over the rest.
 export type Config = {
   read tuning: {
     read background: number?,
@@ -91,14 +81,12 @@ return plugin.provider<<Config, Settings, Service>> {
       -- Low enough that throttling reduces an exempt window's redraws, and
       -- high enough that a video does not visibly step.
       exempt = 30,
-      -- About a second of observations at one a frame, long enough that a
-      -- video between two frames of the same colour is not classified as idle.
+      -- About a second at one a frame, so a video between two same-coloured frames is not taken as idle.
       history = 90,
       -- A video player redraws on nearly every frame; a terminal with a
       -- blinking cursor redraws twice a second, well under half.
       busy = 0.5,
-      -- 'game' has the same rationale as 'video': a paused game is still a
-      -- window the user expects to resume without a stutter.
+      -- A paused game, like a paused video, should resume without a stutter.
       exemptTypes = { none = false, photo = false, video = true, game = true },
     },
     choose = choose,

@@ -1,10 +1,6 @@
--- The erased boundary for plugin declarations and native runtime handles.
---
--- Public types retain capability and configuration relationships. Runtime
--- declarations retain frozen capability wrappers so native validation and
--- per-capability access both use the exact wrapper registered at binding.
--- Published services reach consumers as frozen proxies that the provider's
--- activation guards.
+-- The erased boundary for plugin declarations and native runtime handles. Declarations keep the frozen
+-- capability wrappers registered at binding, and published services reach consumers as frozen proxies that
+-- the provider's activation guards.
 
 local native = require '@lunette'
 local options = require '@lunette-plugin/options'
@@ -33,10 +29,8 @@ export type Effect = {
   read dispose: (Effect) -> (),
 }
 
--- A caller lifetime that a provider acquires resources for. A provider checks
--- it with `Context:checkOwner` or `Context:owns`, and registers the resource
--- with `owner:effect` or `Context:acquire`, so the resource is released when
--- the caller's activation ends.
+-- A caller lifetime that a provider acquires resources for, so the resource is released when the caller's
+-- activation ends.
 export type Owner = {
   read services: (never) -> unknown,
   read effect: (Owner, () -> () -> ()) -> Effect,
@@ -258,10 +252,7 @@ end
 
 local capabilityKeys: { [string]: boolean } = { name = true, schema = true }
 
--- Checks a capability spec's shape. Each error is raised at the caller of
--- `plugin.capability`, which is three frames up through this function and
--- the facade. The native side then checks the name's form and the schema's
--- range.
+-- Checks a capability spec's shape, raising at the caller of `plugin.capability`, three frames up.
 local function validateCapabilitySpec(spec: CapabilitySpec): CapabilitySpec
   local level = 4
   if type(spec) ~= 'table' then
@@ -405,9 +396,8 @@ type ValidSpec<C> = {
   init: (Context, C, Publisher) -> (),
 }
 
--- Checks a definition spec's shape and fills the optional declarations. Each
--- error is raised at the caller of `plugin.define`, which is three frames up
--- through this function and the facade.
+-- Checks a definition spec's shape and fills the optional declarations, raising at the caller of
+-- `plugin.define`, three frames up.
 local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
   local level = 4
   if type(spec) ~= 'table' then

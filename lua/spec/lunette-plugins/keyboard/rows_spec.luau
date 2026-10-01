@@ -1,8 +1,4 @@
--- Covers lua/lunette-plugins/keyboard/rows.luau.
---
--- The module is a data table. The checker types each key's name, so a
--- misspelt key does not reach here; the tests verify the shape of the rows
--- and that the keys a keyboard cannot do without are drawn.
+-- Covers lua/lunette-plugins/keyboard/rows.luau: the rows' shape and the keys a keyboard cannot do without.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'

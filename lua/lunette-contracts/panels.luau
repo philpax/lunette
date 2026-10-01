@@ -1,33 +1,5 @@
--- The panel service contract.
---
--- A panel registry belongs to one service instance. Creation is owner-scoped so
--- a provider can reject a caller from another plugin lifetime before it creates
--- a native layer claim or registers a panel. Only the owner that created a
--- panel destroys it.
---
--- onAdded and onRemoved are owner-scoped listeners. onAdded is called after a
--- panel enters the registry, from inside the call that created it. onRemoved
--- is called once a panel is dead, whatever ended it: its owner destroying it
--- or unloading, its source dying, or the provider unloading. A listener that
--- raises is reported through lunette.reportError and does not stop the others,
--- and it does not fail the operation that added or removed the panel.
---
--- A panel is hidden while the most recent live visibility override any owner
--- set says so, and shown when none is left. setHidden sets the owner's
--- override, one per owner: a later call moves it, making it the most recent,
--- and answers the same effect, and the override ends when the effect is disposed or the owner unloads. A
--- hidden panel is not drawn, gives up its layer claim, and is not offered to
--- pointers by the desktop; it stays in the registry and keeps its pose.
---
--- A panel with a positive curve is a piece of a cylinder of radius 1 / curve
--- whose centre is in front of the panel, as LÖVR curves a layer; its width is
--- measured along the arc. Monitor panels cannot hold a layer, because the
--- native claim API takes windows, so a curved monitor panel is always drawn
--- in the scene.
---
--- Panels do not draw borders or titles unless the provider's `chrome` option
--- or a panel's own says so. Decorations are a consumer's: the desktop's
--- `desktop/decorations` draws them from onAdded and onRemoved.
+-- The panel service contract: an owner-scoped registry of panels, with owner-held visibility overrides and
+-- listeners for panels added and removed. See docs/dev/lua-api.md#panels.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

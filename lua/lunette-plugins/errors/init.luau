@@ -1,17 +1,8 @@
--- The error stream provider.
+-- The error stream provider. Each activation owns a limiter, a bounded history, its subscribers, and one
+-- lunette.onError subscription. `format` and `limiter` are the pure halves. See docs/dev/lua-api.md#errors-stream.
 --
--- Each activation owns a limiter, a bounded history, its subscribers, and
--- one lunette.onError subscription. The host logs every native error
--- whatever this provider does. Options: `window`, the seconds a repeated
--- report is withheld for; `maxKeys`, how many distinct reports the limiter
--- remembers; `history`, how many delivered reports recent answers; and
--- `clock`, which times reports. `@lunette-plugins/errors/format` and
--- `@lunette-plugins/errors/limiter` are the pure halves, for a presenter or
--- a replacement provider.
---
--- A report that arrives while subscribers are being called, such as a
--- subscriber's own error, joins the history and is not delivered, so a
--- presenter that raises on every report cannot feed itself.
+-- A report that arrives while subscribers are being called joins the history undelivered, so a presenter
+-- that raises on every report cannot feed itself.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

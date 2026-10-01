@@ -1,7 +1,4 @@
--- The error stream's bounded, time-window limiter.
---
--- The limiter owns no clock. Each activation gets a fresh instance, and callers
--- supply the time for each occurrence so headless tests can drive it directly.
+-- The error stream's bounded, time-window limiter. Callers supply each occurrence's time.
 
 local limiter = {}
 

@@ -1,28 +1,7 @@
--- The placement service contract.
---
--- Placement turns a window into a panel: it resolves the window's properties
--- through lunette/rules, maps them to the panel's options, makes the panel,
--- and joins the tags the properties name. It is the one component that
--- depends on rules, panels, and tags, so rules depends on neither of the
--- others, and a configuration that wants another mapping, such as one that
--- forwards a property of its own to the panel, replaces placement alone.
---
--- place is owner-scoped and answers the placement effect; disposing it, or
--- the owner unloading, removes the panel, its tag memberships, and the holds
--- on the tags placement made. A placement whose panel is removed by other
--- means ends with it. The properties are the window's resolved properties,
--- or the ones the request gives, with the request's defaults filling in what
--- neither names. A resolved `hidden` of true hides the panel for as long as
--- the placement lasts. A tag named by a string is held, and made when no
--- tag of that name exists, so the tag lasts while any placement or other
--- holder keeps it.
---
--- placed answers every live placement, in the order the windows were placed,
--- with the properties each was placed with. onPlaced listeners hear each
--- placement once it is made, whoever made it, so a consumer can react to
--- placement with the resolved properties. A listener is owner-scoped, runs
--- under its own protected call, and its error is reported through
--- lunette.reportError without undoing the placement.
+-- The placement service contract: turns a window into a panel by resolving its properties through
+-- lunette/rules, making the panel, and joining the tags the properties name. It alone depends on rules,
+-- panels, and tags, so a configuration replaces placement to change the mapping. See
+-- docs/dev/lua-api.md#rules-and-placement.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

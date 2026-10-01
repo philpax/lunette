@@ -1,8 +1,5 @@
--- Grab, push, drag, and two-handed scaling for one interaction instance.
---
--- The returned methods close over the instance's pointer registry, its drop
--- emitter, and its pose constraint. No module-global host is shared by
--- separate provider activations.
+-- Grab, push, drag, and two-handed scaling for one interaction instance, closing over its registry, drop
+-- emitter, and constraint rather than a module-global host.
 
 local vocabulary = require '@lunette-contracts/vocabulary'
 

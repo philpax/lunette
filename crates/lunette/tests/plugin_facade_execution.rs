@@ -1,8 +1,5 @@
-//! Execution tests for the public Lua plugin facade.
-//!
-//! The fixtures load the checked-in facade modules and call their returned
-//! functions against the production native declaration installer. Only module
-//! lookup and the readonly bridge are supplied by this test.
+//! Execution tests for the public Lua plugin facade against the production
+//! native declaration installer.
 
 extern crate lunette_lovr;
 

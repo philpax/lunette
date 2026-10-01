@@ -1,20 +1,6 @@
--- The keyboard focus service contract.
---
--- Focus is which seat's keyboard goes to which sink. It is held, not merely
--- set: setFocus grants focus for an owner, and the grant lasts until the
--- returned effect is disposed or the owner unloads. When a grant ends, the
--- seat it focused is withdrawn natively and focused stops answering it, unless
--- a later grant has taken that seat.
---
--- An owner holds one grant per seat. A later setFocus by the same owner for
--- the same seat moves that grant and answers the same effect, so an owner that
--- follows gaze or hover does not accumulate effects. A nil sink withdraws the
--- owner's grant for the seat without ending it. focused answers the seat and
--- sink of the most recent grant still standing, or nothing.
---
--- onChanged listeners hear the pair focused answers whenever it changes. Each
--- runs under its own protected call, and its error is reported through
--- lunette.reportError without undoing the change.
+-- The keyboard focus service contract. Focus is held: an owner's grant for a seat lasts until its effect is
+-- disposed or the owner unloads, and the most recent standing grant decides. A later setFocus by the same
+-- owner and seat moves the grant and answers the same effect. See docs/dev/lua-api.md#pointers-and-interaction.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

@@ -1,9 +1,6 @@
--- The placement service. A placement is owner-scoped and ends when its owner
--- disposes it or unloads, or when its panel is removed for any reason, which
--- the panels contract announces. Its panel, the panel's hiding, its tag
--- memberships, and its tag holds belong to this provider's context, inside
--- the effect on the caller's owner, so the caller requires none of panels,
--- tags, or rules.
+-- The placement service. A placement ends with its owner's effect or its panel. Its panel, hiding, and tags
+-- belong to this provider's context within that effect, so the caller requires none of panels, tags, or
+-- rules.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -203,9 +200,7 @@ local function acquire(
   if panel.dead then
     acquired:dispose()
   else
-    -- The listener belongs to this provider and is stopped by the cleanup,
-    -- so a panel removed by its source dying or by the panels provider ends
-    -- the placement it belongs to.
+    -- So a panel removed by its source dying, or by the panels provider, ends its placement.
     removal = panels:onRemoved(context, {
       panel = panel,
       run = function()

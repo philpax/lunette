@@ -1,8 +1,5 @@
-//! Execution coverage for the neutral panels provider.
-//!
-//! The plugin facade and lifecycle are production bindings. Window, monitor,
-//! layer, and pose values are Lua fakes because they are unmanaged boundaries;
-//! the provider itself is the real module loaded from the checked-in tree.
+//! Execution coverage for the panels provider, with window, monitor, layer,
+//! and pose values faked as unmanaged boundaries.
 
 extern crate lunette_lovr;
 

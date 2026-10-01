@@ -11,11 +11,8 @@ use crate::plugin::graph::{
 impl Graph {
     /// Returns the next coordinator action, if one is currently safe to start.
     ///
-    /// Unloads always precede loads. Dependents and children are unloaded
-    /// before their providers and parents. Planning is derived from the
-    /// current state, so work that one call does not reach is found by the
-    /// next. A blocked instance records one diagnostic until its blocking
-    /// condition or its intent changes.
+    /// Unloads precede loads, and dependents and children unload before their
+    /// providers and parents.
     pub fn next_action(&mut self) -> Option<Action> {
         self.retire_children_of_ending_parents();
         self.remove_retired();
@@ -172,12 +169,8 @@ impl Graph {
         }
     }
 
-    /// Finds another instance still holding a contract this instance provides.
-    ///
-    /// Enable rejects a second enabled claimant, so a holder is normally a
-    /// draining instance that releases the contract when its unload completes.
-    /// A quarantined holder never releases it. An active provider whose
-    /// cleanup has failed keeps serving until it unloads.
+    /// Finds another instance still holding a contract this instance provides:
+    /// normally a draining instance, or a quarantined one that never releases it.
     fn own_contract_blocker(&self, instance: InstanceId) -> Option<OwnBlocker> {
         let node = self.instances.get(&instance)?;
         let mut held = false;
@@ -302,13 +295,8 @@ impl Graph {
             .unwrap_or(Lookup::Missing)
     }
 
-    /// Finds a cycle reachable from an instance through its declarations.
-    ///
-    /// The edges come from declarations rather than from what is currently
-    /// loaded: a requirement leads to the instance holding its reservation,
-    /// or to every installed provider of the exact key when none holds it,
-    /// and a child leads to its parent. A cycle through a disabled member is
-    /// therefore still reported as a cycle.
+    /// Finds a cycle reachable from an instance through its declarations, not
+    /// through what is loaded, so a cycle through a disabled member is reported.
     fn declared_cycle(&self, start: InstanceId) -> Option<Vec<InstanceId>> {
         self.visit_declarations(start, &mut Vec::new(), &mut BTreeSet::new())
     }

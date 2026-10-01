@@ -1,14 +1,6 @@
--- Adoption of the session's windows into the desktop.
---
--- The consumer installs the adoption provider's native pose source and then
--- starts adoption, so every window, open now or later, becomes a panel placed
--- by lunette/placement. `tags` are the tags an adopted window joins unless a
--- rule names others; the default is the workspace tag. `filter` answers
--- whether to adopt a window, and a window a rule gives `adopt = false` is
--- not adopted either, so a plugin that draws a window itself can keep it.
--- Other consumers hear each placement through the placement contract's
--- `onPlaced`, and `desktop/arrange` arranges the windows placed without a
--- pose.
+-- Adoption of the session's windows into the desktop: installs the native pose source and starts adoption,
+-- so every window becomes a panel placed by lunette/placement, joining `tags` unless a rule names others.
+-- `filter`, or a rule's `adopt = false`, leaves a window to whatever draws it.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'

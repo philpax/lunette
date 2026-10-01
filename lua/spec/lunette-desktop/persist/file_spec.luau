@@ -296,8 +296,7 @@ spec('the default adapter routes reads and writes through the save filesystem', 
   end
 end)
 
--- A format of a configuration's own: one line per entry, its key, slot, and
--- pose, under a version line. It answers fromTheFuture for a later version.
+-- A format of a configuration's own, answering fromTheFuture for a later version.
 local LINES_VERSION = 1
 local lines = {
   read = function(text)

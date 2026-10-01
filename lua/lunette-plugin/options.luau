@@ -1,11 +1,5 @@
--- Field validation and configuration merging for plugin definitions.
---
--- A plugin's configuration is a table of options merged over defaults. A
--- record, a table with string keys and no list part, merges key by key and
--- recursively; every other value, lists included, replaces the default
--- wholesale. Validation reads the shape from the defaults: a key the
--- defaults do not name is unknown, and a value whose type differs from its
--- default's is wrong.
+-- Field validation and configuration merging for plugin definitions. A record merges key by key; any other
+-- value, lists included, replaces its default. The defaults are the schema.
 
 local options = {}
 
@@ -121,10 +115,8 @@ local function validated(name: string, path: string, defaults: Raw, given: Raw):
   return result
 end
 
--- Answers `config` merged over `defaults`, copied and frozen, so each call
--- answers values no other caller shares. Raises an error naming the plugin
--- and the option when `config` names an option the defaults do not, or gives
--- one a value of another type. A nil `config` answers the defaults.
+-- Answers `config` merged over `defaults`, copied and frozen, raising for an option the defaults do not
+-- name or a value of another type. A nil `config` answers the defaults.
 function options.resolve<S>(spec: Spec<S>): S
   local name, defaults, config = spec.name, spec.defaults, spec.config
   if config == nil then

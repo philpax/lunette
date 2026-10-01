@@ -77,25 +77,13 @@ pub enum Command {
 }
 
 /// Files that make up the shipped default configuration, relative to its root.
-///
-/// Keep this inventory explicit: adding a configuration file must be a
-/// deliberate packaging change, not an accidental consequence of a tree walk.
-///
-/// The desktop's consumers are not configuration files: they are the
-/// installed `@lunette-desktop` root, which `main.luau` composes, so a copied
-/// configuration patches them rather than carrying copies of them.
+/// The list is explicit so adding one is a deliberate packaging change.
 const CONFIG_ARTIFACTS: &[&str] = &["main.luau", "conf.luau"];
 
-/// The contents of each of [`CONFIG_ARTIFACTS`], in its order, as this binary
-/// was built with them.
+/// The contents of each of [`CONFIG_ARTIFACTS`], in its order.
 ///
-/// The copy is embedded rather than read from `$SYSCONFDIR/xdg/lunette`,
-/// which is fixed when the binary is built: a binary that was never installed
-/// has nothing there, and an installed one could find a configuration from
-/// another version there. The embedded files are the ones written against
-/// the module roots this binary mounts. The array's length is the
-/// inventory's, and a test checks that each entry is the shipped file of the
-/// same name.
+/// They are embedded because `$SYSCONFDIR/xdg/lunette` may be absent or hold
+/// another version's configuration; these match the roots this binary mounts.
 const DEFAULT_CONFIGURATION: [&str; CONFIG_ARTIFACTS.len()] = [
     include_str!("../../../etc/xdg/lunette/main.luau"),
     include_str!("../../../etc/xdg/lunette/conf.luau"),
@@ -108,15 +96,12 @@ const DEFAULT_CONFIGURATION: [&str; CONFIG_ARTIFACTS.len()] = [
 /// the user is about to edit. A copy that replaces an edited configuration
 /// destroys the user's edits.
 ///
-/// The `.luaurc` is written from `standard_library`, and it names
-/// `standard_library` by an absolute path. The file in the source tree
-/// resolves its aliases relative to itself; copied beside a user's
-/// configuration, it names a directory that is not there, and every
-/// `require '@lunette-desktop/…'` fails to resolve for the checker and for the
-/// user's editor. For the same reason a `standard_library` that lacks a root
-/// the `.luaurc` names is refused: it is what a binary run from a source tree
-/// without `$LUNETTE_STDLIB_PATH` resolves, and the session it would start
-/// could not load the configuration either.
+/// The `.luaurc` names `standard_library` by an absolute path, because the
+/// source tree's copy resolves its aliases relative to itself; copied beside a
+/// user's configuration, it names a directory that is not there, and every
+/// `require '@lunette-desktop/…'` fails to resolve. A `standard_library`
+/// lacking a root the `.luaurc` names is refused, since a session could not
+/// load the configuration either.
 pub fn dump(destination: &Path, standard_library: &Path) -> Result<Vec<PathBuf>, DumpError> {
     let roots = ModuleRoots::installed(standard_library);
     if let Some(missing) = roots

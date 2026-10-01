@@ -1,33 +1,10 @@
 -- The arrangement of placed windows that no rule or saved state placed.
 --
--- The module is a definition factory. The arranged windows are every live
--- placement made without a pose, less every window the user has put
--- somewhere: one dropped while this consumer was active, and one whose kept
--- pose, the `lunette.pose` property desktop/pose-memory writes on a drop, is
--- set. A window put somewhere stays there, and a later arrangement does not
--- move it back, even when it was dropped while this consumer was unloaded.
--- The panels dropped while active are remembered outside any activation, so
--- an outage of this consumer does not return them to the set either.
---
--- The windows are arranged tag by tag: each tag `tags` names, every tag when
--- it is empty, poses its arranged members that an earlier tag has not, in the
--- order they were placed. The selected tags come first, then the rest, each
--- group in the tags service's order, so a window in several tags is arranged
--- by the first selected tag that holds it, and by the first tag that holds it
--- when none of its tags is selected: a window on every workspace is laid out
--- with the workspace in view. A tag is posed with its own layout when it
--- names one, and otherwise with `layout`. `options` are keyed by layout name,
--- and a layout is applied with its own entry, whichever tag uses it, or with
--- none; each replaces the layout's defaults wholesale, and the layout
--- validates it.
--- The set is arranged when the consumer activates, when a window is placed,
--- when a panel is removed, when a layout is registered or unregistered, and
--- when a tag is made, ends, changes its selection, changes its layout, or
--- changes its members. A
--- continuous layout in use is also applied on every frame update, in the
--- scene phase before the panels update. A layout name that is not
--- registered is reported once, on the first frame that finds it missing,
--- and its tag is arranged as soon as it registers.
+-- Arranged windows are live placements made without a pose, less any the user has put somewhere: dropped
+-- while this consumer was active, or carrying a kept `lunette.pose`. Each tag in `tags`, or every tag, poses
+-- its arranged members not already posed, selected tags first, with its own layout or `layout`; `options`
+-- are keyed by layout name. The set is rearranged whenever a placement, panel, layout, or tag changes, and a
+-- continuous layout every frame. See docs/dev/stdlib.md#default-configuration.
 local plugin = require '@lunette-plugin'
 local drops = require '@lunette-contracts/drops'
 local frame = require '@lunette-contracts/frame'
@@ -100,8 +77,7 @@ end
 type Plan = { tag: tags.Tag, layout: string, options: { read [string]: unknown }? }
 
 local function define(): plugin.Definition<Config>
-  -- Weak keys, so a panel that has ended is not retained by having been
-  -- dropped once.
+  -- Weak keys, so a dropped panel that has ended is not retained.
   local dropped: { [panels.Panel]: boolean } = setmetatable({} :: { [panels.Panel]: boolean }, { __mode = 'k' })
   return plugin.define {
     name = 'desktop/arrange',

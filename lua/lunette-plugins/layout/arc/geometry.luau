@@ -1,14 +1,6 @@
--- The arc layout's geometry: where panels of given widths sit on an arc.
---
--- Panels face the centre from a circle of `radius` around it, at the
--- centre's height. Adjacent panels are at least `step` radians apart, and
--- further apart when they are wide enough to meet: a flat panel of width w
--- that touches the circle covers atan(w / 2 / radius) radians on each side of
--- its angle as seen from the centre, so two panels whose angular extents do
--- not overlap do not intersect, and `gap` metres at the radius are left
--- between them. When the whole arc would be wider than `span` radians, every
--- separation shrinks by the same factor to fit, and wide panels may then
--- overlap. The arc is centred on the direction the centre faces.
+-- The arc layout's geometry: panels face the centre from a circle of `radius` at its height, at least
+-- `step` radians apart and further when wide enough to meet, with `gap` metres between edges. An arc wider
+-- than `span` shrinks every separation by one factor, and may then overlap.
 
 local geometry = {}
 

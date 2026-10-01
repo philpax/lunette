@@ -1,10 +1,4 @@
--- Covers lua/lunette-contracts/keys.luau.
---
--- The names and codes are the runtime's, and `lunette-capture` checks the
--- codes against xkeyboard-config. What this module adds is policy written in
--- terms of them, and the tests verify that the policy agrees with the
--- runtime. A modifier name that `sink:modifiers` does not accept raises when
--- a client applies a modifier set.
+-- Covers lua/lunette-contracts/keys.luau: the policy it adds agrees with the runtime's names and codes.
 
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'

@@ -240,10 +240,8 @@ handle! {
 
 /// `window.output`: the output the window's client is shown.
 ///
-/// Read from the snapshot's assignment rather than from what the client was
-/// spawned with, because destroying an output moves its clients to the one
-/// every session starts with. A handle for an output the snapshot does not
-/// hold would report a mode nothing is showing, so the field is nil then.
+/// Read from the snapshot's assignment, because destroying an output moves its
+/// clients. Nil when the snapshot does not hold the output.
 fn output<T>(window: &Window<T>) -> Option<Output<T>> {
     window.refresh();
     let id = window.known.borrow().output?;
@@ -257,11 +255,9 @@ fn output<T>(window: &Window<T>) -> Option<Output<T>> {
 
 /// `window.commit`: which buffer the window's texture was made from.
 ///
-/// The ledger's commit counter is shared by every surface and never restarts,
-/// so a value is never repeated for a different buffer, and a caller that
-/// compares two readings learns whether a new buffer arrived between them.
-/// This is the observed commit rate frame pacing reads, which is what tells a
-/// video player that sets no content-type hint from an idle window.
+/// The ledger's counter is shared by every surface and never restarts, so two
+/// differing readings mean a new buffer arrived. Frame pacing reads this as
+/// the observed commit rate.
 fn commit<T>(window: &Window<T>) -> u64 {
     if !window.refresh() {
         return 0;

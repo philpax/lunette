@@ -1,13 +1,6 @@
--- The arrangement service contract: the desktop's saved arrangement, on
--- demand.
---
--- The shipped provider is desktop/persistence, which also saves on every
--- drop and at quit. save captures every live panel's pose, size, and tags
--- and writes them, and answers whether it wrote and, when it did not, why;
--- it refuses to write over a file it could not read or one a newer version
--- wrote unless asked to force it. restore places the live panels where the
--- arrangement last loaded or saved has them, and answers how many it placed.
--- A key binding that saves, or one that puts the desktop back, uses this.
+-- The arrangement service contract: the desktop's saved arrangement, on demand. save refuses to write over a
+-- file it could not read or one a newer version wrote unless forced; restore places live panels where the
+-- arrangement has them.
 
 local plugin = require '@lunette-plugin'
 

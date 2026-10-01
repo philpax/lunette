@@ -9,19 +9,11 @@
 //!
 //! # State-bound Lua values
 //!
-//! The ordinary native handles and module closures do not keep a `Lua`, a
-//! `RegistryKey`, or any handle to a Lua value beyond the call that produced
-//! it. Their closures capture an [`Rc<Session>`] and nothing else, and every
-//! handle answers by reading through that [`Rc`]. The plugin runtime is the
-//! deliberate exception: it is bound to one Lua state and retains plugin
-//! definitions, callbacks, services, and effects in its attachment.
-//!
-//! This exception is state-bound and explicit. A soft reload shuts down every
-//! plugin runtime, retires the contract epoch, and re-runs `main.luau` in the
-//! same Lua state. Definitions and tokens from the old epoch are therefore
-//! stale, even though the VM survives. A hard restart destroys the state while
-//! the compositor, the clients, and the textures keep running, so the
-//! attachment must drain before the state closes.
+//! Native handles and module closures capture only an [`Rc<Session>`] and
+//! keep no Lua value beyond the call that produced it. The plugin runtime is
+//! the exception: its attachment retains definitions, callbacks, services, and
+//! effects for one Lua state. A soft reload retires its contract epoch in the
+//! same state; a hard restart drains it before the state closes.
 //!
 //! # The frame
 //!
@@ -876,11 +868,8 @@ record! {
     }
 }
 
-/// Reads `lunette.reportError`'s fields into the error it reports.
-///
-/// The context and message are required. Naming the missing one is the
-/// difference between a report that says what was wrong and a conversion
-/// error about nil.
+/// Reads `lunette.reportError`'s fields into the error it reports, naming a
+/// missing context or message rather than failing as a nil conversion.
 fn report_error_fields(options: &Table) -> mlua::Result<TracedError> {
     let required = |name: &str| -> mlua::Result<String> {
         match options.get::<Value>(name)? {

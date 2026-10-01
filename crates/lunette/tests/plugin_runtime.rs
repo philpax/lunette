@@ -1,7 +1,4 @@
-//! Production mlua attachment integration tests.
-//!
-//! These tests install the real native plugin attachment descriptors and drive
-//! the real userdata methods. They deliberately do not use the probe runtime.
+//! Integration tests over the real native plugin attachment and its userdata.
 
 extern crate lunette_lovr;
 

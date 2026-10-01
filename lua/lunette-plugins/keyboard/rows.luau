@@ -1,11 +1,5 @@
--- The default key rows: a compact ANSI arrangement, as evdev codes.
---
--- `width` is in key units and defaults to one. `label` sets the text drawn
--- for a key whose legend the seat's keymap does not supply, such as enter.
--- Every other legend comes from the seat, so these rows draw the user's own
--- letters on any layout; only the physical arrangement is ANSI.
---
--- The keyboard provider's `rows` option defaults to these rows.
+-- The default key rows: a compact ANSI arrangement, as evdev codes. Legends come from the seat's keymap
+-- unless `label` is set, so only the physical arrangement is ANSI.
 
 local keyboard = require '@lunette-contracts/keyboard'
 local keys = require '@lunette-contracts/keys'

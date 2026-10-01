@@ -1,8 +1,5 @@
--- Composition-layer claim management for a panels provider.
---
--- The helper owns no registry state. It only coordinates the claim attached to
--- one panel, and the caller performs the provider owner check before invoking
--- the operation that may mint or replace a claim.
+-- Composition-layer claim management for one panel. The caller checks the owner before any operation
+-- that may mint or replace a claim.
 
 local lunette = require '@lunette'
 

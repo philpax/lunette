@@ -1,14 +1,6 @@
--- The output scale contract.
---
--- An output's scale is what its clients render at, so raising it as the user
--- approaches a panel makes the client sharper. A client re-lays-out and
--- reallocates its buffers whenever its scale changes, so the scale moves
--- between discrete steps with hysteresis and never continuously;
--- docs/dev/compositor.md states the policy. The service hands out choosers. A
--- chooser belongs to one output, receives the distance in metres to the
--- nearest panel the output's clients are shown on, and answers the step to set.
--- It reads no headset, clock, or panel itself, and holds no native resource,
--- so a chooser is not owner-scoped.
+-- The output scale contract. The service hands out choosers, each setting one output's scale in discrete
+-- steps with hysteresis from the distance to its nearest panel; docs/dev/compositor.md states the policy. A
+-- chooser holds no native resource, so it is not owner-scoped.
 
 local plugin = require '@lunette-plugin'
 

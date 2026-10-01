@@ -1,12 +1,5 @@
--- The pose a dropped window was left at, kept on the window.
---
--- When a drop ends a grab of a window's panel, the consumer writes the
--- panel's pose to the window's `lunette.pose` property, encoded by
--- `@lunette-contracts/vocabulary`. The property outlives the Lua state, so a
--- window keeps its place across a source reload: the adoption provider's
--- native source reads the property back when it places the window. A drop of
--- a surface that stands for a window's panel, such as a title bar, is a drop
--- of that panel. The consumer takes no options.
+-- The pose a dropped window was left at, kept on the window's `lunette.pose` property. The property outlives
+-- the Lua state, so the adoption provider's native source restores the place across a source reload.
 local plugin = require '@lunette-plugin'
 local drops = require '@lunette-contracts/drops'
 local panels = require '@lunette-contracts/panels'

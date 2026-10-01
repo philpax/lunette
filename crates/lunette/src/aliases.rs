@@ -1,12 +1,8 @@
 //! Module roots and installation metadata.
 //!
-//! A module root has one alias and one already-resolved source path. The
-//! application resolves paths before constructing [`ModuleRoots`]; this module
-//! validates the names and describes how each root is resolved at runtime.
-//!
-//! The `.luaurc` files and the installer use the same descriptors. Keeping the
-//! lists here prevents a root from being available to the checker but absent
-//! from a running session, or installed at a path no configuration names.
+//! The checker's `.luaurc` files, the session's mounts, and the installer all
+//! derive from these descriptors, so the three cannot disagree about a root.
+//! Paths arrive already resolved; this module validates names.
 
 use std::{collections::HashSet, fmt, fmt::Write as _, path::PathBuf};
 
@@ -95,24 +91,22 @@ pub const INSTALLED_ALIASES: &[Alias] = &[
     LUNETTE_DESKTOP,
 ];
 
-/// Every root, retained as the compatibility name used by existing callers.
+/// Another name for [`DEVELOPMENT_ALIASES`].
 pub const ALIASES: &[Alias] = DEVELOPMENT_ALIASES;
 
 /// A root with the source path already resolved by its caller.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModuleRoot {
-    /// The alias exposed to Luau.
     pub alias: String,
     /// The already-resolved directory containing the root's modules.
     pub source: PathBuf,
-    /// How the running session resolves the root.
     pub resolution: Resolution,
 }
 
-/// The compatibility name for a resolved module root description.
+/// Another name for [`ModuleRoot`].
 pub type ResolvedRoot = ModuleRoot;
 
-/// The compatibility name for a resolved module root description.
+/// Another name for [`ModuleRoot`].
 pub type RootDescription = ModuleRoot;
 
 impl ModuleRoot {
@@ -163,7 +157,6 @@ pub struct ModuleRoots {
 }
 
 impl ModuleRoots {
-    /// Validates a collection of resolved roots.
     pub fn try_new(roots: impl IntoIterator<Item = ModuleRoot>) -> Result<Self, RootError> {
         let mut roots = roots.into_iter().collect::<Vec<_>>();
         validate_roots(&roots)?;
@@ -203,7 +196,6 @@ impl ModuleRoots {
             .filter(|root| root.required_for_installation())
     }
 
-    /// Returns the roots as a slice for callers that need indexed access.
     #[must_use]
     pub fn as_slice(&self) -> &[ModuleRoot] {
         &self.roots
@@ -244,9 +236,7 @@ pub enum RootError {
     DuplicateAlias(String),
     /// A reserved native or facade alias was given the wrong resolution.
     ReservedAlias {
-        /// The reserved alias.
         alias: String,
-        /// The resolution requested by the caller.
         resolution: Resolution,
     },
 }
@@ -292,10 +282,7 @@ pub struct InstallArtifact {
 }
 
 /// The source and destination paths that make up an installed Luau runtime.
-///
-/// Directory entries are copied recursively by the installer, but only `.luau`
-/// files are accepted from them. The manifest deliberately does not
-/// include `lua/spec` or test/probe paths.
+/// Directories contribute only their `.luau` files, and `lua/spec` is excluded.
 pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
     InstallArtifact {
         source: "lua/lunette",
@@ -334,15 +321,12 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
     },
 ];
 
-/// Returns the canonical install artifact manifest.
 pub fn install_artifacts() -> impl Iterator<Item = &'static InstallArtifact> {
     INSTALL_ARTIFACTS.iter()
 }
 
-/// Renders the install manifest as tab-separated source and destination paths.
-///
-/// The format is intentionally small and stable so Make and other install
-/// tooling can consume the Rust-owned manifest without duplicating its paths.
+/// Renders the install manifest as tab-separated source and destination
+/// paths, so Make consumes the Rust-owned manifest rather than restating it.
 #[must_use]
 pub fn install_manifest() -> String {
     let mut output = String::new();
@@ -366,9 +350,7 @@ impl Alias {
 
 /// Renders a development `.luaurc` whose aliases resolve against `root`.
 ///
-/// This function retains the original API and includes the development-only
-/// spec root. Use [`installed_luaurc`] for a configuration shipped separately
-/// from the development tree.
+/// This includes the development-only spec root; [`installed_luaurc`] omits it.
 #[must_use]
 pub fn luaurc(root: &str) -> String {
     render_luaurc(root, DEVELOPMENT_ALIASES)

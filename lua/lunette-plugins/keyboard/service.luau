@@ -1,9 +1,5 @@
--- Keyboards belong to the owner that asked for one.
---
--- A keyboard is a resource of the owner that asked for it. Its release runs as
--- an inverse on that owner, so a native release that fails is the owner's
--- failure rather than this provider's. The provider keeps no registry: each
--- owner draws and offers its own keyboards.
+-- Keyboards belong to the owner that asked for one. A keyboard's release runs as an inverse on that owner,
+-- so a failing release is the owner's failure. Each owner draws and offers its own keyboards.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
@@ -17,8 +13,7 @@ local validation = require '@lunette-plugins/keyboard/validation'
 
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
--- The resolved options. Each activation receives its own frozen copy, so no
--- consumer can restyle another's keyboards.
+-- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read rows: { keyboard.KeyRow },
   read layers: { [string]: { keyboard.KeyRow } },
@@ -404,8 +399,7 @@ local function create(
     table.clear(hovered)
     releaseInput()
   end
-  -- The release runs on the caller's stack, so its failure is the caller's;
-  -- the owner's effect is then disposed with nothing left to do.
+  -- The release runs on the caller's stack, so its failure is the caller's.
   function release(): boolean
     local ok, failure = pcall(releaseRaw)
     dispose()

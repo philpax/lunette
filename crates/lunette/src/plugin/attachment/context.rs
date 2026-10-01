@@ -177,12 +177,9 @@ fn withdraw_acquisition(
     Ok(())
 }
 
-/// Runs an effect's inverse once.
-///
-/// Disposing an effect whose runtime is closed, whose instance was removed,
-/// or whose activation has ended does nothing: that activation's cleanup has
-/// already run the inverse or will run it. A failing inverse quarantines the
-/// activation and is raised to the caller.
+/// Runs an effect's inverse once. It does nothing once the activation has
+/// ended, whose cleanup owns the inverse; a failing inverse quarantines the
+/// activation and is raised.
 pub(super) fn dispose_effect(lua: &Lua, effect: &PluginEffect) -> mlua::Result<()> {
     let Some(runtime) = effect.runtime.upgrade() else {
         return Ok(());
@@ -320,13 +317,10 @@ pub(super) fn context_active(context: &PluginContext) -> bool {
             })
 }
 
-/// Reports whether a provider's activation is published and has not begun
-/// unloading.
+/// Reports whether a provider's activation is published and not unloading.
 ///
-/// This is the liveness of the services it published, and it ignores
-/// resource authority: an active provider whose explicit disposal failed
-/// acquires nothing more but keeps serving until it unloads, and a provider
-/// running one of its own inverses is still serving while it does.
+/// This is service liveness, separate from resource authority: a provider
+/// whose disposal failed keeps serving until it unloads.
 pub(super) fn context_serving(context: &PluginContext) -> bool {
     context.runtime.upgrade().is_some_and(|runtime| {
         runtime
