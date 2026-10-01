@@ -2,6 +2,7 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 local rules = require '@lunette-contracts/rules'
+local placementContract = require '@lunette-contracts/placement'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local adoption = require '@lunette-contracts/adoption'
 
@@ -9,10 +10,12 @@ local runtime = plugin.runtime()
 local panelProvider = runtime:use(require('@lunette-plugins/panels').definition, {})
 local tagProvider = runtime:use(require('@lunette-plugins/tags').definition, {})
 local rulesProvider = runtime:use(require('@lunette-plugins/rules').definition, {})
+local placementProvider = runtime:use(require('@lunette-plugins/placement').definition, {})
 local adoptionProvider = runtime:use(require('@lunette-plugins/adoption').definition, {})
 panelProvider:enable()
 tagProvider:enable()
 rulesProvider:enable()
+placementProvider:enable()
 adoptionProvider:enable()
 
 local services
@@ -24,6 +27,7 @@ local consumer = runtime:use(
       panels = panels.capability,
       tags = tags.capability,
       rules = rules.capability,
+      placement = placementContract.capability,
       adoption = adoption.capability,
     },
     init = function(context)
@@ -31,6 +35,7 @@ local consumer = runtime:use(
         panels = context:require(panels.capability),
         tags = context:require(tags.capability),
         rules = context:require(rules.capability),
+        placement = context:require(placementContract.capability),
         adoption = context:require(adoption.capability),
       }
       owner = context
@@ -200,6 +205,38 @@ assert(#services.panels:all() == 0)
 assert(
   saved.closeCalls == 0 and ordinary.closeCalls == 0 and arriving.closeCalls == 0 and secondArriving.closeCalls == 0
 )
+
+-- A window the start's filter refuses, and one a rule marks adopt = false,
+-- are left alone; the others are adopted.
+local refused = window(6)
+refused.appId = 'fixture.refused'
+local declined = window(7)
+declined.appId = 'fixture.declined'
+local accepted = window(8)
+windows = { refused, declined, accepted }
+local declining = services.rules:addSource(owner, {
+  name = 'fixture.declining',
+  precedence = vocabulary.PRECEDENCE.rules,
+  resolve = function(target)
+    if target.appId == 'fixture.declined' then
+      return { adopt = false }
+    end
+    return nil
+  end,
+})
+local filtered = services.adoption:start(owner, {
+  filter = function(target)
+    return target.appId ~= 'fixture.refused'
+  end,
+})
+assert(not services.panels:forSource(refused), 'a window the filter refuses is not adopted')
+assert(not services.panels:forSource(declined), 'a window a rule gives adopt = false is not adopted')
+assert(services.panels:forSource(accepted), 'another window is adopted')
+filtered:dispose()
+declining:dispose()
+assert(not pcall(function()
+  services.adoption:start(owner, { filter = 'everything' })
+end), 'a filter that is not a function raises')
 
 local sourceCallback = services.adoption:source()
 assert(sourceCallback(saved).pose == saved.stored[vocabulary.POSE_PROPERTY])

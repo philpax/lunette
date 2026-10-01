@@ -1,10 +1,10 @@
 -- The key bindings service contract.
 --
 -- A broker for desktop key chords. A plugin registers a chord and what it
--- runs; whatever reads the desktop keyboard dispatches each key press to the
--- broker before it forwards the key anywhere else, and a press a binding
--- matches goes no further. The shipped desktop/input dispatches in the frame
--- provider's binding phase.
+-- runs. The provider takes the desktop's key presses itself, before anything
+-- delivers them, and a press a binding matches goes no further; the shipped
+-- provider does this in the frame provider's binding phase. dispatch offers
+-- a press from another source, such as an on-screen keyboard.
 --
 -- A registration is owner-scoped: it lasts until the returned effect is
 -- disposed or its owner unloads. A chord names one registration, and

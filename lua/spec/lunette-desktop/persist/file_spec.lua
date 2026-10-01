@@ -9,15 +9,16 @@ local persist = require '@lunette-desktop/persist'
 
 local spec = suite.new 'lunette-desktop.persist.file'
 
-local function filesystem(text)
+local function filesystem(text, name)
+  local expected = name or 'arrangement.state'
   local fs = { text = text, reads = 0, writes = 0, writable = true }
   function fs.read(filename)
-    expect.equal(filename, 'arrangement.state', 'the read filename')
+    expect.equal(filename, expected, 'the read filename')
     fs.reads += 1
     return fs.text
   end
   function fs.write(filename, contents)
-    expect.equal(filename, 'arrangement.state', 'the write filename')
+    expect.equal(filename, expected, 'the write filename')
     if not fs.writable then
       return false
     end
@@ -262,6 +263,136 @@ spec('the default adapter routes reads and writes through the save filesystem', 
   if not ok then
     error(failure)
   end
+end)
+
+-- A format of a configuration's own: one line per entry, its key, slot, and
+-- pose, under a version line. It answers fromTheFuture for a later version.
+local LINES_VERSION = 1
+local lines = {
+  read = function(text)
+    local version = tonumber(text:match '^lines (%d+)\n')
+    if not version then
+      return persist.broken 'no version line'
+    end
+    if version > LINES_VERSION then
+      return persist.fromTheFuture { found = version, supported = LINES_VERSION }
+    end
+    local entries = {}
+    for kind, key, slot, pose in text:gmatch '(%a+)\t([^\t]+)\t(%d+)\t([^\n]+)\n' do
+      entries[#entries + 1] = { kind = kind, key = key, slot = tonumber(slot), pose = pose, tags = {} }
+    end
+    return persist.arrangement { file = persist.newFile(entries), version = version }
+  end,
+  render = function(file)
+    local out = { 'lines ' .. LINES_VERSION }
+    for _, entry in ipairs(persist.entries(file)) do
+      out[#out + 1] = table.concat({ entry.kind, entry.key, tostring(entry.slot), entry.pose }, '\t')
+    end
+    return table.concat(out, '\n') .. '\n'
+  end,
+}
+
+spec('a named file in another format round-trips the arrangement', function()
+  local fs = filesystem(nil, 'profile.lines')
+  local state = persist.new { filesystem = fs, file = 'profile.lines', format = lines }
+  expect.equal(persist.path(fs, 'profile.lines'), '/a/save/directory/profile.lines', 'the named path')
+  withBinding(state, function(binding, context, panels)
+    panels:fromMonitor(context, { id = 'fixture.monitor', dead = false, width = 1920, height = 1080 }, {
+      pose = lovr.math.newMat4():translate(1, 2, 3),
+    })
+    expect.equal(binding:save(), true, 'the save')
+  end)
+  expect.truthy(fs.text:find '^lines 1\nmonitor\tfixture.monitor\t1\t', 'the format wrote the file: ' .. fs.text)
+  local recovered = persist.new { filesystem = fs, file = 'profile.lines', format = lines }
+  local entries = persist.entries(recovered:arrangement())
+  expect.equal(#entries, 1, 'the entries read back')
+  expect.equal(entries[1].key, 'fixture.monitor', 'the key read back')
+end)
+
+spec('a format that reports a later version leaves the file alone', function()
+  local fs = filesystem('lines 7\n', 'profile.lines')
+  local reports = {}
+  local state = persist.new {
+    filesystem = fs,
+    file = 'profile.lines',
+    format = lines,
+    report = function(message)
+      reports[#reports + 1] = message
+    end,
+  }
+  expect.equal(state:loaded().kind, 'fromTheFuture', 'the load')
+  expect.truthy(state:declined():find('written by version 7', 1, true), 'the refusal')
+  withBinding(state, function(binding)
+    expect.equal(binding:save(), false, 'the refused save')
+  end)
+  expect.equal(fs.text, 'lines 7\n', 'the bytes')
+end)
+
+spec('a format whose read raises or answers no load is a broken file', function()
+  for _, read in ipairs {
+    function()
+      error 'unreadable'
+    end,
+    function()
+      return { kind = 'arrangement' }
+    end,
+  } do
+    local state = persist.new {
+      filesystem = filesystem 'anything',
+      format = { read = read, render = lines.render },
+      report = function() end,
+    }
+    expect.equal(state:loaded().kind, 'broken', 'the load')
+  end
+end)
+
+spec('a malformed file, format, or key function raises at construction', function()
+  for _, dependencies in ipairs {
+    { file = '' },
+    { format = { read = lines.read } },
+    { keyFor = 'title' },
+  } do
+    expect.raises(function()
+      persist.new(dependencies)
+    end, 'desktop.persist', 'the malformed dependency')
+  end
+end)
+
+spec('a key function keys windows by title instead of application', function()
+  local fs = filesystem(nil)
+  local state = persist.new {
+    filesystem = fs,
+    keyFor = function(target)
+      if target.kind == 'window' then
+        return target.source.title
+      end
+      return persist.defaultKey(target)
+    end,
+  }
+  local function terminal(id, title)
+    return {
+      id = id,
+      appId = 'terminal',
+      title = title,
+      dead = false,
+      width = 800,
+      height = 600,
+      getProperty = function() end,
+    }
+  end
+  withBinding(state, function(binding)
+    local source = persist.source(
+      persist.newFile {
+        { kind = 'window', key = 'build', slot = 1, pose = '1 0 0 0 0 1 0 0 0 0 1 0 4 5 6 1', tags = {} },
+      },
+      persist.slots(function(target)
+        return target.source.title
+      end)
+    )
+    expect.truthy(source(terminal(1, 'build')), 'the window titled build has the entry')
+    expect.falsy(source(terminal(2, 'editor')), 'another title of the same application does not')
+    expect.truthy(binding:active(), 'the binding')
+  end)
 end)
 
 return spec

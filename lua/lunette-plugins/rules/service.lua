@@ -1,14 +1,10 @@
--- The RULES provider. Matching and resolving are pure queries over an activation's
--- ordered source registry; registrations and placement are owner-scoped. A
--- placement ends when its owner disposes it or unloads, or when its panel is
--- removed for any reason, which the panels contract announces.
+-- The rules provider. Matching and resolving are pure queries over an
+-- activation's ordered source registry, and registrations are owner-scoped.
+-- Placement is lunette/placement's, so rules requires no other contract.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/rules'
-local panelsContract = require '@lunette-contracts/panels'
-local tagsContract = require '@lunette-contracts/tags'
-local vocabulary = require '@lunette-contracts/vocabulary'
 local policy = require '@lunette-plugins/rules/policy'
 
 export type Service = contracts.Service
@@ -16,7 +12,6 @@ export type Owner = contracts.Owner
 export type Properties = contracts.Properties
 export type Resolved = contracts.Resolved
 export type Rule = contracts.Rule
-export type Tag = contracts.Tag
 
 type Source = contracts.Source & {
   resolve: (lunette.Window) -> Properties?,
@@ -33,7 +28,6 @@ type ProviderState = {
 type MutableService = {
   DEFAULT_PRECEDENCE: number,
   DEFAULT_SOURCE: string,
-  PANEL_PROPERTIES: { string },
   report: (Service, contracts.Report) -> (),
   addSource: (Service, Owner, contracts.SourceRegistration) -> plugin.Effect,
   sources: (Service) -> { contracts.Source },
@@ -41,7 +35,6 @@ type MutableService = {
   setRules: (Service, Owner, contracts.RuleSet) -> plugin.Effect,
   matches: (Service, contracts.Match?, lunette.Window) -> boolean,
   resolve: (Service, lunette.Window) -> Resolved,
-  place: (Service, Owner, lunette.Window, Resolved?) -> (panelsContract.WindowPanel, Resolved, plugin.Effect),
 }
 
 local function byPrecedence(left: Source, right: Source): boolean
@@ -137,145 +130,6 @@ local function report(state: ProviderState, message: string, level: contracts.Lo
   end
 end
 
-local function poseFrom(state: ProviderState, value: (string | Mat4)?, window: lunette.Window): Mat4?
-  if type(value) ~= 'string' then
-    return value
-  end
-  local decoded = vocabulary.decodePose(value)
-  if not decoded then
-    report(state, "the pose for '" .. tostring(window.appId) .. "' is not sixteen numbers, so it is ignored")
-  end
-  return decoded
-end
-
-local function applyTags(
-  state: ProviderState,
-  created: panelsContract.WindowPanel,
-  names: { read [number]: string | Tag },
-  made: { Tag },
-  memberships: { Tag }
-): ()
-  local tags: tagsContract.Service = state.context:require(tagsContract.capability)
-  for index = 1, #names do
-    local named = names[index]
-    local found: Tag?
-    if type(named) == 'string' then
-      found = tags:find(named)
-      if not found then
-        local acquired = tags:new(state.context, named)
-        found = acquired
-        made[#made + 1] = acquired
-        report(state, "nothing declared the tag '" .. named .. "', so it was created", 'info')
-      end
-    elseif tags:isTag(named) then
-      found = named
-    else
-      report(state, 'a tag is named by a string or is a tag, not a ' .. type(named))
-    end
-    if found and found:add(state.context, created) then
-      memberships[#memberships + 1] = found
-    end
-  end
-end
-
-local function acquirePlacement(
-  state: ProviderState,
-  owner: Owner,
-  window: lunette.Window,
-  properties: Resolved
-): (panelsContract.WindowPanel, plugin.Effect)
-  local panels: panelsContract.Service = state.context:require(panelsContract.capability)
-  local created: panelsContract.WindowPanel?
-  local made: { Tag } = {}
-  local memberships: { Tag } = {}
-  local removal: plugin.Effect? = nil
-  local function cleanup()
-    local panel = created
-    local added = memberships
-    local owned = made
-    local listener = removal
-    created = nil
-    memberships = {}
-    made = {}
-    removal = nil
-    local failures: { string } = {}
-    local function attempt(operation: string, action: () -> ())
-      local ok, failure = pcall(action)
-      if not ok then
-        failures[#failures + 1] = operation .. ': ' .. tostring(failure)
-      end
-    end
-    if listener then
-      attempt('stop removal listener', function()
-        listener:dispose()
-      end)
-    end
-    if panel then
-      for index = #added, 1, -1 do
-        local tag = added[index]
-        added[index] = nil
-        attempt('remove membership', function()
-          tag:remove(state.context, panel)
-        end)
-      end
-      attempt('destroy panel', function()
-        panel:destroy(state.context)
-      end)
-    end
-    for index = #owned, 1, -1 do
-      local tag = owned[index]
-      owned[index] = nil
-      attempt('destroy implicit tag', function()
-        tag:destroy()
-      end)
-    end
-    if #failures > 0 then
-      error('rules: placement cleanup: ' .. table.concat(failures, '; '))
-    end
-  end
-  local acquired = owner:effect(function(): () -> ()
-    state.context:checkOwner(owner)
-    local ok, failure = pcall(function()
-      local panel = panels:fromWindow(state.context, window, {
-        pose = poseFrom(state, properties.pose, window),
-        width = properties.width,
-        height = properties.height,
-        title = properties.title,
-        priority = properties.priority,
-        chrome = properties.chrome,
-        curve = properties.curve,
-      })
-      created = panel
-      if properties.tags then
-        applyTags(state, panel, properties.tags, made, memberships)
-      end
-    end)
-    if not ok then
-      local cleaned, cleanupFailure = pcall(cleanup)
-      if not cleaned then
-        error('rules: placement acquisition: ' .. tostring(failure) .. '; ' .. tostring(cleanupFailure))
-      end
-      error(failure)
-    end
-    return cleanup
-  end)
-  local panel = assert(created)
-  if panel.dead then
-    acquired:dispose()
-  else
-    -- The listener belongs to this provider and is stopped by the cleanup, so a
-    -- panel removed by its source dying or by the panels provider ends the
-    -- placement it belongs to.
-    removal = panels:onRemoved(state.context, {
-      panel = panel,
-      run = function()
-        acquired:dispose()
-      end,
-    })
-  end
-  return panel, acquired
-end
-
 -- The resolved options: the precedence a rule set takes when it names none.
 export type Settings = {
   read precedence: number,
@@ -285,7 +139,6 @@ local function build(context: plugin.Context, settings: Settings): Service
   local implementation: MutableService = {
     DEFAULT_PRECEDENCE = settings.precedence,
     DEFAULT_SOURCE = 'lunette.rules',
-    PANEL_PROPERTIES = { 'pose', 'width', 'height', 'title', 'priority', 'chrome', 'curve' },
     report = function(_self: Service, _report: contracts.Report) end,
     addSource = function(_self: Service, _owner: Owner, _registration: contracts.SourceRegistration): plugin.Effect
       error 'rules: service is not initialized'
@@ -303,14 +156,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       error 'rules: service is not initialized'
     end,
     resolve = function(_self: Service, _window: lunette.Window): Resolved
-      error 'rules: service is not initialized'
-    end,
-    place = function(
-      _self: Service,
-      _owner: Owner,
-      _window: lunette.Window,
-      _options: Resolved?
-    ): (panelsContract.WindowPanel, Resolved, plugin.Effect)
       error 'rules: service is not initialized'
     end,
   }
@@ -440,28 +285,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
     end
     return evaluate(collected, window)
-  end
-
-  function implementation.place(
-    _self: Service,
-    owner: Owner,
-    window: lunette.Window,
-    options: Resolved?
-  ): (panelsContract.WindowPanel, Resolved, plugin.Effect)
-    if window == nil then
-      error('rules: a window is placed, and nil is not one', 2)
-    end
-    context:checkOwner(owner)
-    local properties = service:resolve(window)
-    if options then
-      for key, value in pairs(options) do
-        if properties[key] == nil then
-          properties[key] = value
-        end
-      end
-    end
-    local panel, placement = acquirePlacement(state, owner, window, properties)
-    return panel, properties, placement
   end
 
   return service

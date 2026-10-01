@@ -13,7 +13,7 @@ frame.install {
 }
 runtime:use(frame.definition, {}):enable()
 runtime:use(require('@lunette-plugins/surfaces').definition, {}):enable()
-runtime:use(require('@lunette-plugins/error-display').definition, {}):enable()
+runtime:use(require('@lunette-plugins/errors').definition, {}):enable()
 local ran = {}
 local broker
 runtime

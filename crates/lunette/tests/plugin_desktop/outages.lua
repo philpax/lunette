@@ -6,7 +6,6 @@ local drops = require '@lunette-contracts/drops'
 local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
 local keyboard = require '@lunette-contracts/keyboard'
-local display = require '@lunette-contracts/error-display'
 local runtime = plugin.runtime()
 frame.install {
   start = function() end,
@@ -26,10 +25,11 @@ local definitions = {
   keyboard = require('@lunette-plugins/keyboard').definition,
   tags = require('@lunette-plugins/tags').definition,
   rules = require('@lunette-plugins/rules').definition,
+  placement = require('@lunette-plugins/placement').definition,
   adoption = require('@lunette-plugins/adoption').definition,
   layouts = require('@lunette-plugins/layouts').definition,
   arc = require('@lunette-plugins/layout/arc').definition,
-  display = require('@lunette-plugins/error-display').definition,
+  display = require('@lunette-plugins/errors').definition,
 }
 local providers = {}
 for _, name in ipairs {
@@ -44,6 +44,7 @@ for _, name in ipairs {
   'keyboard',
   'tags',
   'rules',
+  'placement',
   'adoption',
   'layouts',
   'arc',

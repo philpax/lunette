@@ -27,7 +27,8 @@ export type Entry = {
 -- A change to the entry list. A patch with `id` changes that entry: `disabled`
 -- removes it, `definition` or `factory` replaces what it is made from, and
 -- `config` is merged into its configuration. A patch with `insert` adds an
--- entry and carries nothing else.
+-- entry, at the end, or just `before` or `after` the entry it names, and
+-- carries nothing else.
 export type Patch = {
   read id: string?,
   read disabled: boolean?,
@@ -35,6 +36,8 @@ export type Patch = {
   read factory: (() -> Definition)?,
   read config: Config?,
   read insert: Entry?,
+  read before: string?,
+  read after: string?,
 }
 
 -- What `compose` takes: the entries to start from, by default the shipped
@@ -55,6 +58,8 @@ local PATCH_KEYS: { [string]: boolean } = {
   factory = true,
   config = true,
   insert = true,
+  before = true,
+  after = true,
 }
 
 local function fail(message: string): never
@@ -174,6 +179,9 @@ local function checkedKeyed(raw: Raw, position: string): Keyed
     fail(position .. ' names an entry by a non-empty string id, not ' .. tostring(id))
   end
   local what = 'the patch for ' .. (id :: string)
+  if raw.before ~= nil or raw.after ~= nil then
+    fail(what .. ' gives before or after, which place an insert; ordering an existing entry is not a patch')
+  end
   local disabled = raw.disabled
   if disabled ~= nil and disabled ~= true then
     fail(what .. ': disabled is true or absent, not ' .. tostring(disabled))
@@ -239,18 +247,49 @@ function compose.apply(entries: { Entry }, options: Options?): { Entry }
       fail(position .. ' is a table of fields, not a ' .. type(value))
     end
     local raw = value :: Raw
-    rejectUnknown(raw, PATCH_KEYS, position, 'id, disabled, definition, factory, config, and insert')
+    rejectUnknown(raw, PATCH_KEYS, position, 'id, disabled, definition, factory, config, insert, before, and after')
     if raw.insert ~= nil then
       for key, _ in raw do
-        if key ~= 'insert' then
-          fail(position .. ' inserts an entry and also gives ' .. tostring(key) .. '; an insert carries nothing else')
+        if key ~= 'insert' and key ~= 'before' and key ~= 'after' then
+          fail(
+            position
+              .. ' inserts an entry and also gives '
+              .. tostring(key)
+              .. '; an insert carries only before or after'
+          )
         end
       end
       local entry = checkedEntry(raw.insert, 'the entry ' .. position .. ' inserts')
       if indexOf(result, entry.id) then
         fail('the insert of ' .. entry.id .. ' names an entry that already exists; patch it by its id instead')
       end
-      result[#result + 1] = entry
+      local before, after = raw.before, raw.after
+      if before ~= nil and after ~= nil then
+        fail('the insert of ' .. entry.id .. ' gives both before and after; it gives one')
+      end
+      local anchor = before or after
+      if anchor == nil then
+        result[#result + 1] = entry
+      else
+        local field = if before ~= nil then 'before' else 'after'
+        if type(anchor) ~= 'string' then
+          fail('the insert of ' .. entry.id .. ': ' .. field .. ' is an entry id, not a ' .. type(anchor))
+        end
+        local at = indexOf(result, anchor :: string)
+        if at == nil then
+          fail(
+            'the insert of '
+              .. entry.id
+              .. ' goes '
+              .. field
+              .. ' '
+              .. tostring(anchor)
+              .. ', which is not an entry; the entries are '
+              .. idsOf(result)
+          )
+        end
+        table.insert(result, if before ~= nil then at :: number else (at :: number) + 1, entry)
+      end
     else
       local patch = checkedKeyed(raw, position)
       if named[patch.id] then

@@ -9,7 +9,7 @@ local keyboard = require '@lunette-contracts/keyboard'
 local rules = require '@lunette-contracts/rules'
 local adoption = require '@lunette-contracts/adoption'
 local layouts = require '@lunette-contracts/layouts'
-local errorDisplay = require '@lunette-contracts/error-display'
+local errors = require '@lunette-contracts/errors'
 local laserModule = require '@lunette-plugins/laser'
 
 local function raises(expected, run)
@@ -132,7 +132,23 @@ local rejections = {
     message = 'plugin layout/arc: option radius is a positive number, not 0',
   },
   { id = 'layouts', config = { bogus = 1 }, message = 'plugin layouts: unknown option bogus' },
-  { id = 'error-display', config = { colour = {} }, message = 'plugin error-display: unknown option colour' },
+  { id = 'errors', config = { colour = {} }, message = 'plugin errors: unknown option colour' },
+  {
+    id = 'errors',
+    config = { history = 0 },
+    message = 'plugin errors: option history is a whole number of at least 1, not 0',
+  },
+  {
+    id = 'desktop/errors',
+    config = { position = 'ahead' },
+    message = 'plugin desktop/errors: option position is a table, not a string',
+  },
+  { id = 'placement', config = { bogus = 1 }, message = 'plugin placement: unknown option bogus' },
+  {
+    id = 'placement',
+    config = { panelOptions = 'curved' },
+    message = 'plugin placement: option panelOptions is a function, not a string',
+  },
   { id = 'desktop/workspace', config = { nmae = 'web' }, message = 'plugin desktop/workspace: unknown option nmae' },
   {
     id = 'desktop/rules',
@@ -144,7 +160,27 @@ local rejections = {
     config = { rules = { { matches = { appId = 'foot' } } } },
     message = 'rules: rule 1 has an unknown field matches; the fields are match and properties',
   },
-  { id = 'desktop/persistence', config = { file = 'x' }, message = 'plugin desktop/persistence: unknown option file' },
+  { id = 'desktop/persistence', config = { fiel = 'x' }, message = 'plugin desktop/persistence: unknown option fiel' },
+  {
+    id = 'desktop/persistence',
+    config = { file = '' },
+    message = 'plugin desktop/persistence: option file is a non-empty file name',
+  },
+  {
+    id = 'desktop/persistence',
+    config = { format = { read = 'lua' } },
+    message = 'plugin desktop/persistence: option format.read is a function, not a string',
+  },
+  {
+    id = 'desktop/arrange',
+    config = { tags = { '' } },
+    message = 'plugin desktop/arrange: option tags[1] is a non-empty tag name',
+  },
+  {
+    id = 'desktop/adoption',
+    config = { filter = 'everything' },
+    message = 'plugin desktop/adoption: option filter is a function, not a string',
+  },
   { id = 'desktop/arrange', config = { layuot = 'grid' }, message = 'plugin desktop/arrange: unknown option layuot' },
   -- A layout's own options are the layout's to validate, and its error fails
   -- the arranging consumer that passed them.
@@ -176,14 +212,10 @@ end
 -- A configuration that is not a table is the provider's to reject too, when it
 -- is used outside a composition, which rejects one first.
 local direct = plugin.runtime()
-local loud = direct:use(require('@lunette-plugins/error-display').definition, 'loud' :: any)
+local loud = direct:use(require('@lunette-plugins/errors').definition, 'loud' :: any)
 loud:enable()
 assert(
-  tostring(loud:diagnostic()):find(
-    'plugin error-display: the configuration is a table of options, not a string',
-    1,
-    true
-  )
+  tostring(loud:diagnostic()):find('plugin errors: the configuration is a table of options, not a string', 1, true)
 )
 direct:close()
 
@@ -200,7 +232,7 @@ local probe = plugin.define {
     rules = rules.capability,
     adoption = adoption.capability,
     layouts = layouts.capability,
-    errorDisplay = errorDisplay.capability,
+    errors = errors.capability,
   },
   init = function(context)
     owner = context
@@ -211,9 +243,12 @@ local probe = plugin.define {
     services.rules = context:require(rules.capability)
     services.adoption = context:require(adoption.capability)
     services.layouts = context:require(layouts.capability)
-    services.errorDisplay = context:require(errorDisplay.capability)
+    services.errors = context:require(errors.capability)
   end,
 }
+-- LÖVR's callbacks reach the frame provider of the desktop started next, so
+-- the error panel draws.
+require('@lunette-plugins/frame').install { start = function() end, stop = function() end }
 local running = desktop.start(desktop.compose {
   patches = {
     { id = 'panels', config = { height = 1.2, style = { borderThickness = 0.02 } } },
@@ -227,7 +262,8 @@ local running = desktop.start(desktop.compose {
     { id = 'rules', config = { precedence = 150 } },
     { id = 'adoption', config = { precedence = 350 } },
     { id = 'layout/arc', config = { tuning = { radius = 3 } } },
-    { id = 'error-display', config = { columns = 10, background = { 0, 0, 1, 1 } } },
+    { id = 'errors', config = { history = 2 } },
+    { id = 'desktop/errors', config = { columns = 10, background = { 0, 0, 1, 1 } } },
     { insert = { id = 'probe', definition = probe } },
   },
 })
@@ -294,13 +330,27 @@ services.layouts:apply { name = 'arc', panels = { arced }, options = { radius = 
 _, _, z = arced.pose:getPosition()
 assert(z == -2, "a call's options merge over the configured tuning")
 
-assert(services.errorDisplay.COLUMNS == 10 and services.errorDisplay.BACKGROUND[3] == 1)
-services.errorDisplay:show 'a report longer than ten columns'
--- The first line is the display's fixed heading; the report wraps below it.
-local wrapped = services.errorDisplay:lines()
-assert(#wrapped > 2)
-for index = 2, #wrapped do
-  assert(#wrapped[index] <= 10, 'the report wraps at the configured columns: ' .. wrapped[index])
+for index = 1, 3 do
+  emit('onError', { message = 'report ' .. index, traceback = '' })
+end
+local recent = services.errors:recent()
+assert(#recent == 2 and recent[2].message == 'report 3', 'the stream keeps the configured history')
+emit('onError', { message = 'a report longer than ten columns', traceback = '' })
+events.draw = {}
+lovr.draw(events.pass)
+-- The panel draws a fixed heading and the report wrapped below it, among the
+-- other text of the scene.
+local report = 'a report longer than ten columns'
+local wrapped = {}
+for _, call in ipairs(events.draw) do
+  local text = tostring(call[2])
+  if call[1] == 'text' and text ~= '' and report:find(text, 1, true) then
+    wrapped[#wrapped + 1] = text
+  end
+end
+assert(#wrapped >= 3 and table.concat(wrapped, ' ') == report, 'the error panel draws the wrapped report')
+for _, line in ipairs(wrapped) do
+  assert(#line <= 10, 'the report wraps at the configured columns: ' .. line)
 end
 
 panel:destroy(owner)

@@ -1,44 +1,23 @@
--- Desktop keyboard input: bindings first, then the focused seat.
+-- Desktop keyboard input: keys and text to the focused seat.
 --
--- Every key press is offered to the bindings broker in the frame provider's
--- binding phase, with the modifiers the desktop keyboard holds, and a press a
--- binding matches goes no further. Other keys and text go to the sink
--- lunette/focus answers, in the delivery phase. The consumer takes no
--- options.
+-- Keys and text go to the sink lunette/focus answers, in the frame
+-- provider's delivery phase, so a press a binding consumed in the binding
+-- phase never arrives here. The consumer does not require lunette/bindings:
+-- the bindings provider takes its presses itself, so an outage of it leaves
+-- typing working. The consumer takes no options.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local bindings = require '@lunette-contracts/bindings'
 local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local keys = require '@lunette-contracts/keys'
 
 local required: plugin.Declaration = {
-  bindings = bindings.capability,
   focus = focus.capability,
   frame = frame.capability,
 }
 
 local function heldModifiers(): { string }
-  local held: { string } = {}
-  for _, entry in ipairs(keys.LOVR_MODIFIERS) do
-    for _, name in ipairs(entry.keys) do
-      if lovr.system.isKeyDown(name) then
-        held[#held + 1] = entry.modifier
-        break
-      end
-    end
-  end
-  return held
-end
-
--- The modifiers a chord is matched against: those forwarded with a key, and
--- shift, which forwarding leaves to the seat's stroke for each character.
-local function chordModifiers(): { string }
-  local held = heldModifiers()
-  if lovr.system.isKeyDown 'lshift' or lovr.system.isKeyDown 'rshift' then
-    held[#held + 1] = 'shift'
-  end
-  return held
+  return keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = false }
 end
 
 return plugin.define {
@@ -48,7 +27,6 @@ return plugin.define {
     -- The consumer takes no options, so any option is a mistake worth naming.
     plugin.options { name = 'desktop/input', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
-    local bindingService: bindings.Service = context:require(bindings.capability)
     local service: focus.Service = context:require(focus.capability)
     -- The focused seat and sink, or nothing when either has died since focus
     -- was given: a handle does not survive its native object.
@@ -73,16 +51,6 @@ return plugin.define {
         sink:modifiers({}, seat)
       end
     end
-    frameService:onKey(context, {
-      phase = 'binding',
-      run = function(event: frame.KeyEvent): boolean?
-        return bindingService:dispatch {
-          key = event.key,
-          modifiers = chordModifiers(),
-          isRepeat = event.isRepeat,
-        }
-      end,
-    })
     frameService:onKey(context, {
       phase = 'delivery',
       run = function(event: frame.KeyEvent): boolean?

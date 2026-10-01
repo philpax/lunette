@@ -12,6 +12,8 @@ local named: { [string]: boolean } = {
   priority = true,
   chrome = true,
   curve = true,
+  hidden = true,
+  adopt = true,
   tags = true,
 }
 local matchFields: { [string]: boolean } = {
@@ -23,6 +25,7 @@ local matchFields: { [string]: boolean } = {
   height = true,
   opaque = true,
   contentType = true,
+  where = true,
 }
 
 function policy.matches(match: rules.Match?, window: lunette.Window): boolean
@@ -79,6 +82,15 @@ function policy.matches(match: rules.Match?, window: lunette.Window): boolean
   then
     return false
   end
+  local where = match.where
+  if where ~= nil then
+    if type(where) ~= 'function' then
+      error('rules: the match field where is a function of the window, not a ' .. type(where))
+    end
+    if not where(window) then
+      return false
+    end
+  end
   return true
 end
 
@@ -115,6 +127,7 @@ end
 function policy.evaluate(properties: rules.Properties, window: lunette.Window): rules.Resolved
   local pose, width, height, title = properties.pose, properties.width, properties.height, properties.title
   local priority, chrome, curve, tags = properties.priority, properties.chrome, properties.curve, properties.tags
+  local hidden, adopt = properties.hidden, properties.adopt
   local result: rules.Resolved = {
     pose = if type(pose) == 'function' then pose(window, 'pose') else pose,
     width = if type(width) == 'function' then width(window, 'width') else width,
@@ -123,6 +136,8 @@ function policy.evaluate(properties: rules.Properties, window: lunette.Window): 
     priority = if type(priority) == 'function' then priority(window, 'priority') else priority,
     chrome = if type(chrome) == 'function' then chrome(window, 'chrome') else chrome,
     curve = if type(curve) == 'function' then curve(window, 'curve') else curve,
+    hidden = if type(hidden) == 'function' then hidden(window, 'hidden') else hidden,
+    adopt = if type(adopt) == 'function' then adopt(window, 'adopt') else adopt,
     tags = if type(tags) == 'function' then tags(window, 'tags') else tags,
   }
   for key, value in pairs(properties) do

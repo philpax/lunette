@@ -47,10 +47,11 @@ local DEFAULT_IDS = table.concat({
   'keyboard',
   'tags',
   'rules',
+  'placement',
   'adoption',
   'layouts',
   'layout/arc',
-  'error-display',
+  'errors',
   'desktop/render',
   'desktop/hint',
   'desktop/decorations',
@@ -156,6 +157,32 @@ raises('entry hud gives neither a definition nor a factory', function()
 end)
 raises('the patch for laser: config is a table of options, not a number', function()
   desktop.compose { patches = { { id = 'laser', config = 3 } } }
+end)
+-- An insert goes at the end, or just before or after the entry it names.
+local before =
+  desktop.compose { patches = { { insert = { id = 'hud', definition = hud }, before = 'desktop/workspace' } } }
+local beforeIds = ids(before)
+assert(beforeIds:find('desktop/errors hud desktop/workspace', 1, true), beforeIds)
+local after = desktop.compose { patches = { { insert = { id = 'hud', definition = hud }, after = 'frame' } } }
+assert(ids(after):find '^frame hud surfaces', ids(after))
+local chained = desktop.compose {
+  patches = {
+    { insert = { id = 'hud', definition = hud }, after = 'frame' },
+    { insert = { id = 'hud-2', definition = hud }, after = 'hud' },
+  },
+}
+assert(ids(chained):find '^frame hud hud%-2 surfaces', 'an insert can name an entry inserted before it')
+raises('the insert of hud gives both before and after', function()
+  desktop.compose { patches = { { insert = { id = 'hud', definition = hud }, before = 'frame', after = 'frame' } } }
+end)
+raises('the insert of hud goes before nope, which is not an entry', function()
+  desktop.compose { patches = { { insert = { id = 'hud', definition = hud }, before = 'nope' } } }
+end)
+raises('the insert of hud: after is an entry id, not a number', function()
+  desktop.compose { patches = { { insert = { id = 'hud', definition = hud }, after = 3 } } }
+end)
+raises('the patch for laser gives before or after', function()
+  desktop.compose { patches = { { id = 'laser', disabled = true, before = 'frame' } } }
 end)
 raises('the patch list is a list, and position 2 is empty', function()
   desktop.compose { patches = { { id = 'laser', disabled = true }, nil, { id = 'tags', disabled = true } } }

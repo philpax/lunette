@@ -6,6 +6,7 @@ local lunette = require '@lunette'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
+local placementContract = require '@lunette-contracts/placement'
 local persist = require '@lunette-desktop/persist'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
@@ -62,10 +63,10 @@ local function withServices(entries, run)
       end,
     }
     runtime = plugin.runtime()
-    for _, name in ipairs { 'panels', 'tags', 'rules' } do
+    for _, name in ipairs { 'panels', 'tags', 'rules', 'placement' } do
       runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
     end
-    local context, panels, tags, rules
+    local context, panels, tags, rules, placement
     runtime
       :use(
         plugin.define {
@@ -74,19 +75,21 @@ local function withServices(entries, run)
             panels = panelsContract.capability,
             tags = tagsContract.capability,
             rules = rulesContract.capability,
+            placement = placementContract.capability,
           },
           init = function(current)
             context = current
             panels = current:require(panelsContract.capability)
             tags = current:require(tagsContract.capability)
             rules = current:require(rulesContract.capability)
+            placement = current:require(placementContract.capability)
           end,
         },
         {}
       )
       :enable()
     expect.truthy(context and context:active(), 'the initialized consumer')
-    run(state, context, panels, tags, rules, reports)
+    run(state, context, panels, tags, rules, reports, placement)
   end)
   local closeOk, closeFailure = true, nil
   if runtime then
@@ -283,20 +286,20 @@ spec('source contributes nothing for unknown or unidentified applications', func
 end)
 
 spec('persisted placement at 200 overrides rules at 100 and yields to native properties at 300', function()
-  withServices({ entry() }, function(state, context, panels, tags, rules)
+  withServices({ entry() }, function(state, context, panels, tags, rules, _reports, placement)
     rules:setRules(
       context,
       { rules = { { properties = { width = 1, pose = lovr.math.newMat4():translate(0, 0, -1) } } } }
     )
     state:bind(context, panels, tags, rules)
     local source = window 'terminal'
-    local panel = rules:place(context, source)
+    local panel = placement:place(context, { window = source })
     expect.near(panel.width, 1.2, TOLERANCE, 'the persisted width')
     local _, _, z = panel.pose:getPosition()
     expect.near(z, -2, TOLERANCE, 'the persisted pose')
     rules:addSource(context, {
       name = 'fixture.native',
-      precedence = 300,
+      precedence = vocabulary.PRECEDENCE.native,
       resolve = function()
         return { width = 3 }
       end,

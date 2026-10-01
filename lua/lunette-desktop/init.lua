@@ -21,10 +21,11 @@ local laser = require '@lunette-plugins/laser'
 local keyboard = require '@lunette-plugins/keyboard'
 local tags = require '@lunette-plugins/tags'
 local rules = require '@lunette-plugins/rules'
+local placement = require '@lunette-plugins/placement'
 local adoption = require '@lunette-plugins/adoption'
 local layouts = require '@lunette-plugins/layouts'
 local arc = require '@lunette-plugins/layout/arc'
-local errorDisplay = require '@lunette-plugins/error-display'
+local errorStream = require '@lunette-plugins/errors'
 local render = require '@lunette-desktop/render'
 local monitors = require '@lunette-desktop/monitors'
 local hint = require '@lunette-desktop/hint'
@@ -61,11 +62,12 @@ export type Running = {
 -- runtime makes a new one.
 --
 -- The order is the order entries are enabled in, and the order the graph
--- loads them again after an outage of something they share. The workspace
--- tag exists before adoption places windows into it; the rule list and the
--- saved arrangement are rules sources before adoption resolves the first
--- window; and the arrangement listens for placements before adoption makes
--- them, although it also arranges what was placed before it activated.
+-- loads them again after an outage of something they share. The rule list
+-- and the saved arrangement are rules sources before adoption resolves the
+-- first window, which is the one order the placement entries rely on. Tags
+-- are held rather than made, so the workspace tag does not depend on the
+-- workspace entry coming first, and the arrangement arranges what was
+-- placed before it activated.
 local DEFAULT: { Entry } = compose.apply({
   { id = 'frame', definition = frame.definition },
   { id = 'surfaces', definition = surfaces.definition },
@@ -78,10 +80,11 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'keyboard', definition = keyboard.definition },
   { id = 'tags', definition = tags.definition },
   { id = 'rules', definition = rules.definition },
+  { id = 'placement', definition = placement.definition },
   { id = 'adoption', definition = adoption.definition },
   { id = 'layouts', definition = layouts.definition },
   { id = 'layout/arc', definition = arc.definition },
-  { id = 'error-display', definition = errorDisplay.definition },
+  { id = 'errors', definition = errorStream.definition },
   { id = 'desktop/render', definition = render },
   { id = 'desktop/hint', definition = hint },
   { id = 'desktop/decorations', definition = decorations },

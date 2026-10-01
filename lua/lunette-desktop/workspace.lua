@@ -1,10 +1,11 @@
 -- The desktop's workspace tag.
 --
--- `name` is the tag this consumer creates, selected, and holds for as long as
--- it is active. Adopted windows join it through `desktop/adoption`'s `tags`
--- and `desktop/arrange` arranges its members, so the three name the same tag.
--- A tag of that name held by another owner raises as the consumer activates,
--- rather than being borrowed without a say in its lifetime.
+-- `name` is the tag this consumer holds, and selects, for as long as it is
+-- active. Adopted windows join it through `desktop/adoption`'s `tags`, and
+-- `desktop/arrange` arranges it with the other tags. The tag is held rather
+-- than made, so whichever of this consumer, a placement, or the saved
+-- arrangement needs it first makes it, and it lasts while any of them holds
+-- it: the order the entries start in does not matter.
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
 
@@ -30,6 +31,7 @@ return plugin.define {
       error('plugin desktop/workspace: option name is a non-empty tag name', 0)
     end
     local service: tags.Service = context:require(tags.capability)
-    service:new(context, settings.name, { selected = true })
+    local tag = service:hold(context, { name = settings.name, selected = true })
+    tag:setSelected(context, { selected = true })
   end,
 }

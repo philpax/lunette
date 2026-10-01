@@ -62,7 +62,7 @@ local g = plug 'G'
 emit('onMonitorAdded', { id = g.id, monitor = g })
 assert(near(x(assert(service:forSource(g))), 2.5), 'the next is one width and gap to the right')
 
-local tags
+local tags, probeOwner
 local plugin = require '@lunette-plugin'
 local tagsContract = require '@lunette-contracts/tags'
 desktop.runtime
@@ -71,7 +71,7 @@ desktop.runtime
       name = 'monitors-probe',
       requires = { tags = tagsContract.capability },
       init = function(context)
-        tags = context:require(tagsContract.capability)
+        tags, probeOwner = context:require(tagsContract.capability), context
       end,
     },
     {}
@@ -79,13 +79,9 @@ desktop.runtime
   :enable()
 local main = assert(tags:find 'main')
 assert(main:has(mirrored) and main:has(service:forSource(g)), 'every mirror joins the configured tag')
-local warned = false
-for _, entry in ipairs(events.logs) do
-  if tostring(entry[1]):find('missing is not a tag', 1, true) then
-    warned = true
-  end
-end
-assert(warned, 'a tag that does not exist is reported')
+assert(tags:find 'missing' == nil, 'the mirrors do not make a tag')
+local later = tags:new(probeOwner, 'missing')
+assert(later:has(mirrored) and later:has(service:forSource(g)), 'the mirrors join a tag made after them')
 desktop.providers.tags:disable()
 assert(desktop.consumers.monitors:state() == 'active', 'a tags outage keeps the mirrors')
 assert(not mirrored.dead)

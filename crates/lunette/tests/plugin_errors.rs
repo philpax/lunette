@@ -1,6 +1,6 @@
-//! Integration coverage for the error-display provider.
+//! Integration coverage for the error stream provider.
 //!
-//! The plugin facade and runtime and the error-display provider are real
+//! The plugin facade and runtime and the error stream provider are real
 //! checked-in implementations. The fixture keeps the `onError` subscription
 //! list, and errors reach its listeners through the real callback boundary,
 //! `lunette::callback_error`, whose log output the test captures.
@@ -128,15 +128,23 @@ fn install_native_error(lua: &Lua) -> mlua::Result<()> {
 }
 
 #[test]
-fn provider_preserves_native_errors_while_displaying_and_unloading_safely() -> mlua::Result<()> {
+fn the_stream_limits_records_and_delivers_native_errors_and_unloads_safely() -> mlua::Result<()> {
     let lua = state()?;
     let fixture: Function = lua
-        .load(include_str!("plugin_error_display/error_display.lua"))
-        .set_name("plugin_error_display/error_display.lua")
+        .load(include_str!("plugin_errors/errors.lua"))
+        .set_name("plugin_errors/errors.lua")
         .eval()?;
 
     fixture.call::<Value>(())?;
+    // The three malformed configurations the fixture enables fail their
+    // activations, and nothing else is reported.
     let errors = plugin_support::shutdown(&lua);
-    assert!(errors.is_empty(), "cleanup errors: {errors:?}");
+    assert_eq!(errors.len(), 3, "{errors:?}");
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.contains("plugin errors: option ")),
+        "{errors:?}"
+    );
     Ok(())
 }

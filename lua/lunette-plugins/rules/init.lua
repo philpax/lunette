@@ -1,10 +1,11 @@
--- The rules provider: window placement policy over panels and tags.
+-- The rules provider: window placement policy as ordered sources.
 --
--- `precedence` is the precedence a rule set takes when it names none.
+-- `precedence` is the precedence a rule set takes when it names none, by
+-- default vocabulary.PRECEDENCE.rules. The provider requires no other
+-- contract; lunette/placement turns resolved properties into panels.
 local plugin = require '@lunette-plugin'
 local rules = require '@lunette-contracts/rules'
-local tags = require '@lunette-contracts/tags'
-local panels = require '@lunette-contracts/panels'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local build = require '@lunette-plugins/rules/service'
 
 export type Settings = build.Settings
@@ -18,10 +19,6 @@ export type Config = {
 return plugin.provider<<Config, Settings, Service>> {
   name = 'rules',
   capability = rules.capability,
-  requires = {
-    panels = panels.capability,
-    tags = tags.capability,
-  },
-  defaults = { precedence = 100 },
+  defaults = { precedence = vocabulary.PRECEDENCE.rules },
   build = build,
 }

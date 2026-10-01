@@ -2,11 +2,16 @@
 --
 -- Each activation keeps its own registrations, keyed by chord. A registration
 -- belongs to the owner that made it and ends with that owner. The provider
--- dispatches what it is given and reads no device itself, so whatever reads
--- the keyboard decides which presses reach it. The provider takes no options.
+-- takes every desktop key press in the frame provider's binding phase, with
+-- the modifiers LÖVR reports held, and a press a binding matches goes no
+-- further, so nothing that delivers keys needs to know about bindings.
+-- dispatch is for any other source of presses, such as an on-screen keyboard.
+-- The provider takes no options.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/bindings'
+local frame = require '@lunette-contracts/frame'
+local keys = require '@lunette-contracts/keys'
 local protected = require '@lunette-plugins/protected'
 
 type Registration = {
@@ -92,7 +97,7 @@ local function create(context: plugin.Context): contract.Service
   local registrations: { Registration } = {}
   local byChord: { [string]: Registration } = {}
 
-  return {
+  local service: contract.Service = {
     register = function(_self: contract.Service, owner: contract.Owner, binding: contract.Binding): plugin.Effect
       local chord: contract.Chord, key: string, run: (contract.Press) -> ()
       local ok, failure = pcall(function(): ()
@@ -161,6 +166,18 @@ local function create(context: plugin.Context): contract.Service
       return result
     end,
   }
+  local frameService: frame.Service = context:require(frame.capability)
+  frameService:onKey(context, {
+    phase = 'binding',
+    run = function(event: frame.KeyEvent): boolean?
+      return service:dispatch {
+        key = event.key,
+        modifiers = keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = true },
+        isRepeat = event.isRepeat,
+      }
+    end,
+  })
+  return service
 end
 
 export type Config = {}
@@ -170,6 +187,7 @@ export type Service = contract.Service
 return plugin.provider<<Config, Settings, Service>> {
   name = 'bindings',
   capability = contract.capability,
+  requires = { frame = frame.capability },
   defaults = {},
   build = function(context: plugin.Context, _settings: Settings): Service
     return create(context)

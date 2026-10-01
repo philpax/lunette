@@ -35,6 +35,11 @@ fn rules_service() {
 }
 
 #[test]
+fn placement_service() {
+    check(&["placement/init.lua", "placement/service.lua"]);
+}
+
+#[test]
 fn rules_predicates_and_evaluators() {
     let _guard = CHECKER
         .lock()
@@ -88,6 +93,7 @@ fn full_entrypoints() {
         "layouts/init.lua",
         "layout/arc/init.lua",
         "adoption/init.lua",
-        "error-display/init.lua",
+        "placement/init.lua",
+        "errors/init.lua",
     ]);
 }

@@ -251,3 +251,34 @@ fn bindings_take_their_chords_before_delivery_and_the_reload_key_is_configurable
     );
     Ok(())
 }
+
+#[test]
+fn workspaces_show_one_tag_switch_by_chord_and_follow_new_windows() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/workspaces.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.contains("desktop/workspaces")
+                || (error.starts_with("plugin graph: instance ")
+                    && error.contains(" requires missing contract "))),
+        "{errors:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn placement_is_order_independent_tag_aware_replaceable_and_saved_on_demand() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/placement.lua"))?;
+    let errors = plugin_desktop::shutdown(&lua)?;
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.starts_with("plugin graph: instance ")
+                && error.contains(" requires missing contract ")),
+        "{errors:?}"
+    );
+    Ok(())
+}

@@ -1,4 +1,4 @@
--- Substitute providers of the panels, rules, and error-display contracts,
+-- Substitute providers of the panels, placement, and errors contracts,
 -- composed with the built-in providers and desktop consumers that use them.
 -- Each substitute is written against the contract alone.
 local plugin = require '@lunette-plugin'
@@ -7,7 +7,8 @@ local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local adoptionContract = require '@lunette-contracts/adoption'
-local displayContract = require '@lunette-contracts/error-display'
+local placementContract = require '@lunette-contracts/placement'
+local errorsContract = require '@lunette-contracts/errors'
 
 local function consumer(runtime, required, initialize)
   local instance = runtime:use(
@@ -139,26 +140,27 @@ local substitutePanels = plugin.define {
   end,
 }
 
--- Rules' placement cleanup needs only the contract's removal announcement.
+-- Placement's cleanup needs only the panels contract's removal announcement.
 do
   local runtime = plugin.runtime()
   runtime:use(substitutePanels, {}):enable()
   runtime:use(require('@lunette-plugins/tags').definition, {}):enable()
   runtime:use(require('@lunette-plugins/rules').definition, {}):enable()
-  local owner, panels, tags, rules
+  runtime:use(require('@lunette-plugins/placement').definition, {}):enable()
+  local owner, panels, tags, placement
   consumer(
     runtime,
-    { panels = panelsContract.capability, tags = tagsContract.capability, rules = rulesContract.capability },
+    { panels = panelsContract.capability, tags = tagsContract.capability, placement = placementContract.capability },
     function(context)
       owner = context
       panels = context:require(panelsContract.capability)
       tags = context:require(tagsContract.capability)
-      rules = context:require(rulesContract.capability)
+      placement = context:require(placementContract.capability)
     end
   )
   local held = tags:new(owner, 'held')
   local window = newWindow(40)
-  local panel = rules:place(owner, window, { tags = { held, 'made-for-placement' } })
+  local panel = placement:place(owner, { window = window, defaults = { tags = { held, 'made-for-placement' } } })
   assert(held:has(panel) and tags:find 'made-for-placement', 'the placement holds its tags')
   window.dead = true
   panels:update()
@@ -168,61 +170,24 @@ do
   runtime:close()
 end
 
--- Adoption works through a substitute rules provider, and an adoption ends
--- with its panel.
+-- Adoption works through a substitute placement provider, and an adoption
+-- ends with its panel.
 do
   local runtime = plugin.runtime()
   runtime:use(require('@lunette-plugins/panels').definition, {}):enable()
+  runtime:use(require('@lunette-plugins/rules').definition, {}):enable()
   local placements = {}
-  local substituteRules = plugin.define {
-    name = 'substituteRules',
+  local substitutePlacement = plugin.define {
+    name = 'substitutePlacement',
     requires = { panels = panelsContract.capability },
-    provides = { rules = rulesContract.capability },
+    provides = { placement = placementContract.capability },
     init = function(context, _, publish)
       local panels = context:require(panelsContract.capability)
-      local sources = {}
       local service = {
-        DEFAULT_PRECEDENCE = 100,
-        DEFAULT_SOURCE = 'substitute',
-        PANEL_PROPERTIES = {},
-        report = function() end,
-        addSource = function(_, owner, registration)
-          return context:acquire(owner, function()
-            local source =
-              { name = registration.name, precedence = registration.precedence, resolve = registration.resolve }
-            sources[#sources + 1] = source
-            return function()
-              table.remove(sources, table.find(sources, source))
-            end
-          end)
-        end,
-        sources = function()
-          return table.clone(sources)
-        end,
-        fromList = function()
-          return function()
-            return nil
-          end
-        end,
-        setRules = function(self, owner)
-          return self:addSource(owner, {
-            name = 'substitute',
-            precedence = 100,
-            resolve = function()
-              return nil
-            end,
-          })
-        end,
-        matches = function()
-          return true
-        end,
-        resolve = function()
-          return {}
-        end,
-        place = function(_, owner, window)
+        place = function(_, owner, request)
           local panel
           local effect = context:acquire(owner, function()
-            panel = panels:fromWindow(context, window)
+            panel = panels:fromWindow(context, request.window)
             placements[#placements + 1] = panel
             return function()
               table.remove(placements, table.find(placements, panel))
@@ -231,11 +196,19 @@ do
           end)
           return panel, {}, effect
         end,
+        placed = function()
+          return {}
+        end,
+        onPlaced = function(_, owner)
+          return context:acquire(owner, function()
+            return function() end
+          end)
+        end,
       }
-      publish:provide(rulesContract.capability, service)
+      publish:provide(placementContract.capability, service)
     end,
   }
-  runtime:use(substituteRules, {}):enable()
+  runtime:use(substitutePlacement, {}):enable()
   runtime:use(require('@lunette-plugins/adoption').definition, {}):enable()
   local window = newWindow(41)
   events.windows = { window }
@@ -265,7 +238,7 @@ do
   assert(panel.dead and #placements == 0)
 end
 
--- The desktop's error consumer draws through a substitute display.
+-- The desktop's error panel presents what a substitute stream delivers.
 do
   local runtime = plugin.runtime()
   frame.install {
@@ -275,49 +248,60 @@ do
     end,
   }
   runtime:use(frame.definition, {}):enable()
-  local drawn = 0
-  local substituteDisplay = plugin.define {
-    name = 'substituteDisplay',
-    provides = { display = displayContract.capability },
-    init = function(_, _, publish)
-      local function nothing() end
-      publish:provide(displayContract.capability, {
-        WINDOW = 1,
-        MAX_KEYS = 1,
-        X = 0,
-        Y = 0,
-        Z = 0,
-        WIDTH = 1,
-        TEXT_HEIGHT = 1,
-        COLUMNS = 1,
-        LINES = 1,
-        BACKGROUND = { 0, 0, 0, 1 },
-        newLimiter = nothing,
-        keyFor = function()
-          return ''
+  local subscribers = {}
+  local substituteStream = plugin.define {
+    name = 'substituteStream',
+    provides = { errors = errorsContract.capability },
+    init = function(context, _, publish)
+      publish:provide(errorsContract.capability, {
+        subscribe = function(_, owner, subscriber)
+          return context:acquire(owner, function()
+            subscribers[#subscribers + 1] = subscriber
+            return function()
+              table.remove(subscribers, table.find(subscribers, subscriber))
+            end
+          end)
         end,
-        handle = function()
-          return true
-        end,
-        show = nothing,
-        clear = nothing,
-        current = nothing,
-        count = function()
-          return 0
-        end,
-        lines = function()
+        recent = function()
           return {}
         end,
-        draw = function()
-          drawn += 1
-          return true
+        clear = function()
+          for _, subscriber in ipairs(subscribers) do
+            subscriber.cleared()
+          end
         end,
       })
     end,
   }
-  runtime:use(substituteDisplay, {}):enable()
+  runtime:use(substituteStream, {}):enable()
   runtime:use(require '@lunette-desktop/errors', {}):enable()
+  local function texts()
+    local found = {}
+    for _, call in ipairs(events.draw) do
+      if call[1] == 'text' then
+        found[#found + 1] = tostring(call[2])
+      end
+    end
+    return table.concat(found, ' ')
+  end
+  events.draw = {}
   assert(lovr.draw(events.pass) == false)
-  assert(drawn == 1, 'the error consumer drew through the substitute')
+  assert(texts() == '', 'nothing is presented before a report')
+  assert(#subscribers == 1, 'the error panel subscribes')
+  subscribers[1].run {
+    message = 'substitute failure',
+    traceback = '',
+    suppressed = 0,
+    text = 'substitute failure',
+    sequence = 1,
+    time = 0,
+  }
+  events.draw = {}
+  assert(lovr.draw(events.pass) == false)
+  assert(texts():find('substitute failure', 1, true), 'the error panel presents the substitute stream')
+  subscribers[1].cleared()
+  events.draw = {}
+  assert(lovr.draw(events.pass) == false)
+  assert(texts() == '', 'a cleared stream is presented as nothing')
   assert(lovr.quit() == false)
 end

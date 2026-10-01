@@ -10,6 +10,17 @@ mod plugin_support;
 
 #[test]
 fn policy_providers_compose_and_release_caller_resources() -> mlua::Result<()> {
+    run(include_str!("plugin_policy/fixtures/policy.lua"))
+}
+
+#[test]
+fn tags_are_held_excluded_laid_out_and_announced() -> mlua::Result<()> {
+    run(include_str!("plugin_policy/fixtures/tags.lua"))
+}
+
+/// Runs a fixture against the real providers, with the native fixture's
+/// layer claims and matrices.
+fn run(fixture: &str) -> mlua::Result<()> {
     let lua = Lua::new();
     plugin_support::collect_reports(&lua)?;
     lua.globals().set(
@@ -46,8 +57,7 @@ fn policy_providers_compose_and_release_caller_resources() -> mlua::Result<()> {
     plugin_sources::register(&lua, &loaders)?;
     lua.load(include_str!("plugin_policy/fixtures/native.lua"))
         .exec()?;
-    lua.load(include_str!("plugin_policy/fixtures/policy.lua"))
-        .exec()?;
+    lua.load(fixture).exec()?;
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "cleanup errors: {errors:?}");
     Ok(())

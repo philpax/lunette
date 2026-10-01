@@ -512,7 +512,7 @@ fn a_report_with_a_missing_or_unknown_field_raises_naming_it() {
 /// The same error raised every frame for two hundred frames.
 ///
 /// The native boundary rate-limits nothing: every occurrence reaches every
-/// listener, and a listener such as the error-display provider owns its own
+/// listener, and a listener such as the error stream provider owns its own
 /// limiter. The handler keeps being called, so the session continues.
 #[test]
 fn a_handler_that_raises_every_frame_is_reported_every_frame_and_the_session_continues() {

@@ -224,6 +224,39 @@ function format.empty(): ArrangementLoad
   return arrangement
 end
 
+-- A load carrying an arrangement read from a file of `version`, and the
+-- entries the reader skipped. A format of a configuration's own answers this
+-- from its read, so its loads are the ones the shell accepts.
+function format.arrangement(
+  fields: { read file: File, read version: number, read skipped: { string }? }
+): ArrangementLoad
+  if not format.isFile(fields.file) then
+    error('desktop.persist: an arrangement load carries an arrangement newFile made', 2)
+  end
+  local arrangement: ArrangementLoad = {
+    kind = 'arrangement',
+    version = fields.version,
+    file = fields.file,
+    skipped = table.clone(fields.skipped or {}),
+  }
+  setmetatable(arrangement, loadedMetatable)
+  return arrangement
+end
+
+-- A load of a file written by a newer version than its reader supports. A
+-- format answers this rather than reading what it can of the file, because
+-- writing back what it read would drop what it could not.
+function format.fromTheFuture(fields: { read found: number, read supported: number }): FutureLoad
+  local future: FutureLoad = {
+    kind = 'fromTheFuture',
+    found = fields.found,
+    supported = fields.supported,
+    skipped = {},
+  }
+  setmetatable(future, loadedMetatable)
+  return future
+end
+
 -- A load of a file that could not be read.
 function format.broken(message: string): BrokenLoad
   local broken: BrokenLoad = { kind = 'broken', message = message, skipped = {} }

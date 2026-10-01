@@ -1,8 +1,8 @@
--- The layouts broker, the arc's spacing, adoption's placement event, and the
+-- The layouts broker, the arc's spacing, placement's announcements, and the
 -- arranging consumer waiting for its layout, in the shipped composition.
 local plugin = require '@lunette-plugin'
 local layoutsContract = require '@lunette-contracts/layouts'
-local adoptionContract = require '@lunette-contracts/adoption'
+local placementContract = require '@lunette-contracts/placement'
 local geometry = require '@lunette-plugins/layout/arc/geometry'
 
 local function raises(expected, run)
@@ -16,11 +16,11 @@ local function probe(desktop, name)
   local instance = desktop.runtime:use(
     plugin.define {
       name = name,
-      requires = { layouts = layoutsContract.capability, adoption = adoptionContract.capability },
+      requires = { layouts = layoutsContract.capability, placement = placementContract.capability },
       init = function(context)
         found.owner = context
         found.layouts = context:require(layoutsContract.capability)
-        found.adoption = context:require(adoptionContract.capability)
+        found.placement = context:require(placementContract.capability)
       end,
     },
     {}
@@ -149,22 +149,22 @@ assert(layouts:get('owned').continuous == true)
 second.instance:disable()
 assert(layouts:get 'owned' == nil and heard == 4)
 
--- Adoption announces each placement with the properties it was placed with,
--- and lists its live placements in placement order. A listener that raises is
--- reported and does not undo the placement.
+-- Placement announces each placement with the properties it was placed with,
+-- whoever made it, and lists the live placements in placement order. A
+-- listener that raises is reported and does not undo the placement.
 local announced = {}
-first.adoption:onPlaced(owner, {
-  run = function(panel, properties)
-    announced[#announced + 1] = { panel = panel, properties = properties }
+first.placement:onPlaced(owner, {
+  run = function(placed)
+    announced[#announced + 1] = placed
   end,
 })
-first.adoption:onPlaced(owner, {
+first.placement:onPlaced(owner, {
   run = function()
     error 'a raising placement listener'
   end,
 })
-raises('adoption: unknown onPlaced field callback', function()
-  first.adoption:onPlaced(owner, { callback = function() end })
+raises('placement: unknown onPlaced field callback', function()
+  first.placement:onPlaced(owner, { callback = function() end })
 end)
 events.reported = {}
 local terminal, browser = newWindow(40), newWindow(41, 'firefox')
@@ -173,12 +173,12 @@ emit('onWindowOpened', { window = terminal })
 emit('onWindowOpened', { window = browser })
 assert(#announced == 2 and #events.reported == 2)
 assert(announced[1].properties.pose == nil and announced[2].properties.pose ~= nil, 'the rules placed only firefox')
-local placed = first.adoption:placed()
+local placed = first.placement:placed()
 assert(#placed == 2 and placed[1].panel == announced[1].panel and placed[2].panel == announced[2].panel)
 assert(not placed[1].panel.dead, 'a raising listener does not undo the placement')
 terminal.dead = true
 lovr.update(0.016)
-assert(#first.adoption:placed() == 1, 'a placement ends with its panel')
+assert(#first.placement:placed() == 1, 'a placement ends with its panel')
 assert(lovr.quit() == false)
 
 -- An arranging consumer whose layout is not registered reports it on the

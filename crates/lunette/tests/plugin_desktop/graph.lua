@@ -27,7 +27,7 @@ return function(options)
       providers[id] = instance
     end
   end
-  providers.display = running.instances['error-display']
+  providers.display = running.instances.errors
   local desktop = { runtime = runtime, providers = providers, consumers = consumers, instances = running.instances }
   runtime
     :use(

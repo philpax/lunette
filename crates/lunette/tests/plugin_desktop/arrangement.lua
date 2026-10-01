@@ -82,15 +82,18 @@ collectgarbage()
 collectgarbage()
 assert(next(closed) == nil, 'a closed window is not retained by its ended adoption or slot')
 
--- Rules and the placement consumers require tags, and adoption requires
--- rules, so a tags outage withdraws the adopted panels and leaves rendering
--- and layout. Recovery adopts the windows again into the slots they hold.
-local PLACEMENT = { 'workspace', 'rules', 'persistence', 'arrange', 'adoption' }
+-- Placement and the placement consumers require tags, and adoption requires
+-- placement, so a tags outage withdraws the adopted panels and leaves rules,
+-- rendering, and layout. Recovery adopts the windows again into the slots
+-- they hold.
+local PLACEMENT = { 'workspace', 'persistence', 'arrange', 'adoption' }
 local adopted = service:forSource(reopened)
 desktop.providers.tags:disable()
-for _, name in ipairs { 'rules', 'adoption' } do
+for _, name in ipairs { 'placement', 'adoption' } do
   assert(desktop.providers[name]:state() ~= 'active', 'a tags outage unloads ' .. name)
 end
+assert(desktop.providers.rules:state() == 'active', 'rules needs no tags')
+assert(desktop.consumers.rules:state() == 'active', 'nor does the rule list')
 for _, name in ipairs(PLACEMENT) do
   assert(desktop.consumers[name]:state() ~= 'active', 'a tags outage unloads desktop/' .. name)
 end

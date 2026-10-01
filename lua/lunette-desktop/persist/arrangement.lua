@@ -16,28 +16,9 @@ local arrangement = {}
 
 type Entry = format.Entry
 
-function arrangement.sourceKey(target: panelsContract.Panel): string?
-  local key: string?
-  if target.kind == 'window' then
-    local source = target.source
-    if source.dead then
-      return nil
-    end
-    key = source.appId
-  else
-    local source = target.source
-    if source.dead then
-      return nil
-    end
-    local monitorId = source.id
-    if type(monitorId) == 'string' then
-      key = monitorId
-    end
-  end
-  if type(key) ~= 'string' or key == '' then
-    return nil
-  end
-  return key
+-- The identity a panel is saved under, or nil.
+function arrangement.sourceKey(held: slots.Slots, target: panelsContract.Panel): string?
+  return held:key(target)
 end
 
 function arrangement.slotKey(kind: string, key: string, slot: number): string
@@ -59,12 +40,12 @@ function arrangement.answer(
   held: slots.Slots,
   window: lunette.Window
 ): rulesContract.Properties?
-  local appId = slots.appIdOf(window)
-  local slot = appId and held:slotFor(window)
-  if not appId or not slot then
+  local identity = held:key { kind = 'window', source = window }
+  local slot = identity and held:slotFor(window)
+  if not identity or not slot then
     return nil
   end
-  local entry = available[arrangement.slotKey('window', appId, slot)]
+  local entry = available[arrangement.slotKey('window', identity, slot)]
   if not entry then
     return nil
   end
@@ -99,7 +80,7 @@ function arrangement.capture(
   local counts: { [string]: number } = {}
   for _, target in ipairs(panels:all()) do
     if not target.dead then
-      local key = arrangement.sourceKey(target)
+      local key = arrangement.sourceKey(held, target)
       local slot = key and arrangement.panelSlot(held, counts, target, key)
       if key and slot then
         local names: { string } = {}
@@ -125,8 +106,8 @@ function arrangement.capture(
   return format.newFile(entries)
 end
 
--- Applies a saved entry to a panel. Memberships are effects of the binding's
--- context, so they end with it. Answers whether the entry was applied.
+-- Applies a saved entry to a panel. Memberships and the holds on the tags
+-- they join are effects of the binding's context, so they end with it. Answers whether the entry was applied.
 function arrangement.apply(
   report: (string) -> (),
   context: plugin.Context,
@@ -144,7 +125,7 @@ function arrangement.apply(
     target:setSize(entry.width, entry.height)
   end
   for _, name in ipairs(entry.tags) do
-    local found = tags:find(name) or tags:new(context, name)
+    local found = tags:hold(context, { name = name })
     found:add(context, target)
   end
   return true
@@ -165,7 +146,7 @@ function arrangement.restore(
 
   for _, target in ipairs(panels:all()) do
     if not target.dead then
-      local key = arrangement.sourceKey(target)
+      local key = arrangement.sourceKey(held, target)
       local slot = key and arrangement.panelSlot(held, counts, target, key)
       local entry = key and slot and available[arrangement.slotKey(target.kind, key, slot)]
       if entry and arrangement.apply(report, context, tags, target, entry) then
@@ -201,13 +182,13 @@ function arrangement.arrived(
     held:hold(target.source)
     return
   end
-  local key = arrangement.sourceKey(target)
+  local key = arrangement.sourceKey(held, target)
   if not key then
     return
   end
   local slot = 1
   for _, other in ipairs(panels:all()) do
-    if other ~= target and not other.dead and other.kind == 'monitor' and arrangement.sourceKey(other) == key then
+    if other ~= target and not other.dead and other.kind == 'monitor' and arrangement.sourceKey(held, other) == key then
       slot += 1
     end
   end

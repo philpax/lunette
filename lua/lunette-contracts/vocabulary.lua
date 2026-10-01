@@ -15,6 +15,22 @@ local vocabulary = {}
 -- provider reads it as a placement source. Its value is `encodePose`'s string.
 vocabulary.POSE_PROPERTY = 'lunette.pose'
 
+-- The precedences the desktop's rules sources are registered at, by name. A
+-- source with a higher precedence is merged later and wins a conflicting
+-- property. `rules` is a configured rule list, `persisted` the saved
+-- arrangement, and `native` what the session kept on each window, such as a
+-- hand-placed pose. A source of a configuration's own names its place
+-- relative to these, as in `PRECEDENCE.persisted + 50`, rather than a number
+-- whose meaning lives in another file.
+export type Precedences = {
+  read rules: number,
+  read persisted: number,
+  read native: number,
+}
+
+local precedences: Precedences = table.freeze { rules = 100, persisted = 200, native = 300 }
+vocabulary.PRECEDENCE = precedences
+
 -- How many numbers a pose is written as.
 --
 -- The per-window property store takes a number, a string, or a boolean and

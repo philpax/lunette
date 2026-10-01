@@ -2,10 +2,11 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 local rules = require '@lunette-contracts/rules'
+local placementContract = require '@lunette-contracts/placement'
 local layouts = require '@lunette-contracts/layouts'
 local geometry = require '@lunette-plugins/layout/arc/geometry'
 local runtime = plugin.runtime()
-for _, name in ipairs { 'panels', 'tags', 'rules', 'layouts', 'layout/arc' } do
+for _, name in ipairs { 'panels', 'tags', 'rules', 'placement', 'layouts', 'layout/arc' } do
   runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
 end
 local owner, services
@@ -16,6 +17,7 @@ local consumer = runtime:use(
       panels = panels.capability,
       tags = tags.capability,
       rules = rules.capability,
+      placement = placementContract.capability,
       layouts = layouts.capability,
     },
     init = function(context)
@@ -24,6 +26,7 @@ local consumer = runtime:use(
         panels = context:require(panels.capability),
         tags = context:require(tags.capability),
         rules = context:require(rules.capability),
+        placement = context:require(placementContract.capability),
         layouts = context:require(layouts.capability),
       }
     end,
@@ -107,6 +110,23 @@ assert(not pcall(function()
   services.rules:resolve(window)
 end))
 invalid:dispose()
+
+-- where is a predicate over the whole window, beside the named fields.
+assert(services.rules:matches({
+  where = function(source)
+    return source == window
+  end,
+}, window))
+assert(not services.rules:matches({
+  appId = window.appId,
+  where = function()
+    return false
+  end,
+}, window))
+assert(not pcall(function()
+  services.rules:matches({ where = true }, window)
+end), 'where is a function')
+
 local tag = services.tags:new(owner, 'primary', { selected = true })
 assert(tag.selected)
 assert(tag:setSelected(owner, { selected = false }) and not tag.selected)
@@ -218,12 +238,13 @@ assert(oldPayloads[13] == nil, 'replaced source payload retained by active owner
 local registered = services.rules:sources()[1]
 assert(registered.name == 'same' and registered.precedence == 100)
 assert(#services.rules:sources() == 1)
-local panel, resolved, placement = services.rules:place(owner, window, { height = 1, chrome = false })
+local panel, resolved, placement =
+  services.placement:place(owner, { window = window, defaults = { height = 1, chrome = false } })
 assert(resolved.width == 3 and panel.width == 3 and panel.height == 1)
 assert(tag:has(panel), 'the placement holds the membership')
 assert(not pcall(function()
   panel:destroy(owner)
-end), 'a placed panel belongs to the rules provider')
+end), 'a placed panel belongs to the placement provider')
 assert(#services.tags:panelsOf { tag, services.tags:find 'implicit' } == 1)
 services.layouts:apply { name = 'arc', panels = services.tags:panelsOf(tag) }
 assert(panel.pose.x == 0 and panel.pose.y == 1.5 and panel.pose.z == -1.6)
@@ -245,7 +266,7 @@ local stranger = runtime:use(
     name = 'policy-3',
     init = function(context)
       assert(not pcall(function()
-        services.rules:place(context, window)
+        services.placement:place(context, { window = window })
       end))
       assert(not pcall(function()
         services.tags:new(context, 'forbidden')
@@ -262,7 +283,7 @@ lovr.log = function()
   error 'injected report failure'
 end
 assert(not pcall(function()
-  services.rules:place(owner, window, { tags = { 'rollback' } })
+  services.placement:place(owner, { window = window, defaults = { tags = { 'rollback' } } })
 end))
 lovr.log = nil
 assert(#services.panels:all() == before, 'rollback panel count: ' .. #services.panels:all() .. ' expected ' .. before)
@@ -277,7 +298,8 @@ assert(services.tags:find 'primary' == tag and not tag.dead)
 assert(#tag.members == 0, 'removing a rules panel must remove its membership immediately')
 placement:dispose()
 window.dead = false
-local again, _, replaced = services.rules:place(owner, window, { height = 1, chrome = false })
+local again, _, replaced =
+  services.placement:place(owner, { window = window, defaults = { height = 1, chrome = false } })
 replaced:dispose()
 assert(again.dead and #tag.members == 0, 'disposing a placement removes its panel')
 consumer:disable()

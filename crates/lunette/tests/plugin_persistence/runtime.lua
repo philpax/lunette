@@ -121,7 +121,7 @@ assert(#sourceList == 2)
 assert(sourceList[1].precedence == 100 and sourceList[2].name == persist.SOURCE and sourceList[2].precedence == 200)
 local firstBinding = binding
 local oldPanels, oldTags, oldRules = panels, tags, rules
-local weakServices = setmetatable({ panels, rules }, { __mode = 'v' })
+local weakServices = setmetatable({ panels }, { __mode = 'v' })
 
 -- No save precedes the outage, so rebind must retain the initially loaded file.
 filesystem.text = 'return { version = 99, entries = {} }'
@@ -132,13 +132,16 @@ assert(state:loaded() == loaded and #persist.entries(state:arrangement()) == 2)
 assert(not pcall(function()
   oldPanels:all()
 end), 'old provider is retired')
-assert(not pcall(function()
-  oldRules:sources()
-end), 'old rules service is retired')
+assert(
+  pcall(function()
+    oldRules:sources()
+  end),
+  'rules does not depend on panels, so it outlives the outage'
+)
 panelsInstance:enable()
 assert(binding ~= firstBinding and binding:active(), 'consumer rebinds automatically')
 assert(firstPanel.dead, 'the outage removed the panel')
-assert(panels ~= oldPanels and tags == oldTags and rules ~= oldRules, 'tags does not depend on panels')
+assert(panels ~= oldPanels and tags == oldTags and rules == oldRules, 'neither tags nor rules depends on panels')
 assert(rules:resolve(first).width == 2, 'a live window keeps its slot across a provider outage')
 assert(rules:resolve(second).width == 4, 'and another window does not take it')
 -- A window that closes frees its slot, and a window that opens takes it.
@@ -153,7 +156,7 @@ assert(filesystem.reads == 1 and state:declined() == nil, 'activation never relo
 oldPanels, oldTags, oldRules = nil, nil, nil
 collectgarbage 'collect'
 collectgarbage 'collect'
-assert(weakServices[1] == nil and weakServices[2] == nil, 'state and old binding release services')
+assert(weakServices[1] == nil, 'state and old binding release services')
 
 local target = panels:fromWindow(context, window(19), { width = 1.5 })
 tags:new(context, 'saved'):add(context, target)

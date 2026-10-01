@@ -94,4 +94,30 @@ local lovrModifiers: { LovrModifier } = {
 }
 keys.LOVR_MODIFIERS = table.freeze(lovrModifiers)
 
+-- What heldModifiers reads: whether a LÖVR key is down, and whether to count
+-- shift, which forwarding a key leaves to the seat's stroke for each
+-- character and a chord names.
+export type HeldQuery = {
+  read isDown: (KeyCode) -> boolean,
+  read shift: boolean,
+}
+
+-- The modifiers a desktop keyboard holds, in LOVR_MODIFIERS order, then
+-- shift when asked for and held.
+function keys.heldModifiers(query: HeldQuery): { string }
+  local held: { string } = {}
+  for _, entry in ipairs(lovrModifiers) do
+    for _, name in ipairs(entry.keys) do
+      if query.isDown(name) then
+        held[#held + 1] = entry.modifier
+        break
+      end
+    end
+  end
+  if query.shift and (query.isDown 'lshift' or query.isDown 'rshift') then
+    held[#held + 1] = 'shift'
+  end
+  return held
+end
+
 return keys

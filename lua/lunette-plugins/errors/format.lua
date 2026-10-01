@@ -1,7 +1,9 @@
--- Pure error-display formatting.
+-- Pure error report formatting.
 --
--- The display keeps the native event's message and traceback together, then
--- wraps the result for the small direct-drawn surface.
+-- A report keeps the native event's message and traceback together. `key`
+-- is what the limiter recognises a repeat by, `report` the text a presenter
+-- shows, and `lines` that text wrapped and cut for a small surface such as
+-- the desktop's error panel.
 
 local format = {}
 
@@ -62,6 +64,11 @@ function format.lines(state: State, options: Options): { string }
     lines[#lines + 1] = line
   end
   return lines
+end
+
+-- What a report is recognised by when it repeats.
+function format.key(report: { read message: string, read traceback: string? }): string
+  return report.message .. '\n' .. (report.traceback or '')
 end
 
 function format.report(message: string, traceback: string, suppressed: number): string

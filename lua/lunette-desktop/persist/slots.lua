@@ -1,7 +1,9 @@
--- Which saved slot each live window of an application holds.
+-- Which saved slot each live window of an identity holds.
 --
--- A file saves an application's windows as numbered slots. A window holds a
--- slot from the moment its panel is created until the window dies, so a window
+-- A file saves the windows that share an identity as numbered slots. The
+-- identity is what a key function answers for a window or a monitor, by
+-- default a window's application id and a monitor's id. A window holds a slot
+-- from the moment its panel is created until the window dies, so a window
 -- closed and reopened takes the slot it left. Answering which slot a window
 -- would take is a pure query: only hold records anything.
 
@@ -9,9 +11,20 @@ local lunette = require '@lunette'
 
 local slots = {}
 
-type Held = { window: lunette.Window, appId: string, slot: number }
+type Held = { window: lunette.Window, key: string, slot: number }
+
+-- What a key function is asked about: a window or a monitor, as a panel
+-- carries it.
+export type Identified =
+  { read kind: 'window', read source: lunette.Window }
+  | { read kind: 'monitor', read source: lunette.Monitor }
+
+-- The identity saved state is keyed on, or nil for one that is not saved.
+export type KeyFor = (Identified) -> string?
 
 export type Slots = {
+  -- The identity of a window or a monitor, or nil.
+  read key: (Slots, Identified) -> string?,
   -- The slot a window holds, or nil.
   read held: (Slots, lunette.Window) -> number?,
   -- The slot a window holds, or the one it would take: the lowest slot no live
@@ -21,17 +34,39 @@ export type Slots = {
   read hold: (Slots, lunette.Window) -> number?,
 }
 
--- An application identity a slot can be keyed on, or nil.
-function slots.appIdOf(window: lunette.Window): string?
-  local appId = window.appId
-  if type(appId) ~= 'string' or appId == '' then
+-- The default identity: a window's application id and a monitor's id, when
+-- either is a non-empty string.
+function slots.defaultKey(target: Identified): string?
+  if target.source.dead then
     return nil
   end
-  return appId
+  local key: unknown
+  if target.kind == 'window' then
+    key = (target.source :: lunette.Window).appId
+  else
+    key = (target.source :: lunette.Monitor).id
+  end
+  if type(key) ~= 'string' or key == '' then
+    return nil
+  end
+  return key
 end
 
-function slots.new(): Slots
+function slots.new(keyFor: KeyFor?): Slots
+  local identify: KeyFor = keyFor or slots.defaultKey
   local holds: { [number]: Held } = {}
+
+  local function key(target: Identified): string?
+    local answered = identify(target)
+    if answered ~= nil and (type(answered) ~= 'string' or answered == '') then
+      error('desktop.persist: keyFor answers a non-empty string or nil, not ' .. tostring(answered), 0)
+    end
+    return answered
+  end
+
+  local function windowKey(window: lunette.Window): string?
+    return key { kind = 'window', source = window }
+  end
 
   local function live(entry: Held?): Held?
     if entry and not entry.window.dead then
@@ -40,10 +75,10 @@ function slots.new(): Slots
     return nil
   end
 
-  local function lowestFree(appId: string): number
+  local function lowestFree(identity: string): number
     local used: { [number]: boolean } = {}
     for _, entry in pairs(holds) do
-      if entry.appId == appId and not entry.window.dead then
+      if entry.key == identity and not entry.window.dead then
         used[entry.slot] = true
       end
     end
@@ -60,30 +95,33 @@ function slots.new(): Slots
   end
 
   return {
+    key = function(_self: Slots, target: Identified): string?
+      return key(target)
+    end,
     held = held,
     slotFor = function(self: Slots, window: lunette.Window): number?
-      local appId = slots.appIdOf(window)
-      if not appId then
+      local identity = windowKey(window)
+      if not identity then
         return nil
       end
-      return held(self, window) or lowestFree(appId)
+      return held(self, window) or lowestFree(identity)
     end,
     hold = function(self: Slots, window: lunette.Window): number?
-      local appId = slots.appIdOf(window)
-      if not appId or window.dead then
+      local identity = if window.dead then nil else windowKey(window)
+      if not identity then
         return nil
       end
       local existing = held(self, window)
       if existing then
         return existing
       end
-      for identity, entry in pairs(holds) do
+      for windowId, entry in pairs(holds) do
         if entry.window.dead then
-          holds[identity] = nil
+          holds[windowId] = nil
         end
       end
-      local slot = lowestFree(appId)
-      holds[window.id] = { window = window, appId = appId, slot = slot }
+      local slot = lowestFree(identity)
+      holds[window.id] = { window = window, key = identity, slot = slot }
       return slot
     end,
   }

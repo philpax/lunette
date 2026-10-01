@@ -7,18 +7,18 @@
 -- increasing precedence before start.
 -- start subscribes before enumerating and skips windows already represented by
 -- a live panel. Provider activation and windows never start adoption implicitly.
--- The caller effect owns subscriptions and panels created by start; disposing
+-- The caller effect owns subscriptions and placements made by start; disposing
 -- it releases those resources without closing the native windows. An adopted
 -- window's placement ends when its panel is removed, so the caller holds
 -- nothing for a window that is gone.
 --
--- placed answers every live adoption that any start made, in the order the
--- windows were placed, with the properties each was placed with. onPlaced
--- listeners hear each placement after the start caller's own onPlaced, so a
--- consumer other than the one that started adoption can react to placement
--- with the resolved properties. A listener is owner-scoped, runs under its
--- own protected call, and its error is reported through lunette.reportError
--- without undoing the placement.
+-- A window is adopted unless the start's filter answers false for it, or its
+-- resolved properties, with the start's defaults beneath them, carry an
+-- adopt of false. Such a window is left to whatever else wants it, such as a
+-- plugin that draws a launcher itself. Adoption places a window through
+-- lunette/placement, whose onPlaced announces it to every listener with its
+-- resolved properties; the start's own onPlaced hears only that start's
+-- placements, after the announcement.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -30,21 +30,12 @@ export type Owner = owner.Owner
 export type Properties = rules.Resolved
 export type Options = {
   read defaults: Properties?,
+  read filter: ((lunette.Window) -> boolean)?,
   read onPlaced: ((panels.WindowPanel, Properties) -> ())?,
 }
 
--- A live adoption: the panel and the properties it was placed with.
-export type Placement = {
-  read panel: panels.WindowPanel,
-  read properties: Properties,
-}
-
-export type PlacedListener = {
-  read run: (panels.WindowPanel, Properties) -> (),
-}
-
 -- What install takes: the precedence its source is registered at, by default
--- PRECEDENCE.
+-- PRECEDENCE, which is vocabulary.PRECEDENCE.native unless configured.
 export type InstallOptions = {
   read precedence: number?,
 }
@@ -57,8 +48,6 @@ export type Service = {
   read install: (Service, Owner, InstallOptions?) -> plugin.Effect,
   read windows: (Service) -> { lunette.Window },
   read start: (Service, Owner, Options?) -> plugin.Effect,
-  read placed: (Service) -> { Placement },
-  read onPlaced: (Service, Owner, PlacedListener) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>

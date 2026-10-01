@@ -101,11 +101,15 @@ events.held.lctrl, events.held.lalt = true, true
 assert(not service:dispatch { key = 'backspace', modifiers = { 'control', 'alt' }, isRepeat = false })
 events.held = {}
 
--- Input reads keys through the broker, so a bindings outage takes it and the
--- desktop's bindings away together, and leaves rendering alone.
+-- The broker takes presses itself, so input does not require it: a bindings
+-- outage takes the desktop's bindings away and leaves typing working.
 desktop.providers.bindings:disable()
-assert(desktop.consumers.input:state() ~= 'active' and desktop.consumers.bindings:state() ~= 'active')
+assert(desktop.consumers.bindings:state() ~= 'active', 'the desktop bindings need the broker')
+assert(desktop.consumers.input:state() == 'active', 'input does not need the broker')
 assert(desktop.consumers.render:state() == 'active')
+before = #events.input
+lovr.keypressed('backspace', 0, false)
+assert(#events.input > before, 'a key reaches the focused window during a bindings outage')
 desktop.providers.bindings:enable()
 assert(desktop.consumers.input:state() == 'active' and desktop.consumers.bindings:state() == 'active')
 assert(lovr.quit() == false)

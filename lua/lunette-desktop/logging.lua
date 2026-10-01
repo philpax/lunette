@@ -1,4 +1,4 @@
--- Reports independently of the optional error-display provider.
+-- Reports through LÖVR's log, independently of the optional error stream.
 local logging = {}
 
 function logging.report(message: string, level: string): ()

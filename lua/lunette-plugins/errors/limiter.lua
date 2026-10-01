@@ -1,4 +1,4 @@
--- The error display's bounded, time-window limiter.
+-- The error stream's bounded, time-window limiter.
 --
 -- The limiter owns no clock. Each activation gets a fresh instance, and callers
 -- supply the time for each occurrence so headless tests can drive it directly.
@@ -42,10 +42,10 @@ function limiter.new(window: number, maxKeys: number): Limiter
     maxKeys = maxKeys,
     record = function(_self: Limiter, key: string, now: number): (boolean, number)
       if type(key) ~= 'string' then
-        error('error-display: a rate-limit key is a string, not a ' .. type(key), 2)
+        error('errors: a rate-limit key is a string, not a ' .. type(key), 2)
       end
       if type(now) ~= 'number' then
-        error('error-display: a rate limiter is told the time, and ' .. type(now) .. ' is not one', 2)
+        error('errors: a rate limiter is told the time, and ' .. type(now) .. ' is not one', 2)
       end
 
       local entry = entries[key]

@@ -2,10 +2,10 @@
 //! callback.
 //!
 //! [The Lua API](../../../docs/dev/lua-api.md#errors) says the callback boundary
-//! logs the error and notifies every `lunette.onError` listener. The limiter,
-//! the wording of a report, and the display are policy in the error-display
-//! provider, `@lunette-plugins/error-display`, which subscribes like any other
-//! listener and is never looked up.
+//! logs the error and notifies every `lunette.onError` listener. The limiter
+//! and the wording of a report are policy in the error stream provider,
+//! `@lunette-plugins/errors`, which subscribes like any other listener and is
+//! never looked up, and presenting a report is policy in its subscribers.
 //!
 //! # No native limiter
 //!
@@ -14,13 +14,13 @@
 //! starts from the wrong occurrence. Every listener is notified, and each
 //! listener handles the error independently.
 //!
-//! # Sessions without the error display
+//! # Sessions without the error stream
 //!
-//! A configuration that does not enable the error-display provider is
+//! A configuration that does not enable the error stream provider is
 //! supported. There is then no limiter: the error is logged and each listener
 //! is notified, and an error raised every frame is logged every frame. Enabling
-//! the provider installs the limiter that suppresses the repetition on the
-//! display.
+//! the provider installs the limiter that suppresses the repetition before any
+//! presenter sees it.
 //!
 //! A listener that raises does not stop the ones after it. A session whose
 //! error display itself raises still reaches every other listener.
@@ -58,7 +58,7 @@ pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
 
 /// An error's message and the traceback that goes with it, kept apart.
 ///
-/// The error-display provider keys its rate limit on both. One message raised from two
+/// The error stream provider keys its rate limit on both. One message raised from two
 /// places is two defects, and conflating them would hide the second behind the
 /// first. The listener receives the two separately, and mlua reports them
 /// joined.
@@ -216,7 +216,7 @@ mod tests {
     }
 
     /// A listener the configuration subscribed receives the error directly,
-    /// with no error-display provider in between.
+    /// with no error stream provider in between.
     #[test]
     fn a_listener_is_called_directly_with_the_message_and_traceback() {
         let lua = state();

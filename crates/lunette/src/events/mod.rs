@@ -49,8 +49,9 @@
 //! loop unwinds the loop, so the rest of the frame's events are never
 //! delivered. The dispatcher calls the handler through mlua, which is a
 //! protected call, and passes what comes back to [`crate::callback_error`].
-//! The error display, the rate limiting, and the wording of a report belong to
-//! the error-display provider, which subscribes through `lunette.onError`.
+//! The rate limiting and the wording of a report belong to the error stream
+//! provider, which subscribes through `lunette.onError`, and their display to
+//! its presenters.
 
 mod macros;
 

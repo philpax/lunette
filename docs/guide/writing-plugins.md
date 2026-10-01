@@ -343,7 +343,7 @@ A plugin that moves surfaces for a pointer, as a replacement interaction would, 
 
 ## Key bindings
 
-A key binding is a chord registered with `lunette/bindings`. `desktop/input` offers every key press to the bindings before it sends the key to a window, so a bound key never reaches one. `examples/desktop/hide-windows.lua` binds control, alt, and H to hide every window and show them again:
+A key binding is a chord registered with `lunette/bindings`. The bindings provider takes every key press before `desktop/input` sends keys to a window, so a bound key never reaches one, and while the bindings provider is out, keys still reach windows. `examples/desktop/hide-windows.lua` binds control, alt, and H to hide every window and show them again:
 
 ```lua
 return plugin.define {
@@ -394,8 +394,113 @@ Panels draw no frame of their own. The `desktop/decorations` entry draws a borde
 
 Decorations of another kind are a plugin that does what `lua/lunette-desktop/decorations.lua` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
 
+## Tags and workspaces
+
+A tag is a named group of panels. Adoption puts every window in `main` unless a rule names other tags, and `desktop/arrange` arranges each tag. A plugin that needs a tag holds it, which makes it if nobody has, so it does not matter which plugin starts first:
+
+```lua
+local tag = tagService:hold(context, { name = 'web' })
+```
+
+The tag lasts while any plugin holds it. A plugin moves a window that another plugin put in a tag by excluding it there and adding it elsewhere, and the window goes back when the plugin unloads:
+
+```lua
+main:exclude(context, { panel = panel })
+web:add(context, panel)
+```
+
+`tags:onChanged(context, { run = function(change) end })` hears tags being made and ending and their selection, layout, and members changing; `change.kind` says which and `change.tag` which tag. A tag's layout is the name of a registered layout, which `desktop/arrange` uses for that tag instead of its own:
+
+```lua
+web:setLayout(context, { layout = 'grid' })
+```
+
+The shipped `desktop/workspaces` consumer shows one workspace's windows at a time and hides the rest. It is not in the default desktop; `examples/desktop/main.lua` inserts it with two workspaces on control, alt, and a number:
+
+```lua
+{
+  insert = {
+    id = 'desktop/workspaces',
+    definition = require '@lunette-desktop/workspaces',
+    config = {
+      workspaces = { { name = 'main', key = '1' }, { name = 'side', key = '2' } },
+      modifiers = { 'control', 'alt' },
+    },
+  },
+},
+```
+
+A window that opens goes to the workspace in view. A workspace consumer of another kind, such as one switched by a gesture, listens to `onChanged` and hides panels with `setHidden` the same way.
+
+## Rules
+
+`desktop/rules` takes the rule list. A rule matches named fields of a window, such as `appId` or `title`, or `where`, a function of the whole window, and its properties say where the window goes and how big it is. `examples/desktop/main.lua` sizes picture-in-picture windows by their title:
+
+```lua
+{
+  id = 'desktop/rules',
+  config = {
+    rules = {
+      {
+        match = {
+          where = function(window): boolean
+            return type(window.title) == 'string' and window.title:lower():find('picture', 1, true) ~= nil
+          end,
+        },
+        properties = { width = 0.6, priority = 20 },
+      },
+    },
+  },
+},
+```
+
+A rule's `hidden = true` places a window hidden, `adopt = false` leaves it out of the desktop altogether, and `tags` names the tags it joins. A property the desktop does not know reaches the panel only through a placement of your own: `placement.define { panelOptions = function(properties, window, base) ... end }` receives the resolved properties and the default mapping, as [Rules and placement](../dev/lua-api.md#rules-and-placement) shows. A plugin that resolves properties from somewhere else, such as a file, registers a source with `rules:addSource`, at a precedence named relative to `require('@lunette-contracts/vocabulary').PRECEDENCE`; a source above `PRECEDENCE.persisted` overrides the saved arrangement.
+
+## Presenting errors
+
+Errors reach plugins through the `lunette/errors` stream, which has already dropped repeats. The shipped `desktop/errors` draws the latest one over the scene; its position, size, and colour are its configuration. Any plugin can present them as well. `examples/desktop/notify-errors.lua` sends each as a desktop notification:
+
+```lua
+stream:subscribe(context, {
+  run = function(report: errors.Report)
+    if failed then
+      return
+    end
+    local summary = report.message:match '^[^\n]*' or report.message
+    lunette.spawn { argv = { settings.program, '--app-name=lunette', 'lunette error', summary } }
+  end,
+})
+```
+
+`errors:recent()` answers the reports kept so far, so a presenter that starts late can show what it missed, and `errors:clear(context)` dismisses them for every presenter. Disabling `desktop/errors` leaves your presenter the only one.
+
+## Saving the arrangement
+
+The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence` takes the file it saves to, the format it writes, and `keyFor`, which says what identifies a window across sessions, by default its application id:
+
+```lua
+{ id = 'desktop/persistence', config = { file = 'example.state' } },
+```
+
+It also provides `lunette/arrangement`, so a key can save or put the windows back. `examples/desktop/save-key.lua` binds control, alt, and S to save and control, alt, and R to restore:
+
+```lua
+keys:register(context, {
+  chord = { key = 's', modifiers = { 'control', 'alt' } },
+  run = function(_press: bindings.Press)
+    local written, message = saved:save()
+    local log = lovr.log
+    if not written and log then
+      log('the arrangement was not saved: ' .. tostring(message), 'warn', 'save-key')
+    end
+  end,
+})
+```
+
+A format of your own is a `{ read, render }` pair; [Default configuration](../dev/stdlib.md#default-configuration) states what `read` answers so that a file written by a newer version is left alone rather than overwritten.
+
 ## Checking a configuration
 
-`lunette check main.lua` typechecks `main.lua` and every module it requires, in strict mode, against the runtime's definitions. A module that nothing requires, such as `rounded.lua` in the keyboard example, is checked by naming it too. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It does not check a patch's `config`, and it does not run the plugins: an option error, a malformed row, or an error raised in `init` appears when the session loads the plugin, in the log and in the error display, naming the plugin.
+`lunette check main.lua` typechecks `main.lua` and every module it requires, in strict mode, against the runtime's definitions. A module that nothing requires, such as `rounded.lua` in the keyboard example, is checked by naming it too. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It does not check a patch's `config`, and it does not run the plugins: an option error, a malformed row, or an error raised in `init` appears when the session loads the plugin, in the log and in the error panel, naming the plugin.
 
 `pass:text(text, transform)` with only a transform is reported as an ambiguous call because of how LÖVR's overloads are declared; giving the wrap, horizontal, and vertical alignment arguments, as the examples do, selects the transform form.

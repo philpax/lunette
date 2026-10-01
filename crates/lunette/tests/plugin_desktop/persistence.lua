@@ -17,6 +17,7 @@ local definitions = {
   require('@lunette-plugins/drops').definition,
   require('@lunette-plugins/tags').definition,
   require('@lunette-plugins/rules').definition,
+  require('@lunette-plugins/placement').definition,
   require('@lunette-plugins/adoption').definition,
   require('@lunette-plugins/layouts').definition,
   require('@lunette-plugins/layout/arc').definition,

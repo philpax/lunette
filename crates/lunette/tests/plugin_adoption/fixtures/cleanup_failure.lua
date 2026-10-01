@@ -1,6 +1,6 @@
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
-local rules = require '@lunette-contracts/rules'
+local placementContract = require '@lunette-contracts/placement'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 local native = require '@lunette'
@@ -81,7 +81,9 @@ return function(fixture, payload, mode, extraFailure)
   local caller = runtime:use(
     plugin.define {
       name = 'cleanup-failure-2',
-      requires = if mode == 'direct' then { rules = rules.capability } else { adoption = adoption.capability },
+      requires = if mode == 'direct'
+        then { placement = placementContract.capability }
+        else { adoption = adoption.capability },
       init = function(context)
         callerOwner = context
         loads += 1
@@ -95,7 +97,7 @@ return function(fixture, payload, mode, extraFailure)
   local started
   local settings = { tags = { 'first-cleanup-implicit', 'second-cleanup-implicit', ordinary, throwing } }
   if mode == 'direct' then
-    panel, _, placement = services.rules:place(callerOwner, source, settings)
+    panel, _, placement = services.placement:place(callerOwner, { window = source, defaults = settings })
   else
     started = services.adoption:start(callerOwner, {
       defaults = settings,
@@ -117,23 +119,18 @@ return function(fixture, payload, mode, extraFailure)
       record(name .. '.remove')
       return remove(self, owner, target)
     end
-    local destroy = tag.destroy
-    tag.destroy = function(self)
-      record(name .. '.destroy')
-      local result = destroy(self)
-      if extraFailure and name == 'second-cleanup-implicit' then
-        error 'fixture: implicit destroy failure'
-      end
-      return result
-    end
   end
   local destroy = panel.destroy
   local testingCleanup = true
   panel.destroy = function(self, owner)
+    local result = destroy(self, owner)
     if testingCleanup then
       record 'panel.destroy'
+      if extraFailure then
+        error 'fixture: panel destroy failure'
+      end
     end
-    return destroy(self, owner)
+    return result
   end
   local ok, failure = pcall(function()
     if mode == 'direct' then
@@ -145,21 +142,20 @@ return function(fixture, payload, mode, extraFailure)
   testingCleanup = false
   assert(not ok and string.find(tostring(failure), 'fixture: membership remove failure', 1, true))
   if extraFailure then
-    assert(
-      string.find(tostring(failure), 'fixture: implicit destroy failure', 1, true),
-      'cleanup errors must aggregate'
-    )
+    assert(string.find(tostring(failure), 'fixture: panel destroy failure', 1, true), 'cleanup errors must aggregate')
   end
   assert(calls['throwing.remove'] == 1)
   assert(calls['ordinary.remove'] == 1, 'one throwing removal must not skip another membership')
   assert(calls['second-cleanup-implicit.remove'] == 1 and calls['first-cleanup-implicit.remove'] == 1)
   assert(calls['panel.destroy'] == 1 and calls['claim.release'] == 1)
-  assert(calls['second-cleanup-implicit.destroy'] == 1 and calls['first-cleanup-implicit.destroy'] == 1)
   -- Memberships are removed, most recent first, before the panel is destroyed.
   assert(order[1] == 'throwing.remove' and order[2] == 'ordinary.remove')
   assert(table.find(order, 'claim.release') > table.find(order, 'first-cleanup-implicit.remove'))
   assert(panel.dead and claim.dead and not services.panels:forSource(source))
-  assert(not services.tags:find 'first-cleanup-implicit' and not services.tags:find 'second-cleanup-implicit')
+  assert(
+    not services.tags:find 'first-cleanup-implicit' and not services.tags:find 'second-cleanup-implicit',
+    'the tags placement made end with the last hold on them'
+  )
   assert(not ordinary.dead and not throwing.dead and #ordinary.members == 0 and #throwing.members == 0)
   assert(services.panels:forSource(unrelatedSource) == unrelatedPanel and not unrelatedClaim.dead)
   assert(unrelatedTag:has(unrelatedPanel) and not unrelatedTag.dead and observer:active())
@@ -192,8 +188,6 @@ return function(fixture, payload, mode, extraFailure)
         'ordinary.remove',
         'first-cleanup-implicit.remove',
         'second-cleanup-implicit.remove',
-        'first-cleanup-implicit.destroy',
-        'second-cleanup-implicit.destroy',
         'panel.destroy',
         'claim.release',
       } do

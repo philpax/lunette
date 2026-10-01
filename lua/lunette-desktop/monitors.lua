@@ -13,13 +13,13 @@
 -- monitors present at activation are placed in the order of their names.
 --
 -- `tags` are tags each mirror joins. Tagging is a child plugin of its own,
--- so an outage of the tags provider leaves the mirrors in place; a tag that
--- does not exist when a mirror is placed is reported and skipped.
+-- so an outage of the tags provider leaves the mirrors in place. A tag that
+-- does not exist when a mirror is placed is joined when it is made, which
+-- the tags contract's onChanged announces.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
-local logging = require '@lunette-desktop/logging'
 
 -- What a configuration gives: every option optional.
 export type Config = {
@@ -111,11 +111,20 @@ local function tagging(shared: Shared, names: { string }): plugin.Definition<{}>
           local found = tagService:find(name)
           if found then
             found:add(context, mirror)
-          else
-            logging.report('desktop/monitors: ' .. name .. ' is not a tag, so a mirror does not join it', 'warn')
           end
         end
       end
+      tagService:onChanged(context, {
+        run = function(change: tags.Change): ()
+          if change.kind == 'created' and table.find(names, change.tag.name) then
+            for _, mirror in pairs(shared.mirrors) do
+              if not mirror.dead then
+                change.tag:add(context, mirror)
+              end
+            end
+          end
+        end,
+      })
       context:effect(function(): () -> ()
         shared.tag = tag
         return function(): ()

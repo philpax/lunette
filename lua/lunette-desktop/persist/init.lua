@@ -12,6 +12,7 @@ local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local format = require '@lunette-desktop/persist/format'
 local slots = require '@lunette-desktop/persist/slots'
 local arrangements = require '@lunette-desktop/persist/arrangement'
@@ -26,15 +27,37 @@ export type Filesystem = {
   write: (string, string) -> boolean,
   getSaveDirectory: () -> string,
 }
+-- How an arrangement is written as text and read back. `read` answers a load
+-- that format.arrangement, format.fromTheFuture, format.broken, or
+-- format.empty made, and `render` the text of an arrangement newFile made.
+-- A format keeps its own version: a reader answers fromTheFuture for a
+-- version it cannot represent, so a file it cannot write back whole is left
+-- alone rather than written over.
+export type Format = {
+  read read: (unknown) -> format.Loaded,
+  read render: (format.File) -> string,
+}
+-- What a persistence state is made from. `file` names the file in the save
+-- directory, by default FILE; `format` reads and renders it, by default this
+-- module's own; and `keyFor` answers the identity a window or monitor is
+-- saved under, by default slots.defaultKey.
 export type Dependencies = {
   read filesystem: Filesystem?,
   read report: ((string) -> ())?,
+  read file: string?,
+  read format: Format?,
+  read keyFor: slots.KeyFor?,
 }
 export type Slots = slots.Slots
+export type KeyFor = slots.KeyFor
+export type Identified = slots.Identified
 export type SaveOptions = { read force: boolean? }
 export type Binding = {
   read active: (Binding) -> boolean,
   read save: (Binding, SaveOptions?) -> (boolean, string?),
+  -- Places the live panels where the arrangement last loaded or saved has
+  -- them, and answers how many it placed.
+  read restore: (Binding) -> number,
   read dispose: (Binding) -> (),
 }
 export type State = {
@@ -62,7 +85,7 @@ type BindingState = {
 }
 
 local SOURCE = 'desktop.persist'
-local PRECEDENCE = 200
+local PRECEDENCE = vocabulary.PRECEDENCE.persisted
 local FILE = 'arrangement.state'
 
 persist.CURRENT_VERSION = format.CURRENT_VERSION
@@ -73,6 +96,11 @@ persist.entries = format.entries
 persist.read = format.read
 persist.render = format.render
 persist.empty = format.empty
+persist.arrangement = format.arrangement
+persist.fromTheFuture = format.fromTheFuture
+persist.broken = format.broken
+persist.defaultKey = slots.defaultKey
+persist.FORMAT = table.freeze { read = format.read, render = format.render } :: Format
 persist.FILE = FILE
 persist.PRECEDENCE = PRECEDENCE
 persist.SOURCE = SOURCE
@@ -100,9 +128,9 @@ local function defaultReport(message: string): ()
   end
 end
 
-function persist.path(filesystem: Filesystem?): string
+function persist.path(filesystem: Filesystem?, file: string?): string
   local selected = filesystem or defaultFilesystem()
-  return selected.getSaveDirectory() .. '/' .. FILE
+  return selected.getSaveDirectory() .. '/' .. (file or FILE)
 end
 
 -- A rules source over one file. Resolving is a pure query: a window answers
@@ -158,13 +186,39 @@ local function deactivate(binding: BindingState): ()
   end
 end
 
+-- Reads the file through the format, as a load. A reader that raises or
+-- answers something that is not a load makes a broken load, so the file is
+-- left alone.
+local function load(chosen: Format, text: string): format.Loaded
+  local ok, answered = pcall(chosen.read, text)
+  if not ok then
+    return format.broken('the format could not read it: ' .. tostring(answered))
+  end
+  if not format.isLoaded(answered) then
+    return format.broken('the format answered a ' .. type(answered) .. ', not a load')
+  end
+  return answered
+end
+
 function persist.new(dependencies: Dependencies?): State
-  local filesystem = if dependencies then dependencies.filesystem or defaultFilesystem() else defaultFilesystem()
-  local report = if dependencies then dependencies.report or defaultReport else defaultReport
+  local given: Dependencies = dependencies or {}
+  local filesystem = given.filesystem or defaultFilesystem()
+  local report = given.report or defaultReport
+  local file = given.file or FILE
+  if type(file) ~= 'string' or file == '' then
+    error('desktop.persist: file is a non-empty file name, not ' .. tostring(file), 2)
+  end
+  local chosen: Format = given.format or persist.FORMAT
+  if type(chosen) ~= 'table' or type(chosen.read) ~= 'function' or type(chosen.render) ~= 'function' then
+    error('desktop.persist: format is a table of read and render functions', 2)
+  end
+  if given.keyFor ~= nil and type(given.keyFor) ~= 'function' then
+    error('desktop.persist: keyFor is a function, not a ' .. type(given.keyFor), 2)
+  end
   local loaded: format.Loaded
-  local text = filesystem.read(FILE)
+  local text = filesystem.read(file)
   if text then
-    loaded = format.read(text)
+    loaded = load(chosen, text)
   else
     loaded = format.empty()
   end
@@ -173,14 +227,14 @@ function persist.new(dependencies: Dependencies?): State
   local declined: string? = nil
   -- Held across bindings, so a provider outage does not move a live window to
   -- another window's slot.
-  local held = slots.new()
+  local held = slots.new(given.keyFor)
   if loaded.kind == 'arrangement' then
     arrangement = loaded.file
   elseif loaded.kind == 'broken' then
-    declined = persist.path(filesystem) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
+    declined = persist.path(filesystem, file) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
     report(declined)
   elseif loaded.kind == 'fromTheFuture' then
-    declined = persist.path(filesystem)
+    declined = persist.path(filesystem, file)
       .. ' was written by version '
       .. loaded.found
       .. ', and this lunette writes version '
@@ -249,14 +303,18 @@ function persist.new(dependencies: Dependencies?): State
         if not currentPanels or not currentTags then
           return false, 'desktop.persist: the provider binding is no longer active'
         end
-        local file = arrangements.capture(report, held, currentPanels, currentTags)
+        local captured = arrangements.capture(report, held, currentPanels, currentTags)
         if not bindingLive(binding) then
           return false, 'desktop.persist: the provider binding is no longer active'
         end
-        if not filesystem.write(FILE, format.render(file)) then
-          return false, persist.path(filesystem) .. ' could not be written'
+        local rendered = chosen.render(captured)
+        if type(rendered) ~= 'string' then
+          return false, 'desktop.persist: the format rendered a ' .. type(rendered) .. ', not text'
         end
-        arrangement = file
+        if not filesystem.write(file, rendered) then
+          return false, persist.path(filesystem, file) .. ' could not be written'
+        end
+        arrangement = captured
         declined = nil
         return true, nil
       end
@@ -266,6 +324,14 @@ function persist.new(dependencies: Dependencies?): State
         end,
         save = function(_binding: Binding, options: SaveOptions?): (boolean, string?)
           return save(options)
+        end,
+        restore = function(_binding: Binding): number
+          local currentContext, currentPanels, currentTags = binding.context, binding.panels, binding.tags
+          if not bindingLive(binding) or not currentContext or not currentPanels or not currentTags then
+            return 0
+          end
+          local restored = arrangements.restore(report, held, currentContext, currentPanels, currentTags, arrangement)
+          return #restored
         end,
         dispose = function(_binding: Binding): ()
           local effect = binding.ownerEffect

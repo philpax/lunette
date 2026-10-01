@@ -1,15 +1,24 @@
 -- The desktop's saved arrangement, kept across this consumer's outages.
 --
--- The module is a definition factory. Each definition it makes creates one
--- persistence state from `@lunette-desktop/persist`, outside any activation, so
--- the loaded arrangement, the slots live windows hold, and a refusal to
--- overwrite an unreadable or newer file survive the consumer being disabled
--- and enabled again. Each activation binds the state: the arrangement becomes
--- a rules source, a drop heard through lunette/drops saves it, and a normal
--- quit saves it once more. A drop save that fails is logged; a quit save that
--- fails raises, and the frame provider reports it without vetoing the quit.
--- The consumer takes no options.
+-- The module is a definition factory. Each definition it makes keeps one
+-- persistence state from `@lunette-desktop/persist`, made at its first
+-- activation and kept outside any activation, so the loaded arrangement, the
+-- slots live windows hold, and a refusal to overwrite an unreadable or newer
+-- file survive the consumer being disabled and enabled again. Each
+-- activation binds the state: the arrangement becomes a rules source, a drop
+-- heard through lunette/drops saves it, and a normal quit saves it once
+-- more. A drop save that fails is logged; a quit save that fails raises, and
+-- the frame provider reports it without vetoing the quit. The consumer
+-- provides lunette/arrangement, so a key binding can save or restore.
+--
+-- Options: `file`, the file in LÖVR's save directory; `format`, `{ read,
+-- render }`, how the file is read and written, by default persist.FORMAT;
+-- and `keyFor`, the identity a window or monitor is saved under, by default
+-- persist.defaultKey. A format's read answers the loads persist's
+-- constructors make, and answers fromTheFuture for a version it cannot write
+-- back whole.
 local plugin = require '@lunette-plugin'
+local arrangementContract = require '@lunette-contracts/arrangement'
 local drops = require '@lunette-contracts/drops'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
@@ -17,6 +26,28 @@ local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
 local logging = require '@lunette-desktop/logging'
 local persist = require '@lunette-desktop/persist'
+
+-- What a configuration gives: every option optional.
+export type Config = {
+  read file: string?,
+  read format: {
+    read read: ((unknown) -> persist.Loaded)?,
+    read render: ((persist.File) -> string)?,
+  }?,
+  read keyFor: persist.KeyFor?,
+}
+
+export type Settings = {
+  read file: string,
+  read format: persist.Format,
+  read keyFor: persist.KeyFor,
+}
+
+local DEFAULTS: Settings = {
+  file = persist.FILE,
+  format = persist.FORMAT,
+  keyFor = persist.defaultKey,
+}
 
 local required: plugin.Declaration = {
   drops = drops.capability,
@@ -26,16 +57,44 @@ local required: plugin.Declaration = {
   tags = tags.capability,
 }
 
-local function define(): plugin.Definition<{}>
-  local arrangement = persist.new()
+local function resolve(config: unknown): Settings
+  local settings: Settings = plugin.options { name = 'desktop/persistence', defaults = DEFAULTS, config = config }
+  if settings.file == '' then
+    error('plugin desktop/persistence: option file is a non-empty file name', 0)
+  end
+  return settings
+end
+
+local function define(): plugin.Definition<Config>
+  local state: persist.State? = nil
+  local madeWith: Settings? = nil
+  -- The state is made once, from the options it was first activated with,
+  -- and made again only if they change.
+  local function stateFor(settings: Settings): persist.State
+    local made = madeWith
+    local current = state
+    if
+      current
+      and made
+      and made.file == settings.file
+      and made.format.read == settings.format.read
+      and made.format.render == settings.format.render
+      and made.keyFor == settings.keyFor
+    then
+      return current
+    end
+    local fresh = persist.new { file = settings.file, format = settings.format, keyFor = settings.keyFor }
+    state, madeWith = fresh, settings
+    return fresh
+  end
   return plugin.define {
     name = 'desktop/persistence',
     requires = required,
-    init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
-      -- The consumer takes no options, so any option is a mistake worth naming.
-      plugin.options { name = 'desktop/persistence', defaults = {}, config = config }
+    provides = { arrangement = arrangementContract.capability },
+    init = function(context: plugin.Context, config: Config, publish: plugin.Publisher): ()
+      local settings = resolve(config)
       local frameService: frame.Service = context:require(frame.capability)
-      local binding = arrangement:bind(
+      local binding = stateFor(settings):bind(
         context,
         context:require(panels.capability),
         context:require(tags.capability),
@@ -64,6 +123,28 @@ local function define(): plugin.Definition<{}>
           end
         end,
       })
+      local service: arrangementContract.Service = {
+        save = function(
+          _self: arrangementContract.Service,
+          options: arrangementContract.SaveOptions?
+        ): (boolean, string?)
+          if options ~= nil then
+            if type(options) ~= 'table' then
+              error('arrangement save: options are a table of fields, not a ' .. type(options), 2)
+            end
+            for key, _ in options :: { [unknown]: unknown } do
+              if key ~= 'force' then
+                error('arrangement save: unknown field ' .. tostring(key) .. '; the field is force', 2)
+              end
+            end
+          end
+          return binding:save(options)
+        end,
+        restore = function(_self: arrangementContract.Service): number
+          return binding:restore()
+        end,
+      }
+      publish:provide(arrangementContract.capability, service)
     end,
   }
 end
