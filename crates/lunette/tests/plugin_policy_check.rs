@@ -77,14 +77,15 @@ fn rules_predicates_and_evaluators() {
     }
 }
 #[test]
-fn arc_service() {
-    check(&["layout/arc/service.lua"]);
+fn arc_geometry_and_layouts_broker() {
+    check(&["layout/arc/geometry.lua", "layouts/init.lua"]);
 }
 #[test]
 fn full_entrypoints() {
     check(&[
         "tags/init.lua",
         "rules/init.lua",
+        "layouts/init.lua",
         "layout/arc/init.lua",
         "adoption/init.lua",
         "error-display/init.lua",

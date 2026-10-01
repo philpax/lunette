@@ -1,5 +1,7 @@
 events.reloadChecks = (events.reloadChecks or 0) + 1
-assert(events.enumerations == events.reloadChecks + 1, 'each reload enumerates exactly once')
+-- Startup enumerates for adoption and for the demonstration terminal, and a
+-- reload enumerates for adoption alone: the terminal was already decided.
+assert(events.enumerations == events.reloadChecks + 2, 'each reload enumerates exactly once')
 assert(_G.lunetteDemonstrationSpawned == true)
 assert(#events.spawned == events.startupProcesses, 'reload does not duplicate startup process')
 assert(events.closed == 0 and not events.windows[1].dead and not events.windows[2].dead)

@@ -2,7 +2,7 @@
 
 A lunette configuration is a LÖVR project whose `main.lua` composes the shipped desktop and adds or replaces plugins in it. A plugin is a definition: a name, the contracts it requires and provides, and an initializer that runs when the plugin loads. Everything a plugin creates while it loads is undone when it unloads.
 
-The code in this guide is in two example configurations, `examples/first-plugin` and `examples/keyboard`. `make check` typechecks both and runs both in the desktop test harness, so the code here is code that works. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
+The code in this guide is in three example configurations, `examples/first-plugin`, `examples/keyboard`, and `examples/layout`. `make check` typechecks all three and runs them in the desktop test harness, so the code here is code that works. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
 
 ## A configuration to work in
 
@@ -256,6 +256,49 @@ end,
 ```
 
 `context:acquire` checks that the owner is a live plugin and registers the release with the owner, so a keyboard ends with the plugin that asked for it. Each owner draws and offers its own keyboards, so a provider keeps no list of them. A surface callback that answers a ray hit, `raycast`, is annotated `(number?, number?, number?)`; without the annotation the checker infers the return from the first `return nil, nil, nil` and rejects the hit.
+
+## A custom layout
+
+Windows that no rule or saved arrangement places are arranged by the `desktop/arrange` entry, with a layout it names. A layout is a function that poses a list of panels, registered by name with the layouts broker, `lunette/layouts`. The desktop registers the arc layout as `arc`, and a configuration adds another by inserting a plugin that registers it. `examples/layout/grid.lua` registers a grid:
+
+```lua
+local plugin = require '@lunette-plugin'
+local layouts = require '@lunette-contracts/layouts'
+
+local DEFAULTS = { columns = 0, gap = 0.08, center = { 0, 1.5, -1.8 } }
+
+local function grid(panels: { layouts.Panel }, given: unknown?): ()
+  local options = plugin.options { name = 'grid', defaults = DEFAULTS, config = given }
+  -- Work out each panel's cell from options.columns and the largest panel.
+  for index, panel in ipairs(panels) do
+    layouts.setPose(panel, lovr.math.newMat4():translate(x, y, options.center[3]))
+  end
+end
+
+return plugin.define {
+  name = 'grid-layout',
+  requires = { layouts = layouts.capability },
+  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+    local service: layouts.Service = context:require(layouts.capability)
+    service:register(context, { name = 'grid', apply = grid })
+  end,
+}
+```
+
+The layout receives the live panels in the order the caller gives them and the caller's options. It decides nothing about which panels it gets: `desktop/arrange` passes the adopted windows of the workspace tag that were placed without a pose, less any the user has since dragged. `plugin.options` checks the options against the defaults, so a misspelt option raises an error naming it. `layouts.setPose` poses a panel; calling `panel:setPose` directly is reported by the checker as an ambiguous call, because a panel's type joins the surface's optional `setPose` with the panel's own. The registration is owned by the plugin's context, so it ends when the plugin unloads, and a second registration of the same name raises.
+
+Two patches add the grid and choose it:
+
+```lua
+{ insert = { id = 'grid-layout', definition = require './grid' } },
+{ id = 'desktop/arrange', config = { layout = 'grid', options = { columns = 3 } } },
+```
+
+`options` are the grid's own; `desktop/arrange` passes them through. An inserted entry is enabled after the shipped ones, so the grid registers after `desktop/arrange` has started, and `desktop/arrange` arranges again when it does. If no layout of the chosen name has registered by the first frame, `desktop/arrange` logs a warning naming it.
+
+A layout registered with `continuous = true` is applied on every frame as well. `examples/layout/follow.lua` is one: it keeps the windows on an arc around the head and swings the arc round once the head has turned far enough away from it. It reuses the arc layout's geometry, `@lunette-plugins/layout/arc/geometry`, which spaces panels by their widths so that wide ones do not overlap. `examples/layout/main.lua` inserts both layouts and chooses the grid; `layout = 'follow'` chooses the other.
+
+To replace the built-in arc rather than add beside it, disable the `layout/arc` entry and register another layout as `arc`. A layout is never overridden in place.
 
 ## Checking a configuration
 

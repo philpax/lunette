@@ -6,6 +6,8 @@
 --     patches = {
 --       { id = 'keyboard', disabled = true },
 --       { id = 'laser', config = { style = { color = { 1, 0.4, 0.2, 0.6 } } } },
+--       { id = 'desktop/arrange', config = { layout = 'arc', options = { radius = 2 } } },
+--       { id = 'desktop/demo-terminal', config = { programs = { 'foot' } } },
 --       { insert = { id = 'my-hud', definition = require './hud' } },
 --     },
 --   }

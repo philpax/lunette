@@ -2,23 +2,29 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 local rules = require '@lunette-contracts/rules'
-local layout = require '@lunette-contracts/layout'
+local layouts = require '@lunette-contracts/layouts'
+local geometry = require '@lunette-plugins/layout/arc/geometry'
 local runtime = plugin.runtime()
-for _, name in ipairs { 'panels', 'tags', 'rules', 'layout/arc' } do
+for _, name in ipairs { 'panels', 'tags', 'rules', 'layouts', 'layout/arc' } do
   runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
 end
 local owner, services
 local consumer = runtime:use(
   plugin.define {
     name = 'policy-1',
-    requires = { panels = panels.capability, tags = tags.capability, rules = rules.capability, arc = layout.arc },
+    requires = {
+      panels = panels.capability,
+      tags = tags.capability,
+      rules = rules.capability,
+      layouts = layouts.capability,
+    },
     init = function(context)
       owner = context
       services = {
         panels = context:require(panels.capability),
         tags = context:require(tags.capability),
         rules = context:require(rules.capability),
-        arc = context:require(layout.arc),
+        layouts = context:require(layouts.capability),
       }
     end,
   },
@@ -219,10 +225,15 @@ assert(not pcall(function()
   panel:destroy(owner)
 end), 'a placed panel belongs to the rules provider')
 assert(#services.tags:panelsOf { tag, services.tags:find 'implicit' } == 1)
-services.arc:apply(tag)
+services.layouts:apply { name = 'arc', panels = services.tags:panelsOf(tag) }
 assert(panel.pose.x == 0 and panel.pose.y == 1.5 and panel.pose.z == -1.6)
+local tuning = { radius = 1.6, step = 0.55, span = math.pi * 1.2, gap = 0.05, center = { 0, 1.5, 0 } }
 for count = 0, 20 do
-  local angles = services.arc:angles(count)
+  local widths = {}
+  for index = 1, count do
+    widths[index] = 1
+  end
+  local angles = geometry.angles(widths, tuning)
   assert(#angles == count)
   for index, angle in ipairs(angles) do
     assert(math.abs(angle + angles[count + 1 - index]) < 1e-12)

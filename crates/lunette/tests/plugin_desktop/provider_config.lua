@@ -8,7 +8,7 @@ local laser = require '@lunette-contracts/laser'
 local keyboard = require '@lunette-contracts/keyboard'
 local rules = require '@lunette-contracts/rules'
 local adoption = require '@lunette-contracts/adoption'
-local layout = require '@lunette-contracts/layout'
+local layouts = require '@lunette-contracts/layouts'
 local errorDisplay = require '@lunette-contracts/error-display'
 local laserModule = require '@lunette-plugins/laser'
 
@@ -73,7 +73,43 @@ local rejections = {
     config = { tuning = { radious = 2 } },
     message = 'plugin layout/arc: unknown option tuning.radious',
   },
+  {
+    id = 'layout/arc',
+    config = { tuning = { radius = 0 } },
+    message = 'plugin layout/arc: option radius is a positive number, not 0',
+  },
+  { id = 'layouts', config = { bogus = 1 }, message = 'plugin layouts: unknown option bogus' },
   { id = 'error-display', config = { colour = {} }, message = 'plugin error-display: unknown option colour' },
+  { id = 'desktop/workspace', config = { nmae = 'web' }, message = 'plugin desktop/workspace: unknown option nmae' },
+  {
+    id = 'desktop/rules',
+    config = { rules = { match = {} } },
+    message = 'rules: a rules list is a list, and match is not one of its positions',
+  },
+  {
+    id = 'desktop/rules',
+    config = { rules = { { matches = { appId = 'foot' } } } },
+    message = 'rules: rule 1 has an unknown field matches; the fields are match and properties',
+  },
+  { id = 'desktop/persistence', config = { file = 'x' }, message = 'plugin desktop/persistence: unknown option file' },
+  { id = 'desktop/arrange', config = { layuot = 'grid' }, message = 'plugin desktop/arrange: unknown option layuot' },
+  -- A layout's own options are the layout's to validate, and its error fails
+  -- the arranging consumer that passed them.
+  {
+    id = 'desktop/arrange',
+    config = { options = { radious = 2 } },
+    message = 'plugin layout/arc: unknown option radious',
+  },
+  {
+    id = 'desktop/adoption',
+    config = { tags = { 'main', '' } },
+    message = 'plugin desktop/adoption: option tags[2] is a non-empty tag name',
+  },
+  {
+    id = 'desktop/demo-terminal',
+    config = { programs = 'foot' },
+    message = 'plugin desktop/demo-terminal: option programs is a table, not a string',
+  },
 }
 for _, case in ipairs(rejections) do
   local running = desktop.start(desktop.compose { patches = { { id = case.id, config = case.config } } })
@@ -110,7 +146,7 @@ local probe = plugin.define {
     keyboard = keyboard.capability,
     rules = rules.capability,
     adoption = adoption.capability,
-    arc = layout.arc,
+    layouts = layouts.capability,
     errorDisplay = errorDisplay.capability,
   },
   init = function(context)
@@ -121,7 +157,7 @@ local probe = plugin.define {
     services.keyboard = context:require(keyboard.capability)
     services.rules = context:require(rules.capability)
     services.adoption = context:require(adoption.capability)
-    services.arc = context:require(layout.arc)
+    services.layouts = context:require(layouts.capability)
     services.errorDisplay = context:require(errorDisplay.capability)
   end,
 }
@@ -184,9 +220,17 @@ end
 assert(precedences.probe == 150, 'a rule set without a precedence takes the configured one')
 assert(precedences['lunette.adoption'] == 350, 'adoption installs its source at the configured precedence')
 
-assert(services.arc.TUNING.radius == 3 and services.arc.TUNING.step == 0.55)
-local _, _, z = services.arc:poses(1)[1]:getPosition()
-assert(z == -3, 'the arc is laid out at the configured radius: ' .. tostring(z))
+assert(services.layouts:get('arc').continuous == false, 'the arc registers as a layout')
+local arced = { width = 1, dead = false }
+function arced:setPose(pose)
+  self.pose = pose
+end
+services.layouts:apply { name = 'arc', panels = { arced } }
+local _, y, z = arced.pose:getPosition()
+assert(y == 1.5 and z == -3, 'the arc is laid out at the configured radius and default centre: ' .. tostring(z))
+services.layouts:apply { name = 'arc', panels = { arced }, options = { radius = 2 } }
+_, _, z = arced.pose:getPosition()
+assert(z == -2, "a call's options merge over the configured tuning")
 
 assert(services.errorDisplay.COLUMNS == 10 and services.errorDisplay.BACKGROUND[3] == 1)
 services.errorDisplay:show 'a report longer than ten columns'

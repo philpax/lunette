@@ -25,7 +25,7 @@ fn shipped_graph_runs_frames_input_and_ten_production_reloads() -> mlua::Result<
 }
 
 #[test]
-fn optional_outages_and_policy_recovery_preserve_independent_scopes() -> mlua::Result<()> {
+fn optional_outages_and_placement_recovery_preserve_independent_scopes() -> mlua::Result<()> {
     let lua = plugin_desktop::state()?;
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/outages.lua"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
@@ -63,6 +63,23 @@ fn saved_placement_follows_hotplug_replug_and_reopened_windows() -> mlua::Result
 }
 
 #[test]
+fn a_dropped_window_leaves_the_arrangement_and_does_not_snap_back() -> mlua::Result<()> {
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/arrange.lua"))?;
+    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn the_layouts_broker_the_arc_spacing_and_placement_events_follow_the_contracts() -> mlua::Result<()>
+{
+    let lua = plugin_desktop::state()?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/layouts.lua"))?;
+    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn substitute_providers_serve_the_built_in_providers_and_consumers() -> mlua::Result<()> {
     let lua = plugin_desktop::state()?;
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/substitutes.lua"))?;
@@ -93,7 +110,8 @@ fn quit_save_returned_errors_and_exceptions_are_reported_without_veto() -> mlua:
 }
 
 #[test]
-fn policy_preserves_placement_precedence_and_write_refusal_through_outages() -> mlua::Result<()> {
+fn persistence_preserves_placement_precedence_and_write_refusal_through_outages() -> mlua::Result<()>
+{
     let lua = plugin_desktop::state()?;
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/persistence.lua"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
@@ -165,6 +183,7 @@ fn every_provider_validates_and_applies_its_configuration() -> mlua::Result<()> 
             || error.contains(" is a ")
             || error.contains("pointer button")
             || error.contains("plugin keyboard: option rows")
+            || error.contains("rules: rule 1 has an unknown field")
             || error.contains("requires missing contract")),
         "{errors:?}"
     );

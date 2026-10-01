@@ -24,6 +24,7 @@ local definitions = {
   tags = require('@lunette-plugins/tags').definition,
   rules = require('@lunette-plugins/rules').definition,
   adoption = require('@lunette-plugins/adoption').definition,
+  layouts = require('@lunette-plugins/layouts').definition,
   arc = require('@lunette-plugins/layout/arc').definition,
   display = require('@lunette-plugins/error-display').definition,
 }
@@ -38,14 +39,19 @@ for _, name in ipairs {
   'tags',
   'rules',
   'adoption',
+  'layouts',
   'arc',
   'display',
 } do
   providers[name] = runtime:use(definitions[name], {})
   providers[name]:enable()
 end
+-- Persistence and arrangement are factories, called once as the composition
+-- calls them.
+local FACTORIES = { persistence = true, arrange = true }
 local function use(name)
-  local instance = runtime:use(require('@lunette-desktop/' .. name), {})
+  local module = require('@lunette-desktop/' .. name)
+  local instance = runtime:use(if FACTORIES[name] then module() else module, {})
   instance:enable()
   return instance
 end
@@ -54,9 +60,9 @@ use 'pointing'
 use 'input'
 use 'keyboard'
 use 'errors'
-local definePolicy = require '@lunette-desktop/policy'
-local policy = runtime:use(definePolicy(), {})
-policy:enable()
+for _, name in ipairs { 'workspace', 'rules', 'persistence', 'arrange', 'adoption', 'demo-terminal' } do
+  use(name)
+end
 local service, focus, placement, tagService, surfaceBroker, owner
 runtime
   :use(
@@ -135,9 +141,9 @@ end
 local reads, writes = events.reads, events.writes
 for _ = 1, 3 do
   providers.rules:disable()
-  assert(initial.dead, 'policy outage withdraws adopted panels')
+  assert(initial.dead, 'a rules outage withdraws adopted panels')
   assert(subscriptionCount 'onWindowOpened' == 0)
-  assert(events.writes == writes, 'policy teardown never saves')
+  assert(events.writes == writes, 'persistence teardown never saves')
   for _, record in ipairs(events.subscriptions.onWindowOpened) do
     if not record.active then
       record.callback { window = events.windows[1] }
@@ -150,7 +156,7 @@ for _ = 1, 3 do
   sources()
   initial = service:forSource(events.windows[1])
   local px, py, pz = initial.pose:getPosition()
-  assert(px == 3 and py == 2 and pz == -4, 'retained arrangement restores after policy outage')
+  assert(px == 3 and py == 2 and pz == -4, 'retained arrangement restores after a rules outage')
   assert(events.reads == reads, 'outage does not reconstruct persistent state')
   assert(subscriptionCount 'onWindowOpened' == 1)
 end

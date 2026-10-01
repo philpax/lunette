@@ -97,6 +97,11 @@ const ALIAS_FILES: &[AliasFile] = &[
         "../../lua",
         lunette::aliases::installed_luaurc,
     ),
+    (
+        "examples/layout/.luaurc",
+        "../../lua",
+        lunette::aliases::installed_luaurc,
+    ),
 ];
 
 /// What the checker needs that lovr-docs does not describe.

@@ -81,10 +81,31 @@ local function checkedRules(service: Service, list: { Rule }): { Rule }
   if type(list) ~= 'table' then
     error('rules: a rules list is a table, not a ' .. type(list), 3)
   end
+  -- A key outside the list's positions would be skipped by ipairs, so a rule
+  -- under one would be dropped without a word.
+  local count = rawlen(list)
+  for key, _ in list :: { [unknown]: unknown } do
+    if type(key) ~= 'number' or key ~= math.floor(key) or key < 1 or key > count then
+      error('rules: a rules list is a list, and ' .. tostring(key) .. ' is not one of its positions', 3)
+    end
+  end
   local checked: { Rule } = {}
-  for index, rule in ipairs(list) do
+  for index = 1, count do
+    local rule = list[index]
     if type(rule) ~= 'table' then
       error('rules: rule ' .. index .. ' is a table, not a ' .. type(rule), 3)
+    end
+    for key, _ in rule :: { [unknown]: unknown } do
+      if key ~= 'match' and key ~= 'properties' then
+        error(
+          'rules: rule '
+            .. index
+            .. ' has an unknown field '
+            .. tostring(key)
+            .. '; the fields are match and properties',
+          3
+        )
+      end
     end
     if rule.match ~= nil and type(rule.match) ~= 'table' then
       error('rules: the match of rule ' .. index .. ' is a table, not a ' .. type(rule.match), 3)

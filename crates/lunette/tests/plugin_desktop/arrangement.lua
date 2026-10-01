@@ -82,18 +82,24 @@ collectgarbage()
 collectgarbage()
 assert(next(closed) == nil, 'a closed window is not retained by its ended adoption or slot')
 
--- Rules, layout, and policy require tags, and adoption requires rules, so a
--- tags outage withdraws the adopted panels and leaves rendering. Recovery
--- adopts the windows again into the slots they hold.
+-- Rules and the placement consumers require tags, and adoption requires
+-- rules, so a tags outage withdraws the adopted panels and leaves rendering
+-- and layout. Recovery adopts the windows again into the slots they hold.
+local PLACEMENT = { 'workspace', 'rules', 'persistence', 'arrange', 'adoption' }
 local adopted = service:forSource(reopened)
 desktop.providers.tags:disable()
-for _, name in ipairs { 'rules', 'adoption', 'layout/arc' } do
+for _, name in ipairs { 'rules', 'adoption' } do
   assert(desktop.providers[name]:state() ~= 'active', 'a tags outage unloads ' .. name)
 end
-assert(desktop.consumers.policy:state() ~= 'active', 'a tags outage unloads the policy')
+for _, name in ipairs(PLACEMENT) do
+  assert(desktop.consumers[name]:state() ~= 'active', 'a tags outage unloads desktop/' .. name)
+end
+assert(desktop.providers['layout/arc']:state() == 'active', 'a layout needs no tags')
 assert(desktop.consumers.base:state() == 'active', 'a tags outage keeps rendering')
 assert(adopted.dead and service:forSource(reopened) == nil, 'a tags outage withdraws adopted panels')
 desktop.providers.tags:enable()
-assert(desktop.consumers.policy:state() == 'active', 'recovery restores the policy')
+for _, name in ipairs(PLACEMENT) do
+  assert(desktop.consumers[name]:state() == 'active', 'recovery restores desktop/' .. name)
+end
 assert(x(service:forSource(reopened)) == 5 and x(service:forSource(second)) == 7, 'recovery restores the slots')
 assert(lovr.quit() == false)

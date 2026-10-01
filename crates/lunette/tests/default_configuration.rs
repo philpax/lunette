@@ -33,7 +33,7 @@ fn definitions_are_inert_and_default_load_activates_real_providers() -> mlua::Re
     plugin_desktop::start(&lua)?;
     plugin_desktop::execute(
         &lua,
-        "assert(#events.spawned == 1 and #events.seats == 2 and events.reads == 1 and events.enumerations == 1); assert(subscriptionCount('onWindowOpened') == 1); assert(subscriptionCount('onError') == 1)",
+        "assert(#events.spawned == 1 and #events.seats == 2 and events.reads == 1 and events.enumerations == 2); assert(subscriptionCount('onWindowOpened') == 1); assert(subscriptionCount('onError') == 1)",
     )?;
     assert!(
         !plugin_desktop::callback(&lua, "draw")?.call::<bool>(
@@ -51,6 +51,14 @@ fn definitions_are_inert_and_default_load_activates_real_providers() -> mlua::Re
 fn the_keyboard_example_runs_its_patched_desktop() -> mlua::Result<()> {
     let lua = plugin_desktop::state_for(Path::new("examples/keyboard"))?;
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/example_keyboard.lua"))?;
+    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn the_layout_example_arranges_by_grid_and_follows_the_head() -> mlua::Result<()> {
+    let lua = plugin_desktop::state_for(Path::new("examples/layout"))?;
+    plugin_desktop::execute(&lua, include_str!("plugin_desktop/example_layout.lua"))?;
     assert!(plugin_desktop::shutdown(&lua)?.is_empty());
     Ok(())
 }

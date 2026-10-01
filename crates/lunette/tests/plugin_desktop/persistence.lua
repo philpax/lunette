@@ -18,6 +18,7 @@ local definitions = {
   require('@lunette-plugins/tags').definition,
   require('@lunette-plugins/rules').definition,
   require('@lunette-plugins/adoption').definition,
+  require('@lunette-plugins/layouts').definition,
   require('@lunette-plugins/layout/arc').definition,
 }
 local providers = {}
@@ -38,11 +39,24 @@ runtime
     {}
   )
   :enable()
-local definePolicy = require '@lunette-desktop/policy'
+-- The placement consumers as the composition makes them, each factory called
+-- afresh, so each group starts from the arrangement file.
+local FACTORIES = { persistence = true, arrange = true }
 local function policy()
-  local instance = runtime:use(definePolicy(), {})
-  instance:enable()
-  return instance
+  local instances = {}
+  for _, name in ipairs { 'workspace', 'rules', 'persistence', 'arrange', 'adoption' } do
+    local module = require('@lunette-desktop/' .. name)
+    local instance = runtime:use(if FACTORIES[name] then module() else module, {})
+    instance:enable()
+    instances[#instances + 1] = instance
+  end
+  return {
+    dispose = function()
+      for index = #instances, 1, -1 do
+        instances[index]:dispose()
+      end
+    end,
+  }
 end
 local first = policy()
 local window = newWindow(20, 'firefox')
@@ -81,6 +95,6 @@ for _ = 1, 3 do
 end
 providers[4]:disable()
 assert(lovr.quit() == false)
-assert(events.writes == writes, 'inactive policy has no quit save callback')
+assert(events.writes == writes, 'inactive persistence has no quit save callback')
 assertResourcesReleased()
 assert(saved ~= events.saved and persist.FILE == 'arrangement.state')

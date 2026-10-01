@@ -7,6 +7,7 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
+local protected = require '@lunette-plugins/protected'
 local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -18,10 +19,18 @@ export type Properties = adoption.Properties
 
 local SOURCE = 'lunette.adoption'
 
+type Listener = {
+  owner: Owner,
+  run: (panelsContract.WindowPanel, Properties) -> (),
+  active: boolean,
+}
+
 type State = {
   active: boolean,
   context: plugin.Context,
   service: Service,
+  placements: { adoption.Placement },
+  listeners: { Listener },
 }
 
 type MutableService = {
@@ -32,6 +41,8 @@ type MutableService = {
   install: (Service, Owner, adoption.InstallOptions?) -> plugin.Effect,
   windows: (Service) -> { lunette.Window },
   start: (Service, Owner, Options?) -> plugin.Effect,
+  placed: (Service) -> { adoption.Placement },
+  onPlaced: (Service, Owner, adoption.PlacedListener) -> plugin.Effect,
 }
 
 local function checkWindow(window: lunette.Window)
@@ -95,9 +106,15 @@ local function build(context: plugin.Context, settings: Settings): Service
     start = function(_self: Service, _owner: Owner, _options: Options?): plugin.Effect
       error 'adoption: service is not initialized'
     end,
+    placed = function(_self: Service): { adoption.Placement }
+      error 'adoption: service is not initialized'
+    end,
+    onPlaced = function(_self: Service, _owner: Owner, _listener: adoption.PlacedListener): plugin.Effect
+      error 'adoption: service is not initialized'
+    end,
   }
   local service: Service = implementation
-  local state: State = { active = true, context = context, service = service }
+  local state: State = { active = true, context = context, service = service, placements = {}, listeners = {} }
 
   -- The published service is revoked with this activation, so its methods
   -- need no liveness guard. The source closure and event callbacks are not
@@ -187,6 +204,8 @@ local function build(context: plugin.Context, settings: Settings): Service
         adoptedIds[window.id] = true
         local created, properties, placed = rules:place(current.context, window, settings.defaults)
         panel, resolved = created, properties
+        local placement: adoption.Placement = table.freeze { panel = created, properties = properties }
+        current.placements[#current.placements + 1] = placement
         local removal = panels:onRemoved(current.context, {
           panel = created,
           run = function()
@@ -195,6 +214,10 @@ local function build(context: plugin.Context, settings: Settings): Service
         })
         return function()
           adoptedIds[window.id] = nil
+          local recorded = table.find(current.placements, placement)
+          if recorded then
+            table.remove(current.placements, recorded)
+          end
           local index = table.find(adopted, acquired)
           if index then
             table.remove(adopted, index)
@@ -209,8 +232,16 @@ local function build(context: plugin.Context, settings: Settings): Service
         return
       end
       adopted[#adopted + 1] = acquired
+      local properties = assert(resolved)
       if settings.onPlaced then
-        settings.onPlaced(created, assert(resolved))
+        settings.onPlaced(created, properties)
+      end
+      for _, listener in ipairs(table.clone(current.listeners)) do
+        if listener.active and current.context:owns(listener.owner) and not created.dead then
+          protected.call('adoption: a placement listener', function(): ()
+            listener.run(created, properties)
+          end)
+        end
       end
     end
 
@@ -262,6 +293,41 @@ local function build(context: plugin.Context, settings: Settings): Service
       error(failure)
     end
     return effect
+  end
+
+  function implementation.placed(_self: Service): { adoption.Placement }
+    local result: { adoption.Placement } = {}
+    for _, placement in ipairs(state.placements) do
+      if not placement.panel.dead then
+        result[#result + 1] = placement
+      end
+    end
+    return result
+  end
+
+  function implementation.onPlaced(_self: Service, owner: Owner, listener: adoption.PlacedListener): plugin.Effect
+    if type(listener) ~= 'table' then
+      error('adoption: onPlaced takes a table of fields, not a ' .. type(listener), 2)
+    end
+    for key, _ in listener :: { [unknown]: unknown } do
+      if key ~= 'run' then
+        error('adoption: unknown onPlaced field ' .. tostring(key) .. '; the field is run', 2)
+      end
+    end
+    if type(listener.run) ~= 'function' then
+      error('adoption: onPlaced run is a function, not a ' .. type(listener.run), 2)
+    end
+    local entry: Listener = { owner = owner, run = listener.run, active = true }
+    return context:acquire(owner, function(): () -> ()
+      state.listeners[#state.listeners + 1] = entry
+      return function()
+        entry.active = false
+        local index = table.find(state.listeners, entry)
+        if index then
+          table.remove(state.listeners, index)
+        end
+      end
+    end)
   end
 
   return service

@@ -19,6 +19,7 @@ local keyboard = require '@lunette-plugins/keyboard'
 local tags = require '@lunette-plugins/tags'
 local rules = require '@lunette-plugins/rules'
 local adoption = require '@lunette-plugins/adoption'
+local layouts = require '@lunette-plugins/layouts'
 local arc = require '@lunette-plugins/layout/arc'
 local errorDisplay = require '@lunette-plugins/error-display'
 local base = require '@lunette-desktop/base'
@@ -26,7 +27,12 @@ local pointing = require '@lunette-desktop/pointing'
 local input = require '@lunette-desktop/input'
 local wristKeyboard = require '@lunette-desktop/keyboard'
 local errors = require '@lunette-desktop/errors'
-local policy = require '@lunette-desktop/policy'
+local workspace = require '@lunette-desktop/workspace'
+local defaultRules = require '@lunette-desktop/rules'
+local persistence = require '@lunette-desktop/persistence'
+local arrange = require '@lunette-desktop/arrange'
+local adoptionConsumer = require '@lunette-desktop/adoption'
+local demoTerminal = require '@lunette-desktop/demo-terminal'
 
 local desktop = {}
 
@@ -42,9 +48,16 @@ export type Running = {
   read instances: { read [string]: plugin.Instance<any> },
 }
 
--- Each provider's id is its definition's name. Policy is a factory: the
--- arrangement it keeps outlives its own activations, and starting a runtime
--- makes a new one.
+-- Each entry's id is its definition's name. Persistence and arrangement are
+-- factories: the state each keeps outlives its own activations, and starting a
+-- runtime makes a new one.
+--
+-- The order is the order entries are enabled in, and the order the graph
+-- loads them again after an outage of something they share. The workspace
+-- tag exists before adoption places windows into it; the rule list and the
+-- saved arrangement are rules sources before adoption resolves the first
+-- window; and the arrangement listens for placements before adoption makes
+-- them, although it also arranges what was placed before it activated.
 local DEFAULT: { Entry } = compose.apply({
   { id = 'frame', definition = frame.definition },
   { id = 'surfaces', definition = surfaces.definition },
@@ -55,6 +68,7 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'tags', definition = tags.definition },
   { id = 'rules', definition = rules.definition },
   { id = 'adoption', definition = adoption.definition },
+  { id = 'layouts', definition = layouts.definition },
   { id = 'layout/arc', definition = arc.definition },
   { id = 'error-display', definition = errorDisplay.definition },
   { id = 'desktop/base', definition = base },
@@ -62,7 +76,12 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'desktop/input', definition = input },
   { id = 'desktop/keyboard', definition = wristKeyboard },
   { id = 'desktop/errors', definition = errors },
-  { id = 'desktop/policy', factory = policy },
+  { id = 'desktop/workspace', definition = workspace },
+  { id = 'desktop/rules', definition = defaultRules },
+  { id = 'desktop/persistence', factory = persistence },
+  { id = 'desktop/arrange', factory = arrange },
+  { id = 'desktop/adoption', definition = adoptionConsumer },
+  { id = 'desktop/demo-terminal', definition = demoTerminal },
 }, nil)
 
 -- The shipped desktop's entries, in the order they are enabled. The list and
@@ -112,8 +131,8 @@ end
 -- load rather than the first frame.
 function desktop.run(options: Options?): ()
   local entries = desktop.compose(options)
-  -- Source reload retains globals, so the policy does not open another
-  -- demonstration terminal after a reload.
+  -- Source reload retains globals, so desktop/demo-terminal does not open
+  -- another terminal after a reload.
   _G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
   local running: Running? = nil
   frame.install {

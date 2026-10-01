@@ -1,0 +1,17 @@
+-- The shipped desktop with its windows arranged in a grid.
+--
+-- Copy this file, grid.lua, and follow.lua into the directory
+-- `lunette --dump-config` wrote, which also holds conf.lua and the .luaurc that
+-- `lunette check` and an editor read. docs/guide/writing-plugins.md walks
+-- through it.
+require('@lunette-desktop').run {
+  patches = {
+    -- Each layout is a plugin of its own that registers with the layouts
+    -- broker; inserting it makes the layout available by name.
+    { insert = { id = 'grid-layout', definition = require './grid' } },
+    { insert = { id = 'follow-layout', definition = require './follow' } },
+    -- The arranging consumer names the layout it uses. `options` are the
+    -- grid's own; `layout = 'follow'` would choose the other one.
+    { id = 'desktop/arrange', config = { layout = 'grid', options = { columns = 3 } } },
+  },
+}

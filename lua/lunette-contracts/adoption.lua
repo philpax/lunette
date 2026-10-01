@@ -11,6 +11,14 @@
 -- it releases those resources without closing the native windows. An adopted
 -- window's placement ends when its panel is removed, so the caller holds
 -- nothing for a window that is gone.
+--
+-- placed answers every live adoption that any start made, in the order the
+-- windows were placed, with the properties each was placed with. onPlaced
+-- listeners hear each placement after the start caller's own onPlaced, so a
+-- consumer other than the one that started adoption can react to placement
+-- with the resolved properties. A listener is owner-scoped, runs under its
+-- own protected call, and its error is reported through lunette.reportError
+-- without undoing the placement.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -23,6 +31,16 @@ export type Properties = rules.Resolved
 export type Options = {
   read defaults: Properties?,
   read onPlaced: ((panels.WindowPanel, Properties) -> ())?,
+}
+
+-- A live adoption: the panel and the properties it was placed with.
+export type Placement = {
+  read panel: panels.WindowPanel,
+  read properties: Properties,
+}
+
+export type PlacedListener = {
+  read run: (panels.WindowPanel, Properties) -> (),
 }
 
 -- What install takes: the precedence its source is registered at, by default
@@ -39,6 +57,8 @@ export type Service = {
   read install: (Service, Owner, InstallOptions?) -> plugin.Effect,
   read windows: (Service) -> { lunette.Window },
   read start: (Service, Owner, Options?) -> plugin.Effect,
+  read placed: (Service) -> { Placement },
+  read onPlaced: (Service, Owner, PlacedListener) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>

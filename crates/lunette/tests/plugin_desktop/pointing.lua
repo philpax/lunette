@@ -32,7 +32,10 @@ assert(events.textures == 1 and liveSeats() == 2)
 for _, name in ipairs { 'interaction', 'laser' } do
   providers[name]:disable()
   assert(consumers.pointing:state() ~= 'active', name .. ' outage unloads pointing')
-  assert(consumers.base:state() == 'active' and consumers.policy:state() == 'active', name .. ' outage keeps rendering')
+  assert(
+    consumers.base:state() == 'active' and consumers.arrange:state() == 'active',
+    name .. ' outage keeps rendering and arranging'
+  )
   assert(service:forSource(window) == panel and not panel.dead, name .. ' outage keeps the panel')
   assert(liveSeats() == 0, name .. ' outage releases the laser seats')
   frame()

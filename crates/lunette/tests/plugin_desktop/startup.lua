@@ -1,10 +1,10 @@
 assert(#events.spawned == 1, 'startup opens one demonstration terminal')
-assert(events.enumerations == 1, 'adoption enumerates once')
+assert(events.enumerations == 2, 'adoption and the demonstration terminal each enumerate once')
 for _, name in ipairs { 'load', 'update', 'draw', 'quit', 'keypressed', 'textinput' } do
   assert(type(lovr[name]) == 'function', name)
 end
 lovr.load()
-assert(#events.spawned == 1 and events.enumerations == 1, 'load is idempotent')
+assert(#events.spawned == 1 and events.enumerations == 2, 'load is idempotent')
 emit('onProcessExited', { process = { id = 999 }, outcome = 'spawnFailed' })
 assert(#events.spawned == 1, 'unrelated process does not trigger fallback')
 emit('onProcessExited', { process = events.spawned[1], outcome = 'spawnFailed' })

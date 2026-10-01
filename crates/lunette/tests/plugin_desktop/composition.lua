@@ -45,6 +45,7 @@ local DEFAULT_IDS = table.concat({
   'tags',
   'rules',
   'adoption',
+  'layouts',
   'layout/arc',
   'error-display',
   'desktop/base',
@@ -52,7 +53,12 @@ local DEFAULT_IDS = table.concat({
   'desktop/input',
   'desktop/keyboard',
   'desktop/errors',
-  'desktop/policy',
+  'desktop/workspace',
+  'desktop/rules',
+  'desktop/persistence',
+  'desktop/arrange',
+  'desktop/adoption',
+  'desktop/demo-terminal',
 }, ' ')
 
 -- The default list is inspectable and read-only.
@@ -62,7 +68,10 @@ assert(table.isfrozen(entries) and table.isfrozen(entries[1]), 'the default entr
 assert(not pcall(function()
   entries[1] = entries[2]
 end))
-assert(entries[17].factory and entries[17].definition == nil, 'the policy is a factory')
+for _, entry in ipairs(entries) do
+  local factory = entry.id == 'desktop/persistence' or entry.id == 'desktop/arrange'
+  assert((entry.factory ~= nil) == factory and (entry.definition == nil) == factory, entry.id)
+end
 assert(ids(desktop.compose()) == DEFAULT_IDS and ids(desktop.compose { patches = {} }) == DEFAULT_IDS)
 
 -- Disabling removes the entry; nothing else moves.

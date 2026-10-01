@@ -20,7 +20,12 @@ fn shipped_desktop_composition_is_strictly_typed() {
                     "input.lua",
                     "keyboard.lua",
                     "errors.lua",
-                    "policy.lua",
+                    "workspace.lua",
+                    "rules.lua",
+                    "persistence.lua",
+                    "arrange.lua",
+                    "adoption.lua",
+                    "demo-terminal.lua",
                 ]
                 .into_iter()
                 .map(|path| root.join("lua/lunette-desktop").join(path)),
