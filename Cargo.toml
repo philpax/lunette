@@ -102,8 +102,9 @@ wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719
 # LUA_TQUATERNION value type shifts Luau's type-tag numbering, and mlua-sys
 # compiles its luau ffi constants against upstream Luau. The submodule carries
 # the fork-aligned constants (one file, `mlua-sys/src/luau/lua.rs`) plus the ABI
-# matches for the fork (cstack 1M, two-arg userdata dtor) that the LÖVR build
-# provides, and pins mlua's reference thread under a string key so LÖVR's own
+# matches for the fork (cstack 1M, two-arg userdata dtor, and the
+# `lua_CompileOptions` layout of the Luau the fork is synced to) that the LÖVR
+# build provides, and pins mlua's reference thread under a string key so LÖVR's own
 # registry use cannot collide with it.
 [patch.crates-io]
 mlua = { path = "vendor/mlua" }

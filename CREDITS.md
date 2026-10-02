@@ -33,3 +33,9 @@ Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relice
 <https://github.com/awesomeWM/awesome>, GPL-2.0.
 
 Ideas only, and no code. lunette's configuration model — a Lua file that is the window manager rather than a description of one, with a control socket that evaluates Lua rather than speaking a typed protocol — is awesome's. GPL-2.0 code cannot enter a GPL-3.0 project, which is why the debt is one of design and not of source.
+
+## xkeyboard-config
+
+<https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config>, MIT/X11-style, by the xkeyboard-config contributors.
+
+`crates/lunette-capture/tests/fixtures/evdev-us.xkb` is the `us` layout compiled from xkeyboard-config 2.48's `evdev` rules. A test checks lunette's key codes against it. It is checked in so the test does not depend on the release a distribution ships.

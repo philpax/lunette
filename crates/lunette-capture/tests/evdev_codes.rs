@@ -11,6 +11,10 @@
 //! them `<I…>` after their own code, which would check nothing. Those keys are
 //! checked by the keysym the `us` layout gives them, such as `XF86Mail`, which
 //! is defined independently of the code.
+//!
+//! The keymap is compiled from a pinned xkeyboard-config release and checked
+//! in, because distributions ship different releases and older ones leave some
+//! codes unnamed.
 
 use lunette_capture::hid::VirtualKey;
 use xkbcommon::xkb;
@@ -19,17 +23,14 @@ use crate::Expected::{Keysym, Name};
 
 #[test]
 fn every_key_is_named_by_the_evdev_keycodes_or_its_keysym() {
-    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-    let Some(keymap) = xkb::Keymap::new_from_names(
+    let context = xkb::Context::new(xkb::CONTEXT_NO_DEFAULT_INCLUDES);
+    let Some(keymap) = xkb::Keymap::new_from_string(
         &context,
-        "evdev",
-        "pc105",
-        "us",
-        "",
-        None,
+        KEYMAP.to_owned(),
+        xkb::KEYMAP_FORMAT_TEXT_V1,
         xkb::KEYMAP_COMPILE_NO_FLAGS,
     ) else {
-        panic!("the us layout compiles from xkeyboard-config's evdev rules");
+        panic!("the pinned us keymap compiles");
     };
 
     let mut checked = Vec::new();
@@ -58,6 +59,9 @@ fn every_key_is_named_by_the_evdev_keycodes_or_its_keysym() {
         "every key is checked, in declaration order"
     );
 }
+
+/// The us layout compiled from xkeyboard-config 2.48's evdev rules.
+const KEYMAP: &str = include_str!("fixtures/evdev-us.xkb");
 
 /// XKB numbers keys eight higher than evdev.
 const XKB_OFFSET: u32 = 8;
