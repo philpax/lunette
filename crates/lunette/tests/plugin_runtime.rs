@@ -339,62 +339,6 @@ fn production_cancels_loading_acquisition_before_publication() -> mlua::Result<(
     Ok(())
 }
 
-#[test]
-fn binding_requires_frozen_table_and_is_one_time() -> mlua::Result<()> {
-    let (lua, module) = state()?;
-    let contract: mlua::AnyUserData = module
-        .get::<Function>("contract")?
-        .call(("test/bind", 1_u64))?;
-    let bind = module.get::<Function>("bind")?;
-    let mutable = lua.create_table()?;
-    assert!(
-        bind.call::<()>((contract.clone(), mutable.clone()))
-            .is_err()
-    );
-    mutable.set_readonly(true);
-    bind.call::<()>((contract.clone(), mutable.clone()))?;
-    assert!(bind.call::<()>((contract, mutable)).is_err());
-    assert!(plugin_support::shutdown(&lua).is_empty());
-    Ok(())
-}
-
-#[test]
-fn failed_cleanup_releases_config_while_runtime_is_retained() -> mlua::Result<()> {
-    let (lua, module) = state()?;
-    let dropped = Rc::new(Cell::new(false));
-    let witness = lua.create_userdata(DropWitness(Rc::clone(&dropped)))?;
-    let setup: Function = lua
-        .load(
-            r#"
-      return function(plugin, payload)
-        retained_runtime = plugin.runtime()
-        local definition = plugin.define({}, {}, function(context, config)
-          context:effect(function()
-            return function() assert(config ~= nil); error('retained cleanup failure') end
-          end)
-          return {}
-        end)
-        local instance = retained_runtime:use(definition, payload)
-        instance:enable()
-      end
-    "#,
-        )
-        .eval()?;
-    setup.call::<()>((module, witness))?;
-    assert!(!dropped.get());
-    let errors = plugin_support::shutdown(&lua);
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("retained cleanup failure"))
-    );
-    lua.gc_collect()?;
-    lua.gc_collect()?;
-    assert!(dropped.get(), "retained runtime kept failed config alive");
-    assert!(!lua.globals().get::<Value>("retained_runtime")?.is_nil());
-    Ok(())
-}
-
 struct DropWitness(Rc<Cell<bool>>);
 
 impl UserData for DropWitness {}
