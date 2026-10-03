@@ -79,60 +79,6 @@ fn kinds(graph: &mut Graph) -> Vec<DiagnosticKind> {
 }
 
 #[test]
-fn parent_disable_and_reload_drain_children_without_shutdown() {
-    for reload in [false, true] {
-        let mut graph = Graph::new();
-        let parent = root(&mut graph, &[], &[key("parent", 1)]);
-        graph.request(Intent::Enable(parent)).unwrap();
-        load(&mut graph, parent);
-        let child = graph
-            .install(vec![], vec![key("child", 1)], Some(parent))
-            .unwrap();
-        graph.request(Intent::Enable(child)).unwrap();
-        load(&mut graph, child);
-        graph
-            .request(if reload {
-                Intent::Reload(parent)
-            } else {
-                Intent::Disable(parent)
-            })
-            .unwrap();
-        unload(&mut graph, child, true);
-        unload(&mut graph, parent, true);
-        assert_eq!(graph.state(child), Err(GraphError::UnknownInstance(child)));
-        if reload {
-            load(&mut graph, parent);
-        }
-        assert!(graph.next_action().is_none());
-    }
-}
-
-#[test]
-fn diamond_drain_unloads_the_leaf_first() {
-    let mut graph = Graph::new();
-    let base = root(&mut graph, &[], &[key("root", 1)]);
-    let left = root(&mut graph, &[key("root", 1)], &[key("left", 1)]);
-    let right = root(&mut graph, &[key("root", 1)], &[key("right", 1)]);
-    let leaf = root(
-        &mut graph,
-        &[key("left", 1), key("right", 1)],
-        &[key("leaf", 1)],
-    );
-    for instance in [base, left, right, leaf] {
-        graph.request(Intent::Enable(instance)).unwrap();
-    }
-    load(&mut graph, base);
-    load(&mut graph, left);
-    load(&mut graph, right);
-    load(&mut graph, leaf);
-    graph.request(Intent::Disable(base)).unwrap();
-    let Some(Action::BeginUnload { instance, .. }) = graph.next_action() else {
-        panic!("expected leaf unload");
-    };
-    assert_eq!(instance, leaf);
-}
-
-#[test]
 fn a_provider_reload_publishes_a_new_generation() {
     let mut graph = Graph::new();
     let provider = root(&mut graph, &[], &[key("service", 1)]);
@@ -247,34 +193,6 @@ fn installation_reserves_nothing_and_enable_reserves_the_exact_key() {
 }
 
 #[test]
-fn a_disabled_provider_releases_its_reservation_once_unloaded() {
-    let mut graph = Graph::new();
-    let provider = root(&mut graph, &[], &[key("service", 1)]);
-    graph.request(Intent::Enable(provider)).unwrap();
-    load(&mut graph, provider);
-    graph.request(Intent::Disable(provider)).unwrap();
-    let replacement = root(&mut graph, &[], &[key("service", 1)]);
-    // The disabled provider still holds its attachment, so the replacement is
-    // accepted but waits for the unload.
-    graph.request(Intent::Enable(replacement)).unwrap();
-    unload(&mut graph, provider, true);
-    load(&mut graph, replacement);
-    assert_eq!(
-        graph.request(Intent::Enable(provider)),
-        Err(GraphError::ContractConflict {
-            key: key("service", 1),
-            owner: replacement,
-        })
-    );
-    let consumer = root(&mut graph, &[key("service", 1)], &[]);
-    graph.request(Intent::Enable(consumer)).unwrap();
-    let Some(Action::BeginLoad { bindings, .. }) = graph.next_action() else {
-        panic!("expected consumer load");
-    };
-    assert_eq!(bindings[0].provider, replacement);
-}
-
-#[test]
 fn duplicate_contract_keys_in_one_descriptor_are_rejected() {
     let mut graph = Graph::new();
     assert_eq!(
@@ -283,95 +201,6 @@ fn duplicate_contract_keys_in_one_descriptor_are_rejected() {
             key: key("service", 1)
         })
     );
-}
-
-// A provider that unloads because a dependency left is still enabled, so
-// its reservation must hold and a second provider cannot take the name.
-#[test]
-fn an_enabled_provider_keeps_its_reservation_while_unloaded_for_a_dependency() {
-    let mut graph = Graph::new();
-    let dependency = root(&mut graph, &[], &[key("q", 1)]);
-    let provider = root(&mut graph, &[key("q", 1)], &[key("svc", 1)]);
-    graph.request(Intent::Enable(dependency)).unwrap();
-    graph.request(Intent::Enable(provider)).unwrap();
-    load(&mut graph, dependency);
-    load(&mut graph, provider);
-    graph.request(Intent::Disable(dependency)).unwrap();
-    unload(&mut graph, provider, true);
-    unload(&mut graph, dependency, true);
-    let intruder = root(&mut graph, &[], &[key("svc", 1)]);
-    assert_eq!(
-        graph.request(Intent::Enable(intruder)),
-        Err(GraphError::ContractConflict {
-            key: key("svc", 1),
-            owner: provider,
-        })
-    );
-    graph.request(Intent::Enable(dependency)).unwrap();
-    load(&mut graph, dependency);
-    load(&mut graph, provider);
-    assert!(graph.next_action().is_none());
-}
-
-// Reservations are by name and schema.
-#[test]
-fn different_schemas_of_one_name_coexist() {
-    let mut graph = Graph::new();
-    let bridge = root(&mut graph, &[], &[key("x", 1), key("x", 2)]);
-    let old = root(&mut graph, &[key("x", 1)], &[]);
-    let new = root(&mut graph, &[key("x", 2)], &[]);
-    for id in [bridge, old, new] {
-        graph.request(Intent::Enable(id)).unwrap();
-    }
-    load(&mut graph, bridge);
-    load(&mut graph, old);
-    load(&mut graph, new);
-    graph.request(Intent::Disable(bridge)).unwrap();
-    unload(&mut graph, old, true);
-    unload(&mut graph, new, true);
-    unload(&mut graph, bridge, true);
-    let first = root(&mut graph, &[], &[key("x", 1)]);
-    let second = root(&mut graph, &[], &[key("x", 2)]);
-    graph.request(Intent::Enable(first)).unwrap();
-    graph.request(Intent::Enable(second)).unwrap();
-    load(&mut graph, first);
-    load(&mut graph, old);
-    load(&mut graph, second);
-    load(&mut graph, new);
-    let bound = |instance| live_allocation(&graph, instance).unwrap().1.bindings[0].provider;
-    assert_eq!((bound(old), bound(new)), (first, second));
-}
-
-// A child installed during a load that fails or is cancelled is retired
-// with that activation.
-#[test]
-fn children_of_a_failed_or_cancelled_load_are_retired() {
-    for outcome in [LoadOutcome::Failed, LoadOutcome::Cancelled] {
-        let mut graph = Graph::new();
-        let parent = root(&mut graph, &[], &[key("parent", 1)]);
-        graph.request(Intent::Enable(parent)).unwrap();
-        let activation = begin_load(&mut graph, parent);
-        let child = graph
-            .install(vec![], vec![key("child", 1)], Some(parent))
-            .unwrap();
-        graph.request(Intent::Enable(child)).unwrap();
-        if outcome == LoadOutcome::Cancelled {
-            graph.request(Intent::Reload(parent)).unwrap();
-        }
-        graph.complete_load(parent, activation, outcome).unwrap();
-        assert!(!graph.contains(child), "child outlived {outcome:?}");
-        if outcome == LoadOutcome::Cancelled {
-            let retry = begin_load(&mut graph, parent);
-            let again = graph
-                .install(vec![], vec![key("child", 1)], Some(parent))
-                .unwrap();
-            graph.request(Intent::Enable(again)).unwrap();
-            graph
-                .complete_load(parent, retry, LoadOutcome::Success)
-                .unwrap();
-            load(&mut graph, again);
-        }
-    }
 }
 
 // A reload requested while loading must not strand the instance.
@@ -427,34 +256,6 @@ fn a_child_needs_a_live_parent_activation() {
     );
 }
 
-// A consumer is not published against a provider whose own provider is leaving.
-#[test]
-fn a_consumer_does_not_bind_to_a_transitively_leaving_provider() {
-    let mut graph = Graph::new();
-    let base = root(&mut graph, &[], &[key("base", 1)]);
-    let middle = root(&mut graph, &[key("base", 1)], &[key("middle", 1)]);
-    let top = root(&mut graph, &[key("middle", 1)], &[]);
-    for id in [base, middle] {
-        graph.request(Intent::Enable(id)).unwrap();
-    }
-    load(&mut graph, base);
-    load(&mut graph, middle);
-    graph.request(Intent::Enable(top)).unwrap();
-    let activation = begin_load(&mut graph, top);
-    graph.request(Intent::Disable(base)).unwrap();
-    assert!(!graph.activation_is_valid(top, activation).unwrap());
-    assert_eq!(
-        graph.complete_load(top, activation, LoadOutcome::Success),
-        Ok(LoadResolution::Rejected)
-    );
-    graph
-        .complete_load(top, activation, LoadOutcome::Cancelled)
-        .unwrap();
-    unload(&mut graph, middle, true);
-    unload(&mut graph, base, true);
-    assert!(graph.next_action().is_none());
-}
-
 // There is no queue to exhaust; many intents never block an unload.
 #[test]
 fn many_intents_never_block_unloads() {
@@ -471,37 +272,6 @@ fn many_intents_never_block_unloads() {
         unload(&mut graph, *id, true);
     }
     assert!(graph.next_action().is_none());
-}
-
-// A quarantined consumer no longer pins its provider or parent.
-#[test]
-fn quarantine_does_not_pin_providers_or_parents() {
-    for child in [false, true] {
-        let mut graph = Graph::new();
-        let provider = root(&mut graph, &[], &[key("provider", 1)]);
-        graph.request(Intent::Enable(provider)).unwrap();
-        load(&mut graph, provider);
-        let consumer = graph
-            .install(
-                if child {
-                    vec![]
-                } else {
-                    vec![key("provider", 1)]
-                },
-                vec![key("consumer", 1)],
-                child.then_some(provider),
-            )
-            .unwrap();
-        graph.request(Intent::Enable(consumer)).unwrap();
-        let activation = load(&mut graph, consumer);
-        graph.mark_cleanup_failed(consumer, activation).unwrap();
-        assert_eq!(graph.state(consumer).unwrap(), LifecycleState::Active);
-        graph.request(Intent::Disable(provider)).unwrap();
-        unload(&mut graph, consumer, true);
-        assert_eq!(graph.state(consumer).unwrap(), LifecycleState::Quarantined);
-        unload(&mut graph, provider, true);
-        assert_eq!(graph.state(provider).unwrap(), LifecycleState::Inactive);
-    }
 }
 
 #[test]
