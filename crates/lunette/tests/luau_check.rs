@@ -96,7 +96,7 @@ fn invalid_configuration_fields_types_and_enums_are_rejected() {
 /// and each incorrect call is reported on its own line.
 #[test]
 fn a_configure_patch_is_checked_against_its_definitions_options() {
-    let report = check(vec![fixture("plugin_desktop/configure_checked.luau")]);
+    let report = check(vec![fixture("luau_check/configure_checked.luau")]);
     let mut lines = report
         .diagnostics
         .iter()
