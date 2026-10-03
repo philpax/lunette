@@ -22,6 +22,8 @@ pub enum AttachmentError {
     RuntimeClosed,
     /// Shutdown was requested from inside a plugin callback.
     ShutdownInCallback,
+    /// Shutdown could not advance the contract epoch.
+    EpochExhausted,
     /// A definition from a retired epoch was installed.
     StaleDefinition { plugin: Arc<str> },
     /// A capability wrapper was not a table.
@@ -69,6 +71,9 @@ impl fmt::Display for AttachmentError {
             Self::RuntimeClosed => formatter.write_str("plugin runtime: the runtime is closed"),
             Self::ShutdownInCallback => {
                 formatter.write_str("plugin shutdown: cannot shut down during a plugin callback")
+            }
+            Self::EpochExhausted => {
+                formatter.write_str("plugin shutdown: the contract epoch counter is exhausted")
             }
             Self::StaleDefinition { plugin } => write!(
                 formatter,

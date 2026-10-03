@@ -120,7 +120,7 @@ lunette-lovr       cmake build, FFI surface, the patch set
 
 The compositor owns clients outside the Lua state, so source reload and hard restart leave them connected to the same Wayland socket. Windows can be enumerated again through `lunette.windows()` after either operation.
 
-Source reload does not discard the Lua state or its globals. It closes plugin runtimes, clears subscriber handles and configuration callbacks, drops user and standard-library modules from `package.loaded`, retires contract tokens by advancing the epoch, then runs `main.luau` and `lovr.load`. Plugin effects are the only cleanup it runs. Lua code outside a plugin that holds native resources keeps them across the reload unless something else releases them.
+Source reload does not discard the Lua state or its globals. It closes plugin runtimes and retires their contract tokens by advancing the epoch, clears subscriber handles and configuration callbacks, drops user and standard-library modules from `package.loaded`, then runs `main.luau` and `lovr.load`. Plugin effects are the only cleanup it runs. Lua code outside a plugin that holds native resources keeps them across the reload unless something else releases them.
 
 Hard restart does not preserve plugin runtimes or Lua handles. The host shuts down plugin runtimes and clears subscribers, flushes the final frame, quiesces or stops native users of the Lua state, marks the mlua state closed, and then calls LÖVR's external close path. This ordering does not settle every allocator-bookkeeping concern around external close.
 

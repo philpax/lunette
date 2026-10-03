@@ -4,7 +4,7 @@ extern crate lunette_lovr;
 
 use std::{cell::Cell, rc::Rc};
 
-use lunette::plugin::{attachment, declarations};
+use lunette::plugin::declarations;
 use mlua::{Function, Lua, Table, UserData, Value};
 
 mod plugin_facade_sources;
@@ -361,14 +361,6 @@ fn production_releases_payload_and_quarantines_failed_cleanup() -> mlua::Result<
         errors.iter().any(|error| error.contains("cleanup failed")),
         "cleanup errors: {errors:?}"
     );
-    Ok(())
-}
-
-#[test]
-fn reset_epoch_invalidates_escaped_definition_and_reinstalls_without_facade() -> mlua::Result<()> {
-    let lua = Lua::new();
-    assert!(attachment::reset_epoch(&lua).is_ok());
-    assert!(!attachment::callback_active(&lua));
     Ok(())
 }
 

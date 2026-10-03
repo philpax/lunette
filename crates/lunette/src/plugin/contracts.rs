@@ -85,23 +85,10 @@ impl ContractSchema {
 }
 
 /// An opaque identifier for a declared contract, meaningful only within the
-/// registry epoch that produced it.
+/// registry that produced it.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ContractId {
-    epoch: u64,
     ordinal: u64,
-}
-
-impl ContractId {
-    #[must_use]
-    pub fn epoch(self) -> u64 {
-        self.epoch
-    }
-
-    #[must_use]
-    pub fn ordinal(self) -> u64 {
-        self.ordinal
-    }
 }
 
 /// A native token that names one contract declaration.
@@ -110,7 +97,6 @@ impl ContractId {
 #[derive(Clone)]
 pub struct PluginContractToken {
     registry: Weak<RegistryInner>,
-    epoch: u64,
     id: ContractId,
     identity: ContractIdentity,
 }
@@ -121,7 +107,6 @@ impl fmt::Debug for PluginContractToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ContractToken")
-            .field("epoch", &self.epoch)
             .field("id", &self.id)
             .finish_non_exhaustive()
     }
@@ -187,7 +172,7 @@ pub enum ContractError {
     DeclarationValueNotToken { key: String, actual: String },
     /// The token belongs to another registry.
     ForeignToken { site: TokenSite },
-    /// The token was created in an epoch that has been retired.
+    /// The token's registry has been replaced, which retires its epoch.
     RetiredToken { site: TokenSite },
     /// The capability wrapper was bound in an epoch that has been retired.
     RetiredWrapper { key: String },
@@ -335,7 +320,6 @@ impl ContractRegistry {
     pub fn new() -> Self {
         Self {
             inner: Rc::new(RegistryInner {
-                epoch: Cell::new(1),
                 next_ordinal: Cell::new(1),
                 identities: RefCell::new(HashMap::new()),
                 contracts: RefCell::new(HashMap::new()),
@@ -344,13 +328,8 @@ impl ContractRegistry {
         }
     }
 
-    #[must_use]
-    pub fn epoch(&self) -> u64 {
-        self.inner.epoch.get()
-    }
-
     /// Declares a new name/schema identity and returns its native token. An
-    /// identity may be declared once per epoch.
+    /// identity may be declared once per registry.
     pub fn declare(&self, name: ContractName, schema: u64) -> Result<ContractToken, ContractError> {
         let schema = ContractSchema::new(schema).ok_or(ContractError::InvalidSchema { schema })?;
         let identity = ContractIdentity { name, schema };
@@ -365,10 +344,7 @@ impl ContractRegistry {
         let Some(next_ordinal) = ordinal.checked_add(1) else {
             return Err(ContractError::RegistryExhausted);
         };
-        let id = ContractId {
-            epoch: self.epoch(),
-            ordinal,
-        };
+        let id = ContractId { ordinal };
         self.inner.next_ordinal.set(next_ordinal);
         self.inner
             .identities
@@ -380,24 +356,9 @@ impl ContractRegistry {
             .insert(id, identity.clone());
         Ok(ContractToken {
             registry: Rc::downgrade(&self.inner),
-            epoch: self.epoch(),
             id,
             identity,
         })
-    }
-
-    /// Retires all tokens and declarations in the current epoch. The epoch
-    /// number never wraps, so a stale epoch cannot alias a live one.
-    pub fn retire_epoch(&self) -> Result<(), ContractError> {
-        let epoch = self.epoch();
-        let Some(next_epoch) = epoch.checked_add(1) else {
-            return Err(ContractError::RegistryExhausted);
-        };
-        self.inner.epoch.set(next_epoch);
-        self.inner.next_ordinal.set(1);
-        self.inner.identities.borrow_mut().clear();
-        self.inner.contracts.borrow_mut().clear();
-        Ok(())
     }
 
     /// Verifies a native token and returns its typed ID. An error names the
@@ -420,9 +381,6 @@ impl ContractRegistry {
         if !Rc::ptr_eq(&self.inner, &token_registry) {
             return Err(ContractError::ForeignToken { site: site() });
         }
-        if token.epoch != self.epoch() {
-            return Err(ContractError::RetiredToken { site: site() });
-        }
         let contracts = self.inner.contracts.borrow();
         if contracts.get(&token.id) != Some(&token.identity) {
             return Err(ContractError::UnknownToken { site: site() });
@@ -441,10 +399,7 @@ impl ContractRegistry {
         }
         let pointer = wrapper.to_pointer();
         let mut bindings = self.inner.bindings.borrow_mut();
-        if bindings
-            .values()
-            .any(|binding| binding.token == id && binding.epoch == self.epoch())
-        {
+        if bindings.values().any(|binding| binding.token == id) {
             return Err(ContractError::TokenAlreadyBound);
         }
         if bindings.contains_key(&pointer) {
@@ -453,7 +408,6 @@ impl ContractRegistry {
         bindings.insert(
             pointer,
             WrapperBinding {
-                epoch: self.epoch(),
                 token: id,
                 table: wrapper.clone(),
             },
@@ -461,8 +415,8 @@ impl ContractRegistry {
         Ok(())
     }
 
-    /// Returns every capability wrapper bound to this registry, in any epoch, so
-    /// a wrapper from a retired epoch can be named as retired rather than unbound.
+    /// Returns every capability wrapper bound to this registry, so the host can
+    /// name one as retired rather than unbound once the registry is replaced.
     #[must_use]
     pub fn bound_wrappers(&self) -> Vec<Table> {
         self.inner
@@ -488,7 +442,7 @@ impl ContractRegistry {
     }
 
     /// Validates and copies a Lua declaration record whose keys are strings and
-    /// whose values are tokens or wrappers bound in the active epoch.
+    /// whose values are tokens or wrappers bound in this registry.
     pub fn validate_declaration(
         &self,
         value: Value,
@@ -571,28 +525,10 @@ impl ContractRegistry {
                 key: key.to_owned(),
             });
         };
-        let id = binding.token;
-        if binding.table.to_pointer() != wrapper.to_pointer() {
-            return Err(ContractError::UnboundWrapper {
-                key: key.to_owned(),
-            });
-        }
         if !wrapper.is_readonly() {
             return Err(ContractError::WrapperNotFrozen);
         }
-        if binding.epoch != self.epoch() {
-            return Err(ContractError::RetiredWrapper {
-                key: key.to_owned(),
-            });
-        }
-        let contracts = self.inner.contracts.borrow();
-        if contracts.contains_key(&id) && id.epoch() == self.epoch() {
-            Ok(id)
-        } else {
-            Err(ContractError::RetiredWrapper {
-                key: key.to_owned(),
-            })
-        }
+        Ok(binding.token)
     }
 }
 
@@ -603,7 +539,6 @@ struct ContractIdentity {
 }
 
 struct RegistryInner {
-    epoch: Cell<u64>,
     next_ordinal: Cell<u64>,
     identities: RefCell<HashMap<ContractIdentity, ContractId>>,
     contracts: RefCell<HashMap<ContractId, ContractIdentity>>,
@@ -611,7 +546,6 @@ struct RegistryInner {
 }
 
 struct WrapperBinding {
-    epoch: u64,
     token: ContractId,
     table: Table,
 }

@@ -1,9 +1,9 @@
 //! Linux-only: the soft reload.
 //!
 //! `lunette.reload()` applies an edited configuration without disturbing
-//! anything native. It retires the plugin runtime, drops `package.loaded` for
-//! the user's and the standard library's namespaces, clears the callbacks
-//! `main.luau` owns, resets the plugin epoch, and runs `main.luau` again
+//! anything native. It retires the plugin runtime, which starts a new plugin
+//! epoch, drops `package.loaded` for the user's and the standard library's
+//! namespaces, clears the callbacks `main.luau` owns, and runs `main.luau` again
 //! ([the Lua API](../../../docs/dev/lua-api.md#reload)).
 //!
 //! LÖVR's modules, the XR session, the graphics device, the compositor thread,
@@ -85,7 +85,6 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
     forget_subscriptions();
     clear_user_callbacks(&globals).map_err(ReloadError::State)?;
     clear_loaded_modules(&globals).map_err(ReloadError::State)?;
-    host::reset_epoch(lua).map_err(ReloadError::State)?;
     run_configuration(&globals)?;
 
     info!("the configuration was reloaded");

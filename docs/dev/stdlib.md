@@ -117,7 +117,7 @@ Safe mode is compiled into the binary and requires `lunette` alone. It does not 
 
 ## Module lifecycle
 
-The host's source reload retains the Lua state. It shuts down plugin runtimes, clears native subscribers and configuration callbacks, drops unprotected modules from `package.loaded`, advances the plugin contract epoch, and runs `main.luau` and `lovr.load` again.
+The host's source reload retains the Lua state. It shuts down plugin runtimes, which advances the plugin contract epoch, clears native subscribers and configuration callbacks, drops unprotected modules from `package.loaded`, and runs `main.luau` and `lovr.load` again.
 
 Plugin implementations register cleanup effects with their context or owner. The native runtime runs these effects during disable, instance reload, disposal, and shutdown. An expired activation cannot use its context or publisher. A cleanup failure quarantines the instance: the runtime does not retry an inverse that already failed, runs the instance's remaining inverses when its attachment ends, and never loads it again. A quarantined instance keeps its contract reservations but does not hold back its providers or parent. Cleanup failures during a drain are reported through `lunette.onError`; a failing `effect:dispose()` raises to its caller.
 

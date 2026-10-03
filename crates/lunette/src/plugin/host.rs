@@ -1,6 +1,5 @@
 //! Host-owned lifecycle operations for the Lua plugin attachment. Shutdown
-//! failures are logged and never skip the remaining host cleanup, while an
-//! epoch reset's error reaches the reload caller.
+//! failures are logged and never skip the remaining host cleanup.
 
 use mlua::Lua;
 use tracing::warn;
@@ -30,18 +29,12 @@ pub fn terminal_shutdown<Runtime, Subscribers, Flush, Native, Close>(
     close_external();
 }
 
-/// Retires every runtime attached to `lua`, logging each cleanup failure and
-/// continuing.
+/// Retires every runtime attached to `lua` and starts a new contract epoch,
+/// logging each cleanup failure and continuing.
 pub fn shutdown(lua: &Lua, context: &str) {
     for failure in attachment::shutdown_all(lua) {
         warn!("{context}: {failure}; cleanup continued");
     }
-}
-
-/// Starts the next runtime epoch after the previous attachment has retired.
-/// The epoch starts even when this returns an error.
-pub fn reset_epoch(lua: &Lua) -> mlua::Result<()> {
-    Ok(attachment::reset_epoch(lua)?)
 }
 
 /// Returns whether a plugin callback is currently running for `lua`.

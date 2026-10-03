@@ -370,7 +370,7 @@ fn a_capability_from_a_retired_epoch_is_named_as_retired() -> mlua::Result<()> {
         "old_capability = require('@lunette-plugin').capability { name = 'local/retired', schema = 1 }",
     )
     .exec()?;
-    attachment::reset_epoch(&lua).map_err(mlua::Error::external)?;
+    assert!(attachment::shutdown_all(&lua).is_empty());
     let result = lua
         .load(
             "return require('@lunette-plugin').define { name = 'retired', requires = { old = old_capability }, init = function() end }",

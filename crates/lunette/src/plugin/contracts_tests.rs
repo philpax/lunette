@@ -37,27 +37,6 @@ fn contract_registry_identity() -> mlua::Result<()> {
             .validate_token(&other_authority)
             .map_err(mlua::Error::external)?
     );
-    assert_eq!(
-        registry
-            .validate_token(&first)
-            .map_err(mlua::Error::external)?
-            .epoch(),
-        1
-    );
-    assert_eq!(
-        registry
-            .validate_token(&first)
-            .map_err(mlua::Error::external)?
-            .ordinal(),
-        1
-    );
-    assert_eq!(
-        registry
-            .validate_token(&different_schema)
-            .map_err(mlua::Error::external)?
-            .ordinal(),
-        2
-    );
     Ok(())
 }
 
@@ -123,32 +102,25 @@ fn declaration_shape_rejected() -> mlua::Result<()> {
     Ok(())
 }
 
+/// The host retires an epoch by replacing its registry, so a token from the
+/// dropped registry is retired and its identity may be declared again.
 #[test]
 fn stale_contract_epoch() -> mlua::Result<()> {
-    let registry = ContractRegistry::new();
-    let old = registry
+    let old = ContractRegistry::new()
         .declare(contract_name("example", "clock"), 1)
         .map_err(mlua::Error::external)?;
-    let old_id = registry
-        .validate_token(&old)
-        .map_err(mlua::Error::external)?;
 
-    registry.retire_epoch().map_err(mlua::Error::external)?;
-    assert_eq!(registry.epoch(), 2);
+    let registry = ContractRegistry::new();
     assert!(matches!(
         registry.validate_token(&old),
         Err(ContractError::RetiredToken { .. })
     ));
-
     let current = registry
         .declare(contract_name("example", "clock"), 1)
         .map_err(mlua::Error::external)?;
-    let current_id = registry
+    registry
         .validate_token(&current)
         .map_err(mlua::Error::external)?;
-    assert_ne!(old_id, current_id);
-    assert_eq!(current_id.epoch(), 2);
-    assert_eq!(current_id.ordinal(), 1);
     Ok(())
 }
 
@@ -209,24 +181,24 @@ fn frozen_wrapper_binding_is_exact_and_one_time() -> mlua::Result<()> {
 }
 
 #[test]
-fn stale_bound_wrapper_is_rejected_after_epoch_retirement() -> mlua::Result<()> {
+fn a_wrapper_bound_in_another_registry_is_unbound() -> mlua::Result<()> {
     let lua = Lua::new();
-    let registry = ContractRegistry::new();
-    let token = registry
+    let previous = ContractRegistry::new();
+    let token = previous
         .declare(contract_name("example", "clock"), 1)
         .map_err(mlua::Error::external)?;
     let wrapper = lua.create_table()?;
     wrapper.set_readonly(true);
-    registry
+    previous
         .bind_token(&token, &wrapper)
         .map_err(mlua::Error::external)?;
 
-    registry.retire_epoch().map_err(mlua::Error::external)?;
+    let registry = ContractRegistry::new();
     let declaration = lua.create_table()?;
     declaration.set("clock", wrapper)?;
     assert!(matches!(
         registry.validate_declaration(Value::Table(declaration)),
-        Err(ContractError::RetiredWrapper { .. })
+        Err(ContractError::UnboundWrapper { .. })
     ));
     Ok(())
 }

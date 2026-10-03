@@ -56,7 +56,7 @@ pub fn set_reporter(lua: &Lua, reporter: Reporter) -> Result<(), AttachmentError
 }
 
 /// Shuts down every runtime attached to this Lua state, attempting every
-/// cleanup.
+/// cleanup, and starts a new contract epoch with a fresh registry.
 ///
 /// Failures are returned rather than reported, because the listeners belong
 /// to the configuration being torn down.
@@ -86,31 +86,15 @@ pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
             source,
         });
     }
-    {
-        let mut state = host.borrow_mut();
-        state.runtimes.clear();
-        state.registry = ContractRegistry::new();
-        state.contract_keys.clear();
-        state.epoch = state.epoch.wrapping_add(1);
+    let mut state = host.borrow_mut();
+    state.runtimes.clear();
+    state.registry = ContractRegistry::new();
+    state.contract_keys.clear();
+    match state.epoch.checked_add(1) {
+        Some(epoch) => state.epoch = epoch,
+        None => errors.push(AttachmentError::EpochExhausted),
     }
     errors
-}
-
-/// Retires the current contract epoch after shutting down its runtimes. The
-/// new epoch starts even when shutdown fails; the error lists the failures.
-pub fn reset_epoch(lua: &Lua) -> Result<(), AttachmentError> {
-    let failures = shutdown_all(lua);
-    install(lua)?;
-    let host = require_host(lua)?;
-    host.borrow()
-        .registry
-        .retire_epoch()
-        .map_err(AttachmentError::Contract)?;
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(AttachmentError::Shutdown(failures))
-    }
 }
 
 /// Reports whether execution is currently inside a plugin callback.
