@@ -1,5 +1,5 @@
--- A definition accepts only bound capabilities, freezes what it declares, and
--- lets a context reach only its declared capabilities while it is current.
+-- A definition accepts only capabilities, freezes what it declares, and lets
+-- a context reach only its declared capabilities while it is current.
 return function(plugin)
   local function identity(value)
     return value
@@ -18,10 +18,11 @@ return function(plugin)
   local escapedPublisher
   local calls = 0
 
+  -- A plain table, such as the capability's spec, is not a capability.
   rejects(function()
     plugin.define {
       name = 'runtime-1',
-      requires = { source = table.freeze { token = serviceCapability.token, witness = identity } },
+      requires = { source = { name = 'fixture/production-service', schema = 1 } },
       init = function() end,
     }
   end, 'unbound capability wrapper')
@@ -33,9 +34,6 @@ return function(plugin)
     init = function(ctx, _config, publish)
       providerContext = ctx
       escapedPublisher = publish
-      rejects(function()
-        publish:provide({ witness = serviceCapability.witness }, service)
-      end, 'is not declared')
       publish:provide(serviceCapability, service)
     end,
   }
@@ -58,16 +56,6 @@ return function(plugin)
       assert(ctx:require(serviceCapability).marker == 'original')
       rejects(function()
         ctx:require(extraCapability)
-      end, 'is not declared')
-      rejects(function()
-        ctx:require { witness = serviceCapability.witness }
-      end, 'is not declared')
-      rejects(function()
-        ctx:require(setmetatable({ witness = serviceCapability.witness }, {
-          __eq = function()
-            return true
-          end,
-        }))
       end, 'is not declared')
       calls += 1
     end,

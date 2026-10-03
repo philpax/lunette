@@ -63,7 +63,7 @@ The initializer stages all provided values. The native runtime publishes them as
 
 `Context:child` installs a child instance owned by the current activation and enables it, so the child loads with its parent and is retired when the activation that installed it ends. `Context:active` checks whether the activation is live.
 
-`Context:checkOwner` checks that a caller is a live context bound to the owning provider's current generation, and raises otherwise. `Context:owns` answers the same question with a boolean. `Context:acquire(owner, acquire)` checks the owner and registers the resource with the owner's lifetime, which is the common shape of an owner-scoped provider method. The adapter accepts only a context it wrapped as an owner; a table that copies a context's fields is rejected by `checkOwner` and `acquire` and is not owned.
+`Context:checkOwner` checks that a caller is a live context bound to the owning provider's current generation, and raises otherwise. `Context:owns` answers the same question with a boolean. `Context:acquire(owner, acquire)` checks the owner and registers the resource with the owner's lifetime, which is the common shape of an owner-scoped provider method. The adapter accepts only a context it wrapped as an owner, so passing something else as the owner by mistake raises rather than registering a resource nothing will release.
 
 ### Services
 
@@ -850,6 +850,10 @@ The view checks a read rather than wrapping each method. Luau has no tail calls,
 ### Subscriptions are context effects
 
 `Context:on { event = subscribe, run = handler }` makes a native subscription an effect of the activation, which is how Cordis's `ctx.on` tracks a listener on its fiber. It takes the subscribing function rather than an event name, because `lunette` events are subscribed through typed functions such as `lunette.onWindowOpened`, and taking the function keeps the handler's payload type. Wrapping the subscription in `Context:effect` by hand was rejected: every provider and desktop consumer would repeat it, each with its own `context:active()` check in the handler, and an initializer that calls `lunette.on*` directly leaks the subscription across instance reload.
+
+### The plugin runtime does not defend against a malicious plugin
+
+Every plugin runs in the configuration's Lua state with the whole `lunette` API, so a plugin that means harm needs no forged capability or context: it can call `lunette.spawn`, close windows, or replace LÖVR's callbacks directly. The runtime's checks, declared access, owner checks, revoked service views, retired epochs, and stale contexts, catch honest mistakes and handles kept past their lifetime, and they are not a security boundary. Their tests cover those cases and one plain table passed where a capability belongs; constructing tables that imitate a capability or a context is not tested, because resisting it buys nothing a plugin cannot get by calling the API. Sandboxing a plugin would need a separate Lua state or environment per plugin and a narrowed API, which is not planned; [the overview](overview.md#non-goals) records that spawned applications are not sandboxed either.
 
 ### Contracts are declared only through capabilities
 

@@ -62,15 +62,6 @@ fn declaration_shape_rejected() -> Result<(), Box<dyn Error>> {
         Err(ContractError::DeclarationValueNotToken { .. })
     ));
 
-    let forged_table = lua.create_table()?;
-    forged_table.set("epoch", 1)?;
-    let forged = lua.create_table()?;
-    forged.set("clock", forged_table)?;
-    assert!(matches!(
-        registry.validate_declaration(Value::Table(forged)),
-        Err(ContractError::UnboundWrapper { .. })
-    ));
-
     let foreign_registry = ContractRegistry::new();
     let foreign_token = foreign_registry.declare(contract_name("example", "clock"), 1)?;
     let foreign = lua.create_table()?;
