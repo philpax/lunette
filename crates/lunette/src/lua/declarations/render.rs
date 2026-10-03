@@ -275,7 +275,7 @@ fn render_module(out: &mut String) {
 ///
 /// A declaration states its prose as one line. The wrapping happens at render
 /// time, so reflowing the file is not an edit to every declaration in it.
-fn render_doc(out: &mut String, doc: &str, indent: &str) {
+pub(crate) fn render_doc(out: &mut String, doc: &str, indent: &str) {
     let width = COLUMNS.saturating_sub(indent.len() + "-- ".len());
     let mut line = String::new();
 

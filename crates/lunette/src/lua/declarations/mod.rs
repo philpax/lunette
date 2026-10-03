@@ -22,7 +22,10 @@ use mlua::{
     UserDataMethods, Value,
 };
 
-pub(crate) use crate::lua::declarations::macros::{handle, module, record};
+pub(crate) use crate::lua::declarations::{
+    macros::{handle, module, record},
+    render::render_doc,
+};
 pub use crate::lua::declarations::{
     render::render,
     types::{Nil, Textured},

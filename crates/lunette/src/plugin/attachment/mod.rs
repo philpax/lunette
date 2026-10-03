@@ -115,8 +115,7 @@ pub fn contract(lua: &Lua, (name, schema): (String, u64)) -> mlua::Result<Plugin
 /// Binds one erased native wrapper to one contract token.
 pub fn bind(
     lua: &Lua,
-    token: UserDataRef<PluginContractToken>,
-    wrapper: Unknown,
+    (token, wrapper): (UserDataRef<PluginContractToken>, Unknown),
 ) -> mlua::Result<()> {
     let host = require_host(lua)?;
     let table = match wrapper.0 {

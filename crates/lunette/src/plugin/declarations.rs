@@ -5,13 +5,13 @@
 use std::fmt::Write as _;
 
 use lunette_luau::{Arguments, Parameter, Type, Typed};
-use mlua::{FromLuaMulti, IntoLuaMulti, Lua, MaybeSend, Table, UserDataRef};
+use mlua::{FromLuaMulti, Function, IntoLuaMulti, Lua, MaybeSend, Table};
 
 use crate::{
-    lua::declarations::{Signature, collect_methods},
+    lua::declarations::{Signature, collect_methods, render_doc},
     plugin::attachment::{
-        self, DefineArguments, PluginContext, PluginContractToken, PluginDefinition, PluginEffect,
-        PluginInstance, PluginRuntime, PluginState, Unknown,
+        self, PluginContext, PluginContractToken, PluginDefinition, PluginEffect, PluginInstance,
+        PluginRuntime, PluginState,
     },
 };
 
@@ -32,38 +32,22 @@ pub struct FunctionSpec {
     callback: NativeFunction,
 }
 
+/// A native callback, as the Lua function that calls it and as its Luau type.
 #[derive(Clone, Copy, Debug)]
-enum NativeFunction {
-    Contract(fn(&Lua, (String, u64)) -> mlua::Result<PluginContractToken>),
-    Bind(fn(&Lua, UserDataRef<PluginContractToken>, Unknown) -> mlua::Result<()>),
-    Define(fn(&Lua, DefineArguments) -> mlua::Result<PluginDefinition>),
-    Runtime(fn(&Lua, ()) -> mlua::Result<PluginRuntime>),
+struct NativeFunction {
+    create: fn(&Lua) -> mlua::Result<Function>,
+    ty: fn(&[&'static str]) -> Type,
 }
 
-impl NativeFunction {
-    fn install(self, lua: &Lua, module: &Table, name: &'static str) -> mlua::Result<()> {
-        match self {
-            Self::Contract(function) => module.set(name, lua.create_function(function)?),
-            Self::Bind(function) => module.set(
-                name,
-                lua.create_function(move |lua, (token, wrapper)| function(lua, token, wrapper))?,
-            ),
-            Self::Define(function) => module.set(name, lua.create_function(function)?),
-            Self::Runtime(function) => module.set(name, lua.create_function(function)?),
+/// Builds a [`NativeFunction`] from a callback taking its arguments as one
+/// tuple, so each facade function needs its name written once.
+macro_rules! native {
+    ($callback:path) => {
+        NativeFunction {
+            create: |lua| lua.create_function($callback),
+            ty: |parameters| native_type($callback, parameters),
         }
-    }
-
-    fn ty(self, parameters: &[&'static str]) -> Type {
-        match self {
-            Self::Contract(function) => native_type(function, parameters),
-            Self::Bind(function) => native_type(
-                move |lua, (token, wrapper)| function(lua, token, wrapper),
-                parameters,
-            ),
-            Self::Define(function) => native_type(function, parameters),
-            Self::Runtime(function) => native_type(function, parameters),
-        }
-    }
+    };
 }
 
 fn native_type<A, R, F>(_: F, names: &[&'static str]) -> Type
@@ -102,7 +86,7 @@ pub fn install(lua: &Lua, module: &Table) -> mlua::Result<()> {
     attachment::install(lua).map_err(mlua::Error::from)?;
     let plugin = lua.create_table()?;
     for function in functions() {
-        function.callback.install(lua, &plugin, function.name)?;
+        plugin.set(function.name, (function.callback.create)(lua)?)?;
     }
 
     module.set(API_NAME, plugin)
@@ -140,7 +124,7 @@ pub(crate) fn render_types(out: &mut String) {
             out,
             "  read {}: {},",
             function.name,
-            function.callback.ty(function.parameters)
+            (function.callback.ty)(function.parameters)
         );
     }
     out.push_str("}\n");
@@ -151,25 +135,25 @@ const FUNCTIONS: [FunctionSpec; 4] = [
         name: "contract",
         parameters: &["name", "schema"],
         doc: "Declares a qualified contract identity for the current Lua state epoch.",
-        callback: NativeFunction::Contract(attachment::contract),
+        callback: native!(attachment::contract),
     },
     FunctionSpec {
         name: "bind",
         parameters: &["token", "wrapper"],
         doc: "Binds one erased native wrapper to a contract token.",
-        callback: NativeFunction::Bind(attachment::bind),
+        callback: native!(attachment::bind),
     },
     FunctionSpec {
         name: "define",
         parameters: &["required", "provided", "init", "name"],
         doc: "Defines a reusable plugin from required and provided contract records. The optional name labels it in diagnostics; without one, it is named for where its initializer is defined.",
-        callback: NativeFunction::Define(attachment::define),
+        callback: native!(attachment::define),
     },
     FunctionSpec {
         name: "runtime",
         parameters: &[],
         doc: "Creates an independent plugin runtime in the current Lua state.",
-        callback: NativeFunction::Runtime(attachment::runtime),
+        callback: native!(attachment::runtime),
     },
 ];
 
@@ -232,25 +216,6 @@ struct HandleSpec {
     brand: &'static str,
     doc: &'static str,
     methods: fn() -> Vec<Signature>,
-}
-
-/// Writes prose using the same width as the main declaration renderer.
-fn render_doc(out: &mut String, doc: &str, indent: &str) {
-    let width = 80usize.saturating_sub(indent.len() + 3);
-    let mut line = String::new();
-    for word in doc.split_whitespace() {
-        if !line.is_empty() && line.len() + 1 + word.len() > width {
-            let _ = writeln!(out, "{indent}-- {line}");
-            line.clear();
-        }
-        if !line.is_empty() {
-            line.push(' ');
-        }
-        line.push_str(word);
-    }
-    if !line.is_empty() {
-        let _ = writeln!(out, "{indent}-- {line}");
-    }
 }
 
 #[cfg(test)]
