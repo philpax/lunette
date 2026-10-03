@@ -19,7 +19,7 @@ use proptest::{
     test_runner::{Config, RngSeed},
 };
 
-use super::*;
+use super::{tests::live_allocation, *};
 
 #[derive(Clone, Debug)]
 enum Op {
@@ -186,10 +186,9 @@ impl Model {
         let Some(id) = self.pick(target) else {
             return;
         };
-        if let Ok(Some(view)) = self.graph.attachment(id)
-            && view.state == AttachmentState::Active
-        {
-            self.graph.mark_cleanup_failed(id, view.activation).unwrap();
+        if let Some((Stage::Active(_), allocation)) = live_allocation(&self.graph, id) {
+            let activation = allocation.activation;
+            self.graph.mark_cleanup_failed(id, activation).unwrap();
         }
     }
 
@@ -207,15 +206,14 @@ impl Model {
             let declared = &self.declared[&id];
             let state = self.graph.state(id).unwrap();
             let intent = self.graph.node(id).unwrap().intent;
-            let view = self.graph.attachment(id).unwrap();
-            if let Some(view) = &view {
-                for binding in &view.bindings {
-                    let provider = self.graph.attachment(binding.provider).ok().flatten();
+            let view = live_allocation(&self.graph, id);
+            if let Some((_, allocation)) = view {
+                for binding in &allocation.bindings {
                     prop_assert!(
-                        provider.as_ref().is_some_and(|provider| {
-                            provider.state == AttachmentState::Active
-                                && provider.generation == Some(binding.generation)
-                        }),
+                        matches!(
+                            live_allocation(&self.graph, binding.provider),
+                            Some((Stage::Active(generation), _)) if generation == binding.generation
+                        ),
                         "{id} ({state:?}) is bound to {} which is not active at {}",
                         binding.provider,
                         binding.generation
@@ -236,12 +234,10 @@ impl Model {
             }
             if let Some(parent) = declared.parent {
                 prop_assert!(self.graph.contains(parent), "{id} outlived parent {parent}");
-                let parent_view = self.graph.attachment(parent).unwrap();
+                let parent_view = live_allocation(&self.graph, parent);
                 if view.is_some() {
                     prop_assert!(
-                        parent_view
-                            .as_ref()
-                            .is_some_and(|parent| parent.state == AttachmentState::Active),
+                        matches!(parent_view, Some((Stage::Active(_), _))),
                         "{id} is attached under a parent that is not active"
                     );
                 }

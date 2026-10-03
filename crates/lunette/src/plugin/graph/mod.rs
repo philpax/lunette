@@ -22,8 +22,7 @@ pub use self::{
     error::{Diagnostic, DiagnosticKind, GraphError, Severity},
     ids::{ActivationId, Binding, ContractKey, InstanceId, ProviderGeneration},
     lifecycle::{
-        Action, AttachmentState, AttachmentView, Graph, Intent, IntentState, LifecycleState,
-        LoadOutcome, LoadResolution,
+        Action, Graph, Intent, IntentState, LifecycleState, LoadOutcome, LoadResolution, Stage,
     },
 };
 

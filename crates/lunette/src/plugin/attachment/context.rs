@@ -17,7 +17,7 @@ use crate::plugin::{
         },
         state::{ActivationAuthority, DeclarationField, DefinitionData, RuntimeState},
     },
-    graph::{ActivationId, AttachmentState, Binding, InstanceId},
+    graph::{ActivationId, Binding, InstanceId, Stage},
 };
 
 pub(super) fn services(lua: &Lua, context: &PluginContext) -> Result<Unknown, AttachmentError> {
@@ -31,20 +31,17 @@ pub(super) fn services(lua: &Lua, context: &PluginContext) -> Result<Unknown, At
         .ok_or(fail(ContextReason::RuntimeGone))?;
     let values = {
         let state = runtime.borrow();
-        let view = state
+        let (_, bindings) = state
             .graph
-            .attachment(context.instance)
-            .ok()
-            .flatten()
-            .filter(|view| view.activation == context.activation)
+            .live(context.instance, context.activation)
             .ok_or(fail(ContextReason::Stale))?;
         let definition = state
             .instances
             .get(&context.instance)
             .map(|instance| Rc::clone(&instance.definition))
             .ok_or(fail(ContextReason::InstanceGone))?;
-        let mut values = Vec::with_capacity(view.bindings.len());
-        for binding in &view.bindings {
+        let mut values = Vec::with_capacity(bindings.len());
+        for binding in bindings {
             if !state.graph.binding_is_current(binding) {
                 return Err(fail(ContextReason::ProviderStale));
             }
@@ -135,15 +132,13 @@ fn withdraw_acquisition(
     context: &PluginContext,
     ordinal: u64,
 ) -> Result<(), AttachmentError> {
-    let loading = runtime
-        .borrow()
-        .graph
-        .attachment(context.instance)
-        .ok()
-        .flatten()
-        .is_some_and(|view| {
-            view.activation == context.activation && view.state == AttachmentState::Loading
-        });
+    let loading = matches!(
+        runtime
+            .borrow()
+            .graph
+            .live(context.instance, context.activation),
+        Some((Stage::Loading, _))
+    );
     if loading {
         rollback_effects(lua, runtime, context.instance, context.activation)?;
         return Ok(());
@@ -186,13 +181,11 @@ pub(super) fn dispose_effect(lua: &Lua, effect: &PluginEffect) -> mlua::Result<(
     };
     let inverse = {
         let mut state = runtime.borrow_mut();
-        let current = state
+        if state
             .graph
-            .attachment(effect.instance)
-            .ok()
-            .flatten()
-            .is_some_and(|view| view.activation == effect.activation);
-        if !current {
+            .live(effect.instance, effect.activation)
+            .is_none()
+        {
             return Ok(());
         }
         state
@@ -259,26 +252,15 @@ pub(super) fn check_owner(
         return Err(fail(ContextReason::ForeignRuntime));
     }
     let state = runtime.borrow();
-    let provider_generation = state
-        .graph
-        .attachment(provider.instance)
-        .ok()
-        .flatten()
-        .and_then(|view| view.generation)
-        .ok_or(fail(ContextReason::Stale))?;
-    let caller_view = state
-        .graph
-        .attachment(caller.instance)
-        .ok()
-        .flatten()
-        .filter(|view| {
-            view.activation == caller.activation
-                && matches!(
-                    view.state,
-                    AttachmentState::Loading | AttachmentState::Active
-                )
-        })
-        .ok_or(fail(ContextReason::CallerInactive))?;
+    let Some((Stage::Active(provider_generation), _)) =
+        state.graph.live(provider.instance, provider.activation)
+    else {
+        return Err(fail(ContextReason::Stale));
+    };
+    let caller_bindings = match state.graph.live(caller.instance, caller.activation) {
+        Some((Stage::Loading | Stage::Active(_), bindings)) => bindings,
+        _ => return Err(fail(ContextReason::CallerInactive)),
+    };
     let permitted = state
         .instances
         .get(&caller.instance)
@@ -286,7 +268,7 @@ pub(super) fn check_owner(
     if !permitted {
         return Err(fail(ContextReason::CallerInactive));
     }
-    if !caller_view.bindings.iter().any(|binding| {
+    if !caller_bindings.iter().any(|binding| {
         binding.provider == provider.instance && binding.generation == provider_generation
     }) {
         return Err(fail(ContextReason::NotOwner));
@@ -303,18 +285,10 @@ pub(super) fn context_active(context: &PluginContext) -> bool {
         .instances
         .get(&context.instance)
         .is_some_and(|instance| instance.authority.permits_resources(context.activation))
-        && state
-            .graph
-            .attachment(context.instance)
-            .ok()
-            .flatten()
-            .is_some_and(|view| {
-                view.activation == context.activation
-                    && matches!(
-                        view.state,
-                        AttachmentState::Loading | AttachmentState::Active
-                    )
-            })
+        && matches!(
+            state.graph.live(context.instance, context.activation),
+            Some((Stage::Loading | Stage::Active(_), _))
+        )
 }
 
 /// Reports whether a provider's activation is published and not unloading.
@@ -323,15 +297,13 @@ pub(super) fn context_active(context: &PluginContext) -> bool {
 /// whose disposal failed keeps serving until it unloads.
 pub(super) fn context_serving(context: &PluginContext) -> bool {
     context.runtime.upgrade().is_some_and(|runtime| {
-        runtime
-            .borrow()
-            .graph
-            .attachment(context.instance)
-            .ok()
-            .flatten()
-            .is_some_and(|view| {
-                view.activation == context.activation && view.state == AttachmentState::Active
-            })
+        matches!(
+            runtime
+                .borrow()
+                .graph
+                .live(context.instance, context.activation),
+            Some((Stage::Active(_), _))
+        )
     })
 }
 
@@ -363,12 +335,9 @@ fn live_context(
         if !instance.authority.permits_resources(context.activation) {
             return Err(fail(ContextReason::CleanupOnly));
         }
-        let view = state
+        let (stage, _) = state
             .graph
-            .attachment(context.instance)
-            .ok()
-            .flatten()
-            .filter(|view| view.activation == context.activation)
+            .live(context.instance, context.activation)
             .ok_or(fail(ContextReason::Stale))?;
         match require {
             Require::Resources => {
@@ -381,7 +350,7 @@ fn live_context(
                 }
             }
             Require::Active => {
-                if view.state != AttachmentState::Active {
+                if !matches!(stage, Stage::Active(_)) {
                     return Err(fail(ContextReason::Stale));
                 }
             }
@@ -419,18 +388,10 @@ fn leave_cleanup(
     previous: ActivationAuthority,
 ) {
     let mut state = runtime.borrow_mut();
-    let live = state
-        .graph
-        .attachment(instance)
-        .ok()
-        .flatten()
-        .is_some_and(|view| {
-            view.activation == activation
-                && matches!(
-                    view.state,
-                    AttachmentState::Loading | AttachmentState::Active
-                )
-        });
+    let live = matches!(
+        state.graph.live(instance, activation),
+        Some((Stage::Loading | Stage::Active(_), _))
+    );
     if live
         && let Some(record) = state.instances.get_mut(&instance)
         && record.authority == ActivationAuthority::Cleanup(activation)

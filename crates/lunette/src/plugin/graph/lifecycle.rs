@@ -95,25 +95,6 @@ pub enum LoadResolution {
     Ended(LifecycleState),
 }
 
-/// The state visible to a reader that needs the exact attachment token.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttachmentState {
-    Loading,
-    Active,
-    Unloading,
-}
-
-/// A copy of the exact allocation held by an instance.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttachmentView {
-    /// The lifecycle state for which this view is valid.
-    pub state: AttachmentState,
-    pub activation: ActivationId,
-    /// The exact provider generations allocated at load start.
-    pub bindings: Vec<Binding>,
-    pub generation: Option<ProviderGeneration>,
-}
-
 /// Pure, deterministic lifecycle graph state.
 ///
 /// The coordinator performs the actions it returns. A load action is only an
@@ -354,23 +335,19 @@ impl Graph {
         self.instances.is_empty()
     }
 
-    /// Returns the exact loading, active, or unloading attachment.
-    pub fn attachment(&self, instance: InstanceId) -> Result<Option<AttachmentView>, GraphError> {
-        let node = self.node(instance)?;
-        let Phase::Live { stage, allocation } = &node.phase else {
-            return Ok(None);
+    /// Returns the stage and the exact provider bindings of the instance's
+    /// loading, active, or unloading allocation, when that allocation belongs
+    /// to `activation`.
+    #[must_use]
+    pub fn live(
+        &self,
+        instance: InstanceId,
+        activation: ActivationId,
+    ) -> Option<(Stage, &[Binding])> {
+        let Phase::Live { stage, allocation } = &self.instances.get(&instance)?.phase else {
+            return None;
         };
-        let (state, generation) = match stage {
-            Stage::Loading => (AttachmentState::Loading, None),
-            Stage::Active(generation) => (AttachmentState::Active, Some(*generation)),
-            Stage::Unloading => (AttachmentState::Unloading, None),
-        };
-        Ok(Some(AttachmentView {
-            state,
-            activation: allocation.activation,
-            bindings: allocation.bindings.clone(),
-            generation,
-        }))
+        (allocation.activation == activation).then_some((*stage, allocation.bindings.as_slice()))
     }
 
     /// Checks whether an exact allocation may acquire resources or publish services.
@@ -716,9 +693,11 @@ impl Phase {
     }
 }
 
+/// The stage of a live allocation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Stage {
+pub enum Stage {
     Loading,
+    /// The allocation is published at this provider generation.
     Active(ProviderGeneration),
     Unloading,
 }

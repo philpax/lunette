@@ -7,6 +7,23 @@
 use pretty_assertions::assert_eq;
 
 use super::*;
+use crate::plugin::graph::lifecycle::{Allocation, Phase};
+
+/// The stage and allocation of `instance`'s live allocation, whatever its
+/// activation, which [`Graph::live`] requires a caller to name.
+pub(super) fn live_allocation(graph: &Graph, instance: InstanceId) -> Option<(Stage, &Allocation)> {
+    match &graph.node(instance).ok()?.phase {
+        Phase::Live { stage, allocation } => Some((*stage, allocation)),
+        Phase::Inactive | Phase::Failed { .. } | Phase::Quarantined => None,
+    }
+}
+
+fn generation(graph: &Graph, instance: InstanceId) -> Option<ProviderGeneration> {
+    match live_allocation(graph, instance) {
+        Some((Stage::Active(generation), _)) => Some(generation),
+        _ => None,
+    }
+}
 
 fn key(name: &str, schema: u32) -> ContractKey {
     ContractKey::new(name, schema)
@@ -137,16 +154,16 @@ fn a_provider_reload_publishes_a_new_generation() {
     graph.request(Intent::Enable(consumer)).unwrap();
     load(&mut graph, provider);
     let first_activation = load(&mut graph, consumer);
-    let first_generation = graph.attachment(provider).unwrap().unwrap().generation;
+    let first_generation = generation(&graph, provider);
     graph.request(Intent::Reload(provider)).unwrap();
     unload(&mut graph, consumer, true);
     unload(&mut graph, provider, true);
     load(&mut graph, provider);
     let second_activation = load(&mut graph, consumer);
-    let second = graph.attachment(provider).unwrap().unwrap().generation;
+    let second = generation(&graph, provider);
     assert_ne!(first_generation, second);
     assert_ne!(first_activation, second_activation);
-    let bindings = graph.attachment(consumer).unwrap().unwrap().bindings;
+    let bindings = &live_allocation(&graph, consumer).unwrap().1.bindings;
     assert_eq!(bindings[0].generation, second.unwrap());
 }
 
@@ -167,7 +184,7 @@ fn self_disable_never_publishes() {
         graph.complete_load(instance, activation, LoadOutcome::Cancelled),
         Ok(LoadResolution::Ended(LifecycleState::Inactive))
     );
-    assert!(graph.attachment(instance).unwrap().is_none());
+    assert!(live_allocation(&graph, instance).is_none());
 }
 
 #[test]
@@ -334,7 +351,7 @@ fn different_schemas_of_one_name_coexist() {
     load(&mut graph, old);
     load(&mut graph, second);
     load(&mut graph, new);
-    let bound = |instance| graph.attachment(instance).unwrap().unwrap().bindings[0].provider;
+    let bound = |instance| live_allocation(&graph, instance).unwrap().1.bindings[0].provider;
     assert_eq!((bound(old), bound(new)), (first, second));
 }
 
