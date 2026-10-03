@@ -50,14 +50,7 @@ local function resolve(config: unknown): Settings
   checkNames('select', settings.select)
   checkNames('tags', settings.tags)
   local placement = settings.placement
-  if #placement.center ~= 3 then
-    error('plugin desktop/monitors: option placement.center is three numbers, not ' .. #placement.center, 0)
-  end
-  for index = 1, 3 do
-    if type(placement.center[index]) ~= 'number' then
-      error('plugin desktop/monitors: option placement.center[' .. index .. '] is a number', 0)
-    end
-  end
+  plugin.checkNumbers('desktop/monitors', 'placement.center', placement.center, 3)
   if not (placement.width > 0) then
     error('plugin desktop/monitors: option placement.width is a positive number, not ' .. placement.width, 0)
   end

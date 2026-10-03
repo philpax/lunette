@@ -2,6 +2,8 @@
 -- `step` radians apart and further when wide enough to meet, with `gap` metres between edges. An arc wider
 -- than `span` shrinks every separation by one factor, and may then overlap.
 
+local plugin = require '@lunette-plugin'
+
 local geometry = {}
 
 export type Tuning = {
@@ -59,7 +61,7 @@ end
 
 -- Raises an error naming `label` and the option for a tuning the geometry
 -- cannot lay out: a radius that is not positive, a step, span, or gap that is
--- negative, or a centre that is not three numbers.
+-- negative, or a centre that is not three finite numbers.
 function geometry.validate(tuning: Tuning, label: string): ()
   local function finite(value: number): boolean
     return value == value and value ~= math.huge and value ~= -math.huge
@@ -75,15 +77,7 @@ function geometry.validate(tuning: Tuning, label: string): ()
   nonNegative('step', tuning.step)
   nonNegative('span', tuning.span)
   nonNegative('gap', tuning.gap)
-  local center = tuning.center
-  if #center ~= 3 then
-    error(string.format('plugin %s: option center is three numbers, not %d', label, #center), 0)
-  end
-  for index = 1, 3 do
-    if type(center[index]) ~= 'number' or not finite(center[index]) then
-      error(string.format('plugin %s: option center[%d] is a finite number', label, index), 0)
-    end
-  end
+  plugin.checkNumbers(label, 'center', tuning.center, 3)
 end
 
 return geometry

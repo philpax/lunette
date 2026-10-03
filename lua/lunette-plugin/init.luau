@@ -58,6 +58,12 @@ end
 -- function that calls this one, so 2 names that function's caller, and 0 gives no position.
 plugin.rejectUnknownFields = options.rejectUnknownFields
 
+-- Raises `plugin <name>: option <option> ...` unless `value` is a list of exactly `count` finite numbers,
+-- for an option such as a position that its default's type cannot describe.
+function plugin.checkNumbers(name: string, option: string, value: unknown, count: number): ()
+  options.checkNumbers(name, option, value, count)
+end
+
 -- Answers `over` merged over `base` by the configuration rule, without
 -- validating either.
 function plugin.merge(spec: MergeSpec): { [string]: unknown }

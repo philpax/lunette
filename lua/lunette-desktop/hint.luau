@@ -28,14 +28,7 @@ local required: plugin.Declaration = {
 
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/hint', defaults = DEFAULTS, config = config }
-  if #settings.position ~= 3 then
-    error('plugin desktop/hint: option position is three numbers, not ' .. #settings.position, 0)
-  end
-  for index = 1, 3 do
-    if type(settings.position[index]) ~= 'number' then
-      error('plugin desktop/hint: option position[' .. index .. '] is a number', 0)
-    end
-  end
+  plugin.checkNumbers('desktop/hint', 'position', settings.position, 3)
   if not (settings.size > 0) then
     error('plugin desktop/hint: option size is a positive number, not ' .. settings.size, 0)
   end

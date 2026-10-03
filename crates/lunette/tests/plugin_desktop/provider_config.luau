@@ -153,6 +153,21 @@ local rejections = {
     config = { background = { 1, 0, 0, 1, extra = true } },
     message = 'plugin desktop/errors: option background is a list of four numbers, and extra is not one of its positions',
   },
+  {
+    id = 'desktop/hint',
+    config = { position = { 0, 'up', -1 } },
+    message = 'plugin desktop/hint: option position[2] is a number, not a string',
+  },
+  {
+    id = 'desktop/keyboard',
+    config = { offset = { 0, 0, 0, side = 1 } },
+    message = 'plugin desktop/keyboard: option offset is a list of three numbers, and side is not one of its positions',
+  },
+  {
+    id = 'desktop/monitors',
+    config = { placement = { center = { 0, math.huge, -2 } } },
+    message = 'plugin desktop/monitors: option placement.center[2] is a finite number, not inf',
+  },
   { id = 'placement', config = { bogus = 1 }, message = 'plugin placement: unknown option bogus' },
   {
     id = 'placement',

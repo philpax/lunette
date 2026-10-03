@@ -41,6 +41,37 @@ function options.rejectUnknownFields(
   end
 end
 
+local COUNTS = { 'one number', 'two numbers', 'three numbers', 'four numbers' }
+
+-- Raises unless the option is exactly `count` finite numbers. A list option replaces its default whole, so
+-- an option such as a position is checked here: a bad element would otherwise pass the load and fail every
+-- frame that reads it.
+function options.checkNumbers(name: string, option: string, value: unknown, count: number): ()
+  local what = COUNTS[count] or `{count} numbers`
+  if type(value) ~= 'table' then
+    error(string.format('plugin %s: option %s is %s, not a %s', name, option, what, type(value)), 0)
+  end
+  local list = value :: Raw
+  for key, element in list do
+    if type(key) ~= 'number' or key < 1 or key > count or key ~= math.floor(key) then
+      local message = 'plugin %s: option %s is a list of %s, and %s is not one of its positions'
+      error(message:format(name, option, what, tostring(key)), 0)
+    end
+    if type(element) ~= 'number' then
+      error(string.format('plugin %s: option %s[%d] is a number, not a %s', name, option, key, type(element)), 0)
+    end
+    if element ~= element or element == math.huge or element == -math.huge then
+      error(
+        string.format('plugin %s: option %s[%d] is a finite number, not %s', name, option, key, tostring(element)),
+        0
+      )
+    end
+  end
+  if #list ~= count then
+    error(string.format('plugin %s: option %s is %s, not %d', name, option, what, #list), 0)
+  end
+end
+
 -- Whether a value merges key by key rather than being replaced. An empty
 -- table is not a record: nothing distinguishes an empty record from an empty
 -- list, and replacing it loses nothing.

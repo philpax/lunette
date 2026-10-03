@@ -128,6 +128,8 @@ A wrapper changes only what reaches the service from outside. A built-in calls i
 
 `plugin.rejectUnknownFields(prefix, value, allowed, fields, level)` checks the fields of a table a service method receives, and the built-in providers check their arguments with it. It raises `<prefix>: unknown field <key>; the fields are <fields>` for the first key `allowed` does not name, with `the field is` when `allowed` names one, and refuses a value that is not a table. `level` counts as `error`'s does from the function that calls it, so a method passes 2 to name its caller.
 
+`plugin.checkNumbers(name, option, value, count)` checks an option that is a fixed number of numbers, such as a position, which a default's type cannot describe because a list option replaces its default whole. It raises `plugin <name>: option <option> ...` for a value that is not a table, a key that is not one of the `count` positions, an element that is not a number or not finite, or a length other than `count`. The shipped consumers check their positions, offsets, and colours with it, and the arc layout its centre. Every element must be finite: a non-finite coordinate places a quad nowhere.
+
 ### Frame and surfaces
 
 LÖVR's frame and input callbacks reach plugins through two contracts, `lunette/frame` and `lunette/surfaces`, which the built-in `@lunette-plugins/frame` and `@lunette-plugins/surfaces` providers implement. A plugin that draws, updates, takes keys, or offers something a pointer can pick requires them like any other contract and needs nothing from the configuration.

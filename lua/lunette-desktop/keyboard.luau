@@ -65,14 +65,7 @@ local function resolve(config: unknown): Settings
   if DEVICES[settings.hand] == nil then
     error('plugin desktop/keyboard: option hand is left or right, not ' .. tostring(settings.hand), 0)
   end
-  if #settings.offset ~= 3 then
-    error('plugin desktop/keyboard: option offset is three numbers, not ' .. #settings.offset, 0)
-  end
-  for index = 1, 3 do
-    if type(settings.offset[index]) ~= 'number' then
-      error('plugin desktop/keyboard: option offset[' .. index .. '] is a number', 0)
-    end
-  end
+  plugin.checkNumbers('desktop/keyboard', 'offset', settings.offset, 3)
   if settings.size <= 0 then
     error('plugin desktop/keyboard: option size is a positive number, not ' .. settings.size, 0)
   end

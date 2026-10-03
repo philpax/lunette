@@ -35,28 +35,10 @@ local DEFAULTS: Settings = {
 
 local required: plugin.Declaration = { errors = errors.capability, frame = frame.capability }
 
--- A list option replaces its default whole, so its length and every element are checked here: a bad
--- element would otherwise pass the load and fail every frame's draw.
-local function checkNumbers(option: string, value: unknown, count: number, what: string): ()
-  local list = value :: { [unknown]: unknown }
-  for key, element in list do
-    if type(key) ~= 'number' or key < 1 or key > count or key ~= math.floor(key) then
-      local message = 'plugin desktop/errors: option %s is a list of %s, and %s is not one of its positions'
-      error(message:format(option, what, tostring(key)), 0)
-    end
-    if type(element) ~= 'number' then
-      error('plugin desktop/errors: option ' .. option .. '[' .. key .. '] is a number, not a ' .. type(element), 0)
-    end
-  end
-  if #list ~= count then
-    error('plugin desktop/errors: option ' .. option .. ' is ' .. what .. ', not ' .. #list, 0)
-  end
-end
-
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/errors', defaults = DEFAULTS, config = config }
-  checkNumbers('position', settings.position, 3, 'three numbers')
-  checkNumbers('background', settings.background, 4, 'four numbers')
+  plugin.checkNumbers('desktop/errors', 'position', settings.position, 3)
+  plugin.checkNumbers('desktop/errors', 'background', settings.background, 4)
   for _, option in ipairs { 'columns', 'lines' } do
     local value = (settings :: any)[option]
     if value < 1 or value ~= math.floor(value) then
