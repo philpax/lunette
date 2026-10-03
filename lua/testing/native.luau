@@ -31,6 +31,7 @@ local DRAW_METHODS = {
   'setMaterial',
   'setBlendMode',
   'roundrect',
+  'draw',
 }
 local SUBSCRIPTIONS = { 'onWindowOpened', 'onWindowClosed', 'onProcessExited', 'onMonitorAdded', 'onError' }
 
