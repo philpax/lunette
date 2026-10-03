@@ -14,7 +14,9 @@
 //!
 //! The keymap is compiled from a pinned xkeyboard-config release and checked
 //! in, because distributions ship different releases and older ones leave some
-//! codes unnamed.
+//! codes unnamed. It is trimmed to what this test reads: the keycodes it names,
+//! the symbols of the keys behind its keysym checks, and empty types and
+//! compatibility sections. The fixture's header gives the command and the rule.
 
 use lunette_capture::hid::VirtualKey;
 use xkbcommon::xkb;
