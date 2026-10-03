@@ -49,7 +49,7 @@ fn a_configuration_can_require_the_lunette_module() {
 }
 
 /// A relative require resolves against the requiring file, in the session as
-/// in the checker. `require_relative_check.rs` checks the same fixture.
+/// in the checker. `luau_check.rs` checks the same fixture.
 #[test]
 fn a_relative_require_resolves_against_the_requiring_file() {
     assert_exit_status("require-relative", 9);
