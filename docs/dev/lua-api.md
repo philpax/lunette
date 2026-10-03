@@ -149,6 +149,8 @@ plugin.compose(entries, {
 
 A patch that names an unknown id, an insert whose id is already an entry, an insert positioned before or after an id that is not an entry or both before and after, a keyed patch that gives `before` or `after`, two entries or two patches with one id, a field the patch or entry does not name, a patch that disables an entry and also changes it, one that gives both a definition and a factory, and one that changes nothing raise from `compose`, with an error that names the id.
 
+`plugin.configure(definition)` answers a function that makes the patch `{ id = definition.name, config = config }`, so `plugin.configure(laser.definition) { style = { length = 3 } }` configures the entry whose id is the laser's name. It also takes a factory, which it calls once for its definition's name. Luau infers the configuration type from the definition alone, so the configuration is checked against the definition's `Config`. A plain patch's `config` stays `{ [string]: any }`. Typing `config` by `id` would make the patch type a union of one arm per entry, and the union would need an arm for any other id as well, because a patch also names entries a configuration inserted; a mistyped option satisfies that arm, so the union checks nothing. Luau does not report a key a table type does not name in a literal, so a misspelt option still reaches the plugin's validation, which raises naming it.
+
 ### Frame and surfaces
 
 LÖVR's frame and input callbacks reach plugins through two contracts, `lunette/frame` and `lunette/surfaces`, which the built-in `@lunette-plugins/frame` and `@lunette-plugins/surfaces` providers implement. A plugin that draws, updates, takes keys, or offers something a pointer can pick requires them like any other contract and needs nothing from the configuration.
@@ -880,6 +882,10 @@ Each provider reads its configuration and validates it against its defaults, so 
 ### Composition is the facade's, and running it is the frame provider's
 
 Composing a list of entries and starting it use nothing but the facade, so `plugin.compose` and `plugin.start` belong to it, and a configuration that composes a list of its own needs no desktop. Binding the composition to LÖVR's callbacks needs `frame.install`, and `@lunette-plugins` depends on `@lunette-plugin` and not the reverse, so the binding is `frame.run`, beside `install`. A `plugin.run` in the facade was rejected because it would make the facade require a provider. Keeping the engine in `@lunette-desktop` was rejected because the desktop is one list among the lists a configuration can compose, and the engine has nothing desktop-specific in it.
+
+### A typed patch is made from the definition
+
+`plugin.configure` takes the definition and answers a function of the configuration, rather than taking both at once. With both arguments in one call, Luau infers the configuration type from the definition and the literal together, widens a string option such as `hand = 'right'` to `string`, and reports a correct call as an error. With the definition alone, the type is fixed before the literal is checked against it. A table of one function per shipped entry, keyed by id, was rejected: it restated each entry's id and type beside the entry list and had to be kept in step with it, and it could not configure an entry it did not list. A `configure` export on each provider module was not needed, because the definition carries its configuration type.
 
 ### Frame dispatch and the surface list are contracts
 

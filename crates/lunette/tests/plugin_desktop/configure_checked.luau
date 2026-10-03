@@ -1,15 +1,33 @@
--- Each typed patch is checked against its entry's options. Every call below
+-- A configure patch is checked against its definition's options, with the
+-- configuration type inferred from the definition or factory it is given.
+-- The first block is correct and checks cleanly; each call in the second
 -- carries one error, which the test finds by line. A misspelt key is not
 -- among them: Luau does not flag an extra key in a table literal, and the
 -- entry's own validation reports it when the entry loads.
 local desktop = require '@lunette-desktop'
+local laser = require '@lunette-plugins/laser'
+local keyboard = require '@lunette-plugins/keyboard'
+local pacingProvider = require '@lunette-plugins/pacing'
+local scaleProvider = require '@lunette-plugins/scale'
+local wristKeyboard = require '@lunette-desktop/keyboard'
+local arrange = require '@lunette-desktop/arrange'
+local pacing = require '@lunette-desktop/pacing'
 
-return {
-  desktop.configure['desktop/keyboard'] { hand = 'rigth' },
-  desktop.configure.laser { style = { length = 'long' } },
-  desktop.configure['desktop/arrange'] { layout = 3 },
-  desktop.configure.keyboard { rows = 'qwerty' },
-  desktop.configure.pacing { tuning = { background = 'low' } },
-  desktop.configure.scale { tuning = { raise = true } },
-  desktop.configure['desktop/pacing'] { pauseMonitors = 1 },
+local accepted = {
+  desktop.configure(wristKeyboard) { hand = 'right', placement = { distance = 0.45 } },
+  desktop.configure(laser.definition) { style = { length = 3, color = { 1, 0.4, 0.2, 0.6 } } },
+  desktop.configure(arrange) { layout = 'grid', options = { grid = { columns = 3 } } },
+  desktop.configure(pacing) { pauseMonitors = true },
 }
+
+local rejected = {
+  desktop.configure(wristKeyboard) { hand = 'rigth' },
+  desktop.configure(laser.definition) { style = { length = 'long' } },
+  desktop.configure(arrange) { layout = 3 },
+  desktop.configure(keyboard.definition) { rows = 'qwerty' },
+  desktop.configure(pacingProvider.definition) { tuning = { background = 'low' } },
+  desktop.configure(scaleProvider.definition) { tuning = { raise = true } },
+  desktop.configure(pacing) { pauseMonitors = 1 },
+}
+
+return { accepted, rejected }

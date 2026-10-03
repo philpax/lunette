@@ -141,20 +141,21 @@ A plugin changes state outside itself only through its context. `context:on` sub
 
 A patch with an entry's `id` changes that entry. `config` merges into its configuration: a table with string keys merges key by key, and any other value, a list included, replaces the default. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
-`desktop.configure` makes a configuration patch for each shipped entry that takes options, typed with that entry's options, so the checker reads them:
+`desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/persistence` and `desktop/arrange` a factory of it, which `configure` takes as well:
 
 ```lua
 local desktop = require '@lunette-desktop'
+local laser = require '@lunette-plugins/laser'
 
 desktop.run {
   patches = {
-    desktop.configure.laser { style = { color = { 1, 0.4, 0.2, 0.6 } } },
-    desktop.configure['desktop/keyboard'] { hand = 'right', placement = { distance = 0.45 } },
+    desktop.configure(laser.definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
+    desktop.configure(require '@lunette-desktop/keyboard') { hand = 'right', placement = { distance = 0.45 } },
   },
 }
 ```
 
-`desktop.configure['desktop/keyboard'] { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. An id with a slash is indexed as a string. A misspelt key is not a type error in Luau either way; each entry validates its options when it loads and raises an error naming the option. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
+`desktop.configure(require '@lunette-desktop/keyboard') { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. A misspelt key is not a type error in Luau either way; each entry validates its options when it loads and raises an error naming the option. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
 
 ## Extending the built-in keyboard
 
@@ -295,7 +296,7 @@ Two patches add the grid and choose it:
 
 ```lua
 { insert = { id = 'grid-layout', definition = require './grid' } },
-desktop.configure['desktop/arrange'] { layout = 'grid', options = { grid = { columns = 3 } } },
+desktop.configure(require '@lunette-desktop/arrange') { layout = 'grid', options = { grid = { columns = 3 } } },
 ```
 
 `options` gives each layout its options by name, and `desktop/arrange` passes a layout its own whichever tag uses it, so a tag that chooses `grid` with `tag:setLayout` is laid out in three columns too. An inserted entry is enabled after the shipped ones, so the grid registers after `desktop/arrange` has started, and `desktop/arrange` arranges again when it does. If no layout of the chosen name has registered by the first frame, `desktop/arrange` logs a warning naming it.
@@ -324,7 +325,7 @@ end
 A hook is an option, so a patch gives it:
 
 ```lua
-desktop.configure.interaction { constrain = require './upright' },
+desktop.configure(require('@lunette-plugins/interaction').definition) { constrain = require './upright' },
 ```
 
 `drive(pointer, input, surfaces, base)` runs for every frame of every pointer, and `base` is the default mapping: grip to grab, buttons to click, the stick to scroll or push. A hook that calls `base` with changed input remaps it, and one that does not call `base` drives the pointer's primitives, `hover`, `setButton`, `beginGrab`, `dragTo`, and `endGrab`, itself. `@lunette-plugins/interaction/picking` has the default's picking and scrolling for such a hook. `focusOnPress = false` stops a click from giving the keyboard to what it clicks.
@@ -332,7 +333,7 @@ desktop.configure.interaction { constrain = require './upright' },
 Which controller button presses which pointer button is the laser's `buttons` option, a list that replaces the default:
 
 ```lua
-desktop.configure.laser {
+desktop.configure(require('@lunette-plugins/laser').definition) {
   buttons = {
     { control = 'trigger', button = 'left' },
     { control = 'a', button = 'right' },
@@ -382,7 +383,7 @@ The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches onl
 The reload key is the `desktop/bindings` entry's binding, so it moves with a patch:
 
 ```lua
-desktop.configure['desktop/bindings'] { reload = { key = 'f5', modifiers = { 'control' } } },
+desktop.configure(require '@lunette-desktop/bindings') { reload = { key = 'f5', modifiers = { 'control' } } },
 ```
 
 ## Decorations
@@ -390,7 +391,7 @@ desktop.configure['desktop/bindings'] { reload = { key = 'f5', modifiers = { 'co
 Panels draw no frame of their own. The `desktop/decorations` entry draws a border round each panel and a title bar above it, and grabbing the bar moves the panel. Its `style` is configuration, as in `examples/desktop/main.luau`:
 
 ```lua
-desktop.configure['desktop/decorations'] { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+desktop.configure(require '@lunette-desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
 ```
 
 Decorations of another kind are a plugin that does what `lua/lunette-desktop/decorations.luau` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
@@ -438,7 +439,7 @@ A window that opens goes to the workspace in view. A workspace consumer of anoth
 `desktop/rules` takes the rule list. A rule matches named fields of a window, such as `appId` or `title`, or `where`, a function of the whole window, and its properties say where the window goes and how big it is. `examples/desktop/main.luau` sizes picture-in-picture windows by their title:
 
 ```lua
-desktop.configure['desktop/rules'] {
+desktop.configure(require '@lunette-desktop/rules') {
   rules = {
     {
       match = {
@@ -477,7 +478,7 @@ stream:subscribe(context, {
 The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence` takes the file it saves to, the format it writes, and `keyFor`, which says what identifies a window across sessions, by default its application id:
 
 ```lua
-desktop.configure['desktop/persistence'] { file = 'example.state' },
+desktop.configure(require '@lunette-desktop/persistence') { file = 'example.state' },
 ```
 
 It also provides `lunette/arrangement`, so a key can save or put the windows back. `examples/desktop/save-key.luau` binds control, alt, and S to save and control, alt, and R to restore:
@@ -502,8 +503,8 @@ A format of your own is a `{ read, render }` pair; [Default configuration](../de
 The desktop paces and scales windows by default. `desktop/pacing` lets a hidden panel's window draw about once a second, unless it is playing video or a game, and `desktop/scale` raises an output's scale as you lean toward the nearest panel on it, in steps, so a client re-lays-out only when it crosses one. The rules are the `pacing` and `scale` providers, and their numbers are configuration:
 
 ```lua
-desktop.configure.pacing { tuning = { background = 5, exemptTypes = { photo = true } } },
-desktop.configure.scale { tuning = { reference = 0.8 } },
+desktop.configure(require('@lunette-plugins/pacing').definition) { tuning = { background = 5, exemptTypes = { photo = true } } },
+desktop.configure(require('@lunette-plugins/scale').definition) { tuning = { reference = 0.8 } },
 ```
 
 Each provider takes a hook around its rule. `choose(pacer, observation, base)` answers a window's rate, so a hook that caps panels in view at 60 Hz answers 60 when `observation.visible` is true and calls `base` otherwise; `ideal(distance, base)` answers the scale a panel at that distance wants, before the steps apply. A rule of your own entirely is a plugin that provides `lunette/pacing` or `lunette/scale`, put in the entry's place with `{ id = 'pacing', definition = mine }`, and a different reading of the scene, such as pacing by where you look, is a consumer in place of `desktop/pacing` that keeps the provider. `{ id = 'desktop/pacing', disabled = true }` turns pacing off, and disabling either entry leaves every rate or scale as the client started with. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the rules.

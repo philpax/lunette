@@ -1,16 +1,17 @@
 -- The default desktop: the shipped providers and desktop consumers, composed
 -- by @lunette-desktop. A configuration changes it with patches keyed by entry
 -- id, and `require('@lunette-desktop').entries()` lists the ids.
--- `desktop.configure` makes a patch of an entry's options that the checker
--- reads against that entry's option types:
+-- `desktop.configure(definition)` makes a patch of the options of the entry
+-- named by the definition's name, which the checker reads against the
+-- definition's option types:
 --
 --   local desktop = require '@lunette-desktop'
 --   desktop.run {
 --     patches = {
 --       { id = 'keyboard', disabled = true },
---       desktop.configure.laser { style = { color = { 1, 0.4, 0.2, 0.6 } } },
---       desktop.configure['desktop/arrange'] { layout = 'arc', options = { arc = { radius = 2 } } },
---       desktop.configure['desktop/demo-terminal'] { programs = { 'foot' } },
+--       desktop.configure(require('@lunette-plugins/laser').definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
+--       desktop.configure(require '@lunette-desktop/arrange') { layout = 'arc', options = { arc = { radius = 2 } } },
+--       desktop.configure(require '@lunette-desktop/demo-terminal') { programs = { 'foot' } },
 --       { insert = { id = 'my-hud', definition = require './hud' } },
 --     },
 --   }

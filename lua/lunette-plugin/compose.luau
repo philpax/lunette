@@ -290,6 +290,20 @@ function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   return table.freeze(result)
 end
 
+-- Answers a function that makes the patch configuring the entry whose id is the definition's name. Luau
+-- infers `C` from the definition alone, so the configuration the answered function takes is checked
+-- against the definition's configuration type. A factory is called once, here, for its definition's name.
+function compose.configure<C>(target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
+  local definition: unknown = if type(target) == 'function' then target() else target
+  local name = type(definition) == 'table' and (definition :: Raw).name
+  if type(name) ~= 'string' then
+    error('compose: configure takes a plugin definition or a factory of one, not a ' .. type(target), 2)
+  end
+  return function(config: C): Patch
+    return { id = name :: string, config = config :: any }
+  end
+end
+
 -- Makes a runtime, enables every entry in order, and drains it. A failure closes the runtime and is raised;
 -- an entry's configuration error is that instance's load failure.
 function compose.start(entries: { Entry }): Running

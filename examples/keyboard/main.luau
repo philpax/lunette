@@ -12,6 +12,6 @@ desktop.run {
     -- the split keyboard.
     { id = 'keyboard', definition = require './split' },
     -- The wrist button's options merge over its defaults.
-    desktop.configure['desktop/keyboard'] { hand = 'right', placement = { distance = 0.45 } },
+    desktop.configure(require '@lunette-desktop/keyboard') { hand = 'right', placement = { distance = 0.45 } },
   },
 }

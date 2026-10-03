@@ -88,6 +88,14 @@ function plugin.compose(entries: { Entry }, patches: { Patch }?): { Entry }
   return compose.apply(entries, patches)
 end
 
+-- Answers a function making the patch that configures a definition's entry, by the definition's name:
+-- `plugin.configure(laser.definition) { style = ... }`. The configuration is checked against the
+-- definition's configuration type, which a plain patch's `config` is not. A factory is called once for its
+-- definition's name.
+function plugin.configure<C>(target: Definition<C> | () -> Definition<C>): (C) -> Patch
+  return compose.configure(target)
+end
+
 -- Makes a runtime, uses and enables each entry in order, and drains it, answering the runtime and the
 -- instance made for each id. A failure closes the runtime and is raised; an entry's configuration error is
 -- that instance's load failure.

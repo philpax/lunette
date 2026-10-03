@@ -97,70 +97,9 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/scale', definition = scale },
 }
 
--- A typed patch for each shipped entry that takes options, answering `{ id = <entry id>, config = ... }`.
--- A plain patch list's config cannot be typed per id, so `desktop.configure.laser { style = ... }` is what
--- gets checked. An id with a slash is indexed as a string: `desktop.configure['desktop/arrange'] { ... }`.
-export type Configure = {
-  read panels: (panels.Config) -> Patch,
-  read interaction: (interaction.Config) -> Patch,
-  read laser: (laser.Config) -> Patch,
-  read keyboard: (keyboard.Config) -> Patch,
-  read rules: (rules.Config) -> Patch,
-  read placement: (placement.Config) -> Patch,
-  read adoption: (adoption.Config) -> Patch,
-  read ['layout/arc']: (arc.Config) -> Patch,
-  read errors: (errorStream.Config) -> Patch,
-  read pacing: (pacingProvider.Config) -> Patch,
-  read scale: (scaleProvider.Config) -> Patch,
-  read ['desktop/hint']: (hint.Config) -> Patch,
-  read ['desktop/decorations']: (decorations.Config) -> Patch,
-  read ['desktop/pointing']: (pointing.Config) -> Patch,
-  read ['desktop/bindings']: (desktopBindings.Config) -> Patch,
-  read ['desktop/keyboard']: (wristKeyboard.Config) -> Patch,
-  read ['desktop/errors']: (errors.Config) -> Patch,
-  read ['desktop/workspace']: (workspace.Config) -> Patch,
-  read ['desktop/monitors']: (monitors.Config) -> Patch,
-  read ['desktop/rules']: (defaultRules.Config) -> Patch,
-  read ['desktop/persistence']: (persistence.Config) -> Patch,
-  read ['desktop/arrange']: (arrange.Config) -> Patch,
-  read ['desktop/adoption']: (adoptionConsumer.Config) -> Patch,
-  read ['desktop/demo-terminal']: (demoTerminal.Config) -> Patch,
-  read ['desktop/pacing']: (pacing.Config) -> Patch,
-}
-
-local function configure<C>(id: string): (C) -> Patch
-  return function(config: C): Patch
-    return { id = id, config = config :: any }
-  end
-end
-
-desktop.configure = table.freeze {
-  panels = configure<<panels.Config>> 'panels',
-  interaction = configure<<interaction.Config>> 'interaction',
-  laser = configure<<laser.Config>> 'laser',
-  keyboard = configure<<keyboard.Config>> 'keyboard',
-  rules = configure<<rules.Config>> 'rules',
-  placement = configure<<placement.Config>> 'placement',
-  adoption = configure<<adoption.Config>> 'adoption',
-  ['layout/arc'] = configure<<arc.Config>> 'layout/arc',
-  errors = configure<<errorStream.Config>> 'errors',
-  pacing = configure<<pacingProvider.Config>> 'pacing',
-  scale = configure<<scaleProvider.Config>> 'scale',
-  ['desktop/hint'] = configure<<hint.Config>> 'desktop/hint',
-  ['desktop/decorations'] = configure<<decorations.Config>> 'desktop/decorations',
-  ['desktop/pointing'] = configure<<pointing.Config>> 'desktop/pointing',
-  ['desktop/bindings'] = configure<<desktopBindings.Config>> 'desktop/bindings',
-  ['desktop/keyboard'] = configure<<wristKeyboard.Config>> 'desktop/keyboard',
-  ['desktop/errors'] = configure<<errors.Config>> 'desktop/errors',
-  ['desktop/workspace'] = configure<<workspace.Config>> 'desktop/workspace',
-  ['desktop/monitors'] = configure<<monitors.Config>> 'desktop/monitors',
-  ['desktop/rules'] = configure<<defaultRules.Config>> 'desktop/rules',
-  ['desktop/persistence'] = configure<<persistence.Config>> 'desktop/persistence',
-  ['desktop/arrange'] = configure<<arrange.Config>> 'desktop/arrange',
-  ['desktop/adoption'] = configure<<adoptionConsumer.Config>> 'desktop/adoption',
-  ['desktop/demo-terminal'] = configure<<demoTerminal.Config>> 'desktop/demo-terminal',
-  ['desktop/pacing'] = configure<<pacing.Config>> 'desktop/pacing',
-} :: Configure
+-- Answers a function making the patch that configures a definition's entry, checked against its options:
+-- `desktop.configure(laser.definition) { style = ... }`. It is `plugin.configure`.
+desktop.configure = plugin.configure
 
 -- The shipped desktop's entries, in the order they are enabled. The list and
 -- every entry in it are frozen.

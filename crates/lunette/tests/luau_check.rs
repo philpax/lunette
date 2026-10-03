@@ -91,10 +91,11 @@ fn invalid_configuration_fields_types_and_enums_are_rejected() {
     }
 }
 
-/// A typed patch is checked against its entry's options: each call in the
-/// fixture carries one mistake, and each is reported on its own line.
+/// A configure patch is checked against its definition's options, the type
+/// inferred from the definition or factory: the correct calls report nothing,
+/// and each incorrect call is reported on its own line.
 #[test]
-fn a_typed_patch_is_checked_against_its_entrys_options() {
+fn a_configure_patch_is_checked_against_its_definitions_options() {
     let report = check(vec![fixture("plugin_desktop/configure_checked.luau")]);
     let mut lines = report
         .diagnostics
@@ -106,7 +107,7 @@ fn a_typed_patch_is_checked_against_its_entrys_options() {
     lines.dedup();
     assert_eq!(
         lines,
-        [8, 9, 10, 11, 12, 13, 14],
+        [24, 25, 26, 27, 28, 29, 30],
         "{:#?}",
         report.diagnostics
     );
