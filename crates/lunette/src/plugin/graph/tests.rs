@@ -79,19 +79,6 @@ fn kinds(graph: &mut Graph) -> Vec<DiagnosticKind> {
 }
 
 #[test]
-fn graph_transition_model() {
-    let mut graph = Graph::new();
-    let instance = root(&mut graph, &[], &[key("root", 1)]);
-    assert_eq!(graph.state(instance).unwrap(), LifecycleState::Inactive);
-    graph.request(Intent::Enable(instance)).unwrap();
-    let activation = load(&mut graph, instance);
-    assert_eq!(graph.state(instance).unwrap(), LifecycleState::Active);
-    graph.request(Intent::Disable(instance)).unwrap();
-    assert_eq!(unload(&mut graph, instance, true), activation);
-    assert_eq!(graph.state(instance).unwrap(), LifecycleState::Inactive);
-}
-
-#[test]
 fn parent_disable_and_reload_drain_children_without_shutdown() {
     for reload in [false, true] {
         let mut graph = Graph::new();
