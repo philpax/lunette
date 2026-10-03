@@ -11,7 +11,7 @@ The two have separate responsibilities. `lunette` exposes native mechanism for s
 
 The plugin facade does not replace the native root. It provides lifecycle and service wiring for typed Lua components. The native `lunette` API remains usable without the plugin providers. The Lua roots use public APIs and contracts; they do not access private native state.
 
-Module aliases and their runtime resolution are defined in [Module roots](build-and-development.md#module-roots) and `crates/lunette/src/aliases.rs`. A relative require, `./`, `../`, or `@self`, resolves against the requiring file by Luau's rules, in a session as in the checker; [Module roots](stdlib.md#module-roots) states the rules. `@lunette` is registered in `package.preload`. The plugin, contract, provider, and desktop roots are mounted from files. The runtime and static checker run in separate processes. Starting lunette does not run the static checker.
+[Module roots](build-and-development.md#module-roots) lists the aliases and their runtime resolution, and [the standard library's module roots](stdlib.md#module-roots) states how a relative require, `./`, `../`, or `@self`, resolves against the requiring file. The runtime and static checker run in separate processes. Starting lunette does not run the static checker.
 
 ## The config
 
