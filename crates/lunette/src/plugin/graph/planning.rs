@@ -222,7 +222,11 @@ impl Graph {
                             });
                     match generation {
                         Some(generation) if !self.will_unload(provider) => {
-                            bindings.push(Binding::new(required.clone(), provider, generation));
+                            bindings.push(Binding {
+                                contract: required.clone(),
+                                provider,
+                                generation,
+                            });
                         }
                         _ => pending = true,
                     }

@@ -124,7 +124,6 @@ pub struct AttachmentView {
 pub struct Graph {
     pub(super) instances: BTreeMap<InstanceId, Instance>,
     pub(super) shutdown_requested: bool,
-    shutdown_complete: bool,
     next_instance: u64,
     pub(super) next_activation: u64,
     next_generation: u64,
@@ -355,10 +354,6 @@ impl Graph {
         self.instances.is_empty()
     }
 
-    pub fn intent_state(&self, instance: InstanceId) -> Result<IntentState, GraphError> {
-        self.node(instance).map(|node| node.intent)
-    }
-
     /// Returns the exact loading, active, or unloading attachment.
     pub fn attachment(&self, instance: InstanceId) -> Result<Option<AttachmentView>, GraphError> {
         let node = self.node(instance)?;
@@ -376,26 +371,6 @@ impl Graph {
             bindings: allocation.bindings.clone(),
             generation,
         }))
-    }
-
-    /// Validates an attachment token and exact bindings for a callback or read.
-    ///
-    /// An unloading attachment stays valid, so cleanup keeps read authority while
-    /// no new consumer can bind to it.
-    pub fn validate_attachment(
-        &self,
-        instance: InstanceId,
-        activation: ActivationId,
-        bindings: &[Binding],
-    ) -> Result<(), GraphError> {
-        let node = self.node(instance)?;
-        let Phase::Live { allocation, .. } = &node.phase else {
-            return Err(GraphError::InvalidAction);
-        };
-        if allocation.activation != activation || allocation.bindings != bindings {
-            return Err(GraphError::StaleAction);
-        }
-        Ok(())
     }
 
     /// Checks whether an exact allocation may acquire resources or publish services.
@@ -444,12 +419,6 @@ impl Graph {
     /// or its intent changes, so repeated polling does not duplicate it.
     pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.diagnostics)
-    }
-
-    /// Reports whether shutdown has drained all live attachments.
-    #[must_use]
-    pub const fn is_shutdown(&self) -> bool {
-        self.shutdown_complete
     }
 
     pub(super) fn node(&self, instance: InstanceId) -> Result<&Instance, GraphError> {
@@ -627,7 +596,6 @@ impl Graph {
             return;
         }
         self.instances.clear();
-        self.shutdown_complete = true;
     }
 
     pub(super) fn begin_load(

@@ -15,15 +15,12 @@ use crate::{
             context, lifecycle,
             state::{DefinitionData, RuntimeState},
         },
-        contracts::ContractToken,
+        contracts::PluginContractToken,
         graph::{ActivationId, InstanceId, LifecycleState},
     },
 };
 
-/// The opaque contract token exposed to Lua.
-pub type PluginContractToken = ContractToken;
-
-impl Typed for ContractToken {
+impl Typed for PluginContractToken {
     fn luau() -> Type {
         Type::Named("PluginContractToken")
     }

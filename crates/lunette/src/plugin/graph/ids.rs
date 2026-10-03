@@ -10,11 +10,6 @@ impl InstanceId {
     pub(crate) const fn from_raw(value: u64) -> Self {
         Self(value)
     }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
 }
 
 impl fmt::Display for InstanceId {
@@ -31,11 +26,6 @@ pub struct ActivationId(u64);
 impl ActivationId {
     pub(crate) const fn from_raw(value: u64) -> Self {
         Self(value)
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
     }
 }
 
@@ -54,11 +44,6 @@ pub struct ProviderGeneration(u64);
 impl ProviderGeneration {
     pub(crate) const fn from_raw(value: u64) -> Self {
         Self(value)
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
     }
 }
 
@@ -109,18 +94,4 @@ pub struct Binding {
     pub provider: InstanceId,
     /// The provider generation observed during allocation.
     pub generation: ProviderGeneration,
-}
-
-impl Binding {
-    pub(crate) fn new(
-        contract: ContractKey,
-        provider: InstanceId,
-        generation: ProviderGeneration,
-    ) -> Self {
-        Self {
-            contract,
-            provider,
-            generation,
-        }
-    }
 }

@@ -1,6 +1,6 @@
 //! State-local contract identities, native capability tokens, and declarations.
 //!
-//! Lua sees only native [`ContractToken`] userdata, and a declaration is
+//! Lua sees only native [`PluginContractToken`] userdata, and a declaration is
 //! copied into a [`ValidatedDeclaration`] so the graph never retains a Lua table.
 
 use std::{
@@ -12,7 +12,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use mlua::{Lua, Table, UserData, Value};
+use mlua::{Table, UserData, Value};
 
 use crate::plugin::graph::ContractKey;
 
@@ -47,16 +47,6 @@ impl ContractName {
     }
 
     #[must_use]
-    pub fn authority(&self) -> &str {
-        &self.authority
-    }
-
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[must_use]
     pub fn qualified(&self) -> String {
         format!("{}/{}", self.authority, self.name)
     }
@@ -77,12 +67,10 @@ pub struct PluginContractToken {
     key: ContractKey,
 }
 
-pub type ContractToken = PluginContractToken;
-
 impl fmt::Debug for PluginContractToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("ContractToken")
+            .debug_struct("PluginContractToken")
             .field("key", &self.key)
             .finish_non_exhaustive()
     }
@@ -97,25 +85,9 @@ pub struct ValidatedDeclaration {
 }
 
 impl ValidatedDeclaration {
-    /// Returns the contract bound to a declaration field.
-    #[must_use]
-    pub fn get(&self, name: &str) -> Option<&ContractKey> {
-        self.bindings.get(name)
-    }
-
     /// Iterates copied declaration fields in lexical order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &ContractKey)> {
         self.bindings.iter().map(|(name, key)| (name.as_str(), key))
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.bindings.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty()
     }
 }
 
@@ -285,7 +257,11 @@ impl ContractRegistry {
 
     /// Declares a new name/schema identity and returns its native token. An
     /// identity may be declared once per registry.
-    pub fn declare(&self, name: ContractName, schema: u64) -> Result<ContractToken, ContractError> {
+    pub fn declare(
+        &self,
+        name: ContractName,
+        schema: u64,
+    ) -> Result<PluginContractToken, ContractError> {
         let schema = u32::try_from(schema)
             .ok()
             .filter(|schema| *schema != 0)
@@ -294,7 +270,7 @@ impl ContractRegistry {
         if !self.inner.contracts.borrow_mut().insert(key.clone()) {
             return Err(ContractError::DuplicateIdentity { key });
         }
-        Ok(ContractToken {
+        Ok(PluginContractToken {
             registry: Rc::downgrade(&self.inner),
             key,
         })
@@ -302,13 +278,16 @@ impl ContractRegistry {
 
     /// Verifies a native token and returns its contract. An error names the
     /// token by the contract it was declared for.
-    pub fn validate_token(&self, token: &ContractToken) -> Result<ContractKey, ContractError> {
+    pub fn validate_token(
+        &self,
+        token: &PluginContractToken,
+    ) -> Result<ContractKey, ContractError> {
         self.check_token(token, || TokenSite::Contract(token.key.clone()))
     }
 
     fn check_token(
         &self,
-        token: &ContractToken,
+        token: &PluginContractToken,
         site: impl FnOnce() -> TokenSite,
     ) -> Result<ContractKey, ContractError> {
         let Some(token_registry) = token.registry.upgrade() else {
@@ -324,7 +303,11 @@ impl ContractRegistry {
     ///
     /// Binding is one-to-one in both directions. The registry retains the table
     /// so its identity cannot be recycled after Lua garbage collection.
-    pub fn bind_token(&self, token: &ContractToken, wrapper: &Table) -> Result<(), ContractError> {
+    pub fn bind_token(
+        &self,
+        token: &PluginContractToken,
+        wrapper: &Table,
+    ) -> Result<(), ContractError> {
         let key = self.validate_token(token)?;
         if !wrapper.is_readonly() {
             return Err(ContractError::WrapperNotFrozen);
@@ -357,20 +340,6 @@ impl ContractRegistry {
             .values()
             .map(|binding| binding.table.clone())
             .collect()
-    }
-
-    /// Binds a frozen capability wrapper supplied as a Lua value.
-    pub fn bind_token_value(
-        &self,
-        token: &ContractToken,
-        wrapper: Value,
-    ) -> Result<(), ContractError> {
-        let Value::Table(wrapper) = wrapper else {
-            return Err(ContractError::DeclarationNotTable {
-                actual: wrapper.type_name().to_owned(),
-            });
-        };
-        self.bind_token(token, &wrapper)
     }
 
     /// Validates and copies a Lua declaration record whose keys are strings and
@@ -407,7 +376,7 @@ impl ContractRegistry {
             };
             let contract = match value {
                 Value::UserData(userdata) => {
-                    let token = userdata.borrow::<ContractToken>().map_err(|_| {
+                    let token = userdata.borrow::<PluginContractToken>().map_err(|_| {
                         ContractError::DeclarationValueNotToken {
                             key: key.clone(),
                             actual: String::from("userdata"),
@@ -428,19 +397,9 @@ impl ContractRegistry {
         Ok(ValidatedDeclaration { bindings })
     }
 
-    /// Creates Lua userdata for a token, refusing one from a retired epoch.
-    pub fn token_value(&self, lua: &Lua, token: &ContractToken) -> Result<Value, ContractError> {
-        self.validate_token(token)?;
-        lua.create_userdata(token.clone())
-            .map(Value::UserData)
-            .map_err(|error| ContractError::LuaIteration {
-                message: error.to_string(),
-            })
-    }
-
     fn validate_token_for_key(
         &self,
-        token: &ContractToken,
+        token: &PluginContractToken,
         key: &str,
     ) -> Result<ContractKey, ContractError> {
         self.check_token(token, || TokenSite::Field(key.to_owned()))

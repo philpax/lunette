@@ -25,14 +25,15 @@ pub use self::{
     },
     state::Reporter,
     types::{
-        PluginAcquire, PluginContext, PluginContractToken, PluginDefinition, PluginEffect,
-        PluginInit, PluginInstance, PluginRuntime, PluginState, Unknown,
+        PluginAcquire, PluginContext, PluginDefinition, PluginEffect, PluginInit, PluginInstance,
+        PluginRuntime, PluginState, Unknown,
     },
 };
 use self::{
     lifecycle::close_runtime,
     state::{AttachmentHost, DeclarationField, DefinitionData, RuntimeState},
 };
+pub use crate::plugin::contracts::PluginContractToken;
 use crate::plugin::contracts::{
     ContractError, ContractName, ContractRegistry, ValidatedDeclaration,
 };

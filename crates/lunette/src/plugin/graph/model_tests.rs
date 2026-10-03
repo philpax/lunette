@@ -206,7 +206,7 @@ impl Model {
         for id in self.live() {
             let declared = &self.declared[&id];
             let state = self.graph.state(id).unwrap();
-            let intent = self.graph.intent_state(id).unwrap();
+            let intent = self.graph.node(id).unwrap().intent;
             let view = self.graph.attachment(id).unwrap();
             if let Some(view) = &view {
                 for binding in &view.bindings {
@@ -277,7 +277,7 @@ impl Model {
                     continue;
                 }
                 let declared = &self.declared[id];
-                let intent = self.graph.intent_state(*id).unwrap();
+                let intent = self.graph.node(*id).unwrap().intent;
                 let state = self.graph.state(*id).unwrap();
                 let eligible = intent.enabled
                     && !intent.retired
@@ -366,7 +366,10 @@ impl Model {
                 .complete_unload(instance, activation, success)
                 .unwrap();
         }
-        prop_assert!(self.graph.is_shutdown(), "shutdown did not complete");
+        prop_assert!(
+            self.graph.shutdown_requested && self.graph.instances.is_empty(),
+            "shutdown did not complete"
+        );
         Ok(())
     }
 }

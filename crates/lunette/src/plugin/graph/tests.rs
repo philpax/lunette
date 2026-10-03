@@ -239,7 +239,7 @@ fn installation_reserves_nothing_and_enable_reserves_the_exact_key() {
             owner: first,
         })
     );
-    assert!(!graph.intent_state(second).unwrap().enabled);
+    assert!(!graph.node(second).unwrap().intent.enabled);
 }
 
 #[test]
@@ -769,7 +769,7 @@ fn a_rollback_failure_quarantines_the_loading_allocation() {
     );
     graph.request(Intent::Shutdown).unwrap();
     assert!(graph.next_action().is_none());
-    assert!(graph.is_shutdown());
+    assert!(graph.shutdown_requested && graph.instances.is_empty());
 }
 
 #[test]
@@ -789,7 +789,7 @@ fn shutdown_drains_every_root_despite_cleanup_failures() {
         unload(&mut graph, id, index % 3 != 0);
     }
     assert!(graph.next_action().is_none());
-    assert!(graph.is_shutdown());
+    assert!(graph.shutdown_requested && graph.instances.is_empty());
 }
 
 #[test]
@@ -805,5 +805,5 @@ fn shutdown_drains_children_before_parents() {
     unload(&mut graph, child, false);
     unload(&mut graph, parent, true);
     assert!(graph.next_action().is_none());
-    assert!(graph.is_shutdown());
+    assert!(graph.shutdown_requested && graph.instances.is_empty());
 }

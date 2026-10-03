@@ -104,10 +104,10 @@ fn declaration_shape_rejected() -> mlua::Result<()> {
     let token_id = registry
         .validate_token(&token)
         .map_err(mlua::Error::external)?;
-    assert_eq!(copied.get("clock"), Some(&token_id));
+    assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
 
     valid.set("clock", true)?;
-    assert_eq!(copied.get("clock"), Some(&token_id));
+    assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
     Ok(())
 }
 
@@ -160,12 +160,13 @@ fn frozen_wrapper_binding_is_exact_and_one_time() -> mlua::Result<()> {
         .validate_declaration(Value::Table(declaration))
         .map_err(mlua::Error::external)?;
     assert_eq!(
-        copied.get("clock"),
-        Some(
+        copied.iter().collect::<Vec<_>>(),
+        [(
+            "clock",
             &registry
                 .validate_token(&clock)
                 .map_err(mlua::Error::external)?
-        )
+        )]
     );
 
     assert!(matches!(
@@ -227,11 +228,10 @@ fn shared_registry_reuse() -> mlua::Result<()> {
     let copied = second_runtime
         .validate_declaration(Value::Table(declaration))
         .map_err(mlua::Error::external)?;
-    assert_eq!(copied.len(), 1);
     let token_id = second_runtime
         .validate_token(&token)
         .map_err(mlua::Error::external)?;
-    assert_eq!(copied.get("clock"), Some(&token_id));
+    assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
 
     let duplicate = second_runtime.declare(contract_name("example", "clock"), 1);
     assert!(matches!(
