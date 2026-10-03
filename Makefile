@@ -94,7 +94,7 @@ check-definitions:
 # Negative specs and probe runners stay out; their dedicated tests assert those
 # diagnostics and the runner's computed requires are not statically followable.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type f -name '*.luau' -print | sort) lua/spec/suite.luau lua/spec/expect.luau etc/xdg/lunette/main.luau $$(find examples -type f -name '*.luau' -print | sort)
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type f -name '*.luau' -print | sort) lua/spec/suite.luau lua/spec/expect.luau etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau $$(find examples -type f -name '*.luau' -print | sort)
 
 install: install-binary install-lua install-config
 
