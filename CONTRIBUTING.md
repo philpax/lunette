@@ -93,6 +93,8 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 
 `syntax = "Luau"` is set because the tree carries type annotations that the Lua grammars reject.
 
+`.styluaignore` exempts the generated `lua/lunette/init.luau`. The generator writes its declarations one per line rather than reproducing StyLua's line breaking.
+
 ### The Luau static check
 
 `make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, the ordinary spec harness modules, the shipped configuration, and the configurations under `examples/` against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
