@@ -126,7 +126,7 @@ install-binary: build
 install-lua:
 	@set -e; \
 	manifest="$$( $(install_manifest) )" || exit $$?; \
-	printf '%s\n' "$$manifest" | while read -r source destination required; do \
+	printf '%s\n' "$$manifest" | while read -r source destination; do \
 		if test -d "$$source"; then \
 			files="$$($(FIND) "$$source" -type f -name '*.luau' -print)" || exit $$?; \
 			if test -n "$$files"; then \
@@ -139,8 +139,6 @@ install-lua:
 		elif test -f "$$source"; then \
 			$(INSTALL) -d "$(DESTDIR)$(PREFIX)/share/lunette/$$(dirname "$$destination")" || exit $$?; \
 			$(INSTALL_DATA) "$$source" "$(DESTDIR)$(PREFIX)/share/lunette/$$destination" || exit $$?; \
-		elif test "$$required" = "false"; then \
-			echo "make: skipping missing optional artifact: $$source" >&2; \
 		else \
 			echo "make: install artifact is missing: $$source" >&2; exit 1; \
 		fi; \

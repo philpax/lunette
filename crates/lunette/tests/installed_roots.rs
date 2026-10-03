@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALL_ARTIFACTS, INSTALLED_ALIASES, Resolution};
+use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALLED_ALIASES, Resolution, install_manifest};
 
 /// The shipped configuration, which an installation runs and which is not a
 /// module root.
@@ -36,9 +36,9 @@ fn no_installed_root_requires_a_development_only_root() {
     {
         let installed = format!("lua/{}", alias.directory);
         assert!(
-            INSTALL_ARTIFACTS
-                .iter()
-                .any(|artifact| artifact.source == installed),
+            install_manifest()
+                .lines()
+                .any(|line| line.starts_with(&format!("{installed}\t"))),
             "{installed} is installed"
         );
         collect(&workspace.join(&installed), &mut sources);
