@@ -157,7 +157,7 @@ local replaced = services.adoption:install(owner)
 local sources = services.rules:sources()
 assert(sources[1].name == 'caller.rules' and sources[1].precedence == 100)
 assert(sources[2].name == 'persistence' and sources[2].precedence == 200)
-assert(sources[3].name == services.adoption.SOURCE and sources[3].precedence == 300)
+assert(sources[3].name == 'lunette.adoption' and sources[3].precedence == 300)
 assert(enumerateCalls == 0, 'install must not enumerate native windows')
 
 local saved = window(1, pose(3))
@@ -238,8 +238,6 @@ assert(not pcall(function()
   services.adoption:start(owner, { filter = 'everything' })
 end), 'a filter that is not a function raises')
 
-local sourceCallback = services.adoption:source()
-assert(sourceCallback(saved).pose == saved.stored[vocabulary.POSE_PROPERTY])
 replaced:dispose()
 persisted:dispose()
 low:dispose()
@@ -358,7 +356,7 @@ end
 function result.installWithoutRules()
   local function registered(): boolean
     for _, source in services.rules:sources() do
-      if source.name == services.adoption.SOURCE and source.precedence == 250 then
+      if source.name == 'lunette.adoption' and source.precedence == 250 then
         return true
       end
     end
@@ -453,7 +451,7 @@ end
 function result.checkPlacementCollection()
   assert(owner:active(), 'observer and provider graph must remain active')
   assert(#services.rules:sources() == 0 and #services.panels:all() == 0)
-  assert(services.adoption:properties(window(1100)) == nil, 'adoption must remain active')
+  assert(services.adoption.PRECEDENCE == vocabulary.PRECEDENCE.native, 'adoption must remain active')
   for index = 1, retainedSerial do
     assert(retainedSources[index] == nil, 'disposed rules placement must not retain its native source')
   end

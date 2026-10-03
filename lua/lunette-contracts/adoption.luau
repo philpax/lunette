@@ -27,12 +27,8 @@ export type InstallOptions = {
 }
 
 export type Service = {
-  read SOURCE: string,
   read PRECEDENCE: number,
-  read properties: (Service, lunette.Window) -> Properties?,
-  read source: (Service) -> (lunette.Window) -> Properties?,
   read install: (Service, Owner, InstallOptions?) -> plugin.Effect,
-  read windows: (Service) -> { lunette.Window },
   read start: (Service, Owner, Options?) -> plugin.Effect,
 }
 

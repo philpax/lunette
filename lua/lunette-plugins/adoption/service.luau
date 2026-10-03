@@ -22,15 +22,8 @@ type State = {
   context: plugin.Context,
 }
 
-local function checkWindow(window: lunette.Window)
-  local kind = type(window)
-  if kind ~= 'table' and kind ~= 'userdata' then
-    error('adoption: a window carries the properties, and a ' .. kind .. ' does not', 3)
-  end
-end
-
-local function properties(state: State, window: lunette.Window): rulesContract.Resolved?
-  checkWindow(window)
+-- The pose a window carries in its per-window property, kept across reloads, if any.
+local function keptPose(window: lunette.Window): rulesContract.Properties?
   local kept = window:getProperty(vocabulary.POSE_PROPERTY)
   if type(kept) ~= 'string' then
     return nil
@@ -47,15 +40,6 @@ local function windows(state: State): { lunette.Window }
     end
   end
   return result
-end
-
-local function source(state: State): (lunette.Window) -> Properties?
-  return function(window: lunette.Window): Properties?
-    if not state.active or not state.context:active() then
-      return nil
-    end
-    return properties(state, window)
-  end
 end
 
 -- The resolved options: the precedence install registers the native pose
@@ -76,17 +60,10 @@ local function build(context: plugin.Context, settings: Settings): Service
   end)
 
   local service: Service = {
-    SOURCE = SOURCE,
     PRECEDENCE = settings.precedence,
-    properties = function(_self: Service, window: lunette.Window): rulesContract.Resolved?
-      return properties(state, window)
-    end,
-    source = function(_self: Service): (lunette.Window) -> Properties?
-      return source(state)
-    end,
     -- The source is registered through this provider's rules binding, inside an effect on the caller's owner,
     -- so the caller need not require rules.
-    install = function(self: Service, owner: Owner, options: adoption.InstallOptions?): plugin.Effect
+    install = function(_self: Service, owner: Owner, options: adoption.InstallOptions?): plugin.Effect
       context:checkOwner(owner)
       if options ~= nil and type(options) ~= 'table' then
         error('adoption: install options are a table of fields, not a ' .. type(options), 2)
@@ -97,13 +74,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       if type(chosen) ~= 'number' or chosen ~= chosen then
         error('adoption: precedence is an orderable number', 2)
       end
-      local adoptedSource = self:source()
       local function resolve(window: lunette.Window): rulesContract.Properties?
-        local properties = adoptedSource(window)
-        if not properties then
+        if not state.active or not context:active() then
           return nil
         end
-        return { pose = properties.pose }
+        return keptPose(window)
       end
       return context:acquire(owner, function(): () -> ()
         local registration = rules:addSource(context, { name = SOURCE, precedence = chosen, resolve = resolve })
@@ -111,9 +86,6 @@ local function build(context: plugin.Context, settings: Settings): Service
           registration:dispose()
         end
       end)
-    end,
-    windows = function(_self: Service): { lunette.Window }
-      return windows(state)
     end,
     start = function(self: Service, owner: Owner, options: Options?): plugin.Effect
       local current = state
