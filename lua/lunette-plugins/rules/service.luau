@@ -20,21 +20,8 @@ type Source = contracts.Source & {
 
 type ProviderState = {
   context: plugin.Context,
-  service: Service,
   sources: { Source },
   registrations: number,
-}
-
-type MutableService = {
-  DEFAULT_PRECEDENCE: number,
-  DEFAULT_SOURCE: string,
-  report: (Service, contracts.Report) -> (),
-  addSource: (Service, Owner, contracts.SourceRegistration) -> plugin.Effect,
-  sources: (Service) -> { contracts.Source },
-  fromList: (Service, { Rule }) -> (lunette.Window) -> Properties?,
-  setRules: (Service, Owner, contracts.RuleSet) -> plugin.Effect,
-  matches: (Service, contracts.Match?, lunette.Window) -> boolean,
-  resolve: (Service, lunette.Window) -> Resolved,
 }
 
 local SOURCE_KEYS: { [string]: boolean } = { name = true, precedence = true, resolve = true }
@@ -139,33 +126,8 @@ export type Settings = {
 }
 
 local function build(context: plugin.Context, settings: Settings): Service
-  local implementation: MutableService = {
-    DEFAULT_PRECEDENCE = settings.precedence,
-    DEFAULT_SOURCE = 'lunette.rules',
-    report = function(_self: Service, _report: contracts.Report) end,
-    addSource = function(_self: Service, _owner: Owner, _registration: contracts.SourceRegistration): plugin.Effect
-      error 'rules: service is not initialized'
-    end,
-    sources = function(_self: Service): { contracts.Source }
-      error 'rules: service is not initialized'
-    end,
-    fromList = function(_self: Service, _list: { Rule }): (lunette.Window) -> Properties?
-      error 'rules: service is not initialized'
-    end,
-    setRules = function(_self: Service, _owner: Owner, _set: contracts.RuleSet): plugin.Effect
-      error 'rules: service is not initialized'
-    end,
-    matches = function(_self: Service, _match: contracts.Match?, _window: lunette.Window): boolean
-      error 'rules: service is not initialized'
-    end,
-    resolve = function(_self: Service, _window: lunette.Window): Resolved
-      error 'rules: service is not initialized'
-    end,
-  }
-  local service: Service = implementation
   local state: ProviderState = {
     context = context,
-    service = service,
     sources = {},
     registrations = 0,
   }
@@ -179,107 +141,102 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end)
 
-  function implementation.report(_self: Service, fields: contracts.Report)
-    if type(fields) ~= 'table' or type(fields.message) ~= 'string' then
-      error('rules report: a report is a table whose message is a string', 2)
-    end
-    report(state, fields.message, fields.level)
-  end
-
-  function implementation.addSource(
-    _self: Service,
-    owner: Owner,
-    registration: contracts.SourceRegistration
-  ): plugin.Effect
-    context:checkOwner(owner)
-    if type(registration) ~= 'table' then
-      error('rules: a source registration is a table of fields, not a ' .. type(registration), 2)
-    end
-    plugin.rejectUnknownFields('rules addSource', registration, SOURCE_KEYS, 'name, precedence, and resolve', 2)
-    local name, precedence, resolve = registration.name, registration.precedence, registration.resolve
-    if type(name) ~= 'string' then
-      error('rules: a source is named by a string, not a ' .. type(name), 2)
-    end
-    if type(precedence) ~= 'number' or precedence ~= precedence then
-      error('rules: the precedence of a source is an orderable number', 2)
-    end
-    if type(resolve) ~= 'function' then
-      error('rules: a source resolver is a function, not a ' .. type(resolve), 2)
-    end
-
-    -- Replacing another owner's source would end a resource that owner still holds, so a duplicate raises.
-    for _, previous in ipairs(state.sources) do
-      if previous.name == name then
-        error("rules: a source named '" .. name .. "' is already registered", 2)
+  -- Declared before it is assigned, so the methods that delegate through the published service can name it.
+  local service: Service
+  service = {
+    DEFAULT_PRECEDENCE = settings.precedence,
+    DEFAULT_SOURCE = 'lunette.rules',
+    report = function(_self: Service, fields: contracts.Report)
+      if type(fields) ~= 'table' or type(fields.message) ~= 'string' then
+        error('rules report: a report is a table whose message is a string', 2)
       end
-    end
-    local registered: Source?
-    local effect = owner:effect(function(): () -> ()
+      report(state, fields.message, fields.level)
+    end,
+    addSource = function(_self: Service, owner: Owner, registration: contracts.SourceRegistration): plugin.Effect
       context:checkOwner(owner)
-      state.registrations += 1
-      local source: Source = {
-        name = name,
-        precedence = precedence,
-        resolve = resolve,
-        sequence = state.registrations,
-      }
-      registered = source
-      state.sources[#state.sources + 1] = source
-      return function(): ()
-        if registered then
-          removeSource(state, registered)
-          registered = nil
+      if type(registration) ~= 'table' then
+        error('rules: a source registration is a table of fields, not a ' .. type(registration), 2)
+      end
+      plugin.rejectUnknownFields('rules addSource', registration, SOURCE_KEYS, 'name, precedence, and resolve', 2)
+      local name, precedence, resolve = registration.name, registration.precedence, registration.resolve
+      if type(name) ~= 'string' then
+        error('rules: a source is named by a string, not a ' .. type(name), 2)
+      end
+      if type(precedence) ~= 'number' or precedence ~= precedence then
+        error('rules: the precedence of a source is an orderable number', 2)
+      end
+      if type(resolve) ~= 'function' then
+        error('rules: a source resolver is a function, not a ' .. type(resolve), 2)
+      end
+
+      -- Replacing another owner's source would end a resource that owner still holds, so a duplicate raises.
+      for _, previous in ipairs(state.sources) do
+        if previous.name == name then
+          error("rules: a source named '" .. name .. "' is already registered", 2)
         end
       end
-    end)
-    return effect
-  end
-
-  function implementation.sources(_self: Service): { contracts.Source }
-    local described: { contracts.Source } = {}
-    for index, source in ipairs(orderedSources(state)) do
-      described[index] = { name = source.name, precedence = source.precedence }
-    end
-    return described
-  end
-
-  function implementation.fromList(_self: Service, list: { Rule }): (lunette.Window) -> Properties?
-    return fromList(service, list)
-  end
-
-  function implementation.setRules(_self: Service, owner: Owner, set: contracts.RuleSet): plugin.Effect
-    if type(set) ~= 'table' then
-      error('rules: a rule set is a table of fields, not a ' .. type(set), 2)
-    end
-    plugin.rejectUnknownFields('rules setRules', set, RULE_SET_KEYS, 'name, precedence, and rules', 2)
-    if type(set.rules) ~= 'table' then
-      error('rules: a rule set has a list of rules, not a ' .. type(set.rules), 2)
-    end
-    return service:addSource(owner, {
-      name = set.name or service.DEFAULT_SOURCE,
-      precedence = set.precedence or service.DEFAULT_PRECEDENCE,
-      resolve = service:fromList(set.rules),
-    })
-  end
-
-  function implementation.matches(_self: Service, match: contracts.Match?, window: lunette.Window): boolean
-    return matches(service, match, window)
-  end
-
-  function implementation.resolve(_self: Service, window: lunette.Window): Resolved
-    local collected: Properties = {}
-    for _, source in ipairs(orderedSources(state)) do
-      local answered = source.resolve(window)
-      if answered ~= nil then
-        if type(answered) ~= 'table' then
-          error("rules: the source '" .. source.name .. "' answered a " .. type(answered) .. ', not a table')
+      local registered: Source?
+      local effect = owner:effect(function(): () -> ()
+        context:checkOwner(owner)
+        state.registrations += 1
+        local source: Source = {
+          name = name,
+          precedence = precedence,
+          resolve = resolve,
+          sequence = state.registrations,
+        }
+        registered = source
+        state.sources[#state.sources + 1] = source
+        return function(): ()
+          if registered then
+            removeSource(state, registered)
+            registered = nil
+          end
         end
-        layer(collected, answered)
+      end)
+      return effect
+    end,
+    sources = function(_self: Service): { contracts.Source }
+      local described: { contracts.Source } = {}
+      for index, source in ipairs(orderedSources(state)) do
+        described[index] = { name = source.name, precedence = source.precedence }
       end
-    end
-    return evaluate(collected, window)
-  end
-
+      return described
+    end,
+    fromList = function(_self: Service, list: { Rule }): (lunette.Window) -> Properties?
+      return fromList(service, list)
+    end,
+    setRules = function(_self: Service, owner: Owner, set: contracts.RuleSet): plugin.Effect
+      if type(set) ~= 'table' then
+        error('rules: a rule set is a table of fields, not a ' .. type(set), 2)
+      end
+      plugin.rejectUnknownFields('rules setRules', set, RULE_SET_KEYS, 'name, precedence, and rules', 2)
+      if type(set.rules) ~= 'table' then
+        error('rules: a rule set has a list of rules, not a ' .. type(set.rules), 2)
+      end
+      return service:addSource(owner, {
+        name = set.name or service.DEFAULT_SOURCE,
+        precedence = set.precedence or service.DEFAULT_PRECEDENCE,
+        resolve = service:fromList(set.rules),
+      })
+    end,
+    matches = function(_self: Service, match: contracts.Match?, window: lunette.Window): boolean
+      return matches(service, match, window)
+    end,
+    resolve = function(_self: Service, window: lunette.Window): Resolved
+      local collected: Properties = {}
+      for _, source in ipairs(orderedSources(state)) do
+        local answered = source.resolve(window)
+        if answered ~= nil then
+          if type(answered) ~= 'table' then
+            error("rules: the source '" .. source.name .. "' answered a " .. type(answered) .. ', not a table')
+          end
+          layer(collected, answered)
+        end
+      end
+      return evaluate(collected, window)
+    end,
+  }
   return service
 end
 

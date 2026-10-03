@@ -32,7 +32,6 @@ export type MutableLaser = {
 export type State = {
   active: boolean,
   read context: plugin.Context,
-  read service: Service,
   lasers: { MutableLaser },
 }
 

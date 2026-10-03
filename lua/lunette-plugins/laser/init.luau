@@ -55,17 +55,6 @@ local HANDS: { Hand } = { 'left', 'right' }
 type ProviderState = registry.State
 type MutableLaser = registry.MutableLaser
 
-type MutableService = {
-  HANDS: { Hand },
-  STYLE: contracts.Style,
-  new: (Service, Owner, Hand, Options?) -> Laser,
-  attach: (Service, Owner, Options?) -> { Laser },
-  forHand: (Service, Hand) -> Laser?,
-  all: (Service) -> { Laser },
-  update: (Service, { Surface }) -> (),
-  draw: (Service, Pass) -> (),
-}
-
 local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
   local given: Options = options or {}
   local device = input.devices[hand]
@@ -186,11 +175,20 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
 end
 
 local function build(context: plugin.Context, settings: Settings): Service
-  local service: Service
   -- The published service is revoked with this activation, so its methods need no liveness guard; lasers
   -- outlive the call that made them and check the activation themselves.
-  local state: ProviderState
-  local implementation: MutableService = {
+  local state: ProviderState = {
+    active = true,
+    context = context,
+    lasers = {},
+  }
+  context:effect(function()
+    return function()
+      state.active = false
+      registry.destroyAll(state)
+    end
+  end)
+  local service: Service = {
     HANDS = HANDS,
     STYLE = settings.style,
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
@@ -234,21 +232,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       registry.draw(state, pass)
     end,
   }
-  service = implementation
-
-  local created: ProviderState = {
-    active = true,
-    context = context,
-    service = service,
-    lasers = {},
-  }
-  state = created
-  context:effect(function()
-    return function()
-      state.active = false
-      registry.destroyAll(state)
-    end
-  end)
   return service
 end
 
