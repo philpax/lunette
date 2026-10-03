@@ -1,11 +1,15 @@
+-- A failing inverse quarantines its instance whether it fails in a rollback, an
+-- explicit disposal, or a plain disable. The inverse runs to its raise, so what
+-- it releases before raising stays released.
 return function(plugin)
-  for _, mode in { 'rollback', 'explicit' } do
+  for _, mode in { 'rollback', 'explicit', 'disable' } do
     local token = plugin.contract('audit/' .. mode, 1)
     local runtime = plugin.runtime()
     local loads = 0
     local handle
     local remaining_released = 0
-    local definition = plugin.define({}, { service = token }, function(context)
+    local payload = { released = false }
+    local definition = plugin.define({}, { service = token }, function(context, config)
       loads += 1
       context:effect(function()
         return function()
@@ -14,6 +18,7 @@ return function(plugin)
       end)
       handle = context:effect(function()
         return function()
+          config.payload.released = true
           error('inverse failed ' .. mode)
         end
       end)
@@ -22,13 +27,17 @@ return function(plugin)
       end
       return { service = 42 }
     end)
-    local instance = runtime:use(definition, {})
+    local instance = runtime:use(definition, { payload = payload })
     instance:enable()
     if mode == 'explicit' then
       assert(not pcall(function()
         handle:dispose()
       end))
+    elseif mode == 'disable' then
+      assert(instance:state() == 'active', tostring(instance:diagnostic()))
+      instance:disable()
     end
+    assert(payload.released, 'the failing inverse did not run')
     assert(not pcall(function()
       instance:enable()
     end), 'quarantined instance accepted enable')

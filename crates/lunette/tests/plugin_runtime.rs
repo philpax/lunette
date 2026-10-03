@@ -50,7 +50,6 @@ fn run_fixture(lua: &Lua, module: &Table, name: &str) -> mlua::Result<()> {
             include_str!("plugin_runtime/explicit_cleanup_authority.luau")
         }
         "cancel" => include_str!("plugin_runtime/cancel.luau"),
-        "quarantine" => include_str!("plugin_runtime/quarantine.luau"),
         "witness" => include_str!("plugin_runtime/witness.luau"),
         "stale" => include_str!("plugin_runtime/stale.luau"),
         "yield" => include_str!("plugin_runtime/yield.luau"),
@@ -83,19 +82,20 @@ fn leaked_effect_payload_is_released_by_shutdown() -> mlua::Result<()> {
 }
 
 #[test]
-fn rollback_and_explicit_dispose_failures_quarantine() -> mlua::Result<()> {
+fn rollback_dispose_and_disable_failures_quarantine() -> mlua::Result<()> {
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "cleanup_failure")?;
-    // The rollback failure happens while a drain loads the instance, so it is
-    // reported. The explicit disposal failure is raised to its caller, and the
-    // fixture asserts it through the instance's diagnostic.
+    // The rollback and disable failures happen while the attachment loads or
+    // unloads the instance, so they are reported. The explicit disposal failure
+    // is raised to its caller, and the fixture asserts it through the
+    // instance's diagnostic.
     let errors = plugin_support::shutdown(&lua);
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("inverse failed rollback")),
-        "{errors:?}"
-    );
+    for reported in ["inverse failed rollback", "inverse failed disable"] {
+        assert!(
+            errors.iter().any(|error| error.contains(reported)),
+            "missing {reported}: {errors:?}"
+        );
+    }
     assert!(
         !errors
             .iter()
@@ -336,18 +336,6 @@ fn production_cancels_loading_acquisition_before_publication() -> mlua::Result<(
     let (lua, module) = state()?;
     run_fixture(&lua, &module, "cancel")?;
     assert!(plugin_support::shutdown(&lua).is_empty());
-    Ok(())
-}
-
-#[test]
-fn production_releases_payload_and_quarantines_failed_cleanup() -> mlua::Result<()> {
-    let (lua, module) = state()?;
-    run_fixture(&lua, &module, "quarantine")?;
-    let errors = plugin_support::shutdown(&lua);
-    assert!(
-        errors.iter().any(|error| error.contains("cleanup failed")),
-        "cleanup errors: {errors:?}"
-    );
     Ok(())
 }
 
