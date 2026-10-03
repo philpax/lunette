@@ -445,26 +445,40 @@ impl Graph {
         if node.intent.retired {
             return Err(GraphError::Retired(instance));
         }
-        for key in &node.provided {
-            for (other, other_node) in &self.instances {
-                if *other == instance || !other_node.provided.contains(key) {
-                    continue;
-                }
-                if other_node.is_quarantined() {
-                    return Err(GraphError::ContractQuarantined {
-                        key: key.clone(),
-                        owner: *other,
-                    });
-                }
-                if other_node.claims() {
-                    return Err(GraphError::ContractConflict {
-                        key: key.clone(),
-                        owner: *other,
-                    });
-                }
+        // The first rival that is or will be quarantined, or that claims the
+        // contract by intent, rejects the request.
+        for (key, owner, other) in self.rivals(instance, node) {
+            if other.is_quarantined() {
+                return Err(GraphError::ContractQuarantined {
+                    key: key.clone(),
+                    owner,
+                });
+            }
+            if other.claims() {
+                return Err(GraphError::ContractConflict {
+                    key: key.clone(),
+                    owner,
+                });
             }
         }
         Ok(())
+    }
+
+    /// Iterates the other instances that provide a contract `node` provides,
+    /// each with the contract they share, contract by contract.
+    pub(super) fn rivals<'a>(
+        &'a self,
+        instance: InstanceId,
+        node: &'a Instance,
+    ) -> impl Iterator<Item = (&'a ContractKey, InstanceId, &'a Instance)> {
+        node.provided.iter().flat_map(move |key| {
+            self.instances
+                .iter()
+                .filter(move |(other, other_node)| {
+                    **other != instance && other_node.provided.contains(key)
+                })
+                .map(move |(other, other_node)| (key, *other, other_node))
+        })
     }
 
     fn loading_allocation(
@@ -509,15 +523,14 @@ impl Graph {
     /// Finds a provided contract that another instance holds at publication.
     fn publish_conflict(&self, instance: InstanceId) -> Option<DiagnosticKind> {
         let node = self.instances.get(&instance)?;
-        node.provided.iter().find_map(|key| {
-            self.instances.iter().find_map(|(other, other_node)| {
-                (*other != instance
-                    && other_node.provided.contains(key)
-                    && (other_node.phase.allocation().is_some() || other_node.is_quarantined()))
-                .then(|| DiagnosticKind::PublishConflict {
+        // Only a rival that holds an allocation or is quarantined conflicts
+        // here. A claim alone does not: the claimant has not loaded.
+        self.rivals(instance, node).find_map(|(key, owner, other)| {
+            (other.phase.allocation().is_some() || other.is_quarantined()).then(|| {
+                DiagnosticKind::PublishConflict {
                     key: key.clone(),
-                    owner: *other,
-                })
+                    owner,
+                }
             })
         })
     }

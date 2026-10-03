@@ -173,24 +173,21 @@ impl Graph {
     /// normally a draining instance, or a quarantined one that never releases it.
     fn own_contract_blocker(&self, instance: InstanceId) -> Option<OwnBlocker> {
         let node = self.instances.get(&instance)?;
+        // A rival already quarantined blocks outright wherever it is found,
+        // ahead of any rival that only holds the contract. A rival with a
+        // pending quarantine, an allocation, or a claim holds it until it
+        // drains or yields.
         let mut held = false;
-        for key in &node.provided {
-            for (other, other_node) in &self.instances {
-                if *other == instance || !other_node.provided.contains(key) {
-                    continue;
-                }
-                if matches!(other_node.phase, Phase::Quarantined) {
-                    return Some(OwnBlocker::Quarantined(
-                        DiagnosticKind::ContractQuarantined {
-                            key: key.clone(),
-                            owner: *other,
-                        },
-                    ));
-                }
-                if other_node.phase.allocation().is_some() || other_node.claims() {
-                    held = true;
-                }
+        for (key, owner, other) in self.rivals(instance, node) {
+            if matches!(other.phase, Phase::Quarantined) {
+                return Some(OwnBlocker::Quarantined(
+                    DiagnosticKind::ContractQuarantined {
+                        key: key.clone(),
+                        owner,
+                    },
+                ));
             }
+            held |= other.phase.allocation().is_some() || other.claims();
         }
         held.then_some(OwnBlocker::Held)
     }
