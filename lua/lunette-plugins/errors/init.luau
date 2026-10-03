@@ -113,11 +113,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       if type(subscriber) ~= 'table' then
         error('errors subscribe: a subscriber is a table of fields, not a ' .. type(subscriber), 2)
       end
-      for key, _ in subscriber :: { [unknown]: unknown } do
-        if type(key) ~= 'string' or not SUBSCRIBER_KEYS[key] then
-          error('errors subscribe: unknown field ' .. tostring(key) .. '; the fields are run and cleared', 2)
-        end
-      end
+      plugin.rejectUnknownFields('errors subscribe', subscriber, SUBSCRIBER_KEYS, 'run and cleared', 2)
       if type(subscriber.run) ~= 'function' then
         error('errors subscribe: run is a function, not a ' .. type(subscriber.run), 2)
       end

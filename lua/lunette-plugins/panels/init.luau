@@ -122,17 +122,15 @@ local function create(state: ProviderState, owner: Owner, source: panel.Source, 
   return target
 end
 
+local LISTENER_KEYS: { [string]: boolean } = { panel = true, run = true }
+
 -- Checks a listener table's shape. Each error names the caller of the
 -- service method, two frames up.
 local function checkListener(operation: string, listener: unknown): ()
   if type(listener) ~= 'table' then
     error(string.format('panels %s: a listener is a table of fields, not a %s', operation, type(listener)), 3)
   end
-  for key, _ in listener :: { [unknown]: unknown } do
-    if key ~= 'panel' and key ~= 'run' then
-      error(string.format('panels %s: unknown field %s; the fields are panel and run', operation, tostring(key)), 3)
-    end
-  end
+  plugin.rejectUnknownFields('panels ' .. operation, listener, LISTENER_KEYS, 'panel and run', 3)
   local run = (listener :: { [string]: unknown }).run
   if type(run) ~= 'function' then
     error(string.format('panels %s: run is a function, not a %s', operation, type(run)), 3)

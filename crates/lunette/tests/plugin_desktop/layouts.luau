@@ -159,7 +159,7 @@ first.placement:onPlaced(owner, {
     error 'a raising placement listener'
   end,
 })
-raises('placement: unknown onPlaced field callback', function()
+raises('placement onPlaced: unknown field callback', function()
   first.placement:onPlaced(owner, { callback = function() end })
 end)
 events.reported = {}

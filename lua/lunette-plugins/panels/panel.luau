@@ -98,6 +98,8 @@ export type Source =
 export type State = MutablePanel & Source
 
 -- A curve is a finite number, zero or more.
+local VISIBILITY_KEYS: { [string]: boolean } = { hidden = true }
+
 local function checkCurve(curve: unknown, level: number): number
   if type(curve) ~= 'number' or curve ~= curve or curve < 0 or curve == math.huge then
     error('panels: a curve is a finite number, zero or more, not ' .. tostring(curve), level)
@@ -170,11 +172,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       if type(visibility) ~= 'table' or type(visibility.hidden) ~= 'boolean' then
         error('panels: setHidden takes { hidden = boolean }', 2)
       end
-      for key, _ in visibility :: { [unknown]: unknown } do
-        if key ~= 'hidden' then
-          error('panels: setHidden: unknown field ' .. tostring(key) .. '; the field is hidden', 2)
-        end
-      end
+      plugin.rejectUnknownFields('panels setHidden', visibility, VISIBILITY_KEYS, 'hidden', 2)
       return panel.setHidden(created, caller, visibility.hidden)
     end,
     destroy = function(_self: Panel, caller: Owner): boolean

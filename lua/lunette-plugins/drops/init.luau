@@ -7,22 +7,11 @@ local listeners = require '@lunette-plugins/listeners'
 local LISTENER_KEYS: { [string]: boolean } = { run = true }
 local DROP_KEYS: { [string]: boolean } = { surface = true, pointer = true }
 
-local function checkFields(operation: string, value: unknown, allowed: { [string]: boolean }, fields: string): ()
-  if type(value) ~= 'table' then
-    error(string.format('drops %s: the argument is a table of fields, not a %s', operation, type(value)), 3)
-  end
-  for key, _ in value :: { [unknown]: unknown } do
-    if type(key) ~= 'string' or not allowed[key] then
-      error(string.format('drops %s: unknown field %s; the fields are %s', operation, tostring(key), fields), 3)
-    end
-  end
-end
-
 local function create(context: plugin.Context): contract.Service
   local heard = listeners.new<<(contract.Drop) -> ()>>(context)
   return {
     onDropped = function(_self: contract.Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
-      checkFields('onDropped', listener, LISTENER_KEYS, 'run')
+      plugin.rejectUnknownFields('drops onDropped', listener, LISTENER_KEYS, 'run', 2)
       local run = listener.run
       if type(run) ~= 'function' then
         error('drops onDropped: run is a function, not a ' .. type(run), 2)
@@ -32,7 +21,7 @@ local function create(context: plugin.Context): contract.Service
     -- The listeners are chosen before any is called, so a listener added by
     -- another does not hear this drop, and one disposed by another is skipped.
     emit = function(_self: contract.Service, owner: contract.Owner, drop: contract.Drop): ()
-      checkFields('emit', drop, DROP_KEYS, 'surface and pointer')
+      plugin.rejectUnknownFields('drops emit', drop, DROP_KEYS, 'surface and pointer', 2)
       if type(drop.surface) ~= 'table' then
         error('drops emit: surface is a surface, not a ' .. type(drop.surface), 2)
       end

@@ -30,14 +30,6 @@ local function fail(message: string): never
   error('bindings register: ' .. message, 0)
 end
 
-local function rejectUnknown(value: { [unknown]: unknown }, allowed: { [string]: boolean }, fields: string): ()
-  for key, _ in value do
-    if type(key) ~= 'string' or not allowed[key] then
-      fail('unknown field ' .. tostring(key) .. '; the fields are ' .. fields)
-    end
-  end
-end
-
 -- The identity of a chord: its key and its modifiers in a fixed order, so
 -- the same chord written with its modifiers in another order is the same.
 local function identity(key: string, modifiers: { string }): string
@@ -54,7 +46,7 @@ local function checked(chord: unknown): (contract.Chord, string)
     fail('chord is a table of fields, not a ' .. type(chord))
   end
   local raw = chord :: { [unknown]: unknown }
-  rejectUnknown(raw, CHORD_KEYS, 'key and modifiers')
+  plugin.rejectUnknownFields('bindings register', raw, CHORD_KEYS, 'key and modifiers', 0)
   local key = raw.key
   if type(key) ~= 'string' or key == '' then
     fail('chord.key is a key name, not ' .. tostring(key))
@@ -98,7 +90,7 @@ local function create(context: plugin.Context): contract.Service
         if type(binding) ~= 'table' then
           fail('a binding is a table of fields, not a ' .. type(binding))
         end
-        rejectUnknown((binding :: unknown) :: { [unknown]: unknown }, BINDING_KEYS, 'chord and run')
+        plugin.rejectUnknownFields('bindings register', binding, BINDING_KEYS, 'chord and run', 0)
         chord, key = checked(binding.chord)
         if type(binding.run) ~= 'function' then
           fail('run is a function, not a ' .. type(binding.run))

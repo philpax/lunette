@@ -178,7 +178,7 @@ local function ownerContext(owner: Owner, level: number): NativeContext
   return nativeContext
 end
 
-local rejectUnknownKeys = options.rejectUnknownKeys
+local rejectUnknownFields = options.rejectUnknownFields
 
 local subscriptionKeys: { [string]: boolean } = { event = true, run = true }
 
@@ -218,7 +218,7 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
       if type(subscription) ~= 'table' then
         error('plugin on: a subscription is a table of fields, not a ' .. type(subscription), 2)
       end
-      rejectUnknownKeys('on', (subscription :: unknown) :: { [unknown]: unknown }, subscriptionKeys, 'event and run', 3)
+      rejectUnknownFields('plugin on', subscription, subscriptionKeys, 'event and run', 2)
       local subscribe, handler = subscription.event, subscription.run
       if type(subscribe) ~= 'function' then
         error('plugin on: event is a subscribing function, not a ' .. type(subscribe), 2)
@@ -259,7 +259,7 @@ local function validateCapabilitySpec(spec: CapabilitySpec): CapabilitySpec
     error('plugin capability: a capability is a table of fields, not a ' .. type(spec), level)
   end
   local raw = (spec :: unknown) :: { [unknown]: unknown }
-  rejectUnknownKeys('capability', raw, capabilityKeys, 'name and schema', level + 1)
+  rejectUnknownFields('plugin capability', raw, capabilityKeys, 'name and schema', level)
   local name = raw.name
   if type(name) ~= 'string' then
     error('plugin capability: name is a string, not a ' .. type(name), level)
@@ -404,7 +404,7 @@ local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
     error('plugin define: a definition is a table of fields, not a ' .. type(spec), level)
   end
   local raw = (spec :: unknown) :: { [unknown]: unknown }
-  rejectUnknownKeys('define', raw, specKeys, 'name, requires, provides, and init', level + 1)
+  rejectUnknownFields('plugin define', raw, specKeys, 'name, requires, provides, and init', level)
   local name = raw.name
   if type(name) ~= 'string' then
     error('plugin define: name is a string, not a ' .. type(name), level)

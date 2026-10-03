@@ -45,6 +45,8 @@ local required: plugin.Declaration = {
   tags = tags.capability,
 }
 
+local SAVE_KEYS: { [string]: boolean } = { force = true }
+
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/persistence', defaults = DEFAULTS, config = config }
   if settings.file == '' then
@@ -120,11 +122,7 @@ local function define(): plugin.Definition<Config>
             if type(options) ~= 'table' then
               error('arrangement save: options are a table of fields, not a ' .. type(options), 2)
             end
-            for key, _ in options :: { [unknown]: unknown } do
-              if key ~= 'force' then
-                error('arrangement save: unknown field ' .. tostring(key) .. '; the field is force', 2)
-              end
-            end
+            plugin.rejectUnknownFields('arrangement save', options, SAVE_KEYS, 'force', 2)
           end
           return binding:save(options)
         end,

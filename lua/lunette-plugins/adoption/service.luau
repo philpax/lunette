@@ -15,6 +15,7 @@ export type Options = adoption.Options
 export type Properties = adoption.Properties
 
 local SOURCE = 'lunette.adoption'
+local INSTALL_KEYS: { [string]: boolean } = { precedence = true }
 
 type State = {
   active: boolean,
@@ -120,11 +121,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     if options ~= nil and type(options) ~= 'table' then
       error('adoption: install options are a table of fields, not a ' .. type(options), 2)
     end
-    for key, _ in (options or {}) :: { [unknown]: unknown } do
-      if key ~= 'precedence' then
-        error('adoption: unknown install field ' .. tostring(key) .. '; the field is precedence', 2)
-      end
-    end
+    plugin.rejectUnknownFields('adoption install', options or {}, INSTALL_KEYS, 'precedence', 2)
     local rules: rulesContract.Service = context:require(rulesContract.capability)
     local chosen = options and options.precedence or settings.precedence
     if type(chosen) ~= 'number' or chosen ~= chosen then

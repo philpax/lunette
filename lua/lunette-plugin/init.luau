@@ -53,6 +53,11 @@ function plugin.options<S>(spec: OptionsSpec<S>): S
   return options.resolve(spec)
 end
 
+-- Raises for a value that is not a table, or for its first key outside `allowed`:
+-- `<prefix>: unknown field <key>; the fields are <fields>`. `level` counts as `error`'s does from the
+-- function that calls this one, so 2 names that function's caller, and 0 gives no position.
+plugin.rejectUnknownFields = options.rejectUnknownFields
+
 -- Answers `over` merged over `base` by the configuration rule, without
 -- validating either.
 function plugin.merge(spec: MergeSpec): { [string]: unknown }

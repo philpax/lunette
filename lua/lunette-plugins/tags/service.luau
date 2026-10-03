@@ -43,6 +43,8 @@ type Record = {
 
 local LISTENER_KEYS: { [string]: boolean } = { tag = true, run = true }
 local HOLD_KEYS: { [string]: boolean } = { name = true, index = true, selected = true, layout = true }
+local EXCLUSION_KEYS: { [string]: boolean } = { panel = true }
+local LAYOUT_KEYS: { [string]: boolean } = { layout = true }
 
 -- Disposes every effect, attempting all before raising the first failure.
 local function disposeAll(effects: { plugin.Effect }): ()
@@ -345,11 +347,7 @@ local function create(context: plugin.Context): tags.Service
         if type(exclusion) ~= 'table' then
           error('tags exclude: an exclusion is a table of fields, not a ' .. type(exclusion), 2)
         end
-        for key, _ in exclusion :: { [unknown]: unknown } do
-          if key ~= 'panel' then
-            error('tags exclude: unknown field ' .. tostring(key) .. '; the field is panel', 2)
-          end
-        end
+        plugin.rejectUnknownFields('tags exclude', exclusion, EXCLUSION_KEYS, 'panel', 2)
         local panel = exclusion.panel
         if type(panel) ~= 'table' then
           error('tags exclude: panel is a panel, not a ' .. type(panel), 2)
@@ -409,11 +407,7 @@ local function create(context: plugin.Context): tags.Service
         if type(wanted) ~= 'table' then
           error('tags setLayout: a layout choice is a table of fields, not a ' .. type(wanted), 2)
         end
-        for key, _ in wanted :: { [unknown]: unknown } do
-          if key ~= 'layout' then
-            error('tags setLayout: unknown field ' .. tostring(key) .. '; the field is layout', 2)
-          end
-        end
+        plugin.rejectUnknownFields('tags setLayout', wanted, LAYOUT_KEYS, 'layout', 2)
         if wanted.layout ~= nil and type(wanted.layout) ~= 'string' then
           error('tags setLayout: layout is a layout name, not a ' .. type(wanted.layout), 2)
         end
@@ -475,11 +469,7 @@ local function create(context: plugin.Context): tags.Service
     if type(wanted) ~= 'table' then
       error('tags hold: a hold is a table of fields, not a ' .. type(wanted), 2)
     end
-    for key, _ in wanted :: { [unknown]: unknown } do
-      if type(key) ~= 'string' or not HOLD_KEYS[key] then
-        error('tags hold: unknown field ' .. tostring(key) .. '; the fields are name, index, selected, and layout', 2)
-      end
-    end
+    plugin.rejectUnknownFields('tags hold', wanted, HOLD_KEYS, 'name, index, selected, and layout', 2)
     local name = wanted.name
     if type(name) ~= 'string' or name == '' then
       error('tags hold: name is a non-empty tag name, not ' .. tostring(name), 2)
@@ -566,11 +556,7 @@ local function create(context: plugin.Context): tags.Service
     if type(listener) ~= 'table' then
       error('tags onChanged: a listener is a table of fields, not a ' .. type(listener), 2)
     end
-    for key, _ in listener :: { [unknown]: unknown } do
-      if type(key) ~= 'string' or not LISTENER_KEYS[key] then
-        error('tags onChanged: unknown field ' .. tostring(key) .. '; the fields are tag and run', 2)
-      end
-    end
+    plugin.rejectUnknownFields('tags onChanged', listener, LISTENER_KEYS, 'tag and run', 2)
     if type(listener.run) ~= 'function' then
       error('tags onChanged: run is a function, not a ' .. type(listener.run), 2)
     end

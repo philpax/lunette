@@ -34,6 +34,7 @@ type State = {
 }
 
 local REQUEST_KEYS: { [string]: boolean } = { window = true, properties = true, defaults = true }
+local LISTENER_KEYS: { [string]: boolean } = { run = true }
 
 local function report(message: string, level: rulesContract.LogLevel?): ()
   if lovr and lovr.log then
@@ -209,14 +210,7 @@ local function checkedRequest(request: unknown): contract.Request
   if type(request) ~= 'table' then
     error('placement: a request is a table of fields, not a ' .. type(request), 3)
   end
-  for key, _ in request :: { [unknown]: unknown } do
-    if type(key) ~= 'string' or not REQUEST_KEYS[key] then
-      error(
-        'placement: unknown request field ' .. tostring(key) .. '; the fields are window, properties, and defaults',
-        3
-      )
-    end
-  end
+  plugin.rejectUnknownFields('placement place', request, REQUEST_KEYS, 'window, properties, and defaults', 3)
   local checked = request :: contract.Request
   if checked.window == nil then
     error('placement: a window is placed, and nil is not one', 3)
@@ -286,11 +280,7 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
       if type(listener) ~= 'table' then
         error('placement: onPlaced takes a table of fields, not a ' .. type(listener), 2)
       end
-      for key, _ in listener :: { [unknown]: unknown } do
-        if key ~= 'run' then
-          error('placement: unknown onPlaced field ' .. tostring(key) .. '; the field is run', 2)
-        end
-      end
+      plugin.rejectUnknownFields('placement onPlaced', listener, LISTENER_KEYS, 'run', 2)
       if type(listener.run) ~= 'function' then
         error('placement: onPlaced run is a function, not a ' .. type(listener.run), 2)
       end

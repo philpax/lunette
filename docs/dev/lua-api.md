@@ -126,6 +126,8 @@ A wrapper changes only what reaches the service from outside. A built-in calls i
 
 `plugin.options { name = ..., defaults = ..., config = ... }` is the validation alone, for a plugin that is not a provider: the desktop's consumers call it with their defaults, empty for a consumer that takes no options, so any option they do not take is reported by name. `plugin.merge { base = ..., over = ... }` merges by the same rule without validating, which is what a composition does with a `config` patch.
 
+`plugin.rejectUnknownFields(prefix, value, allowed, fields, level)` checks the fields of a table a service method receives, and the built-in providers check their arguments with it. It raises `<prefix>: unknown field <key>; the fields are <fields>` for the first key `allowed` does not name, with `the field is` when `allowed` names one, and refuses a value that is not a table. `level` counts as `error`'s does from the function that calls it, so a method passes 2 to name its caller.
+
 ### Frame and surfaces
 
 LÖVR's frame and input callbacks reach plugins through two contracts, `lunette/frame` and `lunette/surfaces`, which the built-in `@lunette-plugins/frame` and `@lunette-plugins/surfaces` providers implement. A plugin that draws, updates, takes keys, or offers something a pointer can pick requires them like any other contract and needs nothing from the configuration.

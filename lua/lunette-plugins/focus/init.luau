@@ -18,17 +18,6 @@ local LISTENER_KEYS: { [string]: boolean } = { run = true }
 -- The key a grant without a seat is kept under.
 local NO_SEAT = table.freeze {}
 
-local function checkFields(operation: string, value: unknown, allowed: { [string]: boolean }, fields: string): ()
-  if type(value) ~= 'table' then
-    error(string.format('focus %s: the argument is a table of fields, not a %s', operation, type(value)), 3)
-  end
-  for key, _ in value :: { [unknown]: unknown } do
-    if type(key) ~= 'string' or not allowed[key] then
-      error(string.format('focus %s: unknown field %s; the fields are %s', operation, tostring(key), fields), 3)
-    end
-  end
-end
-
 local function create(context: plugin.Context): contract.Service
   local state = holders.new()
   local grants: { [contract.Owner]: { [unknown]: Grant } } = {}
@@ -66,7 +55,7 @@ local function create(context: plugin.Context): contract.Service
       return holders.focused(state)
     end,
     setFocus = function(_self: contract.Service, owner: contract.Owner, target: contract.Focus): plugin.Effect
-      checkFields('setFocus', target, FOCUS_KEYS, 'seat and sink')
+      plugin.rejectUnknownFields('focus setFocus', target, FOCUS_KEYS, 'seat and sink', 2)
       local seat, sink = target.seat, target.sink
       local key: unknown = seat or NO_SEAT
       local owned = grants[owner]
@@ -104,7 +93,7 @@ local function create(context: plugin.Context): contract.Service
       return acquired
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
-      checkFields('onChanged', listener, LISTENER_KEYS, 'run')
+      plugin.rejectUnknownFields('focus onChanged', listener, LISTENER_KEYS, 'run', 2)
       local run = listener.run
       if type(run) ~= 'function' then
         error('focus onChanged: run is a function, not a ' .. type(run), 2)

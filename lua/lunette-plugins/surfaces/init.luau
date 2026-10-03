@@ -22,11 +22,7 @@ local function create(context: plugin.Context): contract.Service
       if type(spec) ~= 'table' then
         error('surfaces offer: an offer is a table of fields, not a ' .. type(spec), 2)
       end
-      for key, _ in spec :: { [unknown]: unknown } do
-        if type(key) ~= 'string' or not OFFER_KEYS[key] then
-          error('surfaces offer: unknown field ' .. tostring(key) .. '; the fields are name and list', 2)
-        end
-      end
+      plugin.rejectUnknownFields('surfaces offer', spec, OFFER_KEYS, 'name and list', 2)
       local name, list = spec.name, spec.list
       if type(name) ~= 'string' or name == '' then
         error('surfaces offer: name is a non-empty string, not ' .. tostring(name), 2)

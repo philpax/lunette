@@ -18,18 +18,25 @@ export type MergeSpec = {
 
 type Raw = { [unknown]: unknown }
 
--- Raises an error naming the first key outside `allowed`, so a misspelt field
--- is reported rather than ignored. `level` is the stack level the error names.
-function options.rejectUnknownKeys(
-  operation: string,
-  raw: Raw,
+-- Raises an error naming the first key outside `allowed`, so a misspelt field is reported rather than
+-- ignored. The error reads `<prefix>: unknown field <key>; the fields are <fields>`. `level` counts as
+-- `error`'s does, but from the function that calls this one: 1 names that function, 2 its caller, and 0
+-- gives no position.
+function options.rejectUnknownFields(
+  prefix: string,
+  value: unknown,
   allowed: { [string]: boolean },
   fields: string,
   level: number
 ): ()
-  for key, _ in raw do
+  local raised = if level == 0 then 0 else level + 1
+  if type(value) ~= 'table' then
+    error(string.format('%s: the argument is a table of fields, not a %s', prefix, type(value)), raised)
+  end
+  local listed = if next(allowed, (next(allowed))) == nil then 'the field is ' else 'the fields are '
+  for key, _ in value :: Raw do
     if type(key) ~= 'string' or not allowed[key] then
-      error(string.format('plugin %s: unknown field %s; the fields are %s', operation, tostring(key), fields), level)
+      error(string.format('%s: unknown field %s; %s%s', prefix, tostring(key), listed, fields), raised)
     end
   end
 end

@@ -37,6 +37,9 @@ type MutableService = {
   resolve: (Service, lunette.Window) -> Resolved,
 }
 
+local SOURCE_KEYS: { [string]: boolean } = { name = true, precedence = true, resolve = true }
+local RULE_SET_KEYS: { [string]: boolean } = { name = true, precedence = true, rules = true }
+
 local function byPrecedence(left: Source, right: Source): boolean
   if left.precedence ~= right.precedence then
     return left.precedence < right.precedence
@@ -192,11 +195,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     if type(registration) ~= 'table' then
       error('rules: a source registration is a table of fields, not a ' .. type(registration), 2)
     end
-    for key, _ in registration :: { [unknown]: unknown } do
-      if key ~= 'name' and key ~= 'precedence' and key ~= 'resolve' then
-        error('rules: unknown source field ' .. tostring(key) .. '; the fields are name, precedence, and resolve', 2)
-      end
-    end
+    plugin.rejectUnknownFields('rules addSource', registration, SOURCE_KEYS, 'name, precedence, and resolve', 2)
     local name, precedence, resolve = registration.name, registration.precedence, registration.resolve
     if type(name) ~= 'string' then
       error('rules: a source is named by a string, not a ' .. type(name), 2)
@@ -252,11 +251,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     if type(set) ~= 'table' then
       error('rules: a rule set is a table of fields, not a ' .. type(set), 2)
     end
-    for key, _ in set :: { [unknown]: unknown } do
-      if key ~= 'name' and key ~= 'precedence' and key ~= 'rules' then
-        error('rules: unknown rule set field ' .. tostring(key) .. '; the fields are name, precedence, and rules', 2)
-      end
-    end
+    plugin.rejectUnknownFields('rules setRules', set, RULE_SET_KEYS, 'name, precedence, and rules', 2)
     if type(set.rules) ~= 'table' then
       error('rules: a rule set has a list of rules, not a ' .. type(set.rules), 2)
     end

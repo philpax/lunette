@@ -39,12 +39,12 @@ function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
   if type(spec) ~= 'table' then
     error('plugin provider: a provider is a table of fields, not a ' .. type(spec), 3)
   end
-  options.rejectUnknownKeys(
-    'provider',
-    (spec :: unknown) :: { [unknown]: unknown },
+  options.rejectUnknownFields(
+    'plugin provider',
+    spec,
     specKeys,
     'name, capability, requires, defaults, validate, and build',
-    4
+    3
   )
   local name, capability, build = spec.name, spec.capability, spec.build
   if type(name) ~= 'string' or name == '' then

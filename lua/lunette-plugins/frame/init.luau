@@ -49,6 +49,7 @@ local INPUT_PHASE_NAMES = table.concat(contract.INPUT_PHASES, ', ')
 
 local PHASED_KEYS: { [string]: boolean } = { phase = true, order = true, run = true }
 local QUIT_KEYS: { [string]: boolean } = { run = true }
+local HOOK_KEYS: { [string]: boolean } = { start = true, stop = true }
 
 -- Checks a handler table's shape and answers its run function and sort keys.
 -- Every error names the caller of the service method, two frames up.
@@ -64,12 +65,9 @@ local function validate(
   if type(handler) ~= 'table' then
     error(string.format('frame %s: a handler is a table of fields, not a %s', operation, type(handler)), level)
   end
+  local fields = if allowed == QUIT_KEYS then 'run' else 'phase, order, and run'
+  plugin.rejectUnknownFields('frame ' .. operation, handler, allowed, fields, level)
   local raw = handler :: { [unknown]: unknown }
-  for key, _ in raw do
-    if type(key) ~= 'string' or not allowed[key] then
-      error(string.format('frame %s: unknown field %s', operation, tostring(key)), level)
-    end
-  end
   if type(raw.run) ~= 'function' then
     error(string.format('frame %s: run is a function, not a %s', operation, type(raw.run)), level)
   end
@@ -247,11 +245,7 @@ function frame.install(hooks: Hooks): ()
   if type(hooks) ~= 'table' then
     error('frame install: the hooks are a table of fields, not a ' .. type(hooks), 2)
   end
-  for key, _ in hooks :: { [unknown]: unknown } do
-    if key ~= 'start' and key ~= 'stop' then
-      error('frame install: unknown field ' .. tostring(key) .. '; the fields are start and stop', 2)
-    end
-  end
+  plugin.rejectUnknownFields('frame install', hooks, HOOK_KEYS, 'start and stop', 2)
   local start, stop = hooks.start, hooks.stop
   if type(start) ~= 'function' or type(stop) ~= 'function' then
     error('frame install: start and stop are functions', 2)

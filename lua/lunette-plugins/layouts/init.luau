@@ -16,18 +16,6 @@ type Raw = { [unknown]: unknown }
 local LAYOUT_KEYS: { [string]: boolean } = { name = true, apply = true, continuous = true }
 local APPLICATION_KEYS: { [string]: boolean } = { name = true, panels = true, options = true }
 
-local function checkFields(operation: string, spec: unknown, allowed: { [string]: boolean }, fields: string): Raw
-  if type(spec) ~= 'table' then
-    error('layouts ' .. operation .. ': the argument is a table of fields, not a ' .. type(spec), 3)
-  end
-  for key, _ in spec :: Raw do
-    if type(key) ~= 'string' or not allowed[key] then
-      error('layouts ' .. operation .. ': unknown field ' .. tostring(key) .. '; the fields are ' .. fields, 3)
-    end
-  end
-  return spec :: Raw
-end
-
 local function checkName(operation: string, name: unknown): string
   if type(name) ~= 'string' or name == '' then
     error('layouts ' .. operation .. ': name is a non-empty string, not ' .. tostring(name), 3)
@@ -66,7 +54,8 @@ local function create(context: plugin.Context): contract.Service
 
   return {
     register = function(_self: contract.Service, owner: contract.Owner, spec: contract.Layout): plugin.Effect
-      local raw = checkFields('register', spec, LAYOUT_KEYS, 'name, apply, and continuous')
+      plugin.rejectUnknownFields('layouts register', spec, LAYOUT_KEYS, 'name, apply, and continuous', 2)
+      local raw = (spec :: unknown) :: Raw
       local name = checkName('register', raw.name)
       if type(raw.apply) ~= 'function' then
         error('layouts register: apply is a function, not a ' .. type(raw.apply), 2)
@@ -99,7 +88,8 @@ local function create(context: plugin.Context): contract.Service
       return effect
     end,
     apply = function(_self: contract.Service, application: contract.Application): ()
-      local raw = checkFields('apply', application, APPLICATION_KEYS, 'name, panels, and options')
+      plugin.rejectUnknownFields('layouts apply', application, APPLICATION_KEYS, 'name, panels, and options', 2)
+      local raw = (application :: unknown) :: Raw
       local name = checkName('apply', raw.name)
       if type(raw.panels) ~= 'table' then
         error('layouts apply: panels is a list of panels, not a ' .. type(raw.panels), 2)
@@ -130,7 +120,8 @@ local function create(context: plugin.Context): contract.Service
       return table.freeze { name = registration.name, continuous = registration.continuous }
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, spec: contract.ChangedListener): plugin.Effect
-      local raw = checkFields('onChanged', spec, { run = true }, 'run')
+      plugin.rejectUnknownFields('layouts onChanged', spec, { run = true }, 'run', 2)
+      local raw = (spec :: unknown) :: Raw
       if type(raw.run) ~= 'function' then
         error('layouts onChanged: run is a function, not a ' .. type(raw.run), 2)
       end
