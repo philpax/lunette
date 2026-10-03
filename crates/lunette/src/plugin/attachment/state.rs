@@ -3,7 +3,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     rc::{Rc, Weak},
     sync::Arc,
 };
@@ -12,7 +12,7 @@ use mlua::{Function, Lua, Table, Value};
 
 use crate::plugin::{
     attachment::error::{AttachmentError, PluginFailure, PluginLabel},
-    contracts::{ContractId, ContractRegistry},
+    contracts::ContractRegistry,
     graph::{ActivationId, ContractKey, Graph, InstanceId},
 };
 
@@ -22,7 +22,6 @@ pub type Reporter = Rc<dyn Fn(&Lua, &PluginFailure)>;
 
 pub(super) struct AttachmentHost {
     pub(super) registry: ContractRegistry,
-    pub(super) contract_keys: HashMap<ContractId, ContractKey>,
     pub(super) runtimes: Vec<Rc<RefCell<RuntimeState>>>,
     pub(super) definitions: Vec<Weak<DefinitionData>>,
     pub(super) callback_depth: usize,
@@ -40,7 +39,6 @@ impl AttachmentHost {
     pub(super) fn new() -> Self {
         Self {
             registry: ContractRegistry::new(),
-            contract_keys: HashMap::new(),
             runtimes: Vec::new(),
             definitions: Vec::new(),
             callback_depth: 0,

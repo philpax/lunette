@@ -31,10 +31,6 @@ pub enum AttachmentError {
         /// The Lua type that was supplied instead.
         found: &'static str,
     },
-    /// A contract schema does not fit the graph's key.
-    SchemaRange { schema: u64 },
-    /// A declaration names a token the graph has no key for.
-    UnmappedToken,
     /// A plugin context cannot perform an operation.
     Context {
         /// The operation that was attempted.
@@ -83,13 +79,6 @@ impl fmt::Display for AttachmentError {
                 formatter,
                 "plugin contract: a wrapper must be a table, not a {found}"
             ),
-            Self::SchemaRange { schema } => write!(
-                formatter,
-                "plugin contract: schema {schema} does not fit the graph"
-            ),
-            Self::UnmappedToken => {
-                formatter.write_str("plugin contract: the token has no graph identity")
-            }
             Self::Context { operation, reason } => {
                 write!(formatter, "plugin {operation}: {reason}")
             }

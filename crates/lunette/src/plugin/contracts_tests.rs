@@ -26,6 +26,15 @@ fn contract_registry_identity() -> mlua::Result<()> {
         Err(ContractError::DuplicateIdentity { .. })
     ));
 
+    for schema in [0, u64::from(u32::MAX) + 1] {
+        assert_eq!(
+            registry
+                .declare(contract_name("example", "clock"), schema)
+                .err(),
+            Some(ContractError::InvalidSchema { schema })
+        );
+    }
+
     let other_authority = registry
         .declare(contract_name("other", "clock"), 1)
         .map_err(mlua::Error::external)?;
@@ -95,10 +104,10 @@ fn declaration_shape_rejected() -> mlua::Result<()> {
     let token_id = registry
         .validate_token(&token)
         .map_err(mlua::Error::external)?;
-    assert_eq!(copied.get("clock"), Some(token_id));
+    assert_eq!(copied.get("clock"), Some(&token_id));
 
     valid.set("clock", true)?;
-    assert_eq!(copied.get("clock"), Some(token_id));
+    assert_eq!(copied.get("clock"), Some(&token_id));
     Ok(())
 }
 
@@ -153,7 +162,7 @@ fn frozen_wrapper_binding_is_exact_and_one_time() -> mlua::Result<()> {
     assert_eq!(
         copied.get("clock"),
         Some(
-            registry
+            &registry
                 .validate_token(&clock)
                 .map_err(mlua::Error::external)?
         )
@@ -222,7 +231,7 @@ fn shared_registry_reuse() -> mlua::Result<()> {
     let token_id = second_runtime
         .validate_token(&token)
         .map_err(mlua::Error::external)?;
-    assert_eq!(copied.get("clock"), Some(token_id));
+    assert_eq!(copied.get("clock"), Some(&token_id));
 
     let duplicate = second_runtime.declare(contract_name("example", "clock"), 1);
     assert!(matches!(

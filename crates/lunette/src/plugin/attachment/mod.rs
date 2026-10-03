@@ -33,9 +33,8 @@ use self::{
     lifecycle::close_runtime,
     state::{AttachmentHost, DeclarationField, DefinitionData, RuntimeState},
 };
-use crate::plugin::{
-    contracts::{ContractError, ContractName, ContractRegistry, ValidatedDeclaration},
-    graph::ContractKey,
+use crate::plugin::contracts::{
+    ContractError, ContractName, ContractRegistry, ValidatedDeclaration,
 };
 
 /// Installs the state-bound contract registry if absent, keeping the current
@@ -89,7 +88,6 @@ pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
     let mut state = host.borrow_mut();
     state.runtimes.clear();
     state.registry = ContractRegistry::new();
-    state.contract_keys.clear();
     match state.epoch.checked_add(1) {
         Some(epoch) => state.epoch = epoch,
         None => errors.push(AttachmentError::EpochExhausted),
@@ -107,19 +105,10 @@ pub fn callback_active(lua: &Lua) -> bool {
 pub fn contract(lua: &Lua, (name, schema): (String, u64)) -> mlua::Result<PluginContractToken> {
     let host = require_host(lua)?;
     let contract_name = ContractName::from_qualified(name).map_err(AttachmentError::Contract)?;
-    let key_name = contract_name.qualified();
-    let schema_u32 = u32::try_from(schema).map_err(|_| AttachmentError::SchemaRange { schema })?;
     let registry = host.borrow().registry.clone();
-    let token = registry
+    Ok(registry
         .declare(contract_name, schema)
-        .map_err(AttachmentError::Contract)?;
-    let id = registry
-        .validate_token(&token)
-        .map_err(AttachmentError::Contract)?;
-    host.borrow_mut()
-        .contract_keys
-        .insert(id, ContractKey::new(key_name, schema_u32));
-    Ok(token)
+        .map_err(AttachmentError::Contract)?)
 }
 
 /// Binds one erased native wrapper to one contract token.
@@ -156,11 +145,9 @@ pub fn define(
     let host = require_host(lua)?;
     let (required, provided, epoch) = {
         let host_ref = host.borrow();
-        let required = validate_declaration(&host_ref, required.0)?;
-        let provided = validate_declaration(&host_ref, provided.0)?;
         (
-            fields_for_declaration(&host_ref, &required)?,
-            fields_for_declaration(&host_ref, &provided)?,
+            declaration_fields(&validate_declaration(&host_ref, required.0)?),
+            declaration_fields(&validate_declaration(&host_ref, provided.0)?),
             host_ref.epoch,
         )
     };
@@ -233,22 +220,12 @@ fn validate_declaration(
         .map_err(AttachmentError::Contract)
 }
 
-fn fields_for_declaration(
-    host: &AttachmentHost,
-    declaration: &ValidatedDeclaration,
-) -> Result<Vec<DeclarationField>, AttachmentError> {
+fn declaration_fields(declaration: &ValidatedDeclaration) -> Vec<DeclarationField> {
     declaration
         .iter()
-        .map(|(field, id)| {
-            let key = host
-                .contract_keys
-                .get(&id)
-                .cloned()
-                .ok_or(AttachmentError::UnmappedToken)?;
-            Ok(DeclarationField {
-                field: field.to_owned(),
-                key,
-            })
+        .map(|(field, key)| DeclarationField {
+            field: field.to_owned(),
+            key: key.clone(),
         })
         .collect()
 }

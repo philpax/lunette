@@ -4,16 +4,17 @@
 //! copied into a [`ValidatedDeclaration`] so the graph never retains a Lua table.
 
 use std::{
-    cell::{Cell, RefCell},
-    collections::{BTreeMap, HashMap},
+    cell::RefCell,
+    collections::{BTreeMap, HashMap, HashSet},
     error::Error,
     ffi::c_void,
     fmt,
-    num::NonZeroU64,
     rc::{Rc, Weak},
 };
 
 use mlua::{Lua, Table, UserData, Value};
+
+use crate::plugin::graph::ContractKey;
 
 /// The identity of a contract, excluding its schema version.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -67,38 +68,13 @@ impl fmt::Display for ContractName {
     }
 }
 
-/// A positive contract schema number.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ContractSchema(NonZeroU64);
-
-impl ContractSchema {
-    /// Returns a schema number, or `None` for zero.
-    #[must_use]
-    pub fn new(value: u64) -> Option<Self> {
-        NonZeroU64::new(value).map(Self)
-    }
-
-    #[must_use]
-    pub fn get(self) -> u64 {
-        self.0.get()
-    }
-}
-
-/// An opaque identifier for a declared contract, meaningful only within the
-/// registry that produced it.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ContractId {
-    ordinal: u64,
-}
-
 /// A native token that names one contract declaration.
 ///
 /// The userdata registers no fields or methods, so Lua cannot read or forge one.
 #[derive(Clone)]
 pub struct PluginContractToken {
     registry: Weak<RegistryInner>,
-    id: ContractId,
-    identity: ContractIdentity,
+    key: ContractKey,
 }
 
 pub type ContractToken = PluginContractToken;
@@ -107,7 +83,7 @@ impl fmt::Debug for PluginContractToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ContractToken")
-            .field("id", &self.id)
+            .field("key", &self.key)
             .finish_non_exhaustive()
     }
 }
@@ -117,19 +93,19 @@ impl UserData for PluginContractToken {}
 /// An immutable, copied declaration suitable for graph construction.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ValidatedDeclaration {
-    bindings: BTreeMap<String, ContractId>,
+    bindings: BTreeMap<String, ContractKey>,
 }
 
 impl ValidatedDeclaration {
-    /// Returns the ID bound to a declaration field.
+    /// Returns the contract bound to a declaration field.
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<ContractId> {
-        self.bindings.get(name).copied()
+    pub fn get(&self, name: &str) -> Option<&ContractKey> {
+        self.bindings.get(name)
     }
 
     /// Iterates copied declaration fields in lexical order.
-    pub fn iter(&self) -> impl Iterator<Item = (&str, ContractId)> {
-        self.bindings.iter().map(|(name, id)| (name.as_str(), *id))
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &ContractKey)> {
+        self.bindings.iter().map(|(name, key)| (name.as_str(), key))
     }
 
     #[must_use]
@@ -153,15 +129,10 @@ pub enum ContractError {
     },
     /// A qualified name was missing its authority separator.
     UnqualifiedName { name: String },
-    /// A schema number was zero.
+    /// A schema number was zero or does not fit in 32 bits.
     InvalidSchema { schema: u64 },
     /// The exact name/schema identity was already declared in this epoch.
-    DuplicateIdentity {
-        name: ContractName,
-        schema: ContractSchema,
-    },
-    /// The registry could not allocate another ordinal or epoch.
-    RegistryExhausted,
+    DuplicateIdentity { key: ContractKey },
     /// The value passed as a declaration was not a table.
     DeclarationNotTable { actual: String },
     /// A declaration key was not a string.
@@ -176,8 +147,6 @@ pub enum ContractError {
     RetiredToken { site: TokenSite },
     /// The capability wrapper was bound in an epoch that has been retired.
     RetiredWrapper { key: String },
-    /// The token has the registry identity but not a currently registered identity.
-    UnknownToken { site: TokenSite },
     /// A capability wrapper was mutable when native code tried to bind it.
     WrapperNotFrozen,
     /// The token already has a capability wrapper.
@@ -206,17 +175,14 @@ impl fmt::Display for ContractError {
             Self::InvalidSchema { schema } => {
                 write!(
                     formatter,
-                    "plugin contract: schema {schema} is not positive"
+                    "plugin contract: schema {schema} is not a positive 32-bit integer"
                 )
             }
-            Self::DuplicateIdentity { name, schema } => write!(
+            Self::DuplicateIdentity { key } => write!(
                 formatter,
-                "plugin contract: {name} schema {} is already declared",
-                schema.get()
-            ),
-            Self::RegistryExhausted => write!(
-                formatter,
-                "plugin contract: registry identity space is exhausted"
+                "plugin contract: {} schema {} is already declared",
+                key.name(),
+                key.schema()
             ),
             Self::DeclarationNotTable { actual } => write!(
                 formatter,
@@ -246,10 +212,6 @@ impl fmt::Display for ContractError {
             Self::RetiredWrapper { key } => write!(
                 formatter,
                 "plugin contract: declaration field '{key}' contains a capability from a retired contract epoch"
-            ),
-            Self::UnknownToken { site } => write!(
-                formatter,
-                "plugin contract: {site} is not a declared contract token"
             ),
             Self::WrapperNotFrozen => write!(
                 formatter,
@@ -286,19 +248,14 @@ pub enum TokenSite {
     Field(String),
     /// The token stands alone, as it does when it is bound to a capability
     /// wrapper, and is named by the contract it was declared for.
-    Contract {
-        name: ContractName,
-        schema: ContractSchema,
-    },
+    Contract(ContractKey),
 }
 
 impl fmt::Display for TokenSite {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Field(key) => write!(formatter, "the token in declaration field '{key}'"),
-            Self::Contract { name, schema } => {
-                write!(formatter, "the token for {name}@{}", schema.get())
-            }
+            Self::Contract(key) => write!(formatter, "the token for {key}"),
         }
     }
 }
@@ -320,9 +277,7 @@ impl ContractRegistry {
     pub fn new() -> Self {
         Self {
             inner: Rc::new(RegistryInner {
-                next_ordinal: Cell::new(1),
-                identities: RefCell::new(HashMap::new()),
-                contracts: RefCell::new(HashMap::new()),
+                contracts: RefCell::new(HashSet::new()),
                 bindings: RefCell::new(HashMap::new()),
             }),
         }
@@ -331,61 +286,38 @@ impl ContractRegistry {
     /// Declares a new name/schema identity and returns its native token. An
     /// identity may be declared once per registry.
     pub fn declare(&self, name: ContractName, schema: u64) -> Result<ContractToken, ContractError> {
-        let schema = ContractSchema::new(schema).ok_or(ContractError::InvalidSchema { schema })?;
-        let identity = ContractIdentity { name, schema };
-        if self.inner.identities.borrow().contains_key(&identity) {
-            return Err(ContractError::DuplicateIdentity {
-                name: identity.name,
-                schema: identity.schema,
-            });
+        let schema = u32::try_from(schema)
+            .ok()
+            .filter(|schema| *schema != 0)
+            .ok_or(ContractError::InvalidSchema { schema })?;
+        let key = ContractKey::new(name.qualified(), schema);
+        if !self.inner.contracts.borrow_mut().insert(key.clone()) {
+            return Err(ContractError::DuplicateIdentity { key });
         }
-
-        let ordinal = self.inner.next_ordinal.get();
-        let Some(next_ordinal) = ordinal.checked_add(1) else {
-            return Err(ContractError::RegistryExhausted);
-        };
-        let id = ContractId { ordinal };
-        self.inner.next_ordinal.set(next_ordinal);
-        self.inner
-            .identities
-            .borrow_mut()
-            .insert(identity.clone(), id);
-        self.inner
-            .contracts
-            .borrow_mut()
-            .insert(id, identity.clone());
         Ok(ContractToken {
             registry: Rc::downgrade(&self.inner),
-            id,
-            identity,
+            key,
         })
     }
 
-    /// Verifies a native token and returns its typed ID. An error names the
+    /// Verifies a native token and returns its contract. An error names the
     /// token by the contract it was declared for.
-    pub fn validate_token(&self, token: &ContractToken) -> Result<ContractId, ContractError> {
-        self.check_token(token, || TokenSite::Contract {
-            name: token.identity.name.clone(),
-            schema: token.identity.schema,
-        })
+    pub fn validate_token(&self, token: &ContractToken) -> Result<ContractKey, ContractError> {
+        self.check_token(token, || TokenSite::Contract(token.key.clone()))
     }
 
     fn check_token(
         &self,
         token: &ContractToken,
         site: impl FnOnce() -> TokenSite,
-    ) -> Result<ContractId, ContractError> {
+    ) -> Result<ContractKey, ContractError> {
         let Some(token_registry) = token.registry.upgrade() else {
             return Err(ContractError::RetiredToken { site: site() });
         };
         if !Rc::ptr_eq(&self.inner, &token_registry) {
             return Err(ContractError::ForeignToken { site: site() });
         }
-        let contracts = self.inner.contracts.borrow();
-        if contracts.get(&token.id) != Some(&token.identity) {
-            return Err(ContractError::UnknownToken { site: site() });
-        }
-        Ok(token.id)
+        Ok(token.key.clone())
     }
 
     /// Binds a frozen Lua capability wrapper to one native contract token.
@@ -393,13 +325,13 @@ impl ContractRegistry {
     /// Binding is one-to-one in both directions. The registry retains the table
     /// so its identity cannot be recycled after Lua garbage collection.
     pub fn bind_token(&self, token: &ContractToken, wrapper: &Table) -> Result<(), ContractError> {
-        let id = self.validate_token(token)?;
+        let key = self.validate_token(token)?;
         if !wrapper.is_readonly() {
             return Err(ContractError::WrapperNotFrozen);
         }
         let pointer = wrapper.to_pointer();
         let mut bindings = self.inner.bindings.borrow_mut();
-        if bindings.values().any(|binding| binding.token == id) {
+        if bindings.values().any(|binding| binding.token == key) {
             return Err(ContractError::TokenAlreadyBound);
         }
         if bindings.contains_key(&pointer) {
@@ -408,7 +340,7 @@ impl ContractRegistry {
         bindings.insert(
             pointer,
             WrapperBinding {
-                token: id,
+                token: key,
                 table: wrapper.clone(),
             },
         );
@@ -473,7 +405,7 @@ impl ContractRegistry {
                     });
                 }
             };
-            let id = match value {
+            let contract = match value {
                 Value::UserData(userdata) => {
                     let token = userdata.borrow::<ContractToken>().map_err(|_| {
                         ContractError::DeclarationValueNotToken {
@@ -491,7 +423,7 @@ impl ContractRegistry {
                     });
                 }
             };
-            bindings.insert(key, id);
+            bindings.insert(key, contract);
         }
         Ok(ValidatedDeclaration { bindings })
     }
@@ -510,7 +442,7 @@ impl ContractRegistry {
         &self,
         token: &ContractToken,
         key: &str,
-    ) -> Result<ContractId, ContractError> {
+    ) -> Result<ContractKey, ContractError> {
         self.check_token(token, || TokenSite::Field(key.to_owned()))
     }
 
@@ -518,7 +450,7 @@ impl ContractRegistry {
         &self,
         wrapper: &Table,
         key: &str,
-    ) -> Result<ContractId, ContractError> {
+    ) -> Result<ContractKey, ContractError> {
         let bindings = self.inner.bindings.borrow();
         let Some(binding) = bindings.get(&wrapper.to_pointer()) else {
             return Err(ContractError::UnboundWrapper {
@@ -528,25 +460,17 @@ impl ContractRegistry {
         if !wrapper.is_readonly() {
             return Err(ContractError::WrapperNotFrozen);
         }
-        Ok(binding.token)
+        Ok(binding.token.clone())
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct ContractIdentity {
-    name: ContractName,
-    schema: ContractSchema,
-}
-
 struct RegistryInner {
-    next_ordinal: Cell<u64>,
-    identities: RefCell<HashMap<ContractIdentity, ContractId>>,
-    contracts: RefCell<HashMap<ContractId, ContractIdentity>>,
+    contracts: RefCell<HashSet<ContractKey>>,
     bindings: RefCell<HashMap<*const c_void, WrapperBinding>>,
 }
 
 struct WrapperBinding {
-    token: ContractId,
+    token: ContractKey,
     table: Table,
 }
 
