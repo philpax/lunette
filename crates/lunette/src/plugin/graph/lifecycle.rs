@@ -126,7 +126,7 @@ pub struct Graph {
     pub(super) shutdown_requested: bool,
     shutdown_complete: bool,
     next_instance: u64,
-    next_activation: u64,
+    pub(super) next_activation: u64,
     next_generation: u64,
     pub(super) diagnostics: Vec<Diagnostic>,
 }
@@ -635,9 +635,11 @@ impl Graph {
         instance: InstanceId,
         bindings: Vec<Binding>,
     ) -> Option<Action> {
-        let activation = match self.allocate_activation() {
-            Ok(activation) => activation,
-            Err(_) => return None,
+        // The planner has no error channel, so exhaustion is reported the way
+        // every other reason an enabled instance cannot load is.
+        let Ok(activation) = self.allocate_activation() else {
+            self.record_diagnostic(instance, DiagnosticKind::ActivationsExhausted);
+            return None;
         };
         let node = self.instances.get_mut(&instance)?;
         node.phase = Phase::Live {

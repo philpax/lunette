@@ -118,6 +118,9 @@ pub enum DiagnosticKind {
     /// A load completed but another instance held a provided contract, so the
     /// load failed instead of publishing.
     PublishConflict { key: ContractKey, owner: InstanceId },
+    /// The activation counter cannot allocate another identity, so no
+    /// instance can begin a load again.
+    ActivationsExhausted,
 }
 
 impl DiagnosticKind {
@@ -130,7 +133,8 @@ impl DiagnosticKind {
             | Self::ProviderQuarantined { .. }
             | Self::ContractQuarantined { .. }
             | Self::DependencyCycle { .. }
-            | Self::PublishConflict { .. } => Severity::Error,
+            | Self::PublishConflict { .. }
+            | Self::ActivationsExhausted => Severity::Error,
         }
     }
 
@@ -172,6 +176,9 @@ impl DiagnosticKind {
             ),
             Self::PublishConflict { key, owner } => {
                 format!("could not publish {key}, which {} holds", label(*owner))
+            }
+            Self::ActivationsExhausted => {
+                "could not begin a load; the activation identifier space is exhausted".to_owned()
             }
         }
     }

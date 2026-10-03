@@ -171,6 +171,21 @@ fn self_disable_never_publishes() {
 }
 
 #[test]
+fn an_exhausted_activation_counter_is_reported_rather_than_dropped() {
+    let mut graph = Graph::new();
+    let instance = root(&mut graph, &[], &[key("service", 1)]);
+    graph.request(Intent::Enable(instance)).unwrap();
+    graph.next_activation = u64::MAX;
+
+    assert!(graph.next_action().is_none());
+    assert_eq!(
+        kinds(&mut graph),
+        vec![DiagnosticKind::ActivationsExhausted]
+    );
+    assert_eq!(graph.state(instance).unwrap(), LifecycleState::Inactive);
+}
+
+#[test]
 fn a_disable_then_enable_during_a_load_restarts_it() {
     let mut graph = Graph::new();
     let id = root(&mut graph, &[], &[]);
