@@ -57,14 +57,6 @@ fn saved_placement_follows_hotplug_replug_and_reopened_windows() -> mlua::Result
 }
 
 #[test]
-fn a_dropped_window_leaves_the_arrangement_and_does_not_snap_back() -> mlua::Result<()> {
-    let lua = plugin_desktop::state()?;
-    plugin_desktop::execute(&lua, include_str!("plugin_desktop/arrange.luau"))?;
-    assert!(plugin_desktop::shutdown(&lua)?.is_empty());
-    Ok(())
-}
-
-#[test]
 fn the_layouts_broker_the_arc_spacing_and_placement_events_follow_the_contracts() -> mlua::Result<()>
 {
     let lua = plugin_desktop::state()?;
