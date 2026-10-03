@@ -101,6 +101,20 @@ function native.new()
     end
   end
 
+  -- Forgets the subscriptions that have ended. The fake keeps every callback it was given, so a test can call
+  -- a stale copy of one; a test asserting what a weak table no longer holds drops them first.
+  function fake.dropEndedSubscriptions()
+    for name, list in pairs(events.subscriptions) do
+      local live = {}
+      for _, record in ipairs(list) do
+        if record.active then
+          live[#live + 1] = record
+        end
+      end
+      events.subscriptions[name] = live
+    end
+  end
+
   -- The native reload clears subscriptions after the plugin runtimes have shut down. A subscription still
   -- live at that point is one a plugin forgot to cancel, so it is a failure rather than something to clear.
   local function clearSubscriptions()
