@@ -1,11 +1,10 @@
 //! Rendering `lua/lunette/init.luau`.
 //!
-//! The output is already StyLua-formatted, because `stylua --check lua` is one
-//! of the standing checks.
+//! The output is generated rather than formatted: `.styluaignore` exempts it
+//! from the standing `stylua --check`, so the renderer need not reproduce
+//! StyLua's line breaking.
 
 use std::fmt::Write as _;
-
-use lunette_luau::Type;
 
 use crate::{
     events::{payload_records, subscription_functions},
@@ -50,76 +49,12 @@ pub fn render() -> String {
         }
     }
 
-    let mut plugin_types = String::new();
-    render_types(&mut plugin_types);
-    render_plugin_types(&mut out, &plugin_types);
+    render_types(&mut out);
     render_module(&mut out);
     out.push('\n');
     out.push_str(FOOTER);
 
     out
-}
-
-/// Keeps the plugin declarations in the generated file StyLua-compatible.
-fn render_plugin_types(out: &mut String, plugin_types: &str) {
-    for line in plugin_types.lines() {
-        if line.starts_with("  read define: ") && line.len() > STYLUA_COLUMNS {
-            render_wrapped_function(out, line);
-        } else {
-            let _ = writeln!(out, "{line}");
-        }
-    }
-}
-
-/// Wraps a long function type at its outer argument boundaries.
-fn render_wrapped_function(out: &mut String, line: &str) {
-    let Some(signature) = line.strip_prefix("  read define: ") else {
-        let _ = writeln!(out, "{line}");
-        return;
-    };
-    let Some((arguments, return_type)) = split_function_type(signature) else {
-        let _ = writeln!(out, "{line}");
-        return;
-    };
-
-    out.push_str("  read define: (\n");
-    for (index, argument) in arguments.iter().enumerate() {
-        let comma = if index + 1 == arguments.len() {
-            ""
-        } else {
-            ","
-        };
-        let _ = writeln!(out, "    {argument}{comma}");
-    }
-    let _ = writeln!(out, "  ){return_type}");
-}
-
-/// Splits a function signature at commas outside nested parameter lists.
-fn split_function_type(signature: &str) -> Option<(Vec<&str>, &str)> {
-    let mut depth = 0usize;
-    let mut argument_start = 1;
-    let mut arguments = Vec::new();
-
-    for (index, character) in signature.char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' if depth == 1 => {
-                let argument = signature[argument_start..index].trim();
-                if !argument.is_empty() {
-                    arguments.push(argument);
-                }
-                return Some((arguments, &signature[index + 1..]));
-            }
-            ')' => depth = depth.checked_sub(1)?,
-            ',' if depth == 1 => {
-                arguments.push(signature[argument_start..index].trim());
-                argument_start = index + 1;
-            }
-            _ => {}
-        }
-    }
-
-    None
 }
 
 /// One declaration in the generated file.
@@ -174,7 +109,6 @@ const FOOTER: &str = "return (nil :: any) :: Lunette\n";
 
 /// Where a comment wraps, at the width the prose in the tree already uses.
 const COLUMNS: usize = 80;
-const STYLUA_COLUMNS: usize = 120;
 
 /// Renders one `export type`, named by the type the Rust side declares itself
 /// as.
@@ -183,20 +117,7 @@ fn render_alias(out: &mut String, alias: &AliasSpec, handles: &[&Handle]) {
     render_doc(out, alias.doc, "");
     let name = (alias.name)();
     let definition = (alias.definition)(handles);
-    let line = format!("export type {name} = {definition}");
-    match &definition {
-        // StyLua breaks a union too wide for one line before each member.
-        Type::Union(members) if line.len() > STYLUA_COLUMNS => {
-            let _ = writeln!(out, "export type {name} =");
-            for (index, member) in members.iter().enumerate() {
-                let separator = if index == 0 { "" } else { "| " };
-                let _ = writeln!(out, "  {separator}{member}");
-            }
-        }
-        _ => {
-            let _ = writeln!(out, "{line}");
-        }
-    }
+    let _ = writeln!(out, "export type {name} = {definition}");
 }
 
 fn render_handle(out: &mut String, handle: &Handle) {
@@ -292,19 +213,5 @@ pub(crate) fn render_doc(out: &mut String, doc: &str, indent: &str) {
 
     if !line.is_empty() {
         let _ = writeln!(out, "{indent}-- {line}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::render;
-
-    #[test]
-    fn long_plugin_function_type_wraps_at_outer_arguments() {
-        let output = render();
-
-        assert!(output.contains(
-            "  read define: (\n    required: unknown,\n    provided: unknown,\n    init: (context: PluginContext, config: unknown) -> unknown,\n    name: string?\n  ) -> PluginDefinition,\n"
-        ));
     }
 }
