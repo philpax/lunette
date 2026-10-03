@@ -6,8 +6,8 @@ local lunette = require '@lunette'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
-local placementContract = require '@lunette-contracts/placement'
 local persist = require '@lunette-desktop/persist'
+local fixture = require '@spec/lunette-desktop/persist/fixture'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local spec = suite.new 'lunette-desktop.persist.arrangement'
@@ -29,81 +29,28 @@ local function entry(overrides)
   return value
 end
 
+-- Runs `run` with a state loaded from `entries` and the fixture's services, placement among them.
 local function withServices(entries, run)
-  local previousClaimLayer = lunette.claimLayer
-  lunette.claimLayer = function(options)
-    local claim = { dead = false, granted = false, layer = false, width = options.width, height = options.height }
-    function claim:release()
-      if self.dead then
-        return false
-      end
-      self.dead = true
-      return true
-    end
-    return claim
-  end
-
-  local runtime
-  local ok, failure = pcall(function()
-    local reports = {}
-    local state = persist.new {
-      filesystem = {
-        read = function()
-          return persist.render(persist.newFile(entries or {}))
-        end,
-        write = function()
-          return true
-        end,
-        getSaveDirectory = function()
-          return '/save'
-        end,
-      },
-      report = function(message)
-        reports[#reports + 1] = message
+  local reports = {}
+  local state = persist.new {
+    filesystem = {
+      read = function()
+        return persist.render(persist.newFile(entries or {}))
       end,
-    }
-    runtime = plugin.runtime()
-    for _, name in ipairs { 'panels', 'tags', 'rules', 'placement' } do
-      runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
-    end
-    local context, panels, tags, rules, placement
-    runtime
-      :use(
-        plugin.define {
-          name = 'arrangement-spec-1',
-          requires = {
-            panels = panelsContract.capability,
-            tags = tagsContract.capability,
-            rules = rulesContract.capability,
-            placement = placementContract.capability,
-          },
-          init = function(current)
-            context = current
-            panels = current:require(panelsContract.capability)
-            tags = current:require(tagsContract.capability)
-            rules = current:require(rulesContract.capability)
-            placement = current:require(placementContract.capability)
-          end,
-        },
-        {}
-      )
-      :enable()
-    expect.truthy(context and context:active(), 'the initialized consumer')
-    run(state, context, panels, tags, rules, reports, placement, runtime)
+      write = function()
+        return true
+      end,
+      getSaveDirectory = function()
+        return '/save'
+      end,
+    },
+    report = function(message)
+      reports[#reports + 1] = message
+    end,
+  }
+  fixture.run({ placement = true }, function(env)
+    run(state, env.context, env.panels, env.tags, env.rules, reports, env.placement, env.runtime)
   end)
-  local closeOk, closeFailure = true, nil
-  if runtime then
-    closeOk, closeFailure = pcall(function()
-      runtime:close()
-    end)
-  end
-  lunette.claimLayer = previousClaimLayer
-  if not ok then
-    error(failure)
-  end
-  if not closeOk then
-    error(closeFailure)
-  end
 end
 
 local function window(appId, id)

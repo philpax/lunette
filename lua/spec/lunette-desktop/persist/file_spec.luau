@@ -1,11 +1,9 @@
 -- Filesystem and refusal behavior for configuration-owned persistence state.
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
-local plugin = require '@lunette-plugin'
-local panelsContract = require '@lunette-contracts/panels'
-local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
 local persist = require '@lunette-desktop/persist'
+local fixture = require '@spec/lunette-desktop/persist/fixture'
 
 local spec = suite.new 'lunette-desktop.persist.file'
 
@@ -46,46 +44,13 @@ local function newState(fs, onReport)
   return state, reports
 end
 
--- Binds the state in a consumer's initializer, which then calls `extend`, when given, with its context and
--- the binding. `run` receives the binding, the consumer's context and services, its instance, and the
--- provider instances by name.
+-- Binds the state in the fixture consumer's initializer, which then calls `extend`, when given. `run`
+-- receives the binding, the consumer's context, services, and instance, and the provider instances.
 local function withBinding(state, run, extend)
-  local runtime = plugin.runtime()
-  local providers = {}
-  for _, name in ipairs { 'panels', 'tags', 'rules' } do
-    providers[name] = runtime:use(require('@lunette-plugins/' .. name).definition, {})
-    providers[name]:enable()
-  end
-  local binding, context, panels, tags
-  local owner = runtime:use(
-    plugin.define {
-      name = 'file-spec-1',
-      requires = {
-        panels = panelsContract.capability,
-        tags = tagsContract.capability,
-        rules = rulesContract.capability,
-      },
-      init = function(current)
-        context = current
-        panels = current:require(panelsContract.capability)
-        tags = current:require(tagsContract.capability)
-        binding = state:bind(current, panels, tags, current:require(rulesContract.capability))
-        if extend then
-          extend(current, binding)
-        end
-      end,
-    },
-    {}
-  )
-  owner:enable()
-  local ok, failure = pcall(function()
-    expect.truthy(binding and binding:active(), 'the initialized binding')
-    run(binding, context, panels, tags, owner, providers)
+  fixture.run({ bind = state, extend = extend }, function(env)
+    expect.truthy(env.binding and env.binding:active(), 'the initialized binding')
+    run(env.binding, env.context, env.panels, env.tags, env.owner, env.providers)
   end)
-  runtime:close()
-  if not ok then
-    error(failure)
-  end
 end
 
 local function futureText()
