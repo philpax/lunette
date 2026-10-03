@@ -46,10 +46,15 @@ local function newState(fs, onReport)
   return state, reports
 end
 
-local function withBinding(state, run)
+-- Binds the state in a consumer's initializer, which then calls `extend`, when given, with its context and
+-- the binding. `run` receives the binding, the consumer's context and services, its instance, and the
+-- provider instances by name.
+local function withBinding(state, run, extend)
   local runtime = plugin.runtime()
+  local providers = {}
   for _, name in ipairs { 'panels', 'tags', 'rules' } do
-    runtime:use(require('@lunette-plugins/' .. name).definition, {}):enable()
+    providers[name] = runtime:use(require('@lunette-plugins/' .. name).definition, {})
+    providers[name]:enable()
   end
   local binding, context, panels, tags
   local owner = runtime:use(
@@ -65,6 +70,9 @@ local function withBinding(state, run)
         panels = current:require(panelsContract.capability)
         tags = current:require(tagsContract.capability)
         binding = state:bind(current, panels, tags, current:require(rulesContract.capability))
+        if extend then
+          extend(current, binding)
+        end
       end,
     },
     {}
@@ -72,7 +80,7 @@ local function withBinding(state, run)
   owner:enable()
   local ok, failure = pcall(function()
     expect.truthy(binding and binding:active(), 'the initialized binding')
-    run(binding, context, panels, tags, owner)
+    run(binding, context, panels, tags, owner, providers)
   end)
   runtime:close()
   if not ok then
@@ -257,6 +265,54 @@ spec('save rechecks the active scope after reporting during capture', function()
     expect.equal(binding:save(), false, 'the suspended save')
   end)
   expect.equal(fs.writes, 0, 'the writes after suspension')
+end)
+
+spec('an unloading binding refuses every save while its source is still registered', function()
+  local fs = filesystem(nil)
+  local ran, failure = false, nil
+  withBinding(newState(fs), function(binding, context, _panels, _tags, owner)
+    local rules = context:require(rulesContract.capability)
+    expect.equal(#rules:sources(), 2, 'the binding source and the caller rules')
+    owner:disable()
+    expect.truthy(ran, 'the later inverse ran')
+    if failure then
+      error(failure)
+    end
+    expect.falsy(binding:active(), 'the binding after unload')
+    expect.equal(#rules:sources(), 0, 'the binding source and the caller rules are removed exactly')
+  end, function(current, binding)
+    local rules = current:require(rulesContract.capability)
+    rules:setRules(current, { rules = { { properties = { width = 1 } } } })
+    -- Registered after the bind, so its inverse runs before the binding's own.
+    current:effect(function()
+      return function()
+        ran = true
+        local ok, raised = pcall(function()
+          expect.falsy(current:active(), 'the context is inactive before its inverses run')
+          expect.equal(#rules:sources(), 2, 'the persistence source is still registered')
+          expect.falsy(binding:save(), 'an ordinary save')
+          expect.falsy(binding:save { force = true }, 'a forced save')
+        end)
+        if not ok then
+          failure = raised
+        end
+      end
+    end)
+  end)
+  expect.equal(fs.writes, 0, 'the writes')
+end)
+
+spec('neither the state nor a binding kept past its activation retains a retired service', function()
+  withBinding(newState(filesystem(nil)), function(binding, _context, panels, _tags, _owner, providers)
+    local retired = setmetatable({ panels }, { __mode = 'v' })
+    panels = nil
+    providers.panels:disable()
+    expect.falsy(binding:active(), 'the binding of the suspended consumer')
+    providers.panels:enable()
+    collectgarbage 'collect'
+    collectgarbage 'collect'
+    expect.equal(retired[1], nil, 'the retired panels service')
+  end)
 end)
 
 spec('the default adapter routes reads and writes through the save filesystem', function()
