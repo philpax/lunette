@@ -269,6 +269,41 @@ fn shared_registry_reuse() -> mlua::Result<()> {
     Ok(())
 }
 
+/// A token error names where the token was presented: the declaration field
+/// that holds it, or the contract it was declared for when it is bound.
+#[test]
+fn token_errors_name_the_field_or_contract() -> mlua::Result<()> {
+    let lua = Lua::new();
+    let registry = ContractRegistry::new();
+    let foreign_registry = ContractRegistry::new();
+    let foreign = foreign_registry
+        .declare(contract_name("example", "clock"), 1)
+        .map_err(mlua::Error::external)?;
+
+    let declaration = lua.create_table()?;
+    declaration.set("timer", foreign.clone())?;
+    let declared = registry
+        .validate_declaration(Value::Table(declaration))
+        .err()
+        .map(|error| error.to_string());
+    assert_eq!(
+        declared.as_deref(),
+        Some("plugin contract: the token in declaration field 'timer' is from another registry")
+    );
+
+    let wrapper = lua.create_table()?;
+    wrapper.set_readonly(true);
+    let bound = registry
+        .bind_token(&foreign, &wrapper)
+        .err()
+        .map(|error| error.to_string());
+    assert_eq!(
+        bound.as_deref(),
+        Some("plugin contract: the token for example/clock@1 is from another registry")
+    );
+    Ok(())
+}
+
 fn contract_name(authority: &str, name: &str) -> ContractName {
     match ContractName::new(authority, name) {
         Ok(name) => name,

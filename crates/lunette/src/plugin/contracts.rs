@@ -186,13 +186,13 @@ pub enum ContractError {
     /// A declaration value was not native token userdata.
     DeclarationValueNotToken { key: String, actual: String },
     /// The token belongs to another registry.
-    ForeignToken { key: String },
+    ForeignToken { site: TokenSite },
     /// The token was created in an epoch that has been retired.
-    RetiredToken { key: String },
+    RetiredToken { site: TokenSite },
     /// The capability wrapper was bound in an epoch that has been retired.
     RetiredWrapper { key: String },
     /// The token has the registry identity but not a currently registered identity.
-    UnknownToken { key: String },
+    UnknownToken { site: TokenSite },
     /// A capability wrapper was mutable when native code tried to bind it.
     WrapperNotFrozen,
     /// The token already has a capability wrapper.
@@ -251,21 +251,20 @@ impl fmt::Display for ContractError {
                 formatter,
                 "plugin contract: declaration field '{key}' must contain a native contract token, not a {actual}"
             ),
-            Self::ForeignToken { key } => write!(
+            Self::ForeignToken { site } => write!(
                 formatter,
-                "plugin contract: declaration field '{key}' contains a token from another registry"
+                "plugin contract: {site} is from another registry"
             ),
-            Self::RetiredToken { key } => write!(
-                formatter,
-                "plugin contract: declaration field '{key}' contains a token from a retired epoch"
-            ),
+            Self::RetiredToken { site } => {
+                write!(formatter, "plugin contract: {site} is from a retired epoch")
+            }
             Self::RetiredWrapper { key } => write!(
                 formatter,
                 "plugin contract: declaration field '{key}' contains a capability from a retired contract epoch"
             ),
-            Self::UnknownToken { key } => write!(
+            Self::UnknownToken { site } => write!(
                 formatter,
-                "plugin contract: declaration field '{key}' contains an unknown contract token"
+                "plugin contract: {site} is not a declared contract token"
             ),
             Self::WrapperNotFrozen => write!(
                 formatter,
@@ -294,6 +293,30 @@ impl fmt::Display for ContractError {
 }
 
 impl Error for ContractError {}
+
+/// Where a contract token was presented, which a token error names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TokenSite {
+    /// The token is the value of a declaration field.
+    Field(String),
+    /// The token stands alone, as it does when it is bound to a capability
+    /// wrapper, and is named by the contract it was declared for.
+    Contract {
+        name: ContractName,
+        schema: ContractSchema,
+    },
+}
+
+impl fmt::Display for TokenSite {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Field(key) => write!(formatter, "the token in declaration field '{key}'"),
+            Self::Contract { name, schema } => {
+                write!(formatter, "the token for {name}@{}", schema.get())
+            }
+        }
+    }
+}
 
 /// A registry shared by the runtimes in one state epoch. Cloning shares it.
 #[derive(Clone)]
@@ -377,33 +400,32 @@ impl ContractRegistry {
         Ok(())
     }
 
-    /// Verifies a native token and returns its typed ID.
+    /// Verifies a native token and returns its typed ID. An error names the
+    /// token by the contract it was declared for.
     pub fn validate_token(&self, token: &ContractToken) -> Result<ContractId, ContractError> {
+        self.check_token(token, || TokenSite::Contract {
+            name: token.identity.name.clone(),
+            schema: token.identity.schema,
+        })
+    }
+
+    fn check_token(
+        &self,
+        token: &ContractToken,
+        site: impl FnOnce() -> TokenSite,
+    ) -> Result<ContractId, ContractError> {
         let Some(token_registry) = token.registry.upgrade() else {
-            return Err(ContractError::RetiredToken {
-                key: String::from("<token>"),
-            });
+            return Err(ContractError::RetiredToken { site: site() });
         };
         if !Rc::ptr_eq(&self.inner, &token_registry) {
-            return Err(ContractError::ForeignToken {
-                key: String::from("<token>"),
-            });
+            return Err(ContractError::ForeignToken { site: site() });
         }
         if token.epoch != self.epoch() {
-            return Err(ContractError::RetiredToken {
-                key: String::from("<token>"),
-            });
+            return Err(ContractError::RetiredToken { site: site() });
         }
         let contracts = self.inner.contracts.borrow();
-        let Some(identity) = contracts.get(&token.id) else {
-            return Err(ContractError::UnknownToken {
-                key: String::from("<token>"),
-            });
-        };
-        if identity != &token.identity {
-            return Err(ContractError::UnknownToken {
-                key: String::from("<token>"),
-            });
+        if contracts.get(&token.id) != Some(&token.identity) {
+            return Err(ContractError::UnknownToken { site: site() });
         }
         Ok(token.id)
     }
@@ -535,18 +557,7 @@ impl ContractRegistry {
         token: &ContractToken,
         key: &str,
     ) -> Result<ContractId, ContractError> {
-        self.validate_token(token).map_err(|error| match error {
-            ContractError::ForeignToken { .. } => ContractError::ForeignToken {
-                key: key.to_owned(),
-            },
-            ContractError::RetiredToken { .. } => ContractError::RetiredToken {
-                key: key.to_owned(),
-            },
-            ContractError::UnknownToken { .. } => ContractError::UnknownToken {
-                key: key.to_owned(),
-            },
-            other => other,
-        })
+        self.check_token(token, || TokenSite::Field(key.to_owned()))
     }
 
     fn validate_wrapper_for_key(
