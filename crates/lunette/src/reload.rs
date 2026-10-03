@@ -169,28 +169,33 @@ const MAIN_MODULE: &str = "main";
 /// The `package.loaded` roots a reload keeps.
 ///
 /// The set is stated as what survives; the list of what goes would need
-/// updating as modules are added. A name is matched on its first dotted
-/// segment. `lovr.graphics`, `jit.util`, and `string.buffer` stay with their
-/// roots, and `lovr.*` cannot be cleared by accident.
+/// updating as modules are added. A name is matched on its first dotted or
+/// slashed segment, so `lovr.graphics` stays with its root and `lovr.*` cannot
+/// be cleared by accident.
 ///
 /// LÖVR's modules are here because clearing them would make the next
 /// `require 'lovr.graphics'` re-run module initialisation against a live
-/// graphics module. The rest are the interpreter's own, and no reload rebuilds
-/// them.
+/// graphics module. The rest are every library the forked Luau's
+/// `luaL_openlibs` can register (`vendor/lovr/deps/luau/VM/src/linit.cpp`),
+/// including `integer` and `class`, which it registers only under a flag. No
+/// reload rebuilds them.
 const PROTECTED_ROOTS: &[&str] = &[
     "_G",
-    "bit",
+    "bit32",
+    "buffer",
+    "class",
     "coroutine",
     "debug",
-    "ffi",
-    "io",
-    "jit",
+    "integer",
     "lovr",
     "math",
     "os",
     "package",
+    "quaternion",
     "string",
     "table",
+    "utf8",
+    "vector",
 ];
 
 /// The `lovr` fields `main.luau` owns, cleared before it is re-run.
@@ -497,17 +502,28 @@ mod tests {
         );
     }
 
+    /// Every library `luaL_openlibs` registers survives, whichever the fork's
+    /// flags enable. The names are read from a fresh state rather than listed,
+    /// so a library the interpreter gains is covered without a test change.
     #[test]
     fn the_interpreters_own_modules_are_never_cleared() {
+        let libraries: Vec<String> = crate::test_lua::session_lua()
+            .load(
+                "local names = {}
+                 for name in package.loaded do table.insert(names, name) end
+                 return names",
+            )
+            .eval()
+            .expect("package.loaded is readable");
+        assert!(
+            libraries.iter().any(|name| name == "string"),
+            "the fresh state should have registered its libraries: {libraries:?}"
+        );
         let lua = state("");
 
         reload(&lua, &|| ()).expect("the reload succeeds");
 
-        // `package` itself is excluded: the fork's Luau `package` library keeps
-        // its loaded table under the registry `_LOADED` and does not register
-        // itself in `package.loaded` (LuaJIT did). The interpreter-owned
-        // modules that do appear there are the ones the reload must preserve.
-        for name in ["string", "table", "math", "os", "coroutine"] {
+        for name in &libraries {
             assert!(
                 lua.load(format!("return package.loaded['{name}'] ~= nil"))
                     .eval::<bool>()
@@ -706,8 +722,8 @@ mod tests {
     fn a_module_named_for_a_protected_root_is_kept_with_it() {
         assert!(is_protected("lovr"));
         assert!(is_protected("lovr.graphics"));
-        assert!(is_protected("jit.util"));
-        assert!(is_protected("string.buffer"));
+        assert!(is_protected("string/extra"));
+        assert!(is_protected("utf8.extra"));
         assert!(!is_protected("lovrly"));
         assert!(!is_protected("lunette-plugins.scale"));
         assert!(!is_protected(MAIN_MODULE));
