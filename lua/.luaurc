@@ -6,6 +6,6 @@
     "lunette-contracts": "./lunette-contracts",
     "lunette-plugins": "./lunette-plugins",
     "lunette-desktop": "./lunette-desktop",
-    "spec": "./spec"
+    "testing": "./testing"
   }
 }

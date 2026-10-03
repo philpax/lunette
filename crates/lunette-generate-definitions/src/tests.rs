@@ -5,7 +5,7 @@ use mlua::{Function, Lua, Table};
 use super::ALIAS_FILES;
 
 #[test]
-fn installed_lua_root_metadata_is_strict_relative_and_excludes_specs() {
+fn installed_lua_root_metadata_is_strict_relative_and_excludes_testing() {
     let generated = ALIAS_FILES
         .iter()
         .find(|(path, _, _)| *path == "etc/lunette/installed.luaurc")

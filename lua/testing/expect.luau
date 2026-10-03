@@ -1,14 +1,14 @@
--- Assertions for the spec suite.
+-- Assertions for the Lua tests.
 --
 -- Each raises on failure with a message saying what is wanted and what
--- arrived, and `spec.runner` turns that into the case's report. A case stops
+-- arrived, and the runner turns that into the case's report. A case stops
 -- at its first failure. The message reports the first thing that went wrong,
 -- not the state of the run after it.
 
 local expect = {}
 
 -- Renders a value for a failure message. Tables render by address, because
--- a spec comparing two tables is comparing identity.
+-- a test comparing two tables is comparing identity.
 local function show(value: unknown): string
   if type(value) == 'string' then
     return string.format('%q', value)
@@ -38,7 +38,7 @@ function expect.falsy(actual: unknown, context: string?)
   end
 end
 
--- Equal to within `tolerance`. Every number this suite compares comes out of
+-- Equal to within `tolerance`. Every number a test compares comes out of
 -- floating-point arithmetic, so an exact comparison asserts the order the
 -- operations appear in the code.
 function expect.near(actual: unknown, wanted: number, tolerance: number, context: string?)

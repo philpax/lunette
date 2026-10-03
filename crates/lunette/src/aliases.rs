@@ -65,10 +65,11 @@ pub const LUNETTE_DESKTOP: Alias = Alias {
     resolution: Resolution::Mounted,
 };
 
-/// The specs, present in a development tree, absent from an installed one.
-pub const SPEC: Alias = Alias {
-    name: "spec",
-    directory: "spec",
+/// The test scaffolding, present in a development tree, absent from an
+/// installed one. Test files require it; no installed module does.
+pub const TESTING: Alias = Alias {
+    name: "testing",
+    directory: "testing",
     resolution: Resolution::Mounted,
 };
 
@@ -79,7 +80,7 @@ pub const DEVELOPMENT_ALIASES: &[Alias] = &[
     LUNETTE_CONTRACTS,
     LUNETTE_PLUGINS,
     LUNETTE_DESKTOP,
-    SPEC,
+    TESTING,
 ];
 
 /// Every installed root, in the order a `.luaurc` states them.
@@ -108,10 +109,10 @@ impl ModuleRoot {
     }
 
     /// Whether the root is optional in a source tree or installation. Only the
-    /// development-only spec root is.
+    /// development-only testing root is.
     #[must_use]
     pub fn optional(&self) -> bool {
-        self.alias == SPEC.name
+        self.alias == TESTING.name
     }
 
     /// Whether the root is required in a shipped installation.
@@ -129,14 +130,14 @@ pub struct ModuleRoots {
 
 impl ModuleRoots {
     /// Builds the development roots below an already-resolved standard-library
-    /// directory. The spec root is retained here and omitted by [`Self::installed`].
+    /// directory. The testing root is retained here and omitted by [`Self::installed`].
     #[must_use]
     pub fn development(source: impl Into<PathBuf>) -> Self {
         Self::from_aliases(source.into(), DEVELOPMENT_ALIASES)
     }
 
     /// Builds the installed roots below an already-resolved standard-library
-    /// directory. The development-only spec root is not included.
+    /// directory. The development-only testing root is not included.
     #[must_use]
     pub fn installed(source: impl Into<PathBuf>) -> Self {
         Self::from_aliases(source.into(), INSTALLED_ALIASES)
@@ -193,8 +194,8 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
 
 /// Renders the install manifest as tab-separated source and destination
 /// paths, so Make consumes the Rust-owned manifest rather than restating it.
-/// A directory contributes only its `.luau` files, and `lua/spec` is never
-/// listed.
+/// A directory contributes only its `.luau` files outside its `tests`
+/// directories, and `lua/testing` is never listed.
 #[must_use]
 pub fn install_manifest() -> String {
     let mut output = String::new();
@@ -209,13 +210,13 @@ pub fn install_manifest() -> String {
 
 /// Renders a development `.luaurc` whose aliases resolve against `root`.
 ///
-/// This includes the development-only spec root; [`installed_luaurc`] omits it.
+/// This includes the development-only testing root; [`installed_luaurc`] omits it.
 #[must_use]
 pub fn luaurc(root: &str) -> String {
     render_luaurc(root, DEVELOPMENT_ALIASES)
 }
 
-/// Renders an installed `.luaurc`, excluding the development-only spec root.
+/// Renders an installed `.luaurc`, excluding the development-only testing root.
 #[must_use]
 pub fn installed_luaurc(root: &str) -> String {
     render_luaurc(root, INSTALLED_ALIASES)
@@ -255,7 +256,7 @@ mod tests {
                 "lunette-contracts",
                 "lunette-plugins",
                 "lunette-desktop",
-                "spec",
+                "testing",
             ]
         );
         assert_eq!(
@@ -287,7 +288,7 @@ mod tests {
                 "lunette-desktop",
             ]
         );
-        assert!(installed.iter().all(|root| root.alias != SPEC.name));
+        assert!(installed.iter().all(|root| root.alias != TESTING.name));
         assert_eq!(
             installed
                 .mounted()
@@ -351,19 +352,19 @@ mod tests {
     }
 
     #[test]
-    fn the_install_manifest_lists_every_installed_root_and_no_spec() {
+    fn the_install_manifest_lists_every_installed_root_and_not_testing() {
         let manifest = install_manifest();
         for alias in INSTALLED_ALIASES {
             let line = format!("lua/{0}\tlua/{0}", alias.directory);
             assert!(manifest.lines().any(|entry| entry == line), "{line}");
         }
-        assert!(!manifest.contains("spec"));
+        assert!(!manifest.contains("testing"));
     }
 
     #[test]
-    fn development_luaurc_includes_spec_and_installed_luaurc_does_not() {
-        assert!(luaurc(".").contains("\"spec\": \"./spec\""));
-        assert!(!installed_luaurc(".").contains("\"spec\""));
+    fn development_luaurc_includes_testing_and_installed_luaurc_does_not() {
+        assert!(luaurc(".").contains("\"testing\": \"./testing\""));
+        assert!(!installed_luaurc(".").contains("\"testing\""));
         assert!(
             installed_luaurc("/usr/local/share/lunette/lua")
                 .contains("\"lunette-plugin\": \"/usr/local/share/lunette/lua/lunette-plugin\"")
@@ -375,7 +376,7 @@ mod tests {
         assert_eq!(
             luaurc("."),
             "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \
-             \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\",\n    \"spec\": \"./spec\"\n  }\n}\n"
+             \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\",\n    \"testing\": \"./testing\"\n  }\n}\n"
         );
     }
 }

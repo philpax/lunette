@@ -51,8 +51,8 @@ export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 .PHONY: all build install install-binary install-lua install-config check check-format check-rust check-clippy check-test check-definitions check-luau clean
 
 # The generator owns this list. It includes Lua sources, Luau declarations,
-# generated LÖVR definitions, and installed alias metadata. Specs and probes
-# are excluded.
+# generated LÖVR definitions, and installed alias metadata. The testing root
+# is not listed, and install-lua skips every tests directory.
 install_manifest := $(CARGO) run -p lunette-generate-definitions -- --manifest
 
 all: build
@@ -89,12 +89,12 @@ check-test:
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 
-# The check includes every shipped root, the ordinary spec harness modules,
-# the default configuration, and the examples.
-# Negative specs and probe runners stay out; their dedicated tests assert those
-# diagnostics and the runner's computed requires are not statically followable.
+# The check includes every shipped root, the default configuration, and the
+# examples. The tests directories and lua/testing stay out: test files build
+# partial handles and fake natives, which strict checking would make them cast
+# at every turn, and CONTRIBUTING.md records the stance.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type f -name '*.luau' -print | sort) lua/spec/suite.luau lua/spec/expect.luau etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau $$(find examples -type f -name '*.luau' -print | sort)
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type d -name tests -prune -o -type f -name '*.luau' -print | sort) etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau $$(find examples -type f -name '*.luau' -print | sort)
 
 install: install-binary install-lua install-config
 
@@ -122,13 +122,14 @@ install-binary: build
 
 # The manifest owns installed modules, declarations, and Lua-root alias metadata.
 # Required entries fail when absent; optional roots may be omitted. Directory
-# entries contribute only Luau files. Explicit files include .luaurc.
+# entries contribute only Luau files outside tests directories. Explicit files
+# include .luaurc.
 install-lua:
 	@set -e; \
 	manifest="$$( $(install_manifest) )" || exit $$?; \
 	printf '%s\n' "$$manifest" | while read -r source destination; do \
 		if test -d "$$source"; then \
-			files="$$($(FIND) "$$source" -type f -name '*.luau' -print)" || exit $$?; \
+			files="$$($(FIND) "$$source" -type d -name tests -prune -o -type f -name '*.luau' -print)" || exit $$?; \
 			if test -n "$$files"; then \
 				printf '%s\n' "$$files" | while IFS= read -r file; do \
 					relative="$${file#$$source/}"; \

@@ -1066,7 +1066,7 @@ mod tests {
                 "@lunette-contracts",
                 "@lunette-plugins",
                 "@lunette-desktop",
-                "@spec",
+                "@testing",
             ]
         );
         assert_eq!(
@@ -1079,7 +1079,7 @@ mod tests {
                 PathBuf::from("/resolved/lunette/lunette-contracts"),
                 PathBuf::from("/resolved/lunette/lunette-plugins"),
                 PathBuf::from("/resolved/lunette/lunette-desktop"),
-                PathBuf::from("/resolved/lunette/spec"),
+                PathBuf::from("/resolved/lunette/testing"),
             ]
         );
         assert_eq!(

@@ -1,13 +1,13 @@
 -- Covers lua/lunette-plugins/interaction/picking.luau.
 
-local expect = require '@spec/expect'
-local suite = require '@spec/suite'
+local testing = require '@testing'
+local expect = testing.expect
 
 local picking = require '@lunette-plugins/interaction/picking'
 
-local spec = suite.new 'lunette-plugins.interaction.picking'
+local test = testing.suite()
 
-spec('a deflection inside the dead zone is nothing, and the response starts at its edge', function()
+test('a deflection inside the dead zone is nothing, and the response starts at its edge', function()
   for _, dead in ipairs { 0, 0.1, 0.2, 0.5 } do
     for step = -20, 20 do
       local value = step / 20
@@ -40,7 +40,7 @@ local function surface(distance, record)
   }
 end
 
-spec('the nearest live surface within reach is picked', function()
+test('the nearest live surface within reach is picked', function()
   local near, far, dead = surface(2), surface(1.5), surface(0.5)
   dead.dead = true
   local beyond = surface(0.1)
@@ -56,13 +56,13 @@ spec('the nearest live surface within reach is picked', function()
   expect.falsy(picking.pick({ near }, vector.pack(0, 0, 0), vector.pack(0, 0, 0), 8), 'no direction')
 end)
 
-spec('a surface is asked with a unit direction', function()
+test('a surface is asked with a unit direction', function()
   local record = {}
   picking.pick({ surface(1, record) }, vector.pack(0, 0, 0), vector.pack(0, 3, -4), 8)
   expect.near(record.length, 1, 1e-6, 'the direction length')
 end)
 
-spec('a scroll is scaled by the frame time and flips vertically', function()
+test('a scroll is scaled by the frame time and flips vertically', function()
   local tuning = {
     reach = 8,
     grabDeadZone = 0,
@@ -82,4 +82,4 @@ spec('a scroll is scaled by the frame time and flips vertically', function()
   expect.equal(dy == 0, true, 'no frame time, no vertical scroll')
 end)
 
-return spec
+return test

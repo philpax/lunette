@@ -1,12 +1,12 @@
 -- Covers lua/lunette-contracts/vocabulary.luau: its pose encoding, whose round trip must be exact because
 -- the string outlives the process and a lossy decoder would drift panels at every reload.
 
-local expect = require '@spec/expect'
-local suite = require '@spec/suite'
+local testing = require '@testing'
+local expect = testing.expect
 
 local vocabulary = require '@lunette-contracts/vocabulary'
 
-local spec = suite.new 'lunette-contracts.vocabulary'
+local test = testing.suite()
 
 -- The comparison is exact. The encoding returns a 32-bit float unchanged, and
 -- a near comparison would assert less.
@@ -18,26 +18,26 @@ local function expectSame(recovered, original, context)
   end
 end
 
-spec('a translated pose round-trips exactly', function()
+test('a translated pose round-trips exactly', function()
   local original = lovr.math.newMat4():translate(1.5, -0.25, -3)
 
   expectSame(vocabulary.decodePose(vocabulary.encodePose(original)), original, 'the recovered pose')
 end)
 
-spec('a rotated and scaled pose round-trips exactly', function()
+test('a rotated and scaled pose round-trips exactly', function()
   -- A decomposition into position and orientation would drop the scale.
   local original = lovr.math.newMat4():translate(0.1, 2, -1.25):rotate(0.7, 0, 1, 0):scale(2, 3, 1)
 
   expectSame(vocabulary.decodePose(vocabulary.encodePose(original)), original, 'the recovered pose')
 end)
 
-spec('the identity round-trips exactly', function()
+test('the identity round-trips exactly', function()
   local original = lovr.math.newMat4()
 
   expectSame(vocabulary.decodePose(vocabulary.encodePose(original)), original, 'the recovered pose')
 end)
 
-spec('generated poses round-trip exactly', function()
+test('generated poses round-trip exactly', function()
   -- A property over many poses rather than a handful of examples: any
   -- rotation, any translation, and any positive scale decode to the matrix
   -- that was encoded. The generator is seeded, so a failure reproduces.
@@ -53,7 +53,7 @@ spec('generated poses round-trip exactly', function()
   end
 end)
 
-spec('a decoded pose is a fresh matrix', function()
+test('a decoded pose is a fresh matrix', function()
   local original = lovr.math.newMat4():translate(1, 2, 3)
   local recovered = vocabulary.decodePose(vocabulary.encodePose(original))
 
@@ -63,7 +63,7 @@ spec('a decoded pose is a fresh matrix', function()
   expect.near(x, 1, 1e-6, 'x')
 end)
 
-spec('an encoded pose is sixteen numbers', function()
+test('an encoded pose is sixteen numbers', function()
   local written = vocabulary.encodePose(lovr.math.newMat4())
 
   local count = 0
@@ -73,7 +73,7 @@ spec('an encoded pose is sixteen numbers', function()
   expect.equal(count, vocabulary.POSE_ELEMENTS, 'the numbers written')
 end)
 
-spec('decoding anything that is not sixteen numbers answers nothing', function()
+test('decoding anything that is not sixteen numbers answers nothing', function()
   expect.falsy(vocabulary.decodePose 'nowhere', 'a word')
   expect.falsy(vocabulary.decodePose '1 2 3', 'too few numbers')
   expect.falsy(vocabulary.decodePose '', 'nothing at all')
@@ -87,7 +87,7 @@ spec('decoding anything that is not sixteen numbers answers nothing', function()
   expect.falsy(vocabulary.decodePose(table.concat(seventeen, ' ')), 'too many numbers')
 end)
 
-spec('decoding a pose with a number that is not finite answers nothing', function()
+test('decoding a pose with a number that is not finite answers nothing', function()
   local elements = {}
   for index = 1, vocabulary.POSE_ELEMENTS do
     elements[index] = '1'
@@ -103,4 +103,4 @@ spec('decoding a pose with a number that is not finite answers nothing', functio
   expect.falsy(vocabulary.decodePose(table.concat(elements, ' ')), 'a number too large to hold')
 end)
 
-return spec
+return test

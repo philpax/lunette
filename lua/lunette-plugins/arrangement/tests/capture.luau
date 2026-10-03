@@ -1,17 +1,16 @@
 -- Captures and restores through neutral services and activation-scoped bindings.
-local expect = require '@spec/expect'
-local suite = require '@spec/suite'
+local testing = require '@testing'
+local expect = testing.expect
 local plugin = require '@lunette-plugin'
-local lunette = require '@lunette'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
 local arrangement = require '@lunette-plugins/arrangement'
 local persist = require '@lunette-plugins/arrangement/state'
-local fixture = require '@spec/lunette-plugins/arrangement/fixture'
+local fixture = require './support/fixture'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
-local spec = suite.new 'lunette-plugins.arrangement.capture'
+local test = testing.suite()
 local TOLERANCE = 1e-5
 
 local function entry(overrides)
@@ -61,17 +60,20 @@ local function monitor(id)
   return { id = id, dead = false, width = 1920, height = 1080 }
 end
 
-spec('native claim method is restored when service work raises', function()
-  local nativeClaimLayer = lunette.claimLayer
+test('service work that raises is raised after its runtime closes', function()
+  local runtime
   expect.raises(function()
-    withServices(nil, function()
+    withServices(nil, function(_state, _context, _panels, _tags, _rules, _reports, _placement, current)
+      runtime = current
       error 'fixture: service work failed'
     end)
   end, 'fixture: service work failed', 'the original failure')
-  expect.equal(lunette.claimLayer, nativeClaimLayer, 'the native method')
+  expect.raises(function()
+    runtime:use(plugin.define { name = 'arrangement-test-late' }, {})
+  end, nil, 'the closed runtime')
 end)
 
-spec('capture keys windows on application identity and ordered slots', function()
+test('capture keys windows on application identity and ordered slots', function()
   withServices(nil, function(state, context, panels, tags)
     panels:fromWindow(context, window('terminal', 1))
     panels:fromWindow(context, window('terminal', 2))
@@ -86,7 +88,7 @@ spec('capture keys windows on application identity and ordered slots', function(
   end)
 end)
 
-spec('capture keys a monitor on its saved identity', function()
+test('capture keys a monitor on its saved identity', function()
   withServices(nil, function(state, context, panels, tags)
     panels:fromMonitor(context, monitor 'fixture.monitor')
     local captured = arrangement.entries(state:capture(panels, tags))
@@ -95,7 +97,7 @@ spec('capture keys a monitor on its saved identity', function()
   end)
 end)
 
-spec('capture records pose, metre size, and ordered tag membership', function()
+test('capture records pose, metre size, and ordered tag membership', function()
   withServices(nil, function(state, context, panels, tags)
     local panel = panels:fromWindow(context, window 'terminal', {
       pose = lovr.math.newMat4():translate(2, 3, -4),
@@ -112,7 +114,7 @@ spec('capture records pose, metre size, and ordered tag membership', function()
   end)
 end)
 
-spec('sources with no stable identity are reported rather than saved', function()
+test('sources with no stable identity are reported rather than saved', function()
   withServices(nil, function(state, context, panels, tags, _rules, reports)
     panels:fromWindow(context, window(nil))
     panels:fromMonitor(context, monitor(8))
@@ -122,7 +124,7 @@ spec('sources with no stable identity are reported rather than saved', function(
   end)
 end)
 
-spec('destroyed panels and dead sources are not captured', function()
+test('destroyed panels and dead sources are not captured', function()
   withServices(nil, function(state, context, panels, tags)
     panels:fromWindow(context, window 'terminal'):destroy(context)
     local source = window('browser', 2)
@@ -132,7 +134,7 @@ spec('destroyed panels and dead sources are not captured', function()
   end)
 end)
 
-spec('binding restores a monitor and reports unmatched entries', function()
+test('binding restores a monitor and reports unmatched entries', function()
   withServices({
     entry {
       kind = 'monitor',
@@ -154,7 +156,7 @@ spec('binding restores a monitor and reports unmatched entries', function()
   end)
 end)
 
-spec('binding restores membership on existing and newly created tags', function()
+test('binding restores membership on existing and newly created tags', function()
   withServices(
     { entry { kind = 'monitor', key = 'fixture.monitor', tags = { 'main', 'side' } } },
     function(state, context, panels, tags, rules)
@@ -168,7 +170,7 @@ spec('binding restores membership on existing and newly created tags', function(
   )
 end)
 
-spec('binding skips invalid poses and reports them without partial resize', function()
+test('binding skips invalid poses and reports them without partial resize', function()
   withServices(
     { entry { kind = 'monitor', key = 'fixture.monitor', pose = 'over there', width = 8, tags = {} } },
     function(state, context, panels, tags, rules, reports)
@@ -180,7 +182,7 @@ spec('binding skips invalid poses and reports them without partial resize', func
   )
 end)
 
-spec('dead sources take no saved slot from a live panel', function()
+test('dead sources take no saved slot from a live panel', function()
   withServices(
     { entry { kind = 'monitor', key = 'fixture.monitor', tags = {} } },
     function(state, context, panels, tags, rules, reports)
@@ -195,7 +197,7 @@ spec('dead sources take no saved slot from a live panel', function()
   )
 end)
 
-spec('source keys cannot collide by concatenating an identity and a slot', function()
+test('source keys cannot collide by concatenating an identity and a slot', function()
   local resolve = persist.source(arrangement.newFile {
     entry { key = 'a1', slot = 1, width = 2 },
     entry { key = 'a', slot = 11, width = 1 },
@@ -203,7 +205,7 @@ spec('source keys cannot collide by concatenating an identity and a slot', funct
   expect.near(resolve(window('a1', 1)).width, 2, TOLERANCE, 'the noncolliding width')
 end)
 
-spec('source answers a window with its saved pose, size, and tags', function()
+test('source answers a window with its saved pose, size, and tags', function()
   local file = arrangement.newFile { entry() }
   local properties = persist.source(file)(window 'terminal')
   expect.equal(properties.pose, arrangement.entries(file)[1].pose, 'the pose')
@@ -211,7 +213,7 @@ spec('source answers a window with its saved pose, size, and tags', function()
   expect.equal(properties.tags[1], 'main', 'the tag')
 end)
 
-spec('source answers the slot a window holds, and a dead window frees its slot', function()
+test('source answers the slot a window holds, and a dead window frees its slot', function()
   local held = persist.slots()
   local resolve = persist.source(arrangement.newFile { entry { width = 1 }, entry { slot = 2, width = 2 } }, held)
   local first, second = window('terminal', 1), window('terminal', 2)
@@ -226,14 +228,14 @@ spec('source answers the slot a window holds, and a dead window frees its slot',
   expect.near(resolve(window('terminal', 4)).width, 1, TOLERANCE, 'a dead window frees its slot')
 end)
 
-spec('source contributes nothing for unknown or unidentified applications', function()
+test('source contributes nothing for unknown or unidentified applications', function()
   local resolve = persist.source(arrangement.newFile { entry() })
   expect.falsy(resolve(window 'browser'), 'an unknown application')
   expect.falsy(resolve(window(nil)), 'an absent identity')
   expect.falsy(resolve(window ''), 'an empty identity')
 end)
 
-spec('persisted placement at 200 overrides rules at 100 and yields to native properties at 300', function()
+test('persisted placement at 200 overrides rules at 100 and yields to native properties at 300', function()
   withServices({ entry() }, function(state, context, panels, tags, rules, _reports, placement)
     rules:setRules(
       context,
@@ -256,7 +258,7 @@ spec('persisted placement at 200 overrides rules at 100 and yields to native pro
   end)
 end)
 
-spec('refused state binds an empty restore without placing panels', function()
+test('refused state binds an empty restore without placing panels', function()
   local reports = {}
   local state = persist.new {
     filesystem = {
@@ -283,7 +285,7 @@ spec('refused state binds an empty restore without placing panels', function()
   expect.equal(#reports, 1, 'the refusal report')
 end)
 
-spec('a bind that fails in its initializer leaves no source behind', function()
+test('a bind that fails in its initializer leaves no source behind', function()
   withServices(nil, function(state, _context, _panels, _tags, rules, _reports, _placement, runtime)
     local foreign = plugin.runtime()
     foreign:use(require('@lunette-plugins/panels').definition, {}):enable()
@@ -291,7 +293,7 @@ spec('a bind that fails in its initializer leaves no source behind', function()
     foreign
       :use(
         plugin.define {
-          name = 'arrangement-spec-2',
+          name = 'arrangement-test-2',
           requires = { panels = panelsContract.capability },
           init = function(current)
             foreignPanels = current:require(panelsContract.capability)
@@ -304,7 +306,7 @@ spec('a bind that fails in its initializer leaves no source behind', function()
       expect.truthy(foreignPanels, 'the foreign service')
       local consumer = runtime:use(
         plugin.define {
-          name = 'arrangement-spec-3',
+          name = 'arrangement-test-3',
           requires = { tags = tagsContract.capability, rules = rulesContract.capability },
           init = function(current)
             local currentTags = current:require(tagsContract.capability)
@@ -317,6 +319,9 @@ spec('a bind that fails in its initializer leaves no source behind', function()
       expect.equal(consumer:state(), 'failed', 'the consumer')
       expect.truthy(tostring(consumer:diagnostic()):find('another runtime', 1, true), 'the rejected owner')
       expect.equal(#rules:sources(), 0, 'the rolled-back source')
+      local reports = testing.takeReports()
+      expect.equal(#reports, 1, 'the reported load failure')
+      expect.truthy(reports[1]:find('arrangement-test-3', 1, true), 'the failed consumer is named')
     end)
     foreign:close()
     if not ok then
@@ -325,7 +330,7 @@ spec('a bind that fails in its initializer leaves no source behind', function()
   end)
 end)
 
-spec('binding rejects a context whose activation has ended', function()
+test('binding rejects a context whose activation has ended', function()
   local state, context, panels, tags, rules
   withServices(nil, function(currentState, currentContext, currentPanels, currentTags, currentRules)
     state, context, panels, tags, rules = currentState, currentContext, currentPanels, currentTags, currentRules
@@ -335,4 +340,4 @@ spec('binding rejects a context whose activation has ended', function()
   end, 'no longer active', 'the ended activation')
 end)
 
-return spec
+return test

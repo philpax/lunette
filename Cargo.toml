@@ -41,6 +41,9 @@ cc = "=1.4.0"
 cmake = "=0.1.58"
 getrandom = "=0.3.4"
 libc = "=0.2.189"
+# The Lua test runner reports each test file as a test of its own, with the
+# filtering and output of the built-in harness.
+libtest-mimic = "=0.8.2"
 clap = { version = "=4.6.6", features = ["derive"] }
 lunette-luau = { path = "crates/lunette-luau" }
 mlua = "=0.12.0"

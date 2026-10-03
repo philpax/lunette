@@ -8,13 +8,13 @@
 -- The arrangement is a file format that persists across processes, so the
 -- round-trip test guards a real wire.
 
-local expect = require '@spec/expect'
-local suite = require '@spec/suite'
+local testing = require '@testing'
+local expect = testing.expect
 
 local format = require '@lunette-plugins/arrangement/format'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
-local spec = suite.new 'lunette-plugins.arrangement.format'
+local test = testing.suite()
 
 local function newEntry(overrides)
   local entry = {
@@ -32,7 +32,7 @@ local function newEntry(overrides)
   return entry
 end
 
-spec('an arrangement round-trips through render and read', function()
+test('an arrangement round-trips through render and read', function()
   local written = format.newFile {
     newEntry(),
     newEntry { kind = 'monitor', key = 'Acme X24 on DP-1', tags = {} },
@@ -55,7 +55,7 @@ spec('an arrangement round-trips through render and read', function()
   expect.equal(entries[1].tags[1], 'main', 'the tag name')
 end)
 
-spec('an entry with no size round-trips as one with no size', function()
+test('an entry with no size round-trips as one with no size', function()
   -- A table constructor cannot carry a nil, so an override in `newEntry` cannot
   -- express a missing field.
   local written = format.newFile {
@@ -67,7 +67,7 @@ spec('an entry with no size round-trips as one with no size', function()
   expect.falsy(entry.height, 'the height')
 end)
 
-spec('a size round-trips to the last digit', function()
+test('a size round-trips to the last digit', function()
   -- A metre size that lost its last digit would shrink a panel a little at
   -- every restart. The drift would be diagnosed as a layout defect; the cause
   -- is formatting precision.
@@ -79,7 +79,7 @@ spec('a size round-trips to the last digit', function()
   expect.near(entry.height, height, 0, 'the height')
 end)
 
-spec('an arrangement does not share an array with its caller', function()
+test('an arrangement does not share an array with its caller', function()
   -- Both arrays are copies: the array given to `newFile` and the array
   -- `entries` returns. A caller sorting or trimming a list does not change the
   -- arrangement that is about to be saved.
@@ -93,14 +93,14 @@ spec('an arrangement does not share an array with its caller', function()
   expect.equal(#format.entries(file), 1, 'the entries after the answered array was trimmed')
 end)
 
-spec('render always writes the current version', function()
+test('render always writes the current version', function()
   local loaded = format.read(format.render(format.newFile {}))
 
   expect.equal(loaded.kind, 'arrangement', 'the kind')
   expect.equal(loaded.version, format.CURRENT_VERSION, 'the version')
 end)
 
-spec('render refuses anything that is not an arrangement this module made', function()
+test('render refuses anything that is not an arrangement this module made', function()
   expect.raises(function()
     format.render { version = 1, entries = {} }
   end, 'an arrangement is one this module made', 'a plain table')
@@ -109,13 +109,13 @@ spec('render refuses anything that is not an arrangement this module made', func
   expect.truthy(format.isFile(format.newFile {}), 'an arrangement')
 end)
 
-spec('newFile refuses an entry that is not a table', function()
+test('newFile refuses an entry that is not a table', function()
   expect.raises(function()
     format.newFile { 'terminal' }
   end, 'entry 1 is a table', 'a string entry')
 end)
 
-spec('a file from a later version carries no arrangement to write back', function()
+test('a file from a later version carries no arrangement to write back', function()
   local text = 'return { version = ' .. (format.CURRENT_VERSION + 1) .. ', entries = {}, curvature = 0.3 }'
 
   local loaded = format.read(text)
@@ -128,7 +128,7 @@ spec('a file from a later version carries no arrangement to write back', functio
   expect.falsy(loaded:forSession(), 'the arrangement')
 end)
 
-spec('a broken file is a broken load rather than a raise', function()
+test('a broken file is a broken load rather than a raise', function()
   expect.equal(format.read('return {').kind, 'broken', 'a truncated chunk')
   expect.equal(format.read('return 4').kind, 'broken', 'a chunk holding a number')
   expect.equal(format.read('return { entries = {} }').kind, 'broken', 'a file with no version')
@@ -137,7 +137,7 @@ spec('a broken file is a broken load rather than a raise', function()
   expect.falsy(format.read('return {'):forSession(), 'the arrangement of a broken load')
 end)
 
-spec('a file chunk cannot reach anything outside itself', function()
+test('a file chunk cannot reach anything outside itself', function()
   -- The chunk runs under an empty environment, and it is read as though a
   -- different process wrote it. A `require` call raises inside `read`; it does
   -- not run.
@@ -147,7 +147,7 @@ spec('a file chunk cannot reach anything outside itself', function()
   expect.truthy(loaded.message:find 'nil value', 'what the chunk hit')
 end)
 
-spec('an entry that is not the shape is skipped and named while the rest loads', function()
+test('an entry that is not the shape is skipped and named while the rest loads', function()
   -- These shapes are written by hand, not through `render`. This version does
   -- not write them, and a reader has to survive them: a file edited by hand, or
   -- one written by a version that spelt an entry differently.
@@ -174,14 +174,14 @@ spec('an entry that is not the shape is skipped and named while the rest loads',
   expect.truthy(loaded.skipped[4]:find 'an entry is a table', 'the entry that was not one')
 end)
 
-spec('an entry with a slot that is not a number takes the first slot', function()
+test('an entry with a slot that is not a number takes the first slot', function()
   local text = "return { version = 1, entries = { { kind = 'window', key = 'terminal', pose = 'x' } } }"
 
   local entry = format.entries(format.read(text):forSession())[1]
   expect.equal(entry.slot, 1, 'the slot')
 end)
 
-spec('a load and an arrangement are told apart', function()
+test('a load and an arrangement are told apart', function()
   -- A caller can mistake a load for an arrangement. The shipped configuration
   -- passes a load to `install`, which takes the arrangement from inside it.
   -- `isLoaded` distinguishes the two, and a mistaken load unwraps without
@@ -198,7 +198,7 @@ spec('a load and an arrangement are told apart', function()
   expect.equal(format.isLoaded(nil), false, 'nothing at all')
 end)
 
-spec('an empty load carries an arrangement with nothing in it', function()
+test('an empty load carries an arrangement with nothing in it', function()
   local loaded = format.empty()
 
   expect.equal(loaded.kind, 'arrangement', 'the kind')
@@ -206,10 +206,10 @@ spec('an empty load carries an arrangement with nothing in it', function()
   expect.equal(#loaded.skipped, 0, 'the entries skipped')
 end)
 
-spec('every field the format names is written', function()
+test('every field the format names is written', function()
   -- `renderEntry` reads the entry by name. A field added to `ENTRY_FIELDS` but
-  -- not to that table would be dropped from the file with no error. The spec
-  -- asserts every named field is written, so the drop fails the spec.
+  -- not to that table would be dropped from the file with no error. The test
+  -- asserts every named field is written, so the drop fails the test.
   local rendered = format.render(format.newFile {
     {
       kind = 'window',
@@ -228,4 +228,4 @@ spec('every field the format names is written', function()
   expect.truthy(rendered:find('tags = ', 1, true), 'the tags')
 end)
 
-return spec
+return test

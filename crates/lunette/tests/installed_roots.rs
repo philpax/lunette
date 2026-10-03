@@ -1,7 +1,9 @@
 //! The installed roots do not require a development-only root.
 //!
-//! `@spec` exists only in a source tree, so a shipped module requiring it would
-//! check clean and fail in every installed session. The test refuses any
+//! `@testing` exists only in a source tree, so a shipped module requiring it
+//! would check clean and fail in every installed session. Test files under a
+//! root's `tests` directories are not installed, so they may require it and
+//! are skipped here. The test refuses any
 //! string literal naming a non-installed root in the installed roots and the
 //! shipped configuration. Both lists come from `lunette::aliases`.
 
@@ -25,7 +27,7 @@ fn no_installed_root_requires_a_development_only_root() {
         .collect();
     assert!(
         !development_only.is_empty(),
-        "the spec root is development-only"
+        "the testing root is development-only"
     );
 
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -63,7 +65,8 @@ fn no_installed_root_requires_a_development_only_root() {
     assert!(offenders.is_empty(), "{offenders:#?}");
 }
 
-/// Every `.luau` file under `directory`.
+/// Every installed `.luau` file under `directory`: every one outside a `tests`
+/// directory.
 fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("{} is readable: {error}", directory.display()));
@@ -72,6 +75,9 @@ fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
             .unwrap_or_else(|error| panic!("{} lists: {error}", directory.display()))
             .path();
         if path.is_dir() {
+            if path.file_name().is_some_and(|name| name == "tests") {
+                continue;
+            }
             collect(&path, found);
         } else if path
             .extension()

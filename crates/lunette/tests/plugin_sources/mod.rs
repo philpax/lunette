@@ -23,7 +23,8 @@ pub fn register(lua: &Lua, loaders: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Sets a loader for every Lua module under `directory`, named under `prefix`.
+/// Sets a loader for every Lua module under `directory`, named under `prefix`,
+/// skipping its `tests` directories.
 pub fn register_directory(
     lua: &Lua,
     loaders: &Table,
@@ -42,6 +43,10 @@ pub fn register_directory(
             format!("{prefix}/{stem}")
         };
         if path.is_dir() {
+            // A root's tests are run by `tests/lua`, not required here.
+            if stem == "tests" {
+                continue;
+            }
             register_directory(lua, loaders, &path, &name)?;
         } else if path
             .extension()

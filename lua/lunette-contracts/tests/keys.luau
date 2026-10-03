@@ -1,18 +1,18 @@
 -- Covers lua/lunette-contracts/keys.luau: the policy it adds agrees with the runtime's names and codes.
 
-local expect = require '@spec/expect'
-local suite = require '@spec/suite'
+local testing = require '@testing'
+local expect = testing.expect
 
 local lunette = require '@lunette'
 local keys = require '@lunette-contracts/keys'
 
-local spec = suite.new 'lunette-contracts.keys'
+local test = testing.suite()
 
 local function isModifierName(name)
   return table.find(keys.MODIFIER_ORDER, name) ~= nil
 end
 
-spec('the codes are the runtime codes', function()
+test('the codes are the runtime codes', function()
   local fresh = lunette.keyCodes()
   local count = 0
   for name, code in pairs(fresh) do
@@ -24,7 +24,7 @@ spec('the codes are the runtime codes', function()
   expect.equal(keys.CODES.capsLock, 58, 'caps lock is evdev 58')
 end)
 
-spec('the vocabulary tables are frozen', function()
+test('the vocabulary tables are frozen', function()
   expect.truthy(table.isfrozen(keys.CODES), 'the codes')
   expect.truthy(table.isfrozen(keys.MODIFIER_KEYS), 'the modifier keys')
   expect.truthy(table.isfrozen(keys.LOCKS), 'the locks')
@@ -33,7 +33,7 @@ spec('the vocabulary tables are frozen', function()
   expect.truthy(table.isfrozen(keys.LOVR_MODIFIERS), 'the LÖVR modifiers')
 end)
 
-spec('every modifier key is a named key and names a modifier the native surface takes', function()
+test('every modifier key is a named key and names a modifier the native surface takes', function()
   local named = {}
   for _, code in pairs(keys.CODES) do
     named[code] = true
@@ -44,7 +44,7 @@ spec('every modifier key is a named key and names a modifier the native surface 
   end
 end)
 
-spec('every lock is a modifier name', function()
+test('every lock is a modifier name', function()
   for name in pairs(keys.LOCKS) do
     expect.truthy(isModifierName(name), "the lock '" .. name .. "'")
   end
@@ -52,7 +52,7 @@ spec('every lock is a modifier name', function()
   expect.falsy(keys.LOCKS.shift, 'shift clears after the next key')
 end)
 
-spec('the keys that come in pairs name the same modifier', function()
+test('the keys that come in pairs name the same modifier', function()
   -- Left and right shift are different keycodes and the same modifier. If
   -- the right shift named a different modifier, half the capital letters
   -- would come out lowercase.
@@ -63,7 +63,7 @@ spec('the keys that come in pairs name the same modifier', function()
   expect.equal(keys.MODIFIER_KEYS[codes.rightCtrl], 'control', 'the right control')
 end)
 
-spec('every LÖVR translation is a named key or a modifier', function()
+test('every LÖVR translation is a named key or a modifier', function()
   local named = {}
   for _, code in pairs(keys.CODES) do
     named[code] = true
@@ -77,4 +77,4 @@ spec('every LÖVR translation is a named key or a modifier', function()
   end
 end)
 
-return spec
+return test

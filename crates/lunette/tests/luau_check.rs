@@ -284,6 +284,10 @@ fn collect_sources(directory: &Path, paths: &mut Vec<PathBuf>) {
     entries.sort();
     for path in entries {
         if path.is_dir() {
+            // Test files are not checked; CONTRIBUTING.md records why.
+            if path.file_name().is_some_and(|name| name == "tests") {
+                continue;
+            }
             collect_sources(&path, paths);
         } else if path
             .extension()

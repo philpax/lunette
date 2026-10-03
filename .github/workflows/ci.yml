@@ -70,7 +70,7 @@ jobs:
       # The build script points FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS here, which
       # keeps cmake off the network.
       LUNETTE_JOLTPHYSICS_SRC: ${{ github.workspace }}/.jolt
-      # crates/lunette/tests/lua_spec.rs boots a session, which opens a
+      # crates/lunette/tests/exit_status.rs boots a session, which opens a
       # socket under the runtime directory and resolves its state directory from
       # XDG_STATE_HOME or else from HOME. A runner sets neither, and the tests
       # remove HOME.

@@ -28,7 +28,7 @@ lua/lunette-plugin/                   typed plugin authoring facade and erased a
 lua/lunette-contracts/                neutral plugin service contracts
 lua/lunette-plugins/                  every built-in plugin, provider or consumer
 lua/lunette-desktop/                  the shipped desktop's entry list
-lua/spec/                             development-only Lua specifications
+lua/testing/                          development-only Lua test scaffolding
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
 examples/                             example configurations, checked and tested like the default one
@@ -97,13 +97,33 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 
 ### The Luau static check
 
-`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, the ordinary spec harness modules, the shipped configuration, and the configurations under `examples/` against generated definitions. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
+`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, the shipped configuration, and the configurations under `examples/` against generated definitions. It skips every `tests` directory and `lua/testing`. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
 
 The checker is strict mode. `etc/lunette/definitions.luau` declares the LÖVR runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. Lua modules carry their own service and configuration types. The checker checks those local shapes but does not prove that a complete plugin graph is wired correctly; the plugin runtime validates declarations and providers separately.
 
-`lua/spec/suite.luau` and `lua/spec/expect.luau` are checked: they are ordinary modules that happen to be used by tests. The spec files themselves are not, and neither is `lua/spec/runner.luau`. The runner requires by a name it computes from a directory walk, which is the one require form the checker cannot follow. The spec files construct the windows, seats, and sources they drive the standard library with as the smallest table each case needs, and the handle types are exact, so checking them would mean either building a whole handle per case or casting each one. Both make the tests worse at the thing they are for. A case that needs a real shape gets it from the module under test.
+Test files and the scaffolding in `lua/testing` are not checked. A test constructs the windows, seats, and sources it drives the standard library with as the smallest table each case needs, and the fake native API installs functions onto the `@lunette` table, while the handle types are exact; checking them would mean either building a whole handle per case or casting each one. Both make the tests worse at the thing they are for. A case that needs a real shape gets it from the module under test.
 
 The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
+
+### Lua tests
+
+A module's tests live in a `tests` directory beside it, never among its sources: `lua/lunette-plugins/pacing/tests/pacer.luau` covers `lua/lunette-plugins/pacing/pacer.luau`. Every `.luau` file directly inside a `tests` directory is a test file. Helpers a test file shares go in `tests/support/` and are required relatively, `require './support/fixture'`; any other file under a `tests` directory fails discovery, so a test file placed one directory too deep is reported rather than never run. Scaffolding used by tests in more than one place goes in `lua/testing`, the development-only `@testing` root, and nowhere else.
+
+A test file returns a suite of named cases:
+
+```luau
+local testing = require '@testing'
+local expect = testing.expect
+local test = testing.suite()
+
+test('a case named as a sentence', function()
+  expect.equal(1 + 1, 2, 'the sum')
+end)
+
+return test
+```
+
+`crates/lunette/tests/lua/` runs each test file as its own test, in a fresh Lua state where the module roots resolve from the working tree, `lovr.math` is LÖVR's own, and the plugin runtime is the real one. `testing.native()` installs the fake native API, `testing.start(entries)` starts a few plugins, and `testing.boot(entries)` starts a composition driven through LÖVR's callbacks. A file fails when it returns no suite or a suite with no cases, when a case raises, when a plugin failure is reported during a case that the case did not take with `testing.takeReports()`, and when shutting its plugin runtimes down fails. [Build and development](docs/dev/build-and-development.md#testing) describes the runner. Neither the tests nor `lua/testing` are installed.
 
 ### The module roots
 
@@ -217,7 +237,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `make check-format` — nightly rustfmt, and stylua over the Luau (see [formatting](#formatting))
   - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
   - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).
-  - `make check-luau` — the Luau type checker over all shipped Lua roots, the ordinary spec harness modules, and the shipped config (see [the static check](#the-luau-static-check))
+  - `make check-luau` — the Luau type checker over all shipped Lua roots outside their `tests` directories, the shipped config, and the examples (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

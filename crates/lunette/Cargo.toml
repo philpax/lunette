@@ -52,9 +52,17 @@ lunette-capture = { path = "../lunette-capture", features = ["test-fakes"] }
 # `TestCompositor`, for the integration test that runs the host-output enumeration
 # against a real Wayland compositor with no graphics device.
 lunette-compositor = { path = "../lunette-compositor", features = ["test-fakes"] }
+libtest-mimic.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
+
+# The Lua test runner discovers its tests at run time, one per test file under
+# `lua/`, which the built-in harness cannot express.
+[[test]]
+name = "lua"
+path = "tests/lua/main.rs"
+harness = false
 
 [lints]
 workspace = true

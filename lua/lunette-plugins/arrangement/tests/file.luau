@@ -1,12 +1,12 @@
 -- Filesystem and refusal behavior for configuration-owned persistence state.
-local expect = require '@spec/expect'
-local suite = require '@spec/suite'
+local testing = require '@testing'
+local expect = testing.expect
 local rulesContract = require '@lunette-contracts/rules'
 local arrangement = require '@lunette-plugins/arrangement'
 local persist = require '@lunette-plugins/arrangement/state'
-local fixture = require '@spec/lunette-plugins/arrangement/fixture'
+local fixture = require './support/fixture'
 
-local spec = suite.new 'lunette-plugins.arrangement.file'
+local test = testing.suite()
 
 local function filesystem(text, name)
   local expected = name or 'arrangement.state'
@@ -58,7 +58,7 @@ local function futureText()
   return 'return { version = ' .. (arrangement.CURRENT_VERSION + 1) .. ', entries = {}, future = true }'
 end
 
-spec('an absent file loads an empty arrangement without reporting', function()
+test('an absent file loads an empty arrangement without reporting', function()
   local fs = filesystem(nil)
   local state, reports = newState(fs)
   expect.equal(state:loaded().kind, 'arrangement', 'the load')
@@ -67,7 +67,7 @@ spec('an absent file loads an empty arrangement without reporting', function()
   expect.equal(#reports, 0, 'the reports')
 end)
 
-spec('a future file is reported and left untouched', function()
+test('a future file is reported and left untouched', function()
   local text = futureText()
   local fs = filesystem(text)
   local state, reports = newState(fs)
@@ -78,21 +78,21 @@ spec('a future file is reported and left untouched', function()
   expect.truthy(reports[1]:find('written by version', 1, true), 'the report')
 end)
 
-spec('a broken file is reported rather than raising', function()
+test('a broken file is reported rather than raising', function()
   local state, reports = newState(filesystem 'return {')
   expect.equal(state:loaded().kind, 'broken', 'the load')
   expect.truthy(state:declined():find('could not be read', 1, true), 'the refusal')
   expect.equal(#reports, 1, 'the reports')
 end)
 
-spec('skipped entries are reported when state is constructed', function()
+test('skipped entries are reported when state is constructed', function()
   local state, reports = newState(filesystem "return { version = 1, entries = { { kind = 'nothing' } } }")
   expect.equal(#arrangement.entries(state:arrangement()), 0, 'the entries')
   expect.equal(#reports, 1, 'the reports')
   expect.truthy(reports[1]:find('window or a monitor', 1, true), 'the report')
 end)
 
-spec('an unwritable file returns failure without changing the arrangement', function()
+test('an unwritable file returns failure without changing the arrangement', function()
   local fs = filesystem(nil)
   local state = newState(fs)
   local arrangement = state:arrangement()
@@ -107,7 +107,7 @@ spec('an unwritable file returns failure without changing the arrangement', func
 end)
 
 for _, text in ipairs { futureText(), 'return {' } do
-  spec('ordinary save leaves refused bytes untouched: ' .. text, function()
+  test('ordinary save leaves refused bytes untouched: ' .. text, function()
     local fs = filesystem(text)
     local state = newState(fs)
     withBinding(state, function(binding)
@@ -120,7 +120,7 @@ for _, text in ipairs { futureText(), 'return {' } do
   end)
 end
 
-spec('successful force save clears refusal and permits later ordinary saves', function()
+test('successful force save clears refusal and permits later ordinary saves', function()
   local fs = filesystem(futureText())
   local state = newState(fs)
   withBinding(state, function(binding)
@@ -133,7 +133,7 @@ spec('successful force save clears refusal and permits later ordinary saves', fu
   expect.equal(state:loaded().kind, 'fromTheFuture', 'the original load result')
 end)
 
-spec('failed force save retains refusal and original bytes', function()
+test('failed force save retains refusal and original bytes', function()
   local text = futureText()
   local fs = filesystem(text)
   local state = newState(fs)
@@ -146,7 +146,7 @@ spec('failed force save retains refusal and original bytes', function()
   expect.equal(fs.text, text, 'the bytes')
 end)
 
-spec('new state can read a replacement file without changing an existing refusal', function()
+test('new state can read a replacement file without changing an existing refusal', function()
   local fs = filesystem(futureText())
   local refused = newState(fs)
   fs.text = arrangement.render(arrangement.newFile {})
@@ -158,13 +158,13 @@ spec('new state can read a replacement file without changing an existing refusal
   end)
 end)
 
-spec('the path uses the save directory and no module extension', function()
+test('the path uses the save directory and no module extension', function()
   local fs = filesystem(nil)
   expect.equal(persist.path(fs), '/a/save/directory/arrangement.state', 'the path')
   expect.falsy(persist.FILE:find '%.luau?$', 'the module extension')
 end)
 
-spec('saved bytes restore pose, size, and tags in a new configuration state', function()
+test('saved bytes restore pose, size, and tags in a new configuration state', function()
   local fs = filesystem(nil)
   local state = newState(fs)
   withBinding(state, function(binding, context, panels, tags)
@@ -189,7 +189,7 @@ spec('saved bytes restore pose, size, and tags in a new configuration state', fu
   expect.equal(fs.reads, 2, 'one read per state')
 end)
 
-spec('a saved entry nothing matches is reported once per load', function()
+test('a saved entry nothing matches is reported once per load', function()
   local fs = filesystem(nil)
   withBinding(newState(fs), function(binding, context, panels)
     panels:fromMonitor(context, { id = 'fixture.unplugged', dead = false, width = 1920, height = 1080 })
@@ -219,7 +219,7 @@ spec('a saved entry nothing matches is reported once per load', function()
   expect.equal(stale(fresh), 1, 'a new load reports it again')
 end)
 
-spec('save rechecks the active scope after reporting during capture', function()
+test('save rechecks the active scope after reporting during capture', function()
   local fs = filesystem(nil)
   local owner
   local state = newState(fs, function()
@@ -233,7 +233,7 @@ spec('save rechecks the active scope after reporting during capture', function()
   expect.equal(fs.writes, 0, 'the writes after suspension')
 end)
 
-spec('an unloading binding refuses every save while its source is still registered', function()
+test('an unloading binding refuses every save while its source is still registered', function()
   local fs = filesystem(nil)
   local ran, failure = false, nil
   withBinding(newState(fs), function(binding, context, _panels, _tags, owner)
@@ -268,7 +268,7 @@ spec('an unloading binding refuses every save while its source is still register
   expect.equal(fs.writes, 0, 'the writes')
 end)
 
-spec('neither the state nor a binding kept past its activation retains a retired service', function()
+test('neither the state nor a binding kept past its activation retains a retired service', function()
   withBinding(newState(filesystem(nil)), function(binding, _context, panels, _tags, _owner, providers)
     local retired = setmetatable({ panels }, { __mode = 'v' })
     panels = nil
@@ -281,24 +281,16 @@ spec('neither the state nor a binding kept past its activation retains a retired
   end)
 end)
 
-spec('the default adapter routes reads and writes through the save filesystem', function()
-  local previous = lovr.filesystem
-  local fs = filesystem(nil)
-  lovr.filesystem = fs
-  local ok, failure = pcall(function()
-    local state = persist.new()
-    expect.equal(persist.path(), '/a/save/directory/arrangement.state', 'the default path')
-    withBinding(state, function(binding)
-      expect.equal(binding:save(), true, 'the default write')
-    end)
-    expect.equal(fs.reads, 1, 'the default read')
-    expect.equal(fs.writes, 1, 'the default write count')
-    expect.equal(fs.text, arrangement.render(state:arrangement()), 'the format-one bytes')
+test('the default adapter routes reads and writes through the save filesystem', function()
+  local native = testing.native()
+  local state = persist.new()
+  expect.equal(persist.path(), '/fixture/arrangement.state', 'the default path')
+  fixture.run({ bind = state, native = native }, function(env)
+    expect.equal(env.binding:save(), true, 'the default write')
   end)
-  lovr.filesystem = previous
-  if not ok then
-    error(failure)
-  end
+  expect.equal(native.events.reads, 1, 'the default read')
+  expect.equal(native.events.writes, 1, 'the default write count')
+  expect.equal(native.events.saved, arrangement.render(state:arrangement()), 'the format-one bytes')
 end)
 
 -- A format of a configuration's own, answering fromTheFuture for a later version.
@@ -327,7 +319,7 @@ local lines = {
   end,
 }
 
-spec('a named file in another format round-trips the arrangement', function()
+test('a named file in another format round-trips the arrangement', function()
   local fs = filesystem(nil, 'profile.lines')
   local state = persist.new { filesystem = fs, file = 'profile.lines', format = lines }
   expect.equal(persist.path(fs, 'profile.lines'), '/a/save/directory/profile.lines', 'the named path')
@@ -344,7 +336,7 @@ spec('a named file in another format round-trips the arrangement', function()
   expect.equal(entries[1].key, 'fixture.monitor', 'the key read back')
 end)
 
-spec('a format that reports a later version leaves the file alone', function()
+test('a format that reports a later version leaves the file alone', function()
   local fs = filesystem('lines 7\n', 'profile.lines')
   local reports = {}
   local state = persist.new {
@@ -363,7 +355,7 @@ spec('a format that reports a later version leaves the file alone', function()
   expect.equal(fs.text, 'lines 7\n', 'the bytes')
 end)
 
-spec('a format whose read raises or answers no load is a broken file', function()
+test('a format whose read raises or answers no load is a broken file', function()
   for _, read in ipairs {
     function()
       error 'unreadable'
@@ -381,7 +373,7 @@ spec('a format whose read raises or answers no load is a broken file', function(
   end
 end)
 
-spec('a malformed file, format, or key function raises at construction', function()
+test('a malformed file, format, or key function raises at construction', function()
   for _, dependencies in ipairs {
     { file = '' },
     { format = { read = lines.read } },
@@ -393,7 +385,7 @@ spec('a malformed file, format, or key function raises at construction', functio
   end
 end)
 
-spec('a key function keys windows by title instead of application', function()
+test('a key function keys windows by title instead of application', function()
   local fs = filesystem(nil)
   local state = persist.new {
     filesystem = fs,
@@ -430,4 +422,4 @@ spec('a key function keys windows by title instead of application', function()
   end)
 end)
 
-return spec
+return test

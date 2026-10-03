@@ -1,14 +1,14 @@
 -- Covers lua/lunette-plugins/keyboard/rows.luau: the rows' shape and the keys a keyboard cannot do without.
 
-local expect = require '@spec/expect'
-local suite = require '@spec/suite'
+local testing = require '@testing'
+local expect = testing.expect
 
 local keys = require '@lunette-contracts/keys'
 local rows = require '@lunette-plugins/keyboard/rows'
 
-local spec = suite.new 'lunette-plugins.keyboard.rows'
+local test = testing.suite()
 
-spec('every key has a keycode and appears once', function()
+test('every key has a keycode and appears once', function()
   local seen = {}
   local count = 0
   for rowIndex, row in ipairs(rows) do
@@ -23,7 +23,7 @@ spec('every key has a keycode and appears once', function()
   expect.truthy(count > 0, 'the keys in the rows')
 end)
 
-spec('every width is a positive number of key units', function()
+test('every width is a positive number of key units', function()
   for rowIndex, row in ipairs(rows) do
     for entryIndex, entry in ipairs(row) do
       if entry.width ~= nil then
@@ -36,7 +36,7 @@ spec('every width is a positive number of key units', function()
   end
 end)
 
-spec('the keys a keyboard cannot do without are drawn', function()
+test('the keys a keyboard cannot do without are drawn', function()
   local present = {}
   for _, row in ipairs(rows) do
     for _, entry in ipairs(row) do
@@ -50,4 +50,4 @@ spec('the keys a keyboard cannot do without are drawn', function()
   end
 end)
 
-return spec
+return test
