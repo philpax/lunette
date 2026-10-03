@@ -9,7 +9,7 @@ local contract = require '@lunette-contracts/placement'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 
 local service = {}
 
@@ -26,17 +26,11 @@ export type Settings = {
   read panelOptions: PanelOptions,
 }
 
-type Listener = {
-  owner: Owner,
-  run: (contract.Placement) -> (),
-  active: boolean,
-}
-
 type State = {
   context: plugin.Context,
   settings: Settings,
   placements: { contract.Placement },
-  listeners: { Listener },
+  listeners: listeners.Listeners<(contract.Placement) -> ()>,
 }
 
 local REQUEST_KEYS: { [string]: boolean } = { window = true, properties = true, defaults = true }
@@ -237,16 +231,19 @@ local function checkedRequest(request: unknown): contract.Request
 end
 
 function service.build(context: plugin.Context, settings: Settings): contract.Service
-  local state: State = { context = context, settings = settings, placements = {}, listeners = {} }
+  local state: State = {
+    context = context,
+    settings = settings,
+    placements = {},
+    listeners = listeners.new<<(contract.Placement) -> ()>>(context),
+  }
 
   local function announce(placed: contract.Placement): ()
-    for _, listener in ipairs(table.clone(state.listeners)) do
-      if listener.active and context:owns(listener.owner) and not placed.panel.dead then
-        protected.call('placement: a placement listener', function(): ()
-          listener.run(placed)
-        end)
-      end
-    end
+    state.listeners:each('placement: a placement listener', function(run: (contract.Placement) -> ()): ()
+      run(placed)
+    end, function(): boolean
+      return not placed.panel.dead
+    end)
   end
 
   local implementation: contract.Service = {
@@ -297,17 +294,7 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
       if type(listener.run) ~= 'function' then
         error('placement: onPlaced run is a function, not a ' .. type(listener.run), 2)
       end
-      local entry: Listener = { owner = owner, run = listener.run, active = true }
-      return context:acquire(owner, function(): () -> ()
-        state.listeners[#state.listeners + 1] = entry
-        return function()
-          entry.active = false
-          local index = table.find(state.listeners, entry)
-          if index then
-            table.remove(state.listeners, index)
-          end
-        end
-      end)
+      return state.listeners:add(owner, listener.run)
     end,
   }
   return implementation

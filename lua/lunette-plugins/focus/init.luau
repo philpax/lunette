@@ -4,18 +4,12 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
-local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 local holders = require '@lunette-plugins/focus/holders'
 
 type Grant = {
   holder: holders.Holder,
   effect: plugin.Effect?,
-}
-
-type Listener = {
-  owner: contract.Owner,
-  run: (contract.Focus) -> (),
-  active: boolean,
 }
 
 local FOCUS_KEYS: { [string]: boolean } = { seat = true, sink = true }
@@ -38,7 +32,7 @@ end
 local function create(context: plugin.Context): contract.Service
   local state = holders.new()
   local grants: { [contract.Owner]: { [unknown]: Grant } } = {}
-  local listeners: { Listener } = {}
+  local heard = listeners.new<<(contract.Focus) -> ()>>(context)
 
   -- Calls every live listener when the answered pair differs from the pair
   -- answered before the change.
@@ -48,13 +42,9 @@ local function create(context: plugin.Context): contract.Service
       return
     end
     local change: contract.Focus = table.freeze { seat = nowSeat, sink = nowSink }
-    for _, entry in ipairs(table.clone(listeners)) do
-      if entry.active and context:owns(entry.owner) then
-        protected.call('focus: listener', function(): ()
-          entry.run(change)
-        end)
-      end
-    end
+    heard:each('focus: listener', function(run: (contract.Focus) -> ()): ()
+      run(change)
+    end)
   end
   local function changing(change: () -> ()): ()
     local seat, sink = holders.focused(state)
@@ -66,10 +56,7 @@ local function create(context: plugin.Context): contract.Service
   context:effect(function(): () -> ()
     return function(): ()
       table.clear(grants)
-      for _, entry in ipairs(listeners) do
-        entry.active = false
-      end
-      table.clear(listeners)
+      heard:clear()
       holders.clear(state)
     end
   end)
@@ -122,17 +109,7 @@ local function create(context: plugin.Context): contract.Service
       if type(run) ~= 'function' then
         error('focus onChanged: run is a function, not a ' .. type(run), 2)
       end
-      local entry: Listener = { owner = owner, run = run, active = true }
-      return context:acquire(owner, function(): () -> ()
-        listeners[#listeners + 1] = entry
-        return function(): ()
-          entry.active = false
-          local index = table.find(listeners, entry)
-          if index then
-            table.remove(listeners, index)
-          end
-        end
-      end)
+      return heard:add(owner, run)
     end,
   }
 end

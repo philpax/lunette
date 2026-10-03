@@ -2,19 +2,13 @@
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/layouts'
-local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 
 type Registration = {
   owner: contract.Owner,
   name: string,
   apply: ({ contract.Panel }, unknown?) -> (),
   continuous: boolean,
-}
-
-type Listener = {
-  owner: contract.Owner,
-  run: () -> (),
-  active: boolean,
 }
 
 type Raw = { [unknown]: unknown }
@@ -43,7 +37,7 @@ end
 
 local function create(context: plugin.Context): contract.Service
   local named: { [string]: Registration } = {}
-  local listeners: { Listener } = {}
+  local heard = listeners.new<<() -> ()>>(context)
 
   local function live(name: string): Registration?
     local registration = named[name]
@@ -65,11 +59,9 @@ local function create(context: plugin.Context): contract.Service
   end
 
   local function changed(): ()
-    for _, listener in ipairs(table.clone(listeners)) do
-      if listener.active and context:owns(listener.owner) then
-        protected.call('layouts: a change listener', listener.run)
-      end
-    end
+    heard:each('layouts: a change listener', function(run: () -> ()): ()
+      run()
+    end)
   end
 
   return {
@@ -142,17 +134,7 @@ local function create(context: plugin.Context): contract.Service
       if type(raw.run) ~= 'function' then
         error('layouts onChanged: run is a function, not a ' .. type(raw.run), 2)
       end
-      local listener: Listener = { owner = owner, run = spec.run, active = true }
-      return context:acquire(owner, function(): () -> ()
-        listeners[#listeners + 1] = listener
-        return function(): ()
-          listener.active = false
-          local index = table.find(listeners, listener)
-          if index then
-            table.remove(listeners, index)
-          end
-        end
-      end)
+      return heard:add(owner, spec.run)
     end,
   }
 end

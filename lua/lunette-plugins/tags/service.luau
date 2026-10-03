@@ -3,17 +3,15 @@
 
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
-local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 local overrides = require '@lunette-plugins/tags/overrides'
 
 type Panel = tags.Panel
 type Owner = tags.Owner
 
 type Listener = {
-  owner: Owner,
   tag: tags.Tag?,
   run: (tags.Change) -> (),
-  active: boolean,
 }
 
 type Mutable = {
@@ -76,18 +74,15 @@ end
 
 local function create(context: plugin.Context): tags.Service
   local records: { Record } = {}
-  local listeners: { Listener } = {}
+  local heard = listeners.new<<Listener>>(context)
 
   local function notify(tag: tags.Tag, kind: tags.ChangeKind): ()
     local change: tags.Change = table.freeze { tag = tag, kind = kind }
-    for _, listener in ipairs(table.clone(listeners)) do
-      local wanted = listener.tag
-      if listener.active and context:owns(listener.owner) and (wanted == nil or wanted == tag) then
-        protected.call('tags: a change listener', function(): ()
-          listener.run(change)
-        end)
-      end
-    end
+    heard:each('tags: a change listener', function(listener: Listener): ()
+      listener.run(change)
+    end, function(listener: Listener): boolean
+      return listener.tag == nil or listener.tag == tag
+    end)
   end
 
   local function recordOf(value: unknown): Record?
@@ -583,17 +578,7 @@ local function create(context: plugin.Context): tags.Service
     if wanted ~= nil and not recordOf(wanted) then
       error('tags onChanged: tag is a live tag of this service', 2)
     end
-    local entry: Listener = { owner = caller, tag = wanted, run = listener.run, active = true }
-    return context:acquire(caller, function(): () -> ()
-      listeners[#listeners + 1] = entry
-      return function(): ()
-        entry.active = false
-        local index = table.find(listeners, entry)
-        if index then
-          table.remove(listeners, index)
-        end
-      end
-    end)
+    return heard:add(caller, { tag = wanted, run = listener.run })
   end
 
   local service: tags.Service = {
@@ -626,7 +611,7 @@ local function create(context: plugin.Context): tags.Service
       for _, record in ipairs(table.clone(records)) do
         record.retire()
       end
-      table.clear(listeners)
+      heard:clear()
     end
   end)
   return service

@@ -2,13 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/drops'
-local protected = require '@lunette-plugins/protected'
-
-type Listener = {
-  owner: contract.Owner,
-  run: (contract.Drop) -> (),
-  active: boolean,
-}
+local listeners = require '@lunette-plugins/listeners'
 
 local LISTENER_KEYS: { [string]: boolean } = { run = true }
 local DROP_KEYS: { [string]: boolean } = { surface = true, pointer = true }
@@ -25,7 +19,7 @@ local function checkFields(operation: string, value: unknown, allowed: { [string
 end
 
 local function create(context: plugin.Context): contract.Service
-  local listeners: { Listener } = {}
+  local heard = listeners.new<<(contract.Drop) -> ()>>(context)
   return {
     onDropped = function(_self: contract.Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       checkFields('onDropped', listener, LISTENER_KEYS, 'run')
@@ -33,17 +27,7 @@ local function create(context: plugin.Context): contract.Service
       if type(run) ~= 'function' then
         error('drops onDropped: run is a function, not a ' .. type(run), 2)
       end
-      local entry: Listener = { owner = owner, run = run, active = true }
-      return context:acquire(owner, function(): () -> ()
-        listeners[#listeners + 1] = entry
-        return function(): ()
-          entry.active = false
-          local index = table.find(listeners, entry)
-          if index then
-            table.remove(listeners, index)
-          end
-        end
-      end)
+      return heard:add(owner, run)
     end,
     -- The listeners are chosen before any is called, so a listener added by
     -- another does not hear this drop, and one disposed by another is skipped.
@@ -57,13 +41,9 @@ local function create(context: plugin.Context): contract.Service
       end
       context:checkOwner(owner)
       local delivered: contract.Drop = table.freeze { surface = drop.surface, pointer = drop.pointer }
-      for _, entry in ipairs(table.clone(listeners)) do
-        if entry.active and context:owns(entry.owner) then
-          protected.call('drops: listener', function(): ()
-            entry.run(delivered)
-          end)
-        end
-      end
+      heard:each('drops: listener', function(run: (contract.Drop) -> ()): ()
+        run(delivered)
+      end)
     end,
   }
 end
