@@ -1,14 +1,9 @@
 //! Strict policy checks isolated from the runtime VM test binary.
-use std::{path::PathBuf, sync::Mutex};
+use std::path::PathBuf;
 
 use lunette_lovr::analyze::{self, Request};
 
-static CHECKER: Mutex<()> = Mutex::new(());
-
 fn check(paths: &[&str]) {
-    let _guard = CHECKER
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let request = Request::new(
         Some(root.join("etc/lunette/definitions.luau")),
@@ -41,9 +36,6 @@ fn placement_service() {
 
 #[test]
 fn rules_predicates_and_evaluators() {
-    let _guard = CHECKER
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for (name, negative) in [
         ("rules_positive.luau", false),

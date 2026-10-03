@@ -118,6 +118,9 @@ impl fmt::Display for Kind {
 
 /// Checks `request`.
 ///
+/// Checks may run on several threads at once. The checker sets Luau's
+/// process-global language flags once, on the first check.
+///
 /// # Errors
 ///
 /// If a path holds an interior NUL, or the checker cannot run: the

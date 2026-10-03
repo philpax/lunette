@@ -14,6 +14,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -128,11 +129,19 @@ struct PathResolver : Luau::FileResolver
 // The flag set is the same as luau-analyze's setLuauFlagsDefault. Without it
 // the checker accepts a different language: `declare class` still parses,
 // although current Luau no longer accepts the syntax.
+//
+// The flags are process-global, and checks may run on several threads at
+// once, so they are written once rather than on every check. A static
+// initializer cannot do it: the flags register themselves into the list from
+// other translation units' static initializers, in an unspecified order.
 void enableDefaultFlags()
 {
-    for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
-        if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
-            flag->value = true;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
+            if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
+                flag->value = true;
+    });
 }
 
 char* copy(const std::string& text)
