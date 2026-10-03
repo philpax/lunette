@@ -30,10 +30,7 @@ fn optional_outages_and_placement_recovery_preserve_independent_scopes() -> mlua
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/outages.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -45,10 +42,7 @@ fn pointing_outages_and_a_drag_cut_short_keep_rendering_and_saved_state() -> mlu
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/pointing.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -116,10 +110,7 @@ fn persistence_preserves_placement_precedence_and_write_refusal_through_outages(
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/persistence.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -184,7 +175,7 @@ fn every_provider_validates_and_applies_its_configuration() -> mlua::Result<()> 
             || error.contains("plugin keyboard: option rows")
             || error.contains("bindings register: chord")
             || error.contains("rules: rule 1 has an unknown field")
-            || error.contains("requires missing contract")),
+            || is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -212,10 +203,7 @@ fn title_bars_move_their_panels_and_hidden_panels_are_neither_drawn_nor_offered(
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/decorations.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -227,10 +215,7 @@ fn monitor_mirrors_are_laid_side_by_side_selected_and_tagged() -> mlua::Result<(
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/monitors.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -243,10 +228,7 @@ fn bindings_take_their_chords_before_delivery_and_the_reload_key_is_configurable
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/bindings.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -260,9 +242,7 @@ fn workspaces_show_one_tag_switch_by_chord_and_follow_new_windows() -> mlua::Res
     assert!(
         errors
             .iter()
-            .all(|error| error.contains("desktop/workspaces")
-                || (error.starts_with("plugin graph: instance ")
-                    && error.contains(" requires missing contract "))),
+            .all(|error| error.contains("desktop/workspaces") || is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -274,10 +254,7 @@ fn placement_is_order_independent_tag_aware_replaceable_and_saved_on_demand() ->
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/placement.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -290,10 +267,7 @@ fn hidden_panels_are_paced_at_the_floor_video_is_exempt_and_unloading_unthrottle
     plugin_desktop::execute(&lua, include_str!("plugin_desktop/pacing.luau"))?;
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(
-        errors
-            .iter()
-            .all(|error| error.starts_with("plugin graph: instance ")
-                && error.contains(" requires missing contract ")),
+        errors.iter().all(|error| is_missing_contract(error)),
         "{errors:?}"
     );
     Ok(())
@@ -306,4 +280,10 @@ fn output_scale_steps_with_hysteresis_and_unloading_restores_it() -> mlua::Resul
     let errors = plugin_desktop::shutdown(&lua)?;
     assert!(errors.is_empty(), "{errors:?}");
     Ok(())
+}
+
+/// Whether `error` reports an instance waiting on a contract that no provider
+/// serves, which a scenario that takes providers away leaves behind.
+fn is_missing_contract(error: &str) -> bool {
+    error.starts_with("plugin graph: instance ") && error.contains(" requires missing contract ")
 }
