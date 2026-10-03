@@ -242,7 +242,8 @@ impl fmt::Display for PluginLabel {
 /// What failed.
 #[derive(Clone, Debug)]
 pub enum FailureCause {
-    /// A plugin callback raised.
+    /// A plugin callback raised, or Lua could not create a value to call it
+    /// with.
     Callback(mlua::Error),
     /// The initializer returned a malformed provided record.
     Provision(ProvisionError),
@@ -250,8 +251,6 @@ pub enum FailureCause {
     InitializerCleared,
     /// The attachment's own record for the instance is missing.
     MissingRecord,
-    /// A Lua value could not be created.
-    Lua(mlua::Error),
     /// The graph cannot load the instance, as described.
     Blocked(String),
 }
@@ -259,7 +258,7 @@ pub enum FailureCause {
 impl fmt::Display for FailureCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Callback(source) | Self::Lua(source) => write!(formatter, "{source}"),
+            Self::Callback(source) => write!(formatter, "{source}"),
             Self::Provision(source) => write!(formatter, "{source}"),
             Self::InitializerCleared => {
                 formatter.write_str("the definition's callbacks were released with its epoch")
@@ -289,7 +288,7 @@ impl PluginFailure {
     #[must_use]
     pub fn lua_error(&self) -> mlua::Error {
         match &self.cause {
-            FailureCause::Callback(source) | FailureCause::Lua(source) => source.clone(),
+            FailureCause::Callback(source) => source.clone(),
             other => mlua::Error::runtime(other.to_string()),
         }
     }
@@ -304,7 +303,7 @@ impl fmt::Display for PluginFailure {
 impl Error for PluginFailure {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match &self.cause {
-            FailureCause::Callback(source) | FailureCause::Lua(source) => Some(source),
+            FailureCause::Callback(source) => Some(source),
             FailureCause::Provision(source) => Some(source),
             FailureCause::InitializerCleared
             | FailureCause::MissingRecord

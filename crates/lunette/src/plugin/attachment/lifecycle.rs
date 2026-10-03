@@ -323,7 +323,13 @@ fn begin_load(
     }) {
         Ok(context) => context,
         Err(error) => {
-            return fail_load(lua, runtime, instance, activation, FailureCause::Lua(error));
+            return fail_load(
+                lua,
+                runtime,
+                instance,
+                activation,
+                FailureCause::Callback(error),
+            );
         }
     };
     let result = callback_call(runtime, || {
