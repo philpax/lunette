@@ -12,7 +12,7 @@ local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
-local logging = require '@lunette-desktop/logging'
+local logging = require '@lunette-plugins/desktop/logging'
 local persist = require '@lunette-desktop/persist'
 
 -- What a configuration gives: every option optional.

@@ -14,7 +14,7 @@ The shipped `main.luau` is one call:
 require('@lunette-desktop').run()
 ```
 
-`run` takes `patches`, which change the desktop's list of plugins. `require('@lunette-desktop').entries()` answers that list; each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in plugins provide services, such as panels, pointers, and the keyboard, and the `desktop/` entries use them: `desktop/render` draws the panels, `desktop/decorations` gives them title bars, `desktop/pointing` points the lasers, and so on.
+`run` takes `patches`, which change the desktop's list of plugins. `require('@lunette-desktop').entries()` answers that list; each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in plugins provide services, such as panels, pointers, and the keyboard, and the `desktop/` entries use them: `desktop/render` draws the panels, `desktop/decorations` gives them title bars, `desktop/pointing` points the lasers, and so on. Every one of them is a module under `@lunette-plugins`, a built-in provider under its id and a `desktop/` entry under `@lunette-plugins/desktop/`, so the code behind `desktop/keyboard` is `@lunette-plugins/desktop/keyboard`.
 
 Plugin modules go in the configuration directory and are required with a relative path such as `require './hello'`. A relative path starts from the directory that holds the requiring module, in a session and in `lunette check` alike, so a plugin split across `myplugin/init.luau` and `myplugin/draw.luau` requires its part as `require '@self/draw'`: an `init.luau` is the module its directory names, so `./draw` from it would be a sibling of the directory. A relative path cannot climb out of the configuration directory. [Module roots](../dev/stdlib.md#module-roots) states the full rules.
 
@@ -150,12 +150,12 @@ local laser = require '@lunette-plugins/laser'
 desktop.run {
   patches = {
     desktop.configure(laser.definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
-    desktop.configure(require '@lunette-desktop/keyboard') { hand = 'right', placement = { distance = 0.45 } },
+    desktop.configure(require '@lunette-plugins/desktop/keyboard') { hand = 'right', placement = { distance = 0.45 } },
   },
 }
 ```
 
-`desktop.configure(require '@lunette-desktop/keyboard') { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. A misspelt key is not a type error in Luau either way; each entry validates its options when it loads and raises an error naming the option. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
+`desktop.configure(require '@lunette-plugins/desktop/keyboard') { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. A misspelt key is not a type error in Luau either way; each entry validates its options when it loads and raises an error naming the option. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
 
 ## Extending the built-in keyboard
 
@@ -296,7 +296,10 @@ Two patches add the grid and choose it:
 
 ```lua
 { insert = { id = 'grid-layout', definition = require './grid' } },
-desktop.configure(require '@lunette-desktop/arrange') { layout = 'grid', options = { grid = { columns = 3 } } },
+desktop.configure(require '@lunette-plugins/desktop/arrange') {
+  layout = 'grid',
+  options = { grid = { columns = 3 } },
+},
 ```
 
 `options` gives each layout its options by name, and `desktop/arrange` passes a layout its own whichever tag uses it, so a tag that chooses `grid` with `tag:setLayout` is laid out in three columns too. An inserted entry is enabled after the shipped ones, so the grid registers after `desktop/arrange` has started, and `desktop/arrange` arranges again when it does. If no layout of the chosen name has registered by the first frame, `desktop/arrange` logs a warning naming it.
@@ -383,7 +386,7 @@ The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches onl
 The reload key is the `desktop/bindings` entry's binding, so it moves with a patch:
 
 ```lua
-desktop.configure(require '@lunette-desktop/bindings') { reload = { key = 'f5', modifiers = { 'control' } } },
+desktop.configure(require '@lunette-plugins/desktop/bindings') { reload = { key = 'f5', modifiers = { 'control' } } },
 ```
 
 ## Decorations
@@ -391,10 +394,10 @@ desktop.configure(require '@lunette-desktop/bindings') { reload = { key = 'f5', 
 Panels draw no frame of their own. The `desktop/decorations` entry draws a border round each panel and a title bar above it, and grabbing the bar moves the panel. Its `style` is configuration, as in `examples/desktop/main.luau`:
 
 ```lua
-desktop.configure(require '@lunette-desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+desktop.configure(require '@lunette-plugins/desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
 ```
 
-Decorations of another kind are a plugin that does what `lua/lunette-desktop/decorations.luau` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
+Decorations of another kind are a plugin that does what `lua/lunette-plugins/desktop/decorations/init.luau` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
 
 ## Tags and workspaces
 
@@ -423,7 +426,7 @@ The shipped `desktop/workspaces` consumer shows one workspace's windows at a tim
 {
   insert = {
     id = 'desktop/workspaces',
-    definition = require '@lunette-desktop/workspaces',
+    definition = require '@lunette-plugins/desktop/workspaces',
     config = {
       workspaces = { { name = 'main', key = '1' }, { name = 'side', key = '2' } },
       modifiers = { 'control', 'alt' },
@@ -439,7 +442,7 @@ A window that opens goes to the workspace in view. A workspace consumer of anoth
 `desktop/rules` takes the rule list. A rule matches named fields of a window, such as `appId` or `title`, or `where`, a function of the whole window, and its properties say where the window goes and how big it is. `examples/desktop/main.luau` sizes picture-in-picture windows by their title:
 
 ```lua
-desktop.configure(require '@lunette-desktop/rules') {
+desktop.configure(require '@lunette-plugins/desktop/rules') {
   rules = {
     {
       match = {

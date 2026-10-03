@@ -50,14 +50,14 @@ pub const LUNETTE_CONTRACTS: Alias = Alias {
     resolution: Resolution::Mounted,
 };
 
-/// Plugin implementations mounted by a running session.
+/// Every built-in plugin, provider or consumer, mounted by a running session.
 pub const LUNETTE_PLUGINS: Alias = Alias {
     name: "lunette-plugins",
     directory: "lunette-plugins",
     resolution: Resolution::Mounted,
 };
 
-/// The shipped desktop: its consumers and the composition that starts them.
+/// The shipped desktop: the entry list that composes the built-in plugins.
 /// The default configuration requires it; safe mode does not.
 pub const LUNETTE_DESKTOP: Alias = Alias {
     name: "lunette-desktop",

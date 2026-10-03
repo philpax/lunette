@@ -92,7 +92,7 @@ for _, case in ipairs {
       { id = 'surfaces', definition = require('@lunette-plugins/surfaces').definition },
       { id = 'focus', definition = require('@lunette-plugins/focus').definition },
       { id = 'keyboard', definition = keyboardModule.definition },
-      { id = 'desktop/keyboard', definition = require '@lunette-desktop/keyboard', config = case.config },
+      { id = 'desktop/keyboard', definition = require '@lunette-plugins/desktop/keyboard', config = case.config },
     },
   })
   diagnostic = tostring(running.instances['desktop/keyboard']:diagnostic())

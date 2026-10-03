@@ -3,7 +3,7 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'
-local logging = require '@lunette-desktop/logging'
+local logging = require '@lunette-plugins/desktop/logging'
 
 -- What a configuration gives: every option optional.
 export type Config = {

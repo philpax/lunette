@@ -46,7 +46,9 @@ local FACTORIES = { persistence = true, arrange = true }
 local function policy()
   local instances = {}
   for _, name in ipairs { 'workspace', 'rules', 'pose-memory', 'persistence', 'arrange', 'adoption' } do
-    local module = require('@lunette-desktop/' .. name)
+    local module = if name == 'persistence'
+      then require '@lunette-desktop/persistence'
+      else require('@lunette-plugins/desktop/' .. name)
     local instance = runtime:use(if FACTORIES[name] then module() else module, {})
     instance:enable()
     instances[#instances + 1] = instance

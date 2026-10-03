@@ -9,9 +9,9 @@ local laser = require '@lunette-plugins/laser'
 local keyboard = require '@lunette-plugins/keyboard'
 local pacingProvider = require '@lunette-plugins/pacing'
 local scaleProvider = require '@lunette-plugins/scale'
-local wristKeyboard = require '@lunette-desktop/keyboard'
-local arrange = require '@lunette-desktop/arrange'
-local pacing = require '@lunette-desktop/pacing'
+local wristKeyboard = require '@lunette-plugins/desktop/keyboard'
+local arrange = require '@lunette-plugins/desktop/arrange'
+local pacing = require '@lunette-plugins/desktop/pacing'
 
 local accepted = {
   desktop.configure(wristKeyboard) { hand = 'right', placement = { distance = 0.45 } },

@@ -1,5 +1,5 @@
 -- Workspaces: one tag shown at a time, switched with key chords. Not in the default entries; add it with
--- `{ insert = { id = 'desktop/workspaces', definition = require '@lunette-desktop/workspaces' } }`.
+-- `{ insert = { id = 'desktop/workspaces', definition = require '@lunette-plugins/desktop/workspaces' } }`.
 --
 -- A panel in some workspace's tag and no selected one is hidden by an override this consumer withdraws
 -- rather than overrides, so a panel another plugin hid stays hidden. With `follow`, a window placed only in

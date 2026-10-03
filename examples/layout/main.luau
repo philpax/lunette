@@ -14,6 +14,9 @@ desktop.run {
     { insert = { id = 'follow-layout', definition = require './follow' } },
     -- The arranging consumer names the layout it uses, and `options` gives each layout its own options by
     -- name. `desktop.configure` lets the checker read them against the consumer's options.
-    desktop.configure(require '@lunette-desktop/arrange') { layout = 'grid', options = { grid = { columns = 3 } } },
+    desktop.configure(require '@lunette-plugins/desktop/arrange') {
+      layout = 'grid',
+      options = { grid = { columns = 3 } },
+    },
   },
 }

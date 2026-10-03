@@ -23,12 +23,12 @@ desktop.run {
       },
     },
     -- The reload key needs control as well, so F5 alone reaches the client.
-    desktop.configure(require '@lunette-desktop/bindings') { reload = { key = 'f5', modifiers = { 'control' } } },
+    desktop.configure(require '@lunette-plugins/desktop/bindings') { reload = { key = 'f5', modifiers = { 'control' } } },
     -- Title bars in another colour.
-    desktop.configure(require '@lunette-desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+    desktop.configure(require '@lunette-plugins/desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
     -- Small windows whose title says they are a picture in picture float
     -- above the rest, by a predicate over the whole window.
-    desktop.configure(require '@lunette-desktop/rules') {
+    desktop.configure(require '@lunette-plugins/desktop/rules') {
       rules = {
         {
           match = {
@@ -50,7 +50,7 @@ desktop.run {
     {
       insert = {
         id = 'desktop/workspaces',
-        definition = require '@lunette-desktop/workspaces',
+        definition = require '@lunette-plugins/desktop/workspaces',
         config = {
           workspaces = { { name = 'main', key = '1' }, { name = 'side', key = '2' } },
           modifiers = { 'control', 'alt' },

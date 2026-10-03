@@ -57,7 +57,9 @@ end
 -- calls them.
 local FACTORIES = { persistence = true, arrange = true }
 local function use(name)
-  local module = require('@lunette-desktop/' .. name)
+  local module = if name == 'persistence'
+    then require '@lunette-desktop/persistence'
+    else require('@lunette-plugins/desktop/' .. name)
   local instance = runtime:use(if FACTORIES[name] then module() else module, {})
   instance:enable()
   return instance

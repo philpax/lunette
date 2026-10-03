@@ -10,8 +10,8 @@
 --     patches = {
 --       { id = 'keyboard', disabled = true },
 --       desktop.configure(require('@lunette-plugins/laser').definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
---       desktop.configure(require '@lunette-desktop/arrange') { layout = 'arc', options = { arc = { radius = 2 } } },
---       desktop.configure(require '@lunette-desktop/demo-terminal') { programs = { 'foot' } },
+--       desktop.configure(require '@lunette-plugins/desktop/arrange') { layout = 'arc', options = { arc = { radius = 2 } } },
+--       desktop.configure(require '@lunette-plugins/desktop/demo-terminal') { programs = { 'foot' } },
 --       { insert = { id = 'my-hud', definition = require './hud' } },
 --     },
 --   }

@@ -17,8 +17,8 @@ lunette/
   lua/lunette/                    generated declarations for the native API
   lua/lunette-plugin/             typed plugin authoring facade and erased adapter
   lua/lunette-contracts/          neutral plugin service contracts
-  lua/lunette-plugins/            built-in plugin implementations
-  lua/lunette-desktop/            the shipped desktop's consumers and composition
+  lua/lunette-plugins/            every built-in plugin, provider or consumer
+  lua/lunette-desktop/            the shipped desktop's entry list
   lua/spec/                       development-only Lua specifications
   etc/lunette/                    the generated Luau definitions
   etc/xdg/lunette/                the default configuration

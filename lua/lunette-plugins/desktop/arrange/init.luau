@@ -13,7 +13,7 @@ local panels = require '@lunette-contracts/panels'
 local placement = require '@lunette-contracts/placement'
 local tags = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local logging = require '@lunette-desktop/logging'
+local logging = require '@lunette-plugins/desktop/logging'
 
 -- What a configuration gives: every option optional.
 export type Config = {

@@ -11,7 +11,7 @@ local desktop = require 'fixture/graph' {
     {
       insert = {
         id = 'desktop/workspaces',
-        definition = require '@lunette-desktop/workspaces',
+        definition = require '@lunette-plugins/desktop/workspaces',
         config = {
           workspaces = { { name = 'main', key = '1' }, { name = 'web', key = '2' } },
           modifiers = { 'alt' },
@@ -108,7 +108,7 @@ for _, case in ipairs {
       {
         insert = {
           id = 'desktop/workspaces',
-          definition = require '@lunette-desktop/workspaces',
+          definition = require '@lunette-plugins/desktop/workspaces',
           config = case.config,
         },
       },

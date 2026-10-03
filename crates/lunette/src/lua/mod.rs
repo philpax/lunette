@@ -4,8 +4,8 @@
 //! `require('@lunette')` resolves to the table [`install`] registers. Everything
 //! reachable from it is mechanism: what a window is, where its pixels are, and
 //! where a pointer event goes. Policy (panels, layouts, placement rules) is
-//! written in Lua against this same surface, in the plugin providers under
-//! `@lunette-plugins` and the `@lunette-desktop` consumers, and is not here.
+//! written in Lua against this same surface, in the plugins under
+//! `@lunette-plugins`, and is not here.
 //!
 //! # State-bound Lua values
 //!

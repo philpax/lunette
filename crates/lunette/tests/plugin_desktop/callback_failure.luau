@@ -81,7 +81,7 @@ runtime
     {}
   )
   :enable()
-runtime:use(require '@lunette-desktop/errors', {}):enable()
+runtime:use(require '@lunette-plugins/desktop/errors', {}):enable()
 
 local function reported(text)
   local last = events.reported[#events.reported]

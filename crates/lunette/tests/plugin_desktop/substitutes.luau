@@ -265,7 +265,7 @@ do
     end,
   }
   runtime:use(substituteStream, {}):enable()
-  runtime:use(require '@lunette-desktop/errors', {}):enable()
+  runtime:use(require '@lunette-plugins/desktop/errors', {}):enable()
   local function texts()
     local found = {}
     for _, call in ipairs(events.draw) do

@@ -10,7 +10,7 @@ The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code.
 
 ## Current status
 
-The workspace contains the compositor, capture, native API, Luau checker, standard-library modules, and plugin runtime. The shipped desktop configuration runs `@lunette-desktop`, which composes built-in providers and desktop consumers as entries a configuration patches by id. Its placement consumers keep the saved arrangement across provider activations and write it when a grab drops a panel and at normal quit, and arrange unplaced windows with a layout chosen by name from the layouts broker. Integration tests cover provider outages, placement precedence, save failures, monitor hotplug, reopened windows, substitute providers, and ten production source reloads. The full `make check` passes. An actual XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. The roadmap records the remaining milestones, and the standard library document records the human gates.
+The workspace contains the compositor, capture, native API, Luau checker, standard-library modules, and plugin runtime. The shipped desktop configuration runs `@lunette-desktop`, which composes the built-in providers and desktop consumers of `@lunette-plugins` as entries a configuration patches by id. Its placement consumers keep the saved arrangement across provider activations and write it when a grab drops a panel and at normal quit, and arrange unplaced windows with a layout chosen by name from the layouts broker. Integration tests cover provider outages, placement precedence, save failures, monitor hotplug, reopened windows, substitute providers, and ten production source reloads. The full `make check` passes. An actual XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. The roadmap records the remaining milestones, and the standard library document records the human gates.
 
 ## Repository layout
 
@@ -26,8 +26,8 @@ crates/lunette-generate-definitions/  generates the Luau definitions, declaratio
 lua/lunette/                          generated declarations for the native API
 lua/lunette-plugin/                   typed plugin authoring facade and erased adapter
 lua/lunette-contracts/                neutral plugin service contracts
-lua/lunette-plugins/                  built-in plugin implementations
-lua/lunette-desktop/                  the shipped desktop's consumers and composition
+lua/lunette-plugins/                  every built-in plugin, provider or consumer
+lua/lunette-desktop/                  the shipped desktop's entry list
 lua/spec/                             development-only Lua specifications
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
@@ -78,7 +78,7 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 - Fix a wrong declaration in the metadata or the generator, never in the calling code. Every workaround for a declaration that misdescribes LÖVR has changed behaviour: returning `true` from `lovr.quit` to satisfy its declared return vetoed the quit, and spelling an identity matrix out as sixteen numbers followed from an ambiguous constructor.
 - Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
-- Keep module responsibilities distinct. `lunette` is native mechanism; policy is Lua, written as providers and consumers. The plugin facade, contracts, providers, and the shipped desktop have separate roots. Do not add policy to the native API or expect native mechanism from a provider. A helper lives beside what it describes, in a contract's vocabulary or a provider's pure module, not in a root of helpers.
+- Keep module responsibilities distinct. `lunette` is native mechanism; policy is Lua, written as providers and consumers. The plugin facade, contracts, plugins, and the shipped desktop have separate roots. A plugin lives in `lunette-plugins` whatever its role, a provider under its own name and a desktop consumer under its entry id, so `desktop/pacing` is `@lunette-plugins/desktop/pacing`; the desktop root only composes them. Do not add policy to the native API or expect native mechanism from a provider. A helper lives beside what it describes, in a contract's vocabulary or a provider's pure module, not in a root of helpers.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
 - Every module is safe to `require` twice. The host retains the Lua state during source reload, shuts down plugin runtimes, clears subscriptions and user modules, starts a new plugin contract epoch, and runs each cleared module's body again when the new configuration requires it, so a module keeps no module-level state that a second run would duplicate. Resources a plugin acquires are effects of its context or of its caller's owner, and the plugin runtime releases them. There is no teardown registry: a module that retains native resources outside a plugin gets no cleanup from the host.
 - Never assume a handle survives a frame. Check `handle.dead` before use.

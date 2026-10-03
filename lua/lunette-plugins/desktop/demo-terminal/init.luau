@@ -2,7 +2,7 @@
 -- reload keeps `_G.lunetteDemonstrationSpawned`, so a reload does not open another.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local logging = require '@lunette-desktop/logging'
+local logging = require '@lunette-plugins/desktop/logging'
 
 -- What a configuration gives: every option optional.
 export type Config = {
