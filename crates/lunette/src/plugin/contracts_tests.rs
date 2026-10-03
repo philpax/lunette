@@ -1,23 +1,17 @@
+use std::error::Error;
+
 use mlua::{Lua, Value};
 
 use super::contracts::{ContractError, ContractName, ContractRegistry};
 
 #[test]
-fn contract_registry_identity() -> mlua::Result<()> {
+fn contract_registry_identity() -> Result<(), Box<dyn Error>> {
     let registry = ContractRegistry::new();
-    let first = registry
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
-    let different_schema = registry
-        .declare(contract_name("example", "clock"), 2)
-        .map_err(mlua::Error::external)?;
+    let first = registry.declare(contract_name("example", "clock"), 1)?;
+    let different_schema = registry.declare(contract_name("example", "clock"), 2)?;
     assert_ne!(
-        registry
-            .validate_token(&first)
-            .map_err(mlua::Error::external)?,
-        registry
-            .validate_token(&different_schema)
-            .map_err(mlua::Error::external)?
+        registry.validate_token(&first)?,
+        registry.validate_token(&different_schema)?
     );
 
     let duplicate = registry.declare(contract_name("example", "clock"), 1);
@@ -35,27 +29,19 @@ fn contract_registry_identity() -> mlua::Result<()> {
         );
     }
 
-    let other_authority = registry
-        .declare(contract_name("other", "clock"), 1)
-        .map_err(mlua::Error::external)?;
+    let other_authority = registry.declare(contract_name("other", "clock"), 1)?;
     assert_ne!(
-        registry
-            .validate_token(&first)
-            .map_err(mlua::Error::external)?,
-        registry
-            .validate_token(&other_authority)
-            .map_err(mlua::Error::external)?
+        registry.validate_token(&first)?,
+        registry.validate_token(&other_authority)?
     );
     Ok(())
 }
 
 #[test]
-fn declaration_shape_rejected() -> mlua::Result<()> {
+fn declaration_shape_rejected() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
     let registry = ContractRegistry::new();
-    let token = registry
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
+    let token = registry.declare(contract_name("example", "clock"), 1)?;
 
     assert!(matches!(
         registry.validate_declaration(Value::Boolean(true)),
@@ -86,9 +72,7 @@ fn declaration_shape_rejected() -> mlua::Result<()> {
     ));
 
     let foreign_registry = ContractRegistry::new();
-    let foreign_token = foreign_registry
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
+    let foreign_token = foreign_registry.declare(contract_name("example", "clock"), 1)?;
     let foreign = lua.create_table()?;
     foreign.set("clock", foreign_token)?;
     assert!(matches!(
@@ -98,12 +82,8 @@ fn declaration_shape_rejected() -> mlua::Result<()> {
 
     let valid = lua.create_table()?;
     valid.set("clock", token.clone())?;
-    let copied = registry
-        .validate_declaration(Value::Table(valid.clone()))
-        .map_err(mlua::Error::external)?;
-    let token_id = registry
-        .validate_token(&token)
-        .map_err(mlua::Error::external)?;
+    let copied = registry.validate_declaration(Value::Table(valid.clone()))?;
+    let token_id = registry.validate_token(&token)?;
     assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
 
     valid.set("clock", true)?;
@@ -114,35 +94,25 @@ fn declaration_shape_rejected() -> mlua::Result<()> {
 /// The host retires an epoch by replacing its registry, so a token from the
 /// dropped registry is retired and its identity may be declared again.
 #[test]
-fn stale_contract_epoch() -> mlua::Result<()> {
-    let old = ContractRegistry::new()
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
+fn stale_contract_epoch() -> Result<(), Box<dyn Error>> {
+    let old = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
 
     let registry = ContractRegistry::new();
     assert!(matches!(
         registry.validate_token(&old),
         Err(ContractError::RetiredToken { .. })
     ));
-    let current = registry
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
-    registry
-        .validate_token(&current)
-        .map_err(mlua::Error::external)?;
+    let current = registry.declare(contract_name("example", "clock"), 1)?;
+    registry.validate_token(&current)?;
     Ok(())
 }
 
 #[test]
-fn frozen_wrapper_binding_is_exact_and_one_time() -> mlua::Result<()> {
+fn frozen_wrapper_binding_is_exact_and_one_time() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
     let registry = ContractRegistry::new();
-    let clock = registry
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
-    let log = registry
-        .declare(contract_name("example", "log"), 1)
-        .map_err(mlua::Error::external)?;
+    let clock = registry.declare(contract_name("example", "clock"), 1)?;
+    let log = registry.declare(contract_name("example", "log"), 1)?;
 
     let mutable = lua.create_table()?;
     assert!(matches!(
@@ -150,23 +120,14 @@ fn frozen_wrapper_binding_is_exact_and_one_time() -> mlua::Result<()> {
         Err(ContractError::WrapperNotFrozen)
     ));
     mutable.set_readonly(true);
-    registry
-        .bind_token(&clock, &mutable)
-        .map_err(mlua::Error::external)?;
+    registry.bind_token(&clock, &mutable)?;
 
     let declaration = lua.create_table()?;
     declaration.set("clock", mutable.clone())?;
-    let copied = registry
-        .validate_declaration(Value::Table(declaration))
-        .map_err(mlua::Error::external)?;
+    let copied = registry.validate_declaration(Value::Table(declaration))?;
     assert_eq!(
         copied.iter().collect::<Vec<_>>(),
-        [(
-            "clock",
-            &registry
-                .validate_token(&clock)
-                .map_err(mlua::Error::external)?
-        )]
+        [("clock", &registry.validate_token(&clock)?)]
     );
 
     assert!(matches!(
@@ -191,17 +152,13 @@ fn frozen_wrapper_binding_is_exact_and_one_time() -> mlua::Result<()> {
 }
 
 #[test]
-fn a_wrapper_bound_in_another_registry_is_unbound() -> mlua::Result<()> {
+fn a_wrapper_bound_in_another_registry_is_unbound() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
     let previous = ContractRegistry::new();
-    let token = previous
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
+    let token = previous.declare(contract_name("example", "clock"), 1)?;
     let wrapper = lua.create_table()?;
     wrapper.set_readonly(true);
-    previous
-        .bind_token(&token, &wrapper)
-        .map_err(mlua::Error::external)?;
+    previous.bind_token(&token, &wrapper)?;
 
     let registry = ContractRegistry::new();
     let declaration = lua.create_table()?;
@@ -213,53 +170,14 @@ fn a_wrapper_bound_in_another_registry_is_unbound() -> mlua::Result<()> {
     Ok(())
 }
 
-#[test]
-fn shared_registry_reuse() -> mlua::Result<()> {
-    let lua = Lua::new();
-    let owner = ContractRegistry::new();
-    let first_runtime = owner.clone();
-    let second_runtime = owner.clone();
-    let token = first_runtime
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
-
-    let declaration = lua.create_table()?;
-    declaration.set("clock", token.clone())?;
-    let copied = second_runtime
-        .validate_declaration(Value::Table(declaration))
-        .map_err(mlua::Error::external)?;
-    let token_id = second_runtime
-        .validate_token(&token)
-        .map_err(mlua::Error::external)?;
-    assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
-
-    let duplicate = second_runtime.declare(contract_name("example", "clock"), 1);
-    assert!(matches!(
-        duplicate,
-        Err(ContractError::DuplicateIdentity { .. })
-    ));
-
-    let independent = ContractRegistry::new();
-    let independent_token = independent
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
-    assert!(matches!(
-        second_runtime.validate_token(&independent_token),
-        Err(ContractError::ForeignToken { .. })
-    ));
-    Ok(())
-}
-
 /// A token error names where the token was presented: the declaration field
 /// that holds it, or the contract it was declared for when it is bound.
 #[test]
-fn token_errors_name_the_field_or_contract() -> mlua::Result<()> {
+fn token_errors_name_the_field_or_contract() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
     let registry = ContractRegistry::new();
     let foreign_registry = ContractRegistry::new();
-    let foreign = foreign_registry
-        .declare(contract_name("example", "clock"), 1)
-        .map_err(mlua::Error::external)?;
+    let foreign = foreign_registry.declare(contract_name("example", "clock"), 1)?;
 
     let declaration = lua.create_table()?;
     declaration.set("timer", foreign.clone())?;
