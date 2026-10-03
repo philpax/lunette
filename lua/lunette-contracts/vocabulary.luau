@@ -5,6 +5,9 @@ local lunette = require '@lunette'
 
 local vocabulary = {}
 
+-- What `wp_content_type_v1` reports, as `window.contentType` carries it. Rules match it and pacers exempt by it.
+export type ContentType = 'none' | 'photo' | 'video' | 'game'
+
 -- The per-window property a window's kept pose is stored under. The
 -- desktop's pose memory writes it when a drop ends a grab, and the adoption
 -- provider reads it as a placement source. Its value is `encodePose`'s string.
@@ -64,24 +67,7 @@ function vocabulary.decodePose(text: boolean | number | string | nil): Mat4?
   if count ~= vocabulary.POSE_ELEMENTS then
     return nil
   end
-  return lovr.math.newMat4():set(
-    elements[1],
-    elements[2],
-    elements[3],
-    elements[4],
-    elements[5],
-    elements[6],
-    elements[7],
-    elements[8],
-    elements[9],
-    elements[10],
-    elements[11],
-    elements[12],
-    elements[13],
-    elements[14],
-    elements[15],
-    elements[16]
-  )
+  return lovr.math.newMat4():set(table.unpack(elements))
 end
 
 export type Tuning = {

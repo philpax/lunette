@@ -118,14 +118,6 @@ local function declarationSnapshot(value: Declaration): Declaration
   return freeze(table.clone(value))
 end
 
-local function mapDeclaration(declaration: Declaration): ErasedDeclaration
-  local mapped: ErasedDeclaration = {}
-  for field, capability in declaration do
-    mapped[field] = capability
-  end
-  return freeze(mapped)
-end
-
 -- Names a capability for an error message by its contract, or says that the
 -- value is not a capability at all.
 local function describeCapability(capability: unknown): string
@@ -438,8 +430,8 @@ function adapter.define<C>(spec: Spec<C>): Definition<C>
   local requiredSnapshot = declarationSnapshot(fields.requires)
   local providedSnapshot = declarationSnapshot(fields.provides)
   local nativeDefinition = native.plugin.define(
-    mapDeclaration(requiredSnapshot),
-    mapDeclaration(providedSnapshot),
+    (requiredSnapshot :: unknown) :: ErasedDeclaration,
+    (providedSnapshot :: unknown) :: ErasedDeclaration,
     function(nativeContext: NativeContext, config: unknown): unknown
       local staging: Staging = {
         open = true,

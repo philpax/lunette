@@ -11,8 +11,5 @@ export type Service = tags.Service
 return plugin.provider<<Config, Settings, Service>> {
   name = 'tags',
   capability = tags.capability,
-  defaults = {},
-  build = function(context: plugin.Context, _settings: Settings): Service
-    return create(context)
-  end,
+  build = create,
 }

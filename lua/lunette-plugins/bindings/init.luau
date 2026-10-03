@@ -174,8 +174,5 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'bindings',
   capability = contract.capability,
   requires = { frame = frame.capability },
-  defaults = {},
-  build = function(context: plugin.Context, _settings: Settings): Service
-    return create(context)
-  end,
+  build = create,
 }

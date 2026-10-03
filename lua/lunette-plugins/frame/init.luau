@@ -212,7 +212,7 @@ export type Service = contract.Service
 
 -- Binding to LÖVR's callbacks is an effect, not a publication, so a plugin that wraps the built service
 -- still receives the callbacks.
-local function build(context: plugin.Context, _settings: Settings): Service
+local function build(context: plugin.Context): Service
   local service, dispatcher = create(context)
   context:effect(function(): () -> ()
     if bound then
@@ -231,7 +231,6 @@ end
 local provider = plugin.provider<<Config, Settings, Service>> {
   name = 'frame',
   capability = contract.capability,
-  defaults = {},
   build = build,
 }
 frame.definition = provider.definition

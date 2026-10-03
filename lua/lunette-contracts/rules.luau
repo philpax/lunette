@@ -6,6 +6,7 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
 local tags = require '@lunette-contracts/tags'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local rules = {}
 
@@ -45,7 +46,7 @@ export type Resolved = {
 }
 
 export type Predicate<T> = (T, lunette.Window) -> boolean
-export type ContentType = 'none' | 'photo' | 'video' | 'game'
+export type ContentType = vocabulary.ContentType
 export type Match = {
   read dead: (boolean | Predicate<boolean>)?,
   read id: (number | Predicate<number>)?,

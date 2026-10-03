@@ -7,12 +7,13 @@ local options = require '@lunette-plugin/options'
 local provider = {}
 
 -- The fields `plugin.provider` accepts. `build` receives the resolved options, and `validate`, when given,
--- checks what the defaults cannot describe, such as a closed set.
+-- checks what the defaults cannot describe, such as a closed set. A provider that takes no options gives no
+-- defaults, and its `build` may take the context alone.
 export type Spec<S, T> = {
   read name: string,
   read capability: adapter.Capability<T>,
   read requires: adapter.Declaration?,
-  read defaults: S,
+  read defaults: S?,
   read validate: ((S, string) -> ())?,
   read build: (adapter.Context, S) -> T,
 }
@@ -80,7 +81,7 @@ function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
     }
   end
 
-  local defaults = resolve(name, spec.defaults, nil)
+  local defaults = resolve(name, spec.defaults or ({} :: any), nil)
   return table.freeze {
     definition = definitionFor(name, defaults),
     define = function(fields: C & { read name: string? }): adapter.Definition<C>

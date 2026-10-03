@@ -3,11 +3,11 @@
 -- docs/dev/lua-api.md#frame-pacing-and-output-scale and docs/dev/rendering.md.
 
 local plugin = require '@lunette-plugin'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local pacing = {}
 
--- What `wp_content_type_v1` reports, as `window.contentType` carries it.
-export type ContentType = 'none' | 'photo' | 'video' | 'game'
+export type ContentType = vocabulary.ContentType
 
 -- What one frame observed about a window. `drew` is whether the client committed a buffer since the previous
 -- observation, or nil when the caller cannot tell, such as while the throttle shapes the commits.
