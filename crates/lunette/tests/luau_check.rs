@@ -2,9 +2,10 @@
 //!
 //! One case checks every shipped root together and fails on any diagnostic,
 //! lint warnings included, which `lunette check` would let through. The other
-//! cases check fixtures outside `lua/`: ones that must check cleanly, and ones
-//! whose mistakes must be reported at an exact span, on an exact set of lines,
-//! or within line ranges.
+//! cases check the fixtures in `luau_check/`, which one `.luaurc` there gives
+//! every module root: ones that must check cleanly, and ones whose mistakes
+//! must be reported at an exact span, on an exact set of lines, or within line
+//! ranges.
 //!
 //! `exit_status.rs` runs the relative-require fixture in a session. Each module
 //! there answers where it is as a singleton type, so a require the checker
@@ -41,17 +42,17 @@ fn every_shipped_root_checks_without_diagnostics() {
 fn clean_fixtures_check_without_diagnostics() {
     let report = check(
         [
-            "plugin_laser/recursive_definition.luau",
-            "plugin_keyboard/recursive_definition.luau",
-            "plugin_keyboard/mappings.luau",
+            "luau_check/laser/recursive_definition.luau",
+            "luau_check/keyboard/recursive_definition.luau",
+            "luau_check/keyboard/mappings.luau",
             "fixtures/require-relative/lunette/main.luau",
-            "plugin_conf_check/supported.luau",
-            "plugin_policy/fixtures/rules_positive.luau",
-            "plugin_authoring/positive.luau",
-            "plugin_authoring/recursive.luau",
-            "plugin_authoring/extra_keys.luau",
-            "plugin_simple_authoring/positive.luau",
-            "plugin_simple_authoring/runtime_guarantees.luau",
+            "luau_check/conf/supported.luau",
+            "luau_check/rules/rules_positive.luau",
+            "luau_check/authoring/positive.luau",
+            "luau_check/authoring/recursive.luau",
+            "luau_check/authoring/extra_keys.luau",
+            "luau_check/simple_authoring/positive.luau",
+            "luau_check/simple_authoring/runtime_guarantees.luau",
         ]
         .into_iter()
         .map(fixture)
@@ -62,8 +63,8 @@ fn clean_fixtures_check_without_diagnostics() {
 
 #[test]
 fn invalid_configuration_fields_types_and_enums_are_rejected() {
-    let report = check(vec![fixture("plugin_conf_check/invalid.luau")]);
-    let source = include_str!("plugin_conf_check/invalid.luau");
+    let report = check(vec![fixture("luau_check/conf/invalid.luau")]);
+    let source = include_str!("luau_check/conf/invalid.luau");
     let sites: Vec<_> = source
         .lines()
         .enumerate()
@@ -96,7 +97,7 @@ fn invalid_configuration_fields_types_and_enums_are_rejected() {
 /// and each incorrect call is reported on its own line.
 #[test]
 fn a_configure_patch_is_checked_against_its_definitions_options() {
-    let report = check(vec![fixture("luau_check/configure_checked.luau")]);
+    let report = check(vec![fixture("luau_check/desktop/configure_checked.luau")]);
     let mut lines = report
         .diagnostics
         .iter()
@@ -116,7 +117,7 @@ fn a_configure_patch_is_checked_against_its_definitions_options() {
 #[test]
 fn rules_predicates_and_evaluators_reject_misuse() {
     let name = "rules_negative.luau";
-    let report = check(vec![fixture("plugin_policy/fixtures/rules_negative.luau")]);
+    let report = check(vec![fixture("luau_check/rules/rules_negative.luau")]);
     for (first, last) in [(2, 6), (7, 11), (12, 16), (17, 21), (22, 22)] {
         assert!(
             report.diagnostics.iter().any(|diagnostic| {
@@ -141,8 +142,8 @@ fn rules_predicates_and_evaluators_reject_misuse() {
 #[test]
 fn invalid_owner_effect_and_configuration_sites_are_reported_exactly() {
     assert_rejections(
-        "plugin_authoring/negative.luau",
-        include_str!("plugin_authoring/negative.luau"),
+        "luau_check/authoring/negative.luau",
+        include_str!("luau_check/authoring/negative.luau"),
         &[
             (10, 33, 10, 71),
             (11, 33, 11, 46),
@@ -160,8 +161,8 @@ fn invalid_owner_effect_and_configuration_sites_are_reported_exactly() {
 #[test]
 fn plugin_handles_are_not_satisfied_by_tables_or_other_handles() {
     assert_rejections(
-        "plugin_authoring/opaque_handles.luau",
-        include_str!("plugin_authoring/opaque_handles.luau"),
+        "luau_check/authoring/opaque_handles.luau",
+        include_str!("luau_check/authoring/opaque_handles.luau"),
         &[(5, 20, 5, 22), (6, 12, 6, 14), (7, 12, 7, 17)],
     );
 }
@@ -169,8 +170,8 @@ fn plugin_handles_are_not_satisfied_by_tables_or_other_handles() {
 #[test]
 fn malformed_declarations_are_reported_exactly() {
     assert_rejections(
-        "plugin_authoring/malformed.luau",
-        include_str!("plugin_authoring/malformed.luau"),
+        "luau_check/authoring/malformed.luau",
+        include_str!("luau_check/authoring/malformed.luau"),
         &[(4, 52, 4, 59), (5, 45, 5, 72), (6, 63, 6, 65)],
     );
 }
@@ -180,8 +181,8 @@ fn malformed_declarations_are_reported_exactly() {
 #[test]
 fn a_capability_without_its_service_type_is_reported_at_the_call() {
     assert_rejections(
-        "plugin_authoring/unnamed_service.luau",
-        include_str!("plugin_authoring/unnamed_service.luau"),
+        "luau_check/authoring/unnamed_service.luau",
+        include_str!("luau_check/authoring/unnamed_service.luau"),
         &[(5, 16, 5, 74)],
     );
 }
@@ -189,8 +190,8 @@ fn a_capability_without_its_service_type_is_reported_at_the_call() {
 #[test]
 fn per_capability_authoring_rejects_misuse_of_real_contracts() {
     assert_rejections(
-        "plugin_simple_authoring/negative.luau",
-        include_str!("plugin_simple_authoring/negative.luau"),
+        "luau_check/simple_authoring/negative.luau",
+        include_str!("luau_check/simple_authoring/negative.luau"),
         &[
             (20, 39, 20, 41),
             (21, 41, 25, 5),

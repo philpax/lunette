@@ -67,7 +67,7 @@ check: check-format check-rust check-definitions check-luau
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
-	stylua --check lua etc/xdg/lunette examples $(wildcard crates/lunette/tests/plugin_*/)
+	stylua --check lua etc/xdg/lunette examples crates/lunette/tests/luau_check
 
 # The target splits in two because clippy and the tests share no artifacts.
 # The clippy build runs through RUSTC_WORKSPACE_WRAPPER and produces its own
