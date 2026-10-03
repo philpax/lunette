@@ -4,24 +4,13 @@ extern crate lunette_lovr;
 
 use std::{cell::Cell, rc::Rc};
 
-use lunette::plugin::declarations;
-use mlua::{Function, Lua, Table, UserData, Value};
+use mlua::{Function, Lua, Table, Value};
 
 mod plugin_facade_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<(Lua, Table)> {
-    let lua = Lua::new();
-    plugin_support::collect_reports(&lua)?;
-    let setreadonly = lua.create_function(|_, (table, readonly): (Table, bool)| {
-        table.set_readonly(readonly);
-        Ok(())
-    })?;
-    lua.globals().set("setreadonly", setreadonly)?;
-    let module = lua.create_table()?;
-    declarations::install(&lua, &module)?;
-    let plugin = module.get("plugin")?;
-    Ok((lua, plugin))
+    plugin_support::native_state()
 }
 
 fn run_fixture(lua: &Lua, module: &Table, name: &str) -> mlua::Result<()> {
@@ -339,21 +328,11 @@ fn production_cancels_loading_acquisition_before_publication() -> mlua::Result<(
     Ok(())
 }
 
-struct DropWitness(Rc<Cell<bool>>);
-
-impl UserData for DropWitness {}
-
-impl Drop for DropWitness {
-    fn drop(&mut self) {
-        self.0.set(true);
-    }
-}
-
 #[test]
 fn shutdown_releases_escaped_definition_initializer_references() -> mlua::Result<()> {
     let (lua, module) = state()?;
     let witness_dropped = Rc::new(Cell::new(false));
-    let witness = lua.create_userdata(DropWitness(Rc::clone(&witness_dropped)))?;
+    let witness = lua.create_userdata(plugin_support::DropWitness(Rc::clone(&witness_dropped)))?;
     let contract: mlua::AnyUserData = module
         .get::<Function>("contract")?
         .call(("test/escaped", 1_u64))?;

@@ -9,18 +9,13 @@ use std::{
     rc::Rc,
 };
 
-use lunette::plugin::{attachment, declarations};
-use mlua::{Function, Lua, Table, UserData, Value};
+use lunette::plugin::attachment;
+use mlua::{Function, Lua, Table, Value};
 
 mod plugin_support;
 
 fn state() -> mlua::Result<(Lua, Table)> {
-    let lua = Lua::new();
-    plugin_support::collect_reports(&lua)?;
-    let module = lua.create_table()?;
-    declarations::install(&lua, &module)?;
-    let plugin = module.get("plugin")?;
-    Ok((lua, plugin))
+    plugin_support::native_state()
 }
 
 fn run_fixture(lua: &Lua, plugin: &Table, name: &str) -> mlua::Result<()> {
@@ -117,7 +112,7 @@ fn state_and_diagnostics_name_the_definition() -> mlua::Result<()> {
 fn a_removed_instance_releases_its_configuration() -> mlua::Result<()> {
     let (lua, plugin) = state()?;
     let dropped = Rc::new(Cell::new(false));
-    let witness = lua.create_userdata(DropWitness(Rc::clone(&dropped)))?;
+    let witness = lua.create_userdata(plugin_support::DropWitness(Rc::clone(&dropped)))?;
     let setup: Function = lua
         .load(
             r#"
@@ -144,14 +139,4 @@ fn a_removed_instance_releases_its_configuration() -> mlua::Result<()> {
     let errors = plugin_support::shutdown(&lua);
     assert!(errors.is_empty(), "{errors:?}");
     Ok(())
-}
-
-struct DropWitness(Rc<Cell<bool>>);
-
-impl UserData for DropWitness {}
-
-impl Drop for DropWitness {
-    fn drop(&mut self) {
-        self.0.set(true);
-    }
 }

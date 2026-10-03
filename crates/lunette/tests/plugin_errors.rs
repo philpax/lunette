@@ -12,10 +12,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use lunette::{
-    callback_error::{TracedError, report_traced},
-    plugin::declarations,
-};
+use lunette::callback_error::{TracedError, report_traced};
 use mlua::{Function, Lua, Table, Value};
 use tracing_subscriber::fmt::MakeWriter;
 
@@ -23,54 +20,8 @@ mod plugin_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
-    let lua = Lua::new();
-    plugin_support::collect_reports(&lua)?;
-    lua.globals().set(
-        "setreadonly",
-        lua.create_function(|_, (table, readonly): (Table, bool)| {
-            table.set_readonly(readonly);
-            Ok(())
-        })?,
-    )?;
-
-    let package = lua.create_table()?;
-    let loaded = lua.create_table()?;
-    let preload = lua.create_table()?;
-    package.set("loaded", loaded)?;
-    package.set("preload", preload.clone())?;
-    lua.globals().set("package", package)?;
-    lua.globals().set(
-        "require",
-        lua.create_function(|lua, name: String| {
-            let package: Table = lua.globals().get("package")?;
-            let loaded: Table = package.get("loaded")?;
-            let preload: Table = package.get("preload")?;
-            let cached: Value = loaded.get(name.clone())?;
-            if !cached.is_nil() {
-                return Ok(cached);
-            }
-            let loader: Function = preload.get(name.clone())?;
-            let value: Value = loader.call(name.clone())?;
-            let value = if value.is_nil() {
-                Value::Boolean(true)
-            } else {
-                value
-            };
-            loaded.set(name, value.clone())?;
-            Ok(value)
-        })?,
-    )?;
-
-    let native = lua.create_table()?;
-    declarations::install(&lua, &native)?;
-    preload.set(
-        "@lunette",
-        lua.create_function(move |_, _: String| Ok(native.clone()))?,
-    )?;
-
-    plugin_sources::register(&lua, &preload)?;
+    let (lua, _) = plugin_support::module_state(plugin_sources::register)?;
     install_native_error(&lua)?;
-
     Ok(lua)
 }
 

@@ -1,12 +1,4 @@
-package = { loaded = { ['@lunette'] = native } }
-function require(name)
-  if package.loaded[name] then
-    return package.loaded[name]
-  end
-  local value = assert(modules[name], name)()
-  package.loaded[name] = value
-  return value
-end
+local native = require '@lunette'
 native.seats = function()
   return {}
 end

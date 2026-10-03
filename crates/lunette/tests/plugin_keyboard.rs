@@ -2,11 +2,8 @@
 
 extern crate lunette_lovr;
 
-use lunette::{
-    lua::keys::{KeyCodes, locking_modifier_names, modifier_names},
-    plugin::declarations,
-};
-use mlua::{Function, Lua, Table, Value};
+use lunette::lua::keys::{KeyCodes, locking_modifier_names, modifier_names};
+use mlua::{Function, Lua, Value};
 
 mod plugin_sources;
 mod plugin_support;
@@ -14,14 +11,7 @@ mod plugin_support;
 /// A state with the real plugin roots, the real key vocabulary, and the
 /// fixture's matrices and seats.
 fn state() -> mlua::Result<Lua> {
-    let lua = Lua::new();
-    plugin_support::collect_reports(&lua)?;
-    lua.globals().set(
-        "collectResources",
-        lua.create_function(|lua, ()| lua.gc_collect())?,
-    )?;
-    let native = lua.create_table()?;
-    declarations::install(&lua, &native)?;
+    let (lua, native) = plugin_support::module_state(plugin_sources::register)?;
     // The real key vocabulary, so the default rows and modifier sets resolve
     // to what a session hands them.
     native.set("keyCodes", lua.create_function(|_, ()| Ok(KeyCodes))?)?;
@@ -32,17 +22,6 @@ fn state() -> mlua::Result<Lua> {
     native.set(
         "modifierNames",
         lua.create_function(|_, ()| Ok(modifier_names()))?,
-    )?;
-    lua.globals().set("native", native)?;
-    let modules = lua.create_table()?;
-    plugin_sources::register(&lua, &modules)?;
-    lua.globals().set("modules", modules)?;
-    lua.globals().set(
-        "setreadonly",
-        lua.create_function(|_, (table, flag): (Table, bool)| {
-            table.set_readonly(flag);
-            Ok(())
-        })?,
     )?;
     lua.load(include_str!("plugin_keyboard/fixture.luau"))
         .exec()?;

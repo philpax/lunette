@@ -20,8 +20,12 @@ use lunette::{
     plugin::{attachment, declarations},
     reload,
 };
-use mlua::{Function, Lua, Table, UserData, Value};
+use mlua::{Function, Lua, Table, Value};
 use tracing_subscriber::{filter::LevelFilter, fmt::MakeWriter};
+
+use crate::plugin_support::DropWitness;
+
+mod plugin_support;
 
 #[test]
 fn failure_shutdown_finishes_real_graph_before_native_and_external_close() -> mlua::Result<()> {
@@ -396,16 +400,6 @@ impl Drop for ExternalState {
         self.lua.exec_raw_lua(|raw| raw.mark_closed());
         // SAFETY: this is the unique owner, and no callback is executing.
         unsafe { mlua::ffi::lua_close(self.raw) };
-    }
-}
-
-struct DropWitness(Rc<Cell<bool>>);
-
-impl UserData for DropWitness {}
-
-impl Drop for DropWitness {
-    fn drop(&mut self) {
-        self.0.set(true);
     }
 }
 

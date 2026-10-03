@@ -2,46 +2,13 @@
 
 extern crate lunette_lovr;
 
-use lunette::plugin::declarations;
-use mlua::{Function, Lua, Table, Value};
+use mlua::Lua;
 
 mod plugin_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
-    let lua = Lua::new();
-    plugin_support::collect_reports(&lua)?;
-    lua.globals().set(
-        "collectResources",
-        lua.create_function(|lua, ()| lua.gc_collect())?,
-    )?;
-    let loaded = lua.create_table()?;
-    let modules = lua.create_table()?;
-    loaded.set("@lunette", {
-        let native = lua.create_table()?;
-        declarations::install(&lua, &native)?;
-        native
-    })?;
-    lua.globals().set("loaded", loaded)?;
-    lua.globals().set("modules", modules.clone())?;
-    lua.globals().set(
-        "require",
-        lua.create_function(|lua, name: String| {
-            let loaded: Table = lua.globals().get("loaded")?;
-            let cached: Value = loaded.get(name.clone())?;
-            if !cached.is_nil() {
-                return Ok(cached);
-            }
-            let modules: Table = lua.globals().get("modules")?;
-            let loader: Function = modules.get(name.clone())?;
-            let result: Value = loader.call(())?;
-            loaded.set(name, result.clone())?;
-            Ok(result)
-        })?,
-    )?;
-
-    plugin_sources::register(&lua, &modules)?;
-
+    let (lua, _) = plugin_support::module_state(plugin_sources::register)?;
     lua.load(
         r#"
         local native = require '@lunette'

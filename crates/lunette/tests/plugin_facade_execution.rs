@@ -5,60 +5,19 @@ extern crate lunette_lovr;
 
 use std::{cell::Cell, rc::Rc};
 
-use lunette::plugin::{attachment, declarations};
-use mlua::{Function, Lua, Table, UserData, Value};
+use lunette::plugin::attachment;
+use mlua::{Function, Lua, Table, Value};
 
 mod plugin_facade_sources;
 mod plugin_support;
 
 fn state() -> mlua::Result<Lua> {
-    let lua = Lua::new();
-    plugin_support::collect_reports(&lua)?;
-    lua.globals().set(
-        "setreadonly",
-        lua.create_function(|_, (table, readonly): (Table, bool)| {
-            table.set_readonly(readonly);
-            Ok(())
-        })?,
-    )?;
-
-    let package = lua.create_table()?;
-    let loaded = lua.create_table()?;
-    let preload = lua.create_table()?;
-    package.set("loaded", loaded)?;
-    package.set("preload", preload.clone())?;
-    lua.globals().set("package", package)?;
-
-    let require = lua.create_function(|lua, name: String| {
-        let package: Table = lua.globals().get("package")?;
-        let loaded: Table = package.get("loaded")?;
-        let preload: Table = package.get("preload")?;
-        let cached: Value = loaded.get(name.clone())?;
-        if !cached.is_nil() {
-            return Ok(cached);
+    let (lua, _) = plugin_support::module_state(|lua, preload| {
+        for (name, source) in plugin_facade_sources::FACADE_SOURCES {
+            preload.set(name, lua.load(source).set_name(name).into_function()?)?;
         }
-        let loader: Function = preload.get(name.clone())?;
-        let value: Value = loader.call(name.clone())?;
-        let value = if value.is_nil() {
-            Value::Boolean(true)
-        } else {
-            value
-        };
-        loaded.set(name, value.clone())?;
-        Ok(value)
+        Ok(())
     })?;
-    lua.globals().set("require", require)?;
-
-    let native = lua.create_table()?;
-    declarations::install(&lua, &native)?;
-    preload.set(
-        "@lunette",
-        lua.create_function(move |_, _: String| Ok(native.clone()))?,
-    )?;
-    for (name, source) in plugin_facade_sources::FACADE_SOURCES {
-        preload.set(name, lua.load(source).set_name(name).into_function()?)?;
-    }
-
     Ok(lua)
 }
 
@@ -108,16 +67,6 @@ fn fixture_runner_invokes_returned_callback_and_propagates_failures() -> mlua::R
     Ok(())
 }
 
-struct DropWitness(Rc<Cell<bool>>);
-
-impl UserData for DropWitness {}
-
-impl Drop for DropWitness {
-    fn drop(&mut self) {
-        self.0.set(true);
-    }
-}
-
 #[test]
 fn provision_failures_roll_back_and_publish_no_consumers() -> mlua::Result<()> {
     let lua = state()?;
@@ -157,7 +106,7 @@ fn cancellation_during_effect_rolls_back_once_without_publication() -> mlua::Res
 fn service_payload_is_released_with_an_escaped_provision_callback() -> mlua::Result<()> {
     let lua = state()?;
     let dropped = Rc::new(Cell::new(false));
-    let witness = lua.create_userdata(DropWitness(Rc::clone(&dropped)))?;
+    let witness = lua.create_userdata(plugin_support::DropWitness(Rc::clone(&dropped)))?;
     lua.globals().set("payload_witness", witness)?;
     let escaped = run_fixture_value(&lua, "payload_release")?;
     lua.globals().set("escaped_provide", escaped)?;
