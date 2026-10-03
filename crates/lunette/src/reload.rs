@@ -537,8 +537,8 @@ mod tests {
         let lua = state("");
         run(
             &lua,
-            "package.loaded['@lunette-desktop/persist'] = { n = 1 }
-             package.loaded['@lunette-desktop/persist/format'] = { n = 1 }
+            "package.loaded['@lunette-plugins/arrangement'] = { n = 1 }
+             package.loaded['@lunette-plugins/arrangement/format'] = { n = 1 }
              package.loaded.mylayout = { n = 1 }
              package.loaded['@lunette'] = { n = 1 }",
         );
@@ -546,8 +546,8 @@ mod tests {
         reload(&lua, &|| ()).expect("the reload succeeds");
 
         for name in [
-            "@lunette-desktop/persist",
-            "@lunette-desktop/persist/format",
+            "@lunette-plugins/arrangement",
+            "@lunette-plugins/arrangement/format",
             "mylayout",
             "@lunette",
         ] {

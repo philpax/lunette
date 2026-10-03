@@ -1,4 +1,4 @@
--- Covers lua/lunette-desktop/persist/format.luau.
+-- Covers lua/lunette-plugins/arrangement/format.luau.
 --
 -- An old reader must not write a newer file back. A default would let it parse
 -- the file, and the write-back would drop the fields added after the reader's
@@ -11,10 +11,10 @@
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
 
-local format = require '@lunette-desktop/persist/format'
+local format = require '@lunette-plugins/arrangement/format'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
-local spec = suite.new 'lunette-desktop.persist.format'
+local spec = suite.new 'lunette-plugins.arrangement.format'
 
 local function newEntry(overrides)
   local entry = {

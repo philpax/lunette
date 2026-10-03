@@ -58,7 +58,7 @@ end
 local FACTORIES = { persistence = true, arrange = true }
 local function use(name)
   local module = if name == 'persistence'
-    then require '@lunette-desktop/persistence'
+    then require('@lunette-plugins/arrangement').factory
     else require('@lunette-plugins/desktop/' .. name)
   local instance = runtime:use(if FACTORIES[name] then module() else module, {})
   instance:enable()

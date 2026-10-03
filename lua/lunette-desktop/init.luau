@@ -1,5 +1,7 @@
--- The shipped desktop: its plugins as a list of entries. `run` composes them with a configuration's patches
--- and starts them through the frame provider. A configuration calls `run`:
+-- The shipped desktop: its plugins as a list of entries. Every plugin is in `@lunette-plugins`, a provider
+-- under the contract it provides and a desktop consumer under its entry id, so this module holds the list and
+-- nothing else. `run` composes the list with a configuration's patches and starts it through the frame
+-- provider. A configuration calls `run`:
 --
 --   require('@lunette-desktop').run { patches = { { id = 'keyboard', disabled = true } } }
 
@@ -34,7 +36,7 @@ local errors = require '@lunette-plugins/desktop/errors'
 local workspace = require '@lunette-plugins/desktop/workspace'
 local defaultRules = require '@lunette-plugins/desktop/rules'
 local poseMemory = require '@lunette-plugins/desktop/pose-memory'
-local persistence = require '@lunette-desktop/persistence'
+local arrangement = require '@lunette-plugins/arrangement'
 local arrange = require '@lunette-plugins/desktop/arrange'
 local adoptionConsumer = require '@lunette-plugins/desktop/adoption'
 local demoTerminal = require '@lunette-plugins/desktop/demo-terminal'
@@ -89,7 +91,7 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/monitors', definition = monitors },
   { id = 'desktop/rules', definition = defaultRules },
   { id = 'desktop/pose-memory', definition = poseMemory },
-  { id = 'desktop/persistence', factory = persistence },
+  { id = 'desktop/persistence', factory = arrangement.factory },
   { id = 'desktop/arrange', factory = arrange },
   { id = 'desktop/adoption', definition = adoptionConsumer },
   { id = 'desktop/demo-terminal', definition = demoTerminal },

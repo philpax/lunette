@@ -2,7 +2,7 @@ local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
 local panels = require '@lunette-contracts/panels'
 local drops = require '@lunette-contracts/drops'
-local persist = require '@lunette-desktop/persist'
+local persist = require '@lunette-plugins/arrangement'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local runtime = plugin.runtime()
 frame.install {
@@ -47,7 +47,7 @@ local function policy()
   local instances = {}
   for _, name in ipairs { 'workspace', 'rules', 'pose-memory', 'persistence', 'arrange', 'adoption' } do
     local module = if name == 'persistence'
-      then require '@lunette-desktop/persistence'
+      then require('@lunette-plugins/arrangement').factory
       else require('@lunette-plugins/desktop/' .. name)
     local instance = runtime:use(if FACTORIES[name] then module() else module, {})
     instance:enable()

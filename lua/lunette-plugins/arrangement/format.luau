@@ -1,8 +1,8 @@
 -- The arrangement file: its text, its versions, and the one type that may be
 -- written.
 --
--- Pure. Nothing here reads or writes a file; `@lunette-desktop/persist` is the shell that
--- does, and it is the module a configuration requires. This half is separate
+-- Pure. Nothing here reads or writes a file; `./state` is the shell that
+-- does, and `@lunette-plugins/arrangement` is the module a configuration requires. This half is separate
 -- so the version matrix can be reasoned about on its own, and because a format
 -- that turns text into data needs no filesystem to be exercised.
 --

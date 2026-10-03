@@ -1,10 +1,13 @@
--- The desktop's saved arrangement, kept across this consumer's outages.
+-- The desktop's saved arrangement, kept across this plugin's outages: the `desktop/persistence` entry.
 --
--- A definition factory: each definition keeps one `@lunette-desktop/persist` state outside any activation,
--- so the loaded arrangement, held slots, and a refusal to overwrite survive a disable and enable. Each
--- activation binds the state as a rules source, saves on a drop and at quit, and provides
--- lunette/arrangement. A failed drop save is logged; a failed quit save raises without vetoing the quit.
--- Options: `file`, `format`, and `keyFor`, as persist.Dependencies describes.
+-- `factory` makes the definition. Each definition keeps one `./state` state outside any activation, so the
+-- loaded arrangement, held slots, and a refusal to overwrite survive a disable and enable. Each activation
+-- binds the state as a rules source, saves on a drop and at quit, and provides lunette/arrangement. A failed
+-- drop save is logged; a failed quit save raises without vetoing the quit. Options: `file`, `format`, and
+-- `keyFor`, as state.Dependencies describes.
+--
+-- The rest of the module is the custom-format API: the file representation and the constructors a format of
+-- a configuration's own answers its loads with, and the defaults the options start from.
 local plugin = require '@lunette-plugin'
 local arrangementContract = require '@lunette-contracts/arrangement'
 local drops = require '@lunette-contracts/drops'
@@ -13,28 +16,39 @@ local panels = require '@lunette-contracts/panels'
 local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
 local logging = require '@lunette-plugins/desktop/logging'
-local persist = require '@lunette-desktop/persist'
+local format = require '@lunette-plugins/arrangement/format'
+local slots = require '@lunette-plugins/arrangement/slots'
+local state = require '@lunette-plugins/arrangement/state'
+
+local arrangement = {}
+
+export type Entry = state.Entry
+export type File = state.File
+export type Loaded = state.Loaded
+export type Format = state.Format
+export type KeyFor = state.KeyFor
+export type Identified = state.Identified
 
 -- What a configuration gives: every option optional.
 export type Config = {
   read file: string?,
   read format: {
-    read read: ((unknown) -> persist.Loaded)?,
-    read render: ((persist.File) -> string)?,
+    read read: ((unknown) -> state.Loaded)?,
+    read render: ((state.File) -> string)?,
   }?,
-  read keyFor: persist.KeyFor?,
+  read keyFor: state.KeyFor?,
 }
 
 export type Settings = {
   read file: string,
-  read format: persist.Format,
-  read keyFor: persist.KeyFor,
+  read format: state.Format,
+  read keyFor: state.KeyFor,
 }
 
 local DEFAULTS: Settings = {
-  file = persist.FILE,
-  format = persist.FORMAT,
-  keyFor = persist.defaultKey,
+  file = state.FILE,
+  format = state.FORMAT,
+  keyFor = slots.defaultKey,
 }
 
 local required: plugin.Declaration = {
@@ -48,25 +62,25 @@ local required: plugin.Declaration = {
 local SAVE_KEYS: { [string]: boolean } = { force = true }
 
 local function define(): plugin.Definition<Config>
-  local state: persist.State? = nil
+  local made: state.State? = nil
   local madeWith: Settings? = nil
   -- The state is made once, from the options it was first activated with,
   -- and made again only if they change.
-  local function stateFor(settings: Settings): persist.State
-    local made = madeWith
-    local current = state
+  local function stateFor(settings: Settings): state.State
+    local current = made
+    local previous = madeWith
     if
       current
-      and made
-      and made.file == settings.file
-      and made.format.read == settings.format.read
-      and made.format.render == settings.format.render
-      and made.keyFor == settings.keyFor
+      and previous
+      and previous.file == settings.file
+      and previous.format.read == settings.format.read
+      and previous.format.render == settings.format.render
+      and previous.keyFor == settings.keyFor
     then
       return current
     end
-    local fresh = persist.new { file = settings.file, format = settings.format, keyFor = settings.keyFor }
-    state, madeWith = fresh, settings
+    local fresh = state.new { file = settings.file, format = settings.format, keyFor = settings.keyFor }
+    made, madeWith = fresh, settings
     return fresh
   end
   return plugin.define {
@@ -127,4 +141,21 @@ local function define(): plugin.Definition<Config>
   }
 end
 
-return define
+arrangement.factory = define
+
+arrangement.CURRENT_VERSION = format.CURRENT_VERSION
+arrangement.newFile = format.newFile
+arrangement.isFile = format.isFile
+arrangement.isLoaded = format.isLoaded
+arrangement.entries = format.entries
+arrangement.read = format.read
+arrangement.render = format.render
+arrangement.empty = format.empty
+arrangement.arrangement = format.arrangement
+arrangement.fromTheFuture = format.fromTheFuture
+arrangement.broken = format.broken
+arrangement.defaultKey = slots.defaultKey
+arrangement.FORMAT = state.FORMAT
+arrangement.FILE = state.FILE
+
+return arrangement

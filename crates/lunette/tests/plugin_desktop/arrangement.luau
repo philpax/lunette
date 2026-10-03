@@ -1,7 +1,7 @@
 -- Saved placement for monitors that appear and windows that close and reopen,
 -- and mirrors and adoptions that end with their panels, in the shipped desktop
 -- composition.
-local persist = require '@lunette-desktop/persist'
+local persist = require '@lunette-plugins/arrangement'
 
 local function entry(kind, key, slot, x)
   return {

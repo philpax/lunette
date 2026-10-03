@@ -8,11 +8,11 @@ local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local format = require '@lunette-desktop/persist/format'
-local slots = require '@lunette-desktop/persist/slots'
-local arrangements = require '@lunette-desktop/persist/arrangement'
+local format = require '@lunette-plugins/arrangement/format'
+local slots = require '@lunette-plugins/arrangement/slots'
+local capture = require '@lunette-plugins/arrangement/capture'
 
-local persist = {}
+local state = {}
 
 export type Entry = format.Entry
 export type File = format.File
@@ -73,22 +73,10 @@ local SOURCE = 'desktop.persist'
 local PRECEDENCE = vocabulary.PRECEDENCE.persisted
 local FILE = 'arrangement.state'
 
-persist.CURRENT_VERSION = format.CURRENT_VERSION
-persist.newFile = format.newFile
-persist.isFile = format.isFile
-persist.isLoaded = format.isLoaded
-persist.entries = format.entries
-persist.read = format.read
-persist.render = format.render
-persist.empty = format.empty
-persist.arrangement = format.arrangement
-persist.fromTheFuture = format.fromTheFuture
-persist.broken = format.broken
-persist.defaultKey = slots.defaultKey
-persist.FORMAT = table.freeze { read = format.read, render = format.render } :: Format
-persist.FILE = FILE
-persist.PRECEDENCE = PRECEDENCE
-persist.SOURCE = SOURCE
+state.FORMAT = table.freeze { read = format.read, render = format.render } :: Format
+state.FILE = FILE
+state.PRECEDENCE = PRECEDENCE
+state.SOURCE = SOURCE
 
 local function defaultFilesystem(): Filesystem
   return {
@@ -113,22 +101,22 @@ local function defaultReport(message: string): ()
   end
 end
 
-function persist.path(filesystem: Filesystem?, file: string?): string
+function state.path(filesystem: Filesystem?, file: string?): string
   local selected = filesystem or defaultFilesystem()
   return selected.getSaveDirectory() .. '/' .. (file or FILE)
 end
 
 -- A rules source over one file. Resolving is pure: a window answers the slot it holds, or the lowest free
 -- one, and takes a slot only when held.
-function persist.source(file: format.File, held: slots.Slots?): (lunette.Window) -> rulesContract.Properties?
-  local available = arrangements.slotsFor(file)
+function state.source(file: format.File, held: slots.Slots?): (lunette.Window) -> rulesContract.Properties?
+  local available = capture.slotsFor(file)
   local holding = held or slots.new()
   return function(window: lunette.Window): rulesContract.Properties?
-    return arrangements.answer(available, holding, window)
+    return capture.answer(available, holding, window)
   end
 end
 
-persist.slots = slots.new
+state.slots = slots.new
 
 -- Reads the file through the format. A reader that raises or answers a non-load makes a broken load, so the
 -- file is left alone.
@@ -143,7 +131,7 @@ local function load(chosen: Format, text: string): format.Loaded
   return answered
 end
 
-function persist.new(dependencies: Dependencies?): State
+function state.new(dependencies: Dependencies?): State
   local given: Dependencies = dependencies or {}
   local filesystem = given.filesystem or defaultFilesystem()
   local report = given.report or defaultReport
@@ -151,7 +139,7 @@ function persist.new(dependencies: Dependencies?): State
   if type(file) ~= 'string' or file == '' then
     error('desktop.persist: file is a non-empty file name, not ' .. tostring(file), 2)
   end
-  local chosen: Format = given.format or persist.FORMAT
+  local chosen: Format = given.format or state.FORMAT
   if type(chosen) ~= 'table' or type(chosen.read) ~= 'function' or type(chosen.render) ~= 'function' then
     error('desktop.persist: format is a table of read and render functions', 2)
   end
@@ -174,10 +162,10 @@ function persist.new(dependencies: Dependencies?): State
   if loaded.kind == 'arrangement' then
     arrangement = loaded.file
   elseif loaded.kind == 'broken' then
-    declined = persist.path(filesystem, file) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
+    declined = state.path(filesystem, file) .. ' could not be read: ' .. loaded.message .. ', so it is left alone'
     report(declined)
   elseif loaded.kind == 'fromTheFuture' then
-    declined = persist.path(filesystem, file)
+    declined = state.path(filesystem, file)
       .. ' was written by version '
       .. loaded.found
       .. ', and this lunette writes version '
@@ -193,7 +181,7 @@ function persist.new(dependencies: Dependencies?): State
   -- arrangement's entries are not retained.
   local reportedStale: { [Entry]: boolean } = setmetatable({} :: { [Entry]: boolean }, { __mode = 'k' })
   local function restore(context: plugin.Context, panels: panelsContract.Service, tags: tagsContract.Service): number
-    local restored, stale = arrangements.restore(report, held, context, panels, tags, arrangement)
+    local restored, stale = capture.restore(report, held, context, panels, tags, arrangement)
     for _, entry in ipairs(stale) do
       if not reportedStale[entry] then
         reportedStale[entry] = true
@@ -214,7 +202,7 @@ function persist.new(dependencies: Dependencies?): State
       return declined
     end,
     capture = function(_self: State, panels: panelsContract.Service, tags: tagsContract.Service): format.File
-      return arrangements.capture(report, held, panels, tags)
+      return capture.capture(report, held, panels, tags)
     end,
     bind = function(
       _self: State,
@@ -247,7 +235,7 @@ function persist.new(dependencies: Dependencies?): State
       local function available(): { [string]: Entry }
         if cachedFile ~= arrangement then
           cachedFile = arrangement
-          cachedSlots = arrangements.slotsFor(arrangement)
+          cachedSlots = capture.slotsFor(arrangement)
         end
         return cachedSlots
       end
@@ -259,7 +247,7 @@ function persist.new(dependencies: Dependencies?): State
         if declined and not (options and options.force) then
           return false, declined
         end
-        local captured = arrangements.capture(report, held, current.panels, current.tags)
+        local captured = capture.capture(report, held, current.panels, current.tags)
         -- Capture reports, and a report can end the activation.
         if not live() then
           return false, 'desktop.persist: the provider binding is no longer active'
@@ -269,7 +257,7 @@ function persist.new(dependencies: Dependencies?): State
           return false, 'desktop.persist: the format rendered a ' .. type(rendered) .. ', not text'
         end
         if not filesystem.write(file, rendered) then
-          return false, persist.path(filesystem, file) .. ' could not be written'
+          return false, state.path(filesystem, file) .. ' could not be written'
         end
         arrangement = captured
         declined = nil
@@ -297,14 +285,14 @@ function persist.new(dependencies: Dependencies?): State
           if not live() then
             return nil
           end
-          return arrangements.answer(available(), held, window)
+          return capture.answer(available(), held, window)
         end,
       })
       restore(context, panels, tags)
       panels:onAdded(context, function(target: panelsContract.Panel)
         local current = live()
         if current then
-          arrangements.arrived(report, held, current.context, current.panels, current.tags, arrangement, target)
+          capture.arrived(report, held, current.context, current.panels, current.tags, arrangement, target)
         end
       end)
       return public
@@ -313,4 +301,4 @@ function persist.new(dependencies: Dependencies?): State
   return state
 end
 
-return persist
+return state

@@ -141,7 +141,7 @@ A plugin changes state outside itself only through its context. `context:on` sub
 
 A patch with an entry's `id` changes that entry. `config` merges into its configuration: a table with string keys merges key by key, and any other value, a list included, replaces the default. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
-`desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/persistence` and `desktop/arrange` a factory of it, which `configure` takes as well:
+`desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside the functions a format of your own is written with:
 
 ```lua
 local desktop = require '@lunette-desktop'
@@ -478,10 +478,10 @@ stream:subscribe(context, {
 
 ## Saving the arrangement
 
-The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence` takes the file it saves to, the format it writes, and `keyFor`, which says what identifies a window across sessions, by default its application id:
+The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence`, whose module is `@lunette-plugins/arrangement`, takes the file it saves to, the format it writes, and `keyFor`, which says what identifies a window across sessions, by default its application id:
 
 ```lua
-desktop.configure(require '@lunette-desktop/persistence') { file = 'example.state' },
+desktop.configure(require('@lunette-plugins/arrangement').factory) { file = 'example.state' },
 ```
 
 It also provides `lunette/arrangement`, so a key can save or put the windows back. `examples/desktop/save-key.luau` binds control, alt, and S to save and control, alt, and R to restore:

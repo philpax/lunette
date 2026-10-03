@@ -41,7 +41,7 @@ desktop.run {
       },
     },
     -- The arrangement goes to a file of its own.
-    desktop.configure(require '@lunette-desktop/persistence') { file = 'example.state' },
+    desktop.configure(require('@lunette-plugins/arrangement').factory) { file = 'example.state' },
     { insert = { id = 'hide-windows', definition = require './hide-windows' } },
     { insert = { id = 'save-key', definition = require './save-key' } },
     -- Errors are also sent as desktop notifications.

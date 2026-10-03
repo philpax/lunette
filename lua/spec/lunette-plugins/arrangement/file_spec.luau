@@ -2,10 +2,11 @@
 local expect = require '@spec/expect'
 local suite = require '@spec/suite'
 local rulesContract = require '@lunette-contracts/rules'
-local persist = require '@lunette-desktop/persist'
-local fixture = require '@spec/lunette-desktop/persist/fixture'
+local arrangement = require '@lunette-plugins/arrangement'
+local persist = require '@lunette-plugins/arrangement/state'
+local fixture = require '@spec/lunette-plugins/arrangement/fixture'
 
-local spec = suite.new 'lunette-desktop.persist.file'
+local spec = suite.new 'lunette-plugins.arrangement.file'
 
 local function filesystem(text, name)
   local expected = name or 'arrangement.state'
@@ -54,14 +55,14 @@ local function withBinding(state, run, extend)
 end
 
 local function futureText()
-  return 'return { version = ' .. (persist.CURRENT_VERSION + 1) .. ', entries = {}, future = true }'
+  return 'return { version = ' .. (arrangement.CURRENT_VERSION + 1) .. ', entries = {}, future = true }'
 end
 
 spec('an absent file loads an empty arrangement without reporting', function()
   local fs = filesystem(nil)
   local state, reports = newState(fs)
   expect.equal(state:loaded().kind, 'arrangement', 'the load')
-  expect.equal(#persist.entries(state:arrangement()), 0, 'the entries')
+  expect.equal(#arrangement.entries(state:arrangement()), 0, 'the entries')
   expect.equal(fs.reads, 1, 'the reads')
   expect.equal(#reports, 0, 'the reports')
 end)
@@ -86,7 +87,7 @@ end)
 
 spec('skipped entries are reported when state is constructed', function()
   local state, reports = newState(filesystem "return { version = 1, entries = { { kind = 'nothing' } } }")
-  expect.equal(#persist.entries(state:arrangement()), 0, 'the entries')
+  expect.equal(#arrangement.entries(state:arrangement()), 0, 'the entries')
   expect.equal(#reports, 1, 'the reports')
   expect.truthy(reports[1]:find('window or a monitor', 1, true), 'the report')
 end)
@@ -128,7 +129,7 @@ spec('successful force save clears refusal and permits later ordinary saves', fu
     expect.equal(binding:save(), true, 'the ordinary save')
   end)
   expect.equal(fs.writes, 2, 'the writes')
-  expect.equal(fs.text, persist.render(state:arrangement()), 'the rendered bytes')
+  expect.equal(fs.text, arrangement.render(state:arrangement()), 'the rendered bytes')
   expect.equal(state:loaded().kind, 'fromTheFuture', 'the original load result')
 end)
 
@@ -148,7 +149,7 @@ end)
 spec('new state can read a replacement file without changing an existing refusal', function()
   local fs = filesystem(futureText())
   local refused = newState(fs)
-  fs.text = persist.render(persist.newFile {})
+  fs.text = arrangement.render(arrangement.newFile {})
   local readable = newState(fs)
   expect.truthy(refused:declined(), 'the existing refusal')
   expect.falsy(readable:declined(), 'the new readable state')
@@ -292,7 +293,7 @@ spec('the default adapter routes reads and writes through the save filesystem', 
     end)
     expect.equal(fs.reads, 1, 'the default read')
     expect.equal(fs.writes, 1, 'the default write count')
-    expect.equal(fs.text, persist.render(state:arrangement()), 'the format-one bytes')
+    expect.equal(fs.text, arrangement.render(state:arrangement()), 'the format-one bytes')
   end)
   lovr.filesystem = previous
   if not ok then
@@ -306,20 +307,20 @@ local lines = {
   read = function(text)
     local version = tonumber(text:match '^lines (%d+)\n')
     if not version then
-      return persist.broken 'no version line'
+      return arrangement.broken 'no version line'
     end
     if version > LINES_VERSION then
-      return persist.fromTheFuture { found = version, supported = LINES_VERSION }
+      return arrangement.fromTheFuture { found = version, supported = LINES_VERSION }
     end
     local entries = {}
     for kind, key, slot, pose in text:gmatch '(%a+)\t([^\t]+)\t(%d+)\t([^\n]+)\n' do
       entries[#entries + 1] = { kind = kind, key = key, slot = tonumber(slot), pose = pose, tags = {} }
     end
-    return persist.arrangement { file = persist.newFile(entries), version = version }
+    return arrangement.arrangement { file = arrangement.newFile(entries), version = version }
   end,
   render = function(file)
     local out = { 'lines ' .. LINES_VERSION }
-    for _, entry in ipairs(persist.entries(file)) do
+    for _, entry in ipairs(arrangement.entries(file)) do
       out[#out + 1] = table.concat({ entry.kind, entry.key, tostring(entry.slot), entry.pose }, '\t')
     end
     return table.concat(out, '\n') .. '\n'
@@ -338,7 +339,7 @@ spec('a named file in another format round-trips the arrangement', function()
   end)
   expect.truthy(fs.text:find '^lines 1\nmonitor\tfixture.monitor\t1\t', 'the format wrote the file: ' .. fs.text)
   local recovered = persist.new { filesystem = fs, file = 'profile.lines', format = lines }
-  local entries = persist.entries(recovered:arrangement())
+  local entries = arrangement.entries(recovered:arrangement())
   expect.equal(#entries, 1, 'the entries read back')
   expect.equal(entries[1].key, 'fixture.monitor', 'the key read back')
 end)
@@ -400,7 +401,7 @@ spec('a key function keys windows by title instead of application', function()
       if target.kind == 'window' then
         return target.source.title
       end
-      return persist.defaultKey(target)
+      return arrangement.defaultKey(target)
     end,
   }
   local function terminal(id, title)
@@ -416,7 +417,7 @@ spec('a key function keys windows by title instead of application', function()
   end
   withBinding(state, function(binding)
     local source = persist.source(
-      persist.newFile {
+      arrangement.newFile {
         { kind = 'window', key = 'build', slot = 1, pose = '1 0 0 0 0 1 0 0 0 0 1 0 4 5 6 1', tags = {} },
       },
       persist.slots(function(target)

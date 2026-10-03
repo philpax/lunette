@@ -6,11 +6,12 @@ local lunette = require '@lunette'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
-local persist = require '@lunette-desktop/persist'
-local fixture = require '@spec/lunette-desktop/persist/fixture'
+local arrangement = require '@lunette-plugins/arrangement'
+local persist = require '@lunette-plugins/arrangement/state'
+local fixture = require '@spec/lunette-plugins/arrangement/fixture'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
-local spec = suite.new 'lunette-desktop.persist.arrangement'
+local spec = suite.new 'lunette-plugins.arrangement.capture'
 local TOLERANCE = 1e-5
 
 local function entry(overrides)
@@ -35,7 +36,7 @@ local function withServices(entries, run)
   local state = persist.new {
     filesystem = {
       read = function()
-        return persist.render(persist.newFile(entries or {}))
+        return arrangement.render(arrangement.newFile(entries or {}))
       end,
       write = function()
         return true
@@ -75,7 +76,7 @@ spec('capture keys windows on application identity and ordered slots', function(
     panels:fromWindow(context, window('terminal', 1))
     panels:fromWindow(context, window('terminal', 2))
     panels:fromWindow(context, window('browser', 3))
-    local captured = persist.entries(state:capture(panels, tags))
+    local captured = arrangement.entries(state:capture(panels, tags))
     expect.equal(#captured, 3, 'the entries')
     expect.equal(captured[1].key, 'terminal', 'the first key')
     expect.equal(captured[1].slot, 1, 'the first slot')
@@ -88,7 +89,7 @@ end)
 spec('capture keys a monitor on its saved identity', function()
   withServices(nil, function(state, context, panels, tags)
     panels:fromMonitor(context, monitor 'fixture.monitor')
-    local captured = persist.entries(state:capture(panels, tags))
+    local captured = arrangement.entries(state:capture(panels, tags))
     expect.equal(captured[1].kind, 'monitor', 'the kind')
     expect.equal(captured[1].key, 'fixture.monitor', 'the identity')
   end)
@@ -103,7 +104,7 @@ spec('capture records pose, metre size, and ordered tag membership', function()
     })
     tags:new(context, 'main'):add(context, panel)
     tags:new(context, 'side'):add(context, panel)
-    local captured = persist.entries(state:capture(panels, tags))[1]
+    local captured = arrangement.entries(state:capture(panels, tags))[1]
     expect.equal(captured.pose, vocabulary.encodePose(panel.pose), 'the pose')
     expect.near(captured.width, 1.6, TOLERANCE, 'the width')
     expect.near(captured.height, 0.9, TOLERANCE, 'the height')
@@ -115,7 +116,7 @@ spec('sources with no stable identity are reported rather than saved', function(
   withServices(nil, function(state, context, panels, tags, _rules, reports)
     panels:fromWindow(context, window(nil))
     panels:fromMonitor(context, monitor(8))
-    expect.equal(#persist.entries(state:capture(panels, tags)), 0, 'the entries')
+    expect.equal(#arrangement.entries(state:capture(panels, tags)), 0, 'the entries')
     expect.equal(#reports, 2, 'the reports')
     expect.truthy(reports[1]:find('no identity', 1, true), 'the report')
   end)
@@ -127,7 +128,7 @@ spec('destroyed panels and dead sources are not captured', function()
     local source = window('browser', 2)
     panels:fromWindow(context, source)
     source.dead = true
-    expect.equal(#persist.entries(state:capture(panels, tags)), 0, 'the entries')
+    expect.equal(#arrangement.entries(state:capture(panels, tags)), 0, 'the entries')
   end)
 end)
 
@@ -195,7 +196,7 @@ spec('dead sources take no saved slot from a live panel', function()
 end)
 
 spec('source keys cannot collide by concatenating an identity and a slot', function()
-  local resolve = persist.source(persist.newFile {
+  local resolve = persist.source(arrangement.newFile {
     entry { key = 'a1', slot = 1, width = 2 },
     entry { key = 'a', slot = 11, width = 1 },
   })
@@ -203,16 +204,16 @@ spec('source keys cannot collide by concatenating an identity and a slot', funct
 end)
 
 spec('source answers a window with its saved pose, size, and tags', function()
-  local file = persist.newFile { entry() }
+  local file = arrangement.newFile { entry() }
   local properties = persist.source(file)(window 'terminal')
-  expect.equal(properties.pose, persist.entries(file)[1].pose, 'the pose')
+  expect.equal(properties.pose, arrangement.entries(file)[1].pose, 'the pose')
   expect.near(properties.width, 1.2, TOLERANCE, 'the width')
   expect.equal(properties.tags[1], 'main', 'the tag')
 end)
 
 spec('source answers the slot a window holds, and a dead window frees its slot', function()
   local held = persist.slots()
-  local resolve = persist.source(persist.newFile { entry { width = 1 }, entry { slot = 2, width = 2 } }, held)
+  local resolve = persist.source(arrangement.newFile { entry { width = 1 }, entry { slot = 2, width = 2 } }, held)
   local first, second = window('terminal', 1), window('terminal', 2)
   expect.near(resolve(first).width, 1, TOLERANCE, 'the first free slot')
   expect.near(resolve(second).width, 1, TOLERANCE, 'resolving takes no slot')
@@ -226,7 +227,7 @@ spec('source answers the slot a window holds, and a dead window frees its slot',
 end)
 
 spec('source contributes nothing for unknown or unidentified applications', function()
-  local resolve = persist.source(persist.newFile { entry() })
+  local resolve = persist.source(arrangement.newFile { entry() })
   expect.falsy(resolve(window 'browser'), 'an unknown application')
   expect.falsy(resolve(window(nil)), 'an absent identity')
   expect.falsy(resolve(window ''), 'an empty identity')

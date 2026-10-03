@@ -1,6 +1,6 @@
 -- Interaction and laser outages, and an interaction outage in the middle of a
 -- drag, in the shipped desktop composition.
-local persist = require '@lunette-desktop/persist'
+local persist = require '@lunette-plugins/arrangement'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local desktop = require 'fixture/graph'()
 local providers, consumers, service = desktop.providers, desktop.consumers, desktop.panels

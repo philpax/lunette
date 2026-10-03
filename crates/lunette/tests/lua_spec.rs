@@ -1,4 +1,4 @@
-//! Linux-only: runs the `lua/spec/` suite, which covers the desktop's
+//! Linux-only: runs the `lua/spec/` suite, which covers arrangement
 //! persistence, the shared vocabulary, and the pure halves of several
 //! providers, such as the frame pacing and output scale rules.
 //!
