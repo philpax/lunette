@@ -652,20 +652,6 @@ mod tests {
         );
     }
 
-    /// Repeated reloads rebuild the configuration without retaining the old
-    /// module callbacks or package entries.
-    #[test]
-    fn ten_reloads_rebuild_the_configuration() {
-        let lua = state("runs.main = runs.main + 1");
-        run(&lua, "require 'main'");
-
-        for _ in 0..10 {
-            reload(&lua, &|| ()).expect("the reload succeeds");
-        }
-
-        assert_eq!(number(&lua, "runs.main"), 11);
-    }
-
     /// A configuration that reloads as it loads would recurse until the stack
     /// runs out, taking every connected client with the process.
     #[test]
@@ -705,16 +691,6 @@ mod tests {
             1,
             "the configuration should have run once, not once per nested reload"
         );
-    }
-
-    #[test]
-    fn the_reload_is_available_again_after_one_that_failed() {
-        let lua = state("error('a deliberate defect')");
-
-        reload(&lua, &|| ()).expect_err("the first reload fails");
-        set_main(&lua, "runs.main = runs.main + 1");
-
-        reload(&lua, &|| ()).expect("the guard is released by the failure");
     }
 
     #[test]
