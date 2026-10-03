@@ -143,6 +143,16 @@ local rejections = {
     config = { position = 'ahead' },
     message = 'plugin desktop/errors: option position is a table, not a string',
   },
+  {
+    id = 'desktop/errors',
+    config = { position = { 0, 'up', -1 } },
+    message = 'plugin desktop/errors: option position[2] is a number, not a string',
+  },
+  {
+    id = 'desktop/errors',
+    config = { background = { 1, 0, 0, 1, extra = true } },
+    message = 'plugin desktop/errors: option background is a list of four numbers, and extra is not one of its positions',
+  },
   { id = 'placement', config = { bogus = 1 }, message = 'plugin placement: unknown option bogus' },
   {
     id = 'placement',
