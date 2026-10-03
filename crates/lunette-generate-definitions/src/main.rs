@@ -29,8 +29,7 @@
 //! `--check` generates into memory and compares against what is checked in,
 //! reporting the first line that differs and exiting non-zero. CONTRIBUTING.md
 //! requires a generated document to be verified. The command performs that
-//! verification for the generated files. `--lovr-only` limits either mode to
-//! the LÖVR definitions, leaving native declarations and alias files untouched.
+//! verification for the generated files.
 
 use std::{
     env, fs,
@@ -141,9 +140,8 @@ fn main() -> ExitCode {
     }
 
     let checking = arguments.iter().any(|argument| argument == "--check");
-    let lovr_only = arguments.iter().any(|argument| argument == "--lovr-only");
 
-    match run(checking, lovr_only) {
+    match run(checking) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -157,7 +155,7 @@ fn main() -> ExitCode {
 ///
 /// Returns whether the run is a success. A comparison that differs is a
 /// failure; a write always succeeds or returns the error that stopped it.
-fn run(checking: bool, lovr_only: bool) -> Result<bool, Box<dyn std::error::Error>> {
+fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     // The workspace root, relative to CARGO_MANIFEST_DIR
     // (crates/lunette-generate-definitions).
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -189,15 +187,15 @@ fn run(checking: bool, lovr_only: bool) -> Result<bool, Box<dyn std::error::Erro
     let text = fs::read_to_string(&generated)?;
 
     let definitions = format!("{FORK_GLOBALS}\n{text}");
-    let mut generated = vec![(CHECKER_DEFINITIONS, definitions)];
-    if !lovr_only {
-        generated.push((MODULE_DECLARATIONS, lunette::lua::declarations::render()));
-        generated.extend(
-            ALIAS_FILES
-                .iter()
-                .map(|(path, root, render)| (*path, render(root))),
-        );
-    }
+    let mut generated = vec![
+        (CHECKER_DEFINITIONS, definitions),
+        (MODULE_DECLARATIONS, lunette::lua::declarations::render()),
+    ];
+    generated.extend(
+        ALIAS_FILES
+            .iter()
+            .map(|(path, root, render)| (*path, render(root))),
+    );
 
     if checking {
         let mut current = true;
