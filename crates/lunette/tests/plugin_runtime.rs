@@ -46,7 +46,6 @@ fn run_fixture(lua: &Lua, module: &Table, name: &str) -> mlua::Result<()> {
         }
         "inverse_reentry" => include_str!("plugin_runtime/inverse_reentry.luau"),
         "dependency_publication" => include_str!("plugin_runtime/dependency_publication.luau"),
-        "rollback_authority" => include_str!("plugin_runtime/rollback_authority.luau"),
         "explicit_cleanup_authority" => {
             include_str!("plugin_runtime/explicit_cleanup_authority.luau")
         }
@@ -193,30 +192,6 @@ fn invalid_dependency_publication_retains_failed_rollback_allocation() -> mlua::
 }
 
 #[test]
-fn public_facade_rollback_uses_native_cleanup_authority() -> mlua::Result<()> {
-    let (lua, module) = state()?;
-    let fixture: Function = lua
-        .load(include_str!("plugin_runtime/facade_cleanup_authority.luau"))
-        .set_name("facade_cleanup_authority")
-        .eval()?;
-    let sources = lua.create_table()?;
-    for (name, source) in plugin_facade_sources::FACADE_SOURCES {
-        sources.set(name, source)?;
-    }
-    fixture.call::<()>((module, sources))?;
-    let errors = plugin_support::shutdown(&lua);
-    assert_eq!(errors.len(), 2, "unexpected errors: {errors:?}");
-    assert!(
-        errors
-            .iter()
-            .all(|error| error.contains("facade cleanup initializer failure")
-                || error.contains("missing provision service")),
-        "unexpected errors: {errors:?}"
-    );
-    Ok(())
-}
-
-#[test]
 fn explicit_cleanup_temporarily_revokes_resource_authority_and_preserves_live_owner()
 -> mlua::Result<()> {
     let (lua, module) = state()?;
@@ -227,24 +202,36 @@ fn explicit_cleanup_temporarily_revokes_resource_authority_and_preserves_live_ow
     Ok(())
 }
 
+/// Each case runs through the native API and through the facade.
 #[test]
 fn failed_load_rollback_revokes_resource_authority_before_inverses() -> mlua::Result<()> {
     let (lua, module) = state()?;
-    run_fixture(&lua, &module, "rollback_authority")?;
+    let fixture: Function = lua
+        .load(include_str!("plugin_runtime/rollback_authority.luau"))
+        .set_name("rollback_authority")
+        .eval()?;
+    let sources = lua.create_table()?;
+    for (name, source) in plugin_facade_sources::FACADE_SOURCES {
+        sources.set(name, source)?;
+    }
+    fixture.call::<()>((module, sources))?;
     let errors = plugin_support::shutdown(&lua);
-    assert_eq!(errors.len(), 9, "unexpected errors: {errors:?}");
+    // Each failed load is reported, and each broken case's failing inverse.
+    let count = |needle: &str| errors.iter().filter(|error| error.contains(needle)).count();
+    let expected = [
+        ("rollback authority initializer failure", 4),
+        ("provided record is missing field 'service'", 2),
+        ("provided record has unexpected field 'unexpected'", 2),
+        ("missing provision service", 2),
+        ("rollback authority inverse failure", 5),
+    ];
+    for (needle, times) in expected {
+        assert_eq!(count(needle), times, "{needle}: {errors:#?}");
+    }
     assert_eq!(
-        errors
-            .iter()
-            .filter(|error| error.contains("rollback authority inverse failure"))
-            .count(),
-        3
-    );
-    assert!(
-        errors.iter().all(|error| {
-            error.contains("rollback authority") || error.contains("provided record")
-        }),
-        "unexpected errors: {errors:?}"
+        errors.len(),
+        expected.iter().map(|(_, times)| times).sum::<usize>(),
+        "unexpected errors: {errors:#?}"
     );
     Ok(())
 }
