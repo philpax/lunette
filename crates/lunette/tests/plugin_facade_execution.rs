@@ -89,6 +89,7 @@ fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
         "child_enabled" => include_str!("plugin_facade_execution/child_enabled.luau"),
         "spec_validation" => include_str!("plugin_facade_execution/spec_validation.luau"),
         "options" => include_str!("plugin_facade_execution/options.luau"),
+        "declared_access" => include_str!("plugin_facade_execution/declared_access.luau"),
         "quarantine_pending_provider" => {
             include_str!("plugin_facade_execution/quarantine_pending_provider.luau")
         }
@@ -204,6 +205,15 @@ fn multiple_provisions_runtime() -> mlua::Result<()> {
             "missing {message}: {errors:?}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn a_context_reaches_only_declared_capabilities_while_current() -> mlua::Result<()> {
+    let lua = state()?;
+    run_fixture(&lua, "declared_access")?;
+    let errors = plugin_support::shutdown(&lua);
+    assert!(errors.is_empty(), "{errors:?}");
     Ok(())
 }
 
