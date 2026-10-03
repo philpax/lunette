@@ -1,4 +1,6 @@
--- Pure input shaping shared by the headset reader and test readers.
+-- Pure input shaping: what the default reader makes of the headset. Each laser reads its frame through its
+-- own `readInput`, which `attach` may supply and which otherwise wraps the provider's `readInput` hook
+-- around `fromHeadset`, so input is injected per laser, without a headset, at that point.
 --
 -- `devices` names each hand's pointing pose and `controllers` the controller
 -- that holds its buttons, thumbstick, and haptics. `CONTROLS` are the
