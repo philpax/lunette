@@ -1,6 +1,6 @@
 -- The frame provider, and the binding of LÖVR's callbacks to it. `install` assigns the callbacks once,
 -- before the runtime starts; they reach whichever activation is loaded when called and do nothing while
--- none is, such as during an instance reload.
+-- none is, such as during an instance reload. `run` installs them for a composition.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/frame'
@@ -291,6 +291,29 @@ function frame.install(hooks: Hooks): ()
     protected.call('lovr.quit', stop)
     return false
   end
+end
+
+-- Binds LÖVR's callbacks to a composition: `lovr.load` starts the entries with `plugin.start`, and
+-- `lovr.quit` closes the runtime. The entries are checked now, so a malformed list fails the call rather
+-- than the first frame.
+function frame.run(entries: { plugin.Entry }): ()
+  local checked = plugin.compose(entries)
+  local running: plugin.Running? = nil
+  frame.install {
+    start = function(): ()
+      if running then
+        return
+      end
+      running = plugin.start(checked)
+    end,
+    stop = function(): ()
+      local current = running
+      running = nil
+      if current then
+        current.runtime:close()
+      end
+    end,
+  }
 end
 
 return frame

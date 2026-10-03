@@ -3,6 +3,7 @@
 
 local native = require '@lunette'
 local adapter = require '@lunette-plugin/adapter'
+local compose = require '@lunette-plugin/compose'
 local options = require '@lunette-plugin/options'
 local provider = require '@lunette-plugin/provider'
 
@@ -24,6 +25,9 @@ export type OptionsSpec<S> = options.Spec<S>
 export type MergeSpec = options.MergeSpec
 export type ProviderSpec<S, T> = provider.Spec<S, T>
 export type Provider<C, T> = provider.Provider<C, T>
+export type Entry = compose.Entry
+export type Patch = compose.Patch
+export type Running = compose.Running
 export type PluginContractToken = native.PluginContractToken
 export type PluginContext = native.PluginContext
 export type PluginEffect = native.PluginEffect
@@ -76,6 +80,19 @@ end
 -- `plugin.provider<<Config, Settings, Service>> { ... }`.
 function plugin.provider<C, S, T>(spec: ProviderSpec<S, T>): Provider<C, T>
   return provider.create<<C, S, T>>(spec)
+end
+
+-- Answers the entries with the patches applied, frozen, defining and enabling nothing. It raises with the id
+-- for a malformed entry or patch, a duplicate id, a patch naming no entry, or conflicting patches.
+function plugin.compose(entries: { Entry }, patches: { Patch }?): { Entry }
+  return compose.apply(entries, patches)
+end
+
+-- Makes a runtime, uses and enables each entry in order, and drains it, answering the runtime and the
+-- instance made for each id. A failure closes the runtime and is raised; an entry's configuration error is
+-- that instance's load failure.
+function plugin.start(entries: { Entry }): Running
+  return compose.start(entries)
 end
 
 return plugin

@@ -103,7 +103,7 @@ for _, case in ipairs {
   { config = { workspaces = { { name = 'a', key = '1' }, { name = 'a', key = '2' } } }, message = 'names a twice' },
   { config = { follow = 'yes' }, message = 'option follow is a boolean, not a string' },
 } do
-  local running = require('@lunette-desktop').start(require('@lunette-desktop').compose {
+  local running = require('@lunette-plugin').start(require('@lunette-desktop').compose {
     patches = {
       {
         insert = {

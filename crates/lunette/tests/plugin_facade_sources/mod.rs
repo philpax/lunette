@@ -2,7 +2,7 @@
 //! rather than walking the roots.
 
 /// The facade's modules, by the name each is required by.
-pub const FACADE_SOURCES: [(&str, &str); 4] = [
+pub const FACADE_SOURCES: [(&str, &str); 5] = [
     (
         "@lunette-plugin",
         include_str!("../../../../lua/lunette-plugin/init.luau"),
@@ -10,6 +10,10 @@ pub const FACADE_SOURCES: [(&str, &str); 4] = [
     (
         "@lunette-plugin/adapter",
         include_str!("../../../../lua/lunette-plugin/adapter.luau"),
+    ),
+    (
+        "@lunette-plugin/compose",
+        include_str!("../../../../lua/lunette-plugin/compose.luau"),
     ),
     (
         "@lunette-plugin/options",

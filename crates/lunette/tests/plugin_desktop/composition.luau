@@ -231,15 +231,15 @@ local factoryEntries = {
 }
 desktop.compose { entries = factoryEntries }
 assert(made == 0)
-local first = desktop.start(factoryEntries)
-local second = desktop.start(factoryEntries)
+local first = plugin.start(factoryEntries)
+local second = plugin.start(factoryEntries)
 assert(made == 2 and first.instances.counted:state() == 'active')
 first.runtime:close()
 second.runtime:close()
 
 -- A configuration a plugin does not take fails that plugin's activation and
 -- names the plugin and the option; the rest of the desktop starts.
-local rejected = desktop.start(desktop.compose { patches = { { id = 'desktop/errors', config = { colour = 'red' } } } })
+local rejected = plugin.start(desktop.compose { patches = { { id = 'desktop/errors', config = { colour = 'red' } } } })
 assert(rejected.instances['desktop/errors']:state() == 'failed')
 assert(
   tostring(rejected.instances['desktop/errors']:diagnostic()):find(

@@ -130,6 +130,25 @@ A wrapper changes only what reaches the service from outside. A built-in calls i
 
 `plugin.checkNumbers(name, option, value, count)` checks an option that is a fixed number of numbers, such as a position, which a default's type cannot describe because a list option replaces its default whole. It raises `plugin <name>: option <option> ...` for a value that is not a table, a key that is not one of the `count` positions, an element that is not a number or not finite, or a length other than `count`. The shipped consumers check their positions, offsets, and colours with it, and the arc layout its centre. Every element must be finite: a non-finite coordinate places a quad nowhere.
 
+### Composition
+
+A composition is a list of entries, `{ id, definition, config }`, or `{ id, factory, config }` for a definition made once for each start, so the definition can keep state across its own provider outages. `plugin.compose(entries, patches)` answers the entries with the patches applied, validated and frozen, and defines and enables nothing. `plugin.start(entries)` makes one runtime, uses and enables each entry in order with its `config`, and drains it, and answers `{ runtime, instances }`, the instance made for each id. A failure closes the runtime and is raised; an option a plugin does not take fails that instance's activation, is reported, and leaves the rest started. `frame.run`, in [Frame and surfaces](#frame-and-surfaces), binds a composition to LÖVR's callbacks. `lua/lunette-plugin/compose.luau` is the source of truth for the rules below.
+
+A patch names an entry by `id`:
+
+```lua
+plugin.compose(entries, {
+  { id = 'keyboard', disabled = true },
+  { id = 'laser', definition = myLaser },
+  { id = 'interaction', config = { tuning = { reach = 4 } } },
+  { insert = { id = 'my-hud', definition = hud, config = {} }, before = 'desktop/adoption' },
+})
+```
+
+`disabled = true` removes the entry. `definition` or `factory` replaces what the entry is made from and keeps its configuration. `config` is merged into the entry's configuration by the rule `plugin.merge` follows: a record, a table with string keys, merges key by key at every depth, and any other value, a list or colour included, replaces the value it lands on. A patch may replace and configure at once. `insert` adds an entry at the end, or just `before` or `after` the entry another field names, and carries no other field; an insert may name an entry an earlier insert added. A patch with an `id` cannot move its entry. Each id names one patch. The graph orders activation by dependency; among entries that do not depend on each other, the list order is the order they are enabled in and the order the graph loads them again after an outage of something they share.
+
+A patch that names an unknown id, an insert whose id is already an entry, an insert positioned before or after an id that is not an entry or both before and after, a keyed patch that gives `before` or `after`, two entries or two patches with one id, a field the patch or entry does not name, a patch that disables an entry and also changes it, one that gives both a definition and a factory, and one that changes nothing raise from `compose`, with an error that names the id.
+
 ### Frame and surfaces
 
 LÖVR's frame and input callbacks reach plugins through two contracts, `lunette/frame` and `lunette/surfaces`, which the built-in `@lunette-plugins/frame` and `@lunette-plugins/surfaces` providers implement. A plugin that draws, updates, takes keys, or offers something a pointer can pick requires them like any other contract and needs nothing from the configuration.
@@ -150,7 +169,7 @@ Key and text handlers run `binding` handlers before `delivery` handlers, then by
 
 Every handler, and every offer's `list`, runs under its own protected call. Its error is reported through `lunette.reportError`, under `lovr.update`, `lovr.draw`, `lovr.keypressed`, `lovr.textinput`, or `lovr.quit` for a handler and `surfaces: <name>` for an offer, and the handlers after it still run. A key or text handler that raises consumes nothing. An offer whose `list` raises or answers something other than a table contributes no surfaces. An offer name names one offer, and offering a name that is already offered raises. A registration with a field the contract does not name, a phase outside its set, an `order` that is not a finite number, or a `run` that is not a function raises at the call.
 
-`frame.install { start = ..., stop = ... }` binds the LÖVR callbacks to the frame provider. It assigns `lovr.load`, which calls `start`, and `lovr.update`, `lovr.draw`, `lovr.keypressed`, `lovr.textinput`, and `lovr.quit`, which reach whichever frame activation is loaded and do nothing while none is. `lovr.quit` runs the quit handlers and then `stop` under a protected call, and answers `false`. One frame activation receives the callbacks at a time; a second raises as it loads. A configuration calls `install` once, before the runtime exists, and creates its runtime in `start`: `@lunette-desktop`'s `run` does this.
+`frame.install { start = ..., stop = ... }` binds the LÖVR callbacks to the frame provider. It assigns `lovr.load`, which calls `start`, and `lovr.update`, `lovr.draw`, `lovr.keypressed`, `lovr.textinput`, and `lovr.quit`, which reach whichever frame activation is loaded and do nothing while none is. `lovr.quit` runs the quit handlers and then `stop` under a protected call, and answers `false`. One frame activation receives the callbacks at a time; a second raises as it loads. A configuration calls `install` once, before the runtime exists, and creates its runtime in `start`. `frame.run(entries)` does this for a [composition](#composition): it checks the entries with `plugin.compose` at the call, starts them with `plugin.start` from `lovr.load`, and closes the runtime from `lovr.quit`. `@lunette-desktop`'s `run` calls it.
 
 ### Keyboard
 
@@ -857,6 +876,10 @@ The rule applies to the native API only where the plugin system introduced the c
 ### Provider configuration is validated against defaults
 
 Each provider reads its configuration and validates it against its defaults, so a colour changes without replacing the provider and a misspelt option is rejected rather than ignored. The defaults are the schema, because they already exist and a separate schema would be a second statement of the same shape that could disagree with it; type checking against the default catches the common mistakes, a misspelt name and a value of the wrong kind, at the cost of not expressing an option that is absent by default. A configuration error fails the plugin's activation rather than the whole configuration, because the runtime reports an initializer's failure and goes on, and the composition cannot check an option it does not know the shape of. `define` checks its options at the call, where the shape is known.
+
+### Composition is the facade's, and running it is the frame provider's
+
+Composing a list of entries and starting it use nothing but the facade, so `plugin.compose` and `plugin.start` belong to it, and a configuration that composes a list of its own needs no desktop. Binding the composition to LÖVR's callbacks needs `frame.install`, and `@lunette-plugins` depends on `@lunette-plugin` and not the reverse, so the binding is `frame.run`, beside `install`. A `plugin.run` in the facade was rejected because it would make the facade require a provider. Keeping the engine in `@lunette-desktop` was rejected because the desktop is one list among the lists a configuration can compose, and the engine has nothing desktop-specific in it.
 
 ### Frame dispatch and the surface list are contracts
 

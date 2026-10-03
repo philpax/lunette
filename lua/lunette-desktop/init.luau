@@ -1,10 +1,9 @@
--- The shipped desktop: its plugins as a list of entries, and the run that binds LÖVR's callbacks and starts
--- them. A configuration calls `run`:
+-- The shipped desktop: its plugins as a list of entries. `run` composes them with a configuration's patches
+-- and starts them through the frame provider. A configuration calls `run`:
 --
 --   require('@lunette-desktop').run { patches = { { id = 'keyboard', disabled = true } } }
 
 local plugin = require '@lunette-plugin'
-local compose = require '@lunette-desktop/compose'
 local frame = require '@lunette-plugins/frame'
 local surfaces = require '@lunette-plugins/surfaces'
 local panels = require '@lunette-plugins/panels'
@@ -44,22 +43,22 @@ local scale = require '@lunette-desktop/scale'
 
 local desktop = {}
 
-export type Entry = compose.Entry
-export type Patch = compose.Patch
-export type Options = compose.Options
-export type Config = compose.Config
-export type Definition = compose.Definition
+export type Entry = plugin.Entry
+export type Patch = plugin.Patch
 
--- A started desktop: its runtime, and the instance made for each entry, by id.
-export type Running = {
-  read runtime: plugin.Runtime,
-  read instances: { read [string]: plugin.Instance<any> },
+-- What `compose` and `run` take: the entries to start from, by default the shipped desktop's, and the
+-- patches to apply to them.
+export type Options = {
+  read entries: { Entry }?,
+  read patches: { Patch }?,
 }
+
+local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true }
 
 -- Each entry's id is its definition's name. Persistence and arrangement are factories, because their state
 -- outlives their activations. The rule list and saved arrangement must be rules sources before adoption
 -- resolves the first window; no other entry depends on order.
-local DEFAULT: { Entry } = compose.apply({
+local DEFAULT: { Entry } = plugin.compose {
   { id = 'frame', definition = frame.definition },
   { id = 'surfaces', definition = surfaces.definition },
   { id = 'panels', definition = panels.definition },
@@ -96,7 +95,7 @@ local DEFAULT: { Entry } = compose.apply({
   { id = 'desktop/demo-terminal', definition = demoTerminal },
   { id = 'desktop/pacing', definition = pacing },
   { id = 'desktop/scale', definition = scale },
-}, nil)
+}
 
 -- A typed patch for each shipped entry that takes options, answering `{ id = <entry id>, config = ... }`.
 -- A plain patch list's config cannot be typed per id, so `desktop.configure.laser { style = ... }` is what
@@ -172,33 +171,11 @@ end
 -- Answers the entries, by default the shipped desktop's, with the patches applied, raising for an unknown or
 -- duplicate id, an unknown field, or conflicting patches.
 function desktop.compose(options: Options?): { Entry }
-  return compose.apply(DEFAULT, options)
-end
-
--- Makes a runtime, enables every entry in order, and drains it. A failure closes the runtime and is raised;
--- an entry's configuration error is that instance's load failure.
-function desktop.start(entries: { Entry }): Running
-  local checked = compose.apply(entries, nil)
-  local runtime = plugin.runtime()
-  local instances: { [string]: plugin.Instance<any> } = {}
-  local ok, failure = pcall(function(): ()
-    for _, entry in ipairs(checked) do
-      local factory = entry.factory
-      local definition = entry.definition or (factory and factory())
-      if type(definition) ~= 'table' then
-        error('desktop: the factory of ' .. entry.id .. ' answered a ' .. type(definition) .. ', not a definition', 0)
-      end
-      local instance = runtime:use(definition, entry.config or {})
-      instances[entry.id] = instance
-      instance:enable()
-    end
-    runtime:drain()
-  end)
-  if not ok then
-    runtime:close()
-    error(failure, 0)
+  if options == nil then
+    return DEFAULT
   end
-  return table.freeze { runtime = runtime, instances = table.freeze(instances) }
+  plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 'entries and patches', 2)
+  return plugin.compose(options.entries or DEFAULT, options.patches)
 end
 
 -- Composes the desktop and binds LÖVR's callbacks to it. The composition is checked as the configuration
@@ -208,22 +185,7 @@ function desktop.run(options: Options?): ()
   -- Source reload retains globals, so desktop/demo-terminal does not open
   -- another terminal after a reload.
   _G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
-  local running: Running? = nil
-  frame.install {
-    start = function(): ()
-      if running then
-        return
-      end
-      running = desktop.start(entries)
-    end,
-    stop = function(): ()
-      local current = running
-      running = nil
-      if current then
-        current.runtime:close()
-      end
-    end,
-  }
+  frame.run(entries)
 end
 
 return desktop

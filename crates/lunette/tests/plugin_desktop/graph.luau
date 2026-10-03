@@ -16,7 +16,7 @@ return function(options)
       running.runtime:close()
     end,
   }
-  running = desktopRoot.start(desktopRoot.compose(options))
+  running = plugin.start(desktopRoot.compose(options))
   local runtime = running.runtime
   local providers, consumers = {}, {}
   for id, instance in pairs(running.instances) do

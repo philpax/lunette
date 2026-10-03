@@ -1,15 +1,17 @@
--- The desktop's entry list and the patches applied to it. Composing is pure: it validates and answers a new
--- frozen list, defining and enabling nothing.
+-- Composition: a list of plugin entries, the patches a configuration applies to it, and the start that
+-- makes a runtime from it. Composing is pure: it validates and answers a new frozen list, defining and
+-- enabling nothing.
 
-local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
+local options = require '@lunette-plugin/options'
 
 local compose = {}
 
-export type Definition = plugin.Definition<any>
+export type Definition = adapter.Definition<any>
 export type Config = { [string]: any }
 
--- One plugin of the desktop: exactly one of `definition` and `factory`. A factory is called once per runtime,
--- so its definition can keep state across its own provider outages.
+-- One plugin of a composition: exactly one of `definition` and `factory`. A factory is called once per
+-- start, so its definition can keep state across its own provider outages.
 export type Entry = {
   read id: string,
   read definition: Definition?,
@@ -17,7 +19,7 @@ export type Entry = {
   read config: Config?,
 }
 
--- A change to the entry list. A patch with `id` disables, replaces, or merges `config` into that entry; a
+-- A change to an entry list. A patch with `id` disables, replaces, or merges `config` into that entry; a
 -- patch with `insert` adds an entry at the end, or `before` or `after` the one it names.
 export type Patch = {
   read id: string?,
@@ -30,16 +32,14 @@ export type Patch = {
   read after: string?,
 }
 
--- What `compose` takes: the entries to start from, by default the shipped
--- desktop's, and the patches to apply to them.
-export type Options = {
-  read entries: { Entry }?,
-  read patches: { Patch }?,
+-- A started composition: its runtime, and the instance made for each entry, by id.
+export type Running = {
+  read runtime: adapter.Runtime,
+  read instances: { read [string]: adapter.Instance<any> },
 }
 
 type Raw = { [unknown]: unknown }
 
-local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true }
 local ENTRY_KEYS: { [string]: boolean } = { id = true, definition = true, factory = true, config = true }
 local PATCH_KEYS: { [string]: boolean } = {
   id = true,
@@ -53,15 +53,7 @@ local PATCH_KEYS: { [string]: boolean } = {
 }
 
 local function fail(message: string): never
-  error('desktop: ' .. message, 0)
-end
-
-local function rejectUnknown(raw: Raw, allowed: { [string]: boolean }, what: string, fields: string): ()
-  for key, _ in raw do
-    if type(key) ~= 'string' or not allowed[key] then
-      fail(string.format('%s: unknown field %s; the fields are %s', what, tostring(key), fields))
-    end
-  end
+  error('compose: ' .. message, 0)
 end
 
 local function frozenCopy(value: unknown): unknown
@@ -104,7 +96,7 @@ local function checkedEntry(value: unknown, position: string): Entry
     fail(position .. ': id is a non-empty string, not ' .. tostring(id))
   end
   local what = 'entry ' .. (id :: string)
-  rejectUnknown(raw, ENTRY_KEYS, what, 'id, definition, factory, and config')
+  options.rejectUnknownFields('compose: ' .. what, raw, ENTRY_KEYS, 'id, definition, factory, and config', 0)
   checkSource(what, raw.definition, raw.factory)
   if raw.definition == nil and raw.factory == nil then
     fail(what .. ' gives neither a definition nor a factory')
@@ -201,25 +193,16 @@ local function patched(entry: Entry, patch: Keyed): Entry
   end
   local config = entry.config
   if patch.config ~= nil then
-    config = plugin.merge { base = entry.config, over = patch.config }
+    config = options.merge { base = entry.config, over = patch.config }
   end
   return checkedEntry({ id = entry.id, definition = definition, factory = factory, config = config }, 'entry')
 end
 
 -- Answers the entries with the patches applied, frozen, raising with the id for a malformed entry or patch,
 -- a duplicate id, a patch naming no entry, or one that both disables and changes an entry.
-function compose.apply(entries: { Entry }, options: Options?): { Entry }
-  local given: Raw = {}
-  if options ~= nil then
-    if type(options) ~= 'table' then
-      fail('the options are a table of fields, not a ' .. type(options))
-    end
-    given = (options :: unknown) :: Raw
-    rejectUnknown(given, OPTION_KEYS, 'the options', 'entries and patches')
-  end
-
+function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   local result: { Entry } = {}
-  for index, value in ipairs(checkedList(given.entries or entries, 'the entry list')) do
+  for index, value in ipairs(checkedList(entries, 'the entry list')) do
     local entry = checkedEntry(value, 'entry ' .. index)
     if indexOf(result, entry.id) then
       fail('two entries have the id ' .. entry.id)
@@ -229,13 +212,19 @@ function compose.apply(entries: { Entry }, options: Options?): { Entry }
 
   local keyed: { Keyed } = {}
   local named: { [string]: boolean } = {}
-  for index, value in ipairs(checkedList(given.patches or {}, 'the patch list')) do
+  for index, value in ipairs(checkedList(patches or {}, 'the patch list')) do
     local position = 'patch ' .. index
     if type(value) ~= 'table' then
       fail(position .. ' is a table of fields, not a ' .. type(value))
     end
     local raw = value :: Raw
-    rejectUnknown(raw, PATCH_KEYS, position, 'id, disabled, definition, factory, config, insert, before, and after')
+    options.rejectUnknownFields(
+      'compose: ' .. position,
+      raw,
+      PATCH_KEYS,
+      'id, disabled, definition, factory, config, insert, before, and after',
+      0
+    )
     if raw.insert ~= nil then
       for key, _ in raw do
         if key ~= 'insert' and key ~= 'before' and key ~= 'after' then
@@ -299,6 +288,32 @@ function compose.apply(entries: { Entry }, options: Options?): { Entry }
     end
   end
   return table.freeze(result)
+end
+
+-- Makes a runtime, enables every entry in order, and drains it. A failure closes the runtime and is raised;
+-- an entry's configuration error is that instance's load failure.
+function compose.start(entries: { Entry }): Running
+  local checked = compose.apply(entries)
+  local runtime = adapter.runtime()
+  local instances: { [string]: adapter.Instance<any> } = {}
+  local ok, failure = pcall(function(): ()
+    for _, entry in ipairs(checked) do
+      local factory = entry.factory
+      local definition = entry.definition or (factory and factory())
+      if type(definition) ~= 'table' then
+        error('compose: the factory of ' .. entry.id .. ' answered a ' .. type(definition) .. ', not a definition', 0)
+      end
+      local instance = runtime:use(definition, entry.config or {})
+      instances[entry.id] = instance
+      instance:enable()
+    end
+    runtime:drain()
+  end)
+  if not ok then
+    runtime:close()
+    error(failure, 0)
+  end
+  return table.freeze { runtime = runtime, instances = table.freeze(instances) }
 end
 
 return compose

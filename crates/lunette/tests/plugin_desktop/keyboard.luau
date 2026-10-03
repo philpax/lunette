@@ -86,7 +86,7 @@ for _, case in ipairs {
   { config = { colour = 1 }, message = 'plugin desktop/keyboard: unknown option colour' },
 } do
   local diagnostic
-  local running = require('@lunette-desktop').start(require('@lunette-desktop').compose {
+  local running = require('@lunette-plugin').start(require('@lunette-desktop').compose {
     entries = {
       { id = 'frame', definition = require('@lunette-plugins/frame').definition },
       { id = 'surfaces', definition = require('@lunette-plugins/surfaces').definition },

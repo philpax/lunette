@@ -270,7 +270,7 @@ local rejections = {
   { id = 'desktop/scale', config = { bogus = 1 }, message = 'plugin desktop/scale: unknown option bogus' },
 }
 for _, case in ipairs(rejections) do
-  local running = desktop.start(desktop.compose { patches = { { id = case.id, config = case.config } } })
+  local running = plugin.start(desktop.compose { patches = { { id = case.id, config = case.config } } })
   local instance = running.instances[case.id]
   assert(instance:state() == 'failed', case.id .. ' is ' .. instance:state())
   local diagnostic = tostring(instance:diagnostic())
@@ -318,7 +318,7 @@ local probe = plugin.define {
 -- LÖVR's callbacks reach the frame provider of the desktop started next, so
 -- the error panel draws.
 require('@lunette-plugins/frame').install { start = function() end, stop = function() end }
-local running = desktop.start(desktop.compose {
+local running = plugin.start(desktop.compose {
   patches = {
     { id = 'panels', config = { height = 1.2, style = { borderThickness = 0.02 } } },
     { id = 'interaction', config = { tuning = { reach = 0.5 } } },
@@ -429,7 +429,7 @@ running.runtime:close()
 -- configuration still merges over them.
 local long = laserModule.define { name = 'long-laser', style = { length = 3 } }
 assert(long.name == 'long-laser' and laserModule.definition.name == 'laser')
-local defined = desktop.start(desktop.compose {
+local defined = plugin.start(desktop.compose {
   patches = {
     { id = 'laser', definition = long, config = { style = { color = { 1, 0, 0, 1 } } } },
     { insert = { id = 'probe', definition = probe } },
@@ -450,7 +450,7 @@ local builder = plugin.define {
     built.service = laserModule.build(context)
   end,
 }
-local building = desktop.start(desktop.compose { patches = { { insert = { id = 'builder', definition = builder } } } })
+local building = plugin.start(desktop.compose { patches = { { insert = { id = 'builder', definition = builder } } } })
 assert(building.instances.builder:state() == 'active', tostring(building.instances.builder:diagnostic()))
 assert(not built.ok and tostring(built.message):find('plugin laser: unknown option style.colour', 1, true))
 assert(built.service.STYLE.length == 1.5, 'build without a configuration takes the defaults')
