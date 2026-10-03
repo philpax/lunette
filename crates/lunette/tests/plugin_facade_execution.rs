@@ -81,7 +81,6 @@ fn run_fixture_value(lua: &Lua, name: &str) -> mlua::Result<Value> {
         "provision_failures" => include_str!("plugin_facade_execution/provision_failures.luau"),
         "cancellation" => include_str!("plugin_facade_execution/cancellation.luau"),
         "payload_release" => include_str!("plugin_facade_execution/payload_release.luau"),
-        "forged_owner" => include_str!("plugin_facade_execution/forged_owner.luau"),
         "revocation" => include_str!("plugin_facade_execution/revocation.luau"),
         "subscriptions" => include_str!("plugin_facade_execution/subscriptions.luau"),
         "ownership_helpers" => include_str!("plugin_facade_execution/ownership_helpers.luau"),
@@ -205,15 +204,6 @@ fn multiple_provisions_runtime() -> mlua::Result<()> {
             "missing {message}: {errors:?}"
         );
     }
-    Ok(())
-}
-
-#[test]
-fn check_owner_rejects_a_forged_owner() -> mlua::Result<()> {
-    let lua = state()?;
-    run_fixture(&lua, "forged_owner")?;
-    let errors = plugin_support::shutdown(&lua);
-    assert!(errors.is_empty(), "{errors:?}");
     Ok(())
 }
 

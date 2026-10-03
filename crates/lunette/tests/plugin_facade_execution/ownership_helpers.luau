@@ -1,5 +1,7 @@
 -- Context:owns answers what checkOwner would decide without raising, and
 -- Context:acquire checks an owner and registers the resource on its lifetime.
+-- An owner is checked by the identity of the context the adapter wrapped, not
+-- by any field a caller can copy into a table of its own.
 return function(plugin)
   local function rejects(callback, expected)
     local ok, message = pcall(callback)
@@ -15,6 +17,10 @@ return function(plugin)
       publish:provide(resource, {
         owns = function(_self, owner)
           return context:owns(owner)
+        end,
+        check = function(_self, owner)
+          context:checkOwner(owner)
+          return true
         end,
         open = function(_self, owner, name)
           return context:acquire(owner, function()
@@ -45,6 +51,10 @@ return function(plugin)
       assert(service:owns(context), 'a dependent is owned')
       assert(not service:owns(stranger), 'a context that does not depend on the provider is not owned')
       assert(not service:owns(setmetatable({}, { __index = context })), 'a copied context is not owned')
+      assert(service:check(context), 'a genuine owner was rejected')
+      rejects(function()
+        service:check(setmetatable({}, { __index = context }))
+      end, 'not a plugin context')
       service:open(context, 'kept')
       local explicit = service:open(context, 'explicit')
       explicit:dispose()
