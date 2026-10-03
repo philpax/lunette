@@ -57,7 +57,7 @@ The one order the placement entries rely on is that the rule list and the saved 
 
 `configure` is `plugin.configure`, which [Composition](lua-api.md#composition) states. `configure(laser.definition)(config)`, written `configure(laser.definition) { ... }`, answers `{ id = 'laser', config = config }`, so the patch is the plain patch and composes the same way, and the checker reads the options against the laser's option types. Every shipped entry's id is its definition's name, so a patch made from a shipped module's definition, or from the factory `desktop/persistence` and `desktop/arrange` export, names that entry.
 
-`run` also initialises the global guard `desktop/demo-terminal` reads, so source reload does not spawn another demonstration terminal. Each consumer requires the frame and surfaces contracts it uses, as a plugin in a user's configuration would, and validates its configuration with `plugin.options`, so an option it does not take is rejected by name. `desktop/render`, `desktop/input`, `desktop/pose-memory`, and `desktop/scale` take none.
+`desktop/demo-terminal` sets the global `lunetteDemonstrationSpawned` when it first starts, and source reload keeps globals, so a reload does not spawn another demonstration terminal. Each consumer requires the frame and surfaces contracts it uses, as a plugin in a user's configuration would, and validates its configuration with `plugin.options`, so an option it does not take is rejected by name. `desktop/render`, `desktop/input`, `desktop/pose-memory`, and `desktop/scale` take none.
 
 Placement is seven consumers, each replaceable or configurable by its id:
 

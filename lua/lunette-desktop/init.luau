@@ -113,18 +113,14 @@ function desktop.compose(options: Options?): { Entry }
   if options == nil then
     return DEFAULT
   end
-  plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 'entries and patches', 2)
+  plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 'entries and patches', 0)
   return plugin.compose(options.entries or DEFAULT, options.patches)
 end
 
 -- Composes the desktop and binds LÖVR's callbacks to it. The composition is checked as the configuration
 -- loads, so a malformed patch fails the load rather than the first frame.
 function desktop.run(options: Options?): ()
-  local entries = desktop.compose(options)
-  -- Source reload retains globals, so desktop/demo-terminal does not open
-  -- another terminal after a reload.
-  _G.lunetteDemonstrationSpawned = _G.lunetteDemonstrationSpawned or false
-  frame.run(entries)
+  frame.run(desktop.compose(options))
 end
 
 return desktop
