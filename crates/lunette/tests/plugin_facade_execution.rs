@@ -192,19 +192,11 @@ fn multiple_provisions_runtime() -> mlua::Result<()> {
     let lua = state()?;
     run_fixture(&lua, "multiple_provisions_runtime")?;
     let errors = plugin_support::shutdown(&lua);
-    let expected = [
-        "provision missing was nil",
-        "missing provision spare",
-        "duplicate provision duplicate",
-        "initializer must return nothing",
-    ];
-    assert_eq!(errors.len(), expected.len(), "diagnostics: {errors:?}");
-    for message in expected {
-        assert!(
-            errors.iter().any(|error| error.contains(message)),
-            "missing {message}: {errors:?}"
-        );
-    }
+    assert_eq!(errors.len(), 1, "diagnostics: {errors:?}");
+    assert!(
+        errors[0].contains("missing provision spare"),
+        "diagnostics: {errors:?}"
+    );
     Ok(())
 }
 

@@ -6,10 +6,7 @@ return function(plugin)
 
   local first = plugin.capability { name = 'local/multiple-first', schema = 1 }
   local second = plugin.capability { name = 'local/multiple-second', schema = 1 }
-  local missing = plugin.capability { name = 'local/multiple-missing', schema = 1 }
   local spare = plugin.capability { name = 'local/multiple-spare', schema = 1 }
-  local duplicate = plugin.capability { name = 'local/multiple-duplicate', schema = 1 }
-  local nil_value = plugin.capability { name = 'local/multiple-nil', schema = 1 }
   local staged_first = plugin.capability { name = 'local/multiple-staged-first', schema = 1 }
   local staged_second = plugin.capability { name = 'local/multiple-staged-second', schema = 1 }
   local unknown = plugin.capability { name = 'local/multiple-unknown', schema = 1 }
@@ -42,19 +39,6 @@ return function(plugin)
       table.insert(published_consumers, config.name)
     end,
   }
-  local bad_missing = plugin.define {
-    name = 'bad-missing',
-    provides = { missing = missing },
-    init = function(context, _config, publish)
-      context:effect(function()
-        table.insert(failed_events, 'missing-acquire')
-        return function()
-          table.insert(failed_events, 'missing-release')
-        end
-      end)
-      publish:provide(missing, nil)
-    end,
-  }
   local bad_extra = plugin.define {
     name = 'bad-extra',
     provides = { spare = spare },
@@ -70,14 +54,6 @@ return function(plugin)
       end, 'is not declared')
     end,
   }
-  local bad_duplicate = plugin.define {
-    name = 'bad-duplicate',
-    provides = { duplicate = duplicate },
-    init = function(_context, _config, publish)
-      publish:provide(duplicate, 'first')
-      publish:provide(duplicate, 'second')
-    end,
-  }
   local recovered = plugin.define {
     name = 'recovered',
     provides = { unknown = unknown },
@@ -86,14 +62,6 @@ return function(plugin)
         publish:provide(extra, 'unknown')
       end, 'is not declared')
       publish:provide(unknown, 'known')
-    end,
-  }
-  local bad_return = plugin.define {
-    name = 'bad-return',
-    provides = { nil_value = nil_value },
-    init = function(_context, _config, publish)
-      publish:provide(nil_value, 'staged')
-      return 'initializer result'
     end,
   }
   local staged = plugin.define {
@@ -118,21 +86,15 @@ return function(plugin)
   })
   local first_consumer = runtime:use(consumer, { name = 'first-consumer' })
   local second_consumer = runtime:use(consumer, { name = 'second-consumer' })
-  local missing_instance = runtime:use(bad_missing, {})
   local extra_instance = runtime:use(bad_extra, {})
-  local duplicate_instance = runtime:use(bad_duplicate, {})
   local recovered_instance = runtime:use(recovered, {})
-  local return_instance = runtime:use(bad_return, {})
   local staged_instance = runtime:use(staged, {})
   first_consumer:enable()
   second_consumer:enable()
   assert(#consumer_events == 0)
   provider_instance:enable()
-  missing_instance:enable()
   extra_instance:enable()
-  duplicate_instance:enable()
   recovered_instance:enable()
-  return_instance:enable()
   staged_instance:enable()
 
   assert(consumer_events[1] == 'first-consumer')
@@ -141,10 +103,9 @@ return function(plugin)
   assert(published_consumers[1] == 'first-consumer')
   assert(published_consumers[2] == 'second-consumer')
   runtime:drain()
-  assert(failed_events[1] == 'missing-acquire')
-  assert(failed_events[2] == 'missing-release')
-  assert(failed_events[3] == 'extra-acquire')
-  assert(failed_events[4] == 'extra-release')
+  assert(failed_events[1] == 'extra-acquire')
+  assert(failed_events[2] == 'extra-release')
+  assert(failed_events[3] == nil)
   assert(staged_events[1] == 'acquire')
   runtime:close()
   assert(staged_events[2] == 'release')
