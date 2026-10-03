@@ -7,13 +7,20 @@
 //! installed by `@testing/native`, the fake. `lovr.math` is LÖVR's own, opened
 //! from `liblovr.so`, so a pose is a real `Mat4` and a test asserts real
 //! rotations. `@testing/host` is native too, and carries what only the host can
-//! do: the plugin failures it collected, the plugin shutdown, and the
-//! production reload.
+//! do: the plugin failures it collected, the plugin shutdown, the production
+//! reload, and the native error boundary with the log it writes.
 
-use std::{ffi::c_int, fs, mem, path::PathBuf, rc::Rc};
+use std::{
+    ffi::c_int,
+    fs, io, mem,
+    path::PathBuf,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use lunette::{
     aliases::{DEVELOPMENT_ALIASES, Resolution},
+    callback_error::{TracedError, report_traced},
     lua::keys::{KeyCodes, locking_modifier_names, modifier_names},
     plugin::{
         attachment::{self, PluginFailure},
@@ -23,6 +30,7 @@ use lunette::{
     scale::{STEPS, ScaleStep},
 };
 use mlua::{Function, Lua, Table, Value, ffi::lua_State};
+use tracing_subscriber::fmt::MakeWriter;
 
 unsafe extern "C-unwind" {
     /// LÖVR's opener for `lovr.math`, exported by `liblovr.so`. It registers
@@ -175,6 +183,14 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
             }
         })?,
     )?;
+    host.set(
+        "reportTraced",
+        lua.create_function(
+            |lua, (listeners, message, traceback): (Vec<Function>, String, String)| {
+                report_through_boundary(lua, &listeners, TracedError { message, traceback })
+            },
+        )?,
+    )?;
     host.set("collect", lua.create_function(|lua, ()| lua.gc_collect())?)?;
     host.set(
         "setReadonly",
@@ -200,6 +216,53 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     Ok(host)
+}
+
+/// Reports `traced` through the session's error boundary, `report_traced`, to
+/// `listeners`, and answers what the boundary logged.
+fn report_through_boundary(
+    lua: &Lua,
+    listeners: &[Function],
+    traced: TracedError,
+) -> mlua::Result<String> {
+    let captured = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(captured.clone())
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, || report_traced(lua, listeners, &traced));
+    let logged = captured
+        .0
+        .lock()
+        .map_err(|_| mlua::Error::runtime("host: reportTraced: the captured log is poisoned"))?
+        .clone();
+    Ok(String::from_utf8_lossy(&logged).into_owned())
+}
+
+/// A log sink the boundary's `tracing` output is captured into.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for Captured {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("the captured log is poisoned"))?
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'writer> MakeWriter<'writer> for Captured {
+    type Writer = Captured;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        self.clone()
+    }
 }
 
 /// The state's `require`: `package.loaded`, then `package.preload`, then a

@@ -102,6 +102,21 @@ function native.new()
     end
   end
 
+  -- Reports an error as a raising native callback is reported, through the host's own error boundary: it is
+  -- logged and offered to every live onError listener. Each report is recorded with what the boundary logged,
+  -- and the log is answered. `lunette.reportError` reports through this.
+  function fake.raise(message, traceback)
+    local listeners = {}
+    for _, record in ipairs(events.subscriptions.onError or {}) do
+      if record.active then
+        listeners[#listeners + 1] = record.callback
+      end
+    end
+    local logged = host.reportTraced(listeners, message, traceback)
+    events.reported[#events.reported + 1] = { message = message, traceback = traceback, logged = logged }
+    return logged
+  end
+
   -- Forgets the subscriptions that have ended. The fake keeps every callback it was given, so a test can call
   -- a stale copy of one; a test asserting what a weak table no longer holds drops them first.
   function fake.dropEndedSubscriptions()
@@ -238,12 +253,8 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
       return subscribe(name, callback)
     end
   end
-  -- The native boundary logs a reported error and notifies every onError listener; the fake records the
-  -- report and notifies the same way.
   lunette.reportError = function(fields)
-    local report = { message = fields.context .. ': ' .. fields.message, traceback = fields.traceback or '' }
-    events.reported[#events.reported + 1] = report
-    fake.emit('onError', report)
+    fake.raise(fields.context .. ': ' .. fields.message, fields.traceback or '')
   end
   lunette.windows = function()
     events.enumerations += 1

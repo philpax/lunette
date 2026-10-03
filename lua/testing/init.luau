@@ -36,6 +36,6 @@ return {
   takeReports = host.takeReports,
   -- A full garbage collection, for a case asserting what a weak table no longer holds.
   collect = host.collect,
-  -- The host's other powers: `shutdown`, `reload`, `setReadonly`, and `useConfiguration`.
+  -- The host's other powers: `shutdown`, `reload`, `reportTraced`, `setReadonly`, and `useConfiguration`.
   host = host,
 }
