@@ -605,8 +605,8 @@ fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
 /// # Read-only
 ///
 /// A physfs mount is read-only, so `lovr.filesystem.write` cannot modify a
-/// file in a module root. Writes go to the save directory, whose precedence
-/// `docs/dev/stdlib.md` records.
+/// file in a module root. Writes go to LÖVR's save directory, which
+/// `docs/dev/build-and-development.md#where-things-live-at-runtime` records.
 ///
 /// Optional roots are omitted when absent. A missing required root is still
 /// passed to LÖVR and its failed mount logged, so a configuration that does
