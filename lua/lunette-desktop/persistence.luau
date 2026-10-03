@@ -47,14 +47,6 @@ local required: plugin.Declaration = {
 
 local SAVE_KEYS: { [string]: boolean } = { force = true }
 
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/persistence', defaults = DEFAULTS, config = config }
-  if settings.file == '' then
-    error('plugin desktop/persistence: option file is a non-empty file name', 0)
-  end
-  return settings
-end
-
 local function define(): plugin.Definition<Config>
   local state: persist.State? = nil
   local madeWith: Settings? = nil
@@ -82,7 +74,7 @@ local function define(): plugin.Definition<Config>
     requires = required,
     provides = { arrangement = arrangementContract.capability },
     init = function(context: plugin.Context, config: Config, publish: plugin.Publisher): ()
-      local settings = resolve(config)
+      local settings: Settings = plugin.options { name = 'desktop/persistence', defaults = DEFAULTS, config = config }
       local frameService: frame.Service = context:require(frame.capability)
       local binding = stateFor(settings):bind(
         context,

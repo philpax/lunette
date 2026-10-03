@@ -89,7 +89,7 @@ local function withServices(entries, run)
       )
       :enable()
     expect.truthy(context and context:active(), 'the initialized consumer')
-    run(state, context, panels, tags, rules, reports, placement)
+    run(state, context, panels, tags, rules, reports, placement, runtime)
   end)
   local closeOk, closeFailure = true, nil
   if runtime then
@@ -335,8 +335,8 @@ spec('refused state binds an empty restore without placing panels', function()
   expect.equal(#reports, 1, 'the refusal report')
 end)
 
-spec('failed registration rolls back the source when a foreign panels service rejects the owner', function()
-  withServices(nil, function(state, context, _panels, tags, rules)
+spec('a bind that fails in its initializer leaves no source behind', function()
+  withServices(nil, function(state, _context, _panels, _tags, rules, _reports, _placement, runtime)
     local foreign = plugin.runtime()
     foreign:use(require('@lunette-plugins/panels').definition, {}):enable()
     local foreignPanels
@@ -354,9 +354,20 @@ spec('failed registration rolls back the source when a foreign panels service re
       :enable()
     local ok, failure = pcall(function()
       expect.truthy(foreignPanels, 'the foreign service')
-      expect.raises(function()
-        state:bind(context, foreignPanels, tags, rules)
-      end, 'another runtime', 'the rejected owner')
+      local consumer = runtime:use(
+        plugin.define {
+          name = 'arrangement-spec-3',
+          requires = { tags = tagsContract.capability, rules = rulesContract.capability },
+          init = function(current)
+            local currentTags = current:require(tagsContract.capability)
+            state:bind(current, foreignPanels, currentTags, current:require(rulesContract.capability))
+          end,
+        },
+        {}
+      )
+      consumer:enable()
+      expect.equal(consumer:state(), 'failed', 'the consumer')
+      expect.truthy(tostring(consumer:diagnostic()):find('another runtime', 1, true), 'the rejected owner')
       expect.equal(#rules:sources(), 0, 'the rolled-back source')
     end)
     foreign:close()

@@ -1,5 +1,5 @@
--- Persistent arrangement state that outlives provider activations; each binding owns only its activation's
--- source and listeners. A binding saves when asked, the desktop asking on a drop and at quit. A window holds
+-- Persistent arrangement state that outlives provider activations; each binding belongs to one activation,
+-- and its source and listener are effects of that activation's context. A binding saves when asked, the desktop asking on a drop and at quit. A window holds
 -- its saved slot from its panel's creation until it dies.
 
 local lunette = require '@lunette'
@@ -47,7 +47,6 @@ export type Binding = {
   -- Places the live panels where the arrangement last loaded or saved has
   -- them, and answers how many it placed.
   read restore: (Binding) -> number,
-  read dispose: (Binding) -> (),
 }
 export type State = {
   read loaded: (State) -> format.Loaded,
@@ -63,14 +62,11 @@ export type State = {
   ) -> Binding,
 }
 
-type BindingState = {
-  active: boolean,
-  context: plugin.Context?,
-  panels: panelsContract.Service?,
-  tags: tagsContract.Service?,
-  sourceEffect: plugin.Effect?,
-  addedEffect: plugin.Effect?,
-  ownerEffect: plugin.Effect?,
+-- What a binding reaches while its activation lasts.
+type Scope = {
+  context: plugin.Context,
+  panels: panelsContract.Service,
+  tags: tagsContract.Service,
 }
 
 local SOURCE = 'desktop.persist'
@@ -133,45 +129,6 @@ function persist.source(file: format.File, held: slots.Slots?): (lunette.Window)
 end
 
 persist.slots = slots.new
-
-local function bindingLive(binding: BindingState): boolean
-  local context = binding.context
-  return binding.active and context ~= nil and context:active()
-end
-
-local function disposeEffect(effect: plugin.Effect?): string?
-  if not effect then
-    return nil
-  end
-  local ok, failure = pcall(function()
-    effect:dispose()
-  end)
-  if not ok then
-    return tostring(failure)
-  end
-  return nil
-end
-
-local function deactivate(binding: BindingState): ()
-  if not binding.active then
-    return
-  end
-  binding.active = false
-  local addedFailure = disposeEffect(binding.addedEffect)
-  binding.addedEffect = nil
-  local sourceFailure = disposeEffect(binding.sourceEffect)
-  binding.sourceEffect = nil
-  binding.context = nil
-  binding.panels = nil
-  binding.tags = nil
-  binding.ownerEffect = nil
-  if addedFailure then
-    error(addedFailure)
-  end
-  if sourceFailure then
-    error(sourceFailure)
-  end
-end
 
 -- Reads the file through the format. A reader that raises or answers a non-load makes a broken load, so the
 -- file is left alone.
@@ -270,15 +227,20 @@ function persist.new(dependencies: Dependencies?): State
         error 'desktop.persist: the provider scope is no longer active'
       end
 
-      local binding: BindingState = {
-        active = true,
-        context = context,
-        panels = panels,
-        tags = tags,
-        sourceEffect = nil,
-        addedEffect = nil,
-        ownerEffect = nil,
-      }
+      -- Dropped when the activation ends, so a binding kept past it retains no retired service.
+      local scope: Scope? = { context = context, panels = panels, tags = tags }
+      context:effect(function(): () -> ()
+        return function(): ()
+          scope = nil
+        end
+      end)
+      local function live(): Scope?
+        local current = scope
+        if current and current.context:active() then
+          return current
+        end
+        return nil
+      end
       -- Read when they run, so a save through this binding reaches windows that appear after it.
       local cachedFile: format.File? = nil
       local cachedSlots: { [string]: Entry } = {}
@@ -290,19 +252,16 @@ function persist.new(dependencies: Dependencies?): State
         return cachedSlots
       end
       local function save(options: SaveOptions?): (boolean, string?)
-        if not bindingLive(binding) then
+        local current = live()
+        if not current then
           return false, 'desktop.persist: the provider binding is no longer active'
         end
         if declined and not (options and options.force) then
           return false, declined
         end
-        local currentPanels = binding.panels
-        local currentTags = binding.tags
-        if not currentPanels or not currentTags then
-          return false, 'desktop.persist: the provider binding is no longer active'
-        end
-        local captured = arrangements.capture(report, held, currentPanels, currentTags)
-        if not bindingLive(binding) then
+        local captured = arrangements.capture(report, held, current.panels, current.tags)
+        -- Capture reports, and a report can end the activation.
+        if not live() then
           return false, 'desktop.persist: the provider binding is no longer active'
         end
         local rendered = chosen.render(captured)
@@ -318,54 +277,36 @@ function persist.new(dependencies: Dependencies?): State
       end
       local public: Binding = {
         active = function(_binding: Binding): boolean
-          return bindingLive(binding)
+          return live() ~= nil
         end,
         save = function(_binding: Binding, options: SaveOptions?): (boolean, string?)
           return save(options)
         end,
         restore = function(_binding: Binding): number
-          local currentContext, currentPanels, currentTags = binding.context, binding.panels, binding.tags
-          if not bindingLive(binding) or not currentContext or not currentPanels or not currentTags then
+          local current = live()
+          if not current then
             return 0
           end
-          return restore(currentContext, currentPanels, currentTags)
-        end,
-        dispose = function(_binding: Binding): ()
-          local effect = binding.ownerEffect
-          if effect then
-            effect:dispose()
-          end
+          return restore(current.context, current.panels, current.tags)
         end,
       }
-      local ok, failure = pcall(function(): ()
-        local source = function(window: lunette.Window): rulesContract.Properties?
-          if not bindingLive(binding) then
+      rules:addSource(context, {
+        name = SOURCE,
+        precedence = PRECEDENCE,
+        resolve = function(window: lunette.Window): rulesContract.Properties?
+          if not live() then
             return nil
           end
           return arrangements.answer(available(), held, window)
+        end,
+      })
+      restore(context, panels, tags)
+      panels:onAdded(context, function(target: panelsContract.Panel)
+        local current = live()
+        if current then
+          arrangements.arrived(report, held, current.context, current.panels, current.tags, arrangement, target)
         end
-        binding.sourceEffect = rules:addSource(context, { name = SOURCE, precedence = PRECEDENCE, resolve = source })
-        restore(context, panels, tags)
-        binding.addedEffect = panels:onAdded(context, function(target: panelsContract.Panel)
-          if bindingLive(binding) then
-            arrangements.arrived(report, held, context, panels, tags, arrangement, target)
-          end
-        end)
-        binding.ownerEffect = context:effect(function(): () -> ()
-          return function(): ()
-            deactivate(binding)
-          end
-        end)
       end)
-      if not ok then
-        binding.active = false
-        disposeEffect(binding.addedEffect)
-        disposeEffect(binding.sourceEffect)
-        binding.context = nil
-        binding.panels = nil
-        binding.tags = nil
-        error(failure)
-      end
       return public
     end,
   }

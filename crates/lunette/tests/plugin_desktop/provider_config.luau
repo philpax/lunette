@@ -189,7 +189,7 @@ local rejections = {
   {
     id = 'desktop/persistence',
     config = { file = '' },
-    message = 'plugin desktop/persistence: option file is a non-empty file name',
+    message = 'desktop.persist: file is a non-empty file name',
   },
   {
     id = 'desktop/persistence',

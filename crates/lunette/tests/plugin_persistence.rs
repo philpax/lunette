@@ -28,8 +28,13 @@ fn mounted_persistence_specs_run_every_case() -> mlua::Result<()> {
     lua.load(include_str!("plugin_persistence/specs.luau"))
         .set_name("persistence specs")
         .exec()?;
-    assert_eq!(lua.globals().get::<u32>("persistenceSpecCases")?, 54);
-    assert!(plugin_support::shutdown(&lua).is_empty());
+    assert_eq!(lua.globals().get::<u32>("persistenceSpecCases")?, 53);
+    // The failed bind's load is the one report.
+    let errors = plugin_support::shutdown(&lua);
+    assert!(
+        errors.len() == 1 && errors[0].contains("another runtime"),
+        "{errors:?}"
+    );
     Ok(())
 }
 

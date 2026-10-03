@@ -1,6 +1,6 @@
 local suite = require '@spec/suite'
 local mounted = {
-  { name = '@spec/lunette-desktop/persist/file_spec', cases = 21 },
+  { name = '@spec/lunette-desktop/persist/file_spec', cases = 20 },
   { name = '@spec/lunette-desktop/persist/arrangement_spec', cases = 18 },
   { name = '@spec/lunette-desktop/persist/format_spec', cases = 15 },
 }

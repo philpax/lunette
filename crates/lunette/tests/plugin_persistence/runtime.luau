@@ -182,11 +182,6 @@ owner:enable()
 assert(state:arrangement() == captured and filesystem.reads == 1)
 target.source.dead = true
 assert(rules:resolve(window(20)).width == 1.5, 'successful save becomes the next activation arrangement')
-local liveBinding = binding
-binding:dispose()
-binding:dispose()
-assert(not liveBinding:active() and not liveBinding:save { force = true })
-assert(#rules:sources() == 1, 'dispose removes only persistence source')
 owner:disable()
 
 for _, text in ipairs { 'return { version = 99, entries = {}, future = true }', 'return {' } do
