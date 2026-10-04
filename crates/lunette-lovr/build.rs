@@ -231,23 +231,17 @@ fn build_analyze_shim(lovr_dir: &Path) {
     let shim = Path::new("src").join("analyze.cpp");
 
     println!("cargo::rerun-if-changed={}", shim.display());
+    println!("cargo::rerun-if-changed=src/analyze_navigation.h");
 
     cc::Build::new()
         .cpp(true)
         .std("c++17")
         .file(&shim)
-        // The three files implement Luau's own require navigation. They carry
-        // no FFlag statics, so compiling them here does not reintroduce the
-        // duplicate-Luau problem the archives cause.
-        .file(luau.join("CLI/src/AnalyzeRequirer.cpp"))
-        .file(luau.join("CLI/src/VfsNavigator.cpp"))
-        .file(luau.join("CLI/src/FileUtils.cpp"))
         .include(luau.join("Analysis/include"))
         .include(luau.join("Ast/include"))
         .include(luau.join("Config/include"))
         .include(luau.join("Common/include"))
         .include(luau.join("Require/include"))
-        .include(luau.join("CLI/include"))
         .compile("lunette_analyze");
 }
 

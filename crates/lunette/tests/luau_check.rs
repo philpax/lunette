@@ -63,6 +63,67 @@ fn clean_fixtures_check_without_diagnostics() {
 }
 
 #[test]
+fn linked_modules_keep_relative_paths_and_use_the_targets_alias_directory() {
+    let report = check(vec![fixture("luau_check/navigation/main.luau")]);
+    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+}
+
+#[test]
+fn ambiguous_missing_and_nonmodule_paths_are_rejected() {
+    let report = check(vec![fixture("luau_check/navigation/ambiguous.luau")]);
+    assert_eq!(report.diagnostics.len(), 5, "{:#?}", report.diagnostics);
+    for (line, diagnostic) in (1..=5).zip(&report.diagnostics) {
+        assert_eq!(diagnostic.kind, Kind::TypeError);
+        assert_eq!(diagnostic.line, line);
+        assert_eq!(diagnostic.message, "Unknown require: unsupported path");
+    }
+}
+
+#[test]
+fn linked_aliases_preserve_component_and_prefix_rejections() {
+    for path in [
+        "luau_check/navigation/target/invalid.luau",
+        "luau_check/navigation/nested/linked/invalid.luau",
+    ] {
+        let report = check(vec![fixture(path)]);
+        assert_eq!(
+            report.diagnostics.len(),
+            4,
+            "{path}: {:#?}",
+            report.diagnostics
+        );
+        for (line, diagnostic) in (1..=4).zip(&report.diagnostics) {
+            assert_eq!(diagnostic.kind, Kind::TypeError);
+            assert_eq!(diagnostic.line, line);
+            assert_eq!(diagnostic.message, "Unknown require: unsupported path");
+        }
+    }
+}
+
+#[test]
+fn linked_configurations_preserve_quoted_directory_names() {
+    let report = check(vec![fixture(
+        "luau_check/navigation/nested/quoted/main.luau",
+    )]);
+    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+}
+
+#[test]
+fn linked_directory_alias_endpoints_keep_the_selected_init_module() {
+    for path in [
+        "luau_check/navigation/target/endpoint.luau",
+        "luau_check/navigation/nested/linked/endpoint.luau",
+    ] {
+        let report = check(vec![fixture(path)]);
+        assert!(
+            report.diagnostics.is_empty(),
+            "{path}: {:#?}",
+            report.diagnostics
+        );
+    }
+}
+
+#[test]
 fn invalid_configuration_fields_types_and_enums_are_rejected() {
     let report = check(vec![fixture("luau_check/conf/invalid.luau")]);
     let source = include_str!("luau_check/conf/invalid.luau");

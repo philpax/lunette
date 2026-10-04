@@ -3,7 +3,7 @@
 // The frontend setup mirrors `CLI/src/Analyze.cpp`. The standing check and
 // the user-facing command both use this checker, so the two cannot differ.
 
-#include "Luau/AnalyzeRequirer.h"
+#include "analyze_navigation.h"
 #include "Luau/BuiltinDefinitions.h"
 #include "Luau/Config.h"
 #include "Luau/ExperimentalFlags.h"
@@ -89,8 +89,7 @@ struct DirectoryConfigResolver : Luau::ConfigResolver
     }
 };
 
-// Resolves a module by path. A require goes through Luau's own navigator, so
-// a require means here what it means in an editor.
+// Resolves a module with Luau's require traversal and a filesystem context that follows symlinks.
 struct PathResolver : Luau::FileResolver
 {
     std::optional<Luau::SourceCode> readSource(const Luau::ModuleName& name) override
@@ -107,10 +106,8 @@ struct PathResolver : Luau::FileResolver
         if (literal == nullptr || context == nullptr)
             return std::nullopt;
 
-        // A `.luau` configuration is not executed. Executing one needs a
-        // `lua_State` and a time limit passed through the navigator. Lunette
-        // writes and documents `.luaurc`.
-        FileNavigationContext navigation{context->name};
+        // Lunette writes and documents `.luaurc`; Luau's navigator interprets the aliases.
+        CheckerNavigationContext navigation{context->name};
         Luau::Require::ErrorHandler silent;
         Luau::Require::Navigator navigator(navigation, silent);
 
