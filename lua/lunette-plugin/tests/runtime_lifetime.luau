@@ -69,6 +69,103 @@ test('close releases every effect, ahead of the request queue and its action lim
   end, nil, 'using the closed runtime')
 end)
 
+for _, command in { 'disable', 'dispose', 'close' } do
+  for _, count in { 0, 1, 100, 300 } do
+    test(command .. ' releases all ' .. count .. ' children before their parent', function()
+      local runtime = plugin.runtime()
+      local released = {}
+      local parentReleased = 0
+      local child = plugin.define({}, {}, function(context, config)
+        context:effect(function()
+          return function()
+            expect.equal(parentReleased, 0, 'the parent remains live during child cleanup')
+            released[config.index] = (released[config.index] or 0) + 1
+          end
+        end)
+        return {}
+      end)
+      local parent = runtime:use(
+        plugin.define({}, {}, function(context)
+          context:effect(function()
+            return function()
+              parentReleased += 1
+              for index = 1, count do
+                expect.equal(released[index], 1, 'each child releases before its parent')
+              end
+            end
+          end)
+          for index = 1, count do
+            context:child(child, { index = index }):enable()
+          end
+          return {}
+        end),
+        {}
+      )
+      parent:enable()
+      if command == 'close' then
+        runtime:close()
+      elseif command == 'dispose' then
+        parent:dispose()
+      else
+        parent:disable()
+      end
+      expect.equal(parentReleased, 1, 'the parent inverse')
+      for index = 1, count do
+        expect.equal(released[index], 1, 'the child inverse')
+      end
+      runtime:drain()
+      runtime:close()
+      expect.equal(parentReleased, 1, 'the parent inverse is not repeated')
+      for index = 1, count do
+        expect.equal(released[index], 1, 'the child inverse is not repeated')
+      end
+    end)
+  end
+end
+
+test('an interrupted close retains pending inverses for the next drain', function()
+  local runtime = plugin.runtime()
+  local released = 0
+  local keeper = plugin.define({}, {}, function(context)
+    context:effect(function()
+      return function()
+        released += 1
+      end
+    end)
+    return {}
+  end)
+  runtime:use(keeper, {}):enable()
+  runtime:use(keeper, {}):enable()
+  local attempts = 0
+  local cycling
+  cycling = runtime:use(
+    plugin.define({}, {}, function(context)
+      attempts += 1
+      context:effect(function()
+        return function() end
+      end)
+      -- Three instances give the drain 88 actions; close starts at its final action.
+      if attempts == 88 then
+        runtime:close()
+      else
+        cycling:reload {}
+      end
+      return {}
+    end),
+    {}
+  )
+  expect.raises(function()
+    cycling:enable()
+  end, 'plugin drain: stopped after', 'the bounded drain')
+  expect.raises(function()
+    runtime:use(keeper, {})
+  end, 'the runtime is closed', 'a closing runtime accepts no instances')
+  runtime:drain()
+  expect.equal(released, 2, 'the resumed close releases both keepers')
+  runtime:close()
+  expect.equal(released, 2, 'close repeats no inverse')
+end)
+
 test('the plugin shutdown releases a leaked effect payload', function()
   local definition = plugin.define({}, {}, function(context, config)
     context:effect(function()

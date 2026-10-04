@@ -150,7 +150,7 @@ pub(super) fn drain_runtime(
     };
     let finished_closing = {
         let mut state = runtime.borrow_mut();
-        let finished = state.closing && !state.closed;
+        let finished = state.closing && !state.closed && state.graph.is_empty();
         if finished {
             state.closed = true;
         }
@@ -166,8 +166,10 @@ pub(super) fn drain_runtime(
 
 fn drain_actions(lua: &Lua, runtime: &Rc<RefCell<RuntimeState>>) -> Result<(), AttachmentError> {
     let mut performed = 0usize;
+    let mut budget = drain_budget(&runtime.borrow());
     loop {
-        let budget = drain_budget(&runtime.borrow());
+        // Removing retired children must not reduce the allowance for their remaining siblings.
+        budget = budget.max(drain_budget(&runtime.borrow()));
         if performed >= budget {
             return Err(AttachmentError::DrainBudget { budget });
         }
