@@ -1,6 +1,4 @@
--- The output scale provider: choosers built from `@lunette-plugins/scale/chooser`. The `tuning` and `ideal`
--- options are in docs/dev/lua-api.md#frame-pacing-and-output-scale. The ladder is `lunette.scaleSteps()`
--- and not an option, because a second ladder would ask the layer pool for rungs its free list lacks.
+-- Choosers use the compositor's scale ladder. See docs/dev/lua-api.md#frame-pacing-and-output-scale for options.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -11,17 +9,14 @@ export type Service = contract.Service
 export type Chooser = contract.Chooser
 export type Tuning = chooser.Tuning
 
--- The default ideal an `ideal` hook receives as `base`.
 export type IdealBase = (number) -> number
 export type Ideal = (number, IdealBase) -> number
 
--- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read tuning: Tuning,
   read ideal: Ideal,
 }
 
--- What a configuration gives: every option optional, and a tuning field merges over the rest.
 export type Config = {
   read tuning: {
     read reference: number?,
@@ -74,11 +69,9 @@ return plugin.provider<<Config, Settings, Service>> {
   capability = contract.capability,
   defaults = {
     tuning = {
-      -- Closer than a metre, the ideal scale rises in proportion; further
-      -- away, it falls.
+      -- Scale varies inversely with distance from this reference.
       reference = 1.0,
-      -- Raising needs less margin than lowering: a blurrier panel is what a user notices, and keeping
-      -- sharpness only costs memory.
+      -- The wider lower margin reduces scale oscillation near a rung.
       raise = 0.06,
       lower = 0.12,
       nearest = 0.05,

@@ -1,5 +1,3 @@
--- Covers examples/layout: its configuration starts, draws, and quits, and the grid it inserts arranges
--- adopted windows in rows and columns on the wall.
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
@@ -19,7 +17,6 @@ test('the layout example runs, and its grid arranges five windows in rows of thr
   expect.equal(lovr.draw(events.pass), false, 'draw does not veto')
   expect.equal(lovr.quit(), false, 'quit does not veto')
 
-  -- The grid as the example configures it, in a desktop whose panels the case observes.
   events.saved = nil
   local session = testing.boot(
     desktop.compose {

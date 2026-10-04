@@ -9,8 +9,7 @@ use pretty_assertions::assert_eq;
 use super::*;
 use crate::plugin::graph::lifecycle::{Allocation, Phase};
 
-/// The stage and allocation of `instance`'s live allocation, whatever its
-/// activation, which [`Graph::live`] requires a caller to name.
+/// Returns the stage and allocation for an instance's live phase.
 pub(super) fn live_allocation(graph: &Graph, instance: InstanceId) -> Option<(Stage, &Allocation)> {
     match &graph.node(instance).ok()?.phase {
         Phase::Live { stage, allocation } => Some((*stage, allocation)),
@@ -203,7 +202,6 @@ fn duplicate_contract_keys_in_one_descriptor_are_rejected() {
     );
 }
 
-// A reload requested while loading must not strand the instance.
 #[test]
 fn reload_while_loading_restarts_the_load() {
     let mut graph = Graph::new();
@@ -218,7 +216,6 @@ fn reload_while_loading_restarts_the_load() {
     assert_eq!(graph.state(instance).unwrap(), LifecycleState::Active);
 }
 
-// Retirement is monotone, and a retired parent accepts no children.
 #[test]
 fn retirement_is_permanent() {
     let mut graph = Graph::new();
@@ -256,7 +253,6 @@ fn a_child_needs_a_live_parent_activation() {
     );
 }
 
-// There is no queue to exhaust; many intents never block an unload.
 #[test]
 fn many_intents_never_block_unloads() {
     let mut graph = Graph::new();
@@ -322,7 +318,6 @@ fn quarantine_after_a_replacement_enabled_blocks_the_replacement() {
     );
 }
 
-// A cycle through a disabled member is still a cycle.
 #[test]
 fn cycles_are_found_from_declarations() {
     let mut graph = Graph::new();
@@ -390,7 +385,6 @@ fn self_requirement_is_a_cycle() {
     );
 }
 
-// Blocked reasons are distinguished, and waiting is not an error.
 #[test]
 fn blocked_reasons_are_distinguished() {
     let mut graph = Graph::new();
@@ -434,7 +428,6 @@ fn blocked_reasons_are_distinguished() {
     load(&mut graph, consumer);
 }
 
-// Disabling an instance that never loaded releases its reservation.
 #[test]
 fn disabling_a_failed_instance_releases_its_reservation() {
     let mut graph = Graph::new();
@@ -450,7 +443,6 @@ fn disabling_a_failed_instance_releases_its_reservation() {
     load(&mut graph, replacement);
 }
 
-// A cleanup failure reported during an unload still completes it.
 #[test]
 fn a_cleanup_failure_during_unload_quarantines_on_completion() {
     let mut graph = Graph::new();
@@ -466,7 +458,6 @@ fn a_cleanup_failure_during_unload_quarantines_on_completion() {
     assert_eq!(graph.state(instance).unwrap(), LifecycleState::Quarantined);
 }
 
-// A failed load retries only when its target view changes.
 #[test]
 fn a_failed_load_retries_only_against_a_changed_environment() {
     let mut graph = Graph::new();

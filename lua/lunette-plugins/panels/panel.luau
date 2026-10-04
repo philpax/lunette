@@ -1,5 +1,4 @@
--- One panel over a window or a monitor: its geometry, visibility, layer claim, and drawing. A panel reaches
--- its activation through its host rather than a module-global registry.
+-- A panel reaches its activation through its host, which keeps provider state activation-scoped.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -15,7 +14,7 @@ export type Owner = contracts.Owner
 export type Panel = contracts.Panel
 export type Options = contracts.Options
 
--- The shape hooks, as around hooks over the flat quad or the arc of a positive curve.
+-- Shape hooks wrap the flat quad or positive-curvature arc behavior.
 export type RaycastBase = (Panel, vector, vector, boolean?) -> (number?, number?, number?)
 export type Raycast = (Panel, vector, vector, boolean?, RaycastBase) -> (number?, number?, number?)
 export type DrawBase = (Panel, Pass) -> ()
@@ -28,7 +27,6 @@ export type Shape = {
   read applyLayer: ApplyLayer,
 }
 
--- The resolved options of the activation that made a panel.
 export type Settings = {
   read style: contracts.Style,
   read priority: number,
@@ -38,7 +36,6 @@ export type Settings = {
   read shape: Shape,
 }
 
--- What a panel needs from the activation that made it.
 export type Host = {
   read active: () -> boolean,
   -- Raises unless the owner is still a live owner of this activation.
@@ -80,7 +77,6 @@ type MutablePanel = {
   overrides: { Override },
   mesh: Mesh?,
   meshKey: string?,
-  -- The owner's effect that holds this panel, once the acquisition returns.
   effect: plugin.Effect?,
   read setPose: (surface.Surface, Mat4) -> (),
   read setSize: (surface.Surface, number?, number?) -> (),
@@ -97,7 +93,6 @@ export type Source =
   | { read kind: 'monitor', read source: lunette.Monitor }
 export type State = MutablePanel & Source
 
--- A curve is a finite number, zero or more.
 local VISIBILITY_KEYS: { [string]: boolean } = { hidden = true }
 
 local function checkCurve(curve: unknown, level: number): number
@@ -107,7 +102,6 @@ local function checkCurve(curve: unknown, level: number): number
   return curve :: number
 end
 
--- Creates a panel's state without registering it or acquiring a claim.
 function panel.new(host: Host, owner: Owner, source: Source, options: Options?): State
   if source.source == nil then
     error('panels: a panel is over a source, and nil is not one', 4)
@@ -259,8 +253,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   return created
 end
 
--- Gives up a panel's layer claim, so the panel is drawn in the scene again,
--- or not at all while it is hidden.
+-- Releasing a claim returns a visible panel to scene drawing.
 local function releaseClaim(target: State): ()
   local claim = target.claim
   target.claim = nil
@@ -271,8 +264,8 @@ local function releaseClaim(target: State): ()
   end
 end
 
--- Marks a panel dead, releases its claim, mesh, and visibility overrides,
--- and tells the host. Answers false for a panel that was already dead.
+-- Marks a panel dead, releases its claim, mesh, and visibility overrides, and emits the removal event.
+-- Returns false when the panel is already dead.
 function panel.release(target: State): boolean
   if target.dead then
     return false
@@ -298,9 +291,7 @@ function panel.release(target: State): boolean
   return true
 end
 
--- Ends a panel and then disposes its owner's effect. The release runs here rather than as the effect's
--- inverse because an owner's authority is withheld while its inverse runs, and removal listeners, the
--- panel's owner among them, must hear the removal as live owners.
+-- Panel release precedes effect disposal. Owner authority remains live during release for removal listeners.
 function panel.retire(target: State): boolean
   if target.dead then
     return false

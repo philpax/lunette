@@ -1,13 +1,3 @@
--- Covers lua/lunette-plugins/arrangement/format.luau.
---
--- An old reader must not write a newer file back. A default would let it parse
--- the file, and the write-back would drop the fields added after the reader's
--- version. The guard is structural: a newer file loads with no arrangement, so
--- nothing is writable.
---
--- The arrangement is a file format that persists across processes, so the
--- round-trip test guards a real wire.
-
 local testing = require '@testing'
 local expect = testing.expect
 
@@ -56,8 +46,6 @@ test('an arrangement round-trips through render and read', function()
 end)
 
 test('an entry with no size round-trips as one with no size', function()
-  -- A table constructor cannot carry a nil, so an override in `newEntry` cannot
-  -- express a missing field.
   local written = format.newFile {
     { kind = 'window', key = 'terminal', slot = 1, pose = vocabulary.encodePose(lovr.math.newMat4()), tags = {} },
   }
@@ -68,9 +56,7 @@ test('an entry with no size round-trips as one with no size', function()
 end)
 
 test('a size round-trips to the last digit', function()
-  -- A metre size that lost its last digit would shrink a panel a little at
-  -- every restart. The drift would be diagnosed as a layout defect; the cause
-  -- is formatting precision.
+  -- Exact precision prevents panel dimensions from drifting across restarts.
   local width, height = 1 / 3, 0.8999999999999999
   local written = format.newFile { newEntry { width = width, height = height } }
 
@@ -80,9 +66,7 @@ test('a size round-trips to the last digit', function()
 end)
 
 test('an arrangement does not share an array with its caller', function()
-  -- Both arrays are copies: the array given to `newFile` and the array
-  -- `entries` returns. A caller sorting or trimming a list does not change the
-  -- arrangement that is about to be saved.
+  -- Mutating either returned or input arrays must not change the file.
   local given = { newEntry() }
   local file = format.newFile(given)
   table.remove(given)
@@ -123,8 +107,7 @@ test('a file from a later version carries no arrangement to write back', functio
   expect.equal(loaded.kind, 'fromTheFuture', 'the kind')
   expect.equal(loaded.found, format.CURRENT_VERSION + 1, 'the version found')
   expect.equal(loaded.supported, format.CURRENT_VERSION, 'the version supported')
-  -- The old-writer guard: no arrangement to render, so `save` accepts nothing,
-  -- and a field added after this version cannot be dropped on write-back.
+  -- No writable arrangement prevents an old reader from dropping newer fields.
   expect.falsy(loaded:forSession(), 'the arrangement')
 end)
 
@@ -138,9 +121,7 @@ test('a broken file is a broken load rather than a raise', function()
 end)
 
 test('a file chunk cannot reach anything outside itself', function()
-  -- The chunk runs under an empty environment, and it is read as though a
-  -- different process wrote it. A `require` call raises inside `read`; it does
-  -- not run.
+  -- An empty environment prevents file chunks from accessing runtime modules.
   local loaded = format.read "require 'os'; return { version = 1, entries = {} }"
 
   expect.equal(loaded.kind, 'broken', 'the kind')
@@ -148,9 +129,7 @@ test('a file chunk cannot reach anything outside itself', function()
 end)
 
 test('an entry that is not the shape is skipped and named while the rest loads', function()
-  -- These shapes are written by hand, not through `render`. This version does
-  -- not write them, and a reader has to survive them: a file edited by hand, or
-  -- one written by a version that spelt an entry differently.
+  -- Hand-edited files and files from other versions can contain malformed entries.
   local text = [[return {
   version = 1,
   entries = {
@@ -182,10 +161,7 @@ test('an entry with a slot that is not a number takes the first slot', function(
 end)
 
 test('a load and an arrangement are told apart', function()
-  -- A caller can mistake a load for an arrangement. The shipped configuration
-  -- passes a load to `install`, which takes the arrangement from inside it.
-  -- `isLoaded` distinguishes the two, and a mistaken load unwraps without
-  -- raising.
+  -- Load and arrangement values have distinct runtime identities.
   local loaded = format.empty()
   local file = loaded:forSession()
 
@@ -207,9 +183,7 @@ test('an empty load carries an arrangement with nothing in it', function()
 end)
 
 test('every field the format names is written', function()
-  -- `renderEntry` reads the entry by name. A field added to `ENTRY_FIELDS` but
-  -- not to that table would be dropped from the file with no error. The test
-  -- asserts every named field is written, so the drop fails the test.
+  -- The format must serialize every field named in `ENTRY_FIELDS`.
   local rendered = format.render(format.newFile {
     {
       kind = 'window',

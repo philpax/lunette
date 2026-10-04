@@ -1,4 +1,4 @@
-//! The pure lifecycle state, intents, and attachment reports.
+//! Pure plugin lifecycle state and transition reports.
 
 use std::collections::BTreeMap;
 
@@ -7,7 +7,7 @@ use crate::plugin::graph::{
     ProviderGeneration,
 };
 
-/// The lifecycle phase of an installed instance.
+/// The lifecycle phase of an instance.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LifecycleState {
     /// The instance has no live attachment.
@@ -22,8 +22,8 @@ pub enum LifecycleState {
     /// bind differ from the ones it failed against, or on an explicit enable or
     /// reload.
     Failed,
-    /// A cleanup inverse failed. The instance never loads again and keeps its
-    /// contract reservations until shutdown completes.
+    /// An inverse failed. The instance retains contract reservations until shutdown and
+    /// cannot load again.
     Quarantined,
 }
 
@@ -32,8 +32,7 @@ pub enum LifecycleState {
 pub struct IntentState {
     /// Whether the instance should be active when its prerequisites permit it.
     pub enabled: bool,
-    /// Whether the instance is retired and must be removed after cleanup.
-    /// Retirement is permanent.
+    /// Whether the instance is permanently retired and removed after its allocation ends.
     pub retired: bool,
 }
 
@@ -41,21 +40,18 @@ pub struct IntentState {
 /// the transitions they imply are returned by [`Graph::next_action`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Intent {
-    /// Enable an instance and reserve its provided contracts. A failed load is
-    /// retried.
+    /// Enables an instance and reserves its provided contracts. A failed load is retried.
     Enable(InstanceId),
-    /// Disable an instance without retiring it. A live attachment ends, and
-    /// the provided contracts are released once it has.
+    /// Disables an instance without retiring it. Its contracts are released after unload.
     Disable(InstanceId),
-    /// Replace a live attachment, then enable the replacement.
+    /// Unloads a live attachment and enables its replacement.
     Reload(InstanceId),
-    /// Disable and retire an instance. Retiring a parent retires its children.
+    /// Disables and retires an instance and its children.
     Dispose(InstanceId),
     /// Stop all new loads and drain every live attachment.
     Shutdown,
 }
 
-/// A load or unload operation for the coordinator to perform.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
     /// Load the instance and give it the exact provider generations allocated by the graph.
@@ -75,18 +71,17 @@ pub enum Action {
 /// The result of a load callback.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoadOutcome {
-    /// The callback completed successfully. The graph still validates that publication is safe.
+    /// The callback succeeded. The graph validates publication before exposing services.
     Success,
-    /// The coordinator cancelled the load and rolled it back.
+    /// The coordinator cancelled and rolled back the load.
     Cancelled,
-    /// The callback failed and the coordinator rolled it back.
+    /// The callback failed, and the coordinator rolled back the load.
     Failed,
 }
 
-/// What the graph did with a load report.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoadResolution {
-    /// The load was published at this generation.
+    /// Published at the allocated provider generation.
     Published(ProviderGeneration),
     /// The load succeeded but may not be published. The allocation is kept so
     /// the coordinator can roll it back and report [`LoadOutcome::Cancelled`].
@@ -95,12 +90,10 @@ pub enum LoadResolution {
     Ended(LifecycleState),
 }
 
-/// Pure, deterministic lifecycle graph state.
+/// Deterministic lifecycle state for plugin instances.
 ///
-/// The coordinator performs the actions it returns. A load action is only an
-/// allocation proposal: [`Graph::complete_load`] rechecks the intent and every
-/// provider generation, so a reentrant disable or reload cannot publish a
-/// transient consumer.
+/// Publication requires [`Graph::complete_load`] to recheck intent and provider
+/// generations, including after reentrant disable or reload requests.
 #[derive(Debug, Default)]
 pub struct Graph {
     pub(super) instances: BTreeMap<InstanceId, Instance>,
@@ -117,10 +110,10 @@ impl Graph {
         Self::default()
     }
 
-    /// Installs a descriptor without reserving, enabling, or loading it.
+    /// Installs a descriptor without enabling it.
     ///
-    /// A parent must hold a loading or active attachment. The child is retired
-    /// when that activation ends.
+    /// A parent must have a loading or active attachment. The child retires when
+    /// that activation ends.
     pub fn install(
         &mut self,
         mut required: Vec<ContractKey>,
@@ -174,12 +167,11 @@ impl Graph {
         Ok(instance)
     }
 
-    /// Applies an intent.
+    /// Applies an intent immediately.
     ///
-    /// Enable and reload reserve every provided contract and are rejected on a
-    /// conflicting provider or a retired or quarantined instance. Disable,
-    /// reload, and dispose condemn a live attachment, so a disable then an enable
-    /// restarts the instance.
+    /// Enable and reload reserve provided contracts and fail on conflicts,
+    /// retired instances, or quarantined instances. Disable, reload, and dispose
+    /// end a live attachment. A later enable starts a new activation.
     pub fn request(&mut self, intent: Intent) -> Result<(), GraphError> {
         let instance = match intent {
             Intent::Shutdown => {
@@ -227,10 +219,10 @@ impl Graph {
         Ok(())
     }
 
-    /// Reports the outcome of the exact load action returned by [`Self::next_action`].
+    /// Reports the outcome of the current load action.
     ///
-    /// A failed or cancelled load must already be rolled back. A rejected success
-    /// keeps its allocation for the coordinator to roll back and report as
+    /// The coordinator rolls back failed and cancelled loads, then reports their outcomes.
+    /// A rejected success retains its allocation until rollback reports
     /// [`LoadOutcome::Cancelled`].
     pub fn complete_load(
         &mut self,
@@ -267,10 +259,10 @@ impl Graph {
         }
     }
 
-    /// Records that an inverse of a live allocation failed.
+    /// Records an inverse failure for a live allocation.
     ///
-    /// The instance is quarantined when the allocation ends: it never loads again
-    /// and keeps its reservations until shutdown. Repeated marks are idempotent.
+    /// The instance enters quarantine when its allocation ends. It retains contract
+    /// reservations until shutdown and cannot load again. Repeated marks have no effect.
     pub fn mark_cleanup_failed(
         &mut self,
         instance: InstanceId,
@@ -287,11 +279,10 @@ impl Graph {
         Ok(())
     }
 
-    /// Reports completion after every remaining inverse has been attempted.
+    /// Reports completion after the coordinator attempts every inverse.
     ///
-    /// A false result, or an earlier [`Self::mark_cleanup_failed`],
-    /// quarantines the instance. A clean unload of a retired instance removes
-    /// it once it has no children.
+    /// A failed inverse quarantines the instance. A clean unload removes a retired
+    /// instance after its children are removed.
     pub fn complete_unload(
         &mut self,
         instance: InstanceId,
@@ -445,8 +436,8 @@ impl Graph {
         if node.intent.retired {
             return Err(GraphError::Retired(instance));
         }
-        // The first rival that is or will be quarantined, or that claims the
-        // contract by intent, rejects the request.
+        // A quarantined rival or a rival that reserves the contract by intent rejects the
+        // request.
         for (key, owner, other) in self.rivals(instance, node) {
             if other.is_quarantined() {
                 return Err(GraphError::ContractQuarantined {
@@ -520,7 +511,6 @@ impl Graph {
         LoadResolution::Ended(state)
     }
 
-    /// Finds a provided contract that another instance holds at publication.
     fn publish_conflict(&self, instance: InstanceId) -> Option<DiagnosticKind> {
         let node = self.instances.get(&instance)?;
         // Only a rival that holds an allocation or is quarantined conflicts
@@ -558,10 +548,10 @@ impl Graph {
         self.retire_children(root);
     }
 
-    /// Removes retired instances that have no attachment and no children.
+    /// Removes retired instances after their attachments and children end.
     ///
-    /// Children always carry larger identities than their parents, so one
-    /// pass in descending order removes a whole retired subtree.
+    /// Child identifiers exceed their parent identifiers, so descending order
+    /// removes each retired subtree in one pass.
     pub(super) fn remove_retired(&mut self) {
         let candidates: Vec<InstanceId> = self.instances.keys().rev().copied().collect();
         for instance in candidates {
@@ -593,8 +583,7 @@ impl Graph {
         instance: InstanceId,
         bindings: Vec<Binding>,
     ) -> Option<Action> {
-        // The planner has no error channel, so exhaustion is reported the way
-        // every other reason an enabled instance cannot load is.
+        // The planner reports identifier exhaustion as a load diagnostic.
         let Ok(activation) = self.allocate_activation() else {
             self.record_diagnostic(instance, DiagnosticKind::ActivationsExhausted);
             return None;
@@ -652,8 +641,7 @@ pub(super) struct Instance {
 }
 
 impl Instance {
-    /// Whether the instance holds its provided contracts by intent: it is
-    /// enabled and not retired, or it is quarantined.
+    /// Whether the instance reserves its provided contracts through enabled intent or quarantine.
     pub(super) fn claims(&self) -> bool {
         self.is_quarantined() || (self.intent.enabled && !self.intent.retired)
     }
@@ -673,8 +661,7 @@ impl Instance {
 pub(super) enum Phase {
     Inactive,
     Failed {
-        /// The bindings the failed load was given. The load is retried only
-        /// against different ones.
+        /// Bindings used by the failed load. The graph retries with different bindings.
         against: Vec<Binding>,
     },
     Quarantined,
@@ -719,10 +706,10 @@ pub enum Stage {
 pub(super) struct Allocation {
     pub(super) activation: ActivationId,
     pub(super) bindings: Vec<Binding>,
-    /// The allocation must end: the instance was disabled, reloaded, or retired.
+    /// The allocation ends after disable, reload, or retirement.
     pub(super) replace: bool,
     /// An inverse failed, so the instance is quarantined when the allocation ends.
     pub(super) quarantine_pending: bool,
-    /// A successful load that may not publish, and must fail rather than retry.
+    /// A successful load that cannot publish and must end in failure.
     pub(super) rejection: Option<DiagnosticKind>,
 }

@@ -1,17 +1,10 @@
--- Frame pacing for the panels in the scene: each frame, every window panel's pacer is given what was
--- observed, and a changed rate is applied with `window:setFrameRate`.
---
--- Commits are observed only while a window is unthrottled, because a throttled client's commits describe
--- the throttle and would end a video's exemption a second after its panel was hidden. A hidden monitor
--- panel's capture is paused while `pauseMonitors` holds. Unloading unthrottles and resumes everything this
--- activation changed.
+-- Throttled-window commits do not indicate video activity. Monitor capture pauses while hidden. This activation restores its changes on unload.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local pacing = require '@lunette-contracts/pacing'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read pauseMonitors: boolean?,
 }
@@ -22,8 +15,6 @@ export type Settings = {
 
 local DEFAULTS: Settings = { pauseMonitors = true }
 
--- One paced window: its handle, its pacer, the commit read on the previous
--- frame, and the rate last applied, nil while unthrottled.
 type Paced = {
   window: lunette.Window,
   pacer: pacing.Pacer,

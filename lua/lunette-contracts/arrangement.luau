@@ -6,7 +6,7 @@ local plugin = require '@lunette-plugin'
 
 local arrangement = {}
 
--- What save takes: whether to write over a file that was refused.
+-- Whether save can overwrite a file whose load failed.
 export type SaveOptions = {
   read force: boolean?,
 }

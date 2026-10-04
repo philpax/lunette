@@ -1,6 +1,3 @@
--- Covers the desktop workspaces consumer: chords that switch the workspace in view, the panels it hides and
--- shows, a new window that follows the user, a panel another plugin hid, a window moved between workspaces,
--- a bindings outage, unloading, and a malformed workspace list.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -12,8 +9,6 @@ local test = testing.suite()
 
 local WORKSPACES = require '@lunette-plugins/desktop/workspaces'
 
--- The consumer with two workspaces switched with alt, over the policy providers, and a plugin of the test
--- that places windows, hides panels, and holds tags as `owner`.
 local function start(config)
   local env = {}
   env.session = testing.boot {
@@ -50,7 +45,6 @@ local function start(config)
   return env
 end
 
--- A window placed as adoption places one, on the main workspace.
 local function open(env, id)
   local panel = env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
   return panel

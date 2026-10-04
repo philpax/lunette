@@ -1,45 +1,13 @@
-//! Linux-only: the `lunette` module, which is the native mechanism Lua is
-//! written against.
+//! Linux-only: provides the native `lunette` module to Lua.
 //!
-//! `require('@lunette')` resolves to the table [`install`] registers. Everything
-//! reachable from it is mechanism: what a window is, where its pixels are, and
-//! where a pointer event goes. Policy (panels, layouts, placement rules) is
-//! written in Lua against this same surface, in the plugins under
-//! `@lunette-plugins`, and is not here.
+//! The module exposes compositor, input, texture, and host-integration mechanisms. Configuration
+//! policy remains in Lua plugins. Native handles retain the session, not Lua values; plugin
+//! attachments are scoped to one Lua state and retire on reload or shutdown.
 //!
-//! # State-bound Lua values
-//!
-//! Native handles and module closures capture only an [`Rc<Session>`] and
-//! keep no Lua value beyond the call that produced it. The plugin runtime is
-//! the exception: its attachment retains definitions, callbacks, services, and
-//! effects for one Lua state. A soft reload retires its contract epoch in the
-//! same state; a hard restart drains it before the state closes.
-//!
-//! # The frame
-//!
-//! [`Session::begin`] installs the frame's snapshot and advances the frame
-//! generation. Every read a callback performs during that frame answers from
-//! that one snapshot. The snapshot changes only at the frame boundary, so two
-//! reads in one frame cannot describe two different instants.
-//!
-//! Mutations do not reach the compositor as they are made. They queue on the
-//! session, and [`Session::flush`] hands the frame's queue over once, at frame
-//! end. A callback never observes the effect of its own mutation within the
-//! frame in which it made the mutation. The protocol underneath imposes the
-//! same rule.
-//!
-//! # Errors
-//!
-//! A defect in the caller's code raises: a malformed argument, an unknown
-//! option, a coordinate that is not a number. A race with a client that has
-//! exited does not raise: a dead handle answers `false` and reads its
-//! last-known values. Taking the session down over a window closing half a
-//! frame early is worse than doing nothing. `docs/dev/lua-api.md` records that
-//! choice.
-//!
-//! Raising is the right answer: the error reaches the boundary its caller runs
-//! under, which `docs/dev/lua-api.md#errors` describes. Nothing here swallows
-//! an error to keep a frame alive.
+//! Each frame reads one immutable snapshot. Mutations queue until [`Session::flush`] at frame end,
+//! so callbacks do not observe their own changes during the same frame. Invalid arguments raise
+//! errors; dead handles return `false` and retain their last-known values. The error boundaries are
+//! described in [the Lua API](../../../docs/dev/lua-api.md#errors).
 
 mod claim;
 pub mod declarations;
@@ -119,18 +87,14 @@ use crate::{
 /// The name `require` resolves through, and the root of the native surface.
 pub const MODULE_NAME: &str = "@lunette";
 
-/// Registers [`MODULE_NAME`] with `package.preload`, making
-/// `require('@lunette')` resolve.
+/// Registers [`MODULE_NAME`] in `package.preload`.
 ///
-/// Called on LÖVR's own state before `boot.lua` runs. The loader builds the
-/// module table on each `require`; the module is not built once and captured.
-/// A soft reload clears `package.loaded` and re-runs `main.luau`, and the next
-/// `require` builds a fresh table against the same session. No Lua value is
-/// held in Rust between calls.
+/// Each `require` creates a module table for the current session. A reload creates fresh Lua values
+/// without retaining references to the prior state.
 ///
 /// # Errors
 ///
-/// If `package.preload` cannot be reached, or the loader cannot be created.
+/// Returns an error if `package.preload` is unavailable or the loader cannot be created.
 pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
     install_attachment(lua)?;
     // A plugin's load or cleanup failure takes the path a configuration
@@ -160,33 +124,23 @@ pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Resu
     preload.set(MODULE_NAME, loader)
 }
 
-/// Registers the module on a Lua state lunette owns.
+/// Registers the module on the Lua state created by the boot sequence.
 ///
-/// The state is created once per session by `crate::boot` through mlua, which
-/// keeps mlua's allocator and per-state data present. The single `&Lua` handle
-/// is passed here directly. Calling `get_or_init_from_ptr` per use would let
-/// the GC collect the orphaned reference threads each fresh `ExtraData`
-/// creates. One mlua view of the session state exists for the state's whole
-/// lifetime.
+/// The same mlua handle is used for the state's lifetime so its allocator and per-state data remain
+/// attached.
 ///
 /// # Errors
 ///
-/// As [`install`].
+/// Returns the errors documented by [`install`].
 pub fn install_on_state<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
     install(lua, session)
 }
 
-/// What the Lua module reads, and where its mutations queue.
+/// Holds session state shared by Lua handles and the frame loop.
 ///
-/// One exists per process and predates the Lua state. The frame loop holds an
-/// [`Rc`] to it, and every closure the module registers holds one too. Both
-/// run on the main thread; the interior mutability is a [`RefCell`], not a
-/// lock. The Lua API is available in the main state; `lovr.thread` states do
-/// not receive it.
-///
-/// Generic over the texture for the reason [`TextureLedger`] is: the conversion
-/// this module performs needs a Lua state and no graphics device. The generic
-/// lets the tests supply a texture that is a plain integer.
+/// The session outlives Lua states and runs on the main thread. The Lua API is available only in
+/// the main Lua state, not in `lovr.thread` states. The texture type is generic so tests can
+/// exercise the session without a graphics device.
 #[derive(Debug)]
 pub struct Session<T> {
     frame: RefCell<Frame>,
@@ -210,35 +164,19 @@ pub struct Session<T> {
     /// parameter on every handle costs more to read than the indirection
     /// costs to run.
     sink: Box<dyn EventSink>,
-    /// Which claims hold composition layers. Behind a trait for the same reason
-    /// the sink is, and shared and not owned because the frame loop performs
-    /// the blit and the submit through the same pool.
+    /// The shared layer pool used by Lua handles and frame rendering.
     claims: Rc<dyn ClaimRegistry>,
-    /// Which of the host's monitors are mirrored. Behind a trait and shared for
-    /// the same reasons the pool is: the frame loop advances the portal exchange
-    /// through the same lifecycle Lua mirrors and dismisses through.
+    /// The host mirrors shared by Lua handles and frame lifecycle updates.
     mirrors: Rc<dyn MirrorRegistry>,
-    /// Where a host sink's input goes. Behind a trait for the same reason: the
-    /// provider chain belongs to `lunette-capture`, and a type parameter on
-    /// every handle would cost more to read than the indirection costs to run.
+    /// The host input provider used by sink handles.
     host: Rc<dyn HostSinks>,
     /// Each seat's published layout, compiled on this thread. See
     /// [`crate::keymaps`] for why the compositor cannot provide one.
     keymaps: RefCell<KeymapCache>,
-    /// Per-window state kept for the configuration. Here and
-    /// not in Lua because the session outlives the Lua state, and a soft reload
-    /// discards the Lua state; [`crate::properties`] states the whole
-    /// reasoning.
+    /// Per-window properties that survive Lua state reloads.
     properties: RefCell<WindowProperties>,
-    /// Whether the configuration requests lunette's own scene. Read at the
-    /// frame boundary into [`Frame::scene`] and not live, so the frame's
-    /// `setLayers` and the frame's gate cannot disagree.
-    ///
-    /// Sticky across frames and across a soft reload: a reload discards the
-    /// Lua state and this is not part of it, so a configuration that turned
-    /// the scene off keeps it off until it enables it again. Every reloaded
-    /// configuration sets it from `lovr.update`, which runs before anything is
-    /// drawn.
+    /// Requested scene-rendering state. The frame latches it so layer submission and the headset
+    /// gate use the same value. The value survives Lua reloads.
     scene: Cell<SceneRendering>,
     /// Whether this frame recorded layer copies that nothing has submitted yet.
     /// [`crate::scene`] describes what happens if they are left unsubmitted.
@@ -297,39 +235,26 @@ impl<T> Session<T> {
         body(&mut self.keymaps.borrow_mut())
     }
 
-    /// The pool, for the handles that read it and the frame loop that resolves it.
     #[must_use]
     pub fn claims(&self) -> &dyn ClaimRegistry {
         self.claims.as_ref()
     }
 
-    /// The host's monitors, for the handles that read them.
     #[must_use]
     pub fn mirrors(&self) -> &dyn MirrorRegistry {
         self.mirrors.as_ref()
     }
 
-    /// The host desktop, for the sinks that deliver to it.
     #[must_use]
     pub fn host(&self) -> &dyn HostSinks {
         self.host.as_ref()
     }
 
-    /// Assigns the pool's layers for this frame, announcing what changed.
+    /// Resolves layer claims and queues grant or revocation events.
     ///
-    /// Called once at frame start, after [`Session::begin`] and before
-    /// `boot.lua` polls, so a claim made during a callback is granted no
-    /// earlier than the next frame and a panel's realisation cannot change
-    /// between its `lovr.update` and its `lovr.draw`. Both events reach their
-    /// handlers ahead of `lovr.update`, and a handler reading `claim.granted`
-    /// in the same frame agrees with the event it received.
-    ///
-    /// The grant and the revocation have already happened in Rust by the time
-    /// either is announced, so a handler that raises changes neither. It is
-    /// reported and the frame continues.
-    ///
-    /// Revocations are announced before grants, in the order they happen:
-    /// revoking frees the layer a grant in the same boundary takes.
+    /// Call after [`Session::begin`] and before event polling. Claims created during callbacks take
+    /// effect no earlier than the next frame. Revocations are queued before grants because a grant
+    /// may use a layer freed at the same boundary. Handler failures do not undo either transition.
     pub fn resolve_layers(&self) {
         let outcome = self.claims.resolve(self.generation());
 
@@ -341,16 +266,11 @@ impl<T> Session<T> {
         }
     }
 
-    /// Starts a frame against the compositor's latest snapshot.
+    /// Installs a frame snapshot and advances the texture generation.
     ///
-    /// Advancing the generation invalidates the previous frame's texture
-    /// handles, so this runs once per frame even when the snapshot has not
-    /// changed.
-    ///
-    /// The frame's events are drained onto the session after this, not
-    /// before: a handler reads through the snapshot installed here, and an
-    /// event that arrived earlier would describe a window the snapshot has
-    /// not heard of.
+    /// Call once per frame, even when the snapshot is unchanged, to invalidate prior-frame texture
+    /// references. Events are queued after this call so handlers read the snapshot associated with
+    /// each event.
     pub fn begin(&self, snapshot: Arc<Snapshot>) {
         self.events.borrow_mut().clear();
 
@@ -403,11 +323,8 @@ impl<T> Session<T> {
 
     /// Everyone listening for an event, in the order they subscribed.
     ///
-    /// Cloned and not borrowed across the calls: a handler is Lua, and Lua may
-    /// subscribe or cancel while it runs. A subscription added during a
-    /// dispatch is not called by that dispatch, and one cancelled during it
-    /// still is. Both follow from not holding the borrow, and either answer is
-    /// defensible so long as it is stated.
+    /// Returns a snapshot of listeners. Changes made by handlers affect later dispatches, not the
+    /// current listener list.
     pub(crate) fn listeners(&self, name: EventName) -> Vec<Function> {
         self.subscribers.borrow().listeners(name)
     }
@@ -423,13 +340,9 @@ impl<T> Session<T> {
         self.events.borrow_mut().take(name)
     }
 
-    /// What the snapshot last reported about a window, this frame or the one
-    /// before.
+    /// Returns current or previous-frame data for a window.
     ///
-    /// The fallback makes a `lunwindowclosed` payload useful. The window is
-    /// gone from the frame's own snapshot by the time the handler runs; that
-    /// is what the event reports. A handle built from the event alone would
-    /// know nothing but the identifier.
+    /// The previous snapshot supplies last-known values to `lunwindowclosed` handles.
     pub(crate) fn window(&self, id: WindowId) -> Option<WindowSnapshot> {
         let frame = self.frame.borrow();
         [&frame.snapshot, &frame.previous]
@@ -443,11 +356,9 @@ impl<T> Session<T> {
             })
     }
 
-    /// Takes the frame's queued mutations, for the caller to send onward.
+    /// Returns queued mutations in submission order and clears the frame queue.
     ///
-    /// The commands are returned and not sent from here, so this type does not
-    /// need to know about the compositor thread. The send can block, and it
-    /// happens somewhere a Lua callback is not running.
+    /// The caller sends them outside Lua callbacks because sending can block.
     #[must_use]
     pub fn flush(&self) -> Vec<Command> {
         mem::take(&mut self.frame.borrow_mut().commands)
@@ -496,10 +407,9 @@ impl<T> Session<T> {
         self.unflushed_copies.set(true);
     }
 
-    /// What the gate on `lovr.headset.getPass` should do about this call.
+    /// Returns the action for a gated headset call.
     ///
-    /// Taking the flush and not reading it makes the flush happen once a frame,
-    /// however many gated calls the frame makes.
+    /// The pending flush is consumed so one frame submits its stream at most once.
     #[must_use]
     pub fn scene_gate(&self) -> Gate {
         if self.scene().drawn() {
@@ -512,19 +422,14 @@ impl<T> Session<T> {
         }
     }
 
-    /// Runs `body` against the ledger of textures the frame may hand out.
+    /// Runs `body` with mutable access to the texture ledger.
     ///
-    /// A closure and not a borrow guard, so the borrow cannot outlive the
-    /// statement that took it. The ledger is read from inside Lua callbacks,
-    /// and a guard held across one would panic on the re-entry.
+    /// The closure bounds the borrow so it cannot remain held across Lua callback re-entry.
     pub fn with_textures<R>(&self, body: impl FnOnce(&mut TextureLedger<T>) -> R) -> R {
         body(&mut self.textures.borrow_mut())
     }
 
-    /// Runs `body` against the textures the frame's mirrored monitors hold.
-    ///
-    /// A closure and not a borrow guard, for the same reason
-    /// [`Session::with_textures`] takes one.
+    /// Runs `body` with mutable access to mirrored-monitor textures.
     pub fn with_monitor_textures<R>(&self, body: impl FnOnce(&mut MonitorTextures<T>) -> R) -> R {
         body(&mut self.monitors.borrow_mut())
     }
@@ -534,36 +439,26 @@ impl<T> Session<T> {
         self.frame.borrow_mut().commands.push(command);
     }
 
-    /// Allocates the identifier a spawn is reported under.
+    /// Allocates an identifier before the spawn request reaches the compositor.
     ///
-    /// The main thread mints it, because `lunette.spawn` returns a handle in
-    /// the same call and so the identifier has to exist before the request
-    /// reaches the compositor. The compositor allocates identifiers for
-    /// adopted processes from the top of the range downwards, so the two
-    /// cannot meet.
+    /// The main thread returns the process handle immediately. Compositor-assigned identifiers for
+    /// adopted processes use the opposite end of the identifier range.
     fn mint_process(&self) -> Option<ProcessId> {
         let mut frame = self.frame.borrow_mut();
         frame.processes = frame.processes.checked_add(1)?;
         ProcessId::new(frame.processes)
     }
 
-    /// Allocates the identifier a seat is created under.
+    /// Allocates an identifier before the seat creation request reaches the compositor.
     ///
-    /// Minted here for the reason a process identifier is: `lunette.newSeat`
-    /// returns a handle in the same call, so the identifier exists before the
-    /// request reaches the compositor. Counting from the default seat and not
-    /// from one, because the default seat already holds the first.
+    /// The range begins after the default seat's identifier.
     fn mint_seat(&self) -> Option<SeatId> {
         let mut frame = self.frame.borrow_mut();
         frame.seats = frame.seats.checked_add(1)?;
         SeatId::new(DEFAULT_SEAT.get().checked_add(frame.seats)?)
     }
 
-    /// Allocates the identifier an output is created under.
-    ///
-    /// Minted here for the reason a seat identifier is, and counted from the
-    /// default output for the reason a seat is counted from the default seat:
-    /// that one already holds the first.
+    /// Allocates an identifier after the default output's identifier.
     fn mint_output(&self) -> Option<OutputId> {
         let mut frame = self.frame.borrow_mut();
         frame.outputs = frame.outputs.checked_add(1)?;
@@ -571,7 +466,7 @@ impl<T> Session<T> {
     }
 }
 
-/// What one frame answers from.
+/// A frame's snapshot, mutations, and minted identifiers.
 #[derive(Debug)]
 struct Frame {
     snapshot: Arc<Snapshot>,
@@ -584,25 +479,17 @@ struct Frame {
     commands: Vec<Command>,
     /// The highest process identifier minted so far.
     processes: u64,
-    /// How many seats have been minted beyond the default one.
     seats: u64,
-    /// How many outputs have been minted beyond the default one.
     outputs: u64,
     /// Whether lunette renders a scene of its own this frame, latched from
     /// [`Session::scene`] at the boundary.
     scene: SceneRendering,
 }
 
-/// How a texture is handed to Lua.
+/// Converts a texture into the value Lua receives.
 ///
-/// The seam is here and not at the ledger because this is the only part of
-/// the conversion that needs a graphics device: everything else about a window
-/// handle is a projection of a snapshot, and the tests exercise that projection
-/// with a texture that is an integer.
-///
-/// [`CopyableTexture`] is a supertrait and not a second bound at each use,
-/// because `window:stabilize()` is part of the same surface: a texture the
-/// module can give to Lua is one Lua can request a stable copy of.
+/// This boundary needs a graphics device. Snapshot-backed handle behavior does not, so tests can
+/// use an integer texture. [`CopyableTexture`] also supports `window:stabilize()`.
 pub trait LuaTexture: CopyableTexture + 'static {
     /// Produces the value Lua holds for this texture.
     ///
@@ -730,7 +617,8 @@ module! {
     /// Every modifier name a seat accepts, in the order a keymap numbers them. `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
     fn modifierNames(_lua, _session) -> Vec<String> { Ok(modifier_names()) }
 
-    /// The modifiers a keymap reports as locked rather than held: a press turns one on, and the next press turns it off. A subset of `modifierNames()`.
+    /// Locked modifier names form a subset of `modifierNames()`. Each locked modifier toggles on a
+    /// press.
     fn lockingModifierNames(_lua, _session) -> Vec<String> { Ok(locking_modifier_names()) }
 
     /// Every key lunette names, by name, as the evdev keycode `sink:key` takes. The table is fresh on each call.
@@ -868,8 +756,7 @@ record! {
     }
 }
 
-/// Reads `lunette.reportError`'s fields into the error it reports, naming a
-/// missing context or message rather than failing as a nil conversion.
+/// Reads `lunette.reportError` fields and names a missing `context` or `message` in the error.
 fn report_error_fields(options: &Table) -> mlua::Result<TracedError> {
     let required = |name: &str| -> mlua::Result<String> {
         match options.get::<Value>(name)? {

@@ -1,14 +1,10 @@
-//! The Lua state a test file runs in.
+//! Builds the Lua state used by each test file.
 //!
-//! The module roots resolve from the working tree under the names a session
-//! gives them, so a test requires `@lunette-plugins/panels` and gets the file
-//! a session would. `@lunette` is a native table with the real plugin runtime
-//! and the real key and scale vocabularies; the rest of the native API is
-//! installed by `@testing/native`, the fake. `lovr.math` is LÖVR's own, opened
-//! from `liblovr.so`, so a pose is a real `Mat4` and a test asserts real
-//! rotations. `@testing/host` is native too, and carries what only the host can
-//! do: the plugin failures it collected, the plugin shutdown, the production
-//! reload, and the native error boundary with the log it writes.
+//! Module roots resolve working-tree files under session aliases. `@lunette` provides the
+//! native plugin runtime and key and scale vocabularies. `@testing/native` supplies the
+//! remaining native API. `lovr.math` comes from `liblovr.so`, so pose tests use LÖVR's
+//! `Mat4` implementation. `@testing/host` exposes collected plugin failures, shutdown,
+//! production reload, and the native error boundary with its log.
 
 use std::{
     ffi::c_int,
@@ -111,15 +107,13 @@ pub fn new(roots: &Roots) -> mlua::Result<Lua> {
     Ok(lua)
 }
 
-/// Takes every plugin failure reported since the last take.
 pub fn take_reports(lua: &Lua) -> Vec<String> {
     lua.app_data_mut::<Reports>()
         .map(|mut reports| mem::take(&mut reports.0))
         .unwrap_or_default()
 }
 
-/// Shuts every plugin runtime down and answers the failures reported and not
-/// taken, followed by the shutdown's own.
+/// Shuts down plugin runtimes and returns uncollected reports and shutdown failures.
 pub fn shutdown(lua: &Lua) -> Vec<String> {
     let failures = attachment::shutdown_all(lua);
     let mut reports = take_reports(lua);
@@ -127,7 +121,6 @@ pub fn shutdown(lua: &Lua) -> Vec<String> {
     reports
 }
 
-/// The native table `@lunette` resolves to, before the fake adds to it.
 fn native(lua: &Lua) -> mlua::Result<Table> {
     let native = lua.create_table()?;
     declarations::install(lua, &native)?;

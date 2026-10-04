@@ -1,12 +1,6 @@
 -- Ten soft reloads, from inside a session.
 --
--- `lunette.reload()` shuts down the plugin runtimes, clears `package.loaded`
--- for the user's and the standard library's namespaces, clears the callbacks
--- this file owns, and runs this file again. Everything asserted
--- here concerns those effects, and none of it is observable from a unit test on
--- a Lua state a test built: the module has to be the one the host registered,
--- the standard library has to be the one the host mounted, and `main.luau` has
--- to be the file boot.lua resolved.
+-- `lunette.reload()` shuts down plugin runtimes, clears user and standard-library modules from `package.loaded`, clears configuration callbacks, and reruns the configuration. These effects require the host-registered module roots and the file resolved by `boot.lua`.
 --
 -- Globals survive a soft reload: the Lua state stays open, and the reload
 -- removes the configuration's modules and callbacks. One file can drive several
@@ -17,17 +11,13 @@
 
 local lunette = require '@lunette'
 
--- Required for its module identity: a reload has to run the shipped Lua
--- roots' module bodies again rather than keep the previous run's tables.
+-- Reloads rerun shipped Lua root module bodies and create fresh tables; prior-run tables do not persist.
 local vocabulary = require '@lunette-contracts/vocabulary'
 
--- How many reloads this fixture performs. Ten: the accumulation under test
--- shows only across several reloads, and one reload cannot show that nothing
--- accumulates.
+-- Ten reloads expose accumulation across repeated runs; one reload cannot show that state accumulates.
 local RELOADS = 10
 
--- How many times this file has been run by a reload. The initial run by
--- boot.lua is not counted.
+-- The reload count excludes the initial run by `boot.lua`.
 reloads = reloads or 0
 
 -- What the first run saw, to compare every later run against.

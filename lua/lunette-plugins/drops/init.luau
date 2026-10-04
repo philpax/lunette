@@ -1,5 +1,4 @@
--- The drops provider: a broker between what ends grabs and what reacts, with owner-scoped listeners.
-
+-- Publishes owner-scoped notifications when a surface grab ends.
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/drops'
 local listeners = require '@lunette-plugins/listeners'
@@ -18,8 +17,7 @@ local function create(context: plugin.Context): contract.Service
       end
       return heard:add(owner, run)
     end,
-    -- The listeners are chosen before any is called, so a listener added by
-    -- another does not hear this drop, and one disposed by another is skipped.
+    -- Disposed listeners are skipped even when they appear in the current delivery snapshot.
     emit = function(_self: contract.Service, owner: contract.Owner, drop: contract.Drop): ()
       plugin.rejectUnknownFields('drops emit', drop, DROP_KEYS, 'surface and pointer', 2)
       if type(drop.surface) ~= 'table' then

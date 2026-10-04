@@ -1,6 +1,4 @@
--- Owner-held overrides of one value, the most recent live one deciding. An override ends with its owner,
--- and the value then falls back to the most recent one left rather than the value before it, which would
--- depend on unload order.
+-- The most recent live owner override decides the value. Ending an override reveals the next live override.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
@@ -12,17 +10,13 @@ type Owner = owner.Owner
 type Entry<T> = { owner: Owner, value: T, effect: plugin.Effect? }
 
 export type Stack<T> = {
-  -- Sets the owner's override, and answers whether the decided value changed.
   read set: (Stack<T>, Owner, T) -> boolean,
   read value: (Stack<T>) -> T,
-  -- Forgets every override and answers their effects, for the caller to
-  -- dispose once its own state is consistent.
+  -- Clears overrides and returns their effects for disposal after caller state is consistent.
   read clear: (Stack<T>) -> { plugin.Effect },
 }
 
--- A stack whose overrides are acquired through context. changed runs when an
--- override that ends changes the decided value; a set answers the change to
--- its caller instead.
+-- Owner effects remove overrides. `changed` runs when disposal changes the decided value.
 function overrides.new<T>(context: plugin.Context, fallback: T, changed: () -> ()): Stack<T>
   local entries: { Entry<T> } = {}
   local function decided(): T

@@ -1,6 +1,4 @@
--- The frame service contract: owner-scoped handlers for LÖVR's frame and input callbacks, run by phase,
--- then order, then registration. A key or text handler that answers true consumes the event. See
--- docs/dev/lua-api.md#frame-and-surfaces.
+-- Handlers run by phase, order, and registration. A key or text handler that returns true consumes the event.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'

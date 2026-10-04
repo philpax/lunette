@@ -1,9 +1,4 @@
--- Workspaces: one tag shown at a time, switched with key chords. Not in the default entries; add it with
--- `{ insert = { id = 'desktop/workspaces', definition = require '@lunette-plugins/desktop/workspaces' } }`.
---
--- A panel in some workspace's tag and no selected one is hidden by an override this consumer withdraws
--- rather than overrides, so a panel another plugin hid stays hidden. With `follow`, a window placed only in
--- hidden workspaces moves to the shown one, so a configuration that places windows by workspace turns it off.
+-- Hides panels in unselected workspace tags with an override, preserving higher-priority visibility decisions. The follow option moves newly placed panels into the selected workspace.
 local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'
 local panels = require '@lunette-contracts/panels'
@@ -15,7 +10,6 @@ export type Workspace = {
   read key: KeyCode,
 }
 
--- What a configuration gives: every option optional.
 export type Config = {
   read workspaces: { Workspace }?,
   read modifiers: { string }?,
@@ -75,7 +69,7 @@ local function resolve(config: unknown): Settings
   return settings
 end
 
--- The chords, as a child, so a bindings outage leaves the workspaces alone.
+-- Key bindings run as a child so a bindings outage does not change workspace selection.
 local function chords(settings: Settings, switch: (number) -> ()): plugin.Definition<{}>
   return plugin.define {
     name = 'desktop/workspaces/chords',
@@ -132,7 +126,7 @@ return plugin.define {
       end
       for panel, hide in pairs(wanted) do
         if hide and not hiding[panel] and not panel.dead then
-          -- The tags contract types members only as surfaces.
+          -- The tags contract exposes members as surfaces.
           local real = (panel :: any) :: panels.Panel
           hiding[panel] = real:setHidden(context, { hidden = true })
         end

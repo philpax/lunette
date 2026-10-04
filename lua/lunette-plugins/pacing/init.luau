@@ -1,5 +1,4 @@
--- The frame pacing provider: pacers built from `@lunette-plugins/pacing/pacer`. The `tuning` and `choose`
--- options are in docs/dev/lua-api.md#frame-pacing-and-output-scale.
+-- See docs/dev/lua-api.md#frame-pacing-and-output-scale for the pacing options.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/pacing'
@@ -10,17 +9,14 @@ export type Pacer = contract.Pacer
 export type Observation = contract.Observation
 export type Tuning = pacer.Tuning
 
--- The default rule a `choose` hook receives as `base`.
 export type ChooseBase = (Pacer, Observation) -> number?
 export type Choose = (Pacer, Observation, ChooseBase) -> number?
 
--- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read tuning: Tuning,
   read choose: Choose,
 }
 
--- What a configuration gives: every option optional, and a tuning field merges over the rest.
 export type Config = {
   read tuning: {
     read background: number?,

@@ -1,9 +1,4 @@
--- A key binding that hides every window, and shows them again.
---
--- Control, alt, and H toggle. Hiding holds a visibility override on each
--- window panel for this plugin; showing disposes the overrides, so a panel
--- another plugin hides stays hidden. Overrides end with the plugin, so
--- disabling it shows everything it hid.
+-- Control, Alt, and H toggle owner-scoped visibility overrides. Disposing this plugin's overrides preserves hidden state owned by other plugins.
 local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'
 local panels = require '@lunette-contracts/panels'

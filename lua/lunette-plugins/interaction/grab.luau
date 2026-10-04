@@ -1,6 +1,4 @@
--- Grab, push, drag, and two-handed scaling for one interaction instance, closing over its registry, drop
--- emitter, and constraint rather than a module-global host.
-
+-- Implements grab state for one interaction provider activation.
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local grab = {}
@@ -19,15 +17,13 @@ export type GrabState = {
   moving: boolean,
 }
 
--- A two-handed grab: the other pointer holding the same surface, the hands'
--- separation when the second hand took hold, and the surface's width then.
+-- The second pointer scales the surface from its initial hand separation and width.
 export type Scaling = {
   partner: PointerState,
   separation: number,
   width: number,
 }
 
--- What the grab arithmetic reads and writes of one pointer.
 export type PointerState = {
   tuning: vocabulary.Tuning,
   handPosition: { number }?,
@@ -49,9 +45,8 @@ export type Methods = {
 type Host = {
   read pointers: () -> { PointerState },
   read state: (Pointer) -> PointerState,
-  -- Announces that a grab ended, before the pointer forgets the surface.
+  -- Announces a drop before the pointer clears its grabbed surface.
   read dropped: (Surface, Pointer) -> (),
-  -- The pose a carried surface takes for the pose the hand would give it.
   read constrain: (Surface, Mat4) -> Mat4,
 }
 
@@ -213,9 +208,7 @@ function grab.new(host: Host): Methods
     place(host, target, lovr.math.newMat4():set(handPose):mul(current.offset))
   end
 
-  -- Answers whether the pointer was carrying a surface. The drop is
-  -- announced while the pointer still names the surface as grabbed, so a
-  -- listener that asks the pointer sees what it let go of.
+  -- Announces the drop before clearing `grabbed`, so listeners can inspect the carried surface.
   local function endGrab(self: Pointer): boolean
     local state = host.state(self)
     local target = state.grabbed

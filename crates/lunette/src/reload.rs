@@ -1,51 +1,15 @@
-//! Linux-only: the soft reload.
+//! Linux-specific reload of configuration modules and callbacks in the running session.
 //!
-//! `lunette.reload()` applies an edited configuration without disturbing
-//! anything native. It retires the plugin runtime, which starts a new plugin
-//! epoch, drops `package.loaded` for the user's and the standard library's
-//! namespaces, clears the callbacks `main.luau` owns, and runs `main.luau` again
-//! ([the Lua API](../../../docs/dev/lua-api.md#reload)).
+//! Reload retires the plugin runtime, starts a new plugin epoch, clears user and
+//! standard-library modules, clears configuration callbacks, and runs `main.luau`.
+//! The Lua state, XR session, graphics device, compositor thread, and clients remain
+//! active. See [the Lua API](../../../docs/dev/lua-api.md#reload).
 //!
-//! LÖVR's modules, the XR session, the graphics device, the compositor thread,
-//! and every connected client keep running throughout. The reload touches
-//! none of them. The whole operation is confined to one Lua state, it is
-//! instant, and a client cannot notice it happened.
-//!
-//! # Cleared state and surviving state
-//!
-//! `package.loaded` keeps the roots that [`PROTECTED_ROOTS`] names and drops
-//! everything else. A module added to the standard library later, or a user
-//! module under any name, is cleared by default. Clearing `lovr.*` would make
-//! the next `require 'lovr.graphics'` re-run a live module's initialisation.
-//! The retained set is stated as roots; a list of what goes would need
-//! updating as modules are added.
-//!
-//! The Lua state itself is not closed. Globals survive; nothing documents
-//! them as going away, and a configuration may keep its own state in one. A
-//! reload removes `main.luau`'s modules and callbacks. `lunette.restart()` is
-//! the operation that discards everything.
-//!
-//! # Clearing the callbacks
-//!
-//! `main.luau` defines `lovr.draw`, `lovr.update`, and the `lovr.lun*` handlers.
-//! Re-running it redefines the callbacks it still defines. A callback the user
-//! deleted from the configuration would stay bound to the old function and
-//! keep being called, and the reload would keep executing code that is no
-//! longer in the file.
-//!
-//! [`USER_CALLBACKS`] is a closed list. It excludes the callbacks
-//! `vendor/lovr/etc/boot.lua` defines defaults for. Clearing `lovr.log` would
-//! remove a default and nothing would put it back. `boot.lua` runs once per
-//! Lua state, and a soft reload does not make a new one.
-//!
-//! # Reload failure
-//!
-//! A `main.luau` that fails to load at startup produces safe mode
-//! ([the Lua API](../../../docs/dev/lua-api.md#errors)). A reload that fails does
-//! not: the user has a working session in front of them. Replacing it with
-//! the fallback over a typo they can fix and reload again is worse than
-//! reporting the error. [`reload`] returns the error, the session keeps
-//! running, and the clients stay where they are.
+//! Reload keeps Lua globals and protected modules. It clears user modules by default.
+//! Protected roots include LÖVR modules and standard libraries initialized once per
+//! Lua state. [`USER_CALLBACKS`] lists configuration callbacks that reload clears;
+//! defaults defined by `boot.lua` remain installed. A failed reload returns its error
+//! and leaves the session running. See [reload errors](../../../docs/dev/lua-api.md#errors).
 
 use std::{cell::Cell, error::Error, fmt};
 
@@ -56,9 +20,8 @@ use crate::plugin::host;
 
 /// Applies the configuration on disk to the running session.
 ///
-/// The steps run in the order the module documentation gives them. Plugin
-/// shutdown callback failures are reported, and cleanup continues. Errors
-/// clearing callbacks or loaded modules stop the reload.
+/// Plugin shutdown failures are reported, and shutdown continues. Errors while clearing
+/// callbacks or loaded modules stop the reload.
 ///
 /// # Errors
 ///
@@ -68,9 +31,7 @@ use crate::plugin::host;
 /// continues with whatever the failed run installed, not the previous
 /// configuration.
 pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadError> {
-    // A configuration that reloads from the top of `main.luau` would otherwise
-    // recurse until the stack runs out. A stack overflow takes every connected
-    // client down with the process.
+    // Prevent recursive reloads from exhausting the Lua stack.
     let _guard = ReloadGuard::acquire().ok_or(ReloadError::Reentered)?;
     if host::callback_active(lua) {
         return Err(ReloadError::CallbackActive);
@@ -79,9 +40,7 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
     host::shutdown(lua, "reload");
 
     let globals = lua.globals();
-    // Subscriptions go with the callbacks: a listener the previous
-    // configuration registered would keep being called after the
-    // configuration that registered it is gone.
+    // Remove listeners owned by the configuration being replaced.
     forget_subscriptions();
     clear_user_callbacks(&globals).map_err(ReloadError::State)?;
     clear_loaded_modules(&globals).map_err(ReloadError::State)?;
@@ -91,12 +50,7 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
     Ok(())
 }
 
-/// `lunette.reload()`: the reload, as Lua sees it.
-///
-/// Answers `true`, or `false` and the message; it does not raise. The caller
-/// is usually a key binding. The failure the reload avoids is a session that
-/// stops drawing over a typo in the configuration it was asked to load. A
-/// caller that raises can include the message.
+/// Returns success and an optional error message without raising.
 pub(crate) fn reload_from_lua(
     lua: &Lua,
     forget_subscriptions: &dyn Fn(),
@@ -113,9 +67,9 @@ pub(crate) fn reload_from_lua(
 /// The reason a reload fails.
 #[derive(Debug)]
 pub enum ReloadError {
-    /// A reload was asked for while one was running.
+    /// A reload request arrived during another reload.
     Reentered,
-    /// A reload was asked for from inside a plugin callback.
+    /// A reload request arrived from a plugin callback.
     CallbackActive,
     /// The Lua state could not be read or written where the clearing needs it.
     State(mlua::Error),
@@ -157,27 +111,10 @@ impl Error for ReloadError {
     }
 }
 
-/// The module `require` resolves the user's configuration through.
-///
-/// `vendor/lovr/etc/boot.lua` requires `main` with its extension removed, and
-/// `main` is `main.luau` for a source that is a directory, or `main.lua` when
-/// only that file is present. lunette always points LÖVR at the configuration
-/// directory, so the module is always this.
+/// The module name LÖVR uses for the configuration entry point.
 const MAIN_MODULE: &str = "main";
 
-/// The `package.loaded` roots a reload keeps.
-///
-/// The set is stated as what survives; the list of what goes would need
-/// updating as modules are added. A name is matched on its first dotted or
-/// slashed segment, so `lovr.graphics` stays with its root and `lovr.*` cannot
-/// be cleared by accident.
-///
-/// LÖVR's modules are here because clearing them would make the next
-/// `require 'lovr.graphics'` re-run module initialisation against a live
-/// graphics module. The rest are every library the forked Luau's
-/// `luaL_openlibs` can register (`vendor/lovr/deps/luau/VM/src/linit.cpp`),
-/// including `integer` and `class`, which it registers only under a flag. No
-/// reload rebuilds them.
+/// The `package.loaded` roots preserved across reload.
 const PROTECTED_ROOTS: &[&str] = &[
     "_G",
     "bit32",
@@ -197,18 +134,9 @@ const PROTECTED_ROOTS: &[&str] = &[
     "vector",
 ];
 
-/// The `lovr` fields `main.luau` owns, cleared before it is re-run.
+/// Configuration callbacks cleared during reload.
 ///
-/// These are every LÖVR callback that `vendor/lovr/etc/boot.lua` leaves
-/// undefined. A configuration is the only possible author of them.
-///
-/// `boot`, `run`, `mirror`, `simulate`, `threaderror`, `taskready`,
-/// `filechanged`, and `log` are absent; `boot.lua` defines a default for each.
-/// `boot.lua` runs once per Lua state, and a soft reload does not make a new
-/// one. Clearing one of those would remove a default that nothing would put
-/// back. `conf` is absent for the same reason: `conf.luau` wrote it, `conf.luau`
-/// is not re-run, and the configuration has already been applied to a session
-/// that is running.
+/// The list excludes callbacks and configuration fields initialized once by `boot.lua`.
 const USER_CALLBACKS: &[&str] = &[
     "draw",
     "errhand",
@@ -232,25 +160,16 @@ const USER_CALLBACKS: &[&str] = &[
     "wheelmoved",
 ];
 
-/// What lunette's own callbacks are named with.
+/// The reserved prefix for configuration event handlers cleared during reload.
 ///
-/// Handlers are cleared by prefix, not by name. The prefix is reserved for
-/// lunette (`docs/dev/lua-api.md#events`), and a handler for an event a later
-/// phase delivers is as much the configuration's as `lovr.lunwindowopened`
-/// is. The dispatchers sit on `lovr.handlers`, not on `lovr`, so the prefix
-/// match reaches the configuration's handlers and not the module's own.
+/// Event dispatchers are stored under `lovr.handlers`, not on `lovr`.
+/// See [events](../../../docs/dev/lua-api.md#events).
 const EVENT_PREFIX: &str = "lun";
 
-/// Clears the `lovr` fields `main.luau` owns.
+/// Clears configuration callbacks from the `lovr` table.
 ///
-/// A state with no `lovr` table is not an error: the module is reachable from
-/// a Lua state that never ran `boot.lua`, and a reload there has nothing to
-/// clear.
-///
-/// [`crate::safe_mode`] calls it for the same reason a reload does. A
-/// `main.luau` that raised halfway through has installed some of its callbacks.
-/// Safe mode running with the broken configuration's `lovr.draw` still bound
-/// would not be safe mode.
+/// Safe mode clears callbacks left by a configuration that fails during startup. A missing
+/// `lovr` table has no callbacks to clear.
 pub(crate) fn clear_user_callbacks(globals: &Table) -> mlua::Result<()> {
     let Some(lovr) = globals.get::<Option<Table>>("lovr")? else {
         return Ok(());
@@ -260,8 +179,6 @@ pub(crate) fn clear_user_callbacks(globals: &Table) -> mlua::Result<()> {
         lovr.set(*name, Value::Nil)?;
     }
 
-    // Collected before anything is removed. Assigning nil to a field during a
-    // `next` traversal is legal, but a second pass costs nothing.
     let mut handlers = Vec::new();
     for pair in lovr.pairs::<Value, Value>() {
         let (key, _) = pair?;
@@ -278,7 +195,6 @@ pub(crate) fn clear_user_callbacks(globals: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Drops every loaded module a reload does not keep.
 fn clear_loaded_modules(globals: &Table) -> mlua::Result<()> {
     let loaded: Table = globals.get::<Table>("package")?.get("loaded")?;
 
@@ -286,8 +202,6 @@ fn clear_loaded_modules(globals: &Table) -> mlua::Result<()> {
     for pair in loaded.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let Value::String(name) = &key else {
-            // A module cannot be required under a key that is not a string.
-            // Whatever this is, `require` did not put it there.
             continue;
         };
         if !is_protected(&name.to_string_lossy()) {
@@ -302,22 +216,13 @@ fn clear_loaded_modules(globals: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Whether a module survives a reload.
-///
-/// A name survives when its first dotted or slashed segment is in
-/// [`PROTECTED_ROOTS`].
+/// Tests whether a module belongs to a protected root.
 fn is_protected(name: &str) -> bool {
     let root = name.split(['.', '/']).next().unwrap_or(name);
     PROTECTED_ROOTS.contains(&root)
 }
 
-/// Runs `main.luau`, then `lovr.load`.
-///
-/// `vendor/lovr/etc/boot.lua` calls `lovr.load` at startup, and a reload calls
-/// it for the same reason: `main.luau` conventionally defines callbacks and
-/// does its setup in `lovr.load`, so a reload that ran only the file would
-/// install the new callbacks and never run the new setup. `lovr.load` receives
-/// the global `arg`, the same value it receives at startup.
+/// Runs `main.luau` and then `lovr.load` with the global `arg` table.
 fn run_configuration(globals: &Table) -> Result<(), ReloadError> {
     let require: Function = globals.get("require").map_err(ReloadError::State)?;
     require
@@ -341,15 +246,10 @@ fn run_configuration(globals: &Table) -> Result<(), ReloadError> {
     load.call::<()>(arguments).map_err(ReloadError::Load)
 }
 
-/// Holds the reentrancy flag for the length of one reload.
-///
-/// The flag is thread-local, not global. The Lua API is available only in the
-/// main state, and a `lovr.thread` state never receives it. The flag belongs
-/// to the thread that owns the state, not to the process.
+/// Holds a thread-local reentrancy flag for one reload.
 struct ReloadGuard;
 
 impl ReloadGuard {
-    /// Takes the flag, or `None` if a reload is already running.
     fn acquire() -> Option<Self> {
         RELOADING.with(|reloading| (!reloading.replace(true)).then_some(Self))
     }
@@ -501,9 +401,9 @@ mod tests {
         );
     }
 
-    /// Every library `luaL_openlibs` registers survives, whichever the fork's
-    /// flags enable. The names are read from a fresh state rather than listed,
-    /// so a library the interpreter gains is covered without a test change.
+    /// Every library registered by `luaL_openlibs` survives, including libraries
+    /// enabled by fork-specific flags. A fresh state supplies the names, so new
+    /// interpreter libraries are covered automatically.
     #[test]
     fn the_interpreters_own_modules_are_never_cleared() {
         let libraries: Vec<String> = crate::test_lua::session_lua()

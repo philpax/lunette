@@ -1,10 +1,4 @@
--- Pure input shaping: what the default reader makes of the headset. Each laser reads its frame through its
--- own `readInput`, which `attach` may supply and which otherwise wraps the provider's `readInput` hook
--- around `fromHeadset`, so input is injected per laser, without a headset, at that point.
---
--- `devices` names each hand's pointing pose and `controllers` the controller
--- that holds its buttons, thumbstick, and haptics. `CONTROLS` are the
--- controller buttons a pointer button can be mapped from.
+-- Headset input uses each hand's pointing pose and controller. Per-laser readers can replace it.
 
 local lunette = require '@lunette'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -16,7 +10,6 @@ export type Hand = 'left' | 'right'
 export type Input = vocabulary.Input
 export type Reader = (Hand) -> Input?
 
--- One controller button that presses one pointer button.
 export type Mapping = {
   read control: DeviceButton,
   read button: lunette.PointerButton,
@@ -32,7 +25,6 @@ local controllers: { [string]: Device } = {
   right = 'hand/right',
 }
 
--- LÖVR's controller buttons, the closed set `lovr.headset.isDown` reads.
 input.CONTROLS = table.freeze {
   'trigger',
   'thumbstick',

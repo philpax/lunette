@@ -1,5 +1,3 @@
--- Covers lua/lunette-plugins/keyboard/rows.luau: the rows' shape and the keys a keyboard cannot do without.
-
 local testing = require '@testing'
 local expect = testing.expect
 

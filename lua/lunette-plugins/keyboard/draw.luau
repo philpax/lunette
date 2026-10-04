@@ -1,12 +1,9 @@
--- Keyboard drawing, independent of the keyboard's state. `key` is the base the `drawKey` hook receives, and
--- `face` and `legend` its halves, so a hook can replace one and keep the other.
-
+-- Draws keyboard plates, faces, and legends.
 local keyboard = require '@lunette-contracts/keyboard'
 local board = require '@lunette-plugins/keyboard/board'
 
 local draw = {}
 
--- The plate behind the keys, `width` by `height` metres plus the margin.
 function draw.plate(pass: Pass, pose: Mat4, width: number, height: number, style: keyboard.Style): ()
   local color = style.plateColor
   pass:setColor(color[1], color[2], color[3], color[4])
@@ -18,7 +15,7 @@ function draw.plate(pass: Pass, pose: Mat4, width: number, height: number, style
   pass:setColor(1, 1, 1, 1)
 end
 
--- The colour a key's face has in its state: hovered over held over plain.
+-- Hover color takes precedence over the held color.
 function draw.faceColor(state: board.KeyState): { number }
   local style = state.style
   if state.hovered then
@@ -29,7 +26,6 @@ function draw.faceColor(state: board.KeyState): { number }
   return style.keyColor
 end
 
--- A key's face: a flat rectangle, inset by the style's gap.
 function draw.face(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()
   local color = draw.faceColor(state)
   pass:setColor(color[1], color[2], color[3], color[4])
@@ -40,7 +36,6 @@ function draw.face(pass: Pass, key: board.RenderedKey, state: board.KeyState): (
   pass:setColor(1, 1, 1, 1)
 end
 
--- A key's legend, just in front of its face.
 function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()
   local style = state.style
   local color = style.legendColor
@@ -53,14 +48,11 @@ function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState):
   pass:setColor(1, 1, 1, 1)
 end
 
--- One key: its face and then its legend. This is the base `drawKey`
--- receives.
 function draw.key(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()
   draw.face(pass, key, state)
   draw.legend(pass, key, state)
 end
 
--- The centre of a key's face on a plate at `pose`, `width` by `height`.
 function draw.keyPose(pose: Mat4, key: board.RenderedKey, width: number, height: number): Mat4
   local centre = lovr.math.newMat4()
   centre:set(pose)

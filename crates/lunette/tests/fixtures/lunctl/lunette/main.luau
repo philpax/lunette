@@ -1,7 +1,6 @@
 -- A session that runs until lunctl sets the `stop` global.
 --
--- `lunctl` evaluates chunks in the main state, where a chunk reaches globals
--- and not this file's locals. Anything a chunk should reach is a global.
+-- `lunctl` evaluates chunks in the main state, where they reach globals, not locals.
 
 lunette = require '@lunette'
 

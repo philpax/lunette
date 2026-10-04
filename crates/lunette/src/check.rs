@@ -1,8 +1,4 @@
-//! Linux-only: `lunette check`, and how a diagnostic is drawn.
-//!
-//! Diagnostics go to stderr as their own report, outside `tracing`.
-//! A type error is a compiler diagnostic. A timestamp and level in front of
-//! one obscure the file and position an editor is looking for.
+//! Linux-only: runs `lunette check` and draws Luau diagnostics to stderr.
 
 use std::{
     collections::HashMap,
@@ -21,11 +17,7 @@ use tracing::{error, info};
 /// Where the definitions are installed, under the compiled-in prefix.
 const INSTALLED_DEFINITIONS: &str = "share/lunette/definitions.luau";
 
-/// The definitions to check against, or nothing and the reason.
-///
-/// Without them every `lovr` global is unknown and every LÖVR type is undeclared.
-/// A check against none reports hundreds of diagnostics that do not reflect the
-/// files checked. The function returns nothing when no definitions resolve.
+/// Resolves the definitions file, or reports why no definitions are available.
 fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
     if let Some(path) = named {
         if path.is_file() {
@@ -47,11 +39,9 @@ fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
-/// Typechecks `named`, or the configuration directory when nothing is named,
-/// drawing what it found.
+/// Typechecks the named roots or the configuration directory and draws diagnostics.
 ///
-/// A root that is not read fails the run on its own. A pass that silently
-/// skips its input reports a clean result for a file it never reads.
+/// A skipped root fails the run.
 pub fn run(
     named: &[PathBuf],
     configuration: &Path,
@@ -101,12 +91,10 @@ pub fn run(
     ExitCode::FAILURE
 }
 
-/// The files a check reads: each named file, and each `.lua` or `.luau` file
-/// below each named directory, in path order. With nothing named, the files
-/// below `configuration`. Names beginning with `.` are passed over.
+/// Returns named files and `.lua` or `.luau` files under named directories in path order.
 ///
-/// A missing path, an unreadable directory, or one with nothing to check is
-/// an error rather than a clean report about nothing.
+/// With no named paths, it reads files under `configuration`. It skips hidden
+/// names and rejects missing, unreadable, or empty inputs.
 pub fn targets(named: &[PathBuf], configuration: &Path) -> Result<Vec<PathBuf>, TargetError> {
     let defaulted = [configuration.to_owned()];
     let paths = if named.is_empty() {
@@ -187,7 +175,6 @@ impl std::error::Error for TargetError {
     }
 }
 
-/// Appends the files below `directory` to `files`, in path order.
 fn collect(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), TargetError> {
     let read = |error| TargetError::Read(directory.to_owned(), error);
     let mut entries = fs::read_dir(directory)
@@ -215,10 +202,7 @@ fn collect(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), TargetError
     Ok(())
 }
 
-/// Draws each diagnostic against the source it came from.
-///
-/// A file that cannot be read falls back to the plain one-line form, so a
-/// diagnostic is not lost to a failure in drawing it.
+/// Draws diagnostics against their source, falling back to one-line text when a file is unreadable.
 fn draw(diagnostics: &[Diagnostic]) {
     let mut sources = Sources::default();
     let colour = io::stderr().is_terminal();
@@ -247,13 +231,10 @@ fn draw(diagnostics: &[Diagnostic]) {
     }
 }
 
-/// The character range `diagnostic` covers, clamped to the source it is drawn
-/// on.
+/// Returns the diagnostic span clamped to the source text.
 ///
-/// ariadne indexes a `Source` by character, so the offsets count characters.
-/// A byte offset reads too far by however many multi-byte characters precede
-/// it. A definitions failure arrives with no location, so its position is past
-/// the end of the source and collapses onto it without panicking.
+/// Ariadne indexes source text by character. A definitions error has no source
+/// location and maps to the end of the source.
 fn span_of(text: &str, diagnostic: &Diagnostic) -> Range<usize> {
     let starts = line_starts(text);
     let characters = text.chars().count();
@@ -265,7 +246,7 @@ fn span_of(text: &str, diagnostic: &Diagnostic) -> Range<usize> {
 
     let begin = offset(diagnostic.line, diagnostic.column);
     let end = offset(diagnostic.end_line, diagnostic.end_column).max(begin);
-    // A zero-width span draws nothing, so it is widened onto its own character.
+    // Ariadne does not draw zero-width spans.
     if begin == end {
         begin..(begin + 1).min(characters)
     } else {
@@ -273,7 +254,6 @@ fn span_of(text: &str, diagnostic: &Diagnostic) -> Range<usize> {
     }
 }
 
-/// Where each line begins, counted in characters.
 fn line_starts(text: &str) -> Vec<usize> {
     let mut starts = vec![0];
     for (index, character) in text.chars().enumerate() {

@@ -1,5 +1,4 @@
--- Named groups of borrowed panels, scoped to one provider activation. Every membership, exclusion, and
--- override is an effect of the owner that made it, so an unloading owner takes back only its own.
+-- Memberships, exclusions, and overrides end with their owning effects.
 
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
@@ -31,8 +30,7 @@ type Mutable = {
   destroy: (tags.Tag, Owner) -> boolean,
 }
 
--- What the registry keeps for a tag beside the tag itself: who may end it.
--- A tag new made has an owner; a tag hold made has holders and no owner.
+-- Owned tags end with their creator. Held tags end when their last holder releases them.
 type Record = {
   tag: tags.Tag,
   owner: Owner?,
@@ -46,7 +44,7 @@ local HOLD_KEYS: { [string]: boolean } = { name = true, index = true, selected =
 local EXCLUSION_KEYS: { [string]: boolean } = { panel = true }
 local LAYOUT_KEYS: { [string]: boolean } = { layout = true }
 
--- Disposes every effect, attempting all before raising the first failure.
+-- Attempts every effect disposal, then raises the first failure.
 local function disposeAll(effects: { plugin.Effect }): ()
   local failure: unknown = nil
   for _, effect in ipairs(effects) do
@@ -105,19 +103,15 @@ local function create(context: plugin.Context): tags.Service
     return nil
   end
 
-  -- Makes a tag and registers it. An owner makes a tag that ends with it; no
-  -- owner makes a tag its holders keep.
+  -- Owned tags end with their owner; held tags end with their last holder.
   local function make(name: string, settings: tags.Options, tagOwner: Owner?): Record
     local created: Mutable
     local record: Record
-    -- Each panel ever added and still held, in the order it was first held.
     local held: { Panel } = {}
-    -- Each held panel's holders and each excluded panel's excluders, keyed by owner, with their effects.
     local holds: { [Panel]: { [Owner]: plugin.Effect } } = {}
     local exclusions: { [Panel]: { [Owner]: plugin.Effect } } = {}
 
-    -- Recomputes the members from the holds and exclusions, and announces a
-    -- change of them.
+    -- Members preserve first-hold order and exclude panels with live exclusions.
     local function settleMembers(): ()
       local members: { Panel } = {}
       for _, panel in ipairs(held) do
@@ -148,8 +142,7 @@ local function create(context: plugin.Context): tags.Service
       end
     end
 
-    -- Releases the holds and exclusions of dead panels, so an owner does not accumulate an effect per panel
-    -- it ever tagged. panels:onRemoved announces the death.
+    -- Dead panels release their membership and exclusion effects. The panels service announces their removal.
     local function prune(): ()
       local ended: { plugin.Effect } = {}
       for index = #held, 1, -1 do
@@ -261,8 +254,8 @@ local function create(context: plugin.Context): tags.Service
       end
       return destroyRaw()
     end
-    -- Only the owner that made a tag with new ends it. A tag made by hold has
-    -- no owner, and ends when its last holder lets go.
+    -- The creator ends tags made with `new`. Tags made with `hold` have no owner
+    -- and end when their last holder releases them.
     local function destroy(_self: tags.Tag, caller: Owner): boolean
       context:checkOwner(caller)
       if created.dead then
@@ -317,8 +310,7 @@ local function create(context: plugin.Context): tags.Service
         settleMembers()
         return true
       end,
-      -- An owner removes its own hold; the owner of a tag new made removes every hold. Any other owner
-      -- excludes the panel instead.
+      -- Non-creator owners can remove their own hold or exclude the panel.
       remove = function(_self: tags.Tag, caller: Owner, panel: Panel): boolean
         context:checkOwner(caller)
         local holders = holds[panel]
@@ -461,9 +453,7 @@ local function create(context: plugin.Context): tags.Service
     return make(name, settings, caller).tag
   end
 
-  -- Holds the named tag for the caller, making it when there is none. A tag
-  -- new made is borrowed: the effect holds nothing, and the tag still ends
-  -- with its owner.
+  -- A hold borrows creator-owned tags and keeps holder-owned tags alive until the last holder releases them.
   local function hold(_self: tags.Service, caller: Owner, wanted: tags.Hold): (tags.Tag, plugin.Effect)
     context:checkOwner(caller)
     if type(wanted) ~= 'table' then

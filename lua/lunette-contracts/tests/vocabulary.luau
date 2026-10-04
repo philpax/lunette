@@ -38,9 +38,8 @@ test('the identity round-trips exactly', function()
 end)
 
 test('generated poses round-trip exactly', function()
-  -- A property over many poses rather than a handful of examples: any
-  -- rotation, any translation, and any positive scale decode to the matrix
-  -- that was encoded. The generator is seeded, so a failure reproduces.
+  -- A seeded property test covers 200 poses with arbitrary rotations,
+  -- translations, and positive scales. Each decoded matrix equals its encoding.
   local random = lovr.math.newRandomGenerator(20261001)
   for case = 1, 200 do
     local original = lovr.math

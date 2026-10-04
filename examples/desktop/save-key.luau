@@ -1,9 +1,4 @@
--- Key bindings that save the arrangement and put the windows back.
---
--- Control, alt, and S save; control, alt, and R restore what was last saved.
--- Both go through lunette/arrangement, which desktop/persistence provides, so
--- the binding works with whatever file and format the persistence entry is
--- configured with.
+-- Control, Alt, and S save the arrangement. Control, Alt, and R restore it through the configured arrangement provider.
 local plugin = require '@lunette-plugin'
 local arrangement = require '@lunette-contracts/arrangement'
 local bindings = require '@lunette-contracts/bindings'

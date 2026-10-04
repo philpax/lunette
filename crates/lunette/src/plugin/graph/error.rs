@@ -4,7 +4,7 @@ use std::{error::Error, fmt};
 
 use crate::plugin::graph::{ContractKey, InstanceId};
 
-/// A graph operation was rejected without changing the graph.
+/// A rejected graph operation leaves graph state unchanged.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GraphError {
     /// Another enabled instance already holds the reservation for a provided contract.
@@ -25,9 +25,9 @@ pub enum GraphError {
     UnknownInstance(InstanceId),
     /// The instance is retired, and retirement is permanent.
     Retired(InstanceId),
-    /// The instance's cleanup failed, so it can never be loaded again.
+    /// A cleanup inverse failed, and the instance cannot load again.
     Quarantined(InstanceId),
-    /// A child can be installed only under a parent with a live activation.
+    /// Child installation requires a live parent activation.
     ParentInactive(InstanceId),
     /// The graph is shutting down and accepts no installation or intent.
     ShuttingDown,
@@ -76,17 +76,16 @@ impl fmt::Display for GraphError {
 
 impl Error for GraphError {}
 
-/// How a diagnostic should be surfaced.
+/// Whether a diagnostic waits for configuration or requires a change.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Severity {
-    /// The instance is waiting for a condition that ordinary configuration
-    /// order produces, such as a provider that is installed or enabled later.
+    /// Configuration order can resolve the condition, such as by enabling a provider.
     Waiting,
     /// The instance cannot make progress until the configuration changes.
     Error,
 }
 
-/// Why an enabled instance is not loading, or why its load ended in failure.
+/// Why an enabled instance cannot load or publish services.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DiagnosticKind {
     /// No installed instance provides the required contract.
@@ -115,8 +114,7 @@ pub enum DiagnosticKind {
         /// The cycle's instance path, including its closing instance.
         instances: Vec<InstanceId>,
     },
-    /// A load completed but another instance held a provided contract, so the
-    /// load failed instead of publishing.
+    /// Another instance held a provided contract when the load completed, so publication failed.
     PublishConflict { key: ContractKey, owner: InstanceId },
     /// The activation counter cannot allocate another identity, so no
     /// instance can begin a load again.
@@ -138,8 +136,7 @@ impl DiagnosticKind {
         }
     }
 
-    /// Describes the condition, naming every instance through `label`, since
-    /// the graph knows instances only by identity.
+    /// Describes the condition and uses `label` to identify instances.
     #[must_use]
     pub fn describe(&self, label: &dyn Fn(InstanceId) -> String) -> String {
         match self {
@@ -184,7 +181,6 @@ impl DiagnosticKind {
     }
 }
 
-/// A planning diagnostic about one instance.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
     pub instance: InstanceId,

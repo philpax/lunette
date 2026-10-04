@@ -1,6 +1,5 @@
--- The laser provider. Each activation owns an independent two-hand registry, and every pointer or seat is
--- released through the caller's owner effect, so a failing release is the caller's failure. The options
--- and the `readInput` and `draw` around hooks are in docs/dev/lua-api.md#lasers.
+-- Each activation owns its hand registry. Owner effects release pointers and owned seats.
+-- See docs/dev/lua-api.md#lasers for the options and hooks.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -19,15 +18,12 @@ export type Hand = contracts.Hand
 export type Surface = contracts.Surface
 export type Input = contracts.Input
 
--- The default reader a `readInput` hook receives as `base`.
 export type ReadBase = (Hand) -> Input?
 export type ReadInput = (Hand, ReadBase) -> Input?
--- The default drawing a `draw` hook receives as `base`.
 export type DrawBase = (Laser, Pass) -> ()
 export type Draw = (Laser, Pass, DrawBase) -> ()
 export type Mapping = input.Mapping
 
--- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read style: contracts.Style,
   read buttons: { Mapping },
@@ -35,7 +31,6 @@ export type Settings = {
   read draw: Draw,
 }
 
--- What a configuration gives: every option optional.
 export type Config = {
   read style: {
     read length: number?,
@@ -69,8 +64,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
     state.context:checkOwner(owner)
     local seat = given.seat or lunette.newSeat(given.name or ('laser.' .. hand))
     local controller = input.controllers[hand]
-    -- The pointer's haptics reach this hand's controller, so whatever the
-    -- pointer presses can answer with a pulse on the hand that pressed it.
+    -- Haptics use the controller that supplies this hand's input.
     local function pulse(haptic: interaction.Haptic): boolean
       local headset = lovr.headset
       if not state.active or not headset or not headset.vibrate then
@@ -139,8 +133,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         end
         return pulse { strength = self.style.hapticStrength, duration = self.style.hapticDuration }
       end,
-      -- The release runs here, on the caller's stack, so its failure is the
-      -- caller's; the owner's effect is then disposed with nothing left to do.
+      -- The release runs on the caller's stack, so a failure is attributed to that caller.
       destroy = function(self: Laser): boolean
         if self.dead then
           return false
@@ -253,8 +246,7 @@ for _, control in ipairs(input.CONTROLS) do
   CONTROLS[control] = true
 end
 
--- The mapping list replaces its default wholesale, so its entries are checked
--- here rather than against the defaults.
+-- The mapping list replaces defaults, so validation checks every supplied entry.
 local function validate(settings: Settings, name: string): ()
   for index, mapping in ipairs(settings.buttons) do
     local where = string.format('plugin %s: option buttons[%d]', name, index)

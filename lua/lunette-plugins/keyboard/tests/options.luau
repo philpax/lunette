@@ -1,5 +1,3 @@
--- Covers a keyboard built from options: custom rows and their geometry, action keys and layers, the modifier
--- and lock sets, and the onKey and drawKey hooks wrapping the defaults.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -24,9 +22,6 @@ local ROWS = {
 }
 local SYMBOLS = { { { code = 2 }, { action = { kind = 'layer', layer = 'base' }, label = 'abc' } } }
 
--- A keyboard provider defined with the rows above and hooks that record what they see, its dependencies over
--- the fake native API, a consumer holding focus on a recording sink, a pointer that records its pulses, and a
--- keyboard.
 local function start()
   local env = { native = testing.native(), pressed = {}, custom = {}, drawn = {}, sent = {}, pulses = {} }
   local definition = keyboard.define {

@@ -1,5 +1,3 @@
--- Covers the tags provider: owned and held tags, the owner-scoped memberships, exclusions, selections, and
--- layouts on them, the queries over them, and their change events.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -7,9 +5,6 @@ local tagsContract = require '@lunette-contracts/tags'
 
 local test = testing.suite()
 
--- The tags provider over the fake native API, and `consumer(name)` adding a plugin of its own that requires
--- tags, answered as `{ instance, owner, tags }`. Its owner and service are replaced each time it is enabled
--- again.
 local function start()
   local fake = testing.native()
   local session = testing.start { 'tags' }

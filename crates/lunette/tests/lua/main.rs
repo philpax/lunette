@@ -1,18 +1,13 @@
-//! Runs every Lua test file under `lua/`, each as a test of its own.
+//! Runs each Lua test file under `lua/` as a separate test.
 //!
-//! A test file is a `.luau` file directly inside a directory named `tests`;
-//! its helpers live in that directory's `support/` subdirectory and are not
-//! test files. [`discover`] states the rule. Each file runs in a fresh Lua
-//! state that [`state`] builds: the module roots resolve as a session resolves
-//! them, `lovr.math` is LÖVR's own, and `@testing/host` carries what only the
-//! host can do. The file returns a suite of cases, and [`run`] runs every case
-//! and fails the file when it returns no suite, defines no cases, a case
-//! raises, or a plugin failure is reported that no case took.
+//! Test files are `.luau` files directly inside `tests` directories. Helpers belong under
+//! `tests/support`. Each file runs in a fresh Lua state with module roots from the working
+//! tree, LÖVR's `lovr.math`, the native plugin runtime, and the fake API in `lua/testing/`.
+//! The runner fails when a file returns no suite, defines no cases, a case raises, or a
+//! plugin failure remains unreported after its case.
 //!
-//! The state is in-process rather than a session of the binary: the module
-//! sources are read from the working tree, the native plugin runtime is the
-//! real one, and the rest of the native API is the fake in `lua/testing/`.
-//! [`meta`] holds the runner's own tests, which run beside the files.
+//! The tests use an in-process state to load working-tree modules. [`meta`] tests the
+//! runner's own behavior.
 
 // `lovr.math` and the Luau C API come from `liblovr.so`, which this crate's
 // link directives name.
@@ -51,8 +46,7 @@ fn main() -> ExitCode {
     libtest_mimic::run(&arguments, trials).exit_code()
 }
 
-/// The working tree the runner was built from. The tests cover its `lua/`
-/// directory as it stands, with no copy assembled for them.
+/// Returns the working tree that contains the `lua/` directory under test.
 fn repository() -> PathBuf {
     // `crates/lunette` is two levels below the workspace root.
     Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -1,9 +1,8 @@
-//! Relative `require` in a running session.
+//! Relative `require` resolution for running sessions.
 //!
-//! LÖVR's loader resolves a name from the filesystem root, while the checker
-//! resolves `./` and `../` against the requiring file. [`install`] wraps
-//! `require` so the session agrees with the checker and keys `package.loaded`
-//! by the resolved name. [`path`] holds the rules as a pure function.
+//! LÖVR resolves names from the filesystem root. [`install`] resolves `./` and
+//! `../` against the requiring file and keys `package.loaded` by the resolved
+//! name. [`path`] defines the resolution rules.
 
 mod hook;
 pub mod path;

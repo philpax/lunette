@@ -1,5 +1,3 @@
--- Covers how the panels provider shows a panel: chrome, the shape hooks, visibility overrides, and the arc
--- mesh of a curved panel.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -8,8 +6,6 @@ local panelsModule = require '@lunette-plugins/panels'
 
 local test = testing.suite()
 
--- A panels provider from `definition` over the fake native API, and two consumers of it whose contexts are
--- `owner` and `other`. The fake's graphics module makes meshes, kept in `meshes`.
 local function start(definition, config)
   local env = { native = testing.native(), meshes = {} }
   lovr.graphics.newMesh = function(vertexCount)
@@ -43,7 +39,6 @@ local function window(env, id)
   return source
 end
 
--- Draws `panel` on the fake's pass and answers how many times each drawing call was made.
 local function drawn(env, panel)
   local draw = env.native.events.draw
   table.clear(draw)

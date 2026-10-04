@@ -1,6 +1,4 @@
--- Borders and title bars for the desktop's panels, from the panels provider's onAdded and onRemoved. A bar
--- is offered as a `desktop/decorations` surface that moves its panel when dragged and stands for the panel
--- in a drop. Hidden panels and panels with their own chrome are not decorated.
+-- Offers draggable title bars that stand in for their panels during drops. Hidden panels and panels with chrome are not decorated.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
@@ -23,7 +21,6 @@ export type Style = {
   read titleColor: Color,
 }
 
--- What a configuration gives: every option optional.
 export type Config = {
   read style: {
     read barHeight: number?,
@@ -87,7 +84,6 @@ local function setColor(pass: Pass, color: Color): ()
   pass:setColor(color[1], color[2], color[3], color[4])
 end
 
--- Whether a panel is drawn with a decoration this frame.
 local function decorated(panel: panels.Panel): boolean
   return not panel.dead and not panel.hidden and not panel.chrome
 end
@@ -137,7 +133,6 @@ return plugin.define {
           backFace = backFace,
         }, origin, direction)
       end
-      -- The panel moves so that the bar is where it was put.
       local function setPose(_self: surface.Surface, pose: Mat4): ()
         if panel.dead then
           return

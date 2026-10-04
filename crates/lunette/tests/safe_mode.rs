@@ -1,20 +1,12 @@
-//! Safe mode is established by breaking a real configuration.
+//! Tests safe mode through sessions whose configuration fails to load.
 //!
-//! Safe mode is what a user gets when their `main.luau` does not load. To
-//! establish it, the tests must hand the real binary a `main.luau` that does not
-//! load. The unit cases in `crates/lunette/src/safe_mode.rs` run the chunk and
-//! the trigger against fakes. These tests run a whole session: `boot.lua`
-//! produces the load failure, the host prepares the fallback, and `lunctl` can
-//! communicate with the resulting session.
+//! These tests launch the binary because `boot.lua` and the host establish the fallback
+//! configuration, which `lunctl` then addresses. Unit tests in `safe_mode.rs` cover the
+//! chunk and trigger with fakes.
 //!
-//! The fixtures switch the audio, graphics, and headset modules off and open no
-//! window, so no display, no XR runtime, and no sound device is needed. Each run
-//! gets its own `XDG_RUNTIME_DIR` for the control socket and its own
-//! `XDG_DATA_HOME`.
-//!
-//! No test waits for a duration. A chunk's answer reports that the session
-//! is up and that safe mode is running, and a chunk stops the session, not a
-//! signal.
+//! Fixtures disable audio, graphics, and headset modules and open no window. Each run uses
+//! separate `XDG_RUNTIME_DIR` and `XDG_DATA_HOME` directories. A chunk response confirms
+//! that the session is ready, and `lovr.event.quit` tests orderly session shutdown.
 
 #![expect(
     clippy::expect_used,
@@ -34,17 +26,11 @@ use std::{
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
-/// A session has this long to start answering before the test gives up.
-///
-/// The bound limits a failure, not a wait for success. The poll returns as soon
-/// as the session answers.
+/// Caps readiness polling when a session does not answer.
 const STARTUP_BOUND: Duration = Duration::from_secs(30);
 
-/// The session has this long to stop after a chunk calls `lovr.event.quit`.
 const SHUTDOWN_BOUND: Duration = Duration::from_secs(10);
 
-/// The interval at which a condition is checked. The interval is short enough
-/// not to pad a run.
 const POLL: Duration = Duration::from_millis(20);
 
 /// The session exits with the status a chunk requests. The status is distinct
@@ -107,9 +93,7 @@ fn a_missing_main_lua_produces_safe_mode_too() {
     );
 }
 
-/// Safe mode requires `lunette` and nothing else, because a broken standard
-/// library is one of the reasons `main.luau` may have failed. The test points
-/// the mount at a directory that does not exist, which is that failure.
+/// Safe mode starts when the standard-library mount points to a missing directory.
 #[test]
 fn safe_mode_runs_with_no_standard_library_mounted() {
     let missing = TempDir::with_prefix("lunette-safe-mode-absent-")
@@ -196,17 +180,11 @@ impl Session {
         self.runtime.path().join("lunette").join("lunette-0.sock")
     }
 
-    /// Waits for the session to answer a chunk, not for a duration.
+    /// Waits for a Lua response to confirm session readiness.
     ///
-    /// The socket appearing is not that condition. The socket is bound before
-    /// the Lua state boots, so a failure to bind is reported among the other
-    /// startup failures (see `crates/lunette/src/main.rs`), which is before
-    /// `main.luau` loads and fails and before safe mode replaces it. A test that
-    /// started asking then would race the boot whose outcome it asserts.
-    ///
-    /// Answering is the condition and implies the rest: the frame loop services
-    /// chunks, and after a failed load the only frame loop running is safe
-    /// mode's.
+    /// The control socket binds before the Lua state boots. A successful chunk response
+    /// confirms that the frame loop is running; after a failed configuration load, that
+    /// loop belongs to safe mode.
     fn wait_until_answering(&mut self) -> PathBuf {
         let socket = self.socket();
         let deadline = Instant::now() + STARTUP_BOUND;
@@ -245,11 +223,7 @@ impl Session {
         command.output().expect("the lunctl binary can be run")
     }
 
-    /// Asks the session to quit through a chunk, waits for it, and reports what
-    /// it wrote.
-    ///
-    /// A chunk stops the session, not a signal, because safe mode is a usable
-    /// session; a session that a chunk can stop is the proof.
+    /// Stops the session through a chunk and returns its stderr.
     fn stop(&mut self) -> Stopped {
         let stopping = self.lunctl(&[&format!("lovr.event.quit({STOPPED})")]);
         assert_eq!(

@@ -1,14 +1,12 @@
-//! Host-owned lifecycle operations for the Lua plugin attachment. Shutdown
-//! failures are logged and never skip the remaining host cleanup.
+//! Host-owned shutdown operations for the Lua plugin attachment.
 
 use mlua::Lua;
 use tracing::warn;
 
 use crate::plugin::attachment;
 
-/// Runs the terminal host sequence in its required order: retire runtimes,
-/// clear subscribers, flush the final frame, quiesce native state, and close
-/// the Lua state last. Boot and the lifecycle tests share this sequence.
+/// Runs shutdown in order: retire runtimes, clear subscribers, flush the final
+/// frame, quiesce native state, and close Lua last.
 pub fn terminal_shutdown<Runtime, Subscribers, Flush, Native, Close>(
     runtime_shutdown: Runtime,
     clear_subscribers: Subscribers,
@@ -29,15 +27,14 @@ pub fn terminal_shutdown<Runtime, Subscribers, Flush, Native, Close>(
     close_external();
 }
 
-/// Retires every runtime attached to `lua` and starts a new contract epoch,
-/// logging each cleanup failure and continuing.
+/// Retires attached runtimes, starts a contract epoch, and logs shutdown failures.
 pub fn shutdown(lua: &Lua, context: &str) {
     for failure in attachment::shutdown_all(lua) {
         warn!("{context}: {failure}; cleanup continued");
     }
 }
 
-/// Returns whether a plugin callback is currently running for `lua`.
+/// Reports whether a plugin callback is running in `lua`.
 #[must_use]
 pub fn callback_active(lua: &Lua) -> bool {
     attachment::callback_active(lua)

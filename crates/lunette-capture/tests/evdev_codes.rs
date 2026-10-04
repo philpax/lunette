@@ -1,22 +1,8 @@
-//! Linux-only: checks [`VirtualKey`]'s codes against xkeyboard-config.
+//! Linux-only: checks [`VirtualKey`] codes against pinned xkeyboard-config data.
 //!
-//! The codes in `src/hid/key.rs` are written out by hand from
-//! `linux/input-event-codes.h`. No crate in the dependency tree carries that
-//! header's constants, so this test checks them against an independent table
-//! derived from it: xkeyboard-config's `evdev` keycodes, which libxkbcommon
-//! reads. Each key there has a physical name, such as `<LFSH>` for left shift,
-//! at its evdev code plus eight.
-//!
-//! Most media and launcher keys have no physical name; xkeyboard-config names
-//! them `<I…>` after their own code, which would check nothing. Those keys are
-//! checked by the keysym the `us` layout gives them, such as `XF86Mail`, which
-//! is defined independently of the code.
-//!
-//! The keymap is compiled from a pinned xkeyboard-config release and checked
-//! in, because distributions ship different releases and older ones leave some
-//! codes unnamed. It is trimmed to what this test reads: the keycodes it names,
-//! the symbols of the keys behind its keysym checks, and empty types and
-//! compatibility sections. The fixture's header gives the command and the rule.
+//! Physical key names check evdev codes with the XKB offset of eight. Media and
+//! launcher keys use keysyms because xkeyboard-config does not assign them
+//! physical names. The checked-in keymap pins the data version across distributions.
 
 use lunette_capture::hid::VirtualKey;
 use xkbcommon::xkb;
@@ -62,18 +48,16 @@ fn every_key_is_named_by_the_evdev_keycodes_or_its_keysym() {
     );
 }
 
-/// The us layout compiled from xkeyboard-config 2.48's evdev rules.
+/// The US layout compiled from xkeyboard-config 2.48 evdev rules.
 const KEYMAP: &str = include_str!("fixtures/evdev-us.xkb");
 
-/// XKB numbers keys eight higher than evdev.
+/// XKB keycodes exceed evdev codes by eight.
 const XKB_OFFSET: u32 = 8;
 
-/// What xkeyboard-config calls a key.
 #[derive(Debug)]
 enum Expected {
-    /// The physical name in the `evdev` keycodes.
     Name(&'static str),
-    /// The first-level keysym the `us` layout assigns.
+
     Keysym(&'static str),
 }
 

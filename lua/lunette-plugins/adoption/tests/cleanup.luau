@@ -1,5 +1,3 @@
--- Covers an adoption whose cleanup fails: every cleanup step is still attempted, the failures aggregate,
--- and the caller and the provider are quarantined.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -9,8 +7,6 @@ local tagsContract = require '@lunette-contracts/tags'
 
 local test = testing.suite()
 
--- The providers adoption needs over the fake native API, and an independent consumer of panels and tags
--- whose context is `observer`.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'panels', 'tags', 'rules', 'placement', 'adoption' }
@@ -34,8 +30,6 @@ test('a failing cleanup attempts every step once, aggregates, and quarantines th
     calls[name] = (calls[name] or 0) + 1
     order[#order + 1] = name
   end
-  -- Wraps `target[method]` so each call during the failing cleanup is recorded under `name` and raises
-  -- `failure`, when one is given, after the call.
   local failing = true
   local function watch(target, method, name, failure)
     local original = target[method]
@@ -52,7 +46,7 @@ test('a failing cleanup attempts every step once, aggregates, and quarantines th
     end
   end
 
-  -- A panel and tag that belong to someone else, which the failing cleanup must leave alone.
+  -- Releasing one plugin leaves resources owned by other plugins intact.
   local unrelatedSource = fake.newWindow(1201)
   local unrelatedPanel = env.panels:fromWindow(env.observer, unrelatedSource)
   local unrelatedClaim = fake.events.claims[#fake.events.claims]
@@ -117,7 +111,7 @@ test('a failing cleanup attempts every step once, aggregates, and quarantines th
   do
     expect.equal(calls[name], 1, 'the attempts of ' .. name)
   end
-  -- Memberships are removed, most recent first, before the panel is destroyed.
+  -- Membership removal precedes panel destruction.
   expect.equal(order[1], 'throwing.remove', 'the first removal')
   expect.equal(order[2], 'ordinary.remove', 'the second removal')
   expect.truthy(

@@ -1,6 +1,3 @@
--- Covers placement's announcements: onPlaced hears each placement with the properties it was placed with,
--- whoever made it; placed lists the live placements in placement order; a raising listener is reported and
--- does not undo the placement; and a placement ends with its panel.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -10,7 +7,6 @@ local placementContract = require '@lunette-contracts/placement'
 
 local test = testing.suite()
 
--- A consumer of panels, rules, and placement, answered as its context and the services.
 local function consumer(session, name)
   local found = {}
   session:use(plugin.define {
@@ -30,8 +26,6 @@ local function consumer(session, name)
   return found
 end
 
--- The policy providers over the fake native API, a listening consumer whose announcements land in
--- `env.announced`, a second consumer that places, and a rule source giving the firefox window a pose.
 local function start()
   local env = { native = testing.native(), announced = {} }
   env.session = testing.start { 'panels', 'tags', 'rules', 'placement' }

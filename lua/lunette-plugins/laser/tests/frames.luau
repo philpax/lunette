@@ -1,5 +1,3 @@
--- Covers what a laser does each frame: reading input through its reader or the provider's readInput hook and
--- button mapping, hovering a surface with a haptic pulse, and drawing through the draw hook.
 local testing = require '@testing'
 local expect = testing.expect
 local laserContract = require '@lunette-contracts/laser'
@@ -7,8 +5,6 @@ local laser = require '@lunette-plugins/laser'
 
 local test = testing.suite()
 
--- The laser provider, `definition` or the built-in one, and the providers it needs over the fake native API,
--- with a consumer whose context is `owner`.
 local function start(definition)
   local env = { native = testing.native() }
   env.session = testing.start {
@@ -22,7 +18,6 @@ local function start(definition)
   return env
 end
 
--- The draw calls named `name` the fake's pass has received.
 local function calls(env, name)
   local found = {}
   for _, call in ipairs(env.native.events.draw) do
@@ -61,7 +56,6 @@ test("each laser reads its own input, and a hover pulses that hand's controller 
   expect.equal(#calls(env, 'line'), 2, 'a beam per hand')
   expect.equal(#calls(env, 'sphere'), 0, 'no cursor without a hover')
 
-  -- The surface is hit only by a beam pointing forward, so the left hand hovers it and the right does not.
   local hovers = 0
   local surface = {
     dead = false,
@@ -138,7 +132,6 @@ test('the readInput and draw hooks wrap the defaults for every laser, and button
   env.service:forHand('right'):draw(pass)
   expect.truthy(#drawn == 3 and #calls(env, 'line') == 1, "a laser's own draw is the hook too")
 
-  -- A laser's own reader replaces the hook for that laser, and its style merges over the provider's.
   local own = 0
   env.service:forHand('left'):destroy()
   local left = env.service:new(env.owner, 'left', {

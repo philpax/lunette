@@ -1,6 +1,4 @@
--- Scoped native-window adoption over the rules and placement providers. Install contributes only the native
--- pose source; start owns the subscription and every panel it creates. Windows are never closed.
-
+-- Installs a native pose source and adopts windows without closing them.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
@@ -22,7 +20,7 @@ type State = {
   context: plugin.Context,
 }
 
--- The pose a window carries in its per-window property, kept across reloads, if any.
+-- Reads a pose persisted on the window across Lua state reloads.
 local function keptPose(window: lunette.Window): rulesContract.Properties?
   local kept = window:getProperty(vocabulary.POSE_PROPERTY)
   if type(kept) ~= 'string' then
@@ -42,8 +40,7 @@ local function windows(state: State): { lunette.Window }
   return result
 end
 
--- The resolved options: the precedence install registers the native pose
--- source at when it is given none.
+-- The default precedence for the native pose source.
 export type Settings = {
   read precedence: number,
 }
@@ -51,8 +48,7 @@ export type Settings = {
 local function build(context: plugin.Context, settings: Settings): Service
   local state: State = { active = true, context = context }
 
-  -- The published service is revoked with this activation, so its methods need no liveness guard; the
-  -- source and event callbacks check the activation themselves.
+  -- The source and event callbacks check activation state because copied callbacks can outlive the service.
   context:effect(function(): () -> ()
     return function()
       state.active = false
@@ -61,8 +57,7 @@ local function build(context: plugin.Context, settings: Settings): Service
 
   local service: Service = {
     PRECEDENCE = settings.precedence,
-    -- The source is registered through this provider's rules binding, inside an effect on the caller's owner,
-    -- so the caller need not require rules.
+    -- The provider registers the source under the caller's ownership; callers do not require the rules service.
     install = function(_self: Service, owner: Owner, options: adoption.InstallOptions?): plugin.Effect
       context:checkOwner(owner)
       if options ~= nil and type(options) ~= 'table' then
@@ -102,15 +97,12 @@ local function build(context: plugin.Context, settings: Settings): Service
       local subscription: (() -> ())?
       local active = true
 
-      -- Copied callbacks must still belong to this provider's caller
-      -- activation, and owns also requires this provider to be active.
+      -- Copied callbacks run while the caller and provider remain active.
       local function live(): boolean
         return active and current.context:owns(owner)
       end
 
-      -- An adoption ends with its panel, and its placement is released by the adoption's inverse on the
-      -- caller's owner. The window is placed before the inverse is registered, so placement's listeners do
-      -- not run inside the caller's acquisition.
+      -- The placement listener runs before the caller-owned release effect is registered.
       local function place(window: lunette.Window)
         if not live() or window.dead or adoptedIds[window.id] or panels:forSource(window) then
           return
@@ -178,7 +170,7 @@ local function build(context: plugin.Context, settings: Settings): Service
             subscription()
             subscription = nil
           end
-          -- Every adoption is released before the first failure is raised.
+          -- Release attempts every adoption and returns the first failure.
           local failure: unknown = nil
           for _, adoption in ipairs(table.clone(adopted)) do
             local ok, raised = pcall(function()

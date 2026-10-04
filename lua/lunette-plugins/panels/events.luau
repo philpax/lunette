@@ -1,5 +1,4 @@
--- Owned added and removed listeners for one panels activation. A listener is delivered to only while its
--- owner is live, since unloading invalidates the owner before its inverse runs.
+-- Panel event delivery requires a live listener owner.
 
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
@@ -52,8 +51,7 @@ local function listen<T>(
   end)
 end
 
--- The listeners a panel event reaches, chosen before any is called, so a
--- listener added by another listener does not hear this delivery.
+-- Event delivery uses a snapshot of matching listeners at dispatch start.
 local function reached<T>(list: { Listener<T> }, panel: panels.Panel): { Listener<T> }
   local result: { Listener<T> } = {}
   for _, listener in ipairs(list) do
@@ -64,9 +62,7 @@ local function reached<T>(list: { Listener<T> }, panel: panels.Panel): { Listene
   return result
 end
 
--- A listener's callback while it is still registered and its owner is still
--- live: an earlier listener may have disposed it, or unloading may have
--- invalidated its owner before its inverse ran.
+-- A listener can be disposed or its owner invalidated during an earlier callback.
 local function live<T>(listener: Listener<T>, context: Context): T?
   local owner = listener.owner
   if listener.active and owner and context:owns(owner) then
@@ -75,8 +71,7 @@ local function live<T>(listener: Listener<T>, context: Context): T?
   return nil
 end
 
--- Calls one listener, reporting its error rather than raising it into the
--- operation that added or removed the panel, which belongs to another plugin.
+-- Listener errors are reported without failing the panel operation.
 local function deliver(kind: string, callback: panels.PanelCallback, panel: panels.Panel): ()
   protected.call('panels: ' .. kind .. ' listener', function()
     callback(panel)

@@ -1,5 +1,3 @@
--- Covers the desktop decorations consumer: the title bar it offers beside each shown panel, a grab of the bar
--- that carries the panel and is dropped as the panel's, and the bars of hidden and removed panels.
 local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'
@@ -11,8 +9,6 @@ local test = testing.suite()
 
 local TOLERANCE = 1e-5
 
--- The consumer over the fake native API, with a window shown as a panel. Render is what offers the panels
--- themselves.
 local function start()
   local env = {}
   env.session = testing.boot {
@@ -33,7 +29,6 @@ local function start()
   return env
 end
 
--- The panel and its bar among the offered surfaces, each nil when it is not offered.
 local function offered(env)
   local bar, itself
   for _, surface in ipairs(env.surfaces.service:all()) do

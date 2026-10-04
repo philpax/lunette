@@ -1,12 +1,9 @@
--- Covers the rules provider: matching a window, and resolving its properties from sources merged by
--- precedence.
 local testing = require '@testing'
 local expect = testing.expect
 local rulesContract = require '@lunette-contracts/rules'
 
 local test = testing.suite()
 
--- The rules provider alone, and an observer of it whose context owns the sources.
 local function start()
   local session = testing.start { 'rules' }
   local observed = session:observe(rulesContract.capability)

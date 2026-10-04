@@ -1,6 +1,4 @@
--- Covers provider outages in the shipped desktop: the keyboard, the error stream, rules, surfaces, bindings,
--- and the monitors consumer each go away and come back, and every outage keeps what does not depend on it,
--- the adopted panels, the saved arrangement, and the rule sources.
+-- Provider outages release dependent consumers and preserve unrelated panels, saved arrangements, and rule sources.
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
@@ -14,7 +12,6 @@ local function start()
   local env = { session = testing.boot(desktop.entries()) }
   env.native, env.events = env.session.native, env.session.native.events
   env.instances = env.session.instances
-  -- Each observed service is replaced as its provider returns from an outage.
   local panels = env.session:observe(panelsContract.capability)
   local rules = env.session:observe(rulesContract.capability)
   local surfaces = env.session:observe(surfacesContract.capability)
@@ -30,7 +27,7 @@ local function start()
   return env
 end
 
--- The rule list, the saved arrangement, and adoption are the rule sources, in precedence order.
+-- The shipped rule sources retain their configured precedence order across provider outages.
 local function expectSources(env, context)
   local list = env.rules:sources()
   expect.equal(#list, 3, context .. ': the rule sources')
@@ -151,7 +148,6 @@ test('a bindings outage takes the desktop bindings away and leaves typing workin
   local native, events = env.native, env.events
   events.windows = { native.newWindow(1) }
   native.emit('onWindowOpened', { window = events.windows[1] })
-  -- The right beam presses the panel in front, which focuses it.
   env.session:update()
   events.trigger = true
   env.session:update()
@@ -194,7 +190,7 @@ test('the monitors consumer owns its mirrors and captures across its outages and
   monitor = plug()
   expect.truthy(env.panels:forSource(monitor), 'a reconnected output gets a new panel')
 
-  -- The failed save at quit is reported natively even while the error stream is out.
+  -- The host reports quit-save failures even when the error stream is unavailable.
   env.instances.errors:disable()
   events.writeMode = 'refuse'
   expect.equal(env.session:quit(), false, 'quit does not veto')

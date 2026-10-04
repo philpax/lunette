@@ -1,5 +1,3 @@
--- Covers the panels provider's arrival and removal listeners, including one that raises while a reload
--- drains the provider's dependents.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -7,7 +5,6 @@ local panelsContract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
--- The panels provider over the fake native API, and a consumer of it whose context is `owner`.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'panels' }
@@ -66,7 +63,6 @@ test('listeners hear arrivals and removals, and a raising listener is reported w
   expect.truthy(reported[1].message:find('arrival listener failed', 1, true), 'the arrival report')
   expect.truthy(reported[3].message:find('removal listener failed', 1, true), 'the removal report')
 
-  -- A listener ends with its owner.
   listener.instance:disable()
   env.panels:fromWindow(env.owner, env.native.newWindow(3), { height = 1 })
   expect.equal(#added, 2, 'the arrivals heard after the listener ended')
@@ -76,8 +72,7 @@ end)
 test('a removal listener that raises during a drain fails neither the drain nor the removing cleanup', function()
   local env = start()
   local panels = env.session.instances.panels
-  -- The creator is installed first, so a drain unloads it before the listener, and its cleanup removes the
-  -- panel while the listener still hears.
+  -- The creator releases its panel while the listener owner remains live.
   local created = 0
   local creator = env.session.runtime:use(
     plugin.define {
@@ -106,8 +101,6 @@ test('a removal listener that raises during a drain fails neither the drain nor 
   creator:enable()
   expect.equal(created, 1, 'the loads of the creator')
 
-  -- Reloading the provider drains both dependents, unloads and loads the provider, and loads both
-  -- dependents again in one drain.
   panels:reload {}
   expect.equal(heard, 1, 'the removals the listener heard')
   expect.equal(panels:state(), 'active', 'the provider')

@@ -1,6 +1,4 @@
--- A provider of the clock contract. The table given to `publish:provide` is
--- the service; consumers receive a view of it that stops working once this
--- plugin unloads.
+-- Consumers cannot use the published service after the provider activation ends.
 
 local plugin = require '@lunette-plugin'
 local clock = require './clock'

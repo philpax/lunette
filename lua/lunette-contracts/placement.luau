@@ -1,7 +1,4 @@
--- The placement service contract: turns a window into a panel by resolving its properties through
--- lunette/rules, making the panel, and joining the tags the properties name. It alone depends on rules,
--- panels, and tags, so a configuration replaces placement to change the mapping. See
--- docs/dev/lua-api.md#rules-and-placement.
+-- Placement resolves window properties through rules, creates the panel, and joins the named tags.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -14,15 +11,13 @@ local placement = {}
 export type Owner = owner.Owner
 export type Properties = rules.Resolved
 
--- What place takes: the window; the properties to place it with, resolved
--- through rules when nil; and defaults for what the properties do not name.
+-- Missing properties resolve through rules; defaults fill properties that remain unset.
 export type Request = {
   read window: lunette.Window,
   read properties: Properties?,
   read defaults: Properties?,
 }
 
--- A live placement: the panel and the properties it was placed with.
 export type Placement = {
   read panel: panels.WindowPanel,
   read properties: Properties,

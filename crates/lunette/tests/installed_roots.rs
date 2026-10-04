@@ -1,11 +1,7 @@
-//! The installed roots do not require a development-only root.
+//! Installed modules and the shipped configuration do not require development roots.
 //!
-//! `@testing` exists only in a source tree, so a shipped module requiring it
-//! would check clean and fail in every installed session. Test files under a
-//! root's `tests` directories are not installed, so they may require it and
-//! are skipped here. The test refuses any
-//! string literal naming a non-installed root in the installed roots and the
-//! shipped configuration. Both lists come from `lunette::aliases`.
+//! Test modules are excluded from installation. The test compares source aliases
+//! against the development and installed root lists in `lunette::aliases`.
 
 use std::{
     fs,
@@ -14,8 +10,7 @@ use std::{
 
 use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALLED_ALIASES, Resolution, install_manifest};
 
-/// The shipped configuration, which an installation runs and which is not a
-/// module root.
+/// The shipped configuration directory.
 const SHIPPED_CONFIGURATION: &str = "etc/xdg/lunette";
 
 #[test]
@@ -65,8 +60,7 @@ fn no_installed_root_requires_a_development_only_root() {
     assert!(offenders.is_empty(), "{offenders:#?}");
 }
 
-/// Every installed `.luau` file under `directory`: every one outside a `tests`
-/// directory.
+/// Collects installed `.luau` files outside `tests` directories.
 fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("{} is readable: {error}", directory.display()));

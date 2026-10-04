@@ -1,5 +1,4 @@
--- A first plugin: it requires the frame contract and draws a line of text
--- over the scene every frame. Its draw handler ends when the plugin unloads.
+-- The draw handler ends when the plugin activation ends.
 
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'

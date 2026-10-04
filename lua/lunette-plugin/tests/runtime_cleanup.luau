@@ -1,6 +1,5 @@
--- Covers the native runtime running inverses outside a rollback: a failing inverse quarantines its instance
--- wherever it fails, an explicit disposal revokes resource authority only while it runs, cleanup keeps the
--- dependency reads it needs, and requests made from inside an inverse are queued.
+-- Covers inverse failures, resource authority during explicit disposal, dependency reads during release,
+-- and requests queued from inside an inverse.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require('@lunette').plugin
@@ -16,8 +15,8 @@ local function expectReports(count, needle, context)
   end
 end
 
--- A failing inverse quarantines its instance whether it fails in a rollback, an explicit disposal, or a plain
--- disable. The inverse runs to its raise, so what it releases before raising stays released.
+-- A failing inverse quarantines its instance during rollback, explicit disposal, or disable. Releases
+-- completed by an inverse remain in effect if it raises.
 for _, mode in { 'rollback', 'explicit', 'disable' } do
   test('an inverse failing in ' .. mode .. ' quarantines its instance and keeps its reservation', function()
     local token = plugin.contract('audit/' .. mode, 1)
@@ -47,7 +46,7 @@ for _, mode in { 'rollback', 'explicit', 'disable' } do
     local instance = runtime:use(definition, { payload = payload })
     instance:enable()
     if mode == 'explicit' then
-      -- The explicit disposal's failure is raised to its caller rather than reported.
+      -- Explicit disposal raises its inverse failure; disable and shutdown report failures.
       expect.raises(function()
         handle:dispose()
       end, 'inverse failed explicit', 'the explicit disposal')
@@ -217,7 +216,7 @@ for _, explicit in { false, true } do
       duplicate:enable()
     end, nil, 'the failed cleanup keeps its provided reservation')
     expect.truthy(providerAlive, 'the failed cleanup keeps its dependency')
-    -- The withdrawn acquisition's failing inverse is reported; the explicit disposal's failure is raised instead.
+    -- The withdrawn acquisition's inverse failure appears in reports; explicit disposal raises its failure.
     expectReports(if explicit then 0 else 1, 'reentrant inverse failure', 'the reported failures')
     runtime:close()
     expect.equal(table.concat(events, ','), 'broken,remaining,provider', 'the shutdown cleanup order')

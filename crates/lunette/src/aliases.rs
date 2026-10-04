@@ -1,20 +1,17 @@
-//! Module roots and installation metadata.
+//! Module roots, session mounts, and installation metadata.
 //!
-//! The checker's `.luaurc` files, the session's mounts, and the installer all
-//! derive from these descriptors, so the three cannot disagree about a root.
-//! Paths arrive already resolved.
+//! The checker, session, and installer derive root configuration from these descriptors.
 
 use std::{fmt::Write as _, path::PathBuf};
 
 /// A root a configuration requires by name, and where that name resolves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Alias {
-    /// The name that follows the `@`.
     pub name: &'static str,
     /// The directory under the standard-library root. The checker reads it,
     /// and the session mounts it for a mounted root.
     pub directory: &'static str,
-    /// How a running session resolves the name.
+
     pub resolution: Resolution,
 }
 
@@ -92,7 +89,6 @@ pub const INSTALLED_ALIASES: &[Alias] = &[
     LUNETTE_DESKTOP,
 ];
 
-/// A root with the source path already resolved by its caller.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModuleRoot {
     pub alias: String,
@@ -102,7 +98,6 @@ pub struct ModuleRoot {
 }
 
 impl ModuleRoot {
-    /// The mount point a session gives this root.
     #[must_use]
     pub fn mount_point(&self) -> String {
         format!("@{}", self.alias)
@@ -192,10 +187,10 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
     },
 ];
 
-/// Renders the install manifest as tab-separated source and destination
-/// paths, so Make consumes the Rust-owned manifest rather than restating it.
-/// A directory contributes only its `.luau` files outside its `tests`
-/// directories, and `lua/testing` is never listed.
+/// Renders the install manifest as tab-separated source and destination paths.
+///
+/// Module roots include `.luau` files outside `tests` directories. The testing
+/// root is not installed.
 #[must_use]
 pub fn install_manifest() -> String {
     let mut output = String::new();

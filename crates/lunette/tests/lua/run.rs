@@ -1,13 +1,9 @@
-//! Runs one test file and reports what failed.
+//! Runs a test file and reports failures.
 //!
-//! The file returns a suite from `testing.suite()`. Every case runs, in the
-//! order the file added it, whatever the cases before it did: a run that
-//! reports every failure is one round of fixing. A case fails when it raises,
-//! and when a plugin failure is reported during it that it did not take with
-//! `testing.takeReports()`. The file fails when any case does, when it returns
-//! no suite or a suite with no cases, and when shutting its plugin runtimes
-//! down fails or reports. A file that runs nothing therefore fails rather than
-//! passing with nothing checked.
+//! Every case runs in file order, even after an earlier case fails. A case fails when it
+//! raises or leaves a plugin failure unreported through `testing.takeReports()`. The file
+//! fails when it returns no suite, defines no cases, has a failing case, or reports a plugin
+//! shutdown failure.
 
 use std::fmt::Write as _;
 

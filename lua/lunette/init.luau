@@ -60,8 +60,8 @@ export type Sink = SinkFields & (WindowSink | HostSink)
 -- A mapped toplevel. A handle keeps answering once its window has gone, with
 -- the values it cached, and every mutation it offers is refused.
 export type Window = {
-  -- Stable for the window's whole life and across a soft reload, so a table of
-  -- per-window state keys by it.
+  -- Stable across frames and soft reloads. Per-window properties use this
+  -- identifier.
   read id: number,
   read dead: boolean,
   read title: string?,
@@ -70,42 +70,35 @@ export type Window = {
   -- it.
   read width: number,
   read height: number,
-  -- Whether the fourth component of this window's pixels is padding, not alpha.
-  -- A client negotiating an X-variant fourcc leaves that component at a value
-  -- it wrote, and a caller drawing such a texture forces alpha to one and does
-  -- not sample it. False for a window with no texture yet, because there is
-  -- nothing to draw.
+  -- Whether the fourth pixel component is padding. Clients using an X-variant
+  -- format do not provide alpha; consumers must treat the component as opaque.
+  -- Returns false until a texture exists.
   read opaque: boolean,
-  -- What the client says it draws, as `wp_content_type_v1` reports it. The
-  -- report is a hint: adoption is thin, and a client playing video may report
-  -- 'none'.
+  -- The content type reported by `wp_content_type_v1`. The protocol value is a
+  -- hint; clients may report `none` while playing video.
   read contentType: 'none' | 'photo' | 'video' | 'game',
   -- Where input for this window goes. Nil only for a handle that has never seen
   -- its window in a snapshot; a dead window still names its sink.
   read sink: Sink?,
-  -- The output the window's client is shown, whose scale and refresh rate the
-  -- client lays out against. Nil for a handle that has never seen its window in
-  -- a snapshot, and while the output is not in the snapshot.
+  -- The output assigned to the window. Returns `nil` if no snapshot has
+  -- described the window or its output.
   read output: Output?,
-  -- Which buffer this window's pixels came from: a number that changes whenever
-  -- the client commits a new buffer, and zero while it has committed none or is
-  -- gone. Comparing it across frames tells whether the client drew in between.
+  -- A counter that changes when the client commits a buffer. Returns zero
+  -- before the first commit or after the window closes.
   read commit: number,
-  -- This frame's pixels. False while the client is gone or has committed
-  -- nothing. Textures rotate as the client cycles its buffers, so the texture
-  -- does not carry across frames.
+  -- This frame's pixels, or `false` when the client is gone or has committed no
+  -- buffer. The texture may change when the client cycles buffers, so callers
+  -- must not cache it across frames.
   read getTexture: (self: Textured) -> Texture | false,
-  -- A texture whose identity outlives the frame, at the cost of copying the
-  -- surface on every frame it is damaged.
+  -- Returns a persistent texture copy, updated whenever the surface is damaged.
   read stabilize: (self: Window) -> Texture | false,
-  -- Asks the client to close the window. The request is not a kill: the client
-  -- decides what to do with it.
+  -- Requests that the client close the window. The client controls whether it
+  -- unmaps.
   read close: (self: Window) -> boolean,
-  -- Configures the toplevel to a size in pixels. The client resizes at its own
-  -- pace and may settle on a different size.
+  -- Requests a pixel size. The client may commit a different size.
   read resize: (self: Window, width: number, height: number) -> boolean,
-  -- A ceiling on how often this window's client is let draw, in hertz. Nil
-  -- returns it to unthrottled.
+  -- Sets the client's frame-rate ceiling in hertz. `nil` restores unthrottled
+  -- pacing.
   read setFrameRate: (self: Window, hertz: number?) -> boolean,
   -- Keeps a value for this window across a soft reload. Nil removes the key.
   read setProperty: (self: Window, key: string, value: boolean | number | string) -> boolean,
@@ -216,34 +209,28 @@ export type Seat = {
   -- The modifiers this seat holds. The value matches the last notification sent
   -- to clients.
   read modifiers: { string },
-  -- Every layout the seat's keymap carries, as a user reads them: `English
-  -- (US)`, not `us`.
+  -- Human-readable layout names from this seat's keymap.
   read layouts: { string },
-  -- Withdraws the seat's `wl_seat` global. The default seat is refused: every
-  -- command that names no seat resolves to it.
+  -- Withdraws this seat's `wl_seat` global. The default seat cannot be removed.
   read destroy: (self: Seat) -> boolean,
-  -- Sets which modifiers this seat holds. Clients are told, so a modifier left
-  -- held stays held.
+  -- Sets the held modifiers and notifies clients.
   read setModifiers: (self: Seat, names: { string }?) -> boolean,
-  -- Gives this seat's keyboard to a sink, or takes it away. A host sink is
-  -- refused: which window holds the host's focus is the host compositor's
-  -- decision.
+  -- Assigns keyboard focus to a window sink, or clears it. The host compositor
+  -- controls host focus, so host sinks are refused.
   read setFocus: (self: Seat, sink: Sink?) -> boolean,
-  -- Makes this seat's selections the host desktop's, or stops them being. One
-  -- seat at a time, because the host has one clipboard.
+  -- Bridges this seat's clipboard and primary selection to the host desktop.
+  -- Only one seat can be bridged.
   read setClipboardBridge: (self: Seat, bridged: boolean) -> boolean,
-  -- Which keysym a keycode produces with those modifiers held, under this
-  -- seat's keymap.
+  -- Returns the keysym for a keycode and modifier set in this seat's keymap.
   read symbolFor: (self: Seat, key: number, names: { string }?) -> number?,
-  -- Which character a keycode produces with those modifiers held.
+  -- Returns the character for a keycode and modifier set.
   read characterFor: (self: Seat, key: number, names: { string }?) -> string?,
-  -- Which key and modifiers produce a character or a keysym. A string is read
-  -- as the character to type, and a number as a keysym.
+  -- Returns the keycode and modifiers that produce a character or keysym. A
+  -- string must contain one character; a number names a keysym.
   read strokeFor: (self: Seat, wanted: string | number) -> Stroke?,
 }
 
--- What `output:setMode` changes. Every field is optional. A field left out
--- keeps the value the output already has.
+-- Optional output fields. Omitted fields retain their current values.
 export type OutputMode = {
   width: number?,
   height: number?,
@@ -251,9 +238,7 @@ export type OutputMode = {
   refresh: number?,
 }
 
--- What `lunette.newOutput` takes. The size is required. There is no previous
--- mode to take it from, and a client cannot lay out against an output with no
--- size.
+-- Output creation options. Width and height are required.
 export type OutputOptions = {
   width: number,
   height: number,
@@ -573,8 +558,8 @@ export type Lunette = {
   -- Every modifier name a seat accepts, in the order a keymap numbers them.
   -- `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
   read modifierNames: () -> { string },
-  -- The modifiers a keymap reports as locked rather than held: a press turns
-  -- one on, and the next press turns it off. A subset of `modifierNames()`.
+  -- Locked modifier names form a subset of `modifierNames()`. Each locked
+  -- modifier toggles on a press.
   read lockingModifierNames: () -> { string },
   -- Every key lunette names, by name, as the evdev keycode `sink:key` takes.
   -- The table is fresh on each call.

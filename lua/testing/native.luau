@@ -1,21 +1,10 @@
--- The fake native API: windows, monitors, outputs, seats, layer claims, processes, subscriptions, and the
--- LÖVR devices, clock, and filesystem a plugin reaches through `lovr`.
---
--- `native.new()` installs a fresh fake onto the `@lunette` table and the `lovr` global and answers it. What a
--- plugin does through the fake lands in `fake.events`, and a test drives the fake through its functions:
--- `fake.emit('onWindowOpened', { window = fake.newWindow(1) })`. The functions are closures, so a test can
--- take them out of the fake: `local emit, newWindow = fake.emit, fake.newWindow`.
---
--- The plugin runtime, the key and scale vocabularies, and `lovr.math` are real; the runner installs them, and
--- the fake leaves them alone. Installing a second fake replaces the first, which a test does to start from a
--- clean slate.
+-- Provides fake native APIs for tests. The plugin runtime, key and scale vocabularies, and `lovr.math` remain real.
 
 local lunette = require '@lunette'
 local host = require '@testing/host'
 
 local native = {}
 
--- Defined below the public function, in the order it calls them.
 local installNative, installLovr
 
 local SINK_METHODS = { 'key', 'modifiers', 'pointer', 'motion', 'button', 'scroll', 'enter', 'leave' }
@@ -55,7 +44,6 @@ function native.new()
     writes = 0,
     enumerations = 0,
     closed = 0,
-    -- How `lovr.filesystem.write` answers: 'ok', 'refuse' to answer false, or 'throw' to raise.
     writeMode = 'ok',
     time = 0,
     rates = {},
@@ -75,7 +63,6 @@ function native.new()
     end
   end
 
-  -- Delivers `event` to every live listener of `name`, as the native event queue does.
   function fake.emit(name, event)
     for _, record in ipairs(table.clone(events.subscriptions[name] or {})) do
       if record.active then
@@ -102,9 +89,6 @@ function native.new()
     end
   end
 
-  -- Reports an error as a raising native callback is reported, through the host's own error boundary: it is
-  -- logged and offered to every live onError listener. Each report is recorded with what the boundary logged,
-  -- and the log is answered. `lunette.reportError` reports through this.
   function fake.raise(message, traceback)
     local listeners = {}
     for _, record in ipairs(events.subscriptions.onError or {}) do
@@ -117,8 +101,6 @@ function native.new()
     return logged
   end
 
-  -- Forgets the subscriptions that have ended. The fake keeps every callback it was given, so a test can call
-  -- a stale copy of one; a test asserting what a weak table no longer holds drops them first.
   function fake.dropEndedSubscriptions()
     for name, list in pairs(events.subscriptions) do
       local live = {}
@@ -131,8 +113,7 @@ function native.new()
     end
   end
 
-  -- The native reload clears subscriptions after the plugin runtimes have shut down. A subscription still
-  -- live at that point is one a plugin forgot to cancel, so it is a failure rather than something to clear.
+  -- Reload requires every plugin subscription to end before native subscriptions are cleared.
   local function clearSubscriptions()
     for name in pairs(events.subscriptions) do
       assert(fake.subscriptionCount(name) == 0, 'subscription outlived plugin shutdown: ' .. name)
@@ -140,8 +121,6 @@ function native.new()
     fake.forgetSubscriptions()
   end
 
-  -- An output records each mode change it is asked for and reports the scale it was last set to, as the
-  -- compositor would a frame later.
   function fake.newOutput(id, scale)
     local output = { id = id, dead = false, width = 1920, height = 1080, scale = scale or 1, refresh = 60 }
     function output:setMode(mode)
@@ -180,7 +159,6 @@ function native.new()
       output = events.outputs[1],
       sink = newSink 'window',
     }
-    -- Each rate a window is paced at is recorded, nil for unthrottled.
     function window:setFrameRate(rate)
       events.rates[#events.rates + 1] = { window = self.id, rate = rate }
       self.rate = rate
@@ -226,8 +204,7 @@ function native.new()
     return monitor
   end
 
-  -- Raises unless every seat and claim a plugin made was released, every subscription was cancelled, and no
-  -- cleanup closed a window the user owns.
+  -- Teardown releases every seat and claim, cancels every subscription, and leaves caller-owned windows open.
   function fake.assertResourcesReleased()
     for _, seat in ipairs(events.seats) do
       assert(seat.dead, 'leaked native seat')
@@ -246,7 +223,6 @@ function native.new()
   return fake
 end
 
--- The functions of the native module the fake answers.
 installNative = function(fake, events, subscribe, clearSubscriptions)
   for _, name in ipairs(SUBSCRIPTIONS) do
     lunette[name] = function(callback)
@@ -334,7 +310,6 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
   end
 end
 
--- The LÖVR modules a plugin reaches besides `lovr.math`, which stays LÖVR's own.
 installLovr = function(events)
   lovr.graphics = {}
   lovr.timer = {
@@ -351,8 +326,7 @@ installLovr = function(events)
     isTracked = function()
       return true
     end,
-    -- The left hand is held aside so only the right beam reaches the panels in front; events.handX moves both
-    -- hands.
+    -- The left hand stays outside the panel area so tests can isolate the right-hand beam.
     getPose = function(device)
       return (if device:find('left', 1, true) then -5 else 0) + (events.handX or 0), 1.5, 0, 0, 0, 1, 0
     end,

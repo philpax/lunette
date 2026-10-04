@@ -1,11 +1,7 @@
-//! A model checker over the pure lifecycle graph.
+//! Property tests check lifecycle graph invariants across generated operation sequences.
 //!
-//! Each case installs instances with random requirements, provisions, and
-//! parents, applies random intents, and advances the graph with random load
-//! outcomes, cleanup failures, reentrant intents, and children installed
-//! during loads. After every operation it checks the structural invariants.
-//! At the end it checks that the graph quiesces with every satisfiable
-//! enabled instance active and that shutdown terminates.
+//! Cases vary dependencies, intents, load outcomes, failed cleanup, and child installation.
+//! The model checks graph structure after each operation, then verifies activation and shutdown.
 
 #![expect(
     clippy::unwrap_used,

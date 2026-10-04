@@ -1,5 +1,3 @@
--- Covers lua/lunette-plugins/interaction/picking.luau.
-
 local testing = require '@testing'
 local expect = testing.expect
 

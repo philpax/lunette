@@ -1,14 +1,9 @@
-//! Resolves a relative require as a pure function of the requiring chunk's
-//! name and the required path, following Luau's require-by-string rules:
+//! Resolves relative module paths from the requiring chunk name.
 //!
-//! - A module's path is its file's path without the suffix, and `init.luau`
-//!   names its directory.
-//! - `./` and `../` start from the parent of the module's path, so in
-//!   `keyboard/init.luau`, `./draw` is `draw`.
-//! - `@self` starts from the module's own path, so `@self/draw` is `keyboard/draw`.
-//!
-//! A path cannot leave the root it starts in, because the checker would
-//! resolve it against a directory tree the session's virtual filesystem lacks.
+//! A module path omits its suffix, and `init.luau` names its directory. `./` and
+//! `../` start from the parent directory; `@self` starts from the module path.
+//! Resolution cannot leave the configuration or module root because the session
+//! filesystem does not expose paths outside that root.
 
 use std::fmt;
 
@@ -211,23 +206,14 @@ mod tests {
     #[test]
     fn relative_paths_resolve() {
         let cases = [
-            // A top-level module requires a sibling.
             ("@main.luau", "./split", "split"),
-            // A nested module requires its sibling.
             ("@nested/a.luau", "./b", "nested/b"),
-            // A parent path climbs one directory.
             ("@nested/deeper/a.luau", "../b", "nested/b"),
-            // An init file's sibling is beside its directory.
             ("@nested/init.luau", "./b", "b"),
-            // Self in an init file is its directory.
             ("@nested/init.luau", "@self/b", "nested/b"),
-            // Self in any other file is the module's own path.
             ("@nested/a.luau", "@self/b", "nested/a/b"),
-            // A `.lua` file names its module the same way: LÖVR still loads
-            // a main.lua, and the require path still searches for `.lua`.
             ("@nested/a.lua", "@self/b", "nested/a/b"),
             ("@nested/init.lua", "@self/b", "nested/b"),
-            // A mounted root resolves within itself.
             (
                 "@@lunette-contracts/scale.luau",
                 "./pacing",

@@ -1,7 +1,6 @@
-//! The names Lua gives the keys a sink accepts by evdev code.
+//! Defines Lua key names for the evdev keycodes accepted by sinks.
 //!
-//! The set is [`VirtualKey`], shared by host sinks and window seats so a named
-//! key reaches either. A key outside the set still reaches a seat by number.
+//! Named keys use [`VirtualKey`] for host sinks and window seats. Seats also accept raw keycodes.
 
 use lunette_capture::hid::VirtualKey;
 use lunette_compositor::protocol::KeyModifier;
@@ -57,8 +56,8 @@ pub fn modifier_names() -> Vec<String> {
         .collect()
 }
 
-/// The modifiers a keymap reports as locked rather than depressed: a press
-/// turns one on and the next press turns it off.
+/// A keymap reports locked modifiers separately from depressed modifiers. Each locked modifier
+/// toggles on a press.
 pub fn locking_modifier_names() -> Vec<String> {
     KeyModifier::ALL
         .iter()
@@ -78,10 +77,8 @@ static KEY_NAMES: [&str; VirtualKey::ALL.len()] = {
     names
 };
 
-/// The name Lua knows a key by: its variant's name in camelCase.
-///
-/// Written out rather than derived from the variant's `Debug` form, so
-/// renaming a Rust variant does not rename the Lua API.
+/// Lua key names use explicit camelCase strings. Renaming a Rust variant does not change the Lua
+/// API.
 const fn key_name(key: VirtualKey) -> &'static str {
     match key {
         VirtualKey::Escape => "escape",

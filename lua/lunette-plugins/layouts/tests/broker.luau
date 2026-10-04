@@ -1,5 +1,3 @@
--- Covers the layouts broker with the arc layout registered: registration checks, change listeners, the
--- frozen entry get answers, apply's panels, options, and errors, and a registration ending with its owner.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -7,7 +5,6 @@ local layoutsContract = require '@lunette-contracts/layouts'
 
 local test = testing.suite()
 
--- The layouts broker and the arc over the fake native API, with a consumer whose context is `owner`.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'layouts', 'layout/arc' }
@@ -16,7 +13,6 @@ local function start()
   return env
 end
 
--- A consumer of the layouts service, answered as its instance, its context, and the service.
 local function probe(env, name)
   local found = {}
   found.instance = env.session:use(plugin.define {
@@ -66,8 +62,7 @@ test('a change listener hears registrations begin and end, and a raising one doe
       heard += 1
     end,
   })
-  -- The registration has an owner of its own, because an owner has no authority while its own effect is
-  -- disposed.
+  -- A separate owner retains registration authority during listener effect disposal.
   local registrar = probe(env, 'layouts-registrar')
   local stack = registrar.layouts:register(registrar.owner, { name = 'stack', apply = function() end })
   expect.equal(heard, 1, 'the registration is heard')

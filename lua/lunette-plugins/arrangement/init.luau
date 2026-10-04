@@ -1,13 +1,4 @@
--- The desktop's saved arrangement, kept across this plugin's outages: the `desktop/persistence` entry.
---
--- `factory` makes the definition. Each definition keeps one `./state` state outside any activation, so the
--- loaded arrangement, held slots, and a refusal to overwrite survive a disable and enable. Each activation
--- binds the state as a rules source, saves on a drop and at quit, and provides lunette/arrangement. A failed
--- drop save is logged; a failed quit save raises without vetoing the quit. Options: `file`, `format`, and
--- `keyFor`, as state.Dependencies describes.
---
--- The rest of the module is the custom-format API: the file representation and the constructors a format of
--- a configuration's own answers its loads with, and the defaults the options start from.
+-- Persists panel arrangements across provider outages. Unsupported files remain unchanged unless a save is forced. Drop-save failures are logged; quit-save failures are raised without vetoing quit. Custom formats can provide read and render functions.
 local plugin = require '@lunette-plugin'
 local arrangementContract = require '@lunette-contracts/arrangement'
 local drops = require '@lunette-contracts/drops'
@@ -29,7 +20,6 @@ export type Format = state.Format
 export type KeyFor = state.KeyFor
 export type Identified = state.Identified
 
--- What a configuration gives: every option optional.
 export type Config = {
   read file: string?,
   read format: {
@@ -64,8 +54,7 @@ local SAVE_KEYS: { [string]: boolean } = { force = true }
 local function define(): plugin.Definition<Config>
   local made: state.State? = nil
   local madeWith: Settings? = nil
-  -- The state is made once, from the options it was first activated with,
-  -- and made again only if they change.
+  -- Reuse state across activations with identical persistence options.
   local function stateFor(settings: Settings): state.State
     local current = made
     local previous = madeWith

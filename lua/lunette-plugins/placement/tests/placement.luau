@@ -1,6 +1,3 @@
--- Covers the placement provider composed with rules, tags, panels, and the layouts broker: a window placed
--- as a panel by its resolved properties, the tags it joins, and the end of a placement with its source, its
--- effect, or its owner.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -12,8 +9,6 @@ local layoutsContract = require '@lunette-contracts/layouts'
 
 local test = testing.suite()
 
--- The policy providers over the fake native API, a consumer requiring them whose context is `owner`, a tag
--- `primary` it owns, a window, and a rule source giving the window a width and two tags.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'panels', 'tags', 'rules', 'placement', 'layouts', 'layout/arc' }
@@ -92,7 +87,7 @@ test('a placement that fails part way releases its panel, tags, and layer claim'
   local env = start()
   env.source:dispose()
   local before = #env.panels:all()
-  -- Placement logs that it made an undeclared tag, so a raising log fails the placement after its panel.
+  -- A log failure after panel creation exercises acquisition rollback.
   lovr.log = function()
     error 'injected report failure'
   end

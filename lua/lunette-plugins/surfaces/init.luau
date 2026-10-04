@@ -1,4 +1,4 @@
--- The surfaces provider: a broker for the surfaces a pointer can pick, with owner-scoped named offers.
+-- Surface offers are named, ordered, and scoped to their owners.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/surfaces'

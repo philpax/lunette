@@ -1,6 +1,4 @@
--- The tag service contract: owner-scoped groups of borrowed panels. A tag is owned through `new` or shared
--- through `hold`, and every membership, exclusion, selection, and layout change lasts as long as the owner
--- that made it. A tag's layout is a name the layouts broker resolves. See docs/dev/lua-api.md#tags.
+-- Tags borrow panels. Membership, exclusion, selection, and layout changes last for the owning activation.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
@@ -16,8 +14,6 @@ export type Options = {
   read layout: string?,
 }
 
--- What hold takes: the tag's name, and the options it is made with when the
--- call makes it.
 export type Hold = {
   read name: string,
   read index: number?,
@@ -27,18 +23,15 @@ export type Hold = {
 
 export type Owner = owner.Owner
 
--- What setSelected sets: the owner's selection override.
 export type Selection = {
   read selected: boolean,
 }
 
--- What setLayout sets: the owner's layout override. A layout of nil is an
--- override that says the tag has none.
+-- A nil layout explicitly clears the owner's layout override.
 export type LayoutChoice = {
   read layout: string?,
 }
 
--- What exclude takes: the panel the owner keeps out of the tag.
 export type Exclusion = {
   read panel: Panel,
 }
@@ -62,8 +55,6 @@ export type Tag = {
 
 export type Target = Tag | { Tag } | { Panel }
 
--- What changed: a tag being made or ending, its selection, its layout, or
--- its members.
 export type ChangeKind = 'created' | 'destroyed' | 'selection' | 'layout' | 'membership'
 
 export type Change = {

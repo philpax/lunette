@@ -1,6 +1,3 @@
--- Covers the laser module's definition surface: `define` makes a definition whose options are new defaults
--- that a configuration still merges over, `build` makes the service unpublished under the same checks a
--- configuration has, and both reject a malformed option at the call.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -9,7 +6,6 @@ local laser = require '@lunette-plugins/laser'
 
 local test = testing.suite()
 
--- The providers the laser needs over the fake native API, `extra` after them.
 local function start(extra)
   testing.native()
   local entries = { 'drops', 'focus', 'interaction' }

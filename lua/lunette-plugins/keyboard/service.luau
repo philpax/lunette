@@ -1,5 +1,4 @@
--- Keyboards belong to the owner that asked for one. A keyboard's release runs as an inverse on that owner,
--- so a failing release is the owner's failure. Each owner draws and offers its own keyboards.
+-- Each owner offers and draws its own keyboards. Release failures belong to the keyboard owner.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
@@ -13,7 +12,6 @@ local validation = require '@lunette-plugins/keyboard/validation'
 
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
--- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read rows: { keyboard.KeyRow },
   read layers: { [string]: { keyboard.KeyRow } },
@@ -28,8 +26,7 @@ type Board = board.Board
 type RenderedKey = board.RenderedKey
 type Pointer = board.Pointer
 
--- The settings one keyboard uses: the provider's, with the keyboard's own
--- rows, layers, and style over them.
+-- Keyboard options override provider rows, layers, and style.
 local function settingsFor(settings: Settings, options: keyboard.Options?): Settings
   if not options or (options.rows == nil and options.layers == nil and options.style == nil) then
     return settings
@@ -68,7 +65,6 @@ local function scaled(style: keyboard.Style, scale: number): keyboard.Style
   }
 end
 
--- The widest and tallest of a keyboard's layers, in key units.
 local function extentOf(settings: Settings): (number, number)
   local width, height = layout.extentOf(settings.rows)
   for _, rows in settings.layers do
@@ -328,7 +324,7 @@ local function create(
         state.pose:set(pose)
       end
     end,
-    -- The height follows the width, so the keys keep their shape.
+    -- Uniform scaling preserves key proportions.
     setSize = function(_self: keyboard.Surface, wanted: number?, _height: number?): ()
       if state.dead or not wanted or wanted <= 0 or state.width <= 0 then
         return
@@ -399,7 +395,7 @@ local function create(
     table.clear(hovered)
     releaseInput()
   end
-  -- The release runs on the caller's stack, so its failure is the caller's.
+  -- Direct destruction reports release failures to its caller.
   function release(): boolean
     local ok, failure = pcall(releaseRaw)
     dispose()

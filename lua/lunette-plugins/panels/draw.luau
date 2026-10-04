@@ -1,5 +1,4 @@
--- Drawing one panel: its content on the flat quad or the arc, and its chrome. It takes what it reads rather
--- than the panel's host, so panel.luau can require it without a cycle.
+-- Drawing uses panel state and callbacks supplied by the host to avoid a dependency cycle.
 
 local lunette = require '@lunette'
 local contracts = require '@lunette-contracts/panels'
@@ -11,7 +10,6 @@ export type Source =
   { read kind: 'window', read source: lunette.Window }
   | { read kind: 'monitor', read source: lunette.Monitor }
 
--- What drawing reads of a panel, and the mesh it keeps on it.
 export type Drawable = {
   read pose: Mat4,
   read width: number,
@@ -23,9 +21,7 @@ export type Drawable = {
   meshKey: string?,
 } & Source
 
--- The arc mesh of a curved panel, made when first drawn and remade when the
--- panel's size or curve changes. Nil where the graphics module cannot make
--- one, and the panel is then drawn flat.
+-- Curved panels fall back to a flat quad when mesh creation is unavailable.
 local function arcMesh(target: Drawable): Mesh?
   local graphics = lovr.graphics
   if not graphics or not graphics.newMesh then
@@ -45,8 +41,6 @@ local function arcMesh(target: Drawable): Mesh?
   return made
 end
 
--- The default drawing: the source's texture on the flat quad, or on the arc a
--- positive curve gives.
 function draw.content(target: Drawable, pass: Pass, opaqueShader: () -> Shader?)
   local texture: Texture | false
   local shader: Shader?
@@ -84,8 +78,7 @@ function draw.content(target: Drawable, pass: Pass, opaqueShader: () -> Shader?)
   pass:setBlendMode('alpha', 'alphamultiply')
 end
 
--- A border and the title above the panel, drawn when the panel's chrome is
--- on. Decorations a configuration chooses are a consumer's, not this.
+-- Chrome draws the border and title. Other decorations belong to consumers.
 function draw.chrome(target: Drawable, pass: Pass, style: contracts.Style)
   local color = target.highlighted and style.borderHighlightColor or style.borderColor
 

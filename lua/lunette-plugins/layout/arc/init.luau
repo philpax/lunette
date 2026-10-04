@@ -1,6 +1,4 @@
--- The arc layout: registers a layout that poses panels on an arc in front of a centre. Its options are
--- `layout`, the registered name, and `tuning`, which `@lunette-plugins/layout/arc/geometry` takes; a call's
--- options to `layouts:apply` merge over the tuning.
+-- Registers a layout that arranges panels on an arc. Apply options merge over the registered tuning.
 
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
@@ -10,7 +8,6 @@ local arc = {}
 
 export type Tuning = geometry.Tuning
 
--- A tuning with every field optional: what a configuration and a call give.
 export type Options = {
   read radius: number?,
   read step: number?,
@@ -19,13 +16,11 @@ export type Options = {
   read center: { number }?,
 }
 
--- What a configuration gives: every option optional.
 export type Config = {
   read layout: string?,
   read tuning: Options?,
 }
 
--- The resolved options.
 export type Settings = {
   read layout: string,
   read tuning: Tuning,
@@ -53,8 +48,7 @@ local function resolve(label: string, defaults: Settings, config: unknown): Sett
   return settings
 end
 
--- The layout function for a tuning: it poses the panels it is given, merging
--- a call's options over the tuning and validating them under `label`.
+-- The layout validates merged call options, then poses the panels.
 function arc.layout(tuning: Tuning, label: string): ({ layouts.Panel }, unknown?) -> ()
   return function(panels: { layouts.Panel }, options: unknown?): ()
     local chosen = tuning

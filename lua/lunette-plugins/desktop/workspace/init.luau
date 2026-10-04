@@ -1,9 +1,7 @@
--- The desktop's workspace tag, held and selected while active. It is held rather than made, so the entries
--- may start in any order.
+-- Holds the selected workspace tag so entry startup order does not matter.
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read name: string?,
 }

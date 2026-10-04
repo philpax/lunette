@@ -1,12 +1,8 @@
--- The line of text an empty scene shows.
---
--- While no panel exists, the consumer draws `text` at `position`, `size`
--- metres tall, after the panels in the scene phase.
+-- Draws the configured hint after panels while no panel exists.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read text: string?,
   read position: { number }?,

@@ -1,6 +1,4 @@
--- The wrist keyboard button and its lazily created keyboard. Pressing the button on `hand`'s wrist shows or
--- hides a keyboard ahead of the head, at `placement`, and pulses the hand. Only this consumer's own
--- keyboard is offered and drawn here.
+-- The wrist button controls this consumer's keyboard and directs its haptic pulse to the pressing pointer.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -10,7 +8,6 @@ local surfaces = require '@lunette-contracts/surfaces'
 
 export type Hand = 'left' | 'right'
 
--- The resolved options.
 export type Settings = {
   read hand: Hand,
   read size: number,
@@ -26,7 +23,6 @@ export type Settings = {
   },
 }
 
--- What a configuration gives: every option optional.
 export type Config = {
   read hand: Hand?,
   read size: number?,
@@ -58,8 +54,7 @@ local required: plugin.Declaration = {
   surfaces = surfaces.capability,
 }
 
--- The options merged over the defaults, with what the defaults cannot say
--- checked: the hand is one of two, and the offset is three numbers.
+-- The hand must name a supported device, and the offset must contain three numbers.
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/keyboard', defaults = DEFAULTS, config = config }
   if DEVICES[settings.hand] == nil then
@@ -174,8 +169,7 @@ return plugin.define {
         return result
       end,
     })
-    -- Drawn after the panels in the scene phase, as one of the scene's
-    -- surfaces. Only this consumer's own keyboard is drawn here.
+    -- The scene phase follows panel drawing, and this consumer draws its own keyboard.
     frameService:onDraw(context, {
       phase = 'scene',
       order = 1,

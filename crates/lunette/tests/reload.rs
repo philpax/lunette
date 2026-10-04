@@ -106,16 +106,11 @@ fn a_connected_client_does_not_notice_a_reload() {
     );
 }
 
-/// A Lua state with the scaffolding `boot.lua` leaves and a `main` module
-/// that runs. A reload on this state is a whole reload and does not fail at
-/// its last step.
+/// Builds a Lua state with boot scaffolding and a runnable `main` module.
 ///
-/// `main` arrives through `package.preload` and not through a file, because
-/// this case is about the compositor and not about the filesystem. The
-/// `require` here honours `preload` and caches into `loaded`, as Lua's
-/// require does. A require that only read `loaded` would answer nil for the
-/// module a reload runs, the last step of the reload would do nothing, and
-/// the test would still pass.
+/// The module comes from `package.preload` to isolate compositor reload from filesystem
+/// resolution. `require` must call the preload loader and cache its result in `loaded`;
+/// otherwise the reload test could pass without reloading the module.
 fn configured_state() -> Lua {
     let lua = Lua::new();
     lua.load(

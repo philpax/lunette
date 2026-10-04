@@ -1,5 +1,4 @@
--- Capturing panels into an arrangement and restoring an arrangement onto them. Stateless.
-
+-- Captures and restores panel arrangements through service contracts.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
@@ -13,7 +12,6 @@ local arrangement = {}
 
 type Entry = format.Entry
 
--- The identity a panel is saved under, or nil.
 function arrangement.sourceKey(held: slots.Slots, target: panelsContract.Panel): string?
   return held:key(target)
 end
@@ -30,8 +28,7 @@ function arrangement.slotsFor(file: format.File): { [string]: Entry }
   return available
 end
 
--- A window's properties from a file, for the slot the window holds or would
--- take. Records nothing.
+-- Resolves saved window properties without assigning a slot.
 function arrangement.answer(
   available: { [string]: Entry },
   held: slots.Slots,
@@ -49,9 +46,7 @@ function arrangement.answer(
   return { pose = entry.pose, width = entry.width, height = entry.height, tags = entry.tags }
 end
 
--- The slot a panel is saved under. A window panel uses the slot its window
--- holds; a monitor panel counts the live monitor panels of its identity that
--- come before it.
+-- Window panels use held slots; monitor panels use their order among live panels of the same identity.
 function arrangement.panelSlot(
   held: slots.Slots,
   counts: { [string]: number },
@@ -103,8 +98,7 @@ function arrangement.capture(
   return format.newFile(entries)
 end
 
--- Applies a saved entry to a panel, answering whether it applied. Memberships and tag holds are effects of
--- the binding's context, so they end with it.
+-- Applies saved pose, size, and tag membership. Tag holds belong to the binding context.
 function arrangement.apply(
   report: (string) -> (),
   context: plugin.Context,
@@ -128,8 +122,7 @@ function arrangement.apply(
   return true
 end
 
--- Restores each live panel a saved entry matches. Answers the panels restored and the unmatched entries,
--- which the caller reports because it knows what it has reported already.
+-- Restores matching live panels and returns entries without a matching panel for caller-side reporting.
 function arrangement.restore(
   report: (string) -> (),
   held: slots.Slots,
@@ -164,8 +157,7 @@ function arrangement.restore(
   return restored, stale
 end
 
--- Restores a monitor panel that appears after the binding. A window panel takes its slot through the rules
--- source instead.
+-- Restores late monitor panels. Window panels receive saved properties through the rules source.
 function arrangement.arrived(
   report: (string) -> (),
   held: slots.Slots,

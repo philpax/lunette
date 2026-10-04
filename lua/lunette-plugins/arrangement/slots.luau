@@ -1,14 +1,10 @@
--- Which saved slot each live window of an identity holds. A window holds its slot from its panel's creation
--- until it dies, so a reopened window takes the slot it left. Only hold records anything.
-
+-- Holds stable slots for live windows of each saved identity.
 local lunette = require '@lunette'
 
 local slots = {}
 
 type Held = { window: lunette.Window, key: string, slot: number }
 
--- What a key function is asked about: a window or a monitor, as a panel
--- carries it.
 export type Identified =
   { read kind: 'window', read source: lunette.Window }
   | { read kind: 'monitor', read source: lunette.Monitor }
@@ -19,14 +15,12 @@ export type KeyFor = (Identified) -> string?
 export type Slots = {
   read key: (Slots, Identified) -> string?,
   read held: (Slots, lunette.Window) -> number?,
-  -- The slot a window holds, or the lowest one no live window of its identity holds. Records nothing.
+  -- Returns the held slot or lowest free slot without recording it.
   read slotFor: (Slots, lunette.Window) -> number?,
-  -- Records that a window holds its slot, and answers the slot.
   read hold: (Slots, lunette.Window) -> number?,
 }
 
--- The default identity: a window's application id and a monitor's id, when
--- either is a non-empty string.
+-- Uses a window application id or monitor id when it is a non-empty string.
 function slots.defaultKey(target: Identified): string?
   if target.source.dead then
     return nil

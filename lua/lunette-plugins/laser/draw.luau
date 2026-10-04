@@ -1,5 +1,3 @@
--- Beam and cursor rendering for one laser.
-
 local contracts = require '@lunette-contracts/laser'
 
 local draw = {}

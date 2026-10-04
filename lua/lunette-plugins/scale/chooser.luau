@@ -1,8 +1,5 @@
--- Which scale an output is set to, chosen from discrete steps with hysteresis.
---
--- A client reallocates on every scale change, so the scale never tracks distance continuously;
--- docs/dev/compositor.md states the policy. The ladder is `lunette.scaleSteps()`, the one the layer pool
--- quantises sizes against, so a raised panel reuses a rung the free list holds. The module is pure.
+-- Discrete output scales avoid reallocating clients for continuous distance changes.
+-- The chooser uses the same ladder as the compositor layer pool. See docs/dev/compositor.md for the policy.
 
 local contract = require '@lunette-contracts/scale'
 
@@ -10,9 +7,6 @@ local chooser = {}
 
 export type Chooser = contract.Chooser
 
--- What a chooser is tuned by. `reference` is the distance in metres at which a panel renders at scale 1;
--- `raise` and `lower` are the hysteresis margins past the next rung and below the current one, as fractions
--- of the rung; and `nearest` is the closest a panel is treated as being, in metres.
 export type Tuning = {
   read reference: number,
   read raise: number,
@@ -20,12 +14,8 @@ export type Tuning = {
   read nearest: number,
 }
 
--- The scale a panel `distance` metres away would ideally be rendered at,
--- before the ladder and the hysteresis are applied.
 export type Ideal = (number) -> number
 
--- What `new` takes. `steps` is the ladder, ascending. `ideal` replaces the
--- function `chooser.ideal` answers.
 export type Options = {
   read steps: { number },
   read tuning: Tuning,
@@ -34,8 +24,7 @@ export type Options = {
 
 local settle, largestAtMost
 
--- The default ideal scale: inverse in the distance, so legibility is constant. A distance under `nearest`
--- is treated as `nearest`, so a head inside a panel gets the top of the ladder rather than an error.
+-- Scale varies inversely with distance. Distances below `nearest` use that minimum distance.
 function chooser.ideal(tuning: Tuning): Ideal
   return function(distance: number): number
     return tuning.reference / math.max(distance, tuning.nearest)

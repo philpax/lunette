@@ -1,15 +1,8 @@
-//! Linux-only: the window handle Lua holds.
+//! Linux-only: implements window handles for Lua.
 //!
-//! A handle names a toplevel by identifier and caches what the last snapshot
-//! reported about it. Every read refreshes that cache against the frame's
-//! snapshot first, so a handle from three frames ago reports this frame's
-//! title; once the window is gone it reports the title from the last snapshot
-//! that named it.
-//!
-//! The cache refreshes on read. The prohibition on holding Lua references
-//! forces this: Rust cannot walk the handles Lua is keeping, so a walk at
-//! frame start is impossible. A soft reload discards the whole Lua state
-//! without leaving Rust holding anything.
+//! Handles refresh their cached values from each frame snapshot. When a window closes, a handle
+//! retains the last snapshot values and refuses mutations. Rust stores no Lua references, so Lua
+//! state reloads do not leave stale handles in native code.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -51,13 +44,9 @@ impl<T> Window<T> {
         }
     }
 
-    /// Builds a handle for a window named by an event.
+    /// Builds a handle for an event-named window, including a closed window.
     ///
-    /// The window may already be gone. `lunwindowclosed` is dispatched against
-    /// the snapshot that no longer holds it, and that absence is the whole
-    /// content of the event. The cache is seeded from the frame before in that
-    /// case, so the handler is handed a dead handle that still reports the
-    /// title and size from before the window disappeared.
+    /// Closed-window handles use the previous snapshot to preserve last-known title and size.
     pub(crate) fn for_id(session: Rc<Session<T>>, id: WindowId) -> Self {
         let known = session
             .window(id)
@@ -70,8 +59,6 @@ impl<T> Window<T> {
         }
     }
 
-    /// Which toplevel this handle names, for the parts of the module that take
-    /// a window as an argument.
     pub(crate) const fn id(&self) -> WindowId {
         self.id
     }
@@ -96,12 +83,8 @@ impl<T> Window<T> {
     }
 }
 
-/// The latest cached value of each window field.
-///
-/// The surface, the sink, and the output are optional for one case: a handle
-/// built for a window that no snapshot in reach describes. Everything else has
-/// a natural empty value; those three are identifiers, and inventing one would
-/// name something belonging to a different window.
+/// Cached values for a window. Resource identifiers are absent when no available snapshot describes
+/// the window.
 #[derive(Clone, Debug, Default)]
 struct Known {
     surface: Option<SurfaceId>,
@@ -137,8 +120,7 @@ handle! {
     /// with the values it cached, and every mutation it offers is refused.
     Window<T: LuaTexture> = HandleKind::Window;
 
-    /// Stable for the window's whole life and across a soft reload, so a table
-    /// of per-window state keys by it.
+    /// Stable across frames and soft reloads. Per-window properties use this identifier.
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
     field dead(_lua, this) -> bool { Ok(!this.refresh()) }
@@ -165,16 +147,13 @@ handle! {
         Ok(this.known.borrow().size.height)
     }
 
-    /// Whether the fourth component of this window's pixels is padding, not
-    /// alpha. A client negotiating an X-variant fourcc leaves that component at
-    /// a value it wrote, and a caller drawing such a texture forces alpha to
-    /// one and does not sample it. False for a window with no texture yet,
-    /// because there is nothing to draw.
+    /// Whether the fourth pixel component is padding. Clients using an X-variant format do not
+    /// provide alpha; consumers must treat the component as opaque. Returns false until a texture
+    /// exists.
     field opaque(_lua, this) -> bool { Ok(is_opaque(this)) }
 
-    /// What the client says it draws, as `wp_content_type_v1` reports it. The
-    /// report is a hint: adoption is thin, and a client playing video may
-    /// report 'none'.
+    /// The content type reported by `wp_content_type_v1`. The protocol value is a hint; clients may
+    /// report `none` while playing video.
     field contentType(_lua, this) -> ContentTypeName {
         this.refresh();
         let content_type = this.known.borrow().content_type;
@@ -189,36 +168,29 @@ handle! {
         Ok(sink.map(|sink| Sink::window(Rc::clone(&this.session), sink)))
     }
 
-    /// The output the window's client is shown, whose scale and refresh rate
-    /// the client lays out against. Nil for a handle that has never seen its
-    /// window in a snapshot, and while the output is not in the snapshot.
+    /// The output assigned to the window. Returns `nil` if no snapshot has described the window or
+    /// its output.
     field output(_lua, this) -> Option<Output<T>> { Ok(output(this)) }
 
-    /// Which buffer this window's pixels came from: a number that changes
-    /// whenever the client commits a new buffer, and zero while it has
-    /// committed none or is gone. Comparing it across frames tells whether the
-    /// client drew in between.
+    /// A counter that changes when the client commits a buffer. Returns zero before the first
+    /// commit or after the window closes.
     field commit(_lua, this) -> u64 { Ok(commit(this)) }
 
-    /// This frame's pixels. False while the client is gone or has committed
-    /// nothing. Textures rotate as the client cycles its buffers, so the
-    /// texture does not carry across frames.
+    /// This frame's pixels, or `false` when the client is gone or has committed no buffer. The
+    /// texture may change when the client cycles buffers, so callers must not cache it across
+    /// frames.
     method getTexture(lua, this: Textured) -> MaybeTexture { get_texture(lua, this) }
 
-    /// A texture whose identity outlives the frame, at the cost of copying the
-    /// surface on every frame it is damaged.
+    /// Returns a persistent texture copy, updated whenever the surface is damaged.
     method stabilize(lua, this) -> MaybeTexture { stabilize(lua, this) }
 
-    /// Asks the client to close the window. The request is not a kill: the
-    /// client decides what to do with it.
+    /// Requests that the client close the window. The client controls whether it unmaps.
     method close(_lua, this) -> bool { Ok(close(this)) }
 
-    /// Configures the toplevel to a size in pixels. The client resizes at its
-    /// own pace and may settle on a different size.
+    /// Requests a pixel size. The client may commit a different size.
     method resize(_lua, this, width: f64, height: f64) -> bool { resize(this, width, height) }
 
-    /// A ceiling on how often this window's client is let draw, in hertz. Nil
-    /// returns it to unthrottled.
+    /// Sets the client's frame-rate ceiling in hertz. `nil` restores unthrottled pacing.
     method setFrameRate(_lua, this, hertz: Option<f64>) -> bool { set_frame_rate(this, hertz) }
 
     /// Keeps a value for this window across a soft reload. Nil removes the
@@ -238,10 +210,7 @@ handle! {
     method properties(lua, this) -> PropertyMap { properties(lua, this) }
 }
 
-/// `window.output`: the output the window's client is shown.
-///
-/// Read from the snapshot's assignment, because destroying an output moves its
-/// clients. Nil when the snapshot does not hold the output.
+/// Returns the output assigned to the window in the current snapshot.
 fn output<T>(window: &Window<T>) -> Option<Output<T>> {
     window.refresh();
     let id = window.known.borrow().output?;
@@ -253,11 +222,7 @@ fn output<T>(window: &Window<T>) -> Option<Output<T>> {
         .map(|output| Output::new(Rc::clone(&window.session), output))
 }
 
-/// `window.commit`: which buffer the window's texture was made from.
-///
-/// The ledger's counter is shared by every surface and never restarts, so two
-/// differing readings mean a new buffer arrived. Frame pacing reads this as
-/// the observed commit rate.
+/// Returns the texture ledger's buffer commit counter for this window.
 fn commit<T>(window: &Window<T>) -> u64 {
     if !window.refresh() {
         return 0;
@@ -272,14 +237,11 @@ fn commit<T>(window: &Window<T>) -> u64 {
     })
 }
 
-/// `window:getTexture()`: the texture holding this frame's pixels.
+/// Returns the current buffer texture, or `false` when the window is gone or has no committed
+/// buffer.
 ///
-/// Valid for this frame only. Textures rotate as the client cycles its buffers,
-/// so the returned value names a texture that may not exist next frame; call
-/// the method again, or take a copy with `window:stabilize()`.
-///
-/// `false`, and not an error, in two cases, both ordinary: the client is gone,
-/// and the client has not committed anything yet.
+/// The texture is valid for the current frame only. Use `window:stabilize()` to retain a copy
+/// across frames.
 fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<MaybeTexture> {
     let Some(reference) = texture_ref(window) else {
         return Ok(MaybeTexture(Value::Boolean(false)));
@@ -291,28 +253,11 @@ fn get_texture<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Resu
         .with_textures(|textures| answer(lua, textures.lookup(reference, generation)))
 }
 
-/// `window:stabilize()`: a texture whose identity outlives the frame.
+/// Returns a persistent copy of the window texture, updated when the surface is damaged.
 ///
-/// The default is zero-copy, so `window:getTexture()` hands out whichever
-/// buffer the client most recently committed and the texture behind it rotates.
-/// This allocates a lunette-owned texture, copies the client's buffer into it
-/// on every frame the surface is damaged, and returns the same texture every
-/// time.
-///
-/// The copy is the cost, and it is not small: a full surface per damaged
-/// frame, around 3 GB/s for a 4K mirror at 90 Hz. Sampling directly is the
-/// default. Use it only when a persistent texture is wanted: a multi-pass
-/// shader chain, a screenshot, a mesh with cached bindings, or freezing a
-/// window that stopped painting. An idle window costs nothing, because an
-/// undamaged surface is not copied.
-///
-/// A second call returns the same texture, and no further allocation happens.
-/// The identity survives the client cycling its buffers; it does not survive
-/// the client resizing, because a LÖVR texture's dimensions are fixed when it
-/// is created.
-///
-/// `false` in the same two ordinary cases as `window:getTexture()`: the client
-/// is gone, and the client has not committed anything yet.
+/// The copy preserves texture identity across buffer rotations but not window resizes, because LÖVR
+/// texture dimensions are fixed at creation. Copying a damaged surface costs bandwidth; undamaged
+/// surfaces are not copied. Returns `false` when the window is gone or has no committed buffer.
 fn stabilize<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<MaybeTexture> {
     let Some(reference) = texture_ref(window) else {
         return Ok(MaybeTexture(Value::Boolean(false)));
@@ -324,15 +269,10 @@ fn stabilize<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result
         .with_textures(|textures| answer(lua, textures.stabilize(reference, generation)))
 }
 
-/// `window:close()`: asks the client to close the window.
+/// Requests that the client close the window.
 ///
-/// The request is not a kill. The client decides what to do with it: a text
-/// editor with unsaved work puts up a prompt, and a client may ignore it.
-/// The window disappears when the client unmaps it, and
-/// `lovr.lunwindowclosed` reports that unmapping. The close call does not
-/// report it, so a caller waits for the event.
-///
-/// `false` when the client is already gone, without raising.
+/// The request does not terminate the client. The window remains until it unmaps, which
+/// `lovr.lunwindowclosed` reports. Returns `false` if the window is already gone.
 fn close<T>(window: &Window<T>) -> bool {
     if !window.refresh() {
         return false;
@@ -344,23 +284,15 @@ fn close<T>(window: &Window<T>) -> bool {
     true
 }
 
-/// `window:resize(width, height)`: configures the toplevel to a new size.
+/// Requests a new toplevel size in pixels.
 ///
-/// The call is a request: the client resizes at its own pace, and the new size
-/// is visible in `window.width` and `window.height` once the client has
-/// committed a buffer at that size. That happens some frames later, and the
-/// size may then be a different one, because a client may honour its own
-/// minimum or round to a character cell. Nothing here waits for that.
-///
-/// The dimensions are pixels, and both have to be positive whole numbers; a
-/// value that is not is a defect in the caller's maths and raises.
+/// The client controls when and what size it commits. `window.width` and `window.height` change
+/// only after a buffer commit.
 ///
 /// # Errors
 ///
-/// If the size is not a pair of positive pixel counts.
+/// Returns an error unless both dimensions are positive whole pixel counts.
 fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> {
-    // Validated before the liveness check, so a bad size is reported whether
-    // or not the window is still there.
     let size = pixel_size(width, height, "window size")?;
     if !window.refresh() {
         return Ok(false);
@@ -374,28 +306,15 @@ fn resize<T>(window: &Window<T>, width: f64, height: f64) -> mlua::Result<bool> 
     Ok(true)
 }
 
-/// `window:setFrameRate(hz)`: how often this window's client is let draw.
+/// Sets a ceiling on the client's frame callback rate.
 ///
-/// A Wayland client draws only after the compositor answers its frame callback,
-/// so this is what a panel outside the view costs. `nil` returns the window to
-/// unthrottled, which is where every window starts.
-///
-/// The rate is a ceiling, and the floor is approximately 1 Hz, not zero: a
-/// client answered no frame callbacks at all stops pumping its event loop and
-/// stops answering input with it, so a rate below the floor is paced at the
-/// floor. `docs/dev/rendering.md` records why. Assigning a rate to a window is
-/// policy, which the `@lunette-plugins/pacing` provider and the
-/// `desktop/pacing` consumer hold.
-///
-/// `false` on a dead handle, like every other mutation here.
+/// The rate has an approximate 1 Hz floor because a client with no frame callbacks stops processing
+/// input. `nil` restores unthrottled pacing. Returns `false` when the window is gone.
 ///
 /// # Errors
 ///
-/// If the rate is not a finite positive number.
+/// Returns an error unless the rate is finite and positive.
 fn set_frame_rate<T>(window: &Window<T>, hertz: Option<f64>) -> mlua::Result<bool> {
-    // Validated before the liveness check, for the reason `resize` validates
-    // first: a defect in the caller is worth reporting whether or not the
-    // window is still there.
     let pacing = match hertz {
         None => FramePacing::Unthrottled,
         Some(hertz) => FramePacing::Limited(FrameRate::new(hertz).ok_or_else(|| {
@@ -420,30 +339,17 @@ fn set_frame_rate<T>(window: &Window<T>, hertz: Option<f64>) -> mlua::Result<boo
     Ok(true)
 }
 
-/// `window:setProperty(key, value)`: keeps a value for this window across a
-/// reload.
+/// Stores a window property that survives Lua state reloads.
 ///
-/// The store lives in Rust, not in Lua, so it survives the Lua state being
-/// discarded and re-run. That is its purpose: a pose the user placed by hand,
-/// or a size they dragged, is not derivable from any rule, so a reload that
-/// lost it would scramble a hand-arranged workspace.
-///
-/// The value is a number, a string, a boolean, or nil to remove the key.
-/// Anything else raises with the key named, because a table would hold Lua
-/// values and would not survive the reload this exists to survive. A caller
-/// wanting structure encodes it into a string itself.
-///
-/// `false` on a dead handle, like every other mutation here: the entries of a
-/// window that has gone are dropped, so there would be nothing to store into.
+/// Values may be numbers, strings, or booleans. `nil` removes the key. Tables are rejected because
+/// they retain Lua values that cannot survive reloads. Callers can encode structured data as
+/// strings.
+/// Returns `false` for a dead handle.
 ///
 /// # Errors
 ///
-/// If the key is empty or is not UTF-8, or the value is of a kind a property
-/// cannot hold.
+/// Returns an error for an empty or non-UTF-8 key, an unsupported value, or a non-finite number.
 fn set_property<T>(window: &Window<T>, key: &LuaString, value: &Value) -> mlua::Result<bool> {
-    // Validated before the liveness check, for the reason `resize` validates
-    // first: a defect in the caller is worth reporting whether or not the
-    // window is still there.
     let key = property_key(key)?;
     let stored = match value {
         Value::Nil => None,
@@ -472,19 +378,13 @@ fn set_property<T>(window: &Window<T>, key: &LuaString, value: &Value) -> mlua::
     Ok(true)
 }
 
-/// `window:getProperty(key)`: what was kept under `key`, or nil.
+/// Returns the stored value, or `nil` when the key is absent.
 ///
-/// An absent key is nil, not an error: a configuration asking for a pose it
-/// has not placed yet is the ordinary first case.
-///
-/// Readable on a dead handle; the mutations are not. The reason is the same
-/// one that lets a dead handle still report its title: a `lunwindowclosed`
-/// handler tidying up after a panel is the caller that reads what the
-/// panel stored.
+/// Properties remain readable on dead handles so `lunwindowclosed` handlers can inspect them.
 ///
 /// # Errors
 ///
-/// If the key is empty or is not UTF-8.
+/// Returns an error for an empty or non-UTF-8 key.
 fn get_property<T>(
     lua: &mlua::Lua,
     window: &Window<T>,
@@ -501,16 +401,7 @@ fn get_property<T>(
         .map(StoredProperty)
 }
 
-/// `window:properties()`: every key this window is carrying, as a table.
-///
-/// Present so what survived a reload can be discovered, not guessed at. A
-/// configuration that stores under a key it computed, such as a tag name or a
-/// monitor identity, cannot enumerate its own keys after the state holding
-/// them has gone; without this, the store would be readable only by a
-/// configuration that hardcoded every key it ever writes.
-///
-/// The table is fresh on each call and holds a copy. Nothing here hands Lua a
-/// reference into the store.
+/// Returns a fresh table containing copies of all stored properties for this window.
 fn properties<T>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<PropertyMap> {
     let table = lua.create_table()?;
     window.session.with_properties(|properties| {
@@ -523,9 +414,7 @@ fn properties<T>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<PropertyMa
 
 /// Reads the name a property call was made against.
 fn property_key(key: &LuaString) -> mlua::Result<PropertyKey> {
-    // Not `to_string_lossy`: a later lookup matches the key byte for byte, and
-    // replacing an unrepresentable byte would silently merge two distinct keys
-    // into one.
+    // Preserve key bytes exactly; lossy conversion could merge distinct keys.
     PropertyKey::new(&*key.to_str()?).map_err(raised)
 }
 
@@ -553,13 +442,10 @@ fn raised(error: PropertyError) -> mlua::Error {
     mlua::Error::runtime(format!("lunette: {error}"))
 }
 
-/// `window.opaque`: whether the texture's fourth component is padding.
+/// Returns the alpha interpretation recorded for the current buffer.
 ///
-/// Read from the ledger, not from the snapshot, because it is a property of
-/// the buffer the client committed and not of the toplevel. False once the
-/// surface is gone, which is the same answer `window:getTexture()` gives then,
-/// for the same reason: there is nothing left to draw, so there is nothing to
-/// force alpha on.
+/// Opacity belongs to the committed buffer, not the window snapshot. Returns `false` when no buffer
+/// is available.
 fn is_opaque<T>(window: &Window<T>) -> bool {
     window.refresh();
     let Some(surface) = window.known.borrow().surface else {

@@ -1,11 +1,9 @@
--- The desktop's own key bindings: `reload`, F5 unless configured, registered with the bindings broker so it
--- is consumed before any key reaches a client.
+-- Registers the reload chord before key delivery. Configured chords replace F5.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'
 local logging = require '@lunette-plugins/desktop/logging'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read reload: {
     read key: KeyCode?,

@@ -1,5 +1,3 @@
--- Covers the desktop arrange consumer waiting for its layout: a layout that is not registered is logged once,
--- and the consumer arranges as soon as it registers.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'

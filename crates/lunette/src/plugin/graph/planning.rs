@@ -1,5 +1,4 @@
-//! Transition planning: which attachment to unload or load next, and why an
-//! enabled instance cannot load.
+//! Plans lifecycle transitions and diagnostics for enabled instances.
 
 use std::collections::BTreeSet;
 
@@ -9,10 +8,10 @@ use crate::plugin::graph::{
 };
 
 impl Graph {
-    /// Returns the next coordinator action, if one is currently safe to start.
+    /// Returns the next coordinator action.
     ///
-    /// Unloads precede loads, and dependents and children unload before their
-    /// providers and parents.
+    /// Unloads take priority over loads. Dependents and children unload first; providers and
+    /// parents unload after them.
     pub fn next_action(&mut self) -> Option<Action> {
         self.retire_children_of_ending_parents();
         self.remove_retired();
@@ -26,7 +25,6 @@ impl Graph {
         self.plan_load()
     }
 
-    /// Reports whether a live allocation must end.
     ///
     /// It must end when the instance is disabled, retired, reloaded, or shut
     /// down, when its parent will unload, or when any provider it is bound to
@@ -58,7 +56,6 @@ impl Graph {
             })
     }
 
-    /// Reports whether a provider or parent is not active or will unload.
     fn will_unload(&self, instance: InstanceId) -> bool {
         self.will_unload_with_seen(instance, &mut BTreeSet::new())
     }
@@ -76,8 +73,7 @@ impl Graph {
         !active || self.must_unload_with_seen(instance, seen)
     }
 
-    /// Retires the children of every parent whose allocation must end, so the
-    /// children drain first.
+    /// Retires child instances while their parent allocation remains active.
     fn retire_children_of_ending_parents(&mut self) {
         let ending: Vec<InstanceId> = self
             .instances
@@ -105,8 +101,7 @@ impl Graph {
         self.begin_unload(instance)
     }
 
-    /// A provider or parent unloads only after every dependent and child
-    /// allocation has ended.
+    /// Keeps providers and parents active until dependent and child allocations end.
     fn can_unload_now(&self, instance: InstanceId) -> bool {
         !self.instances.values().any(|node| {
             node.phase.allocation().is_some_and(|allocation| {
@@ -169,14 +164,11 @@ impl Graph {
         }
     }
 
-    /// Finds another instance still holding a contract this instance provides:
-    /// normally a draining instance, or a quarantined one that never releases it.
+    /// Finds a conflicting instance that still holds a provided contract.
     fn own_contract_blocker(&self, instance: InstanceId) -> Option<OwnBlocker> {
         let node = self.instances.get(&instance)?;
-        // A rival already quarantined blocks outright wherever it is found,
-        // ahead of any rival that only holds the contract. A rival with a
-        // pending quarantine, an allocation, or a claim holds it until it
-        // drains or yields.
+        // Quarantined rivals block first. Other rivals hold the contract through a pending
+        // quarantine, an allocation, or a claim until they drain or yield.
         let mut held = false;
         for (key, owner, other) in self.rivals(instance, node) {
             if matches!(other.phase, Phase::Quarantined) {

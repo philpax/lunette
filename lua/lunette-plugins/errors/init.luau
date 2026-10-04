@@ -1,8 +1,4 @@
--- The error stream provider. Each activation owns a limiter, a bounded history, its subscribers, and one
--- lunette.onError subscription. `format` and `limiter` are the pure halves. See docs/dev/lua-api.md#errors-stream.
---
--- A report that arrives while subscribers are being called joins the history undelivered, so a presenter
--- that raises on every report cannot feed itself.
+-- Each activation owns its history, limiter, subscribers, and native error subscription. Reports received during delivery enter history without recursive delivery. See docs/dev/lua-api.md#errors-stream.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -13,7 +9,6 @@ local protected = require '@lunette-plugins/protected'
 
 export type Service = contract.Service
 
--- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read window: number,
   read maxKeys: number,
@@ -21,7 +16,6 @@ export type Settings = {
   read clock: () -> number,
 }
 
--- What a configuration gives: every option optional.
 export type Config = {
   read window: number?,
   read maxKeys: number?,

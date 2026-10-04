@@ -1,5 +1,4 @@
--- Panel rendering, and the panels offered to pointers. Offering is a child plugin, so a surfaces outage stops
--- pointing but leaves panels updating and drawing.
+-- Renders panels independently of the surface-offering child plugin.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
@@ -35,7 +34,6 @@ return plugin.define {
   name = 'desktop/render',
   requires = required,
   init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
-    -- The consumer takes no options, so any option is a mistake worth naming.
     plugin.options { name = 'desktop/render', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)

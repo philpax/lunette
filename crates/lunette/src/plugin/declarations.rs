@@ -1,6 +1,6 @@
-//! The native plugin facade and its generated Luau surface. One set of
-//! function descriptors drives both the `lunette.plugin` table and the
-//! generated `PluginApi` type, so the two cannot diverge.
+//! Registers the native plugin facade and generates its Luau declarations.
+//!
+//! Function descriptors define both the runtime table and the `PluginApi` type.
 
 use std::fmt::Write as _;
 
@@ -15,32 +15,27 @@ use crate::{
     },
 };
 
-/// The name of the nested plugin facade on the native module.
 pub const API_NAME: &str = "plugin";
-/// The Luau type of the nested plugin facade.
+
 pub const API_TYPE_NAME: &str = "PluginApi";
 
-/// A function in the plugin facade. Its concrete callback is also the source
-/// for the generated argument and return types.
+/// A plugin function descriptor that supplies its runtime callback and Luau type.
 #[derive(Clone, Copy, Debug)]
 pub struct FunctionSpec {
     pub name: &'static str,
-    /// The parameter names used in the generated declaration.
+
     pub parameters: &'static [&'static str],
-    /// The documentation emitted beside the field.
+
     pub doc: &'static str,
     callback: NativeFunction,
 }
 
-/// A native callback, as the Lua function that calls it and as its Luau type.
 #[derive(Clone, Copy, Debug)]
 struct NativeFunction {
     create: fn(&Lua) -> mlua::Result<Function>,
     ty: fn(&[&'static str]) -> Type,
 }
 
-/// Builds a [`NativeFunction`] from a callback taking its arguments as one
-/// tuple, so each facade function needs its name written once.
 macro_rules! native {
     ($callback:path) => {
         NativeFunction {
@@ -74,9 +69,7 @@ pub fn functions() -> &'static [FunctionSpec] {
     &FUNCTIONS
 }
 
-/// Installs the state-local attachment. It is separate from [`install`]
-/// because reload cleanup retires its epoch even when no configuration has
-/// required `@lunette`.
+/// Installs the state-local attachment independently of the `@lunette` module.
 pub fn install_attachment(lua: &Lua) -> mlua::Result<()> {
     Ok(attachment::install(lua)?)
 }
@@ -196,12 +189,8 @@ const HANDLES: [HandleSpec; 6] = [
     },
 ];
 
-/// Explains the phantom field every handle declares.
-///
-/// The field makes the handle type nominal, so a structural table cannot
-/// satisfy it. Its type is a singleton string rather than `never`, because
-/// Luau treats a table with a `never` property as uninhabited and rejects
-/// casts to any type containing it.
+/// Describes the nominal handle brand. The singleton string field prevents structural
+/// tables from satisfying handle types; Luau rejects casts to types with a `never` field.
 const BRAND_DOC: &str =
     "A type brand that makes this handle nominal. The field does not exist at runtime.";
 

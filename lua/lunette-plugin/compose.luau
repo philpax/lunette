@@ -1,6 +1,4 @@
--- Composition: a list of plugin entries, the patches a configuration applies to it, and the start that
--- makes a runtime from it. Composing is pure: it validates and answers a new frozen list, defining and
--- enabling nothing.
+-- Composition validates plugin entries and patches before a runtime starts.
 
 local adapter = require '@lunette-plugin/adapter'
 local options = require '@lunette-plugin/options'
@@ -10,8 +8,7 @@ local compose = {}
 export type Definition = adapter.Definition<any>
 export type Config = { [string]: any }
 
--- One plugin of a composition: exactly one of `definition` and `factory`. A factory is called once per
--- start, so its definition can keep state across its own provider outages.
+-- Each entry has one definition source. A factory runs once per start, preserving its definition across provider outages.
 export type Entry = {
   read id: string,
   read definition: Definition?,
@@ -19,8 +16,7 @@ export type Entry = {
   read config: Config?,
 }
 
--- A change to an entry list. A patch with `id` disables, replaces, or merges `config` into that entry; a
--- patch with `insert` adds an entry at the end, or `before` or `after` the one it names.
+-- An `id` patch disables or updates an entry. An `insert` patch appends an entry or places it before or after another entry.
 export type Patch = {
   read id: string?,
   read disabled: boolean?,
@@ -32,7 +28,6 @@ export type Patch = {
   read after: string?,
 }
 
--- A started composition: its runtime, and the instance made for each entry, by id.
 export type Running = {
   read runtime: adapter.Runtime,
   read instances: { read [string]: adapter.Instance<any> },
@@ -85,7 +80,6 @@ local function checkConfig(what: string, config: unknown): ()
   end
 end
 
--- Answers a validated, frozen copy of an entry.
 local function checkedEntry(value: unknown, position: string): Entry
   if type(value) ~= 'table' then
     fail(position .. ' is a table of fields, not a ' .. type(value))
@@ -154,7 +148,6 @@ type Keyed = {
   config: Config?,
 }
 
--- Checks a patch with an id and answers its fields.
 local function checkedKeyed(raw: Raw, position: string): Keyed
   local id = raw.id
   if type(id) ~= 'string' or id == '' then
@@ -198,8 +191,7 @@ local function patched(entry: Entry, patch: Keyed): Entry
   return checkedEntry({ id = entry.id, definition = definition, factory = factory, config = config }, 'entry')
 end
 
--- Answers the entries with the patches applied, frozen, raising with the id for a malformed entry or patch,
--- a duplicate id, a patch naming no entry, or one that both disables and changes an entry.
+-- Returns the patched entries in order. It rejects duplicate ids, missing patch targets, and patches that disable and update one entry.
 function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   local result: { Entry } = {}
   for index, value in ipairs(checkedList(entries, 'the entry list')) do
@@ -290,9 +282,7 @@ function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   return table.freeze(result)
 end
 
--- Answers a function that makes the patch configuring the entry whose id is the definition's name. Luau
--- infers `C` from the definition alone, so the configuration the answered function takes is checked
--- against the definition's configuration type. A factory is called once, here, for its definition's name.
+-- The returned function accepts the definition's configuration type. A factory runs once to obtain the entry name.
 function compose.configure<C>(target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
   local definition: unknown = if type(target) == 'function' then target() else target
   local name = type(definition) == 'table' and (definition :: Raw).name
@@ -304,8 +294,7 @@ function compose.configure<C>(target: adapter.Definition<C> | () -> adapter.Defi
   end
 end
 
--- Makes a runtime, enables every entry in order, and drains it. A failure closes the runtime and is raised;
--- an entry's configuration error is that instance's load failure.
+-- Starts entries in order and drains the runtime. A failure closes the runtime; configuration errors remain instance load failures.
 function compose.start(entries: { Entry }): Running
   local checked = compose.apply(entries)
   local runtime = adapter.runtime()

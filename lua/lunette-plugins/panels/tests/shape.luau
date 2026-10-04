@@ -1,6 +1,3 @@
--- Covers lua/lunette-plugins/panels/shape.luau, checking against the cylinder rather than restated
--- formulas.
-
 local testing = require '@testing'
 local expect = testing.expect
 
@@ -38,9 +35,7 @@ test('a panel without a curve picks as a flat quad', function()
 end)
 
 test('a ray leaving the axis meets the arc one radius away', function()
-  -- The panel is at (0, 1, -2) facing +z, so with a radius of 2 the axis
-  -- passes through the origin, and a ray from there toward any angle the arc
-  -- covers meets the arc at the radius.
+  -- The panel's axis passes through the ray origin, so every covered angle intersects at one radius.
   local curve = 0.5
   local radius = 1 / curve
   local half = shape.halfAngle(WIDTH, curve)
@@ -79,8 +74,7 @@ end)
 
 test('the picked arc follows the panel pose', function()
   local pose = lovr.math.newMat4():translate(3, 1, -1):rotate(math.pi / 2, 0, 1, 0)
-  -- Turned a quarter turn about y, the panel faces +x, so its axis is two
-  -- metres along +x from it.
+  -- The rotated panel faces +x, with its axis two metres from the pose.
   local x, _, distance = shape.hit(panel(0.5, pose), vector.pack(5, 1, -1), vector.pack(-1, 0, 0))
   expect.near(x, PIXELS_WIDE / 2, 1e-3, 'the centre of the turned arc')
   expect.near(distance, 2, 1e-5, 'the radius of the turned arc')

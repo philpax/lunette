@@ -1,10 +1,4 @@
--- An error presenter that sends each report as a desktop notification.
---
--- It subscribes to the lunette/errors stream, which has already rate-limited
--- the reports, and runs notify-send with the first line of each. It presents
--- beside the shipped error panel rather than instead of it; disabling the
--- `desktop/errors` entry leaves this the only presenter. `program` names the
--- notifier, and a notifier that does not start is reported once.
+-- Notifications use the rate-limited error stream and include each report's first line. Spawn failure is reported once.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local errors = require '@lunette-contracts/errors'

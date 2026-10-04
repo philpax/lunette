@@ -1,6 +1,4 @@
--- Covers the shipped desktop's composition: its default entries, a configure patch for each of them, a
--- malformed patch failing the configuration's load, and a provider built, wrapped, and published by a patch
--- beside an inserted plugin.
+-- Composition preserves default entry order, checks patches during load, and supports provider replacement and plugin insertion.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'

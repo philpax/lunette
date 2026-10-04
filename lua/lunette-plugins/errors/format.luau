@@ -1,6 +1,4 @@
--- Pure error report formatting: `key` identifies a repeat for the limiter, `report` is the text to show,
--- and `lines` wraps and cuts it for a small surface.
-
+-- Formats error reports and bounds their displayed lines.
 local format = {}
 
 export type Options = {
@@ -62,7 +60,7 @@ function format.lines(state: State, options: Options): { string }
   return lines
 end
 
--- What a report is recognised by when it repeats.
+-- Message and traceback together identify a repeated report.
 function format.key(report: { read message: string, read traceback: string? }): string
   return report.message .. '\n' .. (report.traceback or '')
 end

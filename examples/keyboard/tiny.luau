@@ -1,6 +1,4 @@
--- A keyboard provider written from nothing: one row of three keys. It
--- implements the lunette/keyboard contract itself, so main.luau can put it in
--- the keyboard entry's place as it does split.luau.
+-- The provider implements the keyboard contract with three keys.
 local plugin = require '@lunette-plugin'
 local keyboard = require '@lunette-contracts/keyboard'
 local focusContract = require '@lunette-contracts/focus'

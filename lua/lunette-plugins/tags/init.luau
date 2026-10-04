@@ -1,5 +1,4 @@
--- The tags provider. Membership borrows panels without requiring the panels
--- contract. It takes no options.
+-- Membership borrows panels without requiring the panels contract.
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
 local create = require '@lunette-plugins/tags/service'

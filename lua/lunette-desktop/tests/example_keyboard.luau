@@ -1,5 +1,3 @@
--- Covers examples/keyboard: its configuration starts, draws, and quits, and the split keyboard it patches in
--- is shown by the wrist button with its halves apart.
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
@@ -17,7 +15,6 @@ test('the keyboard example runs, and its split keyboard is shown with its halves
   expect.equal(lovr.draw(events.pass), false, 'draw does not veto')
   expect.equal(lovr.quit(), false, 'quit does not veto')
 
-  -- The split keyboard as the example patches it in, in a desktop whose surfaces the case observes.
   local session = testing.boot(
     desktop.compose {
       patches = {
@@ -48,7 +45,7 @@ test('the keyboard example runs, and its split keyboard is shown with its halves
   end
   expect.truthy(board and board.visible, 'the wrist button shows the keyboard')
   local unit = 0.03
-  -- The number row is ten keys, a wider backspace, and the split.
+  -- The split adds half a key unit between the five and six keys.
   expect.near(board.width, 13 * unit, 1e-9, 'the keyboard width')
   local five, six
   for _, key in ipairs(board:keys()) do

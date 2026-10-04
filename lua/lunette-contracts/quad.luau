@@ -1,5 +1,4 @@
--- Pure ray intersection with a flat quad, kept out of the panels provider so a keyboard or wrist button
--- picks with the same geometry.
+-- Ray intersection maps a flat quad hit to top-left pixel coordinates.
 
 local quad = {}
 
@@ -12,8 +11,6 @@ export type Quad = {
   read backFace: boolean?,
 }
 
--- Returns the pixel coordinate, from the top-left as `sink:pointer` takes it, and the distance along the ray,
--- or nothing.
 function quad.hit(target: Quad, origin: vector, direction: vector): (number?, number?, number?)
   if target.width <= 0 or target.height <= 0 or target.pixelWidth <= 0 or target.pixelHeight <= 0 then
     return nil, nil, nil

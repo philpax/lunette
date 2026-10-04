@@ -1,6 +1,4 @@
--- Covers the saved arrangement end to end through the placement consumers: a saved pose overrides a
--- configured rule and yields to the native pose property, and an unreadable file is never overwritten,
--- through outages and at quit.
+-- Saved poses override rule poses, native pose properties take precedence, and unreadable files remain unchanged across outages and quit.
 local testing = require '@testing'
 local expect = testing.expect
 local persist = require '@lunette-plugins/arrangement'
@@ -11,8 +9,7 @@ local test = testing.suite()
 
 local PROVIDERS = { 'frame', 'panels', 'drops', 'tags', 'rules', 'placement', 'adoption', 'layouts', 'layout/arc' }
 
--- The placement consumers as the composition makes them, each factory called afresh, so each group starts
--- from the arrangement file. Answers a function disposing the group.
+-- Each consumer group uses fresh factories and reads the arrangement file independently.
 local function placementConsumers(session)
   local instances = {
     session:use(require '@lunette-plugins/desktop/workspace'),

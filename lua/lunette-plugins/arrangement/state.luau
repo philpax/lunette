@@ -1,6 +1,4 @@
--- Persistent arrangement state that outlives provider activations; each binding belongs to one activation,
--- and its source and listener are effects of that activation's context. A binding saves when asked, the desktop asking on a drop and at quit. A window holds
--- its saved slot from its panel's creation until it dies.
+-- Arrangement data and window slots persist across provider activations. Each binding's source and listeners end with its activation.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -22,14 +20,11 @@ export type Filesystem = {
   write: (string, string) -> boolean,
   getSaveDirectory: () -> string,
 }
--- How an arrangement is written as text and read back. A reader answers fromTheFuture for a version it
--- cannot represent, so a file it could not write back whole is left alone.
+-- Formats must refuse unsupported versions so a partial read cannot overwrite newer fields.
 export type Format = {
   read read: (unknown) -> format.Loaded,
   read render: (format.File) -> string,
 }
--- What a persistence state is made from: the save-directory `file`, its `format`, and `keyFor`, the
--- identity a window or monitor is saved under.
 export type Dependencies = {
   read filesystem: Filesystem?,
   read report: ((string) -> ())?,
@@ -62,7 +57,6 @@ export type State = {
   ) -> Binding,
 }
 
--- What a binding reaches while its activation lasts.
 type Scope = {
   context: plugin.Context,
   panels: panelsContract.Service,
@@ -106,8 +100,7 @@ function state.path(filesystem: Filesystem?, file: string?): string
   return selected.getSaveDirectory() .. '/' .. (file or FILE)
 end
 
--- A rules source over one file. Resolving is pure: a window answers the slot it holds, or the lowest free
--- one, and takes a slot only when held.
+-- Resolves held slots without assigning one until placement holds it.
 function state.source(file: format.File, held: slots.Slots?): (lunette.Window) -> rulesContract.Properties?
   local available = capture.slotsFor(file)
   local holding = held or slots.new()
@@ -118,8 +111,7 @@ end
 
 state.slots = slots.new
 
--- Reads the file through the format. A reader that raises or answers a non-load makes a broken load, so the
--- file is left alone.
+-- A reader error or non-load answer marks the file broken and prevents write-back.
 local function load(chosen: Format, text: string): format.Loaded
   local ok, answered = pcall(chosen.read, text)
   if not ok then
@@ -156,8 +148,7 @@ function state.new(dependencies: Dependencies?): State
 
   local arrangement: format.File = format.newFile {}
   local declined: string? = nil
-  -- Held across bindings, so a provider outage does not move a live window to
-  -- another window's slot.
+  -- Held slots prevent live windows from changing identity slots during provider outages.
   local held = slots.new(given.keyFor)
   if loaded.kind == 'arrangement' then
     arrangement = loaded.file
@@ -177,8 +168,7 @@ function state.new(dependencies: Dependencies?): State
     report(message)
   end
 
-  -- An unmatched saved entry is reported once per file loaded or saved. Weak keys, so a replaced
-  -- arrangement's entries are not retained.
+  -- Each unmatched entry is reported once per loaded or saved arrangement.
   local reportedStale: { [Entry]: boolean } = setmetatable({} :: { [Entry]: boolean }, { __mode = 'k' })
   local function restore(context: plugin.Context, panels: panelsContract.Service, tags: tagsContract.Service): number
     local restored, stale = capture.restore(report, held, context, panels, tags, arrangement)
@@ -215,7 +205,7 @@ function state.new(dependencies: Dependencies?): State
         error 'desktop.persist: the provider scope is no longer active'
       end
 
-      -- Dropped when the activation ends, so a binding kept past it retains no retired service.
+      -- Clear service references when the activation ends.
       local scope: Scope? = { context = context, panels = panels, tags = tags }
       context:effect(function(): () -> ()
         return function(): ()
@@ -229,7 +219,7 @@ function state.new(dependencies: Dependencies?): State
         end
         return nil
       end
-      -- Read when they run, so a save through this binding reaches windows that appear after it.
+      -- Resolve against the current arrangement when saved windows arrive later.
       local cachedFile: format.File? = nil
       local cachedSlots: { [string]: Entry } = {}
       local function available(): { [string]: Entry }
@@ -248,7 +238,7 @@ function state.new(dependencies: Dependencies?): State
           return false, declined
         end
         local captured = capture.capture(report, held, current.panels, current.tags)
-        -- Capture reports, and a report can end the activation.
+        -- Reporting can end the activation during capture.
         if not live() then
           return false, 'desktop.persist: the provider binding is no longer active'
         end

@@ -1,10 +1,4 @@
--- The arrangement of placed windows that no rule or saved state placed.
---
--- Arranged windows are live placements made without a pose, less any the user has put somewhere: dropped
--- while this consumer was active, or carrying a kept `lunette.pose`. Each tag in `tags`, or every tag, poses
--- its arranged members not already posed, selected tags first, with its own layout or `layout`; `options`
--- are keyed by layout name. The set is rearranged whenever a placement, panel, layout, or tag changes, and a
--- continuous layout every frame. See docs/dev/stdlib.md#default-configuration.
+-- Arranges unposed placements unless the user has dropped them or they carry a persisted pose. Selected tags run first. Continuous layouts update before panel drawing. See docs/dev/stdlib.md#default-configuration.
 local plugin = require '@lunette-plugin'
 local drops = require '@lunette-contracts/drops'
 local frame = require '@lunette-contracts/frame'
@@ -15,7 +9,6 @@ local tags = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local logging = require '@lunette-plugins/desktop/logging'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read layout: string?,
   read options: { read [string]: { read [string]: unknown } }?,
@@ -30,8 +23,7 @@ export type Settings = {
 
 local DEFAULTS: Settings = { layout = 'arc', options = {}, tags = {} }
 
--- Before the panels update in the scene phase, so a continuous layout's poses
--- are the ones this frame draws.
+-- Continuous layouts update before panels draw in the scene phase.
 local UPDATE_ORDER = -10
 
 local required: plugin.Declaration = {
@@ -67,17 +59,16 @@ local function resolve(config: unknown): Settings
   return settings
 end
 
--- Whether a window has a kept pose: the user put it somewhere.
+-- A persisted window pose records a user-selected placement.
 local function kept(panel: panels.WindowPanel): boolean
   local source = panel.source
   return not source.dead and type(source:getProperty(vocabulary.POSE_PROPERTY)) == 'string'
 end
 
--- Each tag to arrange, with the layout and options it is posed with.
 type Plan = { tag: tags.Tag, layout: string, options: { read [string]: unknown }? }
 
 local function define(): plugin.Definition<Config>
-  -- Weak keys, so a dropped panel that has ended is not retained.
+  -- Dropped panels stay excluded while they remain live.
   local dropped: { [panels.Panel]: boolean } = setmetatable({} :: { [panels.Panel]: boolean }, { __mode = 'k' })
   return plugin.define {
     name = 'desktop/arrange',

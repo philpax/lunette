@@ -1,5 +1,4 @@
--- Composition-layer claim management for one panel. The caller checks the owner before any operation
--- that may mint or replace a claim.
+-- Ownership is checked at the call site for each compositor layer claim operation.
 
 local lunette = require '@lunette'
 
@@ -22,7 +21,7 @@ export type Claimant =
   ClaimantFields
   & ({ read kind: 'window', read source: lunette.Window } | { read kind: 'monitor', read source: lunette.Monitor })
 
--- Releases a claim when it cannot hold the current source size.
+-- An undersized layer claim is released and replaced.
 function layer.sync(self: Claimant, pixelWidth: number, pixelHeight: number)
   if self.kind ~= 'window' then
     return

@@ -1,16 +1,10 @@
--- Output scale for the panels in the scene: each frame, every output's chooser is given the head's distance
--- to its nearest shown window panel, and a changed scale is applied with `output:setMode`.
---
--- A shared output takes the nearest panel's scale, since extra pixels are cheaper than a blurred panel.
--- Unloading restores each output's original scale unless something else has set it since.
+-- Each output uses its nearest shown window panel. On unload, the consumer restores the original scale when no other consumer changed it.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local scale = require '@lunette-contracts/scale'
 
--- One output the consumer has chosen for: its latest handle, its chooser,
--- the scale it had before the first change, and the scale last set.
 type Scaled = {
   output: lunette.Output,
   chooser: scale.Chooser,
@@ -18,7 +12,6 @@ type Scaled = {
   applied: number?,
 }
 
--- The nearest shown panel an output's clients are on this frame.
 type Nearest = {
   output: lunette.Output,
   distance: number,
@@ -30,7 +23,6 @@ local required: plugin.Declaration = {
   scale = scale.capability,
 }
 
--- Where the head is, or nothing when the headset reports no position.
 local function headPosition(): (number?, number?, number?)
   local headset = lovr.headset
   if not headset or not headset.getPosition then
@@ -43,7 +35,6 @@ return plugin.define {
   name = 'desktop/scale',
   requires = required,
   init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
-    -- The consumer takes no options; tuning is the scale provider's.
     plugin.options { name = 'desktop/scale', defaults = {}, config = config }
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)

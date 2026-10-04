@@ -1,11 +1,9 @@
--- Covers the desktop bindings consumer: a configured reload chord replaces F5 rather than adding to it.
 local testing = require '@testing'
 local expect = testing.expect
 local bindingsContract = require '@lunette-contracts/bindings'
 
 local test = testing.suite()
 
--- Whether `chords` holds the chord of `key` with exactly `modifiers`, in that order.
 local function holds(chords, key, modifiers)
   for _, chord in ipairs(chords) do
     if chord.key == key and table.concat(chord.modifiers, '+') == table.concat(modifiers, '+') then

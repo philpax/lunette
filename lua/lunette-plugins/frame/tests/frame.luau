@@ -1,6 +1,3 @@
--- Covers the frame provider and the LÖVR callbacks `frame.install` binds to it: update and draw phase order,
--- key and text bindings consuming before delivery, handlers ending with their owner, registration checks,
--- one frame activation at a time, the callbacks during a frame outage, and quit stopping the runtime.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'

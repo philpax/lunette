@@ -1,6 +1,5 @@
--- Covers what keeps the native runtime's resources alive and what releases them: a runtime collected while its
--- instances are active, a close that outruns the request queue, and the host's plugin shutdown. The shutdown
--- cases come last, since shutdown retires every runtime in the state.
+-- Covers active instances after runtime collection, close priority over queued requests, and host shutdown.
+-- Shutdown cases run last because shutdown retires every runtime in the state.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require('@lunette').plugin

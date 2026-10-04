@@ -1,5 +1,4 @@
--- The error stream's bounded, time-window limiter. Callers supply each occurrence's time.
-
+-- Limits repeated error reports by caller-supplied timestamps and a bounded key set.
 local limiter = {}
 
 export type Limiter = {

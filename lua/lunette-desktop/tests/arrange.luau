@@ -1,5 +1,4 @@
--- The arrangement of adopted windows in the shipped composition: a window the user drops leaves the arranged
--- set, so closing another window does not snap it back.
+-- A dropped window stays at its new pose when another window closes and triggers arrangement.
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'

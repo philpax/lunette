@@ -1,6 +1,4 @@
--- The rules provider. Matching and resolving are pure queries over an
--- activation's ordered source registry, and registrations are owner-scoped.
--- Placement is lunette/placement's, so rules requires no other contract.
+-- Rule sources are activation-scoped and ordered. Placement policy is applied by lunette/placement.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -64,8 +62,7 @@ local function checkedRules(service: Service, list: { Rule }): { Rule }
   if type(list) ~= 'table' then
     error('rules: a rules list is a table, not a ' .. type(list), 3)
   end
-  -- A key outside the list's positions would be skipped by ipairs, so a rule
-  -- under one would be dropped without a word.
+  -- Reject non-list keys because `ipairs` would skip them.
   local count = rawlen(list)
   for key, _ in list :: { [unknown]: unknown } do
     if type(key) ~= 'number' or key ~= math.floor(key) or key < 1 or key > count then
@@ -120,7 +117,6 @@ local function report(state: ProviderState, message: string, level: contracts.Lo
   end
 end
 
--- The resolved options: the precedence a rule set takes when it names none.
 export type Settings = {
   read precedence: number,
 }
@@ -132,8 +128,6 @@ local function build(context: plugin.Context, settings: Settings): Service
     registrations = 0,
   }
 
-  -- The published service is revoked with this activation, so its methods
-  -- need no liveness guard of their own.
   context:effect(function(): () -> ()
     return function()
       state.sources = {}
@@ -141,7 +135,6 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end)
 
-  -- Declared before it is assigned, so the methods that delegate through the published service can name it.
   local service: Service
   service = {
     DEFAULT_PRECEDENCE = settings.precedence,
@@ -169,7 +162,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         error('rules: a source resolver is a function, not a ' .. type(resolve), 2)
       end
 
-      -- Replacing another owner's source would end a resource that owner still holds, so a duplicate raises.
+      -- A duplicate name cannot replace a source held by another owner.
       for _, previous in ipairs(state.sources) do
         if previous.name == name then
           error("rules: a source named '" .. name .. "' is already registered", 2)

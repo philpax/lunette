@@ -91,7 +91,7 @@ test('the shipped configuration starts on load and survives ten production reloa
     events.logs = {}
     lovr.keypressed('f5', 0, false)
     expect.equal(#events.logs, 0, 'reload ' .. reload .. ' failed: ' .. tostring(events.logs[1] and events.logs[1][1]))
-    -- A reload enumerates for adoption alone: the demonstration terminal was already decided.
+    -- Reload enumerates for adoption; startup selects the demonstration terminal.
     expect.equal(events.enumerations, reload + 2, 'reload ' .. reload .. ' enumerates once')
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')

@@ -1,9 +1,4 @@
--- The default desktop: the shipped providers and desktop consumers, composed
--- by @lunette-desktop. A configuration changes it with patches keyed by entry
--- id, and `require('@lunette-desktop').entries()` lists the ids.
--- `desktop.configure(definition)` makes a patch of the options of the entry
--- named by the definition's name, which the checker reads against the
--- definition's option types:
+-- The shipped desktop is composed by `@lunette-desktop`. Configurations patch entries by id, and `desktop.configure` checks options against the selected definition:
 --
 --   local desktop = require '@lunette-desktop'
 --   desktop.run {

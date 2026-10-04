@@ -1,6 +1,4 @@
--- The placement service. A placement ends with its owner's effect or its panel. Its panel, hiding, and tags
--- belong to this provider's context within that effect, so the caller requires none of panels, tags, or
--- rules.
+-- Placements own their panels, visibility overrides, and tag memberships through provider effects.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -17,11 +15,9 @@ type Owner = contract.Owner
 type Properties = contract.Properties
 type Tag = tagsContract.Tag
 
--- The default mapping a `panelOptions` hook receives as `base`.
 export type PanelOptionsBase = (Properties, lunette.Window) -> panelsContract.Options
 export type PanelOptions = (Properties, lunette.Window, PanelOptionsBase) -> panelsContract.Options
 
--- The resolved options.
 export type Settings = {
   read panelOptions: PanelOptions,
 }
@@ -53,7 +49,6 @@ local function poseFrom(value: (string | Mat4)?, window: lunette.Window): Mat4?
   return decoded
 end
 
--- The default mapping from properties to panel options.
 function service.panelOptions(properties: Properties, window: lunette.Window): panelsContract.Options
   return {
     pose = poseFrom(properties.pose, window),
@@ -66,8 +61,7 @@ function service.panelOptions(properties: Properties, window: lunette.Window): p
   }
 end
 
--- Joins the tags the properties name. A name is held, and made when no tag
--- has it; a tag value is joined as it is.
+-- String tag names are held, creating a tag when needed; tag values are joined directly.
 local function joinTags(
   state: State,
   created: panelsContract.WindowPanel,
@@ -195,7 +189,7 @@ local function acquire(
   if panel.dead then
     acquired:dispose()
   else
-    -- So a panel removed by its source dying, or by the panels provider, ends its placement.
+    -- Panel removal ends the placement and its tag memberships.
     removal = panels:onRemoved(context, {
       panel = panel,
       run = function()

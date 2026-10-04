@@ -154,28 +154,18 @@ fn run(standard_library: &Path, arguments: &[&str]) -> Outcome {
         .join("tests")
         .join("fixtures")
         .join("require-root");
-    // The check runs first. A mislaid fixture then fails at the assert that
-    // names it, and boot.lua's "no main.luau" path is not reached.
+    // Validate the fixture path and report absence without launching the binary.
     assert!(
         directory.join("lunette").join("main.luau").is_file(),
         "the require-root fixture is missing its main.luau"
     );
 
-    // `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and
-    // fails the boot when it cannot, and the read-only check writes into that
-    // directory on purpose. A temporary one per run gives each run its own
-    // tree and removes the dependency on `HOME`, which is not set in the run.
+    // Each run needs an isolated LÖVR save directory for identity setup and module write-rejection checks.
     let data_directory = temporary_directory("lunette-standard-library-data-");
 
     let output = Command::new(env!("CARGO_BIN_EXE_lunette"))
-        // The fixture directory holds a `lunette` subdirectory, and
-        // `$XDG_CONFIG_HOME/lunette` resolves to it. `HOME` is removed to
-        // keep the run from reaching the developer's own configuration when
-        // the fixture is mislaid. The run would otherwise pass confusingly.
-        // `LUNETTE_CONFIG_PATH` is removed for the same reason as `HOME`: a
-        // developer's shell exports it to point a session at the working
-        // copy, and a mislaid fixture would otherwise load the shipped
-        // configuration and pass confusingly.
+        // Isolate configuration lookup from developer environment variables so the fixture
+        // cannot pass by loading a local or shipped configuration.
         .env_remove("LUNETTE_CONFIG_PATH")
         .env("XDG_CONFIG_HOME", &directory)
         .env("XDG_DATA_HOME", data_directory.path())

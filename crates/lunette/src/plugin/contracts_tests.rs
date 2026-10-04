@@ -82,8 +82,7 @@ fn declaration_shape_rejected() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The host retires an epoch by replacing its registry, so a token from the
-/// dropped registry is retired and its identity may be declared again.
+/// Tokens from a replaced registry are retired, and their identities can be declared again.
 #[test]
 fn stale_contract_epoch() -> Result<(), Box<dyn Error>> {
     let old = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
@@ -161,8 +160,7 @@ fn a_wrapper_bound_in_another_registry_is_unbound() -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-/// A token error names where the token was presented: the declaration field
-/// that holds it, or the contract it was declared for when it is bound.
+/// Token errors identify the declaration field or the declared contract.
 #[test]
 fn token_errors_name_the_field_or_contract() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();

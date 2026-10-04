@@ -1,11 +1,4 @@
--- Starting plugins for a test: `start` for a few plugins in a runtime of their own, and `boot` for a
--- composition driven through LÖVR's callbacks, as the desktop runs.
---
--- Both take a list of entries in the composition's shape, `{ id, definition | factory, config }`, so a test
--- starts exactly the plugins it names. An entry may also be a string, the path of a built-in plugin under
--- `@lunette-plugins`: `'panels'` is `{ id = 'panels', definition = require('@lunette-plugins/panels').definition }`.
--- Both answer a session, whose `observe` reaches a contract's service as a plugin of its own and stays
--- current across the provider's outages.
+-- Starts plugins for tests and boots compositions through LÖVR's callbacks.
 
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
@@ -17,18 +10,14 @@ local session = {}
 local Session = {}
 Session.__index = Session
 
--- Defined below the public functions, in the order they use them.
 local entryOf, startSession
 
--- Starts `entries` in a new runtime, enabling each in order, and answers the session. Nothing is installed
--- on `@lunette` or `lovr`; a test that needs the fake native API calls `testing.native()` first.
+-- Starts entries in a new runtime without installing the fake native API.
 function session.start(entries)
   return startSession(entries, nil)
 end
 
--- Installs a fake native API, or `options.native` when given, binds LÖVR's callbacks through
--- `frame.install`, starts `entries`, and answers the session. `session.native` is the fake, and
--- `session:update`, `session:draw`, and `session:quit` call the bound callbacks.
+-- Installs the fake native API and binds LÖVR's callbacks for the session.
 function session.boot(entries, options)
   local fake = options and options.native or native.new()
   local current
@@ -42,16 +31,13 @@ function session.boot(entries, options)
   return current
 end
 
--- Enables `definition` with `config` in the session's runtime and answers its instance.
 function Session:use(definition, config)
   local instance = self.runtime:use(definition, config or {})
   instance:enable()
   return instance
 end
 
--- A plugin of its own requiring `capability`, answered as `{ service, context, instance }`. The service and
--- context are replaced each time the plugin activates again, so the answer stays current after the provider
--- returns from an outage.
+-- Observes a service through a dependent plugin, refreshing the service and context after provider recovery.
 function Session:observe(capability)
   self.observers += 1
   local observed = {}
@@ -66,7 +52,6 @@ function Session:observe(capability)
   return observed
 end
 
--- Announces that a grab let go of `surface`, as interaction does.
 function Session:drop(surface)
   local observed = self.dropObserver
   if not observed then
@@ -76,22 +61,19 @@ function Session:drop(surface)
   observed.service:emit(observed.context, { surface = surface, pointer = {} })
 end
 
--- Runs the bound `lovr.update` once, by `dt` or a 60 Hz frame.
 function Session:update(dt)
   lovr.update(dt or 0.016)
 end
 
--- Runs the bound `lovr.draw` with the fake's pass, and answers what it answers.
 function Session:draw()
   return lovr.draw(self.native.events.pass)
 end
 
--- Runs the bound `lovr.quit`, and answers what it answers.
 function Session:quit()
   return lovr.quit()
 end
 
--- Closes the runtime and, with a fake native API, raises unless every native resource was released.
+-- Closes the runtime and verifies release of native resources when the fake API is installed.
 function Session:close()
   self.runtime:close()
   if self.native then

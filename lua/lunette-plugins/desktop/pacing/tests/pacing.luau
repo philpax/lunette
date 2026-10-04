@@ -1,7 +1,3 @@
--- Covers the desktop pacing consumer over the panels in the scene: a hidden panel's window falls to the floor
--- rate and a hidden monitor panel's capture pauses, and each returns when its panel is shown again, when its
--- panel is removed, when the consumer or the pacing provider unloads, and when the runtime closes. The pacer's
--- own decisions are covered by `pacing/tests/pacer.luau`.
 local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'

@@ -1,5 +1,4 @@
--- A protected call that reports its error through lunette.reportError rather than raising it, so a
--- provider calling other plugins' callbacks goes on to the next and one defect does not hide another.
+-- A protected call reports callback errors through lunette.reportError. Providers continue to later callbacks.
 
 local lunette = require '@lunette'
 

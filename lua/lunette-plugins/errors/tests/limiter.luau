@@ -1,4 +1,3 @@
--- Covers the error stream's pure halves: the repeat limiter and the formatting of a report.
 local testing = require '@testing'
 local expect = testing.expect
 local limiter = require '@lunette-plugins/errors/limiter'

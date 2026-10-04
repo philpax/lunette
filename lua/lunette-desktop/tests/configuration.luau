@@ -1,5 +1,4 @@
--- Covers the configuration of the shipped desktop's entries: every entry rejects an option it does not take,
--- naming itself and the option, and a configured desktop serves what its patches configured.
+-- Desktop entries reject unknown and mistyped options, and configured values reach their services.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -12,7 +11,6 @@ local adoption = require '@lunette-contracts/adoption'
 
 local test = testing.suite()
 
--- Starts the desktop with `patch` and answers the diagnostic of the entry it names, which must have failed.
 local function rejection(patch)
   testing.native()
   local running = plugin.start(desktop.compose { patches = { patch } })

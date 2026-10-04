@@ -1,4 +1,3 @@
--- Covers the focus provider: keyboard focus grants held per owner and seat, and their change listeners.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -6,8 +5,6 @@ local focusContract = require '@lunette-contracts/focus'
 
 local test = testing.suite()
 
--- The focus provider over the fake native API, two consumers whose contexts are `owner` and `other`, two
--- seats that record the sink they were given, two sinks, and the changes heard by a listener of `owner`.
 local function start()
   local env = { native = testing.native(), heard = {} }
   env.session = testing.start { 'focus' }

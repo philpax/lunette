@@ -21,7 +21,6 @@ local function entry(kind, key, slot, x)
   }
 end
 
--- The shipped desktop over a saved arrangement placing a monitor at x 3 and two terminals at x 5 and 7.
 local function start()
   local fake = testing.native()
   fake.events.saved = persist.render(persist.newFile {
@@ -52,8 +51,7 @@ test('a hotplugged, replugged, or remirrored monitor takes its saved placement a
   expect.equal(mirrored.width, 1.25, 'and its saved size')
   mirrored = nil
 
-  -- A monitor replugged before the next update is mirrored at once. A function per replug, so no handle
-  -- outlives it in a register of the case.
+  -- Replugging creates a new mirror before the next update and releases the prior monitor handle.
   local gone = setmetatable({}, { __mode = 'k' })
   local function replug()
     local previous = panels.service:forSource(monitor)
@@ -99,8 +97,7 @@ test('windows of one application take its saved slots, and a reopened window tak
   testing.collect()
   expect.equal(next(closed), nil, 'a closed window is not retained by its ended adoption or slot')
 
-  -- Placement requires tags, and adoption placement, so a tags outage withdraws the adopted panels and keeps
-  -- rules, rendering, the mirrors, and the layouts. Recovery adopts the windows again into their slots.
+  -- A tags outage withdraws adoption-dependent panels but keeps rules, rendering, mirrors, and layouts active.
   local adopted = panels.service:forSource(reopened)
   local instances = session.instances
   instances.tags:disable()

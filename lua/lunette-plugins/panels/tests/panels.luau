@@ -1,5 +1,3 @@
--- Covers the panels provider's registry: creating, finding, drawing, and destroying panels over the fake
--- native API, what a panel retains once it ends, and a claim that fails as a panel is created.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -7,8 +5,6 @@ local panelsContract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
--- The panels provider over the fake native API, and a consumer of it whose context is `owner`. The fake's
--- graphics module makes shaders, counted in `shaders`.
 local function start(config)
   local env = { native = testing.native(), shaders = { made = 0, released = 0 } }
   lovr.graphics.newShader = function()
@@ -32,7 +28,6 @@ local function start(config)
   return env
 end
 
--- The context of another plugin requiring panels.
 local function another(env)
   return env.session:observe(panelsContract.capability).context
 end

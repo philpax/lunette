@@ -1,13 +1,4 @@
--- A grid layout: windows in rows and columns on a wall in front of the user.
---
--- The plugin registers a layout named `grid` with the layouts broker and does
--- nothing else. Which windows the grid gets, and when, is the arranging
--- consumer's business, so the same layout serves `desktop/arrange` and any
--- other caller of `layouts:apply`.
---
--- The options are `columns`, the number of columns, or 0 to choose a square
--- grid for the number of windows; `gap`, the room between windows in metres;
--- and `center`, the middle of the wall.
+-- The grid layout is independent of the consumer that selects its panels and invocation time.
 
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
@@ -20,8 +11,6 @@ export type Options = {
 
 local DEFAULTS: Options = { columns = 0, gap = 0.08, center = { 0, 1.5, -1.8 } }
 
--- The options a caller passed, merged over the defaults and checked. A
--- misspelt option raises here, naming it, rather than being ignored.
 local function resolve(given: unknown): Options
   local options: Options = plugin.options { name = 'grid', defaults = DEFAULTS, config = given }
   local columns = options.columns
@@ -42,7 +31,7 @@ local function grid(panels: { layouts.Panel }, given: unknown?): ()
   end
   local columns = if options.columns > 0 then options.columns else math.ceil(math.sqrt(count))
   local rows = math.ceil(count / columns)
-  -- Every cell is as large as the largest window, so the grid stays regular.
+  -- Every cell uses the largest panel dimensions to keep the grid aligned.
   local cellWidth, cellHeight = 0, 0
   for _, panel in ipairs(panels) do
     cellWidth = math.max(cellWidth, panel.width or 0)
@@ -65,7 +54,7 @@ return plugin.define {
   requires = { layouts = layouts.capability },
   init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
     local service: layouts.Service = context:require(layouts.capability)
-    -- The registration is the plugin's own, so it ends when the plugin unloads.
+    -- The registration ends with the plugin activation.
     service:register(context, { name = 'grid', apply = grid })
   end,
 }

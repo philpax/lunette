@@ -1,11 +1,9 @@
--- Two-hand pointing at every surface the desktop's plugins offer. `laser` is the options each hand's laser
--- is attached with, replacing the default wholesale.
+-- Attaches two-hand pointing to the surfaces offered by desktop plugins.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local laser = require '@lunette-contracts/laser'
 local surfaces = require '@lunette-contracts/surfaces'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read laser: laser.Options?,
 }

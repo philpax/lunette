@@ -1,16 +1,13 @@
--- Field validation and configuration merging for plugin definitions. A record merges key by key; any other
--- value, lists included, replaces its default. The defaults are the schema.
+-- Plugin options merge records recursively; lists and other values replace their defaults.
 
 local options = {}
 
--- The fields `plugin.options` accepts.
 export type Spec<S> = {
   read name: string,
   read defaults: S,
   read config: unknown,
 }
 
--- The fields `plugin.merge` accepts.
 export type MergeSpec = {
   read base: { [string]: unknown }?,
   read over: { [string]: unknown }?,
@@ -18,10 +15,7 @@ export type MergeSpec = {
 
 type Raw = { [unknown]: unknown }
 
--- Raises an error naming the first key outside `allowed`, so a misspelt field is reported rather than
--- ignored. The error reads `<prefix>: unknown field <key>; the fields are <fields>`. `level` counts as
--- `error`'s does, but from the function that calls this one: 1 names that function, 2 its caller, and 0
--- gives no position.
+-- `level` offsets the error location from the caller: 1 names the caller, 2 its caller, and 0 omits a position.
 function options.rejectUnknownFields(
   prefix: string,
   value: unknown,
@@ -43,9 +37,7 @@ end
 
 local COUNTS = { 'one number', 'two numbers', 'three numbers', 'four numbers' }
 
--- Raises unless the option is exactly `count` finite numbers. A list option replaces its default whole, so
--- an option such as a position is checked here: a bad element would otherwise pass the load and fail every
--- frame that reads it.
+-- List options replace defaults, so finite-number validation prevents invalid positions from reaching frame updates.
 function options.checkNumbers(name: string, option: string, value: unknown, count: number): ()
   local what = COUNTS[count] or `{count} numbers`
   if type(value) ~= 'table' then
@@ -72,9 +64,7 @@ function options.checkNumbers(name: string, option: string, value: unknown, coun
   end
 end
 
--- Whether a value merges key by key rather than being replaced. An empty
--- table is not a record: nothing distinguishes an empty record from an empty
--- list, and replacing it loses nothing.
+-- Empty tables replace defaults because they do not distinguish records from lists.
 function options.isRecord(value: unknown): boolean
   if type(value) ~= 'table' or getmetatable(value :: any) ~= nil then
     return false
@@ -91,8 +81,7 @@ function options.isRecord(value: unknown): boolean
   return next(raw) ~= nil
 end
 
--- Copies plain tables recursively and freezes the copies. A table with a
--- metatable is a value of its own, such as a vector or matrix, and is kept.
+-- Metatable-backed values such as vectors and matrices retain their identity.
 local function frozenCopy(value: unknown): unknown
   if type(value) ~= 'table' or getmetatable(value :: any) ~= nil then
     return value
@@ -153,8 +142,7 @@ local function validated(name: string, path: string, defaults: Raw, given: Raw):
   return result
 end
 
--- Answers `config` merged over `defaults`, copied and frozen, raising for an option the defaults do not
--- name or a value of another type. A nil `config` answers the defaults.
+-- Configuration keys must exist in the defaults and values must match their default types. Nil configuration returns the defaults.
 function options.resolve<S>(spec: Spec<S>): S
   local name, defaults, config = spec.name, spec.defaults, spec.config
   if config == nil then

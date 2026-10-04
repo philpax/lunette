@@ -1,14 +1,9 @@
--- Mirrors of the host's monitors, laid side by side. Each monitor `select` names, or every monitor, gets one
--- monitor panel, now and on hotplug, and the capture ends with the panel.
---
--- Mirrors take the lowest free place in a row centred on `center`, counting outward and right before left,
--- so they never overlap. Tagging is a child plugin, so a tags outage leaves the mirrors in place.
+-- Mirrors selected host monitors in a non-overlapping row. Tagging runs as a child, so tag-provider outages leave mirrors active.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read select: { string }?,
   read placement: {
@@ -60,8 +55,7 @@ local function resolve(config: unknown): Settings
   return settings
 end
 
--- The offset, in places from the centre, of the place with this index:
--- 0, 1, -1, 2, -2, and so on.
+-- Places alternate outward from the center, beginning to the right.
 local function offsetOf(place: number): number
   if place % 2 == 1 then
     return (place + 1) / 2
@@ -69,7 +63,6 @@ local function offsetOf(place: number): number
   return -place / 2
 end
 
--- What the tagging child and the mirrors share for one activation.
 type Shared = {
   mirrors: { [unknown]: panels.MonitorPanel },
   tag: ((panels.MonitorPanel) -> ())?,
@@ -160,8 +153,7 @@ return plugin.define {
         if not existing.source.dead then
           return
         end
-        -- The monitor was replugged before an update retired the panel over
-        -- its previous handle.
+        -- A replug can arrive before the update retires the panel's stale handle.
         existing:destroy(context)
       end
       if panelService:forSource(monitor) then

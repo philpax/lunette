@@ -1,9 +1,7 @@
-//! Runtime graph execution: requests, drains, loads, unloads, and failure
-//! reporting for the plugin attachment.
+//! Executes graph requests and reports plugin lifecycle failures.
 //!
-//! Requests apply to the graph immediately and return its rejection to the
-//! caller. Planning derives from graph state, so a drain picks up requests
-//! made while it runs, and the next drain finds work this one did not reach.
+//! Intents update graph state immediately. Each drain plans from current state,
+//! including requests made during earlier drains.
 
 use std::{
     cell::RefCell,
@@ -134,9 +132,8 @@ pub(super) fn instance_diagnostic(
     state.instances.get(&id)?.last_diagnostic.clone()
 }
 
-/// Performs lifecycle work until the graph has none or the action budget is
-/// spent. The budget, which scales with the instance count, stops a defect
-/// from looping forever.
+/// Performs lifecycle work until the graph has no action or the budget expires.
+/// The budget scales with the instance count and bounds repeated transitions.
 pub(super) fn drain_runtime(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
@@ -185,7 +182,7 @@ fn drain_actions(lua: &Lua, runtime: &Rc<RefCell<RuntimeState>>) -> Result<(), A
             if !runtime.borrow().closing {
                 return Err(error);
             }
-            // Shutdown attempts every remaining cleanup even after an internal failure.
+            // Shutdown records internal failures and continues draining.
             record_error(runtime, error);
         }
     }
@@ -219,11 +216,9 @@ pub(super) fn close_runtime(
     drain_runtime(lua, runtime)
 }
 
-/// Runs an operation that may acquire or release resources, then performs
-/// the lifecycle work it caused.
+/// Runs an operation and drains the lifecycle work it queues.
 ///
-/// The operation's result is accounted for before queued work can replace its
-/// allocation, because no drain runs while it does.
+/// The operation's result is handled before a drain can replace its allocation.
 pub(super) fn lifecycle_operation<R>(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
@@ -243,7 +238,6 @@ pub(super) fn lifecycle_operation<R>(
     Ok(value)
 }
 
-/// Calls plugin code with the callback depth raised for its duration.
 pub(super) fn callback_call<R>(
     runtime: &Rc<RefCell<RuntimeState>>,
     callback: impl FnOnce() -> mlua::Result<R>,
@@ -368,9 +362,8 @@ fn begin_load(
     }
 }
 
-/// A load whose activation was cancelled by an intent ended because of that
-/// cancellation, not because the plugin failed. A load whose cleanup failed
-/// is a failure even though it can no longer publish.
+/// Intent cancellation does not count as a plugin failure. An inverse failure during
+/// cancellation still counts as a failure.
 fn load_was_cancelled(
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,

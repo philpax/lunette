@@ -1,6 +1,5 @@
--- The arc layout's geometry: panels face the centre from a circle of `radius` at its height, at least
--- `step` radians apart and further when wide enough to meet, with `gap` metres between edges. An arc wider
--- than `span` shrinks every separation by one factor, and may then overlap.
+-- Panels face the centre from a circle. Adjacent panels keep the minimum angular step and edge gap when
+-- they fit within the span; larger layouts scale separations uniformly and may overlap.
 
 local plugin = require '@lunette-plugin'
 
@@ -14,8 +13,7 @@ export type Tuning = {
   read center: { number },
 }
 
--- The angle of each panel, in the order of `widths`, in radians about the
--- vertical axis, with zero straight ahead and positive to the left.
+-- Returns panel angles in width order. Zero faces forward, and positive angles turn left.
 function geometry.angles(widths: { number }, tuning: Tuning): { number }
   local count = #widths
   local placed: { number } = {}
@@ -46,7 +44,6 @@ function geometry.angles(widths: { number }, tuning: Tuning): { number }
   return placed
 end
 
--- The pose of each panel, in the order of `widths`.
 function geometry.poses(widths: { number }, tuning: Tuning): { Mat4 }
   local radius, center = tuning.radius, tuning.center
   local placed: { Mat4 } = {}

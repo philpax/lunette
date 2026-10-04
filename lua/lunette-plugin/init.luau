@@ -1,5 +1,4 @@
--- The typed plugin authoring facade. Relationships live in the public types, the adapter enforces them at
--- runtime, and a contract is declared only through `plugin.capability`, so no unbound token is exported.
+-- The typed facade declares plugin contracts and validates them at runtime.
 
 local native = require '@lunette'
 local adapter = require '@lunette-plugin/adapter'

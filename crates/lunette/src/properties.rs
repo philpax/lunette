@@ -1,39 +1,8 @@
-//! Per-window state that outlives the Lua state.
+//! Per-window configuration state that survives Lua reloads.
 //!
-//! A soft reload discards the Lua state and re-runs `main.luau`
-//! (`docs/dev/architecture.md`); anything the standard library must remember
-//! across a reload cannot be kept in Lua. State a rule can derive comes back
-//! when the rules re-run; a pose the user placed by hand, a size they
-//! dragged, a tag they assigned by hand do not. This store holds those.
-//!
-//! # `win.userdata`
-//!
-//! `docs/dev/architecture.md` gives windows a `userdata` field, the obvious place
-//! for per-window state. It holds a Lua value, and a Lua value does not
-//! survive its state being discarded. `userdata` is for state that is worth
-//! keeping for the rest of the session and worth losing on a reload; this
-//! store is for the rest. The two have different lifetimes, and both are
-//! needed; neither replaces the other.
-//!
-//! # Plain values only
-//!
-//! [`PropertyValue`] is a boolean, a finite number, or a string, and a table
-//! is refused by name. A table would hold Lua values, the same problem one
-//! level down: the entries would be dangling references the moment the state
-//! is discarded. A caller that requires structure encodes it into a string
-//! itself and keeps the meaning of that encoding.
-//!
-//! # Lineage
-//!
-//! awesome keeps per-client state in X properties on the window, because
-//! those outlive the window manager's own process, and skips or alters rule
-//! application at startup when any are present. lunette has no X server, and
-//! this is the adaptation: a native store that outlives the Lua state for the
-//! same reason. `docs/dev/lua-api.md` records the choice.
-//!
-//! Writing any of this to disk, to survive a full restart, belongs to the
-//! standard library, not to this module. This store is live state, keyed by
-//! an identifier that a restart does not preserve.
+//! The store holds booleans, finite numbers, and strings. No value retains a Lua reference after
+//! its state closes. The store holds session state only; persistence across process restarts
+//! to the standard library.
 
 use std::{
     borrow::Borrow,
@@ -45,10 +14,7 @@ use std::{
 use lunette_compositor::protocol::WindowId;
 use lunette_luau::Type;
 
-/// The properties every window is carrying, keyed by window.
-///
-/// Empty until something is stored. A window with no properties occupies
-/// nothing; most windows never acquire one.
+/// Stores properties by window and removes empty window entries.
 #[derive(Debug, Default)]
 pub struct WindowProperties {
     windows: HashMap<WindowId, BTreeMap<PropertyKey, PropertyValue>>,
@@ -82,29 +48,18 @@ impl WindowProperties {
         removed
     }
 
-    /// What `window` holds under `key`, if anything.
-    ///
-    /// An absent key is `None`, not an error. A configuration asking for a
-    /// pose it has not yet placed is the ordinary first case.
+    /// Returns `None` when the window or key has no stored value.
     #[must_use]
     pub fn get(&self, window: WindowId, key: &str) -> Option<&PropertyValue> {
         self.windows.get(&window)?.get(key)
     }
 
-    /// Everything `window` holds, in key order.
-    ///
-    /// The order does not depend on the hash of keys the caller supplied. The
-    /// order is not part of the Lua surface, because a Lua table has none; the
-    /// fixed order lets a test assert one answer.
+    /// Returns the window's properties in key order.
     pub fn of(&self, window: WindowId) -> impl Iterator<Item = (&PropertyKey, &PropertyValue)> {
         self.windows.get(&window).into_iter().flatten()
     }
 
-    /// Drops the properties of every window `live` does not name.
-    ///
-    /// Called once per frame with the windows the frame can still describe.
-    /// Entries live as long as the window does, not as long as the Lua state; a
-    /// reload leaves them untouched, and a window closing removes its properties.
+    /// Removes properties for closed windows. The store survives Lua reloads.
     pub fn retain(&mut self, live: &[WindowId]) {
         self.windows.retain(|window, _| live.contains(window));
     }
@@ -122,10 +77,7 @@ impl WindowProperties {
     }
 }
 
-/// The name a property is stored under.
-///
-/// A newtype over `String`, because the store's whole surface takes a key,
-/// and a bare `String` argument could be the value.
+/// The non-empty name a property is stored under.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PropertyKey(String);
 
@@ -163,23 +115,13 @@ impl fmt::Display for PropertyKey {
     }
 }
 
-/// The Luau type of [`PropertyValue`], in the order the union states it.
-///
-/// Built from structure. What a property is declared to hold carries no
-/// punctuation of its own: whether it ends up optional or inside a table
-/// is the caller's to decide, and the rendering follows from the structure.
-/// `the_declared_union_covers_every_variant` verifies the union against the
-/// enum.
+/// The Luau union of boolean, number, and string values.
 #[must_use]
 pub fn property_value() -> Type {
     Type::Union(vec![Type::BOOLEAN, Type::NUMBER, Type::STRING])
 }
 
-/// What a property may hold.
-///
-/// Not a Lua value. Tables are refused by name, because a Lua table would
-/// dangle once the state it belongs to is discarded. See the module
-/// documentation.
+/// A persistent property value that does not retain Lua state.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyValue {
     Boolean(bool),
@@ -190,16 +132,9 @@ pub enum PropertyValue {
 }
 
 impl PropertyValue {
-    /// Reads a number, refusing one that is not finite.
+    /// Creates a number value. Returns an error when the number is not finite.
     ///
-    /// A nan or an infinity here is a defect in the caller's maths; the
-    /// likeliest source is a pose derived from a zero-length vector. Storing
-    /// it returns the same broken value after a reload, where it is harder to
-    /// trace. `lunette.claimLayer` refuses a nan priority for the same reason.
-    ///
-    /// # Errors
-    ///
-    /// If the number is not finite.
+    /// Non-finite values persist across Lua reloads and can propagate invalid poses.
     pub fn number(key: &PropertyKey, value: f64) -> Result<Self, PropertyError> {
         if !value.is_finite() {
             return Err(PropertyError::NotFinite {
@@ -211,12 +146,11 @@ impl PropertyValue {
     }
 }
 
-/// What a caller supplied that the store cannot hold.
+/// An invalid property key or value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyError {
     /// The key names nothing.
     EmptyKey,
-    /// The value is of a kind the store cannot hold.
     Unsupported {
         key: PropertyKey,
         /// What the value is, for the message. Lua's own type name; message

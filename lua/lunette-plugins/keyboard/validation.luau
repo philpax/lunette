@@ -1,13 +1,10 @@
--- Checks the keyboard options the generic validation cannot see into: rows and layers replace their
--- defaults wholesale, so misspelt fields, keys with both a code and an action, and unknown layers are
--- raised here, naming the option by its path.
+-- Validates keyboard rows and layers, which replace defaults wholesale, and reports errors by option path.
 
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
 
 local validation = {}
 
--- What `settings` checks: the options that hold keys and modifier names.
 export type Checked = {
   read rows: { keyboard.KeyRow },
   read layers: { [string]: { keyboard.KeyRow } },
@@ -146,8 +143,6 @@ local function checkRows(context: Context, path: string, rows: unknown): ()
   end
 end
 
--- Raises the first problem with the keyboard options in `settings`. `name`
--- is the plugin the error names.
 function validation.settings(settings: Checked, name: string): ()
   local modifiers: { [string]: boolean } = {}
   for _, modifier in ipairs(lunette.modifierNames()) do

@@ -1,5 +1,4 @@
-//! The attachment's records: the per-state host, definitions, runtimes, and
-//! instances, and the guards that keep their counters balanced.
+//! State owned by the plugin attachment and guards for callback and drain state.
 
 use std::{
     cell::RefCell,
@@ -89,8 +88,7 @@ pub(super) struct RuntimeState {
     pub(super) draining: bool,
     pub(super) closing: bool,
     pub(super) closed: bool,
-    /// Set by host shutdown, which returns failures rather than reporting
-    /// them to listeners that belong to the configuration being torn down.
+    /// Host shutdown collects failures because the configuration's listeners are being removed.
     pub(super) collect_failures: bool,
     pub(super) collected: Vec<AttachmentError>,
 }
@@ -122,7 +120,7 @@ impl RuntimeState {
     }
 }
 
-// Retained graph allocations preserve dependency reads, not permission to acquire during cleanup.
+// Live allocations retain service bindings during cleanup without resource authority.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ActivationAuthority {
     Detached,
@@ -162,15 +160,14 @@ impl CallbackGuard {
 
 impl Drop for CallbackGuard {
     fn drop(&mut self) {
-        // A borrow held while unwinding must not turn a panic into an abort.
+        // A failed mutable borrow leaves the counter for the next guard drop.
         if let Ok(mut host) = self.host.try_borrow_mut() {
             host.callback_depth = host.callback_depth.saturating_sub(1);
         }
     }
 }
 
-/// Marks a runtime as draining for as long as it is held, restoring the
-/// previous mark when dropped, including when the work unwinds.
+/// Marks a runtime as draining and restores its previous state when dropped.
 pub(super) struct DrainGuard {
     runtime: Rc<RefCell<RuntimeState>>,
     previous: bool,

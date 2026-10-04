@@ -1,5 +1,3 @@
--- Covers the default keyboard reaching the focused sink, and what ends with its owner: the keyboard, the focus,
--- the held modifiers, and a failing release quarantining the owner rather than the provider.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -8,7 +6,6 @@ local focusContract = require '@lunette-contracts/focus'
 
 local test = testing.suite()
 
--- The focus and keyboard providers in a runtime of their own, and a consumer of both.
 local function start()
   local env = { session = testing.start { 'focus', 'keyboard' } }
   env.consumer = env.session:use(plugin.define {
@@ -22,7 +19,6 @@ local function start()
   return env
 end
 
--- A seat whose keycode 30 types q, or Q under shift, and a sink recording what reaches it.
 local function focusTarget()
   local sent = {}
   local seat = { dead = false }

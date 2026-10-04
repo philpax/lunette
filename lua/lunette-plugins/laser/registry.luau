@@ -1,5 +1,3 @@
--- Per-provider registry and lifecycle for LASER instances.
-
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/laser'
@@ -44,8 +42,7 @@ local function remove(state: State, target: Laser)
   end
 end
 
--- The registry forgets the laser first, and both releases are attempted
--- before a failure is raised to whoever ended it.
+-- Pointer release errors are raised after the owned seat is released.
 function registry.destroy(state: State, target: MutableLaser): boolean
   if target.dead then
     return false
@@ -88,8 +85,6 @@ function registry.update(state: State, surfaces: { contracts.Surface })
   end
 end
 
--- Each laser draws through its own draw, so the provider's draw hook is what
--- the service draws.
 function registry.draw(state: State, pass: Pass)
   for _, target in ipairs(registry.live(state)) do
     target:draw(pass)

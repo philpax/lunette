@@ -1,5 +1,4 @@
--- The pose a dropped window was left at, kept on the window's `lunette.pose` property. The property outlives
--- the Lua state, so the adoption provider's native source restores the place across a source reload.
+-- The window property persists dropped poses across Lua state reloads.
 local plugin = require '@lunette-plugin'
 local drops = require '@lunette-contracts/drops'
 local panels = require '@lunette-contracts/panels'
@@ -14,7 +13,6 @@ return plugin.define {
   name = 'desktop/pose-memory',
   requires = required,
   init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
-    -- The consumer takes no options, so any option is a mistake worth naming.
     plugin.options { name = 'desktop/pose-memory', defaults = {}, config = config }
     local dropService: drops.Service = context:require(drops.capability)
     local panelService: panels.Service = context:require(panels.capability)

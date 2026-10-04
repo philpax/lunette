@@ -1,5 +1,3 @@
--- Covers the interaction provider's pointers: hovering, pressing, grabbing and sharing a grab, input mapped by
--- update, the drive and constrain hooks, and the release of what a pointer holds when it ends.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -13,9 +11,6 @@ local function translation(x, y, z)
   return lovr.math.newMat4():translate(x or 0, y or 0, z or 0)
 end
 
--- The drops, focus, and interaction providers over the fake native API, or `definition` in place of the
--- interaction provider, and a consumer of interaction and focus whose context is `owner`. `seat` is a seat
--- whose keyboard focus is recorded, and `sink` records the buttons pressed and released on it.
 local function start(definition)
   local env = { native = testing.native(), pressed = {}, released = {}, leaves = 0 }
   env.session = testing.start {

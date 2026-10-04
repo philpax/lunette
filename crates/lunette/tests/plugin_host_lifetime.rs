@@ -1,7 +1,7 @@
 //! Host lifecycle witnesses for plugin attachment retirement.
 //!
-//! These tests use a real Lua state and the real attachment runtime. Native frame
-//! teardown is represented by a fake phase, while external Lua close is real.
+//! These tests use a Lua state and the attachment runtime. Native frame teardown uses
+//! a fake phase; external Lua close uses the actual state.
 
 #![expect(
     clippy::expect_used,
@@ -147,8 +147,7 @@ fn failure_shutdown_finishes_real_graph_before_native_and_external_close() -> ml
         log.contains("cleanup continued") && log.contains("shutdown cleanup failure"),
         "cleanup failure was swallowed: {log}"
     );
-    // The disposal failure was raised to its caller before shutdown, and
-    // shutdown reports only its own failures.
+    // Shutdown reports its failures without repeating the earlier disposal failure.
     assert!(
         !log.contains("explicit disposer failure"),
         "shutdown reported an earlier failure again: {log}"
@@ -258,7 +257,7 @@ fn a_reference_dropped_after_external_close_does_not_touch_the_state() -> mlua::
         dropped.get(),
         "closing the state collects the callback's payload"
     );
-    // Only dropping is valid here; calling the reference after close is not.
+    // The closed state invalidates the callback, but dropping it remains safe.
     drop(callback);
     Ok(())
 }

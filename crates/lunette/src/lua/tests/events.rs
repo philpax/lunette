@@ -1,7 +1,4 @@
-//! What a subscriber is given, and when.
-//!
-//! [`poll`] reproduces `boot.lua`'s poll loop over the recording sink. What is
-//! under test is the dispatch a running session performs.
+//! Tests event payloads, ordering, and handler failure behavior.
 
 use lunette_compositor::protocol::{PixelSize, ProcessId, ProcessOutcome, SignalNumber, Stream};
 use mlua::{Table, Value};
@@ -83,8 +80,7 @@ fn a_client_disconnecting_hands_the_handler_a_dead_handle_that_still_knows_what_
          end)",
     );
 
-    // The frame the window is absent from is the frame the event is drained in.
-    // The handle is dead before the handler reads it.
+    // The event and snapshot are installed in the same frame; the handle is already dead.
     session.begin(snapshot(Vec::new(), Vec::new()));
     session.push_event(LuaEvent::WindowClosed {
         window: window_id(1),
@@ -193,8 +189,7 @@ fn output_arrives_as_bytes_under_the_stream_it_was_written_to() {
         "lunette.onProcessOutput(function(event) wrote = event end)",
     );
 
-    // Not valid UTF-8, and a Lua string is a byte string, so the value reaches
-    // the Lua state unchanged as 0xff.
+    // Lua strings preserve byte sequences that are not valid UTF-8.
     session.push_event(LuaEvent::ProcessOutput {
         process: ProcessId::new(1).expect("non-zero"),
         stream: Stream::Stderr,
@@ -259,8 +254,7 @@ fn an_event_never_dispatched_is_not_delivered_against_a_later_frame() {
     session.push_event(LuaEvent::WindowOpened {
         window: window_id(1),
     });
-    // The frame ends without the poll loop reaching the event, as when a
-    // handler calls `lovr.event.clear()`.
+    // Discard the queued event before the next frame, as `lovr.event.clear()` does.
     let _discarded = sink.take();
     session.begin(snapshot(Vec::new(), Vec::new()));
 
@@ -286,16 +280,10 @@ fn an_event_with_no_handler_is_dispatched_and_dropped() {
     });
     poll(&lua, &sink);
 
-    // A configuration that subscribes to nothing is supported. Dispatching an
-    // event into it must not raise.
     assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
 }
 
-/// Two windows contend for a pool with one slot, the first claim granted and
-/// the second pending.
-///
-/// The handlers append what they are handed to a list, and the tests read the
-/// list back. A failure reports the whole sequence.
+/// Creates two claims and displaces the first from a one-slot pool.
 fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
     let (session, sink, registry) = layered_session(
         vec![
@@ -321,10 +309,8 @@ fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
     poll(&lua, &sink);
     run::<()>(&lua, "seen = {}");
 
-    // The second claim outranks the first and takes the only layer there is.
-    // The revocation lands at that boundary, and the grant at the boundary
-    // after the recycled layer has been copied into. The two need different
-    // boundaries, so a single resolve cannot deliver both.
+    // Revocation and grant occur on separate frame boundaries. The recycled layer must be copied
+    // between them.
     run::<()>(&lua, "held[2]:setPriority(9)");
     settle(&session, &registry);
     poll(&lua, &sink);
@@ -416,8 +402,7 @@ fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
     );
 }
 
-/// An error a configuration's handler raised reaches every `lunette.onError`
-/// subscriber, with its traceback.
+/// A handler error reaches every `lunette.onError` subscriber with its traceback.
 #[test]
 fn a_handlers_error_reaches_every_subscriber_with_its_traceback() {
     let (session, sink) =
@@ -453,9 +438,7 @@ fn a_handlers_error_reaches_every_subscriber_with_its_traceback() {
     );
 }
 
-/// A Lua dispatcher that protects each of its handlers reports a handler's
-/// error through `lunette.reportError`, and every listener receives it as it
-/// would a raising callback's, with the context leading the message.
+/// `lunette.reportError` sends protected handler errors to every listener with context.
 #[test]
 fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
     let session = session(Vec::new());
@@ -480,8 +463,8 @@ fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
     assert_eq!(empty, "");
 }
 
-/// `lunette.reportError` takes named fields, and a call that misspells or
-/// omits one raises naming it rather than reporting a partial error.
+/// `lunette.reportError` requires named `context` and `message` fields. Invalid calls name the
+/// missing or unknown field in the error.
 #[test]
 fn a_report_with_a_missing_or_unknown_field_raises_naming_it() {
     let session = session(Vec::new());

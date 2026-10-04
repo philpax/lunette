@@ -1,9 +1,4 @@
--- The shipped desktop: its plugins as a list of entries. Every plugin is in `@lunette-plugins`, a provider
--- under the contract it provides and a desktop consumer under its entry id, so this module holds the list and
--- nothing else. `run` composes the list with a configuration's patches and starts it through the frame
--- provider. A configuration calls `run`:
---
---   require('@lunette-desktop').run { patches = { { id = 'keyboard', disabled = true } } }
+-- The shipped desktop composes its plugin entries with configuration patches and starts them through the frame provider.
 
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
@@ -48,8 +43,6 @@ local desktop = {}
 export type Entry = plugin.Entry
 export type Patch = plugin.Patch
 
--- What `compose` and `run` take: the entries to start from, by default the shipped desktop's, and the
--- patches to apply to them.
 export type Options = {
   read entries: { Entry }?,
   read patches: { Patch }?,
@@ -57,9 +50,7 @@ export type Options = {
 
 local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true }
 
--- Each entry's id is its definition's name. Persistence and arrangement are factories, because their state
--- outlives their activations. The rule list and saved arrangement must be rules sources before adoption
--- resolves the first window; no other entry depends on order.
+-- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
   { id = 'frame', definition = frame.definition },
   { id = 'surfaces', definition = surfaces.definition },
@@ -99,18 +90,15 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/scale', definition = scale },
 }
 
--- Answers a function making the patch that configures a definition's entry, checked against its options:
--- `desktop.configure(laser.definition) { style = ... }`. It is `plugin.configure`.
+-- The returned configuration function checks values against the definition's options.
 desktop.configure = plugin.configure
 
--- The shipped desktop's entries, in the order they are enabled. The list and
--- every entry in it are frozen.
+-- Entries start in list order, and the list and its entries are frozen.
 function desktop.entries(): { Entry }
   return DEFAULT
 end
 
--- Answers the entries, by default the shipped desktop's, with the patches applied, raising for an unknown or
--- duplicate id, an unknown field, or conflicting patches.
+-- Returns patched entries and rejects unknown fields, duplicate ids, and conflicting patches.
 function desktop.compose(options: Options?): { Entry }
   if options == nil then
     return DEFAULT
@@ -119,8 +107,7 @@ function desktop.compose(options: Options?): { Entry }
   return plugin.compose(options.entries or DEFAULT, options.patches)
 end
 
--- Composes the desktop and binds LÖVR's callbacks to it. The composition is checked as the configuration
--- loads, so a malformed patch fails the load rather than the first frame.
+-- Composition errors occur while the configuration loads, before LÖVR callbacks are bound.
 function desktop.run(options: Options?): ()
   frame.run(desktop.compose(options))
 end

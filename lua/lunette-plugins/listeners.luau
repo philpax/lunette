@@ -1,6 +1,4 @@
--- Owner-scoped listeners for a broker provider. A listener is an effect of its owner, called only while
--- its owner is live, and one added or removed during a call is neither heard nor skipped late: the
--- listeners are chosen before any is called.
+-- Listener delivery uses a registration snapshot at dispatch start. Each callback requires a live owner.
 
 local plugin = require '@lunette-plugin'
 local protected = require '@lunette-plugins/protected'
@@ -8,9 +6,8 @@ local protected = require '@lunette-plugins/protected'
 local listeners = {}
 
 export type Listeners<T> = {
-  -- Adds a listener as an effect of `owner`, answering that effect.
   add: (self: Listeners<T>, owner: plugin.Owner, listener: T) -> plugin.Effect,
-  -- Calls `call` with each live listener `wanted` accepts, reporting a raise under `label`.
+  -- Reports callback errors under `label` and continues to the remaining listeners.
   each: (self: Listeners<T>, label: string, call: (T) -> (), wanted: ((T) -> boolean)?) -> (),
   -- Forgets every listener, as at the end of the provider's activation.
   clear: (self: Listeners<T>) -> (),

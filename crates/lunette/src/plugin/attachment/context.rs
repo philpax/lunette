@@ -1,5 +1,4 @@
-//! Operations performed through a plugin context: reading services,
-//! acquiring and disposing effects, installing children, and checking owners.
+//! Operations on plugin contexts, services, and resource effects.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -81,11 +80,11 @@ fn field_for(fields: &[DeclarationField], binding: &Binding) -> Option<String> {
         .map(|field| field.field.clone())
 }
 
-/// Acquires a resource and registers its inverse with the activation.
+/// Acquires a resource and registers its inverse for the activation.
 ///
-/// When the activation is cancelled while the acquisition runs, the inverse
-/// is not left registered: a loading activation rolls back every inverse, and
-/// an active one runs just the new inverse, before the cancellation is raised.
+/// If cancellation races with acquisition, the inverse runs before cancellation
+/// is raised. A loading activation rolls back all inverses; an active activation
+/// runs the new inverse.
 pub(super) fn effect(
     lua: &Lua,
     context: &PluginContext,
@@ -172,9 +171,8 @@ fn withdraw_acquisition(
     Ok(())
 }
 
-/// Runs an effect's inverse once. It does nothing once the activation has
-/// ended, whose cleanup owns the inverse; a failing inverse quarantines the
-/// activation and is raised.
+/// A failing inverse quarantines the activation and is raised. Cleanup owns
+/// inverses after the activation ends.
 pub(super) fn dispose_effect(lua: &Lua, effect: &PluginEffect) -> mlua::Result<()> {
     let Some(runtime) = effect.runtime.upgrade() else {
         return Ok(());
@@ -230,11 +228,9 @@ pub(super) fn child(
     use_definition(&runtime, definition, config, Some(context.instance))
 }
 
-/// Checks that `caller` is a live context of an instance bound to this
-/// provider's current generation.
+/// The caller must be a live dependent bound to this provider generation.
 ///
-/// Both contexts are native userdata, so the identity is the context itself
-/// rather than any value a caller can construct.
+/// Native userdata identity prevents caller-created values from acting as owners.
 pub(super) fn check_owner(
     provider: &PluginContext,
     caller: &PluginContext,
@@ -291,10 +287,9 @@ pub(super) fn context_active(context: &PluginContext) -> bool {
         )
 }
 
-/// Reports whether a provider's activation is published and not unloading.
+/// Reports whether this activation's services remain published.
 ///
-/// This is service liveness, separate from resource authority: a provider
-/// whose disposal failed keeps serving until it unloads.
+/// A disposal failure does not stop service reads before unload.
 pub(super) fn context_serving(context: &PluginContext) -> bool {
     context.runtime.upgrade().is_some_and(|runtime| {
         matches!(
@@ -309,10 +304,7 @@ pub(super) fn context_serving(context: &PluginContext) -> bool {
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Require {
-    /// The activation may acquire resources: it is loading or active, holds
-    /// resource authority, and has not been cancelled.
     Resources,
-    /// The activation is published and holds resource authority.
     Active,
 }
 
@@ -380,7 +372,7 @@ fn enter_cleanup(
     ))
 }
 
-// Successful explicit disposal ends only this inverse's scope; rollback never restores authority.
+// Explicit disposal restores authority while the allocation remains live; rollback does not.
 fn leave_cleanup(
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
@@ -400,8 +392,6 @@ fn leave_cleanup(
     }
 }
 
-/// Quarantines an activation whose inverse failed. No drain runs inside a
-/// lifecycle operation, so the activation is still the current one.
 fn quarantine(
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,

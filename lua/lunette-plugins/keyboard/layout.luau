@@ -1,5 +1,4 @@
--- Keyboard geometry and legends, as pure functions of the caller's rows, measurements, and seat.
-
+-- Computes keyboard geometry and key legends.
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
 
@@ -9,9 +8,7 @@ export type Key = keyboard.Key
 export type KeyRow = keyboard.KeyRow
 export type Action = keyboard.Action
 
--- A key placed on a keyboard. `source` is the row entry it came from, which identifies the key across
--- frames. `x` and `y` are its top-left corner in metres from the rows' top-left, `y` growing downwards.
--- Spacers are not placed.
+-- Key coordinates use metres from the rows' top-left corner, with `y` increasing downward.
 export type RenderedKey = {
   read source: Key,
   read code: number?,
@@ -24,15 +21,12 @@ export type RenderedKey = {
   read height: number,
 }
 
--- What placing keys reads: the size of one key unit in metres, which keys
--- latch modifiers, and the legend each key shows.
 export type Placement = {
   read keyUnit: number,
   read modifierKeys: { [number]: string },
   read legendFor: (Key) -> string,
 }
 
--- Every key of `rows` that is not a spacer, placed.
 function layout.keysOf(rows: { KeyRow }, placement: Placement): { RenderedKey }
   local unit = placement.keyUnit
   local keys: { RenderedKey } = {}
@@ -62,8 +56,7 @@ function layout.keysOf(rows: { KeyRow }, placement: Placement): { RenderedKey }
   return keys
 end
 
--- How far a row moves the next one down, in key units: the height of its
--- shortest key, or one for an empty row.
+-- Rows advance by their shortest key height, or one unit when empty.
 function layout.advanceOf(row: KeyRow): number
   local shortest: number? = nil
   for _, entry in ipairs(row) do
@@ -75,7 +68,6 @@ function layout.advanceOf(row: KeyRow): number
   return shortest or 1
 end
 
--- The width and height `rows` cover, in key units.
 function layout.extentOf(rows: { KeyRow }): (number, number)
   local widest, lowest, y = 0, 0, 0
   for _, row in ipairs(rows) do
@@ -90,7 +82,6 @@ function layout.extentOf(rows: { KeyRow }): (number, number)
   return widest, math.max(lowest, y)
 end
 
--- The key under a point, in the same metres as the keys' corners.
 function layout.keyAt(keys: { RenderedKey }, x: number, y: number): RenderedKey?
   for _, entry in ipairs(keys) do
     if x >= entry.x and x < entry.x + entry.width and y >= entry.y and y < entry.y + entry.height then
@@ -100,8 +91,7 @@ function layout.keyAt(keys: { RenderedKey }, x: number, y: number): RenderedKey?
   return nil
 end
 
--- The legend a key shows: its label, else what the seat's keymap types for
--- it with `modifiers` held, else a name for its action.
+-- Uses an explicit label first, then the seat keymap, then the action name.
 function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { string }): string
   if entry.label then
     return entry.label

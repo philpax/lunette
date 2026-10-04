@@ -1,8 +1,8 @@
-//! Native mlua attachment bridge for the plugin contract registry and lifecycle graph.
+//! Lua binding for plugin contracts, runtime graphs, and lifecycle callbacks.
 //!
-//! A Lua state owns one contract epoch shared by several independent runtime
-//! graphs; instances, services, effects, and configuration stay runtime-local.
-//! Plugin callbacks are synchronous and must not yield.
+//! A Lua state shares one contract epoch across independent runtime graphs.
+//! Instances, services, effects, and configuration belong to one runtime.
+//! Plugin callbacks are synchronous and cannot yield.
 
 mod context;
 mod error;
@@ -38,8 +38,7 @@ use crate::plugin::contracts::{
     ContractError, ContractName, ContractRegistry, ValidatedDeclaration,
 };
 
-/// Installs the state-bound contract registry if absent, keeping the current
-/// epoch.
+/// Installs the state-bound contract registry without changing its epoch.
 pub fn install(lua: &Lua) -> Result<(), AttachmentError> {
     if lua.app_data_ref::<Rc<RefCell<AttachmentHost>>>().is_none() {
         lua.set_app_data(Rc::new(RefCell::new(AttachmentHost::new())));
@@ -58,8 +57,7 @@ pub fn set_reporter(lua: &Lua, reporter: Reporter) -> Result<(), AttachmentError
 /// Shuts down every runtime attached to this Lua state, attempting every
 /// cleanup, and starts a new contract epoch with a fresh registry.
 ///
-/// Failures are returned rather than reported, because the listeners belong
-/// to the configuration being torn down.
+/// Failures are returned to the caller. The listeners belong to the configuration being torn down.
 #[must_use]
 pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
     let Some(host) = host_inner(lua) else {
@@ -96,7 +94,7 @@ pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
     errors
 }
 
-/// Reports whether execution is currently inside a plugin callback.
+/// Reports whether a plugin callback is running in this Lua state.
 #[must_use]
 pub fn callback_active(lua: &Lua) -> bool {
     host_inner(lua).is_some_and(|host| host.borrow().callback_depth != 0)
@@ -197,8 +195,7 @@ fn require_host(lua: &Lua) -> Result<Rc<RefCell<AttachmentHost>>, AttachmentErro
     host_inner(lua).ok_or(AttachmentError::NotInstalled)
 }
 
-/// Validates a declaration, naming a wrapper from a retired epoch as such.
-/// The replaced registry no longer knows those wrappers; the host's record does.
+/// Reports retired wrappers separately from unbound wrappers after an epoch change.
 fn validate_declaration(
     host: &AttachmentHost,
     declaration: Value,

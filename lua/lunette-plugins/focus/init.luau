@@ -1,6 +1,4 @@
--- The focus provider: which seat's keyboard goes to which sink. A grant is held by its owner, one per owner
--- and seat, and released as an inverse on that owner, so a failing withdrawal is the owner's failure.
-
+-- Each owner's seat focus grant is withdrawn with its owner and reports failures to that owner.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
@@ -15,7 +13,6 @@ type Grant = {
 local FOCUS_KEYS: { [string]: boolean } = { seat = true, sink = true }
 local LISTENER_KEYS: { [string]: boolean } = { run = true }
 
--- The key a grant without a seat is kept under.
 local NO_SEAT = table.freeze {}
 
 local function create(context: plugin.Context): contract.Service
@@ -23,8 +20,7 @@ local function create(context: plugin.Context): contract.Service
   local grants: { [contract.Owner]: { [unknown]: Grant } } = {}
   local heard = listeners.new<<(contract.Focus) -> ()>>(context)
 
-  -- Calls every live listener when the answered pair differs from the pair
-  -- answered before the change.
+  -- Announces changes to the live focused seat and sink pair.
   local function announce(seat: lunette.Seat?, sink: lunette.Sink?): ()
     local nowSeat, nowSink = holders.focused(state)
     if nowSeat == seat and nowSink == sink then
@@ -41,7 +37,7 @@ local function create(context: plugin.Context): contract.Service
     announce(seat, sink)
   end
 
-  -- Takes back any grants left at the activation's end; owners normally unload first.
+  -- Releases any grants that remain when the provider activation ends.
   context:effect(function(): () -> ()
     return function(): ()
       table.clear(grants)

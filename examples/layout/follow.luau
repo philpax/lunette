@@ -1,14 +1,4 @@
--- A follow-me layout: windows on an arc around the head that turns with the
--- user, lazily.
---
--- The layout is continuous, so the arranging consumer applies it on every
--- frame. The arc stays put while the head turns a little, and once the head
--- has turned further than `threshold` radians away from it, it swings round
--- to face the way the head faces. It reuses the arc layout's geometry, with
--- the head as the centre.
---
--- The options are `distance`, the arc's radius in metres; `threshold`, in
--- radians; and `speed`, how quickly the arc catches up, per second.
+-- The continuous layout applies every frame and turns the arc after the head exceeds `threshold` radians. Each registration keeps an independent heading.
 
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
@@ -22,17 +12,15 @@ export type Options = {
 
 local DEFAULTS: Options = { distance = 1.4, threshold = 0.6, speed = 4 }
 
--- When the arc has come this close to the head's heading, it stops turning.
+-- Rotation stops within this angular tolerance.
 local SETTLED = 0.02
 
--- The angle from `from` to `to`, between -pi and pi.
 local function turn(from: number, to: number): number
   return (to - from + math.pi) % (2 * math.pi) - math.pi
 end
 
 local function follow(): ({ layouts.Panel }, unknown?) -> ()
-  -- The arc's heading and whether it is catching up. The state is this
-  -- registration's, so two registrations follow independently.
+  -- Each registration keeps an independent heading and turn state.
   local heading: number? = nil
   local turning = false
   return function(panels: { layouts.Panel }, given: unknown?): ()

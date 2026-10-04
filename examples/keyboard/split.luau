@@ -1,10 +1,4 @@
--- A split keyboard with a numpad layer, a click on every key, and a flash on
--- the key that was pressed.
---
--- It is the built-in keyboard provider with other options: `keyboard.define`
--- makes a definition whose defaults are these, and main.luau puts it in the
--- place of the desktop's `keyboard` entry. Keys are evdev positions, so the
--- legends still come from the seat's keymap.
+-- The keyboard uses evdev key positions, so seat keymaps provide its legends.
 
 local keyboard = require '@lunette-plugins/keyboard'
 local drawing = require '@lunette-plugins/keyboard/draw'
@@ -12,14 +6,11 @@ local keys = require '@lunette-contracts/keys'
 
 local codes = keys.CODES
 
--- Room between the two halves, in key units.
 local SPLIT = 1.5
 
--- How long a pressed key stays lit, in seconds.
 local FLASH = 0.15
 
--- Rows are annotated, so the checker reads each key against `Key`. An
--- unannotated table is only checked when the keyboard is built.
+-- The annotation lets the checker validate each row against `Key`.
 local letters: { keyboard.KeyRow } = {
   {
     { code = codes.digit1 },
@@ -80,8 +71,7 @@ local letters: { keyboard.KeyRow } = {
   },
 }
 
--- A numpad. The `+` key is two rows tall, so the row below leaves a spacer
--- where it reaches.
+-- The two-row `+` key leaves a spacer in the following row.
 local numpad: { keyboard.KeyRow } = {
   {
     { code = codes.digit7 },
@@ -111,7 +101,7 @@ local numpad: { keyboard.KeyRow } = {
   },
 }
 
--- When each key was last pressed, by the row entry it was made from, which identifies a key across frames.
+-- Weak keys let pressed-state entries disappear when their row entries are released.
 local pressedAt: { [keyboard.Key]: number } = setmetatable({}, { __mode = 'k' })
 
 return keyboard.define {

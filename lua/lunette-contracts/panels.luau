@@ -1,5 +1,4 @@
--- The panel service contract: an owner-scoped registry of panels, with owner-held visibility overrides and
--- listeners for panels added and removed. See docs/dev/lua-api.md#panels.
+-- The panel registry owns panel lifetimes and owner-scoped visibility overrides.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -23,7 +22,6 @@ export type Options = {
   read curve: number?,
 }
 
--- What setHidden sets: the owner's visibility override.
 export type Visibility = {
   read hidden: boolean,
 }
@@ -70,7 +68,7 @@ export type Panel =
   & ({ read kind: 'window', read source: lunette.Window } | { read kind: 'monitor', read source: lunette.Monitor })
 export type PanelCallback = (Panel) -> ()
 
--- A removed listener hears every panel, or only panel when it is given.
+-- A removed listener can filter notifications by panel.
 export type RemovedListener = {
   read panel: Panel?,
   read run: PanelCallback,

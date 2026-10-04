@@ -1,11 +1,8 @@
--- Adoption of the session's windows into the desktop: installs the native pose source and starts adoption,
--- so every window becomes a panel placed by lunette/placement, joining `tags` unless a rule names others.
--- `filter`, or a rule's `adopt = false`, leaves a window to whatever draws it.
+-- Installs native pose restoration and adopts eligible windows as panels with configured default tags.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read tags: { string }?,
   read filter: ((lunette.Window) -> boolean)?,

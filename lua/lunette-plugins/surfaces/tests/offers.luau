@@ -1,5 +1,3 @@
--- Covers the surfaces broker: an offer name names one offer until its effect or its owner ends, offers list
--- in registration order, and a malformed offer raises at the call.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -7,7 +5,6 @@ local surfacesContract = require '@lunette-contracts/surfaces'
 
 local test = testing.suite()
 
--- A consumer of the surfaces service named `name`, whose initializer registers through it.
 local function consumer(session, name, register)
   local instance = session:use(plugin.define {
     name = name,
@@ -20,7 +17,6 @@ local function consumer(session, name, register)
   return instance
 end
 
--- An offer listing one surface labelled `label`.
 local function listing(label)
   return function()
     return { { dead = false, raycast = function() end, label = label } }

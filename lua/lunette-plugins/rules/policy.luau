@@ -1,5 +1,4 @@
--- Pure matching and property evaluation. Extension functions are literal data;
--- only the explicit evaluate map invokes extension evaluators.
+-- Extension functions are literal values unless their keys appear in the `evaluate` map.
 local lunette = require '@lunette'
 local rules = require '@lunette-contracts/rules'
 local policy = {}

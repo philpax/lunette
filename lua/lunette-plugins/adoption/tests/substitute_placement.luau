@@ -1,5 +1,3 @@
--- Covers adoption over a substitute placement provider written against the contract alone: adoption places
--- through it, an adoption ends with its caller, and a window opened afterwards is placed again.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -9,8 +7,6 @@ local placementContract = require '@lunette-contracts/placement'
 
 local test = testing.suite()
 
--- A placement provider serving only what adoption calls, `place`, which makes a window panel per request
--- and records it in `placements` while the placement lives.
 local function substitutePlacement(placements)
   return plugin.define {
     name = 'substitute-placement',

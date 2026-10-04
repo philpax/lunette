@@ -1,5 +1,3 @@
--- Covers the error stream provider over the native error boundary: delivery, the repeat limiter, the bounded
--- history, clearing, a raising subscriber, and what ends with the stream's activation.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -8,9 +6,6 @@ local errors = require '@lunette-plugins/errors'
 
 local test = testing.suite()
 
--- The stream with a history of three and a clock the case moves, and a presenter subscribed to it whose
--- context is `owner`. `env.heard` is every report the presenter heard, and `env.cleared` how often it was
--- told the history was cleared.
 local function start()
   local env = { native = testing.native(), now = 0, heard = {}, cleared = 0 }
   env.session = testing.start {

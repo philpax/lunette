@@ -1,8 +1,4 @@
--- The built-in keyboard with rounded keys and nothing else changed.
---
--- `drawKey` receives each key, its state, and the default drawing. This hook
--- draws its own face and keeps the default legend. To use it, put it in
--- main.luau's patch in place of split.luau.
+-- The `drawKey` hook replaces each key face and preserves the default legend.
 
 local keyboard = require '@lunette-plugins/keyboard'
 local drawing = require '@lunette-plugins/keyboard/draw'

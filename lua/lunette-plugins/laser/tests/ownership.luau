@@ -1,5 +1,3 @@
--- Covers which owner holds which laser: new, attach, and forHand, borrowed and owned seats, a laser outliving
--- its owner or provider, and a failing release quarantining its owner rather than the providers.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -12,7 +10,6 @@ local function noInput()
   return nil
 end
 
--- The laser and the providers it needs over the fake native API, and a consumer whose context is `owner`.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'drops', 'focus', 'interaction', 'laser' }

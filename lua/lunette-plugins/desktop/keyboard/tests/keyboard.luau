@@ -1,6 +1,3 @@
--- Covers the desktop wrist keyboard consumer: the button it offers on the configured wrist, a press that shows
--- its keyboard and pulses the pressing pointer, the keyboards it draws, and a hand it does not know. The
--- keyboard itself is covered by `keyboard/tests`.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -10,7 +7,6 @@ local surfacesContract = require '@lunette-contracts/surfaces'
 
 local test = testing.suite()
 
--- The consumer with `config`, over a keyboard provider that counts the keys it draws for each keyboard.
 local function start(config)
   local env = { drawnBy = {} }
   local tracing = keyboardModule.define {
@@ -50,7 +46,6 @@ end)
 
 test('a press shows the wrist keyboard and pulses the pressing pointer with the configured haptic', function()
   local env = start { haptic = { strength = 0.4 } }
-  -- The consumer pulses the pointer it is given, so a pointer recording what it is asked for is the observation.
   local pulses = {}
   local pointer = {
     vibrate = function(_self, haptic)

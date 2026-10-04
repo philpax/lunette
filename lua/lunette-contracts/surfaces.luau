@@ -1,6 +1,4 @@
--- The surfaces service contract: a broker for the surfaces a pointer can pick. Each owner-scoped offer is a
--- named list called on demand, so it is always this frame's; a list that raises contributes nothing. See
--- docs/dev/lua-api.md#frame-and-surfaces.
+-- Offers are owner-scoped and queried on demand each frame. A failing offer contributes no surfaces.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'

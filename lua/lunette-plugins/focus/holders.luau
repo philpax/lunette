@@ -1,21 +1,16 @@
--- Keyboard focus held through one focus activation. A holder is one owner's grant for a seat; when it ends
--- it withdraws the seat natively, unless a later holder has taken that seat, so neither the seat nor the
--- service names a focus whose holder has gone.
+-- Tracks each owner's keyboard focus grant and withdraws it without clearing a later owner's grant.
 
 local lunette = require '@lunette'
 
 local focus = {}
 
--- A holder's identity is its table. It records what it last granted.
 export type Holder = {
   seat: lunette.Seat?,
   sink: lunette.Sink?,
 }
 
 export type Focus = {
-  -- The holder the service answers as focused.
   current: Holder?,
-  -- The holder whose sink each seat was last given.
   seats: { [lunette.Seat]: Holder },
 }
 
@@ -27,8 +22,7 @@ function focus.holder(): Holder
   return { seat = nil, sink = nil }
 end
 
--- Takes back what a holder granted. Lua state is cleared before the native
--- withdrawal, so a withdrawal that raises leaves no holder answered.
+-- Clears the holder state before native withdrawal so a failed call leaves no active grant.
 function focus.revoke(state: Focus, holder: Holder): ()
   local seat = holder.seat
   holder.seat, holder.sink = nil, nil
@@ -43,9 +37,7 @@ function focus.revoke(state: Focus, holder: Holder): ()
   end
 end
 
--- Gives a seat's keyboard to a sink on behalf of a holder. A nil sink
--- withdraws the holder's focus. The native call is made first, so a seat that
--- refuses leaves the Lua state as it was.
+-- Applies native focus before recording the grant, preserving prior state if the seat rejects it.
 function focus.grant(state: Focus, holder: Holder, seat: lunette.Seat?, sink: lunette.Sink?): ()
   if not sink then
     focus.revoke(state, holder)
@@ -76,8 +68,7 @@ function focus.focused(state: Focus): (lunette.Seat?, lunette.Sink?)
   return seat, sink
 end
 
--- Takes back every grant, for the activation's end. Every seat is attempted
--- before a failure is raised.
+-- Attempts every seat withdrawal before raising the combined failures.
 function focus.clear(state: Focus): ()
   local holders: { Holder } = {}
   for _, holder in pairs(state.seats) do

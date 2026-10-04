@@ -1,4 +1,3 @@
--- Covers lua/testing/session.luau and the fake native API it boots with.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'

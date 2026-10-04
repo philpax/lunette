@@ -4,12 +4,10 @@ use mlua::{Function, Lua, Value};
 
 use crate::require::path::{Requirer, resolve};
 
-/// Wraps the state's global `require` so a relative path resolves against the
-/// requiring chunk.
+/// Resolves relative paths against the requiring chunk for `require`.
 ///
-/// The wrapper is Lua, so a module's own error reaches its caller unwrapped.
-/// Only resolution is native, because `debug.info` answers a shortened chunk
-/// name.
+/// The Lua wrapper preserves module errors. Native code resolves paths because
+/// `debug.info` returns a shortened chunk name.
 pub fn install(lua: &Lua) -> mlua::Result<()> {
     let globals = lua.globals();
     let original: Function = globals.get("require")?;
@@ -35,9 +33,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     globals.set("require", wrapper)
 }
 
-/// The wrapper. `resolve` answers the resolved name, nothing for a path the
-/// loader takes as it stands, or nothing and the reason it cannot be resolved,
-/// which is raised at the caller's line.
+/// The wrapper raises resolution errors at the caller's line and forwards other names unchanged.
 const WRAPPER: &str = r"
 local original, resolve = ...
 return function(name, ...)
@@ -54,11 +50,7 @@ return function(name, ...)
 end
 ";
 
-/// The name of the chunk that called `require`: the first Lua function above
-/// the wrapper, so `pcall(require, './x')` resolves against the chunk that
-/// called `pcall`.
-///
-/// Level 0 is the resolver and level 1 the wrapper.
+/// Returns the calling chunk name, skipping C frames and the resolver wrapper.
 fn requiring_chunk(lua: &Lua) -> Option<String> {
     let mut level = 2;
     loop {

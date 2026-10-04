@@ -1,9 +1,7 @@
--- The desktop's rule list, registered as a rules source under the provider's default name and precedence.
--- `rules` replaces the default list wholesale.
+-- Registers the desktop rule list as a source; configured rules replace the default list.
 local plugin = require '@lunette-plugin'
 local rules = require '@lunette-contracts/rules'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read rules: { rules.Rule }?,
 }

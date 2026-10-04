@@ -1,5 +1,4 @@
--- The scoped adoption provider. `precedence` is the native pose source's default, by default
--- vocabulary.PRECEDENCE.native.
+-- Adopts eligible windows using rules and placement providers.
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
 local panels = require '@lunette-contracts/panels'
@@ -11,7 +10,6 @@ local build = require '@lunette-plugins/adoption/service'
 export type Settings = build.Settings
 export type Service = adoption.Service
 
--- What a configuration gives: every option optional.
 export type Config = {
   read precedence: number?,
 }

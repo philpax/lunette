@@ -1,9 +1,4 @@
-//! The runner's own tests: which paths are test files, and which test files
-//! fail.
-//!
-//! A runner that passed a file running nothing would report every file it
-//! skipped as a pass, and no Lua test could notice. These run in-memory test
-//! modules through the same path the discovered files take.
+//! Tests runner path classification and failure reporting with in-memory modules.
 
 use std::path::Path;
 

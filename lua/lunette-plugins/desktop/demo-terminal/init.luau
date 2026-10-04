@@ -1,10 +1,8 @@
--- A terminal opened at the first start of a session with no windows, trying `programs` in order. Source
--- reload keeps `_G.lunetteDemonstrationSpawned`, so a reload does not open another.
+-- The session-global guard prevents another spawn after a source reload.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local logging = require '@lunette-plugins/desktop/logging'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read programs: { string }?,
 }

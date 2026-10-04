@@ -29,7 +29,6 @@ local function entry(overrides)
   return value
 end
 
--- Runs `run` with a state loaded from `entries` and the fixture's services, placement among them.
 local function withServices(entries, run)
   local reports = {}
   local state = persist.new {

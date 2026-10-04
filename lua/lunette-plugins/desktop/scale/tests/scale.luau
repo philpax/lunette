@@ -1,14 +1,9 @@
--- Covers the desktop scale consumer over the panels in the scene: each output takes the scale its nearest
--- shown window panel asks for, a hidden panel and a monitor panel give no distance, and unloading restores an
--- output's original scale unless something else has set it since. The chooser's steps and hysteresis are
--- covered by `scale/tests/chooser.luau`.
 local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
--- The consumer over the fake native API, with a second output beside the fake's first.
 local function start()
   local env = {}
   env.session = testing.boot { 'frame', 'surfaces', 'panels', 'scale', 'desktop/scale' }
@@ -20,8 +15,6 @@ local function start()
   return env
 end
 
--- A panel showing a new window on `output`, `distance` metres straight ahead of the fake's head at
--- (0, 1.5, 0).
 local function windowAt(env, id, output, distance)
   local window = env.native.newWindow(id)
   window.output = output

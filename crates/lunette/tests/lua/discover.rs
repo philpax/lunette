@@ -1,10 +1,7 @@
-//! Finds the Lua test files under `lua/`.
+//! Discovers Lua test files under `lua/`.
 //!
-//! A `.luau` file directly inside a directory named `tests` is a test file. A
-//! file anywhere under `tests/support/` is a helper. Any other file under a
-//! `tests` directory is a mistake, reported rather than skipped: a test file
-//! placed one directory too deep would otherwise never run, and nothing would
-//! say so.
+//! Test files are `.luau` files directly inside `tests` directories. Helpers
+//! belong under `tests/support`; other files under `tests` are reported as errors.
 
 use std::{
     fmt, fs, io,
@@ -13,7 +10,6 @@ use std::{
 
 use lunette::aliases::{DEVELOPMENT_ALIASES, Resolution};
 
-/// The directory a test file sits in.
 const TESTS: &str = "tests";
 /// The directory under `tests` that holds helpers.
 const SUPPORT: &str = "support";
@@ -21,13 +17,12 @@ const SUPPORT: &str = "support";
 /// A test file, and the names it runs and is required by.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestFile {
-    /// The trial's name: the path below `lua/` without the extension.
+    /// The path below `lua/`, without its extension.
     pub name: String,
     /// The module name the file is required by, under its root's alias.
     pub module: String,
 }
 
-/// What a path below `lua/` is to the runner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Test,
@@ -38,7 +33,7 @@ pub enum Kind {
     Other,
 }
 
-/// Classifies `relative`, a file's path below `lua/`.
+/// Classifies a file path below `lua/`.
 pub fn classify(relative: &Path) -> Kind {
     let components: Vec<&str> = relative
         .components()
@@ -125,8 +120,7 @@ pub enum DiscoveryError {
     Unrooted(PathBuf),
     /// A test file whose path is not UTF-8.
     Unnamed(PathBuf),
-    /// No test file at all, which means the runner is looking in the wrong
-    /// place.
+    /// No test files exist under the test roots.
     Empty(PathBuf),
 }
 

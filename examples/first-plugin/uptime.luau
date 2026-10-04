@@ -1,5 +1,4 @@
--- A consumer of the clock contract, with an option and a native event
--- subscription. `context:on` ends the subscription when the plugin unloads.
+-- The plugin context releases the native event subscription when the activation ends.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

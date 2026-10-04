@@ -1,5 +1,4 @@
--- The keyboard provider. The options and the `onKey` and `drawKey` around hooks are in
--- docs/dev/lua-api.md#keyboard; a keyboard's own options override `rows`, `layers`, and `style`.
+-- Provides owner-scoped keyboards. Per-keyboard options override provider rows, layers, and style. See docs/dev/lua-api.md#keyboard.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
@@ -22,7 +21,6 @@ export type KeyState = board.KeyState
 export type OnKey = board.OnKey
 export type DrawKey = board.DrawKey
 
--- What a configuration gives: every option optional.
 export type Config = {
   read rows: { keyboard.KeyRow }?,
   read layers: { [string]: { keyboard.KeyRow } }?,

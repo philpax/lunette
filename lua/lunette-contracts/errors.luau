@@ -1,6 +1,4 @@
--- The error stream contract. The provider owns the session's lunette.onError subscription, rate-limits
--- repeated reports, keeps a bounded history, and delivers to presenter plugins. The host logs errors
--- whatever subscribes here. See docs/dev/lua-api.md#errors-stream.
+-- The error stream rate-limits repeated reports, stores bounded history, and notifies subscribers. The host logs errors independently.
 
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
@@ -9,10 +7,7 @@ local errors = {}
 
 export type Owner = owner.Owner
 
--- One delivered report. `text` is the message, the traceback, and a note of
--- the withheld repeats, ready to show; `sequence` counts the reports
--- delivered since the provider started or was last cleared, this one
--- included; and `time` is the provider's clock when it arrived.
+-- `sequence` counts delivered reports since the provider started or was cleared. `time` records when the provider received the report.
 export type Report = {
   read message: string,
   read traceback: string,
@@ -22,8 +17,6 @@ export type Report = {
   read time: number,
 }
 
--- What subscribe takes: what runs for each report, and what runs when the
--- history is cleared.
 export type Subscriber = {
   read run: (Report) -> (),
   read cleared: (() -> ())?,

@@ -1,24 +1,14 @@
-//! Linux-only: the exit status a Lua session asks for reaches the process.
+//! Linux-specific test for the process exit status requested by a Lua session.
 //!
-//! This test covers reading the status from the wrong slot of the
-//! coroutine's stack. `vendor/lovr/etc/boot.lua` finishes with
-//! `return result, cookie`; index -1 is then the nil cookie, and
-//! `lua_tointeger` on it yields 0. A host that reads -1 reports success for
-//! every exit, silently.
+//! `boot.lua` returns the requested status followed by a cookie. Reading stack index -1
+//! reads the nil cookie, which converts to zero and hides nonzero exit statuses.
 //!
-//! The test spawns the real binary. CONTRIBUTING.md's testing conventions
-//! and `docs/dev/build-and-development.md` record the exception to the "no real
-//! subprocesses" rule: the exit status is an observable property of the
-//! process, not a value any function returns. `boot::run` produces an
-//! `ExitCode`, which is opaque and has no accessor, and the path that
-//! produces it needs a live LÖVR Lua thread that only the real boot sequence
-//! can create. The fixtures below switch off the audio, graphics, and
-//! headset modules and open no window; no display, no XR runtime, and no
-//! sound device are needed. The test neither sleeps nor touches the network.
-//! The one write is LÖVR's save directory.
-//! `lovr.filesystem.setIdentity` creates it unconditionally; each run points
-//! `XDG_DATA_HOME` at its own temporary directory, the write lands there,
-//! and the directory is removed when the test ends.
+//! `boot::run` returns an opaque `ExitCode`, and the boot sequence creates the LÖVR Lua
+//! thread that determines it. The test launches the binary to observe its exit status.
+//!
+//! Fixtures disable audio, graphics, and headset modules and open no window. The test needs
+//! no display, XR runtime, sound device, sleep, or network access. `setIdentity` writes to
+//! LÖVR's save directory, so each run sets `XDG_DATA_HOME` to a temporary directory.
 
 use std::{
     path::{Path, PathBuf},
@@ -37,12 +27,9 @@ fn a_quit_without_a_status_exits_zero() {
     assert_exit_status("quit-without-status", 0);
 }
 
-/// The `lunette` module is reachable from a configuration, on the state
-/// LÖVR created, not on one a test built.
+/// Checks that a configuration can require `lunette` in the LÖVR-created state.
 ///
-/// A fixture has no reporting channel other than the exit status. The
-/// fixture's `main.luau` quits with 9 when every assertion held and with a
-/// distinct status for each that did not.
+/// The fixture reports through distinct exit statuses because it has no other output channel.
 #[test]
 fn a_configuration_can_require_the_lunette_module() {
     assert_exit_status("require-lunette", 9);
@@ -63,8 +50,7 @@ fn a_relative_require_resolves_against_the_requiring_file() {
 /// say what went wrong there and nowhere else.
 fn assert_exit_status(fixture: &str, expected: i32) {
     let directory = fixture_directory(fixture);
-    // Checked before the run. A mislaid fixture then fails as itself, and
-    // boot.lua's "no main.luau" path never runs.
+    // Validate the fixture path and report absence without launching the binary.
     assert!(
         directory.join("lunette").join("main.luau").is_file(),
         "the {fixture} fixture is missing its main.luau"

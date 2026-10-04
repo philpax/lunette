@@ -1,4 +1,4 @@
--- Declaration correspondence is deliberately a runtime guarantee.
+-- Runtime checks enforce declaration correspondence.
 
 local api = require './api'
 local panels = require '@lunette-contracts/panels'

@@ -1,5 +1,4 @@
--- A contract: a capability and the service type behind it. A provider and
--- its consumers both require this module, and neither requires the other.
+-- The provider and its consumers share this contract without importing each other.
 
 local plugin = require '@lunette-plugin'
 

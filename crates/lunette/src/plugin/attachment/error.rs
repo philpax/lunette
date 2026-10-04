@@ -1,8 +1,4 @@
-//! Errors raised by the plugin attachment, and the plugin failures it reports.
-//!
-//! An operation raises an [`AttachmentError`] to its caller. A failure during
-//! a lifecycle drain is a [`PluginFailure`], reported and recorded as the
-//! instance's diagnostic rather than raised to whichever caller triggered it.
+//! Errors returned by plugin attachment operations and lifecycle failures.
 
 use std::{error::Error, fmt, sync::Arc};
 
@@ -11,7 +7,7 @@ use crate::plugin::{
     graph::{GraphError, InstanceId},
 };
 
-/// An attachment operation was rejected or could not complete.
+/// An attachment operation cannot complete.
 #[derive(Clone, Debug)]
 pub enum AttachmentError {
     /// The attachment is not installed in this Lua state.
@@ -20,22 +16,17 @@ pub enum AttachmentError {
     RuntimeGone,
     /// The runtime this handle belongs to is closed or closing.
     RuntimeClosed,
-    /// Shutdown was requested from inside a plugin callback.
+    /// A plugin callback requested shutdown.
     ShutdownInCallback,
     /// Shutdown could not advance the contract epoch.
     EpochExhausted,
-    /// A definition from a retired epoch was installed.
+    /// A definition belongs to a retired epoch.
     StaleDefinition { plugin: Arc<str> },
-    /// A capability wrapper was not a table.
-    WrapperNotTable {
-        /// The Lua type that was supplied instead.
-        found: &'static str,
-    },
+    /// A capability wrapper is not a table.
+    WrapperNotTable { found: &'static str },
     /// A plugin context cannot perform an operation.
     Context {
-        /// The operation that was attempted.
         operation: ContextOperation,
-        /// Why the context cannot perform it.
         reason: ContextReason,
     },
     /// The lifecycle graph rejected a request.
@@ -50,12 +41,12 @@ pub enum AttachmentError {
         operation: &'static str,
         source: mlua::Error,
     },
-    /// A plugin failure that is raised rather than reported.
+    /// A plugin failure propagated to the current operation.
     Plugin(PluginFailure),
     /// A drain performed its action budget and stopped. The remaining work is
     /// derived from graph state, so the next drain resumes it.
     DrainBudget { budget: usize },
-    /// Shutdown attempted every cleanup and some failed.
+    /// Shutdown attempts every inverse and returns any failures.
     Shutdown(Vec<AttachmentError>),
 }
 
@@ -116,8 +107,7 @@ impl Error for AttachmentError {
 impl From<AttachmentError> for mlua::Error {
     fn from(error: AttachmentError) -> Self {
         match error {
-            // A plugin's own error is raised unchanged, so its message and
-            // traceback reach the caller as the plugin raised them.
+            // Callback errors retain their original Lua traceback.
             AttachmentError::Plugin(PluginFailure {
                 cause: FailureCause::Callback(source),
                 ..
@@ -130,15 +120,11 @@ impl From<AttachmentError> for mlua::Error {
 /// An operation performed through a plugin context.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextOperation {
-    /// `context:services()`.
     Services,
-    /// `context:effect(...)`.
     Effect,
-    /// `context:child(...)`.
     Child,
-    /// `context:checkOwner(...)`.
     CheckOwner,
-    /// Cleanup that requires the context's allocation.
+    /// Cleanup operations that require the context's allocation.
     Cleanup,
 }
 
@@ -157,15 +143,15 @@ impl fmt::Display for ContextOperation {
 /// Why a context cannot perform an operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextReason {
-    /// The runtime was dropped.
+    /// The runtime no longer exists.
     RuntimeGone,
-    /// The instance was removed from its runtime.
+    /// The instance no longer belongs to its runtime.
     InstanceGone,
     /// The context's activation has ended or been replaced.
     Stale,
-    /// The context is running cleanup and may not acquire.
+    /// The context runs an inverse and cannot acquire resources.
     CleanupOnly,
-    /// The activation was cancelled before it could publish or acquire.
+    /// Cancellation prevents the activation from publishing or acquiring resources.
     Cancelled,
     /// A bound provider is no longer published at the bound generation.
     ProviderStale,
@@ -204,11 +190,11 @@ impl fmt::Display for ContextReason {
 pub enum FailurePhase {
     /// The initializer, or publication of its result.
     Load,
-    /// An inverse run because a load failed or was cancelled.
+    /// An inverse runs after load failure or cancellation.
     Rollback,
     /// An inverse run because an activation unloaded.
     Cleanup,
-    /// An inverse run because its effect was disposed.
+    /// An inverse runs after effect disposal.
     Disposal,
     /// The graph cannot load the instance.
     Wiring,
@@ -247,7 +233,7 @@ pub enum FailureCause {
     Callback(mlua::Error),
     /// The initializer returned a malformed provided record.
     Provision(ProvisionError),
-    /// The definition's callbacks were released with its epoch.
+    /// The definition's callbacks belong to a retired epoch.
     InitializerCleared,
     /// The attachment's own record for the instance is missing.
     MissingRecord,
@@ -269,7 +255,7 @@ impl fmt::Display for FailureCause {
     }
 }
 
-/// A failure inside a plugin's lifecycle, attributed to the instance it belongs to.
+/// A failure attributed to a plugin instance and lifecycle phase.
 #[derive(Clone, Debug)]
 pub struct PluginFailure {
     pub phase: FailurePhase,

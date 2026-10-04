@@ -1,105 +1,39 @@
-//! Linux-only: the configuration lunette runs when the user's configuration does not
-//! load.
+//! Linux-specific embedded fallback configuration for startup failures.
 //!
-//! The native layer owns one failure path
-//! ([the Lua API](../../../docs/dev/lua-api.md#errors)). That path produces safe mode:
-//! a laser, one panel, a terminal, and a reload key. Safe mode shows the cause of the
-//! failure and lets the user recover from inside the headset without taking it off to
-//! edit a file.
-//!
-//! Safe mode is embedded in the binary, not installed. Safe mode exists for when
-//! `main.luau` fails to load. A broken standard library, a missing install, or a bad
-//! `LUNETTE_STDLIB_PATH` can cause the load to fail, so the fallback must not
-//! depend on anything on disk. [`SOURCE`] requires `lunette` and nothing else, and
-//! no module root mounted from disk.
-//!
-//! # How it is reached
-//!
-//! [`install_trigger`] wraps `lovr.boot`. A failure of `lovr.boot` means the
-//! configuration did not load. `vendor/lovr/etc/boot.lua` calls the wrapped function
-//! under `xpcall`. Every load failure raises inside that call: a source that does not
-//! mount, a missing `main.luau`, a `conf.luau` that raised, a syntax error, an error at
-//! the top level of `main.luau`.
-//!
-//! # The boundary includes `lovr.load`
-//!
-//! `lovr.boot` ends with `return lovr.run()`. `lovr.run` calls `lovr.load(arg)` before
-//! it returns the frame loop. Both statements are in `vendor/lovr/etc/boot.lua`. A
-//! `lovr.load` that raises is caught by the wrapper and replaced with safe mode, while
-//! every other callback reports through [`crate::callback_error`]. `lovr.load` is where a
-//! configuration builds the state its later callbacks assume, and a session whose
-//! `lovr.load` raises halfway cannot run those callbacks. `docs/dev/lua-api.md` records the
-//! boundary.
-//!
-//! Everything after `lovr.load` (`lovr.update`, `lovr.draw`, the `lun*`
-//! callbacks) runs inside the frame loop, after the wrapper has returned it, so a
-//! runtime error in one of them does not reach the wrapper. The distinction is
-//! described in [the Lua API](../../../docs/dev/lua-api.md#errors): a runtime error in
-//! a callback of a configuration that started goes to [`crate::callback_error`],
-//! and a reload that fails leaves the previous session running
-//! ([`crate::reload`]).
+//! Safe mode runs when `lovr.boot` or `lovr.load` fails. It uses no file-backed
+//! module roots, so it can run when the standard library or installation is
+//! unavailable. Other callback failures use [`crate::callback_error`]. A failed
+//! reload leaves the current session running. See
+//! [error handling](../../../docs/dev/lua-api.md#errors).
 
 use mlua::{Function, Lua, Table, Value};
 use tracing::{error, info};
 
 use crate::reload;
 
-/// The chunk, compiled into the binary.
-///
-/// `include_str!` embeds it, not a string literal, so the Lua stays in a file:
-/// syntax highlighting applies, the file diffs against the default configuration
-/// it resembles, and the tests below read the same bytes the session runs.
+/// The safe-mode Lua source embedded in the binary.
 pub const SOURCE: &str = include_str!("safe_mode.luau");
 
-/// What a traceback names the chunk.
-///
-/// The leading `@` is LuaJIT's marker for a chunk named after a file. It makes
-/// an error inside safe mode read as `safe-mode.luau` with a line number, not as
-/// the first line of the source quoted back.
+/// The chunk name used in safe-mode tracebacks.
 pub const CHUNK_NAME: &str = "@safe-mode.luau";
 
-/// Compiles [`SOURCE`] against `lua`, without running it.
-///
-/// The caller runs it; when it runs is the caller's decision. Safe mode replaces
-/// `main.luau`, so the chunk executes at the point in the boot sequence the
-/// configuration would have been.
+/// Compiles [`SOURCE`] without running it.
 ///
 /// # Errors
 ///
-/// If the chunk does not compile. That condition is a defect in [`SOURCE`], not
-/// an action of the session.
+/// Returns a compilation error if [`SOURCE`] is invalid.
 pub fn load(lua: &Lua) -> mlua::Result<Function> {
     lua.load(SOURCE).set_name(CHUNK_NAME).into_function()
 }
 
-/// Arranges for safe mode to run when the configuration does not load.
+/// Installs a `lovr.boot` wrapper that starts safe mode when startup fails.
 ///
-/// It wraps `lovr.boot`. It must be called after `boot.lua`'s chunk has run,
-/// which creates the `lovr` table, and before the coroutine is first resumed,
-/// when `boot.lua` reads `lovr.boot` back.
-///
-/// # Trigger choice: `lovr.boot`, not `lovr.errhand`
-///
-/// `lovr.errhand` catches every error that escapes a callback boundary, including
-/// errors unrelated to the load failure. It also belongs to the
-/// configuration, which may define one, and replacing it would replace that
-/// one. Wrapping `lovr.boot` catches a failure to start and nothing after
-/// it, so a runtime error one frame into a session that started cannot replace
-/// the session with the fallback. The boundary is one callback wider than
-/// "the configuration did not load": `lovr.load` runs inside it. The module
-/// documentation states where the boundary falls.
-///
-/// # What `boot.lua` does with the return value
-///
-/// `vendor/lovr/etc/boot.lua` contains `local thread = select(2, xpcall(lovr.boot,
-/// onerror))`. `lovr.boot` ends with `return lovr.run()`, a function that runs one
-/// frame per call. The wrapper returns a frame loop whether boot succeeds or
-/// fails; the loop after a failure is safe mode's.
+/// Call after `boot.lua` creates `lovr` and before its coroutine resumes. The
+/// wrapper covers `lovr.load`; later callback failures remain outside this boundary.
 ///
 /// # Errors
 ///
-/// If `lovr.boot` cannot be read or replaced. That condition means `boot.lua` is
-/// not the version this code targets.
+/// Returns an error if `lovr.boot` cannot be read or replaced.
 pub fn install_trigger(lua: &Lua) -> mlua::Result<()> {
     let lovr: Table = lua.globals().get("lovr")?;
     let boot: Function = lovr.get("boot")?;
@@ -111,25 +45,17 @@ pub fn install_trigger(lua: &Lua) -> mlua::Result<()> {
     lovr.set("boot", wrapper)
 }
 
-/// Runs safe mode in place of the configuration, and answers its frame loop.
+/// Runs safe mode and returns its frame loop.
 ///
-/// The load error is reported before anything else: a user who never sees the
-/// log still needs to know what happened. The error is passed into the chunk as
-/// its one argument, and safe mode shows it.
+/// The host logs the load error and passes it to the safe-mode chunk.
 ///
 /// # Errors
 ///
-/// If safe mode itself does not load or run. No fallback remains at that point,
-/// so the failure is returned and `boot.lua`'s own handler takes it. The session
-/// then ends with a message, not with a black headset and no explanation.
+/// Returns an error if safe mode does not load or run.
 fn start(lua: &Lua, failure: &mlua::Error) -> mlua::Result<Value> {
     let reported = failure.to_string();
     error!("lua: the configuration could not be loaded, so safe mode is running: {reported}");
 
-    // A `main.luau` that raised halfway can have installed some of its
-    // callbacks, and `lovr.run` keeps calling them. Safe mode installs its
-    // own below; clearing the old ones stops the broken configuration's
-    // callbacks surviving alongside them.
     if let Err(error) = reload::clear_user_callbacks(&lua.globals()) {
         error!("lua: the failed configuration's callbacks could not be cleared: {error}");
     }
@@ -468,9 +394,7 @@ mod tests {
         assert!(!buttons[1].3, "the second is the release");
     }
 
-    /// Both hands point, and both deliver. Safe mode has one seat, not one per
-    /// hand, so the two share a cursor. A session where only the hand the list
-    /// happens to name first works would be worse, and this case catches it.
+    /// Safe mode exposes one seat, so both hands use the same cursor.
     #[test]
     fn both_hands_reach_the_panel() {
         let lua = started();

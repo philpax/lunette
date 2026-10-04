@@ -1,6 +1,5 @@
--- The panels provider. Each activation owns one independent registry, and the plugin context owns every
--- provider resource through effects. The options and the `shape` around hooks are in
--- docs/dev/lua-api.md#panels.
+-- Each activation owns its panel registry and resources.
+-- See docs/dev/lua-api.md#panels for options and shape hooks.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -39,7 +38,6 @@ export type DrawBase = panel.DrawBase
 export type ApplyLayer = panel.ApplyLayer
 export type LayerBase = panel.LayerBase
 
--- What a configuration gives: every option optional.
 export type Config = {
   read style: {
     read borderThickness: number?,
@@ -92,8 +90,7 @@ local function opaqueShader(state: ProviderState): Shader?
   return state.opaqueShader
 end
 
--- Registers a panel with the owner's lifetime. The claim is acquired inside the
--- acquisition, so a claim that fails leaves nothing registered.
+-- A failed initial claim leaves the panel unregistered.
 local function create(state: ProviderState, owner: Owner, source: panel.Source, options: Options?): panel.State
   state.context:checkOwner(owner)
   local target = panel.new(state.host, owner, source, options)
@@ -170,7 +167,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     host = host,
   }
   state = created
-  -- Registered first so it runs last: held panels are released while removal listeners can still hear it.
+  -- This effect runs last, while removal listeners still have live owners.
   context:effect(function()
     return function()
       state.active = false
@@ -181,8 +178,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end)
 
-  -- The published service is revoked with this activation, so its methods need no liveness guard; panels
-  -- check their activation through their host.
+  -- Panels check activation liveness through their host.
   local service: Service = {
     STYLE = settings.style,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
@@ -202,8 +198,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     all = function(_self: Service): { Panel }
       return livePanels(state)
     end,
-    -- A dead source's panel is not answered even before the next update retires it, so a source that
-    -- returns under the same identity is not taken for the old one.
+    -- A dead source does not match a replacement with the same identity until update retires its panel.
     forSource = function(_self: Service, source: contracts.Source): Panel?
       if source == nil then
         return nil

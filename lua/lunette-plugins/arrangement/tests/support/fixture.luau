@@ -1,5 +1,4 @@
--- The plugin runtime the persistence tests drive a state through: the real panels, tags, and rules
--- providers, and placement when asked for, with a consumer of them, over the fake native API.
+-- Provides real persistence services over the fake native API.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'

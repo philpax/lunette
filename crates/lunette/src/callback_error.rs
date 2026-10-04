@@ -1,50 +1,27 @@
-//! Linux-only: what happens to an error raised inside a configuration's
-//! callback.
+//! Linux-only: reports errors raised by configuration callbacks.
 //!
-//! [The Lua API](../../../docs/dev/lua-api.md#errors) says the callback boundary
-//! logs the error and notifies every `lunette.onError` listener. The limiter
-//! and the wording of a report are policy in the error stream provider,
-//! `@lunette-plugins/errors`, which subscribes like any other listener and is
-//! never looked up, and presenting a report is policy in its subscribers.
-//!
-//! # No native limiter
-//!
-//! A native limiter and a Lua limiter, keyed differently, produce gaps: an
-//! error suppressed natively never reaches the Lua limiter, whose window then
-//! starts from the wrong occurrence. Every listener is notified, and each
-//! listener handles the error independently.
-//!
-//! # Sessions without the error stream
-//!
-//! Without the error stream provider there is no limiter, so an error raised
-//! every frame is logged every frame.
-//!
-//! A listener that raises does not stop the ones after it. A session whose
-//! error display itself raises still reaches every other listener.
+//! [The Lua API](../../../docs/dev/lua-api.md#errors) defines the callback boundary. It logs each
+//! error and notifies every `lunette.onError` listener. The error stream provider owns rate
+//! limiting; without it, repeated errors are logged on every frame. A listener failure does not
+//! stop later listeners.
 
 use mlua::{Function, IntoLua, Lua};
 use tracing::error;
 
 use crate::lua::ErrorEvent;
 
-/// Reports an error a configuration's callback raised.
+/// Reports a callback error to every listener.
 ///
-/// `context` names the boundary the error came through, the callback's own
-/// name, and leads the message, so a report says which callback failed without
-/// the reader having to read the traceback.
-///
-/// Never raises. The callback boundary has no reporting path below this one,
-/// so a failure would leave the error unreported.
+/// The context prefixes the message so the callback boundary remains identifiable without its
+/// traceback. Reporting errors are logged because this is the last reporting boundary.
 pub fn report(lua: &Lua, listeners: &[Function], context: &str, error: &mlua::Error) {
     report_traced(lua, listeners, &TracedError::of(context, error));
 }
 
-/// Reports an error whose message and traceback are already apart.
+/// Reports an error with a separate message and traceback.
 ///
-/// `lunette.reportError` reaches the boundary through this, so a Lua
-/// dispatcher that protects each of its handlers reports a handler's error the
-/// way a raising callback is reported. Never raises, for the reason
-/// [`report`] does not.
+/// `lunette.reportError` uses this path for errors raised by protected Lua handlers. Reporting
+/// errors are logged because this is the last reporting boundary.
 pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
     error!("lua: {}\n{}", traced.message, traced.traceback);
 
@@ -55,10 +32,8 @@ pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
 
 /// An error's message and the traceback that goes with it, kept apart.
 ///
-/// The error stream provider keys its rate limit on both. One message raised from two
-/// places is two defects, and conflating them would hide the second behind the
-/// first. The listener receives the two separately, and mlua reports them
-/// joined.
+/// The error stream provider keys its rate limit on both fields. The listener receives them
+/// separately so identical messages from different tracebacks remain distinct.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TracedError {
     /// The raised error, with the boundary leading it.
@@ -68,13 +43,10 @@ pub struct TracedError {
 }
 
 impl TracedError {
-    /// Splits what mlua reports into the two halves a report is made of.
+    /// Separates the error message from its traceback.
     ///
-    /// `Function::call` installs `luaL_traceback` as the message handler
-    /// (mlua-0.12.0/src/function.rs), which appends the traceback to the error
-    /// string with [`TRACEBACK_MARKER`] between them. An error raised by a Rust
-    /// callback arrives as [`mlua::Error::CallbackError`], which already
-    /// carries the two apart.
+    /// `Function::call` appends the traceback after [`TRACEBACK_MARKER`]. Rust callback errors
+    /// arrive as [`mlua::Error::CallbackError`] with the message and traceback already separate.
     #[must_use]
     pub fn of(context: &str, error: &mlua::Error) -> Self {
         let (message, traceback) = match error {
@@ -105,17 +77,12 @@ fn split(reported: &str) -> (String, String) {
     }
 }
 
-/// Calls every `lunette.onError` listener with the error.
-///
-/// Every listener runs, including the ones after a listener that raised: a
-/// panel that fails to draw does not stop a logger from receiving the error.
+/// Calls every `lunette.onError` listener, even when an earlier listener raises.
 fn offer_to_listeners(lua: &Lua, listeners: &[Function], traced: &TracedError) -> mlua::Result<()> {
     if listeners.is_empty() {
         return Ok(());
     }
 
-    // Built through the declared type, so a listener sees the fields the
-    // declaration names.
     let payload = ErrorEvent {
         message: traced.message.clone(),
         traceback: traced.traceback.clone(),
@@ -141,7 +108,6 @@ mod tests {
 
     use super::*;
 
-    /// The named global, as a listener `report` can be handed.
     fn listener(lua: &Lua, name: &str) -> Function {
         lua.globals()
             .get::<Function>(name)

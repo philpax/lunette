@@ -1,17 +1,10 @@
--- The shipped desktop with its keyboard replaced and the wrist button moved.
---
--- Copy this file and split.luau into the directory `lunette --dump-config`
--- wrote, which also holds conf.luau and the .luaurc that `lunette check` and an
--- editor read. docs/guide/writing-plugins.md walks through it.
+-- The split keyboard replaces the built-in definition while the desktop wrist button uses new placement options.
 local desktop = require '@lunette-desktop'
 
 desktop.run {
   patches = {
-    -- The keyboard entry keeps its id and takes another definition. Every
-    -- consumer of the keyboard contract, the wrist button included, now gets
-    -- the split keyboard.
+    -- The replacement keeps the `keyboard` id, so existing consumers use the split keyboard.
     { id = 'keyboard', definition = require './split' },
-    -- The wrist button's options merge over its defaults.
     desktop.configure(require '@lunette-plugins/desktop/keyboard') { hand = 'right', placement = { distance = 0.45 } },
   },
 }

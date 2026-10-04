@@ -1,5 +1,4 @@
--- The placement provider: windows placed as panels, by resolved properties. The `panelOptions` around hook
--- is in docs/dev/lua-api.md#rules-and-placement; `hidden` and `tags` are applied after the panel is made.
+-- See docs/dev/lua-api.md#rules-and-placement for the placement options and hook.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
@@ -14,7 +13,6 @@ export type PanelOptionsBase = build.PanelOptionsBase
 export type PanelOptions = build.PanelOptions
 export type Settings = build.Settings
 
--- What a configuration gives: every option optional.
 export type Config = {
   read panelOptions: PanelOptions?,
 }

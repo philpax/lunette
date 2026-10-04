@@ -1,6 +1,4 @@
--- Covers placement in the shipped desktop: the entries need no particular order, a tag's own layout arranges
--- it, a window in several tags is arranged by the first selected one, and a replaced placement, a rule's
--- `where` and `hidden`, and the adoption filter reach the panels through patches.
+-- Placement supports entry reordering, per-tag layouts, first-selected-tag precedence, replacement providers, rule predicates, and adoption filters.
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'

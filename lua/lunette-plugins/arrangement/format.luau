@@ -1,46 +1,10 @@
--- The arrangement file: its text, its versions, and the one type that may be
--- written.
---
--- Pure. Nothing here reads or writes a file; `./state` is the shell that
--- does, and `@lunette-plugins/arrangement` is the module a configuration requires. This half is separate
--- so the version matrix can be reasoned about on its own, and because a format
--- that turns text into data needs no filesystem to be exercised.
---
--- # The versions
---
--- The matrix is handled by construction; `crates/lunette-capture/src/tokens.rs`
--- uses the same shape for the same problem:
---
--- - A new lunette reading an old file reads the fields the file holds; fields
---   added after that version read as absent.
--- - An old lunette reading a new file gets a `fromTheFuture` load, and
---   `loaded:forSession()` returns nothing. The version check exists for this
---   case: saving a file that holds fields this version cannot represent would
---   drop those fields and corrupt the file; failing on the file does not. There
---   is no arrangement to render and no file object to give `save`, so a
---   refactor that stops checking the kind still cannot write the file.
--- - The version is bumped when a field is added, not when one is first depended
---   on. A default lets a new reader parse an old file; the version check stops
---   an old writer saving a new one.
---
--- # The text
---
--- A Lua chunk returning a table, loaded under an empty environment.
--- `string.format`'s `%q` provides the escaping, the part of a serialiser with a
--- correctness tail.
---
--- This module holds no state and starts nothing, so no timer, connection, or
--- coroutine survives a reload.
+-- Reads and writes versioned arrangement files. Future versions load without a writable arrangement, preventing old readers from dropping fields they cannot represent. Missing fields remain absent. File chunks run in an empty environment.
 
 local format = {}
 
--- The fields of an entry that render as a scalar, as `ENTRY_FIELDS` names them
--- and `renderEntry` reads them. `tags` is not one: it is a list, and is written
--- separately. A closed set; `ENTRY_FIELDS` and `renderEntry` both check against
--- it, and a bare string would not be checked.
+-- Scalar entry fields form a closed set; tags are serialized separately as a list.
 export type EntryField = 'kind' | 'key' | 'slot' | 'pose' | 'width' | 'height'
 
--- One entry: what an arrangement holds for a single window or monitor.
 export type Entry = {
   kind: 'window' | 'monitor',
   key: string,
@@ -75,28 +39,16 @@ type BrokenLoad = {
 }
 export type Loaded = ArrangementLoad | FutureLoad | BrokenLoad
 
--- Declared here and defined below the public API, so the surface precedes the
--- implementation.
 local fileMetatable, loadedMetatable, quote
 local renderEntry: (Entry) -> string
 local readEntry: (any) -> (Entry?, string?)
 
--- The format version this lunette writes.
 format.CURRENT_VERSION = 1
 
--- The fields an entry is written with, in a fixed order. An arrangement that
--- has not changed renders identically, and the file does not churn between
--- runs. `tags` is a list and is written last, separately.
+-- Fixed field order keeps unchanged arrangements byte-for-byte stable.
 format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' } :: { EntryField }
 
--- An arrangement, from a list of entries.
---
--- Everything `render` accepts comes from here, and `persist.save`
--- accepts the same. A caller cannot assemble one out of a plain table; the
--- from-the-future rule is structural, and no check has to be remembered.
---
--- The list is copied; a caller sorting or trimming the array afterwards does
--- not change the arrangement that is about to be saved.
+-- Copies the entry array so callers cannot mutate a pending save through that array.
 function format.newFile(entries: { Entry }): File
   local held: { Entry } = {}
   for index = 1, #(entries or {}) do
@@ -109,21 +61,15 @@ function format.newFile(entries: { Entry }): File
   return setmetatable({ entries = held }, fileMetatable)
 end
 
--- Whether `value` is an arrangement this module made.
 function format.isFile(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == fileMetatable
 end
 
--- Whether `value` is a load `read`, `empty`, or `broken` produced.
---
--- A load and an arrangement are two different things, and a caller can mistake
--- one for the other. The two metatables distinguish them; the fields that
--- happen to be present cannot.
+-- Loads and arrangements use distinct metatables, independent of their fields.
 function format.isLoaded(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == loadedMetatable
 end
 
--- An arrangement's entries, as a fresh array.
 function format.entries(file: File): { Entry }
   if not format.isFile(file) then
     error('desktop.persist: an arrangement is one this module made, not a ' .. type(file), 2)
@@ -135,38 +81,18 @@ function format.entries(file: File): { Entry }
   return copied
 end
 
--- The file's text, as a load.
---
--- The load is one of three kinds. `forSession` returns the arrangement; the
--- caller does not read the kind itself:
---
--- - `arrangement`, carrying one, and `skipped`, the entries it could not read.
--- - `fromTheFuture`, carrying `found` and `supported` and no arrangement.
--- - `broken`, carrying `message` and no arrangement.
---
--- `broken` is a load, not a raise. A save file is written by a previous process
--- and may have been truncated by a machine losing power mid-write; that is an
--- ordinary external condition, not a defect in the caller.
---
--- An entry that is not the shape this version writes is skipped and named in
--- `skipped`; a partial entry is never taken. A half-read entry would place a
--- panel somewhere nobody chose, which is harder to diagnose than an entry that
--- is refused. `read` returns what happened and prints nothing; the shell
--- reports.
+-- Returns a broken load for parse or I/O damage, skips malformed entries, and reports them in `skipped`. Unsupported versions return no writable arrangement.
 function format.read(text: unknown): Loaded
   if type(text) ~= 'string' then
     return format.broken('the file is a ' .. type(text) .. ', not text')
   end
 
-  -- LuaJIT returns `nil, message` for an unparseable chunk; Luau raises a
-  -- syntax error instead. The file is broken either way, and the loader must
-  -- report the break, not propagate it.
+  -- LuaJIT returns a parse error; Luau raises one. Both become broken loads.
   local ok, chunk = pcall(loadstring, text, '@arrangement')
   if not ok or not chunk then
     return format.broken(tostring(chunk or 'the file is not parseable'))
   end
-  -- An empty environment, so the chunk can build tables and reach nothing. The
-  -- environment is empty even when the process wrote the file itself.
+  -- File contents are untrusted even when this process wrote them.
   setfenv(chunk, {})
 
   local ran, held = pcall(chunk)
@@ -212,7 +138,6 @@ function format.read(text: unknown): Loaded
   return arrangement
 end
 
--- A load carrying an empty arrangement; a first run has one of these.
 function format.empty(): ArrangementLoad
   local arrangement: ArrangementLoad = {
     kind = 'arrangement',
@@ -224,9 +149,6 @@ function format.empty(): ArrangementLoad
   return arrangement
 end
 
--- A load carrying an arrangement read from a file of `version`, and the
--- entries the reader skipped. A format of a configuration's own answers this
--- from its read, so its loads are the ones the shell accepts.
 function format.arrangement(
   fields: { read file: File, read version: number, read skipped: { string }? }
 ): ArrangementLoad
@@ -243,9 +165,7 @@ function format.arrangement(
   return arrangement
 end
 
--- A load of a file written by a newer version than its reader supports. A
--- format answers this rather than reading what it can of the file, because
--- writing back what it read would drop what it could not.
+-- Marks a newer file as unsupported so an older writer cannot drop its fields.
 function format.fromTheFuture(fields: { read found: number, read supported: number }): FutureLoad
   local future: FutureLoad = {
     kind = 'fromTheFuture',
@@ -257,17 +177,13 @@ function format.fromTheFuture(fields: { read found: number, read supported: numb
   return future
 end
 
--- A load of a file that could not be read.
 function format.broken(message: string): BrokenLoad
   local broken: BrokenLoad = { kind = 'broken', message = message, skipped = {} }
   setmetatable(broken, loadedMetatable)
   return broken
 end
 
--- An arrangement as the file's text.
---
--- The render is always at `CURRENT_VERSION`; the version the read returned does
--- not change it.
+-- Renders every arrangement with the current format version.
 function format.render(file: File): string
   if not format.isFile(file) then
     error('desktop.persist: an arrangement is one this module made, not a ' .. type(file), 2)
@@ -287,10 +203,7 @@ function format.render(file: File): string
   return table.concat(lines, '\n') .. '\n'
 end
 
--- The arrangement a load carries, or nothing.
---
--- Nothing for a load this version cannot represent. The absent load blocks a
--- write-back: there is no arrangement to render and nothing `save` accepts.
+-- Future and broken loads expose no arrangement that a caller can write back.
 loadedMetatable = {
   __index = {
     forSession = function(self: Loaded): File?
@@ -302,35 +215,22 @@ loadedMetatable = {
   },
 }
 
--- An arrangement. `render` accepts a table with this metatable and no other;
--- that acceptance makes `newFile` the required constructor for an arrangement.
 fileMetatable = {}
 
--- A value as Lua source. Strings go through `%q`, the escaping with a
--- correctness tail.
 function quote(value)
   if type(value) == 'string' then
     return string.format('%q', value)
   end
   if type(value) == 'number' then
-    -- Seventeen digits round-trip a double unchanged. A metre size that
-    -- lost its last digit would shrink a panel a little at every restart, and
-    -- the drift would be diagnosed as a layout defect, not a formatting one.
+    -- Seventeen significant digits preserve the exact double across restarts.
     return string.format('%.17g', value)
   end
   error('desktop.persist: an entry holds strings and numbers, not a ' .. type(value))
 end
 
--- One entry as a line of the file.
---
--- A field the entry does not carry is left out, never written as nothing.
--- A reader treats an absent field as absent, so a file written without the
--- field reads with that field absent.
+-- Missing optional fields remain absent in the rendered file.
 function renderEntry(entry: Entry): string
-  -- Keyed by `EntryField`, so a name here that the field set does not carry is a
-  -- type error, and so is one in `ENTRY_FIELDS`. The type does not express that
-  -- every field is present; `persist/format_spec.luau` asserts that, and a field
-  -- added to the set but not to this table fails there.
+  -- The format specification test checks that every named field is serialized.
   local values: { [EntryField]: string | number | nil } = {
     kind = entry.kind,
     key = entry.key,

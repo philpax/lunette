@@ -1,4 +1,3 @@
--- Filesystem and refusal behavior for configuration-owned persistence state.
 local testing = require '@testing'
 local expect = testing.expect
 local rulesContract = require '@lunette-contracts/rules'
@@ -45,8 +44,6 @@ local function newState(fs, onReport)
   return state, reports
 end
 
--- Binds the state in the fixture consumer's initializer, which then calls `extend`, when given. `run`
--- receives the binding, the consumer's context, services, and instance, and the provider instances.
 local function withBinding(state, run, extend)
   fixture.run({ bind = state, extend = extend }, function(env)
     expect.truthy(env.binding and env.binding:active(), 'the initialized binding')
@@ -177,7 +174,6 @@ test('saved bytes restore pose, size, and tags in a new configuration state', fu
   end)
   local recovered = newState(fs)
   withBinding(recovered, function(_binding, context, panels, tags)
-    -- The binding restores a panel that appears after it as the panel appears.
     local panel = panels:fromMonitor(context, { id = 'fixture.monitor', dead = false, width = 1920, height = 1080 })
     local x, y, z = panel.pose:getPosition()
     expect.near(x, -0.5, 1e-5, 'x')
@@ -249,7 +245,7 @@ test('an unloading binding refuses every save while its source is still register
   end, function(current, binding)
     local rules = current:require(rulesContract.capability)
     rules:setRules(current, { rules = { { properties = { width = 1 } } } })
-    -- Registered after the bind, so its inverse runs before the binding's own.
+    -- This inverse runs before the binding's inverse.
     current:effect(function()
       return function()
         ran = true
@@ -293,7 +289,7 @@ test('the default adapter routes reads and writes through the save filesystem', 
   expect.equal(native.events.saved, arrangement.render(state:arrangement()), 'the format-one bytes')
 end)
 
--- A format of a configuration's own, answering fromTheFuture for a later version.
+-- The custom format reports versions it cannot represent.
 local LINES_VERSION = 1
 local lines = {
   read = function(text)

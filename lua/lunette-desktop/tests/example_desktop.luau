@@ -1,5 +1,3 @@
--- Covers examples/desktop: its configuration starts, draws, and quits, and the binding it inserts hides every
--- window and shows them again.
 local testing = require '@testing'
 local expect = testing.expect
 

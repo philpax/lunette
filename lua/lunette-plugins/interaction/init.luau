@@ -1,8 +1,4 @@
--- Owner-scoped pointer interaction with activation-local grab state.
---
--- A pointer's release runs as an inverse on its owner, so a failing native release is the owner's failure.
--- Focus and drops are held by this provider's context within the pointer owner's lifetime. The options and
--- the `drive` and `constrain` around hooks are in docs/dev/lua-api.md#pointers-and-interaction.
+-- Pointer release runs with its owner, and failures remain that owner's failures. Focus grants and drop listeners use the provider context. See docs/dev/lua-api.md#pointers-and-interaction.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/interaction'
@@ -16,14 +12,11 @@ type Service = contracts.Service
 type Pointer = contracts.Pointer
 type Surface = contracts.Surface
 
--- The default pointer mapping a `drive` hook receives as `base`.
 export type DriveBase = (Pointer, contracts.Input, { Surface }) -> ()
 export type Drive = (Pointer, contracts.Input, { Surface }, DriveBase) -> ()
--- The default constraint a `constrain` hook receives as `base`.
 export type ConstrainBase = (Surface, Mat4) -> Mat4
 export type Constrain = (Surface, Mat4, ConstrainBase) -> Mat4
 
--- The resolved options. Each activation receives its own frozen copy.
 export type Settings = {
   read tuning: contracts.Tuning,
   read focusOnPress: boolean,
@@ -31,7 +24,6 @@ export type Settings = {
   read constrain: Constrain,
 }
 
--- What a configuration gives: every option optional.
 export type Config = {
   read tuning: {
     read reach: number?,
@@ -69,7 +61,6 @@ type State = {
   pressedSurface: { [lunette.PointerButton]: Surface },
 }
 
--- The fields a pointer answers; the rest of its state is the provider's bookkeeping.
 local READABLE: { [string]: boolean } = {
   seat = true,
   tuning = true,
@@ -86,7 +77,6 @@ for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
   BUTTONS[button] = true
 end
 
--- The key a focus grant for a pointer without a seat is kept under.
 local NO_SEAT = table.freeze {}
 
 local function unchanged(_surface: Surface, pose: Mat4): Mat4
@@ -100,8 +90,7 @@ local function build(context: plugin.Context, settings: Settings): Service
   local states: { [Pointer]: State } = {}
   local dropService: dropsContract.Service = context:require(dropsContract.capability)
   local focusService: focusContract.Service = context:require(focusContract.capability)
-  -- The pointer that last gave each seat's focus, with its grant. A pointer that ends withdraws a grant only
-  -- while it is the last to have given it.
+  -- A pointer ending withdraws its grant when no later pointer owns focus for that seat.
   local grantors: { [unknown]: State } = {}
   local grants: { [unknown]: plugin.Effect } = {}
 
@@ -154,8 +143,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end
 
-  -- Another live pointer of this activation still hovering a surface keeps
-  -- its highlight on when this one leaves.
+  -- A highlight stays active while another pointer still hovers the surface.
   local function hoveredByAnother(state: State, target: Surface): boolean
     for _, other in pairs(states) do
       if other ~= state and not other.dead and other.hovered == target then
@@ -239,7 +227,6 @@ local function build(context: plugin.Context, settings: Settings): Service
     state.gripped = false
   end
 
-  -- The default mapping: what a `drive` hook receives as `base`.
   local function defaultDrive(pointer: Pointer, input: contracts.Input, surfaces: { Surface }): ()
     local state = states[pointer]
     if not state then
@@ -327,8 +314,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     }
     local cleanupEffect: plugin.Effect? = nil
     local public: Pointer
-    -- The registry forgets the pointer before any native release, and every
-    -- release is attempted before a failure is raised to whoever ended it.
+    -- The pointer leaves the registry before releases run, and every release is attempted before failure is raised.
     local function destroyRaw(): boolean
       if state.dead then
         return false
@@ -457,7 +443,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     return public
   end
-  -- Owners unload before this provider, so this releases only stragglers.
+  -- Provider shutdown releases grants that remain after owners unload.
   context:effect(function()
     return function()
       active = false

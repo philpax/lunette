@@ -1,6 +1,4 @@
--- The erased boundary for plugin declarations and native runtime handles. Declarations keep the frozen
--- capability wrappers registered at binding, and published services reach consumers as frozen proxies that
--- the provider's activation guards.
+-- The adapter maps typed plugin declarations to native runtime handles.
 
 local native = require '@lunette'
 local options = require '@lunette-plugin/options'
@@ -12,14 +10,11 @@ type NativeDefinition = native.PluginDefinition
 type NativeEffect = native.PluginEffect
 type NativeInstance = native.PluginInstance
 
--- A contract's capability. The service type `T` is named at the call site by
--- explicit instantiation, as in `plugin.capability<<Service>> { ... }`, and
--- the witness is an identity function that carries it.
+-- The witness carries the service type selected when the capability is declared.
 export type Capability<T> = {
   read witness: (T) -> T,
 }
 
--- The fields `plugin.capability` accepts.
 export type CapabilitySpec = {
   read name: string,
   read schema: number,
@@ -29,16 +24,12 @@ export type Effect = {
   read dispose: (Effect) -> (),
 }
 
--- A caller lifetime that a provider acquires resources for, so the resource is released when the caller's
--- activation ends.
+-- An owner releases each acquired effect when its activation ends.
 export type Owner = {
   read services: (never) -> unknown,
   read effect: (Owner, () -> () -> ()) -> Effect,
 }
 
--- What `Context:on` takes. `event` is a subscribing function that takes a
--- handler and answers the function that cancels it, the shape of every
--- `lunette.on*` event, and `run` is the handler.
 export type Subscription<E> = {
   read event: ((E) -> ()) -> () -> (),
   read run: (E) -> (),
@@ -62,8 +53,6 @@ export type Publisher = {
 
 export type Declaration = { [string]: { read witness: (never) -> unknown } }
 
--- The fields `plugin.define` accepts. The configuration type `C` is inferred
--- from the initializer's configuration parameter.
 export type Spec<C> = {
   read name: string,
   read requires: Declaration?,
@@ -71,10 +60,8 @@ export type Spec<C> = {
   read init: (Context, C, Publisher) -> (),
 }
 
--- A defined plugin. The initializer's context and publisher are erased to
--- `never`: naming `Context` here makes `Definition` and `Context` mutually
--- recursive, and `Context:child` then no longer checks its configuration
--- argument against `C`.
+-- The context and publisher use `never` to avoid recursive types.
+-- A recursive `Context` type prevents `Context:child` from checking its configuration against `C`.
 export type Definition<C> = {
   read name: string,
   read requires: Declaration,
@@ -118,8 +105,6 @@ local function declarationSnapshot(value: Declaration): Declaration
   return freeze(table.clone(value))
 end
 
--- Names a capability for an error message by its contract, or says that the
--- value is not a capability at all.
 local function describeCapability(capability: unknown): string
   if type(capability) == 'table' then
     local contract = rawget(capability :: { [string]: unknown }, 'contract')
@@ -139,8 +124,6 @@ local function declaredField(declaration: Declaration, capability: unknown): str
   return nil
 end
 
--- Returns the field a capability is declared under, or raises an error that
--- names the contract at the plugin code that passed it.
 local function memberField(operation: string, declaration: Declaration, capability: unknown): string
   local field = declaredField(declaration, capability)
   if field == nil then
@@ -157,9 +140,8 @@ local function unwrapDefinition<C>(definition: Definition<C>): NativeDefinition
   return ((definition :: unknown) :: DefinitionRecord<C>).nativeDefinition
 end
 
--- The native context behind each wrapped context, keyed by the wrapper's
--- identity. A table a caller builds is not a key, so it cannot pose as an
--- owner; the native side then checks that the context is a live dependent.
+-- Wrapper identity prevents caller-created tables from acting as owners.
+-- The native context validates that the owner is a live dependent.
 local nativeContexts: { [Context]: NativeContext } = setmetatable({}, { __mode = 'k' }) :: any
 
 local function ownerContext(owner: Owner, level: number): NativeContext
@@ -219,8 +201,8 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
         error('plugin on: run is a function, not a ' .. type(handler), 2)
       end
       local effect: NativeEffect = nativeContext:effect(function(): () -> ()
-        -- An event delivered after the activation ended but before this
-        -- inverse ran, such as an error reported during cleanup, is dropped.
+        -- Events delivered after activation ends are dropped until the inverse
+        -- cancels the subscription, including errors reported during resource release.
         local cancel: unknown = subscribe(function(event: E): ()
           if nativeContext:active() then
             handler(event)
@@ -244,7 +226,6 @@ end
 
 local capabilityKeys: { [string]: boolean } = { name = true, schema = true }
 
--- Checks a capability spec's shape, raising at the caller of `plugin.capability`, three frames up.
 local function validateCapabilitySpec(spec: CapabilitySpec): CapabilitySpec
   local level = 4
   if type(spec) ~= 'table' then
@@ -287,11 +268,9 @@ local function revoked(contract: string): string
   return 'plugin service: ' .. contract .. ' is no longer available because its provider activation has ended'
 end
 
--- Wraps a published service in a frozen view. Every field read and every call
--- of a callable service checks that the provider's activation is still live,
--- and every write raises. A method is checked when it is read, so a method
--- call adds no stack frame and an error a provider raises at level 2 still
--- names the consumer's call site.
+-- Service reads, iteration, and calls to function-valued services raise after the provider activation ends.
+-- A previously read method remains callable. Guarding the read preserves the provider error's call site.
+-- Writes always raise.
 local function guardService(value: unknown, contract: string, provider: NativeContext): unknown
   if type(value) == 'function' then
     local call = value :: (...unknown) -> ...unknown
@@ -388,8 +367,6 @@ type ValidSpec<C> = {
   init: (Context, C, Publisher) -> (),
 }
 
--- Checks a definition spec's shape and fills the optional declarations, raising at the caller of
--- `plugin.define`, three frames up.
 local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
   local level = 4
   if type(spec) ~= 'table' then
@@ -441,9 +418,7 @@ function adapter.define<C>(spec: Spec<C>): Definition<C>
         values = {},
         called = {},
       }
-      -- The initializer is called unprotected so an error it raises keeps its
-      -- own position and traceback. Staged values are released by this
-      -- inverse when the load is rolled back, even if a publisher escaped.
+      -- Rollback clears staged services even when the publisher escaped the initializer.
       nativeContext:effect(function(): () -> ()
         return function(): ()
           staging.open = false

@@ -1,6 +1,3 @@
--- Covers the desktop monitors consumer: mirrors laid side by side from the centre outward, a freed place
--- taken by the next mirror, the select, placement, and tags options, and a tags outage that keeps the
--- mirrors.
 local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'

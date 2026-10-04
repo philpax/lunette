@@ -1,7 +1,6 @@
--- The shipped desktop with its behaviour changed through hooks, bindings, and
--- configuration rather than by replacing plugins.
+-- Hooks, bindings, and configuration change the shipped desktop's behaviour.
 --
--- Copy this file and the other Lua files beside it into the directory
+-- Copy the desktop configuration and adjacent Lua files into the directory
 -- `lunette --dump-config` wrote, which also holds conf.luau and the .luaurc that
 -- `lunette check` and an editor read. docs/guide/writing-plugins.md walks
 -- through it.

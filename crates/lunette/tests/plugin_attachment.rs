@@ -1,7 +1,5 @@
-//! A Rust panic inside a plugin callback must not wedge the native plugin
-//! attachment. The panic and the callback depth it unwinds through are only
-//! reachable from Rust, so this case stays here while the attachment's other
-//! cases are Lua tests in `lua/lunette-plugin/tests/`.
+//! Tests panic propagation through Rust plugin callbacks. Lua tests cover the other
+//! attachment cases.
 
 extern crate lunette_lovr;
 

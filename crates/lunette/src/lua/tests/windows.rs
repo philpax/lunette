@@ -1,10 +1,4 @@
-//! Window handles: what a handle reports, what it does, and how a dead handle
-//! behaves.
-//!
-//! A handle whose window the snapshot no longer lists reads its last-known
-//! values, returns `false` from its methods, and raises nothing. A window can
-//! close in the middle of a frame, and raising over that would crash the
-//! session for a routine event.
+//! Tests window handle snapshots, mutations, textures, and dead-handle behavior.
 
 use std::sync::Arc;
 
@@ -235,9 +229,8 @@ fn get_texture_answers_false_before_the_client_has_committed_anything() {
 
 #[test]
 fn a_texture_handle_is_refused_once_its_frame_has_passed() {
-    // Not reachable from Lua, which resolves a reference in the call that
-    // creates it. `getTexture` relies on the ledger's rule, so the test states
-    // the rule at the Lua boundary in addition to `texture/ledger.rs`.
+    // Lua resolves texture references during the call. The test checks the ledger's
+    // frame-generation rule.
     let session = session(Vec::new());
     session.with_textures(|textures| {
         textures.install(

@@ -1,5 +1,3 @@
--- Covers examples/first-plugin: its configuration starts, quits, and draws through the plugin it inserts and
--- through the consumer reading the provider it inserts, with its option.
 local testing = require '@testing'
 local expect = testing.expect
 

@@ -1,11 +1,3 @@
--- Covers lua/lunette-plugins/scale/chooser.luau.
---
--- The module is pure, so each case passes numbers to a chooser and reads the
--- returned scale. The cases assert the hysteresis: a distance approaching a
--- boundary changes nothing until it crosses the boundary, crossing back needs
--- more distance than crossing forward, and a panel at either end of the ladder
--- clamps to that end.
-
 local testing = require '@testing'
 local expect = testing.expect
 
@@ -14,13 +6,8 @@ local scale = require '@lunette-plugins/scale/chooser'
 
 local test = testing.suite()
 
--- A ladder with round rungs keeps the arithmetic between a named distance and
--- a named rung readable. The default ladder is exercised separately.
 local LADDER = { 1, 2, 4 }
 
--- The tuning has round margins for the same reason the ladder has round rungs.
--- The reference is one metre. A distance in metres is the reciprocal of the
--- ideal scale.
 local TUNING = { reference = 1, raise = 0.1, lower = 0.2, nearest = 0.05 }
 
 local function chooser(options)
@@ -32,14 +19,11 @@ local function chooser(options)
   }
 end
 
--- The distance at which the ideal scale is `wanted`, given a reference of one.
 local function distanceFor(wanted)
   return 1 / wanted
 end
 
 test('the first distance picks a step outright', function()
-  -- With no previous step, the first choice is made without hysteresis. An
-  -- ideal of 2.5 takes the largest rung no greater than it.
   local chosen = chooser():choose(distanceFor(2.5))
 
   expect.equal(chosen, 2, 'the step for an ideal of 2.5')
@@ -55,13 +39,11 @@ test('a distance beyond the top of the ladder clamps to it', function()
   local picked = chooser()
 
   expect.equal(picked:choose(distanceFor(50)), 4, 'the step for an ideal far above the ladder')
-  -- A still larger distance clamps to the same step.
   expect.equal(picked:choose(distanceFor(500)), 4, 'the step after walking closer still')
 end)
 
 test('a distance of zero takes the top rather than raising', function()
-  -- A user walks their head through a panel in normal use, and a distance of
-  -- zero is valid input.
+  -- Zero distance occurs when the viewer's head intersects the panel.
   local chosen = chooser():choose(0)
 
   expect.equal(chosen, 4, 'the step for a panel at no distance at all')
@@ -72,8 +54,6 @@ test('approaching a rung does not change the step until the margin is passed', f
   picked:choose(distanceFor(1))
   expect.equal(picked:current(), 1, 'the step it settled on')
 
-  -- The rung above is 2, and the raise margin is a tenth. The raise threshold
-  -- is 2.2, and 2.19 stays below it.
   local held, changed = picked:choose(distanceFor(2.19))
   expect.equal(held, 1, 'the step just short of the raise threshold')
   expect.falsy(changed, 'whether the step changed')
@@ -88,9 +68,6 @@ test('crossing back needs the lower threshold, not the upper one', function()
   picked:choose(distanceFor(2.5))
   expect.equal(picked:current(), 2, 'the step it settled on')
 
-  -- Without hysteresis, an ideal below 2 takes rung 1. Under hysteresis, an
-  -- ideal of 1.9 keeps the step at 2. The lower threshold is a fifth below the
-  -- rung, and the step falls when the ideal drops below 1.6.
   expect.equal(picked:choose(distanceFor(1.9)), 2, 'the step at an ideal below the rung')
   expect.equal(picked:choose(distanceFor(1.61)), 2, 'the step just short of the lower threshold')
   expect.equal(picked:choose(distanceFor(1.59)), 1, 'the step just past the lower threshold')
@@ -100,8 +77,6 @@ test('the dead band means an ideal oscillating around a rung changes nothing', f
   local picked = chooser()
   picked:choose(distanceFor(2.5))
 
-  -- The ideal moves either side of the rung, and neither threshold is reached.
-  -- The client receives no step change.
   for _, ideal in ipairs { 2.0, 1.98, 2.05, 1.95, 2.1, 1.9 } do
     local chosen, changed = picked:choose(distanceFor(ideal))
     expect.equal(chosen, 2, 'the step at an ideal of ' .. ideal)
@@ -186,7 +161,7 @@ test('a chooser on the published ladder clamps to its ends', function()
 end)
 
 test('an ideal replaces the default and the ladder still applies', function()
-  -- Twice the default ideal: a panel at one metre wants scale 2.
+  -- Twice the default ideal maps one metre to scale 2.
   local picked = chooser {
     ideal = function(distance)
       return 2 * scale.ideal(TUNING)(distance)

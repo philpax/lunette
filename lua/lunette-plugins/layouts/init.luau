@@ -1,4 +1,4 @@
--- The layouts provider: a broker for named layouts, with owner-scoped registrations and listeners.
+-- Named layout registrations and change listeners belong to their registering owners.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/layouts'

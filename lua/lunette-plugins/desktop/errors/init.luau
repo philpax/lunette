@@ -1,11 +1,9 @@
--- The desktop's error panel: a lunette/errors presenter showing the latest report over the scene. It is a
--- floating quad rather than a panel because a report has no textured source.
+-- Displays the latest error report on a floating quad because reports have no texture source.
 local plugin = require '@lunette-plugin'
 local errors = require '@lunette-contracts/errors'
 local frame = require '@lunette-contracts/frame'
 local format = require '@lunette-plugins/errors/format'
 
--- What a configuration gives: every option optional.
 export type Config = {
   read position: { number }?,
   read width: number?,
@@ -48,8 +46,6 @@ local function resolve(config: unknown): Settings
   return settings
 end
 
--- Draws the lines on a quad centred on the position, and answers whether
--- there was anything to draw.
 local function draw(pass: Pass, lines: { string }, settings: Settings): boolean
   if #lines == 0 then
     return false

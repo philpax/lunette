@@ -14,9 +14,8 @@
 
 -- Requires the root module, and checks it is the copy the run meant.
 --
--- The check is on the module's contents, not on the path it came from: physfs
--- reports the mount point it was handed, and a test comparing paths would be
--- asserting how a temporary directory was spelled, not which tree answered.
+-- The check compares module contents. Physfs reports the supplied mount point,
+-- so comparing paths would test temporary-directory spelling, not which tree answered.
 local function loadRoot(marker)
   local resolved, root = pcall(require, '@lunette-plugin')
   if not resolved then
@@ -36,10 +35,9 @@ local function loadRoot(marker)
   return root, 9
 end
 
--- Asserts that nothing is mounted, which is the condition of a missing or
--- broken installation. The session still has to boot, so safe mode can
--- recover from it, and so a missing root is reported by `require` rather than
--- by a failed boot.
+-- Asserts that no root is mounted, the condition of a missing or broken
+-- installation. The session continues into safe mode, where `require` reports
+-- the missing root.
 local function checkAbsent()
   if pcall(require, '@lunette-plugin') then
     return 16

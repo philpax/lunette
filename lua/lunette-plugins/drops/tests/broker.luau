@@ -1,4 +1,3 @@
--- Covers the drops broker, and the interaction provider emitting through it when a grab ends.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -7,8 +6,6 @@ local interactionContract = require '@lunette-contracts/interaction'
 
 local test = testing.suite()
 
--- The drops, focus, and interaction providers over the fake native API, and a consumer of drops and
--- interaction whose context is `owner`.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'drops', 'focus', 'interaction' }

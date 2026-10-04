@@ -1,7 +1,7 @@
-//! State-local contract identities, native capability tokens, and declarations.
+//! State-local contract identities, capability tokens, and declarations.
 //!
-//! Lua sees only native [`PluginContractToken`] userdata, and a declaration is
-//! copied into a [`ValidatedDeclaration`] so the graph never retains a Lua table.
+//! Lua receives native [`PluginContractToken`] userdata. The registry copies
+//! declarations into [`ValidatedDeclaration`] values.
 
 use std::{
     cell::RefCell,
@@ -85,7 +85,6 @@ pub struct ValidatedDeclaration {
 }
 
 impl ValidatedDeclaration {
-    /// Iterates copied declaration fields in lexical order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &ContractKey)> {
         self.bindings.iter().map(|(name, key)| (name.as_str(), key))
     }
@@ -94,40 +93,40 @@ impl ValidatedDeclaration {
 /// Errors raised while declaring, validating, or retiring contracts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContractError {
-    /// A name component was empty, whitespace-only, or contained a slash.
+    /// A name component is empty, contains only whitespace, or contains a slash.
     InvalidNameComponent {
         component: &'static str,
         value: String,
     },
-    /// A qualified name was missing its authority separator.
+    /// A qualified name lacks its authority separator.
     UnqualifiedName { name: String },
-    /// A schema number was zero or does not fit in 32 bits.
+    /// A schema number is zero or exceeds 32 bits.
     InvalidSchema { schema: u64 },
-    /// The exact name/schema identity was already declared in this epoch.
+    /// The name and schema identity already exists in this epoch.
     DuplicateIdentity { key: ContractKey },
-    /// The value passed as a declaration was not a table.
+    /// A declaration value is not a table.
     DeclarationNotTable { actual: String },
-    /// A declaration key was not a string.
+    /// A declaration key is not a string.
     DeclarationKeyNotString { actual: String },
-    /// A declaration key was a string that cannot be represented as UTF-8.
+    /// A declaration key is a string that cannot be represented as UTF-8.
     DeclarationKeyNotUtf8,
-    /// A declaration value was not native token userdata.
+    /// A declaration value is not native token userdata.
     DeclarationValueNotToken { key: String, actual: String },
     /// The token belongs to another registry.
     ForeignToken { site: TokenSite },
-    /// The token's registry has been replaced, which retires its epoch.
+    /// The token belongs to an epoch retired by registry replacement.
     RetiredToken { site: TokenSite },
-    /// The capability wrapper was bound in an epoch that has been retired.
+    /// The capability wrapper belongs to a retired epoch.
     RetiredWrapper { key: String },
-    /// A capability wrapper was mutable when native code tried to bind it.
+    /// Native binding requires an immutable capability wrapper.
     WrapperNotFrozen,
     /// The token already has a capability wrapper.
     TokenAlreadyBound,
     /// The capability wrapper is already bound to another token.
     WrapperAlreadyBound,
-    /// A table was supplied where a previously bound capability wrapper was required.
+    /// A bound capability wrapper is required, but the value is a table.
     UnboundWrapper { key: String },
-    /// Iterating a Lua table failed before its declaration could be copied.
+    /// Lua table iteration failed while copying a declaration.
     LuaIteration { message: String },
 }
 
@@ -213,7 +212,7 @@ impl fmt::Display for ContractError {
 
 impl Error for ContractError {}
 
-/// Where a contract token was presented, which a token error names.
+/// Identifies where a contract token was presented in an error.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TokenSite {
     /// The token is the value of a declaration field.
@@ -299,10 +298,10 @@ impl ContractRegistry {
         Ok(token.key.clone())
     }
 
-    /// Binds a frozen Lua capability wrapper to one native contract token.
+    /// Binds a frozen wrapper to one native contract token.
     ///
-    /// Binding is one-to-one in both directions. The registry retains the table
-    /// so its identity cannot be recycled after Lua garbage collection.
+    /// Each token and wrapper has one binding. The registry retains the table to
+    /// prevent its identity from being reused after collection.
     pub fn bind_token(
         &self,
         token: &PluginContractToken,
@@ -330,8 +329,7 @@ impl ContractRegistry {
         Ok(())
     }
 
-    /// Returns every capability wrapper bound to this registry, so the host can
-    /// name one as retired rather than unbound once the registry is replaced.
+    /// Returns wrappers for the host to mark as retired when it replaces this registry.
     #[must_use]
     pub fn bound_wrappers(&self) -> Vec<Table> {
         self.inner

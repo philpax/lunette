@@ -1,4 +1,3 @@
--- Covers the runner's `@testing/host`: a configuration chosen by directory, and the production reload.
 local testing = require '@testing'
 local expect = testing.expect
 

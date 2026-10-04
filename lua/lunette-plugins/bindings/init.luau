@@ -1,7 +1,4 @@
--- The key bindings provider: a broker for desktop key chords, keyed by chord and owner-scoped. It takes
--- every desktop press in the frame provider's binding phase, so nothing that delivers keys knows about
--- bindings.
-
+-- Matches owner-scoped key chords during the frame provider's binding phase.
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/bindings'
 local frame = require '@lunette-contracts/frame'
@@ -24,14 +21,11 @@ for index, name in ipairs(contract.MODIFIERS) do
   KNOWN[name] = index
 end
 
--- Validation raises without a position; register raises it again at its
--- caller.
 local function fail(message: string): never
   error('bindings register: ' .. message, 0)
 end
 
--- The identity of a chord: its key and its modifiers in a fixed order, so
--- the same chord written with its modifiers in another order is the same.
+-- Modifier order does not change chord identity.
 local function identity(key: string, modifiers: { string }): string
   local sorted = table.clone(modifiers)
   table.sort(sorted, function(first: string, second: string): boolean
@@ -40,7 +34,6 @@ local function identity(key: string, modifiers: { string }): string
   return key .. '+' .. table.concat(sorted, '+')
 end
 
--- Checks a chord and answers its frozen copy and identity.
 local function checked(chord: unknown): (contract.Chord, string)
   if type(chord) ~= 'table' then
     fail('chord is a table of fields, not a ' .. type(chord))
@@ -122,7 +115,7 @@ local function create(context: plugin.Context): contract.Service
         end
       end)
     end,
-    -- Answers whether a binding matched, which consumes the press.
+    -- A matched binding consumes the press, including repeats and callback failures.
     dispatch = function(_self: contract.Service, press: contract.Press): boolean
       local held: { string } = {}
       for _, name in ipairs(press.modifiers) do

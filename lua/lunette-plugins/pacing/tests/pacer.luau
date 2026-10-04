@@ -1,11 +1,3 @@
--- Covers lua/lunette-plugins/pacing/pacer.luau.
---
--- The module is pure. Every case constructs a pacer, feeds it observations,
--- and reads the rate back. The exemption rule yields three outcomes: the hint
--- alone exempts a paused video that commits nothing, a busy client exempts
--- itself without a hint, and a window out of view with no commits and no hint
--- receives the background rate.
-
 local testing = require '@testing'
 local expect = testing.expect
 

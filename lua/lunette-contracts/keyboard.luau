@@ -84,8 +84,8 @@ export type Options = {
   read target: Target?,
 }
 
--- A keyboard is a surface an owner places, offers, and draws. It states the surface fields rather than
--- intersecting `Surface`, whose optional methods would make calls ambiguous.
+-- A keyboard is a surface an owner places, offers, and draws. Its type repeats
+-- the required fields because optional methods on `Surface` make calls ambiguous.
 export type Keyboard = {
   read kind: nil,
   read dead: boolean,

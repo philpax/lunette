@@ -1,6 +1,4 @@
--- Covers interaction and laser outages in the shipped desktop, and an interaction outage in the middle of a
--- drag: pointing goes away with either provider while panels stay placed and drawn, and a drag cut short is
--- saved where it ended.
+-- Interaction and laser outages stop pointing without removing panels. An interaction outage during a drag saves the last pose.
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
@@ -60,7 +58,6 @@ end)
 test('an interaction outage mid-drag saves the drop, and the saved pose agrees with the stored one', function()
   local session, window, panel = start()
   local events = session.native.events
-  -- The right beam grabs the panel in front and carries it half a metre to the right.
   frame(session)
   events.grip = true
   frame(session)

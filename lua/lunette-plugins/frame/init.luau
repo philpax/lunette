@@ -1,7 +1,4 @@
--- The frame provider, and the binding of LÖVR's callbacks to it. `install` assigns the callbacks once,
--- before the runtime starts; they reach whichever activation is loaded when called and do nothing while
--- none is, such as during an instance reload. `run` installs them for a composition.
-
+-- LÖVR callbacks dispatch to the active frame provider and do nothing during provider outages.
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/frame'
 local protected = require '@lunette-plugins/protected'
@@ -30,8 +27,7 @@ type Entry<T> = {
   active: boolean,
 }
 
--- The loaded activation, if any. One activation drives LÖVR's callbacks at a
--- time; a second raises as it loads rather than taking them from the first.
+-- A single frame activation owns LÖVR callbacks at a time.
 local bound: Dispatcher? = nil
 
 local function ranks(names: { read [number]: string }): { [string]: number }
@@ -51,8 +47,6 @@ local PHASED_KEYS: { [string]: boolean } = { phase = true, order = true, run = t
 local QUIT_KEYS: { [string]: boolean } = { run = true }
 local HOOK_KEYS: { [string]: boolean } = { start = true, stop = true }
 
--- Checks a handler table's shape and answers its run function and sort keys.
--- Every error names the caller of the service method, two frames up.
 local function validate(
   operation: string,
   handler: unknown,
@@ -134,8 +128,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
     end)
   end
 
-  -- Calls each live handler in turn until one consumes the event. A handler
-  -- disposed or unloaded by an earlier one in the same dispatch is skipped.
+  -- A handler disposed or unloaded during dispatch is skipped.
   local function dispatch<T>(label: string, list: { Entry<T> }, call: (T) -> boolean?): ()
     for _, entry in ipairs(table.clone(list)) do
       if entry.active and context:owns(entry.owner) then
@@ -210,8 +203,7 @@ export type Config = {}
 export type Settings = {}
 export type Service = contract.Service
 
--- Binding to LÖVR's callbacks is an effect, not a publication, so a plugin that wraps the built service
--- still receives the callbacks.
+-- Callback binding belongs to the provider effect, including when a plugin wraps its service.
 local function build(context: plugin.Context): Service
   local service, dispatcher = create(context)
   context:effect(function(): () -> ()
@@ -238,8 +230,7 @@ frame.define = provider.define
 frame.build = provider.build
 frame.requires = provider.requires
 
--- Assigns lovr.load, lovr.update, lovr.draw, lovr.keypressed, lovr.textinput, and lovr.quit. start runs
--- from lovr.load; stop runs from lovr.quit after the quit handlers. lovr.quit never vetoes the quit.
+-- Starts from `lovr.load` and stops after quit handlers. `lovr.quit` always returns false.
 function frame.install(hooks: Hooks): ()
   if type(hooks) ~= 'table' then
     error('frame install: the hooks are a table of fields, not a ' .. type(hooks), 2)
@@ -293,9 +284,7 @@ function frame.install(hooks: Hooks): ()
   end
 end
 
--- Binds LÖVR's callbacks to a composition: `lovr.load` starts the entries with `plugin.start`, and
--- `lovr.quit` closes the runtime. The entries are checked now, so a malformed list fails the call rather
--- than the first frame.
+-- Validates entries before binding callbacks, then starts and closes their runtime through LÖVR callbacks.
 function frame.run(entries: { plugin.Entry }): ()
   local checked = plugin.compose(entries)
   local running: plugin.Running? = nil

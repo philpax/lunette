@@ -1,5 +1,4 @@
--- Covers raising callbacks in the desktop's frame: a raising frame handler or surface offer is reported with
--- its traceback and does not stop the handlers after it, including the error panel that shows it.
+-- Callback failures include tracebacks, do not stop later handlers, and remain visible in the error panel.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'

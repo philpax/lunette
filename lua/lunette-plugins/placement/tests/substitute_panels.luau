@@ -1,5 +1,4 @@
--- Covers placement over a substitute panels provider written against the contract alone: placement's
--- cleanup needs only the panels contract's removal announcement.
+-- Placement teardown depends on the panels contract's removal announcement.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -9,9 +8,7 @@ local placementContract = require '@lunette-contracts/placement'
 
 local test = testing.suite()
 
--- A panels provider serving only what placement calls, `fromWindow` and `onRemoved`, and `update`, which
--- the test calls to retire the panels whose windows died. A removal is announced to owner-scoped listeners,
--- as the contract requires.
+-- The substitute announces removals to live owner-scoped listeners.
 local substitutePanels = plugin.define {
   name = 'substitute-panels',
   provides = { panels = panelsContract.capability },

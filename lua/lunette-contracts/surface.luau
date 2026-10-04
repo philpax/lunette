@@ -1,5 +1,4 @@
--- Neutral surface vocabulary shared by panels, pointers, and keyboards. The recursive shapes live in
--- vocabulary.luau so providers can name receivers without importing the interaction service.
+-- Surface types use shared recursive definitions without importing the interaction service.
 
 local vocabulary = require '@lunette-contracts/vocabulary'
 

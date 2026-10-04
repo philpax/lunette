@@ -1,6 +1,3 @@
--- Covers the bindings provider over the frame provider's key phases: a chord matched with exactly its
--- modifiers held and consumed before delivery, repeats, a chord bound once, a raising binding, malformed
--- registrations, and a binding that ends with its owner.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -9,9 +6,6 @@ local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
 
--- The provider over the frame provider, a plugin of the test whose context is `owner` binding control+alt+
--- backspace and a raising F9, and a delivery-phase handler recording each key that gets past the bindings,
--- as a focused client would receive it.
 local function start()
   local env = { ran = {}, delivered = {} }
   env.session = testing.boot { 'frame', 'bindings' }
@@ -46,7 +40,6 @@ local function start()
   return env
 end
 
--- Presses `key` with the keys in `held` held down.
 local function press(env, key, held, isRepeat)
   env.native.events.held = {}
   for _, name in ipairs(held) do

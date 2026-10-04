@@ -1,8 +1,4 @@
-//! Rendering `lua/lunette/init.luau`.
-//!
-//! The output is generated rather than formatted: `.styluaignore` exempts it
-//! from the standing `stylua --check`, so the renderer need not reproduce
-//! StyLua's line breaking.
+//! Renders the generated `lua/lunette/init.luau` declaration file.
 
 use std::fmt::Write as _;
 
@@ -57,14 +53,13 @@ pub fn render() -> String {
     out
 }
 
-/// One declaration in the generated file.
+/// A handle or record declaration.
 enum Item {
     Handle(Handle),
     Record(Record),
 }
 
-/// Everything below the aliases, in the order the file states it: each handle
-/// appears next to the option table its constructor takes.
+/// Orders handles beside the option records their constructors accept.
 fn surface() -> Vec<Item> {
     let mut items = vec![
         Item::Handle(collect::<Sink<NullTexture>>()),
@@ -83,12 +78,8 @@ fn surface() -> Vec<Item> {
         Item::Record(ErrorEvent::RECORD),
         Item::Record(ReportError::RECORD),
     ];
-    // The tables the `lovr.lun*` callbacks are called with are exported from
-    // the module; the callbacks do not declare them, because a definitions
-    // file declares globals and cannot name a module's types. The handles a
-    // payload carries are `Window` and `Claim`, which the definitions file
-    // alone declares. `docs/dev/lua-api.md` records what that means for a
-    // configuration.
+    // Event payload records are module exports. Their `Window` and `Claim` handle types come from
+    // the definitions file because that file cannot name module types.
     items.extend(payload_records().into_iter().map(Item::Record));
     items
 }
@@ -107,11 +98,9 @@ const HEADER: &str = "\
 
 const FOOTER: &str = "return (nil :: any) :: Lunette\n";
 
-/// Where a comment wraps, at the width the prose in the tree already uses.
 const COLUMNS: usize = 80;
 
-/// Renders one `export type`, named by the type the Rust side declares itself
-/// as.
+/// Renders a Luau alias using the name supplied by its Rust type.
 fn render_alias(out: &mut String, alias: &AliasSpec, handles: &[&Handle]) {
     out.push('\n');
     render_doc(out, alias.doc, "");
@@ -159,7 +148,7 @@ fn render_handle(out: &mut String, handle: &Handle) {
     }
 }
 
-/// The type one arm assigns to a field whose arms disagree.
+/// Renders the field type for one discriminated variant.
 fn arm_type(field: &Property, arm: usize) -> Option<String> {
     match &field.ty {
         PropertyType::Same(_) => None,
@@ -192,10 +181,7 @@ fn render_module(out: &mut String) {
     out.push_str("}\n");
 }
 
-/// Writes prose as Lua comments at `indent`, wrapped to [`COLUMNS`].
-///
-/// A declaration states its prose as one line. The wrapping happens at render
-/// time, so reflowing the file is not an edit to every declaration in it.
+/// Writes prose as Lua comments, wrapping each declaration at [`COLUMNS`].
 pub(crate) fn render_doc(out: &mut String, doc: &str, indent: &str) {
     let width = COLUMNS.saturating_sub(indent.len() + "-- ".len());
     let mut line = String::new();

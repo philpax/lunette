@@ -1,6 +1,4 @@
--- The frame pacing contract. The service hands out pacers, each choosing one window's frame rate from what
--- each frame observed. A pacer holds no native resource, so it is not owner-scoped. See
--- docs/dev/lua-api.md#frame-pacing-and-output-scale and docs/dev/rendering.md.
+-- Each pacer tracks frame observations for one window and holds no native resources.
 
 local plugin = require '@lunette-plugin'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -9,8 +7,7 @@ local pacing = {}
 
 export type ContentType = vocabulary.ContentType
 
--- What one frame observed about a window. `drew` is whether the client committed a buffer since the previous
--- observation, or nil when the caller cannot tell, such as while the throttle shapes the commits.
+-- `drew` is nil when the caller cannot determine whether the client committed a buffer since the prior observation.
 export type Observation = {
   read visible: boolean,
   read contentType: ContentType?,

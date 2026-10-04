@@ -1,8 +1,4 @@
-//! The Luau type checker, built from the Luau that the LÖVR fork vendors.
-//!
-//! `lunette check` and the standing check both run through this module, so
-//! the command and the CI check are one code path. The C surface this module
-//! wraps is `analyze.cpp`.
+//! Luau type checker built from the interpreter vendored by the LÖVR fork.
 
 use std::{
     ffi::{CStr, CString, NulError, c_char},
@@ -11,20 +7,19 @@ use std::{
     ptr, slice,
 };
 
-/// The parameters of one check.
 #[derive(Clone, Debug)]
 pub struct Request {
-    /// The check loads the definitions into the global scope at the start.
+    /// Definitions loaded into the global scope before checking roots.
     pub definitions: Option<PathBuf>,
-    /// The files to check. Each is its own module name.
+    /// Root files checked as separate modules.
     pub roots: Vec<PathBuf>,
     pub strict: bool,
-    /// The old type solver, which is not upstream's default.
+    /// Uses the legacy Luau type solver.
     pub old_solver: bool,
 }
 
 impl Request {
-    /// A strict check of `roots` against `definitions`, on the new solver.
+    /// Creates a strict request using the current type solver.
     #[must_use]
     pub fn new(definitions: Option<PathBuf>, roots: Vec<PathBuf>) -> Self {
         Self {
@@ -36,12 +31,10 @@ impl Request {
     }
 }
 
-/// The results of one check.
 #[derive(Clone, Debug, Default)]
 pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
-    /// The roots the check reads. A root absent from this list is skipped; no
-    /// count of diagnostics reveals the skip.
+    /// Roots the checker read. Missing roots are reported separately from diagnostics.
     pub checked: Vec<PathBuf>,
 }
 

@@ -26,7 +26,6 @@ impl Typed for PluginContractToken {
     }
 }
 
-/// An explicitly erased Lua value used by the plugin API.
 #[derive(Clone, Debug)]
 pub struct Unknown(pub(super) Value);
 
@@ -48,7 +47,6 @@ impl Typed for Unknown {
     }
 }
 
-/// The callback accepted by the definition constructor.
 #[derive(Clone, Debug)]
 pub struct PluginInit(pub(super) Function);
 
@@ -77,7 +75,7 @@ impl Typed for PluginInit {
     }
 }
 
-/// A non-yielding resource acquisition callback.
+/// A resource acquisition callback that cannot yield.
 #[derive(Clone, Debug)]
 pub struct PluginAcquire(pub(super) Function);
 
@@ -102,7 +100,7 @@ impl Typed for PluginAcquire {
 }
 
 closed_set! {
-    /// The lifecycle state of an instance as Lua sees it.
+    /// The lifecycle state exposed to Lua.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum PluginState {
         /// Installed and not loaded; it may be waiting for a provider.
@@ -111,13 +109,13 @@ closed_set! {
         Loading = "loading",
         /// Its services are published.
         Active = "active",
-        /// Its cleanup is running.
+        /// Its unload is running.
         Unloading = "unloading",
         /// Its last load failed.
         Failed = "failed",
-        /// A cleanup inverse failed, so it never loads again.
+        /// An inverse failed, so it cannot load again.
         Quarantined = "quarantined",
-        /// It was disposed and removed, or its runtime closed.
+        /// It is disposed and removed, or its runtime is closed.
         Removed = "removed",
     }
 }
@@ -147,7 +145,6 @@ impl Typed for PluginState {
     }
 }
 
-/// A reusable plugin definition.
 #[derive(Clone)]
 pub struct PluginDefinition {
     pub(super) data: Rc<DefinitionData>,
@@ -161,7 +158,6 @@ impl Typed for PluginDefinition {
 
 impl UserData for PluginDefinition {}
 
-/// A runtime-local plugin graph.
 #[derive(Clone)]
 pub struct PluginRuntime {
     pub(super) state: Rc<RefCell<RuntimeState>>,

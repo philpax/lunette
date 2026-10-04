@@ -1,6 +1,4 @@
--- The rules service contract: named, precedence-ordered sources that resolve a window's properties as a
--- pure query. Rules makes no panels and joins no tags; lunette/placement does. Unsupported match keys raise
--- rather than matching an absent field. See docs/dev/lua-api.md#rules-and-placement.
+-- Rules resolves window properties from named sources in precedence order. Unsupported match keys raise an error.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -70,17 +68,14 @@ export type Source = {
   read precedence: number,
 }
 
--- What addSource registers: a named resolver and the precedence it is merged
--- at. A higher precedence is merged later and wins a conflicting key.
+-- Higher-precedence sources merge later and win on conflicting keys.
 export type SourceRegistration = {
   read name: string,
   read precedence: number,
   read resolve: (lunette.Window) -> Properties?,
 }
 
--- What setRules registers: a rule list as a source. The name defaults to
--- DEFAULT_SOURCE and the precedence to DEFAULT_PRECEDENCE; a second list
--- registered at the same time needs a name of its own.
+-- A rule set defaults to `DEFAULT_SOURCE` and `DEFAULT_PRECEDENCE`. Concurrent sets require distinct names.
 export type RuleSet = {
   read name: string?,
   read precedence: number?,
@@ -89,7 +84,6 @@ export type RuleSet = {
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
--- What report logs. The level defaults to warn.
 export type Report = {
   read message: string,
   read level: LogLevel?,

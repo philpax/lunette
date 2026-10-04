@@ -1,6 +1,4 @@
--- The default key rows: a compact ANSI arrangement, as evdev codes. Legends come from the seat's keymap
--- unless `label` is set, so only the physical arrangement is ANSI.
-
+-- Default ANSI key positions use evdev codes; legends come from the seat keymap unless labeled.
 local keyboard = require '@lunette-contracts/keyboard'
 local keys = require '@lunette-contracts/keys'
 

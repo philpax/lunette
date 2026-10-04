@@ -35,9 +35,7 @@ impl fmt::Display for ActivationId {
     }
 }
 
-/// The generation of a published provider attachment. A generation changes
-/// whenever the provider is loaded again, even when it has the same instance
-/// identity as before.
+/// Each provider load has a new generation, including reloads of the same instance.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProviderGeneration(u64);
 

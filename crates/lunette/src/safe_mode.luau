@@ -1,93 +1,50 @@
--- Safe mode: the configuration lunette runs when the user's will not load.
---
--- This file is compiled into the binary rather than installed, and
--- crates/lunette/src/safe_mode.rs is what embeds it. That is the whole point of
--- it: safe mode exists for the moment `main.luau` fails to load, and a broken
--- standard library, a missing install, or a bad LUNETTE_STDLIB_PATH is one of
--- the reasons it might have. So this requires `lunette` and nothing else — no
--- mounted module root, no file on disk, nothing that a broken installation
--- could take away.
---
--- It deliberately resembles etc/xdg/lunette/main.luau and shares no code with
--- it. The duplication is the price of always working, and neither site should be
--- simplified by pointing at the other.
---
--- Enough to see something, spawn a terminal, point at it, and reload — rather
--- than taking the headset off to edit a file. Everything past that is the
--- user's configuration's business, and this is not it.
+-- Safe mode displays configuration load errors, starts a terminal, and supports reload.
+-- Its sole dependency is `@lunette` because the standard library may be unavailable after a load failure.
 
 local lunette = require '@lunette'
 
--- Why the configuration did not load, as crates/lunette/src/safe_mode.rs was
--- given it. Shown on the panel rather than only logged: a user in a headset
--- reading "the configuration did not load" and nothing else has to take it off
--- to find out what happened, which is the loop safe mode exists to avoid.
 local loadError = ...
 
--- Where the panel sits, in metres, and how tall it is. Fixed and axis-aligned:
--- a pose the user could move is a panel with a grab, and a grab is a feature
--- safe mode does not have. Being axis-aligned is also why the intersection below
--- is four lines rather than a matrix inversion.
 local PANEL_X, PANEL_Y, PANEL_Z = 0, 1.5, -1.5
 local PANEL_HEIGHT = 0.9
 
--- What to fall back to when the window reports no size, which a handle that has
--- not yet seen its window in a snapshot does.
 local DEFAULT_ASPECT = 16 / 9
 
--- Where the notes are drawn, and how tall, when there is no window to show.
 local NOTE_HEIGHT = 0.07
 
--- How many characters of the load error fit on a line, and how many lines of it
--- are shown. A traceback is long and a headset is not a terminal; the log has
--- the rest.
 local ERROR_COLUMNS = 72
 local ERROR_LINES = 5
 
--- How far a beam is drawn when it meets nothing, in metres.
 local BEAM_LENGTH = 1.5
 
--- The key that reloads the user's configuration, on the desktop window.
 local RELOAD_KEY = 'f5'
 
--- The hands, as the pointer-ray device each is aimed with and the controller
--- each is clicked with. The pointer ray is where the runtime says the user is
--- aiming, which is not where the controller is pointing.
+-- The pointer ray follows the runtime's aim pose, which can differ from the controller pose.
 local HANDS = {
   { pointer = 'hand/left/point', controller = 'hand/left' },
   { pointer = 'hand/right/point', controller = 'hand/right' },
 }
 
--- The candidates tried, in order, until one starts. A spawn that never started
--- arrives as `lovr.lunprocessexited` with an outcome of 'spawnFailed', and that
--- is the only report a missing program produces.
+-- A missing terminal reports `spawnFailed` as its process-exit outcome.
 local TERMINALS = { 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
 
--- The fragment stage for a buffer whose fourth component is padding rather than
--- alpha. Sampling it draws the window fully invisible, and `window.opaque` is
--- what says so.
+-- Opaque buffers use their fourth component as padding, so the fragment shader supplies full alpha.
 local OPAQUE_FRAGMENT = [[
   vec4 lovrmain() {
     return vec4((Color * getPixel(ColorTexture, UV)).rgb, Color.a);
   }
 ]]
 
--- Built in `lovr.load`, which is the first moment the graphics module exists,
--- and left as nothing when there is no graphics module to build it from.
+-- Graphics may be unavailable when safe mode runs without a graphics module.
 local opaqueShader = nil
 
--- Which terminal is being tried, and the handle it was tried with.
 local attempt = 0
 local attempted = nil
 
--- Whether each hand's trigger was down last frame, and what it was pressed on.
--- A release goes to whatever took the press, even when the ray has left it: a
--- release delivered somewhere else would leave the first client holding a button
--- down for the rest of the session.
+-- A release goes to the sink that received the press, even after the pointer leaves it.
 local pressed = {}
 local pressedSink = {}
 
--- The first window lunette is showing, or nothing.
 local function firstWindow()
   local window = lunette.windows()[1]
   if not window or window.dead then
@@ -96,7 +53,6 @@ local function firstWindow()
   return window
 end
 
--- The panel's size in metres, from the window's aspect.
 local function panelSize(window)
   local aspect = DEFAULT_ASPECT
   if window and window.width > 0 and window.height > 0 then
@@ -105,11 +61,7 @@ local function panelSize(window)
   return PANEL_HEIGHT * aspect, PANEL_HEIGHT
 end
 
--- Where a ray meets the panel, in the window's own pixels, or nothing.
---
--- The panel faces +z and does not rotate, so the plane is z = PANEL_Z and the
--- solve is a division. The vertical axis flips on the way out: the panel's +y is
--- up and a surface's +y is down.
+-- The panel's +y axis points up; surface pixels count +y downward.
 local function hit(window, originX, originY, originZ, directionX, directionY, directionZ)
   if directionZ == 0 then
     return nil
@@ -138,15 +90,7 @@ local function hit(window, originX, originY, originZ, directionX, directionY, di
     distance
 end
 
--- The load error broken into lines short enough to read, or nothing.
---
--- Computed once rather than per frame: it never changes, and a `draw` that
--- allocated a table of strings every frame would be the one thing in safe mode
--- that costs anything.
---
--- The cut is on width and not on words. A load error is mostly paths, line
--- numbers, and a traceback, none of which have useful word boundaries, and
--- word-aware wrapping is a page of code safe mode should not be carrying.
+-- Error text wraps at fixed widths because paths and tracebacks lack useful word boundaries.
 local function errorLines(text)
   if not text then
     return {}
@@ -181,12 +125,10 @@ local function spawnNextTerminal()
   attempted = lunette.spawn { argv = { program } }
 end
 
--- One hand's frame: where it points, what it hit, and what its trigger did.
 local function updateHand(index, hand, window)
   local headset = lovr.headset
   if not headset.isTracked(hand.pointer) then
-    -- A hand that stopped being tracked releases what it was holding. Leaving
-    -- the button down would hand a client a press nothing ever releases.
+    -- When tracking stops, release the held button so the client does not retain a press.
     if pressed[index] and pressedSink[index] then
       pressedSink[index]:button('left', false)
     end
@@ -231,8 +173,7 @@ local function updateHand(index, hand, window)
   }
 end
 
--- Where each hand's beam was aimed last frame, so the beam is drawn where the
--- hit test happened rather than where the hand has moved to since.
+-- Beams use the same hand pose as the hit test, before the next frame updates it.
 local beams = {}
 
 function lovr.load()
@@ -259,12 +200,7 @@ function lovr.keypressed(key)
     return
   end
 
-  -- This is the whole point of safe mode: the user fixes the file at a desk or
-  -- through an editor they can reach, presses the key, and the session they were
-  -- in comes back without the headset coming off.
-  --
-  -- A reload that fails answers false and the message rather than raising, so a
-  -- second broken configuration leaves safe mode running and says why.
+  -- A failed reload returns its error and leaves safe mode active.
   local reloaded, message = lunette.reload()
   if not reloaded then
     print('lunette: the configuration still does not load: ' .. tostring(message))
@@ -279,9 +215,7 @@ function lovr.update()
 
   local window = firstWindow()
   for index, hand in ipairs(HANDS) do
-    -- Appended rather than assigned at `index`: an untracked left hand would
-    -- otherwise leave a hole that `ipairs` stops at, and the right hand's beam
-    -- would never be drawn.
+    -- The beam list stays dense because `ipairs` stops at the first missing index.
     local aimed = updateHand(index, hand, window)
     if aimed then
       beams[#beams + 1] = aimed
@@ -307,13 +241,11 @@ function lovr.draw(pass)
     pass:text(line, PANEL_X, top - index * NOTE_HEIGHT, PANEL_Z, NOTE_HEIGHT * 0.7)
   end
 
-  -- Never cached across frames: the texture rotates as the client cycles its
-  -- buffers, and is false while the client has committed nothing.
+  -- Textures rotate with the client's buffers and remain false until the first commit.
   local texture = window and window:getTexture() or nil
   if texture then
     local width, height = panelSize(window)
-    -- A client's buffer holds premultiplied alpha; the default alpha mode would
-    -- multiply by it a second time and darken a translucent window twice.
+    -- Client buffers use premultiplied alpha, which requires the matching blend mode.
     pass:setBlendMode('alpha', 'premultiplied')
     if window.opaque and opaqueShader then
       pass:setShader(opaqueShader)

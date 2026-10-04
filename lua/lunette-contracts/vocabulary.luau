@@ -1,20 +1,16 @@
--- Recursive surface and pointer vocabulary, and constants and encodings several providers share, kept here
--- so neither side of a recursive relationship, nor any provider, must require another's contract.
+-- Shared recursive types and constants avoid dependencies between provider contracts.
 
 local lunette = require '@lunette'
 
 local vocabulary = {}
 
--- What `wp_content_type_v1` reports, as `window.contentType` carries it. Rules match it and pacers exempt by it.
+-- `window.contentType` uses the values reported by `wp_content_type_v1`.
 export type ContentType = 'none' | 'photo' | 'video' | 'game'
 
--- The per-window property a window's kept pose is stored under. The
--- desktop's pose memory writes it when a drop ends a grab, and the adoption
--- provider reads it as a placement source. Its value is `encodePose`'s string.
+-- Persisted window poses use this property and the `encodePose` string format.
 vocabulary.POSE_PROPERTY = 'lunette.pose'
 
--- The precedences the desktop's rules sources are registered at, by name. A higher precedence merges later
--- and wins. A configuration places its own source relative to these, as in `PRECEDENCE.persisted + 50`.
+-- Higher-precedence rule sources merge later and win. Configurations can place sources relative to these values.
 export type Precedences = {
   read rules: number,
   read persisted: number,
@@ -24,14 +20,9 @@ export type Precedences = {
 local precedences: Precedences = table.freeze { rules = 100, persisted = 200, native = 300 }
 vocabulary.PRECEDENCE = precedences
 
--- How many numbers a pose is written as.
---
--- The property store refuses tables, so the property store, a rule's textual `pose`, and a saved arrangement
--- share this string encoding. All sixteen elements are kept so a scale survives, and nine significant digits
--- make the 32-bit round trip exact.
+-- Pose strings contain all sixteen matrix elements because the property store rejects tables and saved poses preserve scale. Nine significant digits preserve 32-bit float values exactly.
 vocabulary.POSE_ELEMENTS = 16
 
--- A `Mat4` as a string of sixteen numbers.
 function vocabulary.encodePose(matrix: Mat4): string
   local elements: { number } = { matrix:unpack(true) }
   local encoded: { string } = {}
@@ -41,8 +32,7 @@ function vocabulary.encodePose(matrix: Mat4): string
   return table.concat(encoded, ' ')
 end
 
--- What `encodePose` wrote, as a fresh `Mat4`, or nothing for anything but sixteen finite numbers. A stored
--- value outlives the state that wrote it and may have been set by a configuration directly.
+-- The decoder returns nil unless the stored string contains exactly sixteen finite numbers.
 function vocabulary.decodePose(text: boolean | number | string | nil): Mat4?
   if type(text) ~= 'string' then
     return nil
@@ -57,7 +47,7 @@ function vocabulary.decodePose(text: boolean | number | string | nil): Mat4?
       return nil
     end
     local number = tonumber(word)
-    -- A non-finite element places a panel nowhere and would persist across reloads.
+    -- Non-finite values would place a panel unpredictably and persist across reloads.
     if not number or number ~= number or number == math.huge or number == -math.huge then
       return nil
     end
@@ -82,12 +72,9 @@ export type Tuning = {
   read resizeMaximum: number,
 }
 
--- The pointer buttons a pointer presses, in the order a pointer reports them.
 vocabulary.POINTER_BUTTONS = table.freeze { 'left', 'right', 'middle', 'back', 'forward' } :: { lunette.PointerButton }
 
--- One frame of a pointing device: where it is, which way it points, which
--- pointer buttons are held, and whether it grips. A laser reads one per hand
--- and a pointer is driven by it. A button absent from `buttons` is up.
+-- A button absent from `buttons` is up.
 export type Input = {
   read pose: Mat4?,
   read origin: vector,
@@ -99,8 +86,7 @@ export type Input = {
   read dt: number?,
 }
 
--- What Pointer:setButton takes: the button, `left` when none is named;
--- whether it is held; and the sink and surface it presses or releases on.
+-- The button defaults to `left` when omitted.
 export type ButtonState = {
   read button: lunette.PointerButton?,
   read pressed: boolean,
@@ -108,23 +94,18 @@ export type ButtonState = {
   read surface: Surface?,
 }
 
--- What Pointer:push takes: the stick deflection that moves a grabbed surface
--- along the ray, and the frame time it is scaled by.
 export type Push = {
   read deflection: number,
   read dt: number,
 }
 
--- What Pointer:vibrate takes: the strength, from 0 to 1, and the duration in
--- seconds of one pulse on the device that drives the pointer.
+-- Strength ranges from 0 to 1. Duration is measured in seconds.
 export type Haptic = {
   read strength: number,
   read duration: number,
 }
 
--- A pointer as its creator and the surfaces it reaches see it: what it
--- hovers and carries, read-only, and the primitives that drive it. Grab and
--- press bookkeeping belong to the provider.
+-- Grab and press bookkeeping remain private to the interaction provider.
 export type Pointer = {
   read seat: lunette.Seat?,
   read tuning: Tuning,
@@ -145,8 +126,7 @@ export type Pointer = {
   read push: (Pointer, Push) -> (),
   read dragTo: (Pointer, Mat4?) -> (),
   read endGrab: (Pointer) -> boolean,
-  -- Pulses the device that drives the pointer, and answers whether a pulse
-  -- was sent. A pointer whose creator gave it no device answers false.
+  -- Returns false when the pointer has no device to pulse.
   read vibrate: (Pointer, Haptic) -> boolean,
 }
 
@@ -167,8 +147,7 @@ type SurfaceFields = {
   read onRelease: ((Surface, Pointer) -> ())?,
 }
 
--- The fields of a surface whose `setPose` is required, restated because a generic alias of SurfaceFields is
--- refused for its recursion and an intersection would hold two `setPose` function types.
+-- Luau rejects the recursive `SurfaceFields` alias and makes `setPose` ambiguous in an intersection.
 type MovableFields = {
   read dead: boolean,
   read grabbable: boolean?,
@@ -194,8 +173,7 @@ export type Surface =
     | { read kind: nil }
   )
 
--- A surface that can always be posed, such as a panel a layout arranges. It is stated whole rather than as
--- `Surface & { read setPose: ... }`, on which Luau reports `surface:setPose(pose)` as ambiguous.
+-- `Movable` repeats the surface variants because Luau treats `surface:setPose(pose)` as ambiguous in an intersection with `Surface`.
 export type Movable =
   MovableFields
   & (

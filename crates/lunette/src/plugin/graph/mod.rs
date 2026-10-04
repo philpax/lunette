@@ -1,17 +1,12 @@
 //! Pure plugin lifecycle graph.
 //!
-//! The coordinator installs descriptors, applies [`Intent`]s, performs each
-//! action [`Graph::next_action`] returns, and reports its completion. Intents
-//! change state immediately and planning derives from that state, so there is
-//! no intent queue and no work a later poll cannot find.
-//!
-//! An instance reserves each provided [`ContractKey`] (a name and an exact
-//! schema) from enable until its attachment ends. A load action carries a
-//! sorted [`Binding`] per requirement, naming the provider's
-//! [`ProviderGeneration`], and the graph publishes the consumer only if every
-//! provider and parent is still active. A failed load is retried only against
-//! different bindings, and a cleanup failure quarantines the instance until
-//! shutdown. See `docs/dev/architecture.md#plugin-runtime`.
+//! Intents update state immediately, and planning derives actions from that state.
+//! Enabled instances reserve provided contracts until disable or disposal takes effect and the
+//! attachment ends. Quarantined instances retain reservations until runtime shutdown.
+//! Each load binding names the provider generation that satisfies one requirement.
+//! Publication requires every provider and parent to remain active. Failed loads retry
+//! when bindings change. Failed cleanup quarantines instances until shutdown. See
+//! `docs/dev/architecture.md#plugin-runtime`.
 
 mod error;
 mod ids;

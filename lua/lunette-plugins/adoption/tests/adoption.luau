@@ -1,5 +1,3 @@
--- Covers the adoption provider: the native pose source install registers, and the windows start adopts,
--- declines, and releases over the real panels, tags, rules, and placement providers.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -11,7 +9,6 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 
 local test = testing.suite()
 
--- The providers adoption needs over the fake native API, and a consumer of them whose context is `owner`.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'panels', 'tags', 'rules', 'placement', 'adoption' }
@@ -34,7 +31,6 @@ local function start()
   return env
 end
 
--- A pose property translated to `x`, in the form a window keeps it.
 local function pose(x)
   local values = {}
   for index = 1, 16 do
@@ -43,14 +39,11 @@ local function pose(x)
   return table.concat(values, ' ')
 end
 
--- The window callback the most recent onWindowOpened subscription was given, live or not, as a stale copy
--- of it would be called.
 local function lastCallback(env)
   local list = env.native.events.subscriptions.onWindowOpened
   return list[#list].callback
 end
 
--- A plugin requiring adoption alone, whose init runs `run` with its context and the service.
 local function caller(env, name, run)
   return env.session.runtime:use(
     plugin.define {
