@@ -29,6 +29,7 @@ local desktopBindings = require '@lunette-plugins/desktop/bindings'
 local wristKeyboard = require '@lunette-plugins/desktop/keyboard'
 local errors = require '@lunette-plugins/desktop/errors'
 local workspace = require '@lunette-plugins/desktop/workspace'
+local workspaces = require '@lunette-plugins/desktop/workspaces'
 local defaultRules = require '@lunette-plugins/desktop/rules'
 local poseMemory = require '@lunette-plugins/desktop/pose-memory'
 local arrangement = require '@lunette-plugins/arrangement'
@@ -43,12 +44,53 @@ local desktop = {}
 export type Entry = plugin.Entry
 export type Patch = plugin.Patch
 
+export type Settings = {
+  read bindings: desktopBindings.Config?,
+  read decorations: decorations.Config?,
+  read arrange: arrange.Config?,
+  read persistence: arrangement.Config?,
+  read wristKeyboard: wristKeyboard.Config?,
+  read rules: defaultRules.Config?,
+  read monitors: monitors.Config?,
+  read hint: hint.Config?,
+  read errors: errors.Config?,
+  read pointing: pointing.Config?,
+  read pacing: pacing.Config?,
+  read demoTerminal: demoTerminal.Config?,
+  read workspace: workspace.Config?,
+  read adoption: adoptionConsumer.Config?,
+}
+
 export type Options = {
   read entries: { Entry }?,
   read patches: { Patch }?,
+  read settings: Settings?,
+  read workspaces: workspaces.Config?,
 }
 
-local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true }
+local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true, settings = true, workspaces = true }
+local SETTING_IDS: { [string]: string } = {
+  bindings = 'desktop/bindings',
+  decorations = 'desktop/decorations',
+  arrange = 'desktop/arrange',
+  persistence = 'desktop/persistence',
+  wristKeyboard = 'desktop/keyboard',
+  rules = 'desktop/rules',
+  monitors = 'desktop/monitors',
+  hint = 'desktop/hint',
+  errors = 'desktop/errors',
+  pointing = 'desktop/pointing',
+  pacing = 'desktop/pacing',
+  demoTerminal = 'desktop/demo-terminal',
+  workspace = 'desktop/workspace',
+  adoption = 'desktop/adoption',
+}
+local SETTING_KEYS: { [string]: boolean } = {}
+for name, _ in SETTING_IDS do
+  SETTING_KEYS[name] = true
+end
+local SETTING_FIELDS =
+  'bindings, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, demoTerminal, workspace, and adoption'
 
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
@@ -90,12 +132,71 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/scale', definition = scale },
 }
 
--- The returned configuration function checks values against the definition's options.
+-- The returned configuration functions check values against the definition's options.
 desktop.configure = plugin.configure
+desktop.configureEntry = plugin.configureEntry
 
 -- Entries start in list order, and the list and its entries are frozen.
 function desktop.entries(): { Entry }
   return DEFAULT
+end
+
+type Raw = { [unknown]: unknown }
+
+local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [string]: string })
+  local patches: { Patch } = {}
+  local sources: { [string]: string } = {}
+  local function claim(id: string, source: string): ()
+    local previous = sources[id]
+    if previous then
+      error('desktop: ' .. source .. ' and ' .. previous .. ' both configure ' .. id .. '; use one source', 0)
+    end
+    sources[id] = source
+  end
+  if options.settings ~= nil then
+    plugin.rejectUnknownFields('desktop: the settings', options.settings, SETTING_KEYS, SETTING_FIELDS, 0)
+    for name, config in options.settings :: any do
+      local id = SETTING_IDS[name]
+      claim(id, 'settings.' .. name)
+      patches[#patches + 1] = { id = id, config = config }
+    end
+  end
+  if options.workspaces ~= nil then
+    local config = options.workspaces
+    plugin.rejectUnknownFields(
+      'desktop: workspaces',
+      config,
+      { workspaces = true, modifiers = true, follow = true },
+      'workspaces, modifiers, and follow',
+      0
+    )
+    local initial = 'main'
+    if config.workspaces ~= nil then
+      local list = config.workspaces
+      if type(list) ~= 'table' or type(list[1]) ~= 'table' or type(list[1].name) ~= 'string' or list[1].name == '' then
+        error('desktop: workspaces.workspaces names at least one workspace with a non-empty name', 0)
+      end
+      initial = list[1].name
+    end
+    for _, id in ipairs { 'desktop/workspaces', 'desktop/workspace', 'desktop/adoption' } do
+      claim(id, 'workspaces')
+      for _, entry in ipairs(entries) do
+        if entry.id == id and (id == 'desktop/workspaces' or entry.config ~= nil) then
+          error(
+            'desktop: workspaces and the configured entry ' .. id .. ' both configure ' .. id .. '; use raw patches',
+            0
+          )
+        end
+      end
+    end
+    patches[#patches + 1] = { id = 'desktop/workspace', config = { name = initial } }
+    patches[#patches + 1] = { id = 'desktop/adoption', config = { tags = { initial } } }
+    patches[#patches + 1] = {
+      insert = { id = 'desktop/workspaces', definition = workspaces, config = config :: any },
+      before = 'desktop/adoption',
+    }
+  end
+  return patches, sources
 end
 
 -- Returns patched entries and rejects unknown fields, duplicate ids, and conflicting patches.
@@ -103,8 +204,40 @@ function desktop.compose(options: Options?): { Entry }
   if options == nil then
     return DEFAULT
   end
-  plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 'entries and patches', 0)
-  return plugin.compose(options.entries or DEFAULT, options.patches)
+  plugin.rejectUnknownFields(
+    'desktop: the options',
+    options,
+    OPTION_KEYS,
+    'entries, patches, settings, and workspaces',
+    0
+  )
+  local entries = plugin.compose(options.entries or DEFAULT)
+  local patches, sources = expanded(options, entries)
+  local configured = plugin.compose(entries, patches)
+  if type(options.patches) == 'table' then
+    for index, patch in pairs(options.patches) do
+      if type(patch) == 'table' then
+        local raw = (patch :: unknown) :: Raw
+        local id = raw.id
+        if type(raw.insert) == 'table' then
+          id = (raw.insert :: Raw).id
+        end
+        if type(id) == 'string' and sources[id] then
+          error(
+            'desktop: patch '
+              .. tostring(index)
+              .. ' and '
+              .. sources[id]
+              .. ' both configure '
+              .. id
+              .. '; use one source',
+            0
+          )
+        end
+      end
+    end
+  end
+  return plugin.compose(configured, options.patches)
 end
 
 -- Composition errors occur while the configuration loads, before LÖVR callbacks are bound.

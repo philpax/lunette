@@ -108,6 +108,12 @@ function plugin.configure<C>(target: Definition<C> | () -> Definition<C>): (C) -
   return compose.configure(target)
 end
 
+-- Configures an entry by its id, using its definition only as the configuration type witness.
+-- A factory is not invoked while creating the patch.
+function plugin.configureEntry<C>(id: string, target: Definition<C> | () -> Definition<C>): (C) -> Patch
+  return compose.configureEntry(id, target)
+end
+
 -- Makes a runtime, uses and enables each entry in order, and drains it, answering the runtime and the
 -- instance made for each id. A failure closes the runtime and is raised; an entry's configuration error is
 -- that instance's load failure.

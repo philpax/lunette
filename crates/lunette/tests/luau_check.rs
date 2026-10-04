@@ -115,6 +115,32 @@ fn a_configure_patch_is_checked_against_its_definitions_options() {
 }
 
 #[test]
+fn entry_configuration_and_desktop_settings_reject_wrong_option_types() {
+    let name = "entry_settings_checked.luau";
+    let source = include_str!("luau_check/desktop/entry_settings_checked.luau");
+    let report = check(vec![fixture(
+        "luau_check/desktop/entry_settings_checked.luau",
+    )]);
+    let expected = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("-- reject."))
+        .map(|(index, _)| index + 1)
+        .collect::<Vec<_>>();
+    let mut actual = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            assert!(diagnostic.module.ends_with(name), "{diagnostic:#?}");
+            assert!(!diagnostic.message.contains("too complex"));
+            diagnostic.line as usize
+        })
+        .collect::<Vec<_>>();
+    actual.sort_unstable();
+    assert_eq!(actual, expected, "{:#?}", report.diagnostics);
+}
+
+#[test]
 fn rules_predicates_and_evaluators_reject_misuse() {
     let name = "rules_negative.luau";
     let report = check(vec![fixture("luau_check/rules/rules_negative.luau")]);

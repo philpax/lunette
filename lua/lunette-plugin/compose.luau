@@ -294,6 +294,19 @@ function compose.configure<C>(target: adapter.Definition<C> | () -> adapter.Defi
   end
 end
 
+-- The target supplies the configuration type; the entry id supplies the patch target. This never calls a factory.
+function compose.configureEntry<C>(id: string, target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
+  if type(id) ~= 'string' or id == '' then
+    error('compose: configureEntry: id is a non-empty string, not ' .. tostring(id), 2)
+  end
+  if type(target) ~= 'function' and (type(target) ~= 'table' or type((target :: Raw).name) ~= 'string') then
+    error('compose: configureEntry takes a plugin definition or a factory of one, not a ' .. type(target), 2)
+  end
+  return function(config: C): Patch
+    return { id = id, config = config :: any }
+  end
+end
+
 -- Starts entries in order and drains the runtime. A failure closes the runtime; configuration errors remain instance load failures.
 function compose.start(entries: { Entry }): Running
   local checked = compose.apply(entries)

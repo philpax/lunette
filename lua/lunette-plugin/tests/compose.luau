@@ -80,6 +80,48 @@ test("a configure patch is the plain patch for its definition's name", function(
   end, 'configure takes a plugin definition or a factory of one, not a string')
 end)
 
+test('entry configuration names the entry id and calls no factory before either start', function()
+  local made, initialized = 0, {}
+  local function factory()
+    made += 1
+    local activation = 0
+    return plugin.define {
+      name = 'different-definition-name',
+      init = function(_context, config)
+        activation += 1
+        initialized[#initialized + 1] = { activation = activation, label = config.label }
+      end,
+    }
+  end
+  local patch = plugin.configureEntry('stable-id', factory) { label = 'configured' }
+  expect.equal(patch.id, 'stable-id', 'the entry id, not the definition name')
+  local entries = plugin.compose({ { id = 'stable-id', factory = factory } }, { patch })
+  expect.equal(made, 0, 'configuration and composition invoke no factory')
+  local first, second = plugin.start(entries), plugin.start(entries)
+  expect.equal(made, 2, 'each start constructs a fresh definition')
+  expect.equal(#initialized, 2, 'both instances initialize')
+  for _, record in ipairs(initialized) do
+    expect.equal(record.activation, 1, 'definition state is fresh for each start')
+    expect.equal(record.label, 'configured', 'the typed patch persists into each start')
+  end
+  first.instances['stable-id']:disable()
+  first.instances['stable-id']:enable()
+  expect.equal(made, 2, 'reactivation retains the per-start definition')
+  expect.equal(initialized[3].activation, 2, 'definition state survives reactivation')
+  first.runtime:close()
+  second.runtime:close()
+  expect.equal(plugin.configureEntry('first', hud)({}).id, 'first', 'a definition also uses the supplied id')
+end)
+
+test('entry configuration rejects an empty id and an invalid source without invoking it', function()
+  expect.raises(function()
+    plugin.configureEntry('', hud)
+  end, 'configureEntry: id is a non%-empty string')
+  expect.raises(function()
+    plugin.configureEntry('first', 'hud' :: any)
+  end, 'configureEntry takes a plugin definition or a factory of one')
+end)
+
 test('a malformed composition raises before anything is defined, naming the id', function()
   for _, case in ipairs {
     { patches = { { id = 'nope', disabled = true } }, message = 'a patch names nope, which is not an entry' },

@@ -146,6 +146,8 @@ Geometric positions, directions, and offsets are native `vector` values, constru
 
 ## Configuring a built-in plugin
 
+[Desktop configuration](desktop-configuration.md) describes the typed consumer settings, workspace configuration, and entry-specific patches. Raw patches retain access to every plugin replacement and insertion.
+
 A patch with an entry's `id` changes that entry. `config` merges into its configuration: a table with string keys merges key by key, and any other value, a list included, replaces the default. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
 `desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside the functions a format of your own is written with:
