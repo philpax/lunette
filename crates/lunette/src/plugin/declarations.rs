@@ -4,11 +4,11 @@
 
 use std::fmt::Write as _;
 
-use lunette_luau::{Arguments, Parameter, Type, Typed};
+use lunette_luau::{Arguments, Type, Typed};
 use mlua::{FromLuaMulti, Function, IntoLuaMulti, Lua, MaybeSend, Table};
 
 use crate::{
-    lua::declarations::{Signature, collect_methods, render_doc},
+    lua::declarations::{Signature, collect_methods, function_type, render_doc},
     plugin::attachment::{
         self, PluginContext, PluginContractToken, PluginDefinition, PluginEffect, PluginInstance,
         PluginRuntime, PluginState,
@@ -51,16 +51,7 @@ where
     R: IntoLuaMulti + Typed,
     F: Fn(&Lua, A) -> mlua::Result<R> + MaybeSend + 'static,
 {
-    Type::Function {
-        receiver: None,
-        parameters: names
-            .iter()
-            .copied()
-            .zip(A::luau())
-            .map(|(name, ty)| Parameter { name, ty })
-            .collect(),
-        returns: Box::new(R::luau()),
-    }
+    function_type(None, names, &A::luau(), R::luau())
 }
 
 /// Returns the plugin functions in facade order.

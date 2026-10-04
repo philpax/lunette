@@ -9,7 +9,7 @@ use lunette_luau::{Parameter, Type, Typed, closed_set};
 use mlua::{FromLua, Function, IntoLua, Lua, UserData, UserDataMethods, UserDataRef, Value};
 
 use crate::{
-    lua::declarations::{MethodSpec, MethodSurface, MethodsDescribed, Receiver},
+    lua::declarations::{MethodSurface, MethodsDescribed, add_described_methods, handle},
     plugin::{
         attachment::{
             context, lifecycle,
@@ -171,59 +171,32 @@ impl Typed for PluginRuntime {
 
 impl UserData for PluginRuntime {
     fn add_methods<Methods: UserDataMethods<Self>>(methods: &mut Methods) {
-        crate::lua::declarations::add_described_methods(methods);
+        add_described_methods(methods);
     }
-}
-
-fn runtime_use(
-    _: &Lua,
-    this: &PluginRuntime,
-    (definition, config): (UserDataRef<PluginDefinition>, Unknown),
-) -> mlua::Result<PluginInstance> {
-    Ok(lifecycle::use_definition(
-        &this.state,
-        Rc::clone(&definition.data),
-        config.0,
-        None,
-    )?)
-}
-
-fn runtime_close(lua: &Lua, this: &PluginRuntime, _: ()) -> mlua::Result<()> {
-    Ok(lifecycle::close_runtime(lua, &this.state)?)
-}
-
-fn runtime_drain(lua: &Lua, this: &PluginRuntime, _: ()) -> mlua::Result<()> {
-    Ok(lifecycle::drain_runtime(lua, &this.state)?)
 }
 
 impl MethodsDescribed for PluginRuntime {
     fn describe_methods(surface: &mut impl MethodSurface<Self>) {
-        surface.method(
-            MethodSpec {
-                name: "use",
-                doc: "Installs a definition with its configuration.",
-                receiver: Receiver::Own,
-                parameters: &["definition", "config"],
-            },
-            runtime_use,
-        );
-        surface.method(
-            MethodSpec {
-                name: "close",
-                doc: "Disposes every instance in this runtime.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            runtime_close,
-        );
-        surface.method(
-            MethodSpec {
-                name: "drain",
-                doc: "Performs pending lifecycle work and reports graph diagnostics.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            runtime_drain,
+        handle!(@items surface,
+            /// Installs a definition with its configuration.
+            method use(_lua, this, definition: UserDataRef<PluginDefinition>, config: Unknown) -> PluginInstance {
+                Ok(lifecycle::use_definition(
+                    &this.state,
+                    Rc::clone(&definition.data),
+                    config.0,
+                    None,
+                )?)
+            }
+
+            /// Disposes every instance in this runtime.
+            method close(lua, this) -> () {
+                Ok(lifecycle::close_runtime(lua, &this.state)?)
+            }
+
+            /// Performs pending lifecycle work and reports graph diagnostics.
+            method drain(lua, this) -> () {
+                Ok(lifecycle::drain_runtime(lua, &this.state)?)
+            }
         );
     }
 }
@@ -243,105 +216,58 @@ impl Typed for PluginInstance {
 
 impl UserData for PluginInstance {
     fn add_methods<Methods: UserDataMethods<Self>>(methods: &mut Methods) {
-        crate::lua::declarations::add_described_methods(methods);
+        add_described_methods(methods);
     }
-}
-
-fn instance_enable(lua: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<()> {
-    Ok(lifecycle::request_instance(
-        lua,
-        &this.runtime,
-        lifecycle::Request::Enable(this.id),
-    )?)
-}
-
-fn instance_disable(lua: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<()> {
-    Ok(lifecycle::request_instance(
-        lua,
-        &this.runtime,
-        lifecycle::Request::Disable(this.id),
-    )?)
-}
-
-fn instance_dispose(lua: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<()> {
-    Ok(lifecycle::request_instance(
-        lua,
-        &this.runtime,
-        lifecycle::Request::Dispose(this.id),
-    )?)
-}
-
-fn instance_reload(lua: &Lua, this: &PluginInstance, (config,): (Unknown,)) -> mlua::Result<()> {
-    Ok(lifecycle::request_instance(
-        lua,
-        &this.runtime,
-        lifecycle::Request::Reload(this.id, config.0),
-    )?)
-}
-
-fn instance_state(_: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<PluginState> {
-    Ok(lifecycle::instance_state(&this.runtime, this.id))
-}
-
-fn instance_diagnostic(_: &Lua, this: &PluginInstance, _: ()) -> mlua::Result<Option<String>> {
-    Ok(lifecycle::instance_diagnostic(&this.runtime, this.id))
 }
 
 impl MethodsDescribed for PluginInstance {
     fn describe_methods(surface: &mut impl MethodSurface<Self>) {
-        for (name, doc, body) in [
-            (
-                "enable",
-                "Enables this plugin instance and reserves its provided contracts.",
-                instance_enable as fn(&Lua, &Self, ()) -> _,
-            ),
-            (
-                "disable",
-                "Disables this plugin instance.",
-                instance_disable,
-            ),
-            (
-                "dispose",
-                "Disables and permanently retires this plugin instance.",
-                instance_dispose,
-            ),
-        ] {
-            surface.method(
-                MethodSpec {
-                    name,
-                    doc,
-                    receiver: Receiver::Own,
-                    parameters: &[],
-                },
-                body,
-            );
-        }
-        surface.method(
-            MethodSpec {
-                name: "reload",
-                doc: "Replaces this instance's configuration and reloads it.",
-                receiver: Receiver::Own,
-                parameters: &["config"],
-            },
-            instance_reload,
-        );
-        surface.method(
-            MethodSpec {
-                name: "state",
-                doc: "Reports this instance's lifecycle state.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            instance_state,
-        );
-        surface.method(
-            MethodSpec {
-                name: "diagnostic",
-                doc: "Describes why this instance last failed or is not loading, if it has a reason.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            instance_diagnostic,
+        handle!(@items surface,
+            /// Enables this plugin instance and reserves its provided contracts.
+            method enable(lua, this) -> () {
+                Ok(lifecycle::request_instance(
+                    lua,
+                    &this.runtime,
+                    lifecycle::Request::Enable(this.id),
+                )?)
+            }
+
+            /// Disables this plugin instance.
+            method disable(lua, this) -> () {
+                Ok(lifecycle::request_instance(
+                    lua,
+                    &this.runtime,
+                    lifecycle::Request::Disable(this.id),
+                )?)
+            }
+
+            /// Disables and permanently retires this plugin instance.
+            method dispose(lua, this) -> () {
+                Ok(lifecycle::request_instance(
+                    lua,
+                    &this.runtime,
+                    lifecycle::Request::Dispose(this.id),
+                )?)
+            }
+
+            /// Replaces this instance's configuration and reloads it.
+            method reload(lua, this, config: Unknown) -> () {
+                Ok(lifecycle::request_instance(
+                    lua,
+                    &this.runtime,
+                    lifecycle::Request::Reload(this.id, config.0),
+                )?)
+            }
+
+            /// Reports this instance's lifecycle state.
+            method state(_lua, this) -> PluginState {
+                Ok(lifecycle::instance_state(&this.runtime, this.id))
+            }
+
+            /// Describes why this instance last failed or is not loading, if it has a reason.
+            method diagnostic(_lua, this) -> Option<String> {
+                Ok(lifecycle::instance_diagnostic(&this.runtime, this.id))
+            }
         );
     }
 }
@@ -362,118 +288,47 @@ impl Typed for PluginContext {
 
 impl UserData for PluginContext {
     fn add_methods<Methods: UserDataMethods<Self>>(methods: &mut Methods) {
-        crate::lua::declarations::add_described_methods(methods);
+        add_described_methods(methods);
     }
-}
-
-fn context_services(lua: &Lua, this: &PluginContext, _: ()) -> mlua::Result<Unknown> {
-    Ok(context::services(lua, this)?)
-}
-
-fn context_effect(
-    lua: &Lua,
-    this: &PluginContext,
-    (acquire,): (PluginAcquire,),
-) -> mlua::Result<PluginEffect> {
-    context::effect(lua, this, acquire.0)
-}
-
-fn context_child(
-    _: &Lua,
-    this: &PluginContext,
-    (definition, config): (UserDataRef<PluginDefinition>, Unknown),
-) -> mlua::Result<PluginInstance> {
-    Ok(context::child(this, Rc::clone(&definition.data), config.0)?)
-}
-
-fn context_check_owner(
-    _: &Lua,
-    this: &PluginContext,
-    (caller,): (UserDataRef<PluginContext>,),
-) -> mlua::Result<()> {
-    Ok(context::check_owner(this, &caller)?)
-}
-
-fn context_owns(
-    _: &Lua,
-    this: &PluginContext,
-    (caller,): (UserDataRef<PluginContext>,),
-) -> mlua::Result<bool> {
-    Ok(context::check_owner(this, &caller).is_ok())
-}
-
-fn context_active(_: &Lua, this: &PluginContext, _: ()) -> mlua::Result<bool> {
-    Ok(context::context_active(this))
-}
-
-fn context_serving(_: &Lua, this: &PluginContext, _: ()) -> mlua::Result<bool> {
-    Ok(context::context_serving(this))
 }
 
 impl MethodsDescribed for PluginContext {
     fn describe_methods(surface: &mut impl MethodSurface<Self>) {
-        surface.method(
-            MethodSpec {
-                name: "services",
-                doc: "Returns the services supplied by required contracts.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            context_services,
-        );
-        surface.method(
-            MethodSpec {
-                name: "effect",
-                doc: "Acquires a resource and registers its inverse for cleanup.",
-                receiver: Receiver::Own,
-                parameters: &["acquire"],
-            },
-            context_effect,
-        );
-        surface.method(
-            MethodSpec {
-                name: "child",
-                doc: "Installs a child definition owned by this activation.",
-                receiver: Receiver::Own,
-                parameters: &["definition", "config"],
-            },
-            context_child,
-        );
-        surface.method(
-            MethodSpec {
-                name: "checkOwner",
-                doc: "Checks that another context is a live dependent of this plugin's current generation.",
-                receiver: Receiver::Own,
-                parameters: &["caller"],
-            },
-            context_check_owner,
-        );
-        surface.method(
-            MethodSpec {
-                name: "owns",
-                doc: "Reports whether another context is a live dependent of this plugin's current generation: whether checkOwner would accept it.",
-                receiver: Receiver::Own,
-                parameters: &["caller"],
-            },
-            context_owns,
-        );
-        surface.method(
-            MethodSpec {
-                name: "active",
-                doc: "Reports whether this context's activation is still live.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            context_active,
-        );
-        surface.method(
-            MethodSpec {
-                name: "serving",
-                doc: "Reports whether this context's activation is published and has not begun unloading, so its services may be read.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            context_serving,
+        handle!(@items surface,
+            /// Returns the services supplied by required contracts.
+            method services(lua, this) -> Unknown {
+                Ok(context::services(lua, this)?)
+            }
+
+            /// Acquires a resource and registers its inverse for cleanup.
+            method effect(lua, this, acquire: PluginAcquire) -> PluginEffect {
+                context::effect(lua, this, acquire.0)
+            }
+
+            /// Installs a child definition owned by this activation.
+            method child(_lua, this, definition: UserDataRef<PluginDefinition>, config: Unknown) -> PluginInstance {
+                Ok(context::child(this, Rc::clone(&definition.data), config.0)?)
+            }
+
+            /// Checks that another context is a live dependent of this plugin's current generation.
+            method checkOwner(_lua, this, caller: UserDataRef<PluginContext>) -> () {
+                Ok(context::check_owner(this, &caller)?)
+            }
+
+            /// Reports whether another context is a live dependent of this plugin's current generation: whether checkOwner would accept it.
+            method owns(_lua, this, caller: UserDataRef<PluginContext>) -> bool {
+                Ok(context::check_owner(this, &caller).is_ok())
+            }
+
+            /// Reports whether this context's activation is still live.
+            method active(_lua, this) -> bool {
+                Ok(context::context_active(this))
+            }
+
+            /// Reports whether this context's activation is published and has not begun unloading, so its services may be read.
+            method serving(_lua, this) -> bool {
+                Ok(context::context_serving(this))
+            }
         );
     }
 }
@@ -495,24 +350,17 @@ impl Typed for PluginEffect {
 
 impl UserData for PluginEffect {
     fn add_methods<Methods: UserDataMethods<Self>>(methods: &mut Methods) {
-        crate::lua::declarations::add_described_methods(methods);
+        add_described_methods(methods);
     }
-}
-
-fn effect_dispose(lua: &Lua, this: &PluginEffect, _: ()) -> mlua::Result<()> {
-    context::dispose_effect(lua, this)
 }
 
 impl MethodsDescribed for PluginEffect {
     fn describe_methods(surface: &mut impl MethodSurface<Self>) {
-        surface.method(
-            MethodSpec {
-                name: "dispose",
-                doc: "Runs this effect's inverse once. Disposing an effect whose activation, instance, or runtime has ended does nothing.",
-                receiver: Receiver::Own,
-                parameters: &[],
-            },
-            effect_dispose,
+        handle!(@items surface,
+            /// Runs this effect's inverse once. Disposing an effect whose activation, instance, or runtime has ended does nothing.
+            method dispose(lua, this) -> () {
+                context::dispose_effect(lua, this)
+            }
         );
     }
 }
