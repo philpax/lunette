@@ -411,11 +411,9 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
   local focusService: focus.Service = context:require(focus.capability)
   return {
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
-      context:checkOwner(owner)
       local own = settingsFor(settings, options)
-      local result: Board? = nil
       local cleanupEffect: plugin.Effect? = nil
-      local acquired = owner:effect(function(): () -> ()
+      local result, acquired = context:resource(owner, function(): (Board, () -> ())
         local created, releaseRaw = create(own, options, focusService, function(): ()
           local effect = cleanupEffect
           cleanupEffect = nil
@@ -423,13 +421,11 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
             effect:dispose()
           end
         end)
-        result = created
-        return function(): ()
+        return created, function(): ()
           cleanupEffect = nil
           releaseRaw()
         end
       end)
-      assert(result, 'keyboard acquisition did not complete')
       if not result.dead then
         cleanupEffect = acquired
       end

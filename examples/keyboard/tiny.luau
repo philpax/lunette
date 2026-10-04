@@ -101,15 +101,13 @@ return plugin.define {
     local focus: focusContract.Service = context:require(focusContract.capability)
     publish:provide(keyboard.capability, {
       new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
-        local made: keyboard.Keyboard? = nil
-        context:acquire(owner, function()
-          local board = make(focus, options)
-          made = board
-          return function()
-            board:destroy()
+        local board = context:resource(owner, function()
+          local created = make(focus, options)
+          return created, function()
+            created:destroy()
           end
         end)
-        return assert(made, 'the keyboard was acquired')
+        return board
       end,
     })
   end,

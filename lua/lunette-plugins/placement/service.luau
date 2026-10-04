@@ -160,9 +160,8 @@ local function acquire(
       error('placement: cleanup: ' .. table.concat(failures, '; '))
     end
   end
-  local acquired = owner:effect(function(): () -> ()
-    context:checkOwner(owner)
-    local ok, failure = pcall(function()
+  local panel, acquired = context:resource(owner, function(): (panelsContract.WindowPanel, () -> ())
+    local ok, result = pcall(function()
       local options = state.settings.panelOptions(properties, window, service.panelOptions)
       if type(options) ~= 'table' then
         error('placement: panelOptions answered a ' .. type(options) .. ', not panel options')
@@ -175,17 +174,17 @@ local function acquire(
       if properties.tags then
         joinTags(state, panel, properties.tags, holds, memberships)
       end
+      return panel
     end)
     if not ok then
       local cleaned, cleanupFailure = pcall(cleanup)
       if not cleaned then
-        error('placement: acquisition: ' .. tostring(failure) .. '; ' .. tostring(cleanupFailure))
+        error('placement: acquisition: ' .. tostring(result) .. '; ' .. tostring(cleanupFailure))
       end
-      error(failure)
+      error(result)
     end
-    return cleanup
+    return result, cleanup
   end)
-  local panel = assert(created)
   if panel.dead then
     acquired:dispose()
   else

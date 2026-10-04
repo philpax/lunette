@@ -248,19 +248,17 @@ A plugin that provides `lunette/keyboard` itself can take the keyboard entry's p
 
 ```lua
 new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
-  local made: keyboard.Keyboard? = nil
-  context:acquire(owner, function()
-    local board = make(focus, options)
-    made = board
-    return function()
-      board:destroy()
+  local board = context:resource(owner, function()
+    local created = make(focus, options)
+    return created, function()
+      created:destroy()
     end
   end)
-  return assert(made, 'the keyboard was acquired')
+  return board
 end,
 ```
 
-`context:acquire` checks that the owner is a live plugin and registers the release with the owner, so a keyboard ends with the plugin that asked for it. Each owner draws and offers its own keyboards, so a provider keeps no list of them. A surface callback that answers a ray hit, `raycast`, is annotated `(number?, number?, number?)` when it is written as a method or a local function. Luau gives a function with no expected type the return type of its first `return`, so an unannotated `raycast` that misses with `return nil, nil, nil` before it returns the hit is rejected at the hit. A `raycast` written inside a table that is annotated as the surface type takes its type from the contract and needs no annotation.
+`context:resource` checks that the owner is a live dependent plugin and registers the release with the owner, so a keyboard ends with the plugin that asked for it. It returns the acquired value and its effect only after registration succeeds. An initializer can use its own context as the owner. Cancellation releases the value and raises without returning it. An acquisition that raises before returning its inverse must clean up its partial resources. Each owner draws and offers its own keyboards, so a provider keeps no list of them. A surface callback that answers a ray hit, `raycast`, is annotated `(number?, number?, number?)` when it is written as a method or a local function. Luau gives a function with no expected type the return type of its first `return`, so an unannotated `raycast` that misses with `return nil, nil, nil` before it returns the hit is rejected at the hit. A `raycast` written inside a table that is annotated as the surface type takes its type from the contract and needs no annotation.
 
 ## A custom layout
 

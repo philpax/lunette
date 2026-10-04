@@ -58,10 +58,8 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
   end
 
   local interactionService: interaction.Service = state.context:require(interaction.capability)
-  local created: MutableLaser?
   local cleanupEffect: plugin.Effect? = nil
-  local acquired = owner:effect(function()
-    state.context:checkOwner(owner)
+  local created, acquired = state.context:resource(owner, function(): (MutableLaser, () -> ())
     local seat = given.seat or lunette.newSeat(given.name or ('laser.' .. hand))
     local controller = input.controllers[hand]
     -- Haptics use the controller that supplies this hand's input.
@@ -150,17 +148,12 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         return true
       end,
     }
-    created = target
     state.lasers[#state.lasers + 1] = target
-    return function()
+    return target, function()
       cleanupEffect = nil
       registry.destroy(state, target)
     end
   end)
-
-  if not created then
-    error 'laser: owner effect did not acquire a laser'
-  end
   if not created.dead then
     cleanupEffect = acquired
   end
