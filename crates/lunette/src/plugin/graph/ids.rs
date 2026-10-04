@@ -35,19 +35,19 @@ impl fmt::Display for ActivationId {
     }
 }
 
-/// Each provider load has a new generation, including reloads of the same instance.
+/// The published activation of a provider. Reloads use a new activation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ProviderGeneration(u64);
+pub struct ProviderGeneration(ActivationId);
 
 impl ProviderGeneration {
-    pub(crate) const fn from_raw(value: u64) -> Self {
-        Self(value)
+    pub(crate) const fn from_activation(activation: ActivationId) -> Self {
+        Self(activation)
     }
 }
 
 impl fmt::Display for ProviderGeneration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "generation {}", self.0)
+        write!(formatter, "generation {}", self.0.0)
     }
 }
 

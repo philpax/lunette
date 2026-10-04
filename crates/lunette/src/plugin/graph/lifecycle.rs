@@ -54,12 +54,10 @@ pub enum Intent {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
-    /// Load the instance and give it the exact provider generations allocated by the graph.
+    /// Load the instance using the exact provider bindings retained in its graph allocation.
     BeginLoad {
         instance: InstanceId,
         activation: ActivationId,
-        /// Requirements in deterministic contract order.
-        bindings: Vec<Binding>,
     },
     /// Clean up the instance's current attachment.
     BeginUnload {
@@ -100,7 +98,6 @@ pub struct Graph {
     pub(super) shutdown_requested: bool,
     next_instance: u64,
     pub(super) next_activation: u64,
-    next_generation: u64,
     pub(super) diagnostics: Vec<Diagnostic>,
 }
 
@@ -248,7 +245,7 @@ impl Graph {
                     }
                     return Ok(LoadResolution::Rejected);
                 }
-                let generation = self.allocate_generation()?;
+                let generation = ProviderGeneration::from_activation(activation);
                 let node = self.node_mut(instance)?;
                 if let Phase::Live { stage, .. } = &mut node.phase {
                     *stage = Stage::Active(generation);
@@ -419,15 +416,6 @@ impl Graph {
         Ok(ActivationId::from_raw(id))
     }
 
-    fn allocate_generation(&mut self) -> Result<ProviderGeneration, GraphError> {
-        let id = self
-            .next_generation
-            .checked_add(1)
-            .ok_or(GraphError::IdExhausted)?;
-        self.next_generation = id;
-        Ok(ProviderGeneration::from_raw(id))
-    }
-
     /// Rejects an enable or reload that cannot hold the instance's reservations.
     fn check_enable(&self, instance: InstanceId, node: &Instance) -> Result<(), GraphError> {
         if node.is_quarantined() {
@@ -476,7 +464,7 @@ impl Graph {
         &self,
         instance: InstanceId,
         activation: ActivationId,
-    ) -> Result<Allocation, GraphError> {
+    ) -> Result<&Allocation, GraphError> {
         let node = self.node(instance)?;
         let Phase::Live { stage, allocation } = &node.phase else {
             return Err(GraphError::InvalidAction);
@@ -484,7 +472,7 @@ impl Graph {
         if *stage != Stage::Loading || allocation.activation != activation {
             return Err(GraphError::StaleAction);
         }
-        Ok(allocation.clone())
+        Ok(allocation)
     }
 
     /// Ends a loading allocation that will not be published.
@@ -593,7 +581,7 @@ impl Graph {
             stage: Stage::Loading,
             allocation: Allocation {
                 activation,
-                bindings: bindings.clone(),
+                bindings,
                 replace: false,
                 quarantine_pending: false,
                 rejection: None,
@@ -603,7 +591,6 @@ impl Graph {
         Some(Action::BeginLoad {
             instance,
             activation,
-            bindings,
         })
     }
 

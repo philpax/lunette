@@ -87,6 +87,8 @@ fn a_provider_reload_publishes_a_new_generation() {
     load(&mut graph, provider);
     let first_activation = load(&mut graph, consumer);
     let first_generation = generation(&graph, provider);
+    let first_binding = live_allocation(&graph, consumer).unwrap().1.bindings[0].clone();
+    assert!(graph.binding_is_current(&first_binding));
     graph.request(Intent::Reload(provider)).unwrap();
     unload(&mut graph, consumer, true);
     unload(&mut graph, provider, true);
@@ -97,6 +99,110 @@ fn a_provider_reload_publishes_a_new_generation() {
     assert_ne!(first_activation, second_activation);
     let bindings = &live_allocation(&graph, consumer).unwrap().1.bindings;
     assert_eq!(bindings[0].generation, second.unwrap());
+    assert!(graph.binding_is_current(&bindings[0]));
+    assert!(!graph.binding_is_current(&first_binding));
+}
+
+#[test]
+fn failed_and_cancelled_loads_do_not_reuse_publication_identity() {
+    for outcome in [LoadOutcome::Failed, LoadOutcome::Cancelled] {
+        let mut graph = Graph::new();
+        let provider = root(&mut graph, &[], &[key("service", 1)]);
+        graph.request(Intent::Enable(provider)).unwrap();
+        let first = load(&mut graph, provider);
+        let first_generation = generation(&graph, provider).unwrap();
+        graph.request(Intent::Reload(provider)).unwrap();
+        unload(&mut graph, provider, true);
+
+        let ended = begin_load(&mut graph, provider);
+        assert_ne!(first, ended);
+        assert!(matches!(
+            graph.complete_load(provider, ended, outcome),
+            Ok(LoadResolution::Ended(_))
+        ));
+        graph.request(Intent::Enable(provider)).unwrap();
+        let current = begin_load(&mut graph, provider);
+        assert_ne!(ended, current);
+        for stale_outcome in [
+            LoadOutcome::Success,
+            LoadOutcome::Failed,
+            LoadOutcome::Cancelled,
+        ] {
+            assert_eq!(
+                graph.complete_load(provider, ended, stale_outcome),
+                Err(GraphError::StaleAction)
+            );
+            assert_eq!(graph.live(provider, current).unwrap().0, Stage::Loading);
+        }
+        let current_generation = ProviderGeneration::from_activation(current);
+        assert_eq!(
+            graph.complete_load(provider, current, LoadOutcome::Success),
+            Ok(LoadResolution::Published(current_generation))
+        );
+        assert_ne!(first_generation, current_generation);
+    }
+}
+
+#[test]
+fn publication_keeps_activation_identity_when_loads_complete_out_of_order() {
+    let mut graph = Graph::new();
+    let first = root(&mut graph, &[], &[key("first", 1)]);
+    let second = root(&mut graph, &[], &[key("second", 1)]);
+    let consumer = root(&mut graph, &[key("first", 1), key("second", 1)], &[]);
+    for instance in [first, second, consumer] {
+        graph.request(Intent::Enable(instance)).unwrap();
+    }
+    let first_activation = begin_load(&mut graph, first);
+    let second_activation = begin_load(&mut graph, second);
+    for (instance, activation) in [(second, second_activation), (first, first_activation)] {
+        assert_eq!(
+            graph.complete_load(instance, activation, LoadOutcome::Success),
+            Ok(LoadResolution::Published(
+                ProviderGeneration::from_activation(activation)
+            ))
+        );
+    }
+    let consumer_activation = begin_load(&mut graph, consumer);
+    let (stage, bindings) = graph.live(consumer, consumer_activation).unwrap();
+    assert_eq!(stage, Stage::Loading);
+    assert_eq!(
+        bindings,
+        &[
+            Binding {
+                contract: key("first", 1),
+                provider: first,
+                generation: ProviderGeneration::from_activation(first_activation),
+            },
+            Binding {
+                contract: key("second", 1),
+                provider: second,
+                generation: ProviderGeneration::from_activation(second_activation),
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_last_activation_can_publish_without_another_identifier() {
+    let mut graph = Graph::new();
+    let instance = root(&mut graph, &[], &[key("service", 1)]);
+    graph.request(Intent::Enable(instance)).unwrap();
+    graph.next_activation = u64::MAX - 1;
+    let activation = begin_load(&mut graph, instance);
+    assert_eq!(
+        graph.complete_load(instance, activation, LoadOutcome::Success),
+        Ok(LoadResolution::Published(
+            ProviderGeneration::from_activation(activation)
+        ))
+    );
+    assert_eq!(graph.state(instance).unwrap(), LifecycleState::Active);
+    graph.request(Intent::Reload(instance)).unwrap();
+    unload(&mut graph, instance, true);
+    assert!(graph.next_action().is_none());
+    assert_eq!(
+        kinds(&mut graph),
+        vec![DiagnosticKind::ActivationsExhausted]
+    );
 }
 
 #[test]
