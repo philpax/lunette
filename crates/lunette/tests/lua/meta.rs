@@ -6,7 +6,7 @@ use libtest_mimic::{Failed, Trial};
 use mlua::{Lua, Table};
 
 use crate::{
-    discover::{self, Kind},
+    discover::{self, Kind, Source},
     run,
     state::{self, Roots},
 };
@@ -33,6 +33,12 @@ fn classification() -> Result<(), Failed> {
     let cases = [
         ("lunette-plugins/pacing/tests/pacer.luau", Kind::Test),
         ("testing/tests/expect.luau", Kind::Test),
+        ("plugins/demo-terminal/tests/startup.luau", Kind::Test),
+        ("plugins/demo-terminal/tests/nested/case.luau", Kind::Stray),
+        (
+            "plugins/demo-terminal/tests/support/fixture.luau",
+            Kind::Support,
+        ),
         (
             "lunette-plugins/arrangement/tests/support/fixture.luau",
             Kind::Support,
@@ -59,15 +65,29 @@ fn classification() -> Result<(), Failed> {
 }
 
 fn naming() -> Result<(), Failed> {
-    let file = discover::test_file(Path::new("lunette-plugins/pacing/tests/pacer.luau"))
-        .map_err(|error| error.to_string())?;
+    let file = discover::test_file(
+        Path::new("lunette-plugins/pacing/tests/pacer.luau"),
+        Source::Library,
+    )
+    .map_err(|error| error.to_string())?;
     if file.name != "lunette-plugins/pacing/tests/pacer"
         || file.module != "@lunette-plugins/pacing/tests/pacer"
     {
         return Err(format!("{file:?}").into());
     }
-    if discover::test_file(Path::new("elsewhere/tests/case.luau")).is_ok() {
+    if discover::test_file(Path::new("elsewhere/tests/case.luau"), Source::Library).is_ok() {
         return Err("a test file outside every module root was named".into());
+    }
+    let development = discover::test_file(
+        Path::new("plugins/demo-terminal/tests/startup.luau"),
+        Source::Development,
+    )
+    .map_err(|error| error.to_string())?;
+    if development.name != "dev/plugins/demo-terminal/tests/startup"
+        || development.module != "plugins/demo-terminal/tests/startup"
+        || development.source != Source::Development
+    {
+        return Err(format!("{development:?}").into());
     }
     Ok(())
 }

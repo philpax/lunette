@@ -60,6 +60,32 @@ fn no_installed_root_requires_a_development_only_root() {
     assert!(offenders.is_empty(), "{offenders:#?}");
 }
 
+#[test]
+fn development_configuration_and_plugins_stay_out_of_installation() {
+    let manifest = install_manifest();
+    for line in manifest.lines() {
+        let (source, destination) = line.split_once('\t').unwrap_or_else(|| {
+            panic!("install manifest line has a source and destination: {line}")
+        });
+        assert!(!source.starts_with("dev/"), "{source} is development-only");
+        assert!(
+            !destination.starts_with("dev/"),
+            "{destination} is development-only"
+        );
+    }
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    assert!(
+        workspace.join("dev/main.luau").is_file(),
+        "the development configuration exists"
+    );
+    assert!(
+        !workspace
+            .join("lua/lunette-plugins/desktop/demo-terminal")
+            .exists(),
+        "the demonstration terminal is not in an installed module root"
+    );
+}
+
 /// Collects installed `.luau` files outside `tests` directories.
 fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(directory)

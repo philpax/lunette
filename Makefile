@@ -67,7 +67,7 @@ check: check-format check-rust check-definitions check-luau
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
-	stylua --check lua etc/xdg/lunette examples crates/lunette/tests/luau_check
+	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check
 
 # The target splits in two because clippy and the tests share no artifacts.
 # The clippy build runs through RUSTC_WORKSPACE_WRAPPER and produces its own
@@ -89,12 +89,12 @@ check-test:
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 
-# The check includes every shipped root, the default configuration, and the
-# examples. The tests directories and lua/testing stay out: test files build
+# The check includes every shipped root, the default and development
+# configurations, and the examples. The tests directories and lua/testing stay out: test files build
 # partial handles and fake natives, which strict checking would make them cast
 # at every turn, and CONTRIBUTING.md records the stance.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type d -name tests -prune -o -type f -name '*.luau' -print | sort) etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau $$(find examples -type f -name '*.luau' -print | sort)
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type d -name tests -prune -o -type f -name '*.luau' -print | sort) etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau $$(find examples dev -type d -name tests -prune -o -type f -name '*.luau' -print | sort)
 
 install: install-binary install-lua install-config
 

@@ -1,4 +1,4 @@
-//! Runs each Lua test file under `lua/` as a separate test.
+//! Runs each Lua test file under `lua/` and `dev/` as a separate test.
 //!
 //! Test files are `.luau` files directly inside `tests` directories. Helpers belong under
 //! `tests/support`. Each file runs in a fresh Lua state with module roots from the working
@@ -28,7 +28,7 @@ use libtest_mimic::{Arguments, Failed, Trial};
 fn main() -> ExitCode {
     let arguments = Arguments::from_args();
     let roots = state::Roots::of_repository(repository());
-    let mut trials = match discover::test_files(&roots.lua) {
+    let mut trials = match discover::test_files(&roots.repository) {
         Ok(files) => files
             .into_iter()
             .map(|file| {

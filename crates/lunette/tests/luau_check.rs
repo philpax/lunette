@@ -1,6 +1,6 @@
-//! The Luau checker over the shipped roots and the checker fixtures.
+//! The Luau checker over shipped and development sources and the checker fixtures.
 //!
-//! One case checks every shipped root together and fails on any diagnostic,
+//! One case checks every shipped root and development source together and fails on any diagnostic,
 //! lint warnings included, which `lunette check` would let through. The other
 //! cases check the fixtures in `luau_check/`, which one `.luaurc` there gives
 //! every module root: ones that must check cleanly, and ones whose mistakes
@@ -29,6 +29,7 @@ fn every_shipped_root_checks_without_diagnostics() {
         "lua/lunette-plugins",
         "lua/lunette-desktop",
         "examples",
+        "dev",
     ] {
         collect_sources(&root.join(directory), &mut paths);
     }

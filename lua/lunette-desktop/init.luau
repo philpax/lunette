@@ -35,7 +35,6 @@ local poseMemory = require '@lunette-plugins/desktop/pose-memory'
 local arrangement = require '@lunette-plugins/arrangement'
 local arrange = require '@lunette-plugins/desktop/arrange'
 local adoptionConsumer = require '@lunette-plugins/desktop/adoption'
-local demoTerminal = require '@lunette-plugins/desktop/demo-terminal'
 local pacing = require '@lunette-plugins/desktop/pacing'
 local scale = require '@lunette-plugins/desktop/scale'
 
@@ -56,7 +55,6 @@ export type Settings = {
   read errors: errors.Config?,
   read pointing: pointing.Config?,
   read pacing: pacing.Config?,
-  read demoTerminal: demoTerminal.Config?,
   read workspace: workspace.Config?,
   read adoption: adoptionConsumer.Config?,
 }
@@ -81,7 +79,6 @@ local SETTING_IDS: { [string]: string } = {
   errors = 'desktop/errors',
   pointing = 'desktop/pointing',
   pacing = 'desktop/pacing',
-  demoTerminal = 'desktop/demo-terminal',
   workspace = 'desktop/workspace',
   adoption = 'desktop/adoption',
 }
@@ -90,7 +87,7 @@ for name, _ in SETTING_IDS do
   SETTING_KEYS[name] = true
 end
 local SETTING_FIELDS =
-  'bindings, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, demoTerminal, workspace, and adoption'
+  'bindings, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, workspace, and adoption'
 
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
@@ -127,7 +124,6 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/persistence', factory = arrangement.factory },
   { id = 'desktop/arrange', factory = arrange },
   { id = 'desktop/adoption', definition = adoptionConsumer },
-  { id = 'desktop/demo-terminal', definition = demoTerminal },
   { id = 'desktop/pacing', definition = pacing },
   { id = 'desktop/scale', definition = scale },
 }

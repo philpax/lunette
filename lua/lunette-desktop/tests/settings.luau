@@ -42,7 +42,6 @@ local CONFIGS = {
   errors = { width = 1.2 },
   pointing = { laser = { hand = 'right' } },
   pacing = { pauseMonitors = false },
-  demoTerminal = { programs = {} },
   workspace = { name = 'work' },
   adoption = { tags = { 'work' } },
 }
@@ -59,7 +58,6 @@ local RAW_PATCHES = {
   { id = 'desktop/errors', config = CONFIGS.errors },
   { id = 'desktop/pointing', config = CONFIGS.pointing },
   { id = 'desktop/pacing', config = CONFIGS.pacing },
-  { id = 'desktop/demo-terminal', config = CONFIGS.demoTerminal },
   { id = 'desktop/workspace', config = CONFIGS.workspace },
   { id = 'desktop/adoption', config = CONFIGS.adoption },
 }
@@ -125,6 +123,7 @@ test('unknown sections, malformed lists, and shorthand collisions raise before c
   local load = lovr.load
   for _, case in ipairs {
     { options = { settings = { keyboard = {} } }, message = 'the settings: unknown field keyboard' },
+    { options = { settings = { demoTerminal = {} } }, message = 'the settings: unknown field demoTerminal' },
     { options = { workspaces = { names = {} } }, message = 'workspaces: unknown field names' },
     { options = { workspaces = { workspaces = {} } }, message = 'names at least one workspace' },
     { options = { settings = { wristKeyboard = false } }, message = 'config is a table of options' },

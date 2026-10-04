@@ -1,15 +1,3 @@
-
--- The shipped desktop (@lunette-desktop) sets this once, deliberately, to
--- remember that the demonstration window was already spawned across soft
--- reloads. Written through
--- `_G` so the assignment is visible to the checker.
-declare _G: {
-    lunetteDemonstrationSpawned: boolean,
-    -- Anything else a configuration leaves on the global table.
-    [string]: any,
-}
-
-
 declare extern type userdata with end
 declare extern type lightuserdata with end
 

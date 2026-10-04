@@ -8,13 +8,13 @@ test('the shipped configuration starts, reloads through the production path, and
   testing.host.useConfiguration 'etc/xdg/lunette'
   require 'main'
   lovr.load()
-  expect.equal(#native.events.spawned, 1, 'the demonstration terminal')
+  expect.equal(#native.events.spawned, 0, 'the shipped configuration opens no application')
   for reload = 1, 2 do
     local ok, failure = require('@lunette').reload()
     expect.truthy(ok, 'reload ' .. reload .. ': ' .. tostring(failure))
     expect.equal(type(lovr.update), 'function', 'the callbacks bound again by reload ' .. reload)
   end
-  expect.equal(#native.events.spawned, 1, 'the demonstration terminal is not spawned again')
+  expect.equal(#native.events.spawned, 0, 'reload opens no application')
   expect.equal(lovr.quit(), false, 'quit does not veto')
   expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')
   native.assertResourcesReleased()

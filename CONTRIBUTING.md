@@ -32,6 +32,7 @@ lua/testing/                          development-only Lua test scaffolding
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
 examples/                             example configurations, checked and tested like the default one
+dev/                                  repository-only development configuration and local plugins
 vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
 vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
@@ -68,7 +69,7 @@ Three more forks carry patches the same way: `philpax/lovr-docs` on `lunette`, f
 
 ## Lua conventions
 
-There is no upstream Lua template. These conventions apply to the Lua tree under `lua/` and to example configurations.
+There is no upstream Lua template. These conventions apply to the Lua tree under `lua/`, example configurations, and the repository-only development configuration under `dev/`.
 
 - Target Luau, which accepts Lua 5.1 syntax and adds type annotations. Do not use LuaJIT-only or 5.2+ syntax that Luau rejects, and no `goto` (Luau has none).
 - Name every Lua source `.luau`, including a configuration's `main.luau` and `conf.luau`. The tree's sources use Luau syntax, and the extension is what tells an editor so.
@@ -79,7 +80,8 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 - Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
 - Use native `vector` values for three-dimensional positions, directions, and offsets. Construct them with `vector.pack`, keep `vector` fields in Config and Settings, and validate their finite components with `plugin.checkVector`. Vectors are immutable, and methods such as `normalize` return a new value that the caller must use. Pass vectors directly to `Mat4:translate` or unpack them at a scalar API boundary. Colours, two-dimensional coordinates, numeric lists, and full pose matrices keep their own representations.
 - The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
-- Keep module responsibilities distinct. `lunette` is native mechanism; policy is Lua, written as providers and consumers. The plugin facade, contracts, plugins, and the shipped desktop have separate roots. A plugin lives in `lunette-plugins` whatever its role, a provider under the contract it provides and any other plugin under its entry id, so `desktop/pacing` is `@lunette-plugins/desktop/pacing` and `desktop/persistence`, which provides `lunette/arrangement`, is `@lunette-plugins/arrangement`; the desktop root only composes them. Do not add policy to the native API or expect native mechanism from a provider. A helper lives beside what it describes, in a contract's vocabulary or a provider's pure module, not in a root of helpers.
+- Keep module responsibilities distinct. `lunette` is native mechanism; policy is Lua, written as providers and consumers. The plugin facade, contracts, plugins, and the shipped desktop have separate roots. A shipped plugin lives in `lunette-plugins` whatever its role, a provider under the contract it provides and any other plugin under its entry id, so `desktop/pacing` is `@lunette-plugins/desktop/pacing` and `desktop/persistence`, which provides `lunette/arrangement`, is `@lunette-plugins/arrangement`; the desktop root only composes them. Do not add policy to the native API or expect native mechanism from a provider. A helper lives beside what it describes, in a contract's vocabulary or a provider's pure module, not in a root of helpers.
+- Development-only plugins live under `dev/plugins/` and are inserted by `dev/main.luau` through relative requires. They are checked and tested but not installed; they add no shipped desktop settings or runtime aliases. `cargo run -- --config-path dev` selects the configuration from the repository root in the dev shell.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
 - Keep a plugin's optional `Config` separate from the resolved `Settings` its implementation receives. Use `plugin.provider` or `plugin.consumer` for configured definitions, and keep service reads explicit through `context:require`.
 - Every module is safe to `require` twice. The host retains the Lua state during source reload, shuts down plugin runtimes, clears subscriptions and user modules, starts a new plugin contract epoch, and runs each cleared module's body again when the new configuration requires it, so a module keeps no module-level state that a second run would duplicate. Resources a plugin acquires are effects of its context or of its caller's owner, and the plugin runtime releases them. There is no teardown registry: a module that retains native resources outside a plugin gets no cleanup from the host.
@@ -92,7 +94,7 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 
 ### Formatting
 
-`stylua.toml` configures StyLua for the tree, and `stylua --check lua etc/xdg/lunette examples` is one of the standing checks. The settings describe what the tree already did rather than imposing something new: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width, which is where the code already sat.
+`stylua.toml` configures StyLua for the tree, and `stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check` is one of the standing checks. The settings describe what the tree already did rather than imposing something new: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width, which is where the code already sat.
 
 `syntax = "Luau"` is set because the tree carries type annotations that the Lua grammars reject.
 
@@ -100,7 +102,7 @@ There is no upstream Lua template. These conventions apply to the Lua tree under
 
 ### The Luau static check
 
-`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, the shipped configuration, and the configurations under `examples/` against generated definitions. It skips every `tests` directory and `lua/testing`. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
+`make check-luau` runs the Luau checker over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, the shipped configuration, the configurations under `examples/`, and the development configuration and plugins under `dev/` against generated definitions. It skips every `tests` directory and `lua/testing`. The user-facing `lunette check` command uses the same checker implementation. The checker runs separately from the session runtime; startup does not invoke it.
 
 The checker is strict mode. `etc/lunette/definitions.luau` declares the LÖVR runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. Lua modules carry their own service and configuration types. The checker checks those local shapes but does not prove that a complete plugin graph is wired correctly; the plugin runtime validates declarations and providers separately.
 
@@ -126,7 +128,7 @@ end)
 return test
 ```
 
-`crates/lunette/tests/lua/` runs each test file as its own test, in a fresh Lua state where the module roots resolve from the working tree, `lovr.math` is LÖVR's own, and the plugin runtime is the real one. `testing.native()` installs the fake native API, `testing.start(entries)` starts a few plugins, and `testing.boot(entries)` starts a composition driven through LÖVR's callbacks. A file fails when it returns no suite or a suite with no cases, when a case raises, when a plugin failure is reported during a case that the case did not take with `testing.takeReports()`, and when shutting its plugin runtimes down fails. [Build and development](docs/dev/build-and-development.md#testing) describes the runner. Neither the tests nor `lua/testing` are installed.
+`crates/lunette/tests/lua/` discovers test files under `lua/` and `dev/` and runs each file as its own test, in a fresh Lua state where the module roots resolve from the working tree, `lovr.math` is LÖVR's own, and the plugin runtime is the real one. `testing.native()` installs the fake native API, `testing.start(entries)` starts a few plugins, and `testing.boot(entries)` starts a composition driven through LÖVR's callbacks. A file fails when it returns no suite or a suite with no cases, when a case raises, when a plugin failure is reported during a case that the case did not take with `testing.takeReports()`, and when shutting its plugin runtimes down fails. [Build and development](docs/dev/build-and-development.md#testing) describes the runner. Neither the tests nor `lua/testing` are installed.
 
 ### The module roots
 
@@ -240,7 +242,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   - `make check-format` — nightly rustfmt, and stylua over the Luau (see [formatting](#formatting))
   - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
   - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).
-  - `make check-luau` — the Luau type checker over all shipped Lua roots outside their `tests` directories, the shipped config, and the examples (see [the static check](#the-luau-static-check))
+  - `make check-luau` — the Luau type checker over all shipped Lua roots outside their `tests` directories, the shipped and development configs, and the examples (see [the static check](#the-luau-static-check))
 - Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
 
   ```toml

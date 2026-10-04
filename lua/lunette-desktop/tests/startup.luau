@@ -33,18 +33,12 @@ test('the shipped configuration starts on load and survives ten production reloa
   end
 
   lovr.load()
-  expect.equal(#events.spawned, 1, 'startup opens one demonstration terminal')
-  expect.equal(events.enumerations, 2, 'adoption and the demonstration terminal each enumerate once')
+  expect.equal(#events.spawned, 0, 'the shipped configuration opens no application')
+  expect.equal(events.enumerations, 1, 'adoption enumerates once')
+  expect.equal(native.subscriptionCount 'onProcessExited', 0, 'no demonstration process listener is installed')
   expect.equal(events.reads, 1, 'the saved arrangement is read once')
   lovr.load()
-  expect.equal(#events.spawned, 1, 'load is idempotent')
-
-  -- A terminal that fails to spawn advances to the next program; an unrelated process does not.
-  emit('onProcessExited', { process = { id = 999 }, outcome = 'spawnFailed' })
-  expect.equal(#events.spawned, 1, 'an unrelated process does not trigger the fallback')
-  emit('onProcessExited', { process = events.spawned[1], outcome = 'spawnFailed' })
-  expect.equal(#events.spawned, 2, 'a missing terminal advances the fallback')
-  expect.equal(events.spawned[2].argv[1], 'foot', 'the next program')
+  expect.equal(#events.spawned, 0, 'load is idempotent')
 
   events.windows = { newWindow(1), newWindow(2, 'firefox') }
   for _, window in ipairs(events.windows) do
@@ -91,11 +85,11 @@ test('the shipped configuration starts on load and survives ten production reloa
     events.logs = {}
     lovr.keypressed('f5', 0, false)
     expect.equal(#events.logs, 0, 'reload ' .. reload .. ' failed: ' .. tostring(events.logs[1] and events.logs[1][1]))
-    -- Reload enumerates for adoption; startup selects the demonstration terminal.
-    expect.equal(events.enumerations, reload + 2, 'reload ' .. reload .. ' enumerates once')
+    expect.equal(events.enumerations, reload + 1, 'reload ' .. reload .. ' enumerates once')
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
+    expect.equal(native.subscriptionCount 'onProcessExited', 0, 'reload ' .. reload .. ' installs no process listener')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')
-    for _, name in ipairs { 'onWindowOpened', 'onProcessExited', 'onMonitorAdded', 'onError' } do
+    for _, name in ipairs { 'onWindowOpened', 'onMonitorAdded', 'onError' } do
       expect.equal(native.subscriptionCount(name), 1, 'reload ' .. reload .. ' leaves one ' .. name)
     end
     expect.equal(live(events.seats), 2, 'reload ' .. reload .. ' releases the previous seats')

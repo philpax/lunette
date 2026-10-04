@@ -1,7 +1,6 @@
 -- The session-global guard prevents another spawn after a source reload.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local logging = require '@lunette-plugins/desktop/logging'
 
 export type Config = {
   read programs: { string }?,
@@ -11,12 +10,18 @@ export type Settings = {
   read programs: { string },
 }
 
+type SessionGlobals = {
+  lunetteDemonstrationSpawned: boolean?,
+}
+
+local sessionGlobals = _G :: SessionGlobals
+
 local DEFAULTS: Settings = {
   programs = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' },
 }
 
 return plugin.consumer<<Config, Settings>>({
-  name = 'desktop/demo-terminal',
+  name = 'dev/demo-terminal',
   defaults = DEFAULTS,
   validate = function(settings: Settings, name: string): ()
     for index, program in ipairs(settings.programs) do
@@ -34,7 +39,13 @@ return plugin.consumer<<Config, Settings>>({
       local program = settings.programs[attempt]
       if not program then
         attempted = nil
-        logging.report('no terminal emulator was found; start a client with WAYLAND_DISPLAY', 'warn')
+        local message = 'no terminal emulator was found; start a client with WAYLAND_DISPLAY'
+        local log = lovr.log
+        if log then
+          log(message, 'warn', 'lunette.desktop')
+        else
+          print('lunette: ' .. message)
+        end
         return
       end
       attempted = lunette.spawn { argv = { program } }
@@ -53,10 +64,10 @@ return plugin.consumer<<Config, Settings>>({
         end
       end,
     }
-    if _G.lunetteDemonstrationSpawned then
+    if sessionGlobals.lunetteDemonstrationSpawned then
       return
     end
-    _G.lunetteDemonstrationSpawned = true
+    sessionGlobals.lunetteDemonstrationSpawned = true
     if #settings.programs > 0 and #lunette.windows() == 0 then
       spawnNext()
     end

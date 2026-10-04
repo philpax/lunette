@@ -113,6 +113,21 @@ pub fn take_reports(lua: &Lua) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Selects the configuration directory used by bare and relative module names.
+pub fn use_configuration(lua: &Lua, directory: PathBuf) -> mlua::Result<()> {
+    if !directory.is_dir() {
+        return Err(mlua::Error::runtime(format!(
+            "host: useConfiguration: {} is not a directory of the repository",
+            directory.display()
+        )));
+    }
+    let mut sources = lua
+        .app_data_mut::<Sources>()
+        .ok_or_else(|| mlua::Error::runtime("the module sources are missing"))?;
+    sources.configuration = Some(directory);
+    Ok(())
+}
+
 /// Shuts down plugin runtimes and returns uncollected reports and shutdown failures.
 pub fn shutdown(lua: &Lua) -> Vec<String> {
     let failures = attachment::shutdown_all(lua);
@@ -195,17 +210,13 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
     host.set(
         "useConfiguration",
         lua.create_function(|lua, directory: String| {
-            let mut sources = lua
-                .app_data_mut::<Sources>()
-                .ok_or_else(|| mlua::Error::runtime("the module sources are missing"))?;
-            let path = sources.roots.repository.join(&directory);
-            if !path.is_dir() {
-                return Err(mlua::Error::runtime(format!(
-                    "host: useConfiguration: {directory} is not a directory of the repository"
-                )));
-            }
-            sources.configuration = Some(path);
-            Ok(())
+            let path = lua
+                .app_data_ref::<Sources>()
+                .ok_or_else(|| mlua::Error::runtime("the module sources are missing"))?
+                .roots
+                .repository
+                .join(directory);
+            use_configuration(lua, path)
         })?,
     )?;
     Ok(host)

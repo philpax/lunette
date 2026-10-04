@@ -4,6 +4,8 @@ The shipped configuration starts the default desktop with `require('@lunette-des
 
 `lunette --dump-config` copies the shipped configuration and writes a `.luaurc` that names the installation's module roots. A custom configuration uses that directory. `lunette check` checks the configuration without starting a session. The checked configurations under `examples/desktop/`, `examples/keyboard/`, and `examples/layout/` demonstrate settings, provider replacement, and layout registration.
 
+An alternate configuration starts with `lunette --config-path /path/to/config`. The path names a directory containing `main.luau` and, optionally, `conf.luau`. A relative path resolves from the working directory. The shipped desktop opens no application automatically. The repository's `dev/` configuration adds a terminal plugin for development; [The development loop](../dev/build-and-development.md#the-development-loop) states its launch command.
+
 ## Settings
 
 `desktop.run` and `desktop.compose` accept the same options. Common consumer options go in `settings`, without importing each consumer's definition or factory.
@@ -40,7 +42,6 @@ Each section reuses the corresponding plugin module's exported `Config` type. Th
 | `errors` | `desktop/errors` |
 | `pointing` | `desktop/pointing` |
 | `pacing` | `desktop/pacing` |
-| `demoTerminal` | `desktop/demo-terminal` |
 | `workspace` | `desktop/workspace` |
 | `adoption` | `desktop/adoption` |
 

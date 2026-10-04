@@ -44,6 +44,7 @@ type AliasFile = (&'static str, &'static str, fn(&str) -> String);
 /// Development aliases include the testing root. Installed aliases omit it.
 const ALIAS_FILES: &[AliasFile] = &[
     ("lua/.luaurc", ".", lunette::aliases::luaurc),
+    ("dev/.luaurc", "../lua", lunette::aliases::luaurc),
     (
         "etc/xdg/lunette/.luaurc",
         "../../../lua",
@@ -75,22 +76,6 @@ const ALIAS_FILES: &[AliasFile] = &[
         lunette::aliases::installed_luaurc,
     ),
 ];
-
-/// Declarations absent from lovr-docs metadata.
-///
-/// Luau supplies standard function types. The runtime has no `io` global.
-const FORK_GLOBALS: &str = "
--- The shipped desktop (@lunette-desktop) sets this once, deliberately, to
--- remember that the demonstration window was already spawned across soft
--- reloads. Written through
--- `_G` so the assignment is visible to the checker.
-declare _G: {
-    lunetteDemonstrationSpawned: boolean,
-    -- Anything else a configuration leaves on the global table.
-    [string]: any,
-}
-
-";
 
 fn main() -> ExitCode {
     // Keep diagnostics on stderr so `--manifest` can write machine-readable stdout.
@@ -143,9 +128,8 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let generated = PathBuf::from(source_dir).join("luau").join("lovr.d.luau");
     let text = fs::read_to_string(&generated)?;
 
-    let definitions = format!("{FORK_GLOBALS}\n{text}");
     let mut generated = vec![
-        (CHECKER_DEFINITIONS, definitions),
+        (CHECKER_DEFINITIONS, text),
         (MODULE_DECLARATIONS, lunette::lua::declarations::render()),
     ];
     generated.extend(

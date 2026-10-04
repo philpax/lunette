@@ -43,7 +43,6 @@ local DEFAULT_IDS = table.concat({
   'desktop/persistence',
   'desktop/arrange',
   'desktop/adoption',
-  'desktop/demo-terminal',
   'desktop/pacing',
   'desktop/scale',
 }, ' ')
