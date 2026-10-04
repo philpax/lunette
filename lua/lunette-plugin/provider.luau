@@ -2,6 +2,7 @@
 -- defaults; `build`, which makes the service unpublished so a plugin can wrap it; and `requires`.
 
 local adapter = require '@lunette-plugin/adapter'
+local configured = require '@lunette-plugin/configured'
 local options = require '@lunette-plugin/options'
 
 local provider = {}
@@ -58,50 +59,23 @@ function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
   if validate ~= nil and type(validate) ~= 'function' then
     error('plugin provider: validate is a function, not a ' .. type(validate), 3)
   end
-  local requires: adapter.Declaration = table.freeze(table.clone(spec.requires or {}))
-  local provides: adapter.Declaration = { service = (capability :: unknown) :: any }
-  table.freeze(provides)
-
-  local function resolve(label: string, defaults: S, config: unknown): S
-    local resolved = options.resolve { name = label, defaults = defaults, config = config }
-    if validate then
-      validate(resolved, label)
-    end
-    return resolved
-  end
-
-  local function definitionFor(label: string, defaults: S): adapter.Definition<C>
-    return adapter.define {
-      name = label,
-      requires = requires,
-      provides = provides,
-      init = function(context: adapter.Context, config: C, publish: adapter.Publisher): ()
-        publish:provide(capability, build(context, resolve(label, defaults, config)))
-      end,
-    }
-  end
-
-  local defaults = resolve(name, spec.defaults or ({} :: any), nil)
+  local made = configured.create<<C, S>> {
+    name = name,
+    requires = spec.requires,
+    provides = { service = (capability :: unknown) :: any },
+    defaults = spec.defaults,
+    validate = validate,
+    init = function(context: adapter.Context, settings: S, publish: adapter.Publisher): ()
+      publish:provide(capability, build(context, settings))
+    end,
+  }
   return table.freeze {
-    definition = definitionFor(name, defaults),
-    define = function(fields: C & { read name: string? }): adapter.Definition<C>
-      if type(fields) ~= 'table' then
-        error('plugin ' .. name .. ': define takes a table of options, not a ' .. type(fields), 2)
-      end
-      local given = table.clone((fields :: unknown) :: { [string]: unknown })
-      local label = given.name
-      given.name = nil
-      if label == nil then
-        label = name
-      elseif type(label) ~= 'string' or label == '' then
-        error('plugin ' .. name .. ': define names a definition with a non-empty string, not ' .. tostring(label), 2)
-      end
-      return definitionFor(label :: string, resolve(label :: string, defaults, given))
-    end,
+    definition = made.definition,
+    define = made.define,
     build = function(context: adapter.Context, config: C?): T
-      return build(context, resolve(name, defaults, config))
+      return build(context, made.resolve(config))
     end,
-    requires = requires,
+    requires = made.requires,
   }
 end
 

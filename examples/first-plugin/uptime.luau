@@ -6,12 +6,13 @@ local frame = require '@lunette-contracts/frame'
 local clock = require './clock'
 
 export type Config = { read prefix: string? }
+export type Settings = { read prefix: string }
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'uptime',
   requires = { frame = frame.capability, clock = clock.capability },
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher)
-    local settings = plugin.options { name = 'uptime', defaults = { prefix = 'up' }, config = config }
+  defaults = { prefix = 'up' },
+  init = function(context: plugin.Context, settings: Settings)
     local frames: frame.Service = context:require(frame.capability)
     local time: clock.Service = context:require(clock.capability)
     local opened = 0
@@ -29,4 +30,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

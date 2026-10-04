@@ -22,11 +22,11 @@ local DEFAULTS: Settings = { reload = { key = 'f5', modifiers = {} } }
 
 local required: plugin.Declaration = { bindings = bindings.capability }
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/bindings',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings: Settings = plugin.options { name = 'desktop/bindings', defaults = DEFAULTS, config = config }
+  defaults = DEFAULTS,
+  init = function(context: plugin.Context, settings: Settings): ()
     local service: bindings.Service = context:require(bindings.capability)
     service:register(context, {
       chord = settings.reload,
@@ -38,4 +38,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

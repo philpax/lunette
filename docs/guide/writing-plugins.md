@@ -107,12 +107,13 @@ return plugin.define {
 
 ```lua
 export type Config = { read prefix: string? }
+export type Settings = { read prefix: string }
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'uptime',
   requires = { frame = frame.capability, clock = clock.capability },
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher)
-    local settings = plugin.options { name = 'uptime', defaults = { prefix = 'up' }, config = config }
+  defaults = { prefix = 'up' },
+  init = function(context: plugin.Context, settings: Settings)
     local frames: frame.Service = context:require(frame.capability)
     local time: clock.Service = context:require(clock.capability)
     local opened = 0
@@ -124,12 +125,16 @@ return plugin.define {
     }
     -- The draw handler formats settings.prefix, time:elapsed(), and opened.
   end,
-}
+}).definition
 ```
 
 A plugin changes state outside itself only through its context. `context:on` subscribes to a native event for as long as the plugin is loaded. `context:effect` registers any other resource with the function that releases it. A service method that takes an owner, such as `frames:onDraw(context, ...)` or `keyboard:new(context)`, ties what it creates to that owner, and the provider releases it when the owner unloads. A direct `lunette.onWindowOpened(handler)` call in `init` is not tracked: the subscription outlives the plugin, and a reloaded plugin subscribes a second time.
 
-`plugin.options` merges the configuration over the defaults and raises an error naming the plugin and the option for an option the defaults do not have, or for a value of another type than its default. The error fails that plugin's load and is reported; the rest of the desktop loads. A patch gives the configuration:
+`plugin.consumer<<Config, Settings>>` takes `name`, `requires`, `defaults`, `validate`, and `init`. `requires`, `defaults`, and `validate` are optional. `Config` describes the caller's optional overrides. `Settings` describes the complete settings passed to `init(context, settings)`. The context remains a `plugin.Context`; each service is read with `context:require(capability)` after its capability is declared in `requires`.
+
+The helper returns `definition`, `define`, and `requires`. `definition` uses the supplied defaults. `define { name = 'other-uptime', prefix = 'running for' }` creates a definition with different defaults and an optional name. Runtime configuration merges over those defaults. Defaults and overrides are copied and frozen recursively. Constructing the helper or calling `define` does not call `init` or acquire resources. State allocated inside `init` belongs to one activation. An entry's `factory` can enclose state shared by that runtime's activations; `plugin.start` calls each entry's factory once.
+
+The helper uses the same option resolution as `plugin.provider` and `plugin.options`. It rejects unknown options and values whose types differ from their defaults. `validate(settings, name)` checks constraints the defaults cannot describe, such as a closed set of strings or the elements of a list. It runs for the initial defaults, for `define` overrides, and for runtime configuration. It must not acquire resources or change external state. Runtime validation errors fail that plugin's load and are reported; the rest of the desktop loads. A patch gives the configuration:
 
 ```lua
 { insert = { id = 'uptime', definition = require './uptime', config = { prefix = 'running for' } } },

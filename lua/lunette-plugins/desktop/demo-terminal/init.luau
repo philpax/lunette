@@ -15,15 +15,17 @@ local DEFAULTS: Settings = {
   programs = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' },
 }
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/demo-terminal',
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings: Settings = plugin.options { name = 'desktop/demo-terminal', defaults = DEFAULTS, config = config }
+  defaults = DEFAULTS,
+  validate = function(settings: Settings, name: string): ()
     for index, program in ipairs(settings.programs) do
       if type(program) ~= 'string' or program == '' then
-        error(string.format('plugin desktop/demo-terminal: option programs[%d] is a non-empty program name', index), 0)
+        error(string.format('plugin %s: option programs[%d] is a non-empty program name', name, index), 0)
       end
     end
+  end,
+  init = function(context: plugin.Context, settings: Settings): ()
     local attempted: lunette.Process? = nil
     local attempt = 0
 
@@ -59,4 +61,4 @@ return plugin.define {
       spawnNext()
     end
   end,
-}
+}).definition

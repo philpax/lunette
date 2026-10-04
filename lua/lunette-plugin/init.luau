@@ -5,6 +5,7 @@ local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
 local options = require '@lunette-plugin/options'
 local provider = require '@lunette-plugin/provider'
+local consumer = require '@lunette-plugin/consumer'
 
 local plugin = {}
 
@@ -24,6 +25,8 @@ export type OptionsSpec<S> = options.Spec<S>
 export type MergeSpec = options.MergeSpec
 export type ProviderSpec<S, T> = provider.Spec<S, T>
 export type Provider<C, T> = provider.Provider<C, T>
+export type ConsumerSpec<S> = consumer.Spec<S>
+export type Consumer<C> = consumer.Consumer<C>
 export type Entry = compose.Entry
 export type Patch = compose.Patch
 export type Running = compose.Running
@@ -79,6 +82,11 @@ end
 -- `plugin.provider<<Config, Settings, Service>> { ... }`.
 function plugin.provider<C, S, T>(spec: ProviderSpec<S, T>): Provider<C, T>
   return provider.create<<C, S, T>>(spec)
+end
+
+-- Makes a consumer module with configured definitions; initialization receives resolved settings.
+function plugin.consumer<C, S>(spec: ConsumerSpec<S>): Consumer<C>
+  return consumer.create<<C, S>>(spec)
 end
 
 -- Answers the entries with the patches applied, frozen, defining and enabling nothing. It raises with the id

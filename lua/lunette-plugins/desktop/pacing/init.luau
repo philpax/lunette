@@ -28,11 +28,11 @@ local required: plugin.Declaration = {
   pacing = pacing.capability,
 }
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/pacing',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings: Settings = plugin.options { name = 'desktop/pacing', defaults = DEFAULTS, config = config }
+  defaults = DEFAULTS,
+  init = function(context: plugin.Context, settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)
     local pacingService: pacing.Service = context:require(pacing.capability)
@@ -135,4 +135,4 @@ return plugin.define {
       end
     end)
   end,
-}
+}).definition
