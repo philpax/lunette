@@ -121,4 +121,29 @@ test('a removal listener that raises during a drain fails neither the drain nor 
   env.session:close()
 end)
 
+test('dispatch defers added listeners and skips listeners disposed by an earlier callback', function()
+  local env = start()
+  local observer = env.session:observe(panelsContract.capability)
+  local heard = {}
+  local pending
+  local late
+  observer.service:onAdded(observer.context, function()
+    heard[#heard + 1] = 'first'
+    pending:dispose()
+    if not late then
+      late = observer.service:onAdded(observer.context, function()
+        heard[#heard + 1] = 'late'
+      end)
+    end
+  end)
+  pending = observer.service:onAdded(observer.context, function()
+    heard[#heard + 1] = 'disposed'
+  end)
+  env.panels:fromWindow(env.owner, env.native.newWindow(301), { height = 1 })
+  expect.equal(table.concat(heard, ','), 'first', 'the registration snapshot and disposal check')
+  env.panels:fromWindow(env.owner, env.native.newWindow(302), { height = 1 })
+  expect.equal(table.concat(heard, ','), 'first,first,late', 'the next dispatch includes the new listener')
+  env.session:close()
+end)
+
 return test

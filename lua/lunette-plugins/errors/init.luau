@@ -5,7 +5,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/errors'
 local format = require '@lunette-plugins/errors/format'
 local limiter = require '@lunette-plugins/errors/limiter'
-local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 
 export type Service = contract.Service
 
@@ -21,13 +21,6 @@ export type Config = {
   read maxKeys: number?,
   read history: number?,
   read clock: (() -> number)?,
-}
-
-type Subscriber = {
-  owner: contract.Owner,
-  run: (contract.Report) -> (),
-  cleared: (() -> ())?,
-  active: boolean,
 }
 
 local SUBSCRIBER_KEYS: { [string]: boolean } = { run = true, cleared = true }
@@ -54,7 +47,7 @@ end
 local function build(context: plugin.Context, settings: Settings): Service
   local limit = limiter.new(settings.window, settings.maxKeys)
   local history: { contract.Report } = {}
-  local subscribers: { Subscriber } = {}
+  local subscribers = listeners.new<<contract.Subscriber>>(context)
   local sequence = 0
   local delivering = false
 
@@ -85,13 +78,9 @@ local function build(context: plugin.Context, settings: Settings): Service
       return
     end
     delivering = true
-    for _, subscriber in ipairs(table.clone(subscribers)) do
-      if subscriber.active and context:owns(subscriber.owner) then
-        protected.call('errors: a subscriber', function(): ()
-          subscriber.run(report)
-        end)
-      end
-    end
+    subscribers:each('errors: a subscriber', function(subscriber): ()
+      subscriber.run(report)
+    end)
     delivering = false
   end
 
@@ -114,17 +103,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       if subscriber.cleared ~= nil and type(subscriber.cleared) ~= 'function' then
         error('errors subscribe: cleared is a function, not a ' .. type(subscriber.cleared), 2)
       end
-      local entry: Subscriber = { owner = owner, run = subscriber.run, cleared = subscriber.cleared, active = true }
-      return context:acquire(owner, function(): () -> ()
-        subscribers[#subscribers + 1] = entry
-        return function(): ()
-          entry.active = false
-          local index = table.find(subscribers, entry)
-          if index then
-            table.remove(subscribers, index)
-          end
-        end
-      end)
+      return subscribers:add(owner, { run = subscriber.run, cleared = subscriber.cleared })
     end,
     recent = function(_self: Service): { contract.Report }
       return table.clone(history)
@@ -133,18 +112,18 @@ local function build(context: plugin.Context, settings: Settings): Service
       context:checkOwner(owner)
       table.clear(history)
       sequence = 0
-      for _, subscriber in ipairs(table.clone(subscribers)) do
+      subscribers:each('errors: a subscriber', function(subscriber): ()
         local cleared = subscriber.cleared
-        if cleared and subscriber.active and context:owns(subscriber.owner) then
-          protected.call('errors: a subscriber', cleared)
+        if cleared then
+          cleared()
         end
-      end
+      end)
     end,
   }
   context:effect(function(): () -> ()
     return function(): ()
       table.clear(history)
-      table.clear(subscribers)
+      subscribers:clear()
     end
   end)
   return service

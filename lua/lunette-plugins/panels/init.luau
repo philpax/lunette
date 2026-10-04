@@ -115,7 +115,7 @@ local function create(state: ProviderState, owner: Owner, source: panel.Source, 
     return target
   end
   target.effect = acquired
-  events.emitAdded(state.events, state.context, target)
+  events.emitAdded(state.events, target)
   return target
 end
 
@@ -155,7 +155,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       if index then
         table.remove(state.panels, index)
       end
-      events.emitRemoved(state.events, context, target)
+      events.emitRemoved(state.events, target)
     end,
   }
   local created: ProviderState = {
@@ -163,7 +163,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     context = context,
     panels = {},
     opaqueShader = nil,
-    events = events.new(),
+    events = events.new(context),
     host = host,
   }
   state = created
@@ -222,11 +222,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
     end,
     onAdded = function(_self: Service, owner: Owner, callback: contracts.PanelCallback): plugin.Effect
-      return events.onAdded(state.events, context, owner, callback)
+      return events.onAdded(state.events, owner, callback)
     end,
     onRemoved = function(_self: Service, owner: Owner, listener: contracts.RemovedListener): plugin.Effect
       checkListener('onRemoved', listener)
-      return events.onRemoved(state.events, context, owner, listener.panel, listener.run)
+      return events.onRemoved(state.events, owner, listener.panel, listener.run)
     end,
   }
   return service
