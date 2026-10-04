@@ -57,7 +57,7 @@ The initializer stages all provided values. The native runtime publishes them as
 
 ### Context operations
 
-`Context:effect` registers a resource and its inverse with the activation. If the activation is cancelled while the acquisition runs, the call raises and the inverse is not left registered: it runs at once. Disposing an effect whose activation, instance, or runtime has ended does nothing.
+`Context:effect` registers a resource and its inverse with the activation. If the activation is cancelled while the acquisition runs, the call raises and the inverse is not left registered: it runs at once. Disposing an effect whose activation, instance, or runtime has ended does nothing. An inverse can read its retained services but cannot acquire resources or create children. Successful explicit disposal restores resource authority only if no inverse has failed in the activation. Catching a nested disposal failure does not restore that authority.
 
 `Context:on { event = subscribe, run = handler }` registers an event subscription as an effect. `event` is a function that takes a handler and answers the function that cancels it, which is the shape of every `lunette.on*` event, so `context:on { event = lunette.onWindowOpened, run = handler }` subscribes for the life of the activation. A field other than `event` and `run` raises. The subscription is cancelled when the activation ends, and a handler that is reached after the activation has ended but before the cancellation runs, such as an error reported during cleanup, is not called.
 

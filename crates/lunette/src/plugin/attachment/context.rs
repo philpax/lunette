@@ -372,7 +372,7 @@ fn enter_cleanup(
     ))
 }
 
-// Explicit disposal restores authority while the allocation remains live; rollback does not.
+// Explicit disposal restores authority only while the allocation is live and no nested inverse failed.
 fn leave_cleanup(
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
@@ -385,6 +385,7 @@ fn leave_cleanup(
         Some((Stage::Loading | Stage::Active(_), _))
     );
     if live
+        && matches!(state.graph.cleanup_failed(instance), Ok(false))
         && let Some(record) = state.instances.get_mut(&instance)
         && record.authority == ActivationAuthority::Cleanup(activation)
     {
