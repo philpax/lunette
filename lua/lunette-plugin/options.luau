@@ -64,6 +64,22 @@ function options.checkNumbers(name: string, option: string, value: unknown, coun
   end
 end
 
+function options.checkVector(name: string, option: string, value: unknown): ()
+  if type(value) ~= 'vector' then
+    error(string.format('plugin %s: option %s is a vector, not a %s', name, option, type(value)), 0)
+  end
+  local checked = value :: vector
+  local components: { [string]: number } = { x = checked.x, y = checked.y, z = checked.z }
+  for component, number in components do
+    if number ~= number or number == math.huge or number == -math.huge then
+      error(
+        string.format('plugin %s: option %s.%s is a finite number, not %s', name, option, component, tostring(number)),
+        0
+      )
+    end
+  end
+end
+
 -- Empty tables replace defaults because they do not distinguish records from lists.
 function options.isRecord(value: unknown): boolean
   if type(value) ~= 'table' or getmetatable(value :: any) ~= nil then
@@ -81,7 +97,7 @@ function options.isRecord(value: unknown): boolean
   return next(raw) ~= nil
 end
 
--- Metatable-backed values such as vectors and matrices retain their identity.
+-- Native vectors and userdata are atomic values; metatable-backed tables retain their identity.
 local function frozenCopy(value: unknown): unknown
   if type(value) ~= 'table' or getmetatable(value :: any) ~= nil then
     return value

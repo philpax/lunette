@@ -6,10 +6,10 @@ local layouts = require '@lunette-contracts/layouts'
 export type Options = {
   read columns: number,
   read gap: number,
-  read center: { number },
+  read center: vector,
 }
 
-local DEFAULTS: Options = { columns = 0, gap = 0.08, center = { 0, 1.5, -1.8 } }
+local DEFAULTS: Options = { columns = 0, gap = 0.08, center = vector.pack(0, 1.5, -1.8) }
 
 local function resolve(given: unknown): Options
   local options: Options = plugin.options { name = 'grid', defaults = DEFAULTS, config = given }
@@ -17,9 +17,7 @@ local function resolve(given: unknown): Options
   if columns < 0 or columns ~= math.floor(columns) then
     error('plugin grid: option columns is a whole number of at least 0, not ' .. tostring(columns), 0)
   end
-  if #options.center ~= 3 then
-    error('plugin grid: option center is three numbers', 0)
-  end
+  plugin.checkVector('grid', 'center', options.center)
   return options
 end
 
@@ -43,9 +41,8 @@ local function grid(panels: { layouts.Panel }, given: unknown?): ()
   for index, panel in ipairs(panels) do
     local column = (index - 1) % columns
     local row = (index - 1) // columns
-    local x = center[1] + (column - (columns - 1) / 2) * cellWidth
-    local y = center[2] + ((rows - 1) / 2 - row) * cellHeight
-    panel:setPose(lovr.math.newMat4():translate(x, y, center[3]))
+    local offset = vector.pack((column - (columns - 1) / 2) * cellWidth, ((rows - 1) / 2 - row) * cellHeight, 0)
+    panel:setPose(lovr.math.newMat4():translate(center + offset))
   end
 end
 

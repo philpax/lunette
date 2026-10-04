@@ -10,7 +10,7 @@ export type Tuning = {
   read step: number,
   read span: number,
   read gap: number,
-  read center: { number },
+  read center: vector,
 }
 
 -- Returns panel angles in width order. Zero faces forward, and positive angles turn left.
@@ -50,7 +50,7 @@ function geometry.poses(widths: { number }, tuning: Tuning): { Mat4 }
   for index, angle in ipairs(geometry.angles(widths, tuning)) do
     placed[index] = lovr.math
       .newMat4()
-      :translate(center[1] - math.sin(angle) * radius, center[2], center[3] - math.cos(angle) * radius)
+      :translate(center + vector.pack(-math.sin(angle) * radius, 0, -math.cos(angle) * radius))
       :rotate(angle, 0, 1, 0)
   end
   return placed
@@ -58,7 +58,7 @@ end
 
 -- Raises an error naming `label` and the option for a tuning the geometry
 -- cannot lay out: a radius that is not positive, a step, span, or gap that is
--- negative, or a centre that is not three finite numbers.
+-- negative, or a centre that is not a finite vector.
 function geometry.validate(tuning: Tuning, label: string): ()
   local function finite(value: number): boolean
     return value == value and value ~= math.huge and value ~= -math.huge
@@ -74,7 +74,7 @@ function geometry.validate(tuning: Tuning, label: string): ()
   nonNegative('step', tuning.step)
   nonNegative('span', tuning.span)
   nonNegative('gap', tuning.gap)
-  plugin.checkNumbers(label, 'center', tuning.center, 3)
+  plugin.checkVector(label, 'center', tuning.center)
 end
 
 return geometry

@@ -5,7 +5,7 @@ local frame = require '@lunette-contracts/frame'
 local format = require '@lunette-plugins/errors/format'
 
 export type Config = {
-  read position: { number }?,
+  read position: vector?,
   read width: number?,
   read textHeight: number?,
   read columns: number?,
@@ -14,7 +14,7 @@ export type Config = {
 }
 
 export type Settings = {
-  read position: { number },
+  read position: vector,
   read width: number,
   read textHeight: number,
   read columns: number,
@@ -23,7 +23,7 @@ export type Settings = {
 }
 
 local DEFAULTS: Settings = {
-  position = { 0, 1.4, -1.1 },
+  position = vector.pack(0, 1.4, -1.1),
   width = 1.1,
   textHeight = 0.045,
   columns = 64,
@@ -35,7 +35,7 @@ local required: plugin.Declaration = { errors = errors.capability, frame = frame
 
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/errors', defaults = DEFAULTS, config = config }
-  plugin.checkNumbers('desktop/errors', 'position', settings.position, 3)
+  plugin.checkVector('desktop/errors', 'position', settings.position)
   plugin.checkNumbers('desktop/errors', 'background', settings.background, 4)
   for _, option in ipairs { 'columns', 'lines' } do
     local value = (settings :: any)[option]
@@ -50,7 +50,7 @@ local function draw(pass: Pass, lines: { string }, settings: Settings): boolean
   if #lines == 0 then
     return false
   end
-  local x, y, z = settings.position[1], settings.position[2], settings.position[3]
+  local x, y, z = settings.position:unpack()
   local textHeight = settings.textHeight
   local height = (#lines + 1) * textHeight * 1.5
   local background = settings.background

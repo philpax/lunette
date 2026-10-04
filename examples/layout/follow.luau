@@ -50,7 +50,7 @@ local function follow(): ({ layouts.Panel }, unknown?) -> ()
       step = 0.3,
       span = math.pi,
       gap = 0.05,
-      center = { x, y, z },
+      center = vector.pack(x, y, z),
     })
     for index, angle in ipairs(angles) do
       local around = current + angle

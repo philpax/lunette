@@ -7,7 +7,7 @@ local tags = require '@lunette-contracts/tags'
 export type Config = {
   read select: { string }?,
   read placement: {
-    read center: { number }?,
+    read center: vector?,
     read width: number?,
     read gap: number?,
   }?,
@@ -17,7 +17,7 @@ export type Config = {
 export type Settings = {
   read select: { string },
   read placement: {
-    read center: { number },
+    read center: vector,
     read width: number,
     read gap: number,
   },
@@ -26,7 +26,7 @@ export type Settings = {
 
 local DEFAULTS: Settings = {
   select = {},
-  placement = { center = { 0, 1.5, -2 }, width = 2, gap = 0.1 },
+  placement = { center = vector.pack(0, 1.5, -2), width = 2, gap = 0.1 },
   tags = {},
 }
 
@@ -45,7 +45,7 @@ local function resolve(config: unknown): Settings
   checkNames('select', settings.select)
   checkNames('tags', settings.tags)
   local placement = settings.placement
-  plugin.checkNumbers('desktop/monitors', 'placement.center', placement.center, 3)
+  plugin.checkVector('desktop/monitors', 'placement.center', placement.center)
   if not (placement.width > 0) then
     error('plugin desktop/monitors: option placement.width is a positive number, not ' .. placement.width, 0)
   end
@@ -139,9 +139,8 @@ return plugin.define {
     end
 
     local function poseFor(place: number): Mat4
-      local center = placement.center
-      local x = center[1] + offsetOf(place) * (placement.width + placement.gap)
-      return lovr.math.newMat4():translate(x, center[2], center[3])
+      local position = placement.center + vector.pack(offsetOf(place) * (placement.width + placement.gap), 0, 0)
+      return lovr.math.newMat4():translate(position)
     end
 
     local function mirror(monitor: lunette.Monitor): ()

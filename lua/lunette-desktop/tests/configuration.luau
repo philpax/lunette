@@ -43,8 +43,8 @@ test('an option of the wrong type is rejected with its path and what it should b
       message = 'plugin pacing: option tuning.background is a rate in hertz above zero, not 0',
     },
     {
-      patch = { id = 'desktop/monitors', config = { placement = { center = { 0, math.huge, -2 } } } },
-      message = 'plugin desktop/monitors: option placement.center[2] is a finite number, not inf',
+      patch = { id = 'desktop/monitors', config = { placement = { center = vector.pack(0, math.huge, -2) } } },
+      message = 'plugin desktop/monitors: option placement.center.y is a finite number, not inf',
     },
     {
       patch = { id = 'desktop/errors', config = { background = { 1, 0, 0, 1, extra = true } } },
@@ -53,6 +53,28 @@ test('an option of the wrong type is rejected with its path and what it should b
   } do
     local diagnostic = rejection(case.patch)
     expect.truthy(diagnostic:find(case.message, 1, true), diagnostic)
+  end
+end)
+
+test('geometric desktop options reject lists and non-finite vector components', function()
+  for _, case in ipairs {
+    { id = 'desktop/hint', config = { position = { 0, 1.5, -1.5 } }, option = 'position' },
+    { id = 'desktop/errors', config = { position = { 0, 1.4, -1.1 } }, option = 'position' },
+    { id = 'desktop/keyboard', config = { offset = { 0, 0, 0 } }, option = 'offset' },
+    { id = 'desktop/monitors', config = { placement = { center = { 0, 1.5, -2 } } }, option = 'placement.center' },
+  } do
+    local diagnostic = rejection { id = case.id, config = case.config }
+    local message = 'plugin ' .. case.id .. ': option ' .. case.option .. ' is a vector, not a table'
+    expect.truthy(diagnostic:find(message, 1, true), diagnostic)
+  end
+  for _, case in ipairs {
+    { id = 'desktop/hint', config = { position = vector.pack(math.huge, 0, 0) }, option = 'position.x' },
+    { id = 'desktop/errors', config = { position = vector.pack(0, 0, -math.huge) }, option = 'position.z' },
+    { id = 'desktop/keyboard', config = { offset = vector.pack(0, math.huge, 0) }, option = 'offset.y' },
+  } do
+    local diagnostic = rejection { id = case.id, config = case.config }
+    local message = 'plugin ' .. case.id .. ': option ' .. case.option .. ' is a finite number'
+    expect.truthy(diagnostic:find(message, 1, true), diagnostic)
   end
 end)
 

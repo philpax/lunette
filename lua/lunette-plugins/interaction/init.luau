@@ -43,7 +43,7 @@ export type Config = {
 
 type State = {
   tuning: contracts.Tuning,
-  handPosition: { number }?,
+  handPosition: vector?,
   grabbed: Surface?,
   grab: grab.GrabState?,
   scaling: grab.Scaling?,
@@ -235,7 +235,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     if not live(state) then
       return
     end
-    state.handPosition = input.pose and { input.pose:getPosition() } or nil
+    state.handPosition = input.pose and vector.pack(input.pose:getPosition()) or nil
     local gripped = input.grip
     local grabbed = state.grabbed
     if grabbed then

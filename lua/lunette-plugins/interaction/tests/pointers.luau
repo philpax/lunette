@@ -172,6 +172,54 @@ test('two pointers share a grab: pushing, dragging, scaling, and a partner letti
   env.session:close()
 end)
 
+test('grab movement uses the distance from its origin in every direction', function()
+  local env = start()
+  local deadZone = env.interaction.TUNING.grabDeadZone
+  for _, direction in ipairs {
+    vector.pack(1, 0, 0),
+    vector.pack(0, -1, 0),
+    vector.pack(0, 0, 1),
+    vector.pack(1, 2, -3):normalize(),
+  } do
+    local pointer = env.interaction:newPointer(env.owner)
+    local target = surface(env, -2)
+    local origin = vector.pack(1, 2, 3)
+    expect.truthy(pointer:beginGrab(target, lovr.math.newMat4():translate(origin)), 'the grab starts')
+    pointer:dragTo(lovr.math.newMat4():translate(origin + direction * deadZone * 0.5))
+    local still = vector.pack(target.pose:getPosition())
+    expect.equal(still, vector.pack(0, 0, -2), 'movement inside the dead zone leaves the pose alone')
+    local displacement = direction * deadZone * 2
+    pointer:dragTo(lovr.math.newMat4():translate(origin + displacement))
+    local moved = vector.pack(target.pose:getPosition()) - vector.pack(0, 0, -2)
+    expect.near((moved - displacement):length(), 0, 1e-5, 'movement outside the dead zone follows the hand')
+    pointer:endGrab()
+    pointer:destroy()
+  end
+  env.session:close()
+end)
+
+test('two-hand scaling uses all three components of hand separation', function()
+  local env = start()
+  local first, second = env.interaction:newPointer(env.owner), env.interaction:newPointer(env.owner)
+  local target = surface(env, -2)
+  expect.truthy(first:beginGrab(target, translation(1, 2, 3)), 'the first grab')
+  expect.truthy(second:beginGrab(target, translation(2, 4, 5)), 'the scaling grab')
+  for _, position in
+    {
+      vector.pack(3, 4, 5),
+      vector.pack(2, 5, 5),
+      vector.pack(2, 4, 6),
+    }
+  do
+    second:scaleWith(lovr.math.newMat4():translate(position))
+    local separation = position - vector.pack(1, 2, 3)
+    expect.near(target.width, separation:length() / 3, 1e-5, 'changing one axis uses the full separation')
+  end
+  second:scaleWith(translation(3, 6, 7))
+  expect.near(target.width, 2, 1e-5, 'doubling the separation doubles the width')
+  env.session:close()
+end)
+
 test("an unloading owner's pointers release their buttons, leave, and take their focus back", function()
   local env = start()
   local pointer = env.interaction:newPointer(env.owner, { seat = env.seat })

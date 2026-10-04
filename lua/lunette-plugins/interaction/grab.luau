@@ -11,9 +11,7 @@ export type GrabState = {
   base: Mat4,
   pushed: number,
   reach: number,
-  x: number,
-  y: number,
-  z: number,
+  origin: vector,
   moving: boolean,
 }
 
@@ -26,7 +24,7 @@ export type Scaling = {
 
 export type PointerState = {
   tuning: vocabulary.Tuning,
-  handPosition: { number }?,
+  handPosition: vector?,
   grabbed: Surface?,
   grab: GrabState?,
   scaling: Scaling?,
@@ -50,12 +48,11 @@ type Host = {
   read constrain: (Surface, Mat4) -> Mat4,
 }
 
-local function distanceBetween(first: { number }?, second: { number }?): number?
+local function distanceBetween(first: vector?, second: vector?): number?
   if not first or not second then
     return nil
   end
-  local dx, dy, dz = first[1] - second[1], first[2] - second[2], first[3] - second[3]
-  return math.sqrt(dx * dx + dy * dy + dz * dz)
+  return (first - second):length()
 end
 
 local function grabberOf(host: Host, target: Surface, except: Pointer): PointerState?
@@ -74,15 +71,12 @@ local function ordinaryGrab(target: Surface, handPose: Mat4): GrabState?
   end
   local inverse: Mat4 = lovr.math.newMat4(handPose):invert()
   local base: Mat4 = inverse:mul(targetPose)
-  local x: number, y: number, z: number = handPose:getPosition()
   return {
     offset = lovr.math.newMat4(base),
     base = base,
     pushed = 0,
     reach = -select(3, base:getPosition()),
-    x = x,
-    y = y,
-    z = z,
+    origin = vector.pack(handPose:getPosition()),
     moving = false,
   }
 end
@@ -106,12 +100,12 @@ function grab.new(host: Host): Methods
       return false
     end
 
-    local x: number, y: number, z: number = handPose:getPosition()
-    state.handPosition = { x, y, z }
+    local position = vector.pack(handPose:getPosition())
+    state.handPosition = position
     state.grabbed = target
 
     local partner = grabberOf(host, target, self)
-    local separation = partner and distanceBetween({ x, y, z }, partner.handPosition)
+    local separation = partner and distanceBetween(position, partner.handPosition)
     if partner and separation and target.width and separation > 0 then
       state.scaling = { partner = partner, separation = separation, width = target.width }
       return true
@@ -133,7 +127,7 @@ function grab.new(host: Host): Methods
     if not scaling or not target or not handPose then
       return
     end
-    state.handPosition = { handPose:getPosition() }
+    state.handPosition = vector.pack(handPose:getPosition())
 
     local partner = scaling.partner
     if partner.grabbed ~= target or partner.dead then
@@ -191,11 +185,11 @@ function grab.new(host: Host): Methods
       return
     end
 
-    local x: number, y: number, z: number = handPose:getPosition()
-    state.handPosition = { x, y, z }
+    local position = vector.pack(handPose:getPosition())
+    state.handPosition = position
     if not current.moving then
-      local dx, dy, dz = x - current.x, y - current.y, z - current.z
-      if dx * dx + dy * dy + dz * dz <= state.tuning.grabDeadZone ^ 2 then
+      local displacement = position - current.origin
+      if displacement:dot(displacement) <= state.tuning.grabDeadZone ^ 2 then
         return
       end
       current.moving = true

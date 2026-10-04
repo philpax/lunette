@@ -13,7 +13,7 @@ export type Options = {
   read step: number?,
   read span: number?,
   read gap: number?,
-  read center: { number }?,
+  read center: vector?,
 }
 
 export type Config = {
@@ -33,7 +33,7 @@ local DEFAULTS: Settings = {
     step = 0.55,
     span = math.pi * 1.2,
     gap = 0.05,
-    center = { 0, 1.5, 0 },
+    center = vector.pack(0, 1.5, 0),
   },
 }
 

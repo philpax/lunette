@@ -6,7 +6,7 @@ local geometry = require '@lunette-plugins/layout/arc/geometry'
 
 local test = testing.suite()
 
-local TUNING = { radius = 1.6, step = 0.55, span = math.pi * 1.2, gap = 0.05, center = { 0, 1.5, 0 } }
+local TUNING = { radius = 1.6, step = 0.55, span = math.pi * 1.2, gap = 0.05, center = vector.pack(0, 1.5, 0) }
 
 test('no panels have no angles, and one panel is centred', function()
   expect.equal(#geometry.angles({}, TUNING), 0, 'the angles of no panels')
@@ -54,6 +54,43 @@ test('narrow panels keep the minimum step', function()
   local narrow = geometry.angles({ 0.1, 0.1, 0.1 }, TUNING)
   expect.near(narrow[2] - narrow[1], TUNING.step, 1e-12, 'the first step')
   expect.near(narrow[3] - narrow[2], TUNING.step, 1e-12, 'the second step')
+end)
+
+test('poses stay on the configured circle and do not change its center', function()
+  for _, center in ipairs { vector.pack(0, 0, 0), vector.pack(2, 3, -4), vector.pack(-1, 0.5, 2) } do
+    local tuning = table.clone(TUNING)
+    tuning.center = center
+    for count = 0, 9 do
+      local widths = {}
+      for index = 1, count do
+        widths[index] = 0.2 + index * 0.1
+      end
+      local poses = geometry.poses(widths, tuning)
+      expect.equal(#poses, count, 'one pose per panel')
+      for _, pose in ipairs(poses) do
+        local position = vector.pack(pose:getPosition())
+        expect.near(position.y, center.y, 1e-5, 'the center height')
+        expect.near((position - center):length(), tuning.radius, 1e-5, 'the circle radius')
+      end
+      expect.equal(tuning.center, center, 'the center is unchanged')
+    end
+  end
+end)
+
+test('validation rejects list centers and every non-finite vector component', function()
+  local tuning = table.clone(TUNING)
+  tuning.center = { 0, 1.5, 0 }
+  expect.raises(function()
+    geometry.validate(tuning, 'layout/arc')
+  end, 'option center', 'a list is not a vector')
+  for _, value in ipairs { math.huge, -math.huge, 0 / 0 } do
+    for _, center in ipairs { vector.pack(value, 0, 0), vector.pack(0, value, 0), vector.pack(0, 0, value) } do
+      tuning.center = center
+      expect.raises(function()
+        geometry.validate(tuning, 'layout/arc')
+      end, 'option center', 'a non-finite component')
+    end
+  end
 end)
 
 return test

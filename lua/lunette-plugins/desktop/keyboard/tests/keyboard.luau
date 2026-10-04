@@ -44,6 +44,19 @@ test('the wrist button takes the configured size', function()
   env.session:close()
 end)
 
+test('the wrist button takes the configured vector offset without changing it', function()
+  local offset = vector.pack(0.2, -0.3, 0.4)
+  local env = start { offset = offset }
+  local wrist = wristOf(env)
+  local x, y, z = lovr.headset.getPosition 'hand/left'
+  local position = vector.pack(wrist.pose:getPosition())
+  expect.near(position.x, x + offset.x, 1e-5, 'the wrist x offset')
+  expect.near(position.y, y + offset.y, 1e-5, 'the wrist y offset')
+  expect.near(position.z, z + offset.z, 1e-5, 'the wrist z offset')
+  expect.equal(offset, vector.pack(0.2, -0.3, 0.4), 'the configured offset is unchanged')
+  env.session:close()
+end)
+
 test('a press shows the wrist keyboard and pulses the pressing pointer with the configured haptic', function()
   local env = start { haptic = { strength = 0.4 } }
   local pulses = {}
@@ -66,6 +79,65 @@ test('a press shows the wrist keyboard and pulses the pressing pointer with the 
     end
   end
   expect.truthy(shown and shown.visible, 'the wrist keyboard is offered once shown')
+  env.session:close()
+end)
+
+test('a pitched head keeps the keyboard at the configured horizontal distance', function()
+  local env = start { placement = { distance = 0.8, drop = 0.25 } }
+  local wrist = wristOf(env)
+  local pointer = {
+    vibrate = function()
+      return true
+    end,
+  }
+  for _, pitch in ipairs { -math.pi / 3, 0, math.pi / 3 } do
+    lovr.headset.getDirection = function()
+      return math.cos(pitch) * 0.6, math.sin(pitch), -math.cos(pitch) * 0.8
+    end
+    wrist:onPress(nil, nil, pointer)
+    local shown
+    for _, candidate in ipairs(env.surfaces.service:all()) do
+      if candidate.setLayer then
+        shown = candidate
+      end
+    end
+    expect.truthy(shown and shown.visible, 'the keyboard is visible')
+    local hx, hy, hz = lovr.headset.getPosition 'head'
+    local x, y, z = shown.pose:getPosition()
+    expect.near(x, hx + 0.48, 1e-5, 'the horizontal x offset')
+    expect.near(y, hy - 0.25, 1e-5, 'the vertical drop')
+    expect.near(z, hz - 0.64, 1e-5, 'the horizontal z offset')
+    wrist:onPress(nil, nil, pointer)
+  end
+  env.session:close()
+end)
+
+test('a near-vertical head direction places the keyboard along the forward fallback', function()
+  local env = start { placement = { distance = 0.8, drop = 0.25 } }
+  local wrist = wristOf(env)
+  for _, direction in ipairs { vector.pack(0, 1, 0), vector.pack(0.0001, -1, 0.0001) } do
+    lovr.headset.getDirection = function()
+      return direction:unpack()
+    end
+    local pointer = {
+      vibrate = function()
+        return true
+      end,
+    }
+    wrist:onPress(nil, nil, pointer)
+    local shown
+    for _, candidate in ipairs(env.surfaces.service:all()) do
+      if candidate.setLayer then
+        shown = candidate
+      end
+    end
+    local hx, hy, hz = lovr.headset.getPosition 'head'
+    local x, y, z = shown.pose:getPosition()
+    expect.near(x, hx, 1e-5, 'the fallback x position')
+    expect.near(y, hy - 0.25, 1e-5, 'the vertical drop')
+    expect.near(z, hz - 0.8, 1e-5, 'the fallback horizontal distance')
+    wrist:onPress(nil, nil, pointer)
+  end
   env.session:close()
 end)
 

@@ -140,6 +140,8 @@ The helper uses the same option resolution as `plugin.provider` and `plugin.opti
 { insert = { id = 'uptime', definition = require './uptime', config = { prefix = 'running for' } } },
 ```
 
+Geometric positions, directions, and offsets are native `vector` values, constructed with `vector.pack(x, y, z)`. Config and Settings fields name `vector` directly. `plugin.checkVector(name, option, value)` rejects non-finite components. Vectors are immutable, so `direction = direction:normalize()` uses the returned value. `Mat4:translate(vector)` accepts a vector directly. Colours, two-dimensional coordinates, lists, and full matrices retain their distinct representations.
+
 `examples/first-plugin/main.luau` inserts all three plugins.
 
 ## Configuring a built-in plugin
@@ -273,13 +275,14 @@ Windows that no rule or saved arrangement places are arranged by the `desktop/ar
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
 
-local DEFAULTS = { columns = 0, gap = 0.08, center = { 0, 1.5, -1.8 } }
+local DEFAULTS = { columns = 0, gap = 0.08, center = vector.pack(0, 1.5, -1.8) }
 
 local function grid(panels: { layouts.Panel }, given: unknown?): ()
   local options = plugin.options { name = 'grid', defaults = DEFAULTS, config = given }
-  -- Work out each panel's cell from options.columns and the largest panel.
+  plugin.checkVector('grid', 'center', options.center)
+  -- Work out each panel's cell offset from options.columns and the largest panel.
   for index, panel in ipairs(panels) do
-    panel:setPose(lovr.math.newMat4():translate(x, y, options.center[3]))
+    panel:setPose(lovr.math.newMat4():translate(options.center + vector.pack(x, y, 0)))
   end
 end
 

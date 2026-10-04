@@ -66,7 +66,7 @@ test('select names the mirrored monitors and placement sets the row', function()
   local e, f = plug(native, 'E'), plug(native, 'F')
   local session, panels = start(native, {
     select = { 'F', 'G' },
-    placement = { center = { 1, 2, -3 }, width = 1, gap = 0.5 },
+    placement = { center = vector.pack(1, 2, -3), width = 1, gap = 0.5 },
   })
   expect.equal(panels:forSource(e), nil, 'an unselected monitor')
   local mirrored = assert(panels:forSource(f))

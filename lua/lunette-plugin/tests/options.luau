@@ -50,4 +50,40 @@ test('merge follows the same rule without validating, and changes neither side',
   expect.truthy(#base.style.color == 3 and over.style.length == nil, 'neither side changes')
 end)
 
+test('native vectors replace atomically and retain their value through frozen copies', function()
+  local position = vector.pack(1, 2, 3)
+  local defaults = { position = position }
+  local copied = plugin.options { name = 'vector-options', defaults = defaults, config = nil }
+  expect.equal(copied.position, position, 'the native vector default')
+  local replacement = vector.pack(-2, 4, 0)
+  local configured =
+    plugin.options { name = 'vector-options', defaults = defaults, config = { position = replacement } }
+  expect.equal(configured.position, replacement, 'the complete vector replaces its default')
+  expect.equal(defaults.position, position, 'the default remains unchanged')
+  expect.raises(function()
+    plugin.options { name = 'vector-options', defaults = defaults, config = { position = { 1, 2, 3 } } }
+  end, 'option position is a vector, not a table')
+end)
+
+test('vector validation rejects nonfinite components and nonvector values', function()
+  plugin.checkVector('vector-options', 'position', vector.pack(0, -1, 2))
+  for _, value in { {}, 'position', 42 } do
+    expect.raises(function()
+      plugin.checkVector('vector-options', 'position', value)
+    end, 'option position is a vector')
+  end
+  for _, invalid in { math.huge, -math.huge, 0 / 0 } do
+    for _, axis in { 'x', 'y', 'z' } do
+      local value = vector.pack(
+        if axis == 'x' then invalid else 0,
+        if axis == 'y' then invalid else 0,
+        if axis == 'z' then invalid else 0
+      )
+      expect.raises(function()
+        plugin.checkVector('vector-options', 'position', value)
+      end, 'position.' .. axis .. ' is a finite number')
+    end
+  end
+end)
+
 return test

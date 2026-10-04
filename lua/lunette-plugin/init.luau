@@ -65,9 +65,14 @@ end
 plugin.rejectUnknownFields = options.rejectUnknownFields
 
 -- Raises `plugin <name>: option <option> ...` unless `value` is a list of exactly `count` finite numbers,
--- for an option such as a position that its default's type cannot describe.
+-- for an option such as a colour that its default's type cannot describe.
 function plugin.checkNumbers(name: string, option: string, value: unknown, count: number): ()
   options.checkNumbers(name, option, value, count)
+end
+
+-- Raises unless the option is a native vector with finite x, y, and z components.
+function plugin.checkVector(name: string, option: string, value: unknown): ()
+  options.checkVector(name, option, value)
 end
 
 -- Answers `over` merged over `base` by the configuration rule, without

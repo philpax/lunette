@@ -11,7 +11,7 @@ export type Hand = 'left' | 'right'
 export type Settings = {
   read hand: Hand,
   read size: number,
-  read offset: { number },
+  read offset: vector,
   read placement: {
     read distance: number,
     read drop: number,
@@ -26,7 +26,7 @@ export type Settings = {
 export type Config = {
   read hand: Hand?,
   read size: number?,
-  read offset: { number }?,
+  read offset: vector?,
   read placement: {
     read distance: number?,
     read drop: number?,
@@ -41,7 +41,7 @@ export type Config = {
 local DEFAULTS: Settings = {
   hand = 'left',
   size = 0.115,
-  offset = { -0.03, -0.01, 0.125 },
+  offset = vector.pack(-0.03, -0.01, 0.125),
   placement = { distance = 0.55, drop = 0.35, tilt = math.pi / 6 },
   haptic = { strength = 0.3, duration = 0.05 },
 }
@@ -54,13 +54,13 @@ local required: plugin.Declaration = {
   surfaces = surfaces.capability,
 }
 
--- The hand must name a supported device, and the offset must contain three numbers.
+-- The hand must name a supported device, and the offset must be a finite vector.
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/keyboard', defaults = DEFAULTS, config = config }
   if DEVICES[settings.hand] == nil then
     error('plugin desktop/keyboard: option hand is left or right, not ' .. tostring(settings.hand), 0)
   end
-  plugin.checkNumbers('desktop/keyboard', 'offset', settings.offset, 3)
+  plugin.checkVector('desktop/keyboard', 'offset', settings.offset)
   if settings.size <= 0 then
     error('plugin desktop/keyboard: option size is a positive number, not ' .. settings.size, 0)
   end
@@ -89,17 +89,18 @@ return plugin.define {
       return nil
     end
     local function placeKeyboard(target: keyboard.Keyboard): ()
-      local hx, hy, hz = lovr.headset.getPosition 'head'
+      local head = vector.pack(lovr.headset.getPosition 'head')
       local forwardX, _, forwardZ = lovr.headset.getDirection 'head'
       local flat = vector.pack(forwardX, 0, forwardZ)
       if flat:length() < 0.001 then
         flat = vector.pack(0, 0, -1)
       end
-      flat:normalize()
+      flat = flat:normalize()
+      local position = head + flat * placement.distance - vector.pack(0, placement.drop, 0)
       target:setPose(
         lovr.math
           .newMat4()
-          :translate(hx + flat.x * placement.distance, hy - placement.drop, hz + flat.z * placement.distance)
+          :translate(position)
           :rotate(math.atan2(-flat.x, -flat.z), 0, 1, 0)
           :rotate(-placement.tilt, 1, 0, 0)
       )
@@ -159,7 +160,7 @@ return plugin.define {
         if tracked then
           local x, y, z, angle, ax, ay, az = lovr.headset.getPose(device)
           pose:set(lovr.math.newMat4(x, y, z, angle, ax, ay, az))
-          pose:translate(offset[1], offset[2], offset[3]):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
+          pose:translate(offset):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
           result[#result + 1] = wrist
         end
         local target = showing()

@@ -5,17 +5,17 @@ local panels = require '@lunette-contracts/panels'
 
 export type Config = {
   read text: string?,
-  read position: { number }?,
+  read position: vector?,
   read size: number?,
 }
 
 export type Settings = {
   read text: string,
-  read position: { number },
+  read position: vector,
   read size: number,
 }
 
-local DEFAULTS: Settings = { text = 'lunette: no windows yet', position = { 0, 1.5, -1.5 }, size = 0.08 }
+local DEFAULTS: Settings = { text = 'lunette: no windows yet', position = vector.pack(0, 1.5, -1.5), size = 0.08 }
 
 local required: plugin.Declaration = {
   frame = frame.capability,
@@ -24,7 +24,7 @@ local required: plugin.Declaration = {
 
 local function resolve(config: unknown): Settings
   local settings: Settings = plugin.options { name = 'desktop/hint', defaults = DEFAULTS, config = config }
-  plugin.checkNumbers('desktop/hint', 'position', settings.position, 3)
+  plugin.checkVector('desktop/hint', 'position', settings.position)
   if not (settings.size > 0) then
     error('plugin desktop/hint: option size is a positive number, not ' .. settings.size, 0)
   end
@@ -44,13 +44,7 @@ return plugin.define {
       order = 1,
       run = function(pass: Pass)
         if #panelService:all() == 0 then
-          pass:text(
-            settings.text,
-            lovr.math.mat4():translate(position[1], position[2], position[3]):scale(settings.size),
-            0,
-            'center',
-            'middle'
-          )
+          pass:text(settings.text, lovr.math.mat4():translate(position):scale(settings.size), 0, 'center', 'middle')
         end
       end,
     })
