@@ -12,6 +12,7 @@ mod error;
 mod ids;
 mod lifecycle;
 mod planning;
+mod snapshot;
 
 pub use self::{
     error::{Diagnostic, DiagnosticKind, GraphError, Severity},
@@ -19,6 +20,7 @@ pub use self::{
     lifecycle::{
         Action, Graph, Intent, IntentState, LifecycleState, LoadOutcome, LoadResolution, Stage,
     },
+    snapshot::{Blocker, GraphSnapshot, InstanceSnapshot},
 };
 
 #[cfg(test)]

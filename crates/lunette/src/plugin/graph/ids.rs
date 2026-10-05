@@ -10,6 +10,11 @@ impl InstanceId {
     pub(crate) const fn from_raw(value: u64) -> Self {
         Self(value)
     }
+
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
 }
 
 impl fmt::Display for InstanceId {
@@ -27,6 +32,11 @@ impl ActivationId {
     pub(crate) const fn from_raw(value: u64) -> Self {
         Self(value)
     }
+
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
 }
 
 impl fmt::Display for ActivationId {
@@ -42,6 +52,11 @@ pub struct ProviderGeneration(ActivationId);
 impl ProviderGeneration {
     pub(crate) const fn from_activation(activation: ActivationId) -> Self {
         Self(activation)
+    }
+
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        self.0.raw()
     }
 }
 

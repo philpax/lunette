@@ -57,6 +57,7 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/schema/positive.luau",
             "luau_check/schema/collections.luau",
             "luau_check/schema/readonly.luau",
+            "luau_check/inspection/positive.luau",
         ]
         .into_iter()
         .map(fixture)
@@ -352,6 +353,31 @@ fn schema_outputs_metadata_and_error_paths_reject_mutation() {
             (14, "read-only"),
         ],
     );
+}
+
+#[test]
+fn immutable_runtime_snapshot_lists_reject_assignment_removal_and_writable_substitution() {
+    for (path, first, last) in [
+        ("luau_check/inspection/assignment.luau", 5, 15),
+        ("luau_check/inspection/removal.luau", 5, 11),
+        ("luau_check/inspection/writable_substitution.luau", 17, 22),
+    ] {
+        let report = check(vec![fixture(path)]);
+        assert_eq!(
+            report.diagnostics.len(),
+            (last - first + 1) as usize,
+            "{path}: {:#?}",
+            report.diagnostics
+        );
+        for (line, diagnostic) in (first..=last).zip(&report.diagnostics) {
+            assert_eq!(diagnostic.kind, Kind::TypeError);
+            assert_eq!(diagnostic.line, line, "{path}: {diagnostic:#?}");
+            assert!(
+                diagnostic.message.contains("read-only") || diagnostic.message.contains("{read"),
+                "{path}: {diagnostic:#?}"
+            );
+        }
+    }
 }
 
 fn assert_schema_lines(path: &str, sites: &[(u32, &str)]) {

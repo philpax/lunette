@@ -87,6 +87,18 @@ Contract tokens and frozen capability wrappers are shared by runtime graphs in o
 
 The native plugin handles in `lua/lunette/init.luau` are nominal. Each declares a phantom field that exists only in the declaration, so a table, or another plugin handle, does not satisfy a parameter that takes a contract token, definition, runtime, instance, context, or effect.
 
+`Instance:requestReload(config)` accepts replacement intent and configuration without invoking lifecycle callbacks. Rejection raises before the configuration changes. An explicit `Runtime:drain()` applies accepted work; an error during that drain does not revoke the accepted request. Ordinary `Instance:reload(config)` retains its automatic drain behavior.
+
+### Runtime inspection
+
+`Instance:id()` returns its exact decimal string identity. `Runtime:owns(instance)` checks whether an instance belongs to that runtime. `Runtime:ownerId(context)` returns the owning instance's identity or nil for a foreign context. An ended activation can still identify its owner; this query grants no resource authority.
+
+`Runtime:snapshot()` returns a coherent detached snapshot of the graph and its activation effects. It invokes no callbacks, drains no pending work, and consumes no diagnostic. Records and collection indexers are read-only, and retained snapshots do not change when the runtime changes. Instance, activation, and provider-generation identities are exact decimal strings rather than floating-point approximations.
+
+Instance records distinguish declarations, actual allocation bindings, and failed activation bindings. They describe parent ownership, children, actual dependents, enabled intent, phase, retirement, authority, quarantine, replacement, cleanup, current and previous failures, and blockers. Binding records identify the provider instance and generation and whether that generation is current. Effect records identify the owning instance, activation, ordinal, and armed, cleaning, or disarmed state. Their source identity is the acquisition owner; it does not identify an inferred broker caller.
+
+Disarmed effect metadata remains available for the complete activation history, while its callable inverse is released. Storage and snapshot work grow with that history. A new activation or removal ends it.
+
 ### Provider modules
 
 Every built-in provider module answers one table:

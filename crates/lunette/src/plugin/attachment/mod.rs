@@ -7,6 +7,7 @@
 mod context;
 mod error;
 mod lifecycle;
+mod snapshot;
 mod state;
 mod types;
 
@@ -18,11 +19,13 @@ use std::{
 
 use mlua::{Lua, UserDataRef, Value};
 
+pub(crate) use self::snapshot::records as snapshot_records;
 pub use self::{
     error::{
         AttachmentError, ContextOperation, ContextReason, FailureCause, FailurePhase,
         PluginFailure, PluginLabel, ProvisionError,
     },
+    snapshot::{PluginAuthority, PluginBlockerKind, PluginDiagnosticSeverity, PluginEffectState},
     state::Reporter,
     types::{
         PluginAcquire, PluginContext, PluginDefinition, PluginEffect, PluginInit, PluginInstance,

@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use crate::plugin::graph::{
-    Action, Binding, ContractKey, DiagnosticKind, Graph, InstanceId,
+    Action, Binding, Blocker, ContractKey, DiagnosticKind, Graph, InstanceId,
     lifecycle::{Phase, Stage},
 };
 
@@ -164,6 +164,101 @@ impl Graph {
         }
     }
 
+    /// Inspects current prerequisites with the planner's exact lookups, without recording diagnostics.
+    pub(super) fn inspection_blockers(&self, instance: InstanceId) -> Vec<Blocker> {
+        let Some(node) = self.instances.get(&instance) else {
+            return Vec::new();
+        };
+        let mut blockers = Vec::new();
+        if self.shutdown_requested {
+            blockers.push(Blocker::Shutdown);
+        }
+        if !node.intent.enabled {
+            blockers.push(Blocker::Disabled);
+        }
+        if node.intent.retired {
+            blockers.push(Blocker::Retired);
+        }
+        if node.is_quarantined() {
+            blockers.push(Blocker::Quarantined);
+        }
+        if let Some(parent) = node.parent.filter(|parent| self.will_unload(*parent)) {
+            blockers.push(Blocker::ParentUnavailable { parent });
+        }
+        if let Some(allocation) = node.phase.allocation() {
+            if allocation.replace {
+                blockers.push(Blocker::ReplacementRequested);
+            }
+            for binding in &allocation.bindings {
+                if !self.binding_is_current(binding) || self.will_unload(binding.provider) {
+                    blockers.push(Blocker::ProviderUnavailable {
+                        binding: binding.clone(),
+                    });
+                }
+            }
+            if let Some(rejection) = &allocation.rejection {
+                blockers.push(Blocker::Diagnostic(rejection.clone()));
+            }
+            return blockers;
+        }
+        if !blockers.is_empty() {
+            return blockers;
+        }
+        if let Some(blocker) = self.own_contract_blocker(instance) {
+            match blocker {
+                OwnBlocker::Quarantined(kind) => blockers.push(Blocker::Diagnostic(kind)),
+                OwnBlocker::Held => {
+                    blockers.extend(
+                        self.rivals(instance, node)
+                            .filter(|(_, _, other)| {
+                                other.phase.allocation().is_some() || other.claims()
+                            })
+                            .map(|(key, owner, _)| Blocker::ContractHeld {
+                                contract: key.clone(),
+                                owner,
+                            }),
+                    );
+                }
+            }
+            return blockers;
+        }
+        match self.resolve(instance) {
+            Resolution::Bound(bindings) => {
+                if matches!(&node.phase, Phase::Failed { against } if *against == bindings) {
+                    blockers.push(Blocker::FailedBindingsUnchanged);
+                }
+                if self.next_activation == u64::MAX {
+                    blockers.push(Blocker::Diagnostic(DiagnosticKind::ActivationsExhausted));
+                }
+            }
+            Resolution::Blocked(_) | Resolution::Waiting => {
+                if let Some(instances) = self.declared_cycle(instance) {
+                    blockers.push(Blocker::Diagnostic(DiagnosticKind::DependencyCycle {
+                        instances,
+                    }));
+                }
+                for required in &node.required {
+                    match self.resolve_requirement(instance, required) {
+                        RequirementResolution::Bound(_) => {}
+                        RequirementResolution::Pending(provider) => {
+                            blockers.push(Blocker::ProviderPending {
+                                required: required.clone(),
+                                provider,
+                            })
+                        }
+                        RequirementResolution::Blocked(kind) => {
+                            let blocker = Blocker::Diagnostic(kind);
+                            if !blockers.contains(&blocker) {
+                                blockers.push(blocker);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        blockers
+    }
+
     /// Finds a conflicting instance that still holds a provided contract.
     fn own_contract_blocker(&self, instance: InstanceId) -> Option<OwnBlocker> {
         let node = self.instances.get(&instance)?;
@@ -192,57 +287,11 @@ impl Graph {
         let mut problem = None;
         let mut pending = false;
         for required in &node.required {
-            match self.provider_for(required) {
-                Lookup::Claimant(provider) if provider == instance => {
-                    problem.get_or_insert(DiagnosticKind::DependencyCycle {
-                        instances: vec![instance, instance],
-                    });
-                }
-                Lookup::Claimant(provider) => {
-                    let generation =
-                        self.instances
-                            .get(&provider)
-                            .and_then(|node| match node.phase {
-                                Phase::Live {
-                                    stage: Stage::Active(generation),
-                                    ..
-                                } => Some(generation),
-                                _ => None,
-                            });
-                    match generation {
-                        Some(generation) if !self.will_unload(provider) => {
-                            bindings.push(Binding {
-                                contract: required.clone(),
-                                provider,
-                                generation,
-                            });
-                        }
-                        _ => pending = true,
-                    }
-                }
-                Lookup::Quarantined(provider) => {
-                    problem.get_or_insert(DiagnosticKind::ProviderQuarantined {
-                        required: required.clone(),
-                        provider,
-                    });
-                }
-                Lookup::Disabled(provider) => {
-                    problem.get_or_insert(DiagnosticKind::ProviderDisabled {
-                        required: required.clone(),
-                        provider,
-                    });
-                }
-                Lookup::Mismatch { provider, provided } => {
-                    problem.get_or_insert(DiagnosticKind::SchemaMismatch {
-                        required: required.clone(),
-                        provided,
-                        provider,
-                    });
-                }
-                Lookup::Missing => {
-                    problem.get_or_insert(DiagnosticKind::MissingProvider {
-                        required: required.clone(),
-                    });
+            match self.resolve_requirement(instance, required) {
+                RequirementResolution::Bound(binding) => bindings.push(binding),
+                RequirementResolution::Pending(_) => pending = true,
+                RequirementResolution::Blocked(kind) => {
+                    problem.get_or_insert(kind);
                 }
             }
         }
@@ -253,6 +302,59 @@ impl Graph {
             return Resolution::Blocked(DiagnosticKind::DependencyCycle { instances });
         }
         problem.map_or(Resolution::Waiting, Resolution::Blocked)
+    }
+
+    fn resolve_requirement(
+        &self,
+        instance: InstanceId,
+        required: &ContractKey,
+    ) -> RequirementResolution {
+        let blocked = RequirementResolution::Blocked;
+        match self.provider_for(required) {
+            Lookup::Claimant(provider) if provider == instance => {
+                blocked(DiagnosticKind::DependencyCycle {
+                    instances: vec![instance, instance],
+                })
+            }
+            Lookup::Claimant(provider) => {
+                let generation = self
+                    .instances
+                    .get(&provider)
+                    .and_then(|node| match node.phase {
+                        Phase::Live {
+                            stage: Stage::Active(generation),
+                            ..
+                        } => Some(generation),
+                        _ => None,
+                    });
+                match generation {
+                    Some(generation) if !self.will_unload(provider) => {
+                        RequirementResolution::Bound(Binding {
+                            contract: required.clone(),
+                            provider,
+                            generation,
+                        })
+                    }
+                    _ => RequirementResolution::Pending(provider),
+                }
+            }
+            Lookup::Quarantined(provider) => blocked(DiagnosticKind::ProviderQuarantined {
+                required: required.clone(),
+                provider,
+            }),
+            Lookup::Disabled(provider) => blocked(DiagnosticKind::ProviderDisabled {
+                required: required.clone(),
+                provider,
+            }),
+            Lookup::Mismatch { provider, provided } => blocked(DiagnosticKind::SchemaMismatch {
+                required: required.clone(),
+                provided,
+                provider,
+            }),
+            Lookup::Missing => blocked(DiagnosticKind::MissingProvider {
+                required: required.clone(),
+            }),
+        }
     }
 
     /// Finds the instance that serves, or would serve, an exact requirement.
@@ -347,6 +449,12 @@ enum OwnBlocker {
 enum Resolution {
     Bound(Vec<Binding>),
     Waiting,
+    Blocked(DiagnosticKind),
+}
+
+enum RequirementResolution {
+    Bound(Binding),
+    Pending(InstanceId),
     Blocked(DiagnosticKind),
 }
 

@@ -83,16 +83,21 @@ type DefinitionRecord<C> = Definition<C> & {
 }
 
 export type Instance<C> = {
+  read id: (Instance<C>) -> string,
   read enable: (Instance<C>) -> (),
   read disable: (Instance<C>) -> (),
   read dispose: (Instance<C>) -> (),
   read reload: (Instance<C>, C) -> (),
+  read requestReload: (Instance<C>, C) -> (),
   read state: (Instance<C>) -> native.PluginState,
   read diagnostic: (Instance<C>) -> string?,
 }
 
 export type Runtime = {
   read use: <C>(Runtime, Definition<C>, C) -> Instance<C>,
+  read snapshot: (Runtime) -> native.PluginRuntimeSnapshot,
+  read owns: <C>(Runtime, Instance<C>) -> boolean,
+  read ownerId: (Runtime, Owner) -> string?,
   read close: (Runtime) -> (),
   read drain: (Runtime) -> (),
 }
@@ -481,6 +486,16 @@ function adapter.runtime(): Runtime
     use = function<C>(_self: Runtime, definition: Definition<C>, config: C): Instance<C>
       local instance: NativeInstance = nativeRuntime:use(unwrapDefinition(definition), config)
       return (instance :: unknown) :: Instance<C>
+    end,
+    snapshot = function(_self: Runtime): native.PluginRuntimeSnapshot
+      return nativeRuntime:snapshot()
+    end,
+    owns = function<C>(_self: Runtime, instance: Instance<C>): boolean
+      return nativeRuntime:owns((instance :: unknown) :: NativeInstance)
+    end,
+    ownerId = function(_self: Runtime, owner: Owner): string?
+      local context = nativeContexts[(owner :: unknown) :: Context]
+      return if context then nativeRuntime:ownerId(context) else nil
     end,
     close = function(_self: Runtime): ()
       nativeRuntime:close()

@@ -16,6 +16,7 @@ use crate::plugin::{
     attachment::{
         PluginContext, PluginInstance,
         error::{AttachmentError, FailureCause, FailurePhase, PluginFailure, ProvisionError},
+        snapshot::PluginEffectState,
         state::{
             ActivationAuthority, AttachmentHost, CallbackGuard, DeclarationField, DefinitionData,
             DrainGuard, InstanceState, RuntimeState,
@@ -42,6 +43,15 @@ pub(super) fn request_instance(
     weak: &Weak<RefCell<RuntimeState>>,
     request: Request,
 ) -> Result<(), AttachmentError> {
+    let runtime = request_instance_deferred(weak, request)?;
+    drain_runtime(lua, &runtime)
+}
+
+/// Applies a request without draining, so callers can distinguish acceptance from lifecycle failures.
+pub(super) fn request_instance_deferred(
+    weak: &Weak<RefCell<RuntimeState>>,
+    request: Request,
+) -> Result<Rc<RefCell<RuntimeState>>, AttachmentError> {
     let runtime = weak.upgrade().ok_or(AttachmentError::RuntimeGone)?;
     {
         let mut state = runtime.borrow_mut();
@@ -64,7 +74,7 @@ pub(super) fn request_instance(
             instance.config = config;
         }
     }
-    drain_runtime(lua, &runtime)
+    Ok(runtime)
 }
 
 pub(super) fn use_definition(
@@ -105,9 +115,11 @@ pub(super) fn use_definition(
             definition,
             config,
             effects: BTreeMap::new(),
+            effect_states: BTreeMap::new(),
             next_effect: 0,
             service: None,
             last_diagnostic: None,
+            last_failure: None,
         },
     );
     Ok(PluginInstance {
@@ -288,6 +300,7 @@ fn prepare_load(
         .get_mut(&instance)
         .ok_or(FailureCause::MissingRecord)?;
     instance_state.authority = ActivationAuthority::Resources(activation);
+    instance_state.effect_states.clear();
     let init = instance_state
         .definition
         .init
@@ -499,8 +512,15 @@ fn run_inverses(
     phase: FailurePhase,
 ) -> bool {
     let mut success = true;
-    for (_, inverse) in effects.into_iter().rev() {
-        if let Err(error) = callback_call(runtime, || inverse.call::<()>(())) {
+    for (ordinal, inverse) in effects.into_iter().rev() {
+        if let Some(record) = runtime.borrow_mut().instances.get_mut(&instance) {
+            record.mark_effect(ordinal, PluginEffectState::Cleaning);
+        }
+        let result = callback_call(runtime, || inverse.call::<()>(()));
+        if let Some(record) = runtime.borrow_mut().instances.get_mut(&instance) {
+            record.mark_effect(ordinal, PluginEffectState::Disarmed);
+        }
+        if let Err(error) = result {
             success = false;
             let plugin = runtime.borrow().label(instance);
             record_failure(
@@ -619,7 +639,11 @@ pub(super) fn record_failure(
     let collect = {
         let mut state = runtime.borrow_mut();
         if let Some(instance) = state.instances.get_mut(&failure.plugin.instance) {
-            instance.last_diagnostic = Some(failure.to_string());
+            let description = failure.to_string();
+            instance.last_diagnostic = Some(description.clone());
+            if failure.phase != FailurePhase::Wiring {
+                instance.last_failure = Some(description);
+            }
         }
         state.collect_failures
     };

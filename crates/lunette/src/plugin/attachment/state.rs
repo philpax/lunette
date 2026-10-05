@@ -10,7 +10,10 @@ use std::{
 use mlua::{Function, Lua, Table, Value};
 
 use crate::plugin::{
-    attachment::error::{AttachmentError, PluginFailure, PluginLabel},
+    attachment::{
+        error::{AttachmentError, PluginFailure, PluginLabel},
+        snapshot::PluginEffectState,
+    },
     contracts::ContractRegistry,
     graph::{ActivationId, ContractKey, Graph, InstanceId},
 };
@@ -140,9 +143,25 @@ pub(super) struct InstanceState {
     pub(super) config: Value,
     /// Registered inverses in acquisition order. Disposed entries are removed.
     pub(super) effects: BTreeMap<u64, Function>,
+    /// Detached status for inverses registered by the current or most recently ended activation.
+    pub(super) effect_states: BTreeMap<u64, EffectState>,
     pub(super) next_effect: u64,
     pub(super) service: Option<Value>,
     pub(super) last_diagnostic: Option<String>,
+    pub(super) last_failure: Option<String>,
+}
+
+pub(super) struct EffectState {
+    pub(super) activation: ActivationId,
+    pub(super) state: PluginEffectState,
+}
+
+impl InstanceState {
+    pub(super) fn mark_effect(&mut self, ordinal: u64, state: PluginEffectState) {
+        if let Some(effect) = self.effect_states.get_mut(&ordinal) {
+            effect.state = state;
+        }
+    }
 }
 
 /// Counts a plugin callback for [`crate::plugin::attachment::callback_active`]

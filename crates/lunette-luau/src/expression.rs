@@ -23,6 +23,8 @@ pub enum Type {
     Intersection(Vec<Type>),
     /// `{ T }`.
     Array(Box<Type>),
+    /// `{ read [number]: T }`. Its elements can be read but not assigned or removed.
+    ReadonlyArray(Box<Type>),
     /// `{ [K]: V }`.
     Map { key: Box<Type>, value: Box<Type> },
     /// `(self: R, name: P) -> T`.
@@ -59,6 +61,12 @@ impl Type {
     #[must_use]
     pub fn array(self) -> Self {
         Self::Array(Box::new(self))
+    }
+
+    /// `{ read [number]: T }`.
+    #[must_use]
+    pub fn readonly_array(self) -> Self {
+        Self::ReadonlyArray(Box::new(self))
     }
 
     /// `{ [K]: V }`.
@@ -114,6 +122,11 @@ impl Type {
             Self::Intersection(members) => render_joined(out, members, " & "),
             Self::Array(element) => {
                 out.push_str("{ ");
+                element.render(out);
+                out.push_str(" }");
+            }
+            Self::ReadonlyArray(element) => {
+                out.push_str("{ read [number]: ");
                 element.render(out);
                 out.push_str(" }");
             }
@@ -249,6 +262,40 @@ mod tests {
         assert_eq!(
             Type::map(Type::STRING, union).to_string(),
             "{ [string]: number | string }"
+        );
+    }
+
+    #[test]
+    fn a_readonly_array_has_a_readonly_numeric_indexer() {
+        let array = Type::NUMBER.readonly_array();
+        assert_eq!(array, Type::ReadonlyArray(Box::new(Type::NUMBER)));
+        assert_ne!(array, Type::NUMBER.array());
+        assert_eq!(array.to_string(), "{ read [number]: number }");
+        assert_eq!(array.optional().to_string(), "{ read [number]: number }?");
+    }
+
+    #[test]
+    fn readonly_arrays_render_structured_elements_without_changing_their_meaning() {
+        let union = Type::Union(vec![Type::NUMBER, Type::STRING]);
+        assert_eq!(
+            union.readonly_array().to_string(),
+            "{ read [number]: number | string }"
+        );
+        let function = Type::Function {
+            receiver: None,
+            parameters: vec![Parameter {
+                name: "values",
+                ty: Type::STRING.readonly_array(),
+            }],
+            returns: Box::new(Type::BOOLEAN),
+        };
+        assert_eq!(
+            function.readonly_array().to_string(),
+            "{ read [number]: (values: { read [number]: string }) -> boolean }"
+        );
+        assert_eq!(
+            Type::STRING.readonly_array().readonly_array().to_string(),
+            "{ read [number]: { read [number]: string } }"
         );
     }
 

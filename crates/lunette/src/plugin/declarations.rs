@@ -10,8 +10,9 @@ use mlua::{FromLuaMulti, Function, IntoLuaMulti, Lua, MaybeSend, Table};
 use crate::{
     lua::declarations::{Signature, collect_methods, function_type, render_doc},
     plugin::attachment::{
-        self, PluginContext, PluginContractToken, PluginDefinition, PluginEffect, PluginInstance,
-        PluginRuntime, PluginState,
+        self, PluginAuthority, PluginBlockerKind, PluginContext, PluginContractToken,
+        PluginDefinition, PluginDiagnosticSeverity, PluginEffect, PluginEffectState,
+        PluginInstance, PluginRuntime, PluginState,
     },
 };
 
@@ -86,6 +87,27 @@ pub(crate) fn render_types(out: &mut String) {
         PluginState::luau(),
         Type::literals(PluginState::NAMES)
     );
+    for (name, names) in [
+        (PluginAuthority::luau(), PluginAuthority::NAMES),
+        (PluginEffectState::luau(), PluginEffectState::NAMES),
+        (
+            PluginDiagnosticSeverity::luau(),
+            PluginDiagnosticSeverity::NAMES,
+        ),
+        (PluginBlockerKind::luau(), PluginBlockerKind::NAMES),
+    ] {
+        let _ = writeln!(out, "export type {name} = {}", Type::literals(names));
+    }
+    for record in attachment::snapshot_records() {
+        out.push('\n');
+        render_doc(out, record.doc, "");
+        let _ = writeln!(out, "export type {} = {{", record.name);
+        for field in record.fields {
+            render_doc(out, field.doc, "  ");
+            let _ = writeln!(out, "  read {}: {},", field.name, (field.ty)());
+        }
+        out.push_str("}\n");
+    }
     for handle in HANDLES {
         out.push('\n');
         render_doc(out, handle.doc, "");

@@ -423,6 +423,94 @@ export type LayerRevokedEvent = {
 
 -- The lifecycle state of a plugin instance.
 export type PluginState = 'inactive' | 'loading' | 'active' | 'unloading' | 'failed' | 'quarantined' | 'removed'
+export type PluginAuthority = 'detached' | 'resources' | 'cleanup'
+export type PluginEffectState = 'armed' | 'cleaning' | 'disarmed'
+export type PluginDiagnosticSeverity = 'waiting' | 'error'
+export type PluginBlockerKind = 'shutdown' | 'disabled' | 'retired' | 'quarantined' | 'replacementRequested' | 'parentUnavailable' | 'providerUnavailable' | 'contractHeld' | 'providerPending' | 'failedBindingsUnchanged' | 'missingProvider' | 'providerDisabled' | 'schemaMismatch' | 'providerQuarantined' | 'contractQuarantined' | 'dependencyCycle' | 'publishConflict' | 'activationsExhausted'
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginContractSnapshot = {
+  read name: string,
+  read schema: number,
+  read display: string,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginCapabilitySnapshot = {
+  read field: string,
+  read contract: PluginContractSnapshot,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginBindingSnapshot = {
+  read contract: PluginContractSnapshot,
+  read providerId: string,
+  read generationId: string,
+  read current: boolean,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginEffectSnapshot = {
+  read ownerId: string,
+  read sourceId: string,
+  read activationId: string,
+  read ordinal: string,
+  read state: PluginEffectState,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginBlockerSnapshot = {
+  read kind: PluginBlockerKind,
+  read message: string,
+  read contract: PluginContractSnapshot?,
+  read provided: PluginContractSnapshot?,
+  read relatedId: string?,
+  read generationId: string?,
+  read instanceIds: { read [number]: string },
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginDiagnosticSnapshot = {
+  read instanceId: string,
+  read severity: PluginDiagnosticSeverity,
+  read blocker: PluginBlockerSnapshot,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginInstanceSnapshot = {
+  read id: string,
+  read parentId: string?,
+  read name: string,
+  read enabled: boolean,
+  read retired: boolean,
+  read state: PluginState,
+  read activationId: string?,
+  read generationId: string?,
+  read required: { read [number]: PluginCapabilitySnapshot },
+  read provided: { read [number]: PluginCapabilitySnapshot },
+  read bindings: { read [number]: PluginBindingSnapshot },
+  read failedBindings: { read [number]: PluginBindingSnapshot },
+  read children: { read [number]: string },
+  read dependents: { read [number]: string },
+  read replacementRequested: boolean,
+  read cleanupFailed: boolean,
+  read authority: PluginAuthority,
+  read blockers: { read [number]: PluginBlockerSnapshot },
+  read diagnostic: string?,
+  read lastFailure: string?,
+  read lastGraphDiagnostic: PluginBlockerSnapshot?,
+  read effects: { read [number]: PluginEffectSnapshot },
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginRuntimeSnapshot = {
+  read instances: { read [number]: PluginInstanceSnapshot },
+  read diagnostics: { read [number]: PluginDiagnosticSnapshot },
+  read shutdownRequested: boolean,
+  read draining: boolean,
+  read closing: boolean,
+  read closed: boolean,
+}
 
 -- An opaque native token naming one contract declaration.
 export type PluginContractToken = {
@@ -445,6 +533,15 @@ export type PluginRuntime = {
   read __pluginRuntime: 'PluginRuntime',
   -- Installs a definition with its configuration.
   read use: (self: PluginRuntime, definition: PluginDefinition, config: unknown) -> PluginInstance,
+  -- Copies coherent runtime state without lifecycle work, callbacks, or
+  -- diagnostic consumption.
+  read snapshot: (self: PluginRuntime) -> PluginRuntimeSnapshot,
+  -- Reports whether this runtime installed the exact instance handle, including
+  -- a retired handle.
+  read owns: (self: PluginRuntime, instance: PluginInstance) -> boolean,
+  -- Returns a context's owning instance identity only when it belongs to this
+  -- exact runtime, including after its activation ends.
+  read ownerId: (self: PluginRuntime, context: PluginContext) -> string?,
   -- Disposes every instance in this runtime.
   read close: (self: PluginRuntime) -> (),
   -- Performs pending lifecycle work and reports graph diagnostics.
@@ -464,6 +561,13 @@ export type PluginInstance = {
   read dispose: (self: PluginInstance) -> (),
   -- Replaces this instance's configuration and reloads it.
   read reload: (self: PluginInstance, config: unknown) -> (),
+  -- Accepts a replacement configuration and reload intent without draining
+  -- lifecycle work. The caller drains the runtime separately; rejection leaves
+  -- configuration unchanged.
+  read requestReload: (self: PluginInstance, config: unknown) -> (),
+  -- Returns this handle's exact runtime-local identity, without consulting its
+  -- name or lifecycle.
+  read id: (self: PluginInstance) -> string,
   -- Reports this instance's lifecycle state.
   read state: (self: PluginInstance) -> PluginState,
   -- Describes why this instance last failed or is not loading, if it has a

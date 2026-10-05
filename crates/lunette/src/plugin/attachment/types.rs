@@ -13,6 +13,7 @@ use crate::{
     plugin::{
         attachment::{
             context, lifecycle,
+            snapshot::{self, PluginRuntimeSnapshot},
             state::{DefinitionData, RuntimeState},
         },
         contracts::PluginContractToken,
@@ -188,6 +189,23 @@ impl MethodsDescribed for PluginRuntime {
                 )?)
             }
 
+            /// Copies coherent runtime state without lifecycle work, callbacks, or diagnostic consumption.
+            method snapshot(_lua, this) -> PluginRuntimeSnapshot {
+                snapshot::snapshot(&this.state)
+            }
+
+            /// Reports whether this runtime installed the exact instance handle, including a retired handle.
+            method owns(_lua, this, instance: UserDataRef<PluginInstance>) -> bool {
+                Ok(instance.runtime.upgrade().is_some_and(|runtime| Rc::ptr_eq(&runtime, &this.state)))
+            }
+
+            /// Returns a context's owning instance identity only when it belongs to this exact runtime, including after its activation ends.
+            method ownerId(_lua, this, context: UserDataRef<PluginContext>) -> Option<String> {
+                Ok(context.runtime.upgrade()
+                    .filter(|runtime| Rc::ptr_eq(runtime, &this.state))
+                    .map(|_| snapshot::instance_id(context.instance)))
+            }
+
             /// Disposes every instance in this runtime.
             method close(lua, this) -> () {
                 Ok(lifecycle::close_runtime(lua, &this.state)?)
@@ -257,6 +275,21 @@ impl MethodsDescribed for PluginInstance {
                     &this.runtime,
                     lifecycle::Request::Reload(this.id, config.0),
                 )?)
+            }
+
+            /// Accepts a replacement configuration and reload intent without draining lifecycle work.
+            /// The caller drains the runtime separately; rejection leaves configuration unchanged.
+            method requestReload(_lua, this, config: Unknown) -> () {
+                lifecycle::request_instance_deferred(
+                    &this.runtime,
+                    lifecycle::Request::Reload(this.id, config.0),
+                )?;
+                Ok(())
+            }
+
+            /// Returns this handle's exact runtime-local identity, without consulting its name or lifecycle.
+            method id(_lua, this) -> String {
+                Ok(snapshot::instance_id(this.id))
             }
 
             /// Reports this instance's lifecycle state.

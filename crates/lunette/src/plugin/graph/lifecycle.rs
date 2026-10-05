@@ -247,8 +247,9 @@ impl Graph {
                 }
                 let generation = ProviderGeneration::from_activation(activation);
                 let node = self.node_mut(instance)?;
-                if let Phase::Live { stage, .. } = &mut node.phase {
+                if let Phase::Live { stage, allocation } = &mut node.phase {
                     *stage = Stage::Active(generation);
+                    allocation.published_generation = Some(generation);
                 }
                 node.last_diagnostic = None;
                 Ok(LoadResolution::Published(generation))
@@ -582,6 +583,7 @@ impl Graph {
             allocation: Allocation {
                 activation,
                 bindings,
+                published_generation: None,
                 replace: false,
                 quarantine_pending: false,
                 rejection: None,
@@ -693,6 +695,7 @@ pub enum Stage {
 pub(super) struct Allocation {
     pub(super) activation: ActivationId,
     pub(super) bindings: Vec<Binding>,
+    pub(super) published_generation: Option<ProviderGeneration>,
     /// The allocation ends after disable, reload, or retirement.
     pub(super) replace: bool,
     /// An inverse failed, so the instance is quarantined when the allocation ends.

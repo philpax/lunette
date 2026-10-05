@@ -9,7 +9,8 @@ local test = testing.suite()
 
 test('a provision held only by an escaped publisher is released by the shutdown', function()
   local service = plugin.capability { name = 'local/payload-service', schema = 1 }
-  local witness = setmetatable({ payload = {} }, { __mode = 'v' })
+  local payload: {}? = {}
+  local witness = setmetatable({ payload = payload }, { __mode = 'v' })
   local escaped
   local runtime = plugin.runtime()
   runtime
@@ -22,9 +23,10 @@ test('a provision held only by an escaped publisher is released by the shutdown'
           publish:provide(service, config.payload)
         end,
       },
-      { payload = witness.payload }
+      { payload = payload }
     )
     :enable()
+  payload = nil
   testing.collect()
   expect.truthy(witness.payload, 'the provision is held while its provider is active')
   expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')
