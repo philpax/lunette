@@ -9,6 +9,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local input = require '@lunette-plugins/laser/input'
 local draw = require '@lunette-plugins/laser/draw'
 local registry = require '@lunette-plugins/laser/registry'
+local inspection = require '@lunette-contracts/inspection'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -165,6 +166,35 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end)
   local service: Service = {
+    inspect = function(_self: Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      local ownedSeats = 0
+      for _, target in ipairs(state.lasers) do
+        if target.ownsSeat and not target.seat.dead then
+          ownedSeats += 1
+        end
+        result[#result + 1] = inspection.registration(
+          'laser',
+          'laser.new',
+          target.owner,
+          target.hand,
+          state.active and context:owns(target.owner) and not target.dead,
+          {
+            hand = target.hand,
+            device = target.device,
+            seatId = target.seat.id,
+            seatDead = target.seat.dead,
+            ownsSeat = target.ownsSeat,
+            input = target.input ~= nil,
+          }
+        )
+      end
+      return inspection.snapshot(
+        result,
+        { active = state.active, ownedSeats = ownedSeats },
+        { 'input sampling and vibration require callbacks' }
+      )
+    end,
     HANDS = HANDS,
     STYLE = settings.style,
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser

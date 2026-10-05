@@ -32,7 +32,10 @@ export type ChangedListener = {
   read run: () -> (),
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read register: (Service, Owner, Layout) -> plugin.Effect,
   read apply: (Service, Application) -> (),
   read names: (Service) -> { string },

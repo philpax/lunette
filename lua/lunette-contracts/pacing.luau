@@ -26,7 +26,10 @@ export type Pacer = {
   read reset: (Pacer) -> (),
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read newPacer: (Service) -> Pacer,
 }
 

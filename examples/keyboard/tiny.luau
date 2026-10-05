@@ -5,6 +5,7 @@ local focusContract = require '@lunette-contracts/focus'
 local quad = require '@lunette-contracts/quad'
 local keys = require '@lunette-contracts/keys'
 local schema = require '@lunette-plugin/schema'
+local inspection = require '@lunette-contracts/inspection'
 
 local descriptor = schema.object {}
 export type Config = schema.Input<typeof(descriptor)>
@@ -105,11 +106,22 @@ return plugin.provider<<Config, Settings, keyboard.Service>>({
   schema = descriptor,
   build = function(context: plugin.Context, _settings: Settings): keyboard.Service
     local focus: focusContract.Service = context:require(focusContract.capability)
+    local boards: { [keyboard.Keyboard]: keyboard.Owner } = {}
     return {
+      inspect = function(_self: keyboard.Service): inspection.Snapshot
+        local registrations: { inspection.Registration } = {}
+        for board, owner in boards do
+          registrations[#registrations + 1] =
+            inspection.registration('keyboard', 'tiny-keyboard', owner, nil, not board.dead)
+        end
+        return inspection.snapshot(registrations)
+      end,
       new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
         local board = context:resource(owner, function()
           local created = make(focus, options)
+          boards[created] = owner
           return created, function()
+            boards[created] = nil
             created:destroy()
           end
         end)

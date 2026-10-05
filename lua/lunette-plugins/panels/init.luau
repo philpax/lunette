@@ -6,6 +6,7 @@ local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/panels'
 local panel = require '@lunette-plugins/panels/panel'
 local events = require '@lunette-plugins/panels/events'
+local inspection = require '@lunette-contracts/inspection'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -164,6 +165,59 @@ local function build(context: plugin.Context, settings: Settings): Service
 
   -- Panels check activation liveness through their host.
   local service: Service = {
+    inspect = function(_self: Service): inspection.Snapshot
+      local result = state.events.added:inspect 'panels.onAdded'
+      for _, entry in ipairs(state.events.removed:inspect 'panels.onRemoved') do
+        result[#result + 1] = entry
+      end
+      local claims, meshes = 0, 0
+      for _, target in ipairs(state.panels) do
+        if target.claim then
+          claims += 1
+        end
+        if target.mesh then
+          meshes += 1
+        end
+        local live = state.active and context:owns(target.owner) and not target.dead and not target.source.dead
+        result[#result + 1] = inspection.registration(
+          'panel',
+          'panels.from' .. (if target.kind == 'window' then 'Window' else 'Monitor'),
+          target.owner,
+          target.title,
+          live,
+          {
+            sourceId = target.source.id,
+            sourceKind = target.kind,
+            sourceDead = target.source.dead,
+            width = target.width,
+            height = target.height,
+            hidden = target.hidden,
+            priority = target.priority,
+            layerClaim = target.claim ~= nil,
+            mesh = target.mesh ~= nil,
+          }
+        )
+        for index, override in ipairs(target.overrides) do
+          result[#result + 1] = inspection.registration(
+            'visibility',
+            'panels.setHidden',
+            override.owner,
+            target.title,
+            state.active and context:owns(override.owner) and not target.dead,
+            {
+              sourceId = target.source.id,
+              sourceKind = target.kind,
+              hidden = override.hidden,
+              current = index == #target.overrides,
+            }
+          )
+        end
+      end
+      return inspection.snapshot(
+        result,
+        { active = state.active, layerClaims = claims, meshes = meshes, opaqueShader = state.opaqueShader ~= nil }
+      )
+    end,
     STYLE = settings.style,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
       local target = create(state, owner, { kind = 'window', source = window }, options)

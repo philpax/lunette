@@ -1,9 +1,11 @@
 -- Memberships, exclusions, and overrides end with their owning effects.
 
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
 local listeners = require '@lunette-plugins/listeners'
 local overrides = require '@lunette-plugins/tags/overrides'
+local inspection = require '@lunette-contracts/inspection'
 
 type Panel = tags.Panel
 type Owner = tags.Owner
@@ -35,6 +37,7 @@ type Record = {
   tag: tags.Tag,
   owner: Owner?,
   holders: { [Owner]: plugin.Effect },
+  inspect: () -> { inspection.Registration },
   destroyRaw: () -> boolean,
   retire: () -> boolean,
 }
@@ -43,6 +46,24 @@ local LISTENER_KEYS: { [string]: boolean } = { tag = true, run = true }
 local HOLD_KEYS: { [string]: boolean } = { name = true, index = true, selected = true, layout = true }
 local EXCLUSION_KEYS: { [string]: boolean } = { panel = true }
 local LAYOUT_KEYS: { [string]: boolean } = { layout = true }
+
+local function surfaceDetails(target: Panel): { [string]: string | number | boolean }
+  local fields = (target :: unknown) :: { [string]: unknown }
+  local dead = rawget(fields, 'dead')
+  local details: { [string]: string | number | boolean } = {
+    targetLiveness = if type(dead) == 'boolean' then (if dead then 'dead' else 'live') else 'unavailable',
+  }
+  local kind, source = rawget(fields, 'kind'), rawget(fields, 'source')
+  if (kind == 'window' or kind == 'monitor') and (type(source) == 'userdata' or type(source) == 'table') then
+    local id = if type(source) == 'table'
+      then rawget(source :: { [string]: unknown }, 'id')
+      else ((source :: unknown) :: lunette.Window | lunette.Monitor).id
+    if (kind == 'window' and type(id) == 'number') or (kind == 'monitor' and type(id) == 'string') then
+      details.sourceId, details.sourceKind = id, kind
+    end
+  end
+  return details
+end
 
 -- Attempts every effect disposal, then raises the first failure.
 local function disposeAll(effects: { plugin.Effect }): ()
@@ -416,7 +437,83 @@ local function create(context: plugin.Context): tags.Service
       destroy = destroy,
     }
     local tag: tags.Tag = created
-    record = { tag = tag, owner = tagOwner, holders = {}, destroyRaw = destroyRaw, retire = retire }
+    record = {
+      tag = tag,
+      owner = tagOwner,
+      holders = {},
+      destroyRaw = destroyRaw,
+      retire = retire,
+      inspect = function(): { inspection.Registration }
+        local result: { inspection.Registration } = {}
+        if tagOwner then
+          result[#result + 1] =
+            inspection.registration('tag', 'tags.new', tagOwner, name, not created.dead and context:owns(tagOwner), {
+              index = created.index,
+              selected = created.selected,
+              layout = created.layout or '',
+              members = #created.members,
+            })
+        end
+        for caller in pairs(record.holders) do
+          result[#result + 1] = inspection.registration(
+            'hold',
+            'tags.hold',
+            caller,
+            name,
+            not created.dead and context:owns(caller),
+            { index = created.index, selected = created.selected, layout = created.layout or '' }
+          )
+        end
+        for target, owners in pairs(holds) do
+          local details = surfaceDetails(target)
+          details.excluded = next(exclusions[target] or {}) ~= nil
+          for caller in pairs(owners) do
+            result[#result + 1] = inspection.registration(
+              'membership',
+              'tags.add',
+              caller,
+              name,
+              not created.dead and context:owns(caller),
+              details
+            )
+          end
+        end
+        for target, owners in pairs(exclusions) do
+          local details = surfaceDetails(target)
+          for caller in pairs(owners) do
+            result[#result + 1] = inspection.registration(
+              'exclusion',
+              'tags.exclude',
+              caller,
+              name,
+              not created.dead and context:owns(caller),
+              details
+            )
+          end
+        end
+        for _, entry in ipairs(selection:inspect()) do
+          result[#result + 1] = inspection.registration(
+            'selection',
+            'tags.setSelected',
+            entry.owner,
+            name,
+            not created.dead and context:owns(entry.owner),
+            { selected = entry.value, current = entry.current }
+          )
+        end
+        for _, entry in ipairs(layout:inspect()) do
+          result[#result + 1] = inspection.registration(
+            'layoutChoice',
+            'tags.setLayout',
+            entry.owner,
+            name,
+            not created.dead and context:owns(entry.owner),
+            { layout = entry.value or '', cleared = entry.value == nil, current = entry.current }
+          )
+        end
+        return result
+      end,
+    }
     records[#records + 1] = record
     if tagOwner then
       local ok, failure = pcall(function(): ()
@@ -554,10 +651,19 @@ local function create(context: plugin.Context): tags.Service
     if wanted ~= nil and not recordOf(wanted) then
       error('tags onChanged: tag is a live tag of this service', 2)
     end
-    return heard:add(caller, { tag = wanted, run = listener.run })
+    return heard:add(caller, { tag = wanted, run = listener.run }, if wanted then { tag = wanted.name } else nil)
   end
 
   local service: tags.Service = {
+    inspect = function(_self: tags.Service): inspection.Snapshot
+      local result = heard:inspect 'tags.onChanged'
+      for _, record in ipairs(records) do
+        for _, entry in ipairs(record.inspect()) do
+          result[#result + 1] = entry
+        end
+      end
+      return inspection.snapshot(result, { tags = #records }, { 'borrowing a creator-owned tag adds no logical hold' })
+    end,
     new = new,
     hold = hold,
     all = all,

@@ -4,6 +4,7 @@ local contract = require '@lunette-contracts/bindings'
 local frame = require '@lunette-contracts/frame'
 local keys = require '@lunette-contracts/keys'
 local protected = require '@lunette-plugins/protected'
+local inspection = require '@lunette-contracts/inspection'
 
 type Registration = {
   owner: contract.Owner,
@@ -85,6 +86,20 @@ local function create(context: plugin.Context): contract.Service
   local byChord: { [string]: Registration } = {}
 
   local service: contract.Service = {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      for _, entry in ipairs(registrations) do
+        result[#result + 1] = inspection.registration(
+          'handler',
+          'bindings.register',
+          entry.owner,
+          entry.key,
+          entry.active and context:owns(entry.owner),
+          { key = entry.chord.key, modifiers = table.concat(copyModifiers(entry.chord.modifiers or {}), '+') }
+        )
+      end
+      return inspection.snapshot(result)
+    end,
     register = function(_self: contract.Service, owner: contract.Owner, binding: contract.Binding): plugin.Effect
       local chord: contract.Chord, key: string, run: (contract.Press) -> ()
       local ok, failure = pcall(function(): ()

@@ -3,6 +3,7 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/surfaces'
 local protected = require '@lunette-plugins/protected'
+local inspection = require '@lunette-contracts/inspection'
 
 type Offer = {
   owner: contract.Owner,
@@ -18,6 +19,19 @@ local function create(context: plugin.Context): contract.Service
   local named: { [string]: Offer } = {}
 
   return {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      for _, entry in ipairs(offers) do
+        result[#result + 1] = inspection.registration(
+          'offer',
+          'surfaces.offer',
+          entry.owner,
+          entry.name,
+          entry.active and context:owns(entry.owner)
+        )
+      end
+      return inspection.snapshot(result, nil, { 'offer results require callbacks' })
+    end,
     offer = function(_self: contract.Service, owner: contract.Owner, spec: contract.Offer): plugin.Effect
       if type(spec) ~= 'table' then
         error('surfaces offer: an offer is a table of fields, not a ' .. type(spec), 2)

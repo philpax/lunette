@@ -89,7 +89,10 @@ export type Report = {
   read level: LogLevel?,
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read DEFAULT_PRECEDENCE: number,
   read DEFAULT_SOURCE: string,
   read report: (Service, Report) -> (),

@@ -50,7 +50,10 @@ export type QuitHandler = {
   read run: () -> (),
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read onUpdate: (Service, Owner, UpdateHandler) -> plugin.Effect,
   read onDraw: (Service, Owner, DrawHandler) -> plugin.Effect,
   read onKey: (Service, Owner, KeyHandler) -> plugin.Effect,

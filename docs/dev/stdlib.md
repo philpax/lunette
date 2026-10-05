@@ -122,6 +122,10 @@ The tests in `lua/lunette-desktop/tests` drive the shipped desktop as a composit
 
 Safe mode is compiled into the binary and requires `lunette` alone. It does not depend on the provider roots or the desktop, because a missing or broken installed module tree must not prevent recovery. [The Lua API](lua-api.md#errors) records its behavior.
 
+## Broker inspection
+
+Inspectable brokers expose `inspect()` through their neutral service contracts. A snapshot contains primitive metadata for logical registrations, actual owners, resource counts, service state, and explicitly unavailable facts. Inspection invokes no user handler, offer, rule resolver, clock, or filter, and performs no dead-member pruning. Logical registrations and native effects have separate counts because one registration may acquire several effects. A tag membership or exclusion's `live` and `dead` fields describe its retained entry and owner status. Its `details.targetLiveness` reports a raw boolean target observation as `live` or `dead`, or `unavailable` when observation would require a getter. Window source identities are numbers, and monitor source identities are strings.
+
 ## Module lifecycle
 
 The host's source reload retains the Lua state. It shuts down plugin runtimes, which advances the plugin contract epoch, clears native subscribers and configuration callbacks, drops unprotected modules from `package.loaded`, and runs `main.luau` and `lovr.load` again.

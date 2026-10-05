@@ -8,6 +8,7 @@ local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local listeners = require '@lunette-plugins/listeners'
+local inspection = require '@lunette-contracts/inspection'
 
 local service = {}
 
@@ -25,6 +26,7 @@ type State = {
   context: plugin.Context,
   settings: Settings,
   placements: { contract.Placement },
+  owners: { [contract.Placement]: Owner },
   listeners: listeners.Listeners<(contract.Placement) -> ()>,
 }
 
@@ -129,6 +131,7 @@ local function acquire(
     if panel then
       for index = #state.placements, 1, -1 do
         if state.placements[index].panel == panel then
+          state.owners[state.placements[index]] = nil
           table.remove(state.placements, index)
         end
       end
@@ -221,6 +224,7 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
     context = context,
     settings = settings,
     placements = {},
+    owners = {},
     listeners = listeners.new<<(contract.Placement) -> ()>>(context),
   }
 
@@ -233,6 +237,27 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
   end
 
   local implementation: contract.Service = {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      local result = state.listeners:inspect 'placement.onPlaced'
+      for _, placed in ipairs(state.placements) do
+        local owner = state.owners[placed]
+        local target = placed.panel
+        result[#result + 1] = inspection.registration(
+          'placement',
+          'placement.place',
+          owner,
+          target.title,
+          context:owns(owner) and not target.dead,
+          {
+            sourceId = target.source.id,
+            sourceKind = target.kind,
+            initialPose = placed.properties.pose ~= nil,
+            hidden = target.hidden,
+          }
+        )
+      end
+      return inspection.snapshot(result, nil, { 'resolved property provenance is not retained' })
+    end,
     place = function(
       _self: contract.Service,
       owner: Owner,
@@ -256,6 +281,7 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
       end
       local placed: contract.Placement = table.freeze { panel = panel, properties = frozen }
       state.placements[#state.placements + 1] = placed
+      state.owners[placed] = owner
       announce(placed)
       return panel, frozen, effect
     end,

@@ -26,7 +26,10 @@ export type InstallOptions = {
   read precedence: number?,
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read PRECEDENCE: number,
   read install: (Service, Owner, InstallOptions?) -> plugin.Effect,
   read start: (Service, Owner, Options?) -> plugin.Effect,

@@ -12,6 +12,9 @@ local function build(
   keyboardService: keyboard.Service
 )
   local implementation: keyboard.Service = {
+    inspect = function(_self: keyboard.Service)
+      return keyboardService:inspect()
+    end,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       return keyboardService:new(owner, options)
     end,

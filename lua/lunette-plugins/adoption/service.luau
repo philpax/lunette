@@ -6,6 +6,7 @@ local panelsContract = require '@lunette-contracts/panels'
 local placementContract = require '@lunette-contracts/placement'
 local rulesContract = require '@lunette-contracts/rules'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local inspection = require '@lunette-contracts/inspection'
 
 export type Service = adoption.Service
 export type Owner = adoption.Owner
@@ -47,15 +48,37 @@ export type Settings = config.Settings
 
 local function build(context: plugin.Context, settings: Settings): Service
   local state: State = { active = true, context = context }
+  local records: { inspection.Registration } = {}
+  local function forget(entry: inspection.Registration): ()
+    local index = table.find(records, entry)
+    if index then
+      table.remove(records, index)
+    end
+  end
 
   -- The source and event callbacks check activation state because copied callbacks can outlive the service.
   context:effect(function(): () -> ()
     return function()
       state.active = false
+      table.clear(records)
     end
   end)
 
   local service: Service = {
+    inspect = function(_self: Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      for _, entry in ipairs(records) do
+        result[#result + 1] = inspection.registration(
+          entry.kind,
+          entry.source,
+          entry.owner,
+          entry.name,
+          state.active and context:owns(entry.owner),
+          entry.details
+        )
+      end
+      return inspection.snapshot(result, { active = state.active }, { 'filter results require callbacks' })
+    end,
     PRECEDENCE = settings.precedence,
     -- The provider registers the source under the caller's ownership; callers do not require the rules service.
     install = function(_self: Service, owner: Owner, options: adoption.InstallOptions?): plugin.Effect
@@ -77,7 +100,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return context:acquire(owner, function(): () -> ()
         local registration = rules:addSource(context, { name = SOURCE, precedence = chosen, resolve = resolve })
+        local entry =
+          inspection.registration('poseSource', 'adoption.install', owner, SOURCE, true, { precedence = chosen })
+        records[#records + 1] = entry
         return function()
+          forget(entry)
           registration:dispose()
         end
       end)
@@ -130,7 +157,17 @@ local function build(context: plugin.Context, settings: Settings): Service
         local registered, failure = pcall(function(): ()
           acquired = owner:effect(function(): () -> ()
             current.context:checkOwner(owner)
+            local entry = inspection.registration(
+              'adoption',
+              'adoption.start',
+              owner,
+              nil,
+              true,
+              { sourceId = window.id, sourceKind = 'window' }
+            )
+            records[#records + 1] = entry
             return function()
+              forget(entry)
               adoptedIds[window.id] = nil
               local index = table.find(adopted, acquired)
               if index then
@@ -164,7 +201,11 @@ local function build(context: plugin.Context, settings: Settings): Service
 
       local effect = owner:effect(function(): () -> ()
         current.context:checkOwner(owner)
+        local entry =
+          inspection.registration('producer', 'adoption.start', owner, nil, true, { filtered = settings.filter ~= nil })
+        records[#records + 1] = entry
         return function()
+          forget(entry)
           active = false
           if subscription then
             subscription()

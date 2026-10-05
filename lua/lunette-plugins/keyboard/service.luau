@@ -9,6 +9,7 @@ local board = require '@lunette-plugins/keyboard/board'
 local drawing = require '@lunette-plugins/keyboard/draw'
 local layout = require '@lunette-plugins/keyboard/layout'
 local validation = require '@lunette-plugins/keyboard/validation'
+local inspection = require '@lunette-contracts/inspection'
 
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
@@ -403,7 +404,22 @@ end
 
 local function build(context: plugin.Context, settings: Settings): keyboard.Service
   local focusService: focus.Service = context:require(focus.capability)
+  local boards: { [Board]: keyboard.Owner } = {}
   return {
+    inspect = function(_self: keyboard.Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      for target, owner in pairs(boards) do
+        result[#result + 1] = inspection.registration(
+          'keyboard',
+          'keyboard.new',
+          owner,
+          nil,
+          context:owns(owner) and not target.dead,
+          { width = target.width, height = target.height, visible = target.visible, layer = target.layer }
+        )
+      end
+      return inspection.snapshot(result, nil, { 'keyboard targets and legends require callbacks' })
+    end,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       local own = settingsFor(settings, options)
       local cleanupEffect: plugin.Effect? = nil
@@ -415,10 +431,13 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
             effect:dispose()
           end
         end)
-        return created, function(): ()
-          cleanupEffect = nil
-          releaseRaw()
-        end
+        boards[created] = owner
+        return created,
+          function(): ()
+            boards[created] = nil
+            cleanupEffect = nil
+            releaseRaw()
+          end
       end)
       if not result.dead then
         cleanupEffect = acquired

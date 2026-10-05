@@ -108,7 +108,10 @@ export type Keyboard = {
   read destroy: (Keyboard) -> boolean,
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read new: (Service, Owner, Options?) -> Keyboard,
 }
 

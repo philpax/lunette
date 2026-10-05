@@ -2,6 +2,7 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/drops'
 local listeners = require '@lunette-plugins/listeners'
+local inspection = require '@lunette-contracts/inspection'
 
 local LISTENER_KEYS: { [string]: boolean } = { run = true }
 local DROP_KEYS: { [string]: boolean } = { surface = true, pointer = true }
@@ -9,6 +10,9 @@ local DROP_KEYS: { [string]: boolean } = { surface = true, pointer = true }
 local function create(context: plugin.Context): contract.Service
   local heard = listeners.new<<(contract.Drop) -> ()>>(context)
   return {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      return inspection.snapshot(heard:inspect 'drops.onDropped', nil, { 'drops are transient notifications' })
+    end,
     onDropped = function(_self: contract.Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       plugin.rejectUnknownFields('drops onDropped', listener, LISTENER_KEYS, 'run', 2)
       local run = listener.run

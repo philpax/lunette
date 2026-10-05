@@ -3,6 +3,7 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/pacing'
 local pacer = require '@lunette-plugins/pacing/pacer'
+local inspection = require '@lunette-contracts/inspection'
 
 export type Service = contract.Service
 export type Pacer = contract.Pacer
@@ -38,9 +39,21 @@ local function build(_context: plugin.Context, settings: Settings): Service
   local function rule(paced: Pacer, observation: Observation): number?
     return hook(paced, observation, base)
   end
+  local created = 0
   return {
+    inspect = function(_self: Service): inspection.Snapshot
+      return inspection.snapshot({}, {
+        createdPacers = created,
+        background = settings.tuning.background,
+        exempt = settings.tuning.exempt,
+        history = settings.tuning.history,
+        busy = settings.tuning.busy,
+      }, { 'pacers have no owner or disposal registration', 'pacing observations are held by callers' })
+    end,
     newPacer = function(_self: Service): Pacer
-      return pacer.new { tuning = settings.tuning, choose = rule }
+      local result = pacer.new { tuning = settings.tuning, choose = rule }
+      created += 1
+      return result
     end,
   }
 end

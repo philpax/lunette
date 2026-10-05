@@ -17,7 +17,10 @@ export type Listener = {
   read run: (Focus) -> (),
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read focused: (Service) -> (lunette.Seat?, lunette.Sink?),
   read setFocus: (Service, Owner, Focus) -> plugin.Effect,
   read onChanged: (Service, Owner, Listener) -> plugin.Effect,

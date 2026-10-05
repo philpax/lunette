@@ -7,6 +7,7 @@ local focusContract = require '@lunette-contracts/focus'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local grab = require '@lunette-plugins/interaction/grab'
 local picking = require '@lunette-plugins/interaction/picking'
+local inspection = require '@lunette-contracts/inspection'
 
 type Service = contracts.Service
 type Pointer = contracts.Pointer
@@ -68,6 +69,7 @@ local function build(context: plugin.Context, settings: Settings): Service
   local TUNING = settings.tuning
   local pointers: { Pointer } = {}
   local states: { [Pointer]: State } = {}
+  local owners: { [Pointer]: contracts.Owner } = {}
   local dropService: dropsContract.Service = context:require(dropsContract.capability)
   local focusService: focusContract.Service = context:require(focusContract.capability)
   -- A pointer ending withdraws its grant when no later pointer owns focus for that seat.
@@ -317,6 +319,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       local revoked, revocation = pcall(withdrawFocus, state)
       states[public] = nil
+      owners[public] = nil
       if not withdrawn then
         error(withdrawal, 0)
       end
@@ -423,6 +426,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     local acquired = owner:effect(function()
       pointers[#pointers + 1] = public
       states[public] = state
+      owners[public] = owner
       return function()
         cleanupEffect = nil
         destroyRaw()
@@ -447,6 +451,42 @@ local function build(context: plugin.Context, settings: Settings): Service
   -- The published service is revoked with this activation, so its methods need no liveness guard; pointers
   -- outlive the call that made them and check the activation themselves.
   return {
+    inspect = function(_self: Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      for _, pointer in ipairs(pointers) do
+        local state = states[pointer]
+        local owner = owners[pointer]
+        local details: { [string]: string | number | boolean } = {
+          hovered = state.hovered ~= nil,
+          grabbed = state.grabbed ~= nil,
+          gripped = state.gripped,
+          pressedButtons = 0,
+        }
+        local pressedButtons = 0
+        for _, pressed in pairs(state.pressed) do
+          if pressed then
+            pressedButtons += 1
+          end
+        end
+        details.pressedButtons = pressedButtons
+        if state.seat then
+          details.seatId = state.seat.id
+        end
+        result[#result + 1] = inspection.registration(
+          'pointer',
+          'interaction.newPointer',
+          owner,
+          nil,
+          active and context:owns(owner) and not state.dead,
+          details
+        )
+      end
+      return inspection.snapshot(
+        result,
+        { active = active },
+        { 'hovered and grabbed surface identities are not retained as inspection ids' }
+      )
+    end,
     TUNING = TUNING,
     newPointer = function(_self: Service, owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
       return newPointer(owner, options)

@@ -97,7 +97,7 @@ The native plugin handles in `lua/lunette/init.luau` are nominal. Each declares 
 
 Instance records distinguish declarations, actual allocation bindings, and failed activation bindings. They describe parent ownership, children, actual dependents, enabled intent, phase, retirement, authority, quarantine, replacement, cleanup, current and previous failures, and blockers. Binding records identify the provider instance and generation and whether that generation is current. Effect records identify the owning instance, activation, ordinal, and armed, cleaning, or disarmed state. Their source identity is the acquisition owner; it does not identify an inferred broker caller.
 
-Disarmed effect metadata remains available for the complete activation history, while its callable inverse is released. Storage and snapshot work grow with that history. A new activation or removal ends it.
+Disarmed effect metadata remains available for the complete activation history, while its callable inverse is released. Storage and snapshot work grow with that history. A new activation or removal ends it. Broker inspection adds detached logical registration metadata through neutral service contracts; [Broker inspection](stdlib.md#broker-inspection) states that policy and its unavailable-fact rules.
 
 ### Provider modules
 

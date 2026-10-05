@@ -30,7 +30,8 @@ function events.onRemoved(
   panel: panels.Panel?,
   callback: panels.PanelCallback
 ): plugin.Effect
-  return registry.removed:add(owner, { panel = panel, callback = callback })
+  local details = if panel then { sourceId = panel.source.id, sourceKind = panel.kind } else {}
+  return registry.removed:add(owner, { panel = panel, callback = callback }, details)
 end
 
 function events.emitAdded(registry: Registry, panel: panels.Panel): ()

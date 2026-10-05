@@ -14,7 +14,10 @@ export type Offer = {
   read list: () -> { Surface },
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read offer: (Service, Owner, Offer) -> plugin.Effect,
   read all: (Service) -> { Surface },
 }

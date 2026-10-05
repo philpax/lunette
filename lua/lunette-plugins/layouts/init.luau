@@ -3,6 +3,7 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/layouts'
 local listeners = require '@lunette-plugins/listeners'
+local inspection = require '@lunette-contracts/inspection'
 
 type Registration = {
   owner: contract.Owner,
@@ -53,6 +54,26 @@ local function create(context: plugin.Context): contract.Service
   end
 
   return {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      local result = heard:inspect 'layouts.onChanged'
+      local names: { string } = {}
+      for name in pairs(named) do
+        names[#names + 1] = name
+      end
+      table.sort(names)
+      for _, name in ipairs(names) do
+        local entry = named[name]
+        result[#result + 1] = inspection.registration(
+          'layout',
+          'layouts.register',
+          entry.owner,
+          entry.name,
+          context:owns(entry.owner),
+          { continuous = entry.continuous }
+        )
+      end
+      return inspection.snapshot(result, nil, { 'layout applications are transient callbacks' })
+    end,
     register = function(_self: contract.Service, owner: contract.Owner, spec: contract.Layout): plugin.Effect
       plugin.rejectUnknownFields('layouts register', spec, LAYOUT_KEYS, 'name, apply, and continuous', 2)
       local raw = (spec :: unknown) :: Raw

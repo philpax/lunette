@@ -2,6 +2,7 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/frame'
 local protected = require '@lunette-plugins/protected'
+local inspection = require '@lunette-contracts/inspection'
 
 local frame = {}
 
@@ -174,7 +175,33 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
     end,
   }
 
+  local function describe<T>(
+    result: { inspection.Registration },
+    source: string,
+    list: { Entry<T> },
+    phases: { read [number]: string }
+  ): ()
+    for _, entry in ipairs(list) do
+      result[#result + 1] = inspection.registration(
+        'handler',
+        source,
+        entry.owner,
+        nil,
+        entry.active and context:owns(entry.owner),
+        { phase = phases[entry.rank] or 'quit', order = entry.order, sequence = entry.sequence }
+      )
+    end
+  end
   local service: contract.Service = {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      describe(result, 'frame.onUpdate', updates, contract.PHASES)
+      describe(result, 'frame.onDraw', draws, contract.PHASES)
+      describe(result, 'frame.onKey', keys, contract.INPUT_PHASES)
+      describe(result, 'frame.onText', texts, contract.INPUT_PHASES)
+      describe(result, 'frame.onQuit', quits, {})
+      return inspection.snapshot(result, { active = context:active() })
+    end,
     onUpdate = function(_self: contract.Service, owner: contract.Owner, handler: contract.UpdateHandler): plugin.Effect
       local rank, order = validate('onUpdate', handler, PHASED_KEYS, PHASE_RANKS, nil, PHASE_NAMES)
       return register(updates, owner, rank, order, handler.run)

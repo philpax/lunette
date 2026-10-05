@@ -4,6 +4,7 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/rules'
 local policy = require '@lunette-plugins/rules/policy'
+local inspection = require '@lunette-contracts/inspection'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -12,6 +13,7 @@ export type Resolved = contracts.Resolved
 export type Rule = contracts.Rule
 
 type Source = contracts.Source & {
+  owner: Owner,
   resolve: (lunette.Window) -> Properties?,
   sequence: number,
 }
@@ -143,6 +145,20 @@ local function build(context: plugin.Context, settings: Settings): Service
 
   local service: Service
   service = {
+    inspect = function(_self: Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      for _, entry in ipairs(orderedSources(state)) do
+        result[#result + 1] = inspection.registration(
+          'ruleSource',
+          'rules.addSource',
+          entry.owner,
+          entry.name,
+          context:owns(entry.owner),
+          { precedence = entry.precedence, sequence = entry.sequence }
+        )
+      end
+      return inspection.snapshot(result, nil, { 'resolved properties and matches require callbacks' })
+    end,
     DEFAULT_PRECEDENCE = settings.precedence,
     DEFAULT_SOURCE = 'lunette.rules',
     report = function(_self: Service, fields: contracts.Report)
@@ -179,6 +195,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         context:checkOwner(owner)
         state.registrations += 1
         local source: Source = {
+          owner = owner,
           name = name,
           precedence = precedence,
           resolve = resolve,

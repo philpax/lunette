@@ -74,7 +74,10 @@ export type RemovedListener = {
   read run: PanelCallback,
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read STYLE: Style,
   read fromWindow: (Service, Owner, lunette.Window, Options?) -> WindowPanel,
   read fromMonitor: (Service, Owner, lunette.Monitor, Options?) -> MonitorPanel,

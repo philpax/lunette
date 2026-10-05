@@ -28,7 +28,10 @@ export type Binding = {
   read run: (Press) -> (),
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read register: (Service, Owner, Binding) -> plugin.Effect,
   read dispatch: (Service, Press) -> boolean,
   read chords: (Service) -> { Chord },

@@ -27,7 +27,10 @@ export type PlacedListener = {
   read run: (Placement) -> (),
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read place: (Service, Owner, Request) -> (panels.WindowPanel, Properties, plugin.Effect),
   read placed: (Service) -> { Placement },
   read onPlaced: (Service, Owner, PlacedListener) -> plugin.Effect,

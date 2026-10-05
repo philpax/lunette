@@ -6,6 +6,7 @@ local contract = require '@lunette-contracts/errors'
 local format = require '@lunette-plugins/errors/format'
 local limiter = require '@lunette-plugins/errors/limiter'
 local listeners = require '@lunette-plugins/listeners'
+local inspection = require '@lunette-contracts/inspection'
 
 export type Service = contract.Service
 
@@ -76,6 +77,21 @@ local function build(context: plugin.Context, settings: Settings): Service
   }
 
   local service: Service = {
+    inspect = function(_self: Service): inspection.Snapshot
+      local result = subscribers:inspect 'errors.subscribe'
+      if context:active() then
+        result[#result + 1] =
+          inspection.registration('listener', 'errors.onError', context, nil, true, { nativeSubscription = true })
+      end
+      return inspection.snapshot(result, {
+        history = #history,
+        sequence = sequence,
+        delivering = delivering,
+        historyLimit = settings.history,
+        window = settings.window,
+        maxKeys = settings.maxKeys,
+      }, { 'limiter clock is not sampled' })
+    end,
     subscribe = function(_self: Service, owner: contract.Owner, subscriber: contract.Subscriber): plugin.Effect
       if type(subscriber) ~= 'table' then
         error('errors subscribe: a subscriber is a table of fields, not a ' .. type(subscriber), 2)
@@ -87,7 +103,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       if subscriber.cleared ~= nil and type(subscriber.cleared) ~= 'function' then
         error('errors subscribe: cleared is a function, not a ' .. type(subscriber.cleared), 2)
       end
-      return subscribers:add(owner, { run = subscriber.run, cleared = subscriber.cleared })
+      return subscribers:add(
+        owner,
+        { run = subscriber.run, cleared = subscriber.cleared },
+        { cleared = subscriber.cleared ~= nil }
+      )
     end,
     recent = function(_self: Service): { contract.Report }
       return table.clone(history)

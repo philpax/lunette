@@ -19,7 +19,10 @@ export type Listener = {
   read run: (Drop) -> (),
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read onDropped: (Service, Owner, Listener) -> plugin.Effect,
   read emit: (Service, Owner, Drop) -> (),
 }

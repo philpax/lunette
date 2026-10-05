@@ -12,6 +12,7 @@ type Entry<T> = { owner: Owner, value: T, effect: plugin.Effect? }
 export type Stack<T> = {
   read set: (Stack<T>, Owner, T) -> boolean,
   read value: (Stack<T>) -> T,
+  read inspect: (Stack<T>) -> { { read owner: Owner, read value: T, read current: boolean } },
   -- Clears overrides and returns their effects for disposal after caller state is consistent.
   read clear: (Stack<T>) -> { plugin.Effect },
 }
@@ -27,6 +28,13 @@ function overrides.new<T>(context: plugin.Context, fallback: T, changed: () -> (
     return fallback
   end
   local stack: Stack<T> = {
+    inspect = function(_self: Stack<T>): { { read owner: Owner, read value: T, read current: boolean } }
+      local result: { { read owner: Owner, read value: T, read current: boolean } } = {}
+      for index, entry in ipairs(entries) do
+        result[index] = table.freeze { owner = entry.owner, value = entry.value, current = index == #entries }
+      end
+      return table.freeze(result)
+    end,
     set = function(_self: Stack<T>, caller: Owner, value: T): boolean
       local before = decided()
       for index, entry in ipairs(entries) do

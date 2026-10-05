@@ -22,7 +22,10 @@ export type Subscriber = {
   read cleared: (() -> ())?,
 }
 
+local inspection = require '@lunette-contracts/inspection'
+
 export type Service = {
+  read inspect: (Service) -> inspection.Snapshot,
   read subscribe: (Service, Owner, Subscriber) -> plugin.Effect,
   read recent: (Service) -> { Report },
   read clear: (Service, Owner) -> (),

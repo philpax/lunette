@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
 local listeners = require '@lunette-plugins/listeners'
 local holders = require '@lunette-plugins/focus/holders'
+local inspection = require '@lunette-contracts/inspection'
 
 type Grant = {
   holder: holders.Holder,
@@ -47,6 +48,27 @@ local function create(context: plugin.Context): contract.Service
   end)
 
   return {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      local result = heard:inspect 'focus.onChanged'
+      for owner, owned in pairs(grants) do
+        for _, grant in pairs(owned) do
+          local holder = grant.holder
+          local seat, sink = holder.seat, holder.sink
+          local details: { [string]: string | number | boolean } = {
+            current = state.current == holder,
+            granted = sink ~= nil,
+            seatDead = seat ~= nil and seat.dead,
+            sinkDead = sink ~= nil and sink.dead,
+          }
+          if seat then
+            details.seatId = seat.id
+          end
+          result[#result + 1] =
+            inspection.registration('focus', 'focus.setFocus', owner, nil, context:owns(owner), details)
+        end
+      end
+      return inspection.snapshot(result, nil, { 'sink identity is not exposed' })
+    end,
     focused = function(_self: contract.Service): (lunette.Seat?, lunette.Sink?)
       return holders.focused(state)
     end,
