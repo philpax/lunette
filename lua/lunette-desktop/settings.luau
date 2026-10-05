@@ -14,6 +14,7 @@ local pointing = require '@lunette-plugins/desktop/pointing/config'
 local pacing = require '@lunette-plugins/desktop/pacing/config'
 local workspace = require '@lunette-plugins/desktop/workspace/config'
 local adoption = require '@lunette-plugins/desktop/adoption/config'
+local manager = require '@lunette-plugins/desktop/manager/config'
 
 -- Typed constructor witnesses avoid expanding nested key unions and recursive rule contracts at each wrapper.
 local optional = (schema.optional :: unknown) :: <I, O>(schema.Schema<I, O>) -> schema.Schema<I?, O?>
@@ -31,6 +32,7 @@ local shape: {
   read pacing: schema.Schema<pacing.Config?, pacing.Settings?>,
   read workspace: schema.Schema<workspace.Config?, workspace.Settings?>,
   read adoption: schema.Schema<adoption.Config?, adoption.Settings?>,
+  read manager: schema.Schema<manager.Config?, manager.Settings?>,
 } =
   {
     bindings = optional<<bindings.Config, bindings.Settings>>(bindings.schema),
@@ -46,6 +48,7 @@ local shape: {
     pacing = optional<<pacing.Config, pacing.Settings>>(pacing.schema),
     workspace = optional<<workspace.Config, workspace.Settings>>(workspace.schema),
     adoption = optional<<adoption.Config, adoption.Settings>>(adoption.schema),
+    manager = optional<<manager.Config, manager.Settings>>(manager.schema),
   }
 local descriptor = schema.object<<typeof(shape)>>(shape)
 

@@ -63,7 +63,13 @@ test('the workspace entry may come last: the tag it selects is held, not made', 
   reordered[#reordered + 1] = workspace
   local env = start(reordered, fake)
   for id, instance in pairs(env.session.instances) do
-    expect.equal(instance:state(), 'active', id)
+    if id == 'desktop/manager' then
+      expect.equal(instance:state(), 'inactive', id)
+      local diagnostic = tostring(instance:diagnostic())
+      expect.truthy(diagnostic:find('waiting for a provider of lunette/composition@1', 1, true), diagnostic)
+    else
+      expect.equal(instance:state(), 'active', id)
+    end
   end
   local main = assert(env.tags:find 'main')
   expect.truthy(main.selected, 'the workspace selects its tag whoever made it')

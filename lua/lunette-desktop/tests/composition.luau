@@ -45,6 +45,7 @@ local DEFAULT_IDS = table.concat({
   'desktop/adoption',
   'desktop/pacing',
   'desktop/scale',
+  'desktop/manager',
 }, ' ')
 
 local function ids(entries)

@@ -24,7 +24,14 @@ end
 
 test('every entry rejects an option it does not take, naming itself and the option', function()
   for _, entry in ipairs(desktop.entries()) do
-    local diagnostic = rejection { id = entry.id, config = { bogus = 1 } }
+    local diagnostic
+    if entry.id == 'desktop/manager' then
+      local ok, problem = pcall(entry.definition.resolve, { bogus = 1 })
+      expect.falsy(ok, 'the manager rejects an undeclared option before activation')
+      diagnostic = tostring(problem)
+    else
+      diagnostic = rejection { id = entry.id, config = { bogus = 1 } }
+    end
     expect.truthy(
       diagnostic:find('plugin ' .. entry.id .. ': option bogus is not a declared field', 1, true),
       entry.id .. ': ' .. diagnostic
@@ -123,7 +130,13 @@ test('a configured desktop serves what its patches configured, over the defaults
   })
   local native = session.native
   for id, instance in pairs(session.instances) do
-    expect.equal(instance:state(), 'active', id)
+    if id == 'desktop/manager' then
+      expect.equal(instance:state(), 'inactive', id)
+      local diagnostic = tostring(instance:diagnostic())
+      expect.truthy(diagnostic:find('waiting for a provider of lunette/composition@1', 1, true), diagnostic)
+    else
+      expect.equal(instance:state(), 'active', id)
+    end
   end
 
   expect.equal(services.panels.STYLE.borderThickness, 0.02, 'the configured border')

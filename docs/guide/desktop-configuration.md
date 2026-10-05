@@ -44,10 +44,11 @@ Each section reuses the corresponding plugin module's exported `Config` type. Th
 | `pacing` | `desktop/pacing` |
 | `workspace` | `desktop/workspace` |
 | `adoption` | `desktop/adoption` |
+| [`manager`](runtime-manager.md) | `desktop/manager` |
 
 The `wristKeyboard` section configures the wrist button and keyboard placement. It does not configure the `keyboard` service provider. A raw patch can replace that provider while settings configure its consumer, as in `examples/keyboard/main.luau`.
 
-Settings follow the entry's configuration descriptor. Declared objects merge recursively with the entry's existing configuration. Arrays, maps, unions, and atomic values replace; an empty map clears its previous keys. Composition copies and freezes descriptor-declared object and collection containers. Callback and custom values retain their exact references, and non-plain native values such as vectors retain their values. For a factory entry, composition retains configuration layers until the factory supplies a definition. The definition's descriptor then determines merging and copying; instance activation performs validation. A setting and a raw patch cannot name the same entry, even when the patch only disables or replaces it. Composition reports both sources. One combined raw patch supplies the configuration when replacing that entry's definition.
+Settings follow the entry's configuration descriptor. Declared objects merge recursively with the entry's existing configuration. Arrays, maps, unions, and atomic values replace; an empty map clears its previous keys. Composition copies and freezes descriptor-declared object and collection containers. Callback and custom values retain their exact references, and non-plain native values such as vectors retain their values. For a factory entry, composition retains configuration layers until the factory supplies a definition. The definition's descriptor then determines merging and copying; managed preflight or instance activation performs validation. A setting and a raw patch cannot name the same entry, even when the patch only disables or replaces it. Composition reports both sources. One combined raw patch supplies the configuration when replacing that entry's definition.
 
 ## Workspaces
 

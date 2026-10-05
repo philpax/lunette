@@ -425,6 +425,14 @@ fn desktop_settings_preserve_writable_inputs_and_readonly_outputs() {
 }
 
 #[test]
+fn manager_settings_preserve_writable_inputs_and_readonly_outputs() {
+    assert_schema_lines(
+        "luau_check/schema/manager_settings_checked.luau",
+        &[(9, "read-only"), (11, "read-only"), (12, "boolean")],
+    );
+}
+
+#[test]
 fn workspace_settings_reject_nested_assignment_and_list_replacement() {
     assert_schema_lines(
         "luau_check/schema/workspace_readonly.luau",

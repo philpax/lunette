@@ -311,7 +311,37 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
 end
 
 installLovr = function(events)
-  lovr.graphics = {}
+  local font = {}
+  function font:getHeight()
+    return 1
+  end
+  function font:getLineSpacing()
+    return 1
+  end
+  function font:getWidth(text)
+    return utf8.len(text) * 0.5
+  end
+  function font:getLines(text, wrap)
+    local lines = {}
+    local limit = math.max(1, math.floor(wrap * 2))
+    for line in (text .. '\n'):gmatch '(.-)\n' do
+      local start, count = 1, 0
+      for offset in utf8.codes(line) do
+        if count == limit then
+          lines[#lines + 1] = line:sub(start, offset - 1)
+          start, count = offset, 0
+        end
+        count += 1
+      end
+      lines[#lines + 1] = line:sub(start)
+    end
+    return lines
+  end
+  lovr.graphics = {
+    getDefaultFont = function()
+      return font
+    end,
+  }
   lovr.timer = {
     getTime = function()
       return events.time

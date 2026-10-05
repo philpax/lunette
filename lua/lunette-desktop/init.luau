@@ -37,8 +37,10 @@ local arrange = require '@lunette-plugins/desktop/arrange'
 local adoptionConsumer = require '@lunette-plugins/desktop/adoption'
 local pacing = require '@lunette-plugins/desktop/pacing'
 local scale = require '@lunette-plugins/desktop/scale'
+local manager = require '@lunette-plugins/desktop/manager'
 local settings = require '@lunette-desktop/settings'
 local workspacesConfig = require '@lunette-plugins/desktop/workspaces/config'
+local management = require '@lunette-plugin/management'
 
 local desktop = {}
 
@@ -69,13 +71,14 @@ local SETTING_IDS: { [string]: string } = {
   pacing = 'desktop/pacing',
   workspace = 'desktop/workspace',
   adoption = 'desktop/adoption',
+  manager = 'desktop/manager',
 }
 local SETTING_KEYS: { [string]: boolean } = {}
 for name, _ in SETTING_IDS do
   SETTING_KEYS[name] = true
 end
 local SETTING_FIELDS =
-  'bindings, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, workspace, and adoption'
+  'bindings, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, workspace, adoption, and manager'
 
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
@@ -114,6 +117,7 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/adoption', definition = adoptionConsumer },
   { id = 'desktop/pacing', definition = pacing },
   { id = 'desktop/scale', definition = scale },
+  { id = 'desktop/manager', definition = manager },
 }
 
 -- The returned configuration functions check values against the definition's options.
@@ -221,7 +225,28 @@ end
 
 -- Composition errors occur while the configuration loads, before LÖVR callbacks are bound.
 function desktop.run(options: Options?): ()
-  frame.run(desktop.compose(options))
+  local entries = desktop.compose(options)
+  local protected: { string } = {}
+  for _, entry in entries do
+    if entry.id == 'desktop/manager' or entry.id == 'desktop/pointing' then
+      protected[#protected + 1] = entry.id
+    end
+  end
+  local running: management.Running? = nil
+  frame.install {
+    start = function(): ()
+      if not running then
+        running = management.start(entries, { protected = protected })
+      end
+    end,
+    stop = function(): ()
+      local current = running
+      running = nil
+      if current then
+        current.runtime:close()
+      end
+    end,
+  }
 end
 
 return desktop
