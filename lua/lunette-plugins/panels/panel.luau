@@ -14,27 +14,17 @@ export type Owner = contracts.Owner
 export type Panel = contracts.Panel
 export type Options = contracts.Options
 
--- Shape hooks wrap the flat quad or positive-curvature arc behavior.
-export type RaycastBase = (Panel, vector, vector, boolean?) -> (number?, number?, number?)
-export type Raycast = (Panel, vector, vector, boolean?, RaycastBase) -> (number?, number?, number?)
-export type DrawBase = (Panel, Pass) -> ()
-export type Draw = (Panel, Pass, DrawBase) -> ()
-export type LayerBase = (Panel, Layer) -> ()
-export type ApplyLayer = (Panel, Layer, LayerBase) -> ()
-export type Shape = {
-  read raycast: Raycast,
-  read draw: Draw,
-  read applyLayer: ApplyLayer,
-}
+local config = require '@lunette-plugins/panels/config'
 
-export type Settings = {
-  read style: contracts.Style,
-  read priority: number,
-  read height: number,
-  read aspect: number,
-  read chrome: boolean,
-  read shape: Shape,
-}
+-- Shape hooks wrap the flat quad or positive-curvature arc behavior.
+export type RaycastBase = config.RaycastBase
+export type Raycast = config.Raycast
+export type DrawBase = config.DrawBase
+export type Draw = config.Draw
+export type LayerBase = config.LayerBase
+export type ApplyLayer = config.ApplyLayer
+export type Shape = config.Shape
+export type Settings = config.Settings
 
 export type Host = {
   read active: () -> boolean,

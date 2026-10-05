@@ -100,4 +100,4 @@ The pinned Luau checker accepts some wrong dictionary values in function argumen
 
 The checker does not statically reject every unknown object field; runtime objects are closed. Callback signatures are static only. Runtime reflection cannot validate their parameter and return types. The runtime checks a custom value's `typeof` and return identity, but cannot prove the validator's claimed `T` or prevent the validator from mutating its input. Correct narrowing and side-effect-free validation remain the author's responsibility.
 
-Configured providers and consumers expose a descriptor only when their authoring spec supplies `schema`. Legacy modules may still use default-table validation, and raw definitions remain valid without descriptors. The schema API declares no persistence format.
+Configured providers and consumers expose a descriptor only when their authoring spec supplies `schema`. Every configurable built-in, development plugin, and example supplies one. Legacy external modules may still use default-table validation, and raw definitions remain valid without descriptors. The schema API declares no persistence format.

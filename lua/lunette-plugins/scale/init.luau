@@ -9,27 +9,12 @@ export type Service = contract.Service
 export type Chooser = contract.Chooser
 export type Tuning = chooser.Tuning
 
-export type IdealBase = (number) -> number
-export type Ideal = (number, IdealBase) -> number
+local config = require '@lunette-plugins/scale/config'
 
-export type Settings = {
-  read tuning: Tuning,
-  read ideal: Ideal,
-}
-
-export type Config = {
-  read tuning: {
-    read reference: number?,
-    read raise: number?,
-    read lower: number?,
-    read nearest: number?,
-  }?,
-  read ideal: Ideal?,
-}
-
-local function ideal(distance: number, base: IdealBase): number
-  return base(distance)
-end
+export type IdealBase = config.IdealBase
+export type Ideal = config.Ideal
+export type Settings = config.Settings
+export type Config = config.Config
 
 local function validate(settings: Settings, name: string): ()
   local tuning = settings.tuning
@@ -67,17 +52,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'scale',
   capability = contract.capability,
-  defaults = {
-    tuning = {
-      -- Scale varies inversely with distance from this reference.
-      reference = 1.0,
-      -- The wider lower margin reduces scale oscillation near a rung.
-      raise = 0.06,
-      lower = 0.12,
-      nearest = 0.05,
-    },
-    ideal = ideal,
-  },
+  schema = config,
   validate = validate,
   build = build,
 }

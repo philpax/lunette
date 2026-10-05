@@ -3,25 +3,22 @@
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
 
-export type Options = {
-  read columns: number,
-  read gap: number,
-  read center: vector,
-}
+local schema = require '@lunette-plugin/schema'
 
-local DEFAULTS: Options = { columns = 0, gap = 0.08, center = vector.pack(0, 1.5, -1.8) }
+local descriptor = schema.object {
+  columns = schema.default(schema.number { minimum = 0, integer = true })(0),
+  gap = schema.default(schema.number())(0.08),
+  center = schema.default(schema.vector())(vector.pack(0, 1.5, -1.8)),
+}
+export type Config = schema.Input<typeof(descriptor)>
+export type Options = schema.Output<typeof(descriptor)>
+local optionsSchema = schema.default(descriptor)(descriptor.parse {})
 
 local function resolve(given: unknown): Options
-  local options: Options = plugin.options { name = 'grid', defaults = DEFAULTS, config = given }
-  local columns = options.columns
-  if columns < 0 or columns ~= math.floor(columns) then
-    error('plugin grid: option columns is a whole number of at least 0, not ' .. tostring(columns), 0)
-  end
-  plugin.checkVector('grid', 'center', options.center)
-  return options
+  return optionsSchema.parse(given, 'grid')
 end
 
-local function grid(panels: { layouts.Panel }, given: unknown?): ()
+local function grid(panels: { read [number]: layouts.Panel }, given: unknown?): ()
   local options = resolve(given)
   local count = #panels
   if count == 0 then
@@ -31,14 +28,16 @@ local function grid(panels: { layouts.Panel }, given: unknown?): ()
   local rows = math.ceil(count / columns)
   -- Every cell uses the largest panel dimensions to keep the grid aligned.
   local cellWidth, cellHeight = 0, 0
-  for _, panel in ipairs(panels) do
+  for index = 1, count do
+    local panel = panels[index]
     cellWidth = math.max(cellWidth, panel.width or 0)
     cellHeight = math.max(cellHeight, panel.height or 0)
   end
   cellWidth += options.gap
   cellHeight += options.gap
   local center = options.center
-  for index, panel in ipairs(panels) do
+  for index = 1, count do
+    local panel = panels[index]
     local column = (index - 1) % columns
     local row = (index - 1) // columns
     local offset = vector.pack((column - (columns - 1) / 2) * cellWidth, ((rows - 1) / 2 - row) * cellHeight, 0)
@@ -46,12 +45,17 @@ local function grid(panels: { layouts.Panel }, given: unknown?): ()
   end
 end
 
-return plugin.define {
+local consumerSchema = schema.object {}
+type ConsumerConfig = schema.Input<typeof(consumerSchema)>
+type ConsumerSettings = schema.Output<typeof(consumerSchema)>
+
+return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
   name = 'grid-layout',
   requires = { layouts = layouts.capability },
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+  schema = consumerSchema,
+  init = function(context: plugin.Context, _settings: ConsumerSettings)
     local service: layouts.Service = context:require(layouts.capability)
     -- The registration ends with the plugin activation.
     service:register(context, { name = 'grid', apply = grid })
   end,
-}
+}).definition

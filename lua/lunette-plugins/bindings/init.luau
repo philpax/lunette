@@ -25,9 +25,17 @@ local function fail(message: string): never
   error('bindings register: ' .. message, 0)
 end
 
+local function copyModifiers(modifiers: { read [number]: string }): { string }
+  local copied: { string } = {}
+  for index, modifier in modifiers do
+    copied[index] = modifier
+  end
+  return copied
+end
+
 -- Modifier order does not change chord identity.
-local function identity(key: string, modifiers: { string }): string
-  local sorted = table.clone(modifiers)
+local function identity(key: string, modifiers: { read [number]: string }): string
+  local sorted = copyModifiers(modifiers)
   table.sort(sorted, function(first: string, second: string): boolean
     return (KNOWN[first] or 0) < (KNOWN[second] or 0)
   end)
@@ -118,7 +126,8 @@ local function create(context: plugin.Context): contract.Service
     -- A matched binding consumes the press, including repeats and callback failures.
     dispatch = function(_self: contract.Service, press: contract.Press): boolean
       local held: { string } = {}
-      for _, name in ipairs(press.modifiers) do
+      for index = 1, #press.modifiers do
+        local name = press.modifiers[index]
         if KNOWN[name] and not table.find(held, name) then
           held[#held + 1] = name
         end
@@ -159,12 +168,15 @@ local function create(context: plugin.Context): contract.Service
   return service
 end
 
-export type Config = {}
-export type Settings = {}
+local config = require '@lunette-plugins/bindings/config'
+
+export type Config = config.Config
+export type Settings = config.Settings
 export type Service = contract.Service
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'bindings',
+  schema = config,
   capability = contract.capability,
   requires = { frame = frame.capability },
   build = create,

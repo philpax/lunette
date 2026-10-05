@@ -100,9 +100,10 @@ local function create(context: plugin.Context): contract.Service
         local known = if #names == 0 then 'none is registered' else 'the layouts are ' .. table.concat(names, ', ')
         error('layouts apply: no layout is registered as ' .. name .. '; ' .. known, 2)
       end
-      local given: { contract.Panel } = application.panels
+      local given: { read [number]: contract.Panel } = application.panels
       local panels: { contract.Panel } = {}
-      for _, panel in ipairs(given) do
+      for index = 1, #given do
+        local panel = given[index]
         if not panel.dead then
           panels[#panels + 1] = panel
         end
@@ -130,12 +131,15 @@ local function create(context: plugin.Context): contract.Service
   }
 end
 
-export type Config = {}
-export type Settings = {}
+local config = require '@lunette-plugins/layouts/config'
+
+export type Config = config.Config
+export type Settings = config.Settings
 export type Service = contract.Service
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'layouts',
+  schema = config,
   capability = contract.capability,
   build = create,
 }

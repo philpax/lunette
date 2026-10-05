@@ -1,9 +1,14 @@
 -- Delivers keys and text after binding handlers. Keyboard input continues when the bindings provider is unavailable.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local schema = require '@lunette-plugin/schema'
 local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local keys = require '@lunette-contracts/keys'
+
+local descriptor = schema.object {}
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
 
 local required: plugin.Declaration = {
   focus = focus.capability,
@@ -14,11 +19,11 @@ local function heldModifiers(): { string }
   return keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = false }
 end
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/input',
   requires = required,
-  init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
-    plugin.options { name = 'desktop/input', defaults = {}, config = config }
+  schema = descriptor,
+  init = function(context: plugin.Context, _settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local service: focus.Service = context:require(focus.capability)
     local function focused(): (lunette.Seat?, lunette.Sink?)
@@ -77,4 +82,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

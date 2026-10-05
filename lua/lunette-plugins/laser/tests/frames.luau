@@ -150,7 +150,7 @@ test('the readInput and draw hooks wrap the defaults for every laser, and button
 
   expect.raises(function()
     laser.define { buttons = { { control = 'pinch', button = 'left' } } }
-  end, 'controller button', 'a mapping is checked where it is written')
+  end, 'option buttons%[1%]%.control matches no alternative', 'a mapping is checked where it is written')
 end)
 
 test('the default reader maps the trigger to the left button', function()

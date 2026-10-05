@@ -111,7 +111,7 @@ test("a layout's own option error raises from apply", function()
   local env = start()
   expect.raises(function()
     env.layouts:apply { name = 'arc', panels = { moving(1) }, options = { radious = 1 } }
-  end, 'plugin layout/arc: unknown option radious', 'an unknown arc option')
+  end, 'plugin layout/arc: option radious is not a declared field', 'an unknown arc option')
   env.session:close()
 end)
 

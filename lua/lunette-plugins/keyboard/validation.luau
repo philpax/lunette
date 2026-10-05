@@ -6,10 +6,10 @@ local keyboard = require '@lunette-contracts/keyboard'
 local validation = {}
 
 export type Checked = {
-  read rows: { keyboard.KeyRow },
-  read layers: { [string]: { keyboard.KeyRow } },
-  read modifierKeys: { [number]: string },
-  read locks: { string },
+  read rows: { read [number]: keyboard.KeyRow },
+  read layers: { read [string]: { read [number]: keyboard.KeyRow } },
+  read modifierKeys: { read [number]: string },
+  read locks: { read [number]: string },
 }
 
 type Raw = { [unknown]: unknown }
@@ -166,8 +166,8 @@ function validation.settings(settings: Checked, name: string): ()
     end
     checkModifier(context, string.format('modifierKeys[%d]', code :: number), modifier)
   end
-  for index, modifier in ipairs(settings.locks) do
-    checkModifier(context, string.format('locks[%d]', index), modifier)
+  for index = 1, #settings.locks do
+    checkModifier(context, string.format('locks[%d]', index), settings.locks[index])
   end
 end
 

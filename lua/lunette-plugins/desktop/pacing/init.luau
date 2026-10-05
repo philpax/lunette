@@ -5,15 +5,10 @@ local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local pacing = require '@lunette-contracts/pacing'
 
-export type Config = {
-  read pauseMonitors: boolean?,
-}
+local config = require '@lunette-plugins/desktop/pacing/config'
 
-export type Settings = {
-  read pauseMonitors: boolean,
-}
-
-local DEFAULTS: Settings = { pauseMonitors = true }
+export type Config = config.Config
+export type Settings = config.Settings
 
 type Paced = {
   window: lunette.Window,
@@ -31,7 +26,7 @@ local required: plugin.Declaration = {
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/pacing',
   requires = required,
-  defaults = DEFAULTS,
+  schema = config.schema,
   init = function(context: plugin.Context, settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)

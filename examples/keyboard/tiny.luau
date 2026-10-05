@@ -4,6 +4,11 @@ local keyboard = require '@lunette-contracts/keyboard'
 local focusContract = require '@lunette-contracts/focus'
 local quad = require '@lunette-contracts/quad'
 local keys = require '@lunette-contracts/keys'
+local schema = require '@lunette-plugin/schema'
+
+local descriptor = schema.object {}
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
 
 local CODES = { keys.CODES.y, keys.CODES.n, keys.CODES.enter }
 local KEY = 0.05
@@ -93,13 +98,14 @@ local function make(focus: focusContract.Service, options: keyboard.Options?): k
   return board
 end
 
-return plugin.define {
+return plugin.provider<<Config, Settings, keyboard.Service>>({
   name = 'tiny-keyboard',
   requires = { focus = focusContract.capability },
-  provides = { keyboard = keyboard.capability },
-  init = function(context: plugin.Context, _config: {}, publish: plugin.Publisher)
+  capability = keyboard.capability,
+  schema = descriptor,
+  build = function(context: plugin.Context, _settings: Settings): keyboard.Service
     local focus: focusContract.Service = context:require(focusContract.capability)
-    publish:provide(keyboard.capability, {
+    return {
       new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
         local board = context:resource(owner, function()
           local created = make(focus, options)
@@ -109,6 +115,6 @@ return plugin.define {
         end)
         return board
       end,
-    })
+    }
   end,
-}
+}).definition

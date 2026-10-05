@@ -4,28 +4,17 @@ local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'
 local logging = require '@lunette-plugins/desktop/logging'
 
-export type Config = {
-  read reload: {
-    read key: KeyCode?,
-    read modifiers: { string }?,
-  }?,
-}
+local config = require '@lunette-plugins/desktop/bindings/config'
 
-export type Settings = {
-  read reload: {
-    read key: KeyCode,
-    read modifiers: { string },
-  },
-}
-
-local DEFAULTS: Settings = { reload = { key = 'f5', modifiers = {} } }
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = { bindings = bindings.capability }
 
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/bindings',
   requires = required,
-  defaults = DEFAULTS,
+  schema = config.schema,
   init = function(context: plugin.Context, settings: Settings): ()
     local service: bindings.Service = context:require(bindings.capability)
     service:register(context, {

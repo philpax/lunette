@@ -20,26 +20,11 @@ export type Format = state.Format
 export type KeyFor = state.KeyFor
 export type Identified = state.Identified
 
-export type Config = {
-  read file: string?,
-  read format: {
-    read read: ((unknown) -> state.Loaded)?,
-    read render: ((state.File) -> string)?,
-  }?,
-  read keyFor: state.KeyFor?,
-}
+local config = require '@lunette-plugins/arrangement/config'
+local configured = require '@lunette-plugin/configured'
 
-export type Settings = {
-  read file: string,
-  read format: state.Format,
-  read keyFor: state.KeyFor,
-}
-
-local DEFAULTS: Settings = {
-  file = state.FILE,
-  format = state.FORMAT,
-  keyFor = slots.defaultKey,
-}
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = {
   drops = drops.capability,
@@ -72,12 +57,12 @@ local function define(): plugin.Definition<Config>
     made, madeWith = fresh, settings
     return fresh
   end
-  return plugin.define {
+  return configured.create<<Config, Settings>>({
     name = 'desktop/persistence',
+    schema = config,
     requires = required,
     provides = { arrangement = arrangementContract.capability },
-    init = function(context: plugin.Context, config: Config, publish: plugin.Publisher): ()
-      local settings: Settings = plugin.options { name = 'desktop/persistence', defaults = DEFAULTS, config = config }
+    init = function(context: plugin.Context, settings: Settings, publish: plugin.Publisher): ()
       local frameService: frame.Service = context:require(frame.capability)
       local binding = stateFor(settings):bind(
         context,
@@ -127,7 +112,7 @@ local function define(): plugin.Definition<Config>
       }
       publish:provide(arrangementContract.capability, service)
     end,
-  }
+  }).definition
 end
 
 arrangement.factory = define

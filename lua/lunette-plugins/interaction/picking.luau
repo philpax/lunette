@@ -30,7 +30,7 @@ end
 -- coordinates and distance, or nothing. The direction need not be unit
 -- length; a zero direction hits nothing.
 function picking.pick(
-  surfaces: { Surface },
+  surfaces: { read [number]: Surface },
   origin: vector,
   direction: vector,
   reach: number
@@ -41,7 +41,8 @@ function picking.pick(
   end
   local ray = direction * (1 / length)
   local hit: Surface?, x: number?, y: number?, distance: number?
-  for _, candidate in ipairs(surfaces) do
+  for index = 1, #surfaces do
+    local candidate = surfaces[index]
     if not candidate.dead then
       local cx, cy, cd = candidate:raycast(origin, ray)
       if cx and cy and cd and cd <= reach and (not distance or cd < distance) then

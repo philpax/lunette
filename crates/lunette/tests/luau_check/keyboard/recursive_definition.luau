@@ -2,9 +2,12 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
-local provider: plugin.Definition<{}> = require('@lunette-plugins/keyboard').definition
-local panelsProvider: plugin.Definition<{}> = require('@lunette-plugins/panels').definition
-local interactionProvider: plugin.Definition<{}> = require('@lunette-plugins/interaction').definition
+local keyboardProvider = require '@lunette-plugins/keyboard'
+local panelProvider = require '@lunette-plugins/panels'
+local pointerProvider = require '@lunette-plugins/interaction'
+local provider: plugin.Definition<keyboardProvider.Config> = keyboardProvider.definition
+local panelsProvider: plugin.Definition<panelProvider.Config> = panelProvider.definition
+local interactionProvider: plugin.Definition<pointerProvider.Config> = pointerProvider.definition
 
 local required: { read interaction: interaction.Capability, read panels: panels.Capability } = {
   interaction = interaction.capability,

@@ -121,8 +121,11 @@ end)
 
 test('a malformed workspace list fails the consumer and names the option', function()
   for _, case in ipairs {
-    { config = { workspaces = {} }, message = 'option workspaces names at least one workspace' },
-    { config = { workspaces = { { name = 'a', key = '1' }, { name = 'a', key = '2' } } }, message = 'names a twice' },
+    { config = { workspaces = {} }, message = 'option workspaces has fewer than 1 entries' },
+    {
+      config = { workspaces = { { name = 'a', key = '1' }, { name = 'a', key = '2' } } },
+      message = 'workspace name a occurs twice',
+    },
   } do
     local env = start(case.config)
     local instance = env.session.instances['desktop/workspaces']

@@ -4,13 +4,16 @@ local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
 local geometry = require '@lunette-plugins/layout/arc/geometry'
 
-export type Options = {
-  read distance: number,
-  read threshold: number,
-  read speed: number,
-}
+local schema = require '@lunette-plugin/schema'
 
-local DEFAULTS: Options = { distance = 1.4, threshold = 0.6, speed = 4 }
+local descriptor = schema.object {
+  distance = schema.default(schema.number())(1.4),
+  threshold = schema.default(schema.number())(0.6),
+  speed = schema.default(schema.number())(4),
+}
+export type Config = schema.Input<typeof(descriptor)>
+export type Options = schema.Output<typeof(descriptor)>
+local optionsSchema = schema.default(descriptor)(descriptor.parse {})
 
 -- Rotation stops within this angular tolerance.
 local SETTLED = 0.02
@@ -19,12 +22,12 @@ local function turn(from: number, to: number): number
   return (to - from + math.pi) % (2 * math.pi) - math.pi
 end
 
-local function follow(): ({ layouts.Panel }, unknown?) -> ()
+local function follow(): ({ read [number]: layouts.Panel }, unknown?) -> ()
   -- Each registration keeps an independent heading and turn state.
   local heading: number? = nil
   local turning = false
-  return function(panels: { layouts.Panel }, given: unknown?): ()
-    local options: Options = plugin.options { name = 'follow', defaults = DEFAULTS, config = given }
+  return function(panels: { read [number]: layouts.Panel }, given: unknown?): ()
+    local options = optionsSchema.parse(given, 'follow')
     local x, y, z = lovr.headset.getPosition 'head'
     local dx, _, dz = lovr.headset.getDirection 'head'
     local facing = math.atan2(-dx, -dz)
@@ -42,7 +45,8 @@ local function follow(): ({ layouts.Panel }, unknown?) -> ()
     end
     heading = current
     local widths: { number } = {}
-    for index, panel in ipairs(panels) do
+    for index = 1, #panels do
+      local panel = panels[index]
       widths[index] = panel.width or 0
     end
     local angles = geometry.angles(widths, {
@@ -63,11 +67,16 @@ local function follow(): ({ layouts.Panel }, unknown?) -> ()
   end
 end
 
-return plugin.define {
+local consumerSchema = schema.object {}
+type ConsumerConfig = schema.Input<typeof(consumerSchema)>
+type ConsumerSettings = schema.Output<typeof(consumerSchema)>
+
+return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
   name = 'follow-layout',
   requires = { layouts = layouts.capability },
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+  schema = consumerSchema,
+  init = function(context: plugin.Context, _settings: ConsumerSettings)
     local service: layouts.Service = context:require(layouts.capability)
     service:register(context, { name = 'follow', apply = follow(), continuous = true })
   end,
-}
+}).definition

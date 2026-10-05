@@ -6,54 +6,12 @@ local quad = require '@lunette-contracts/quad'
 local surface = require '@lunette-contracts/surface'
 local surfaces = require '@lunette-contracts/surfaces'
 
-export type Color = { number }
+local config = require '@lunette-plugins/desktop/decorations/config'
 
-export type Style = {
-  read barHeight: number,
-  read margin: number,
-  read barColor: Color,
-  read barHighlightColor: Color,
-  read borderThickness: number,
-  read borderDepth: number,
-  read borderColor: Color,
-  read borderHighlightColor: Color,
-  read titleHeight: number,
-  read titleColor: Color,
-}
-
-export type Config = {
-  read style: {
-    read barHeight: number?,
-    read margin: number?,
-    read barColor: Color?,
-    read barHighlightColor: Color?,
-    read borderThickness: number?,
-    read borderDepth: number?,
-    read borderColor: Color?,
-    read borderHighlightColor: Color?,
-    read titleHeight: number?,
-    read titleColor: Color?,
-  }?,
-}
-
-export type Settings = {
-  read style: Style,
-}
-
-local DEFAULTS: Settings = {
-  style = {
-    barHeight = 0.05,
-    margin = 0.01,
-    barColor = { 0.14, 0.14, 0.17, 0.95 },
-    barHighlightColor = { 0.35, 0.55, 0.95, 0.95 },
-    borderThickness = 0.008,
-    borderDepth = 0.001,
-    borderColor = { 0.14, 0.14, 0.17, 0.95 },
-    borderHighlightColor = { 0.35, 0.55, 0.95, 0.95 },
-    titleHeight = 0.025,
-    titleColor = { 1, 1, 1, 1 },
-  },
-}
+export type Color = config.Color
+export type Style = config.Style
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = {
   frame = frame.capability,
@@ -68,18 +26,6 @@ type Decoration = {
   highlighted: boolean,
 }
 
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/decorations', defaults = DEFAULTS, config = config }
-  local style = settings.style
-  for _, name in ipairs { 'barHeight', 'titleHeight' } do
-    local value = (style :: any)[name] :: number
-    if not (value > 0) then
-      error('plugin desktop/decorations: option style.' .. name .. ' is a positive number, not ' .. value, 0)
-    end
-  end
-  return settings
-end
-
 local function setColor(pass: Pass, color: Color): ()
   pass:setColor(color[1], color[2], color[3], color[4])
 end
@@ -88,11 +34,12 @@ local function decorated(panel: panels.Panel): boolean
   return not panel.dead and not panel.hidden and not panel.chrome
 end
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/decorations',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local style = resolve(config).style
+  schema = config.schema,
+  init = function(context: plugin.Context, settings: Settings): ()
+    local style = settings.style
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)
     local surfaceService: surfaces.Service = context:require(surfaces.capability)
@@ -250,4 +197,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

@@ -1,9 +1,14 @@
 -- Each output uses its nearest shown window panel. On unload, the consumer restores the original scale when no other consumer changed it.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local schema = require '@lunette-plugin/schema'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local scale = require '@lunette-contracts/scale'
+
+local descriptor = schema.object {}
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
 
 type Scaled = {
   output: lunette.Output,
@@ -31,11 +36,11 @@ local function headPosition(): (number?, number?, number?)
   return headset.getPosition 'head'
 end
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/scale',
   requires = required,
-  init = function(context: plugin.Context, config: {}, _publish: plugin.Publisher): ()
-    plugin.options { name = 'desktop/scale', defaults = {}, config = config }
+  schema = descriptor,
+  init = function(context: plugin.Context, _settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)
     local scaleService: scale.Service = context:require(scale.capability)
@@ -108,4 +113,4 @@ return plugin.define {
       end
     end)
   end,
-}
+}).definition

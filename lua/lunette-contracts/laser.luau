@@ -15,7 +15,7 @@ export type Hand = 'left' | 'right'
 export type Device = 'hand/left/point' | 'hand/right/point' | 'hand/left' | 'hand/right'
 export type Input = interaction.Input
 export type Surface = surface.Surface
-export type Color = { number }
+export type Color = { read [number]: number }
 
 export type Style = {
   read length: number,
@@ -26,12 +26,21 @@ export type Style = {
   read hapticDuration: number,
 }
 
+export type StyleOverride = {
+  read length: number?,
+  read color: Color?,
+  read hoverColor: Color?,
+  read cursorRadius: number?,
+  read hapticStrength: number?,
+  read hapticDuration: number?,
+}
+
 export type Options = {
   read seat: lunette.Seat?,
   read name: string?,
   read readInput: ((Hand) -> Input?)?,
-  read tuning: interaction.Tuning?,
-  read style: Style?,
+  read tuning: interaction.TuningOverride?,
+  read style: StyleOverride?,
 }
 
 export type Laser = {
@@ -45,7 +54,7 @@ export type Laser = {
   read style: Style,
   read input: Input?,
   read dead: boolean,
-  read update: (Laser, { Surface }) -> (),
+  read update: (Laser, { read [number]: Surface }) -> (),
   read draw: (Laser, Pass) -> (),
   read vibrate: (Laser) -> boolean,
   read destroy: (Laser) -> boolean,
@@ -58,7 +67,7 @@ export type Service = {
   read attach: (Service, Owner, Options?) -> { Laser },
   read forHand: (Service, Hand) -> Laser?,
   read all: (Service) -> { Laser },
-  read update: (Service, { Surface }) -> (),
+  read update: (Service, { read [number]: Surface }) -> (),
   read draw: (Service, Pass) -> (),
 }
 

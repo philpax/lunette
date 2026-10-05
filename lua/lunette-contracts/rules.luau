@@ -12,7 +12,7 @@ export type Owner = owner.Owner
 export type Tag = tags.Tag
 
 export type Valued<T> = T | ((lunette.Window, string) -> T)
-export type Evaluators = { [string]: (lunette.Window, string) -> unknown }
+export type Evaluators = { read [string]: (lunette.Window, string) -> unknown }
 
 export type Properties = {
   read pose: Valued<string | Mat4>?,
@@ -79,7 +79,7 @@ export type SourceRegistration = {
 export type RuleSet = {
   read name: string?,
   read precedence: number?,
-  read rules: { Rule },
+  read rules: { read [number]: Rule },
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
@@ -95,7 +95,7 @@ export type Service = {
   read report: (Service, Report) -> (),
   read addSource: (Service, Owner, SourceRegistration) -> plugin.Effect,
   read sources: (Service) -> { Source },
-  read fromList: (Service, { Rule }) -> (lunette.Window) -> Properties?,
+  read fromList: (Service, { read [number]: Rule }) -> (lunette.Window) -> Properties?,
   read setRules: (Service, Owner, RuleSet) -> plugin.Effect,
   read matches: (Service, Match?, lunette.Window) -> boolean,
   read resolve: (Service, lunette.Window) -> Resolved,

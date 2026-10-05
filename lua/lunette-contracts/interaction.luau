@@ -13,6 +13,17 @@ local interaction = {}
 
 export type Owner = owner.Owner
 export type Tuning = vocabulary.Tuning
+export type TuningOverride = {
+  read reach: number?,
+  read grabDeadZone: number?,
+  read scrollScale: number?,
+  read scrollDeadZone: number?,
+  read reachScale: number?,
+  read reachMinimum: number?,
+  read reachMaximum: number?,
+  read resizeMinimum: number?,
+  read resizeMaximum: number?,
+}
 export type Input = vocabulary.Input
 export type Surface = vocabulary.Surface
 export type Pointer = vocabulary.Pointer
@@ -24,7 +35,7 @@ export type Haptic = vocabulary.Haptic
 -- What newPointer takes. `vibrate` is what Pointer:vibrate calls; a pointer made without one answers false.
 export type PointerOptions = {
   read seat: lunette.Seat?,
-  read tuning: Tuning?,
+  read tuning: TuningOverride?,
   read vibrate: ((Haptic) -> boolean)?,
 }
 

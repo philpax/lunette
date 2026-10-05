@@ -3,21 +3,17 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local errors = require '@lunette-contracts/errors'
 
-export type Config = {
-  read program: string?,
-}
+local schema = require '@lunette-plugin/schema'
 
-type Settings = {
-  read program: string,
-}
+local descriptor = schema.object { program = schema.default(schema.string()) 'notify-send' }
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
 
-local DEFAULTS: Settings = { program = 'notify-send' }
-
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'notify-errors',
   requires = { errors = errors.capability },
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher)
-    local settings: Settings = plugin.options { name = 'notify-errors', defaults = DEFAULTS, config = config }
+  schema = descriptor,
+  init = function(context: plugin.Context, settings: Settings)
     local stream: errors.Service = context:require(errors.capability)
     local failed = false
     context:on {
@@ -42,4 +38,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

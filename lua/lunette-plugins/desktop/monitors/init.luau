@@ -4,56 +4,17 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 
-export type Config = {
-  read select: { string }?,
-  read placement: {
-    read center: vector?,
-    read width: number?,
-    read gap: number?,
-  }?,
-  read tags: { string }?,
-}
+local config = require '@lunette-plugins/desktop/monitors/config'
+local schema = require '@lunette-plugin/schema'
 
-export type Settings = {
-  read select: { string },
-  read placement: {
-    read center: vector,
-    read width: number,
-    read gap: number,
-  },
-  read tags: { string },
-}
+local childSchema = schema.object {}
+type ChildConfig = schema.Input<typeof(childSchema)>
+type ChildSettings = schema.Output<typeof(childSchema)>
 
-local DEFAULTS: Settings = {
-  select = {},
-  placement = { center = vector.pack(0, 1.5, -2), width = 2, gap = 0.1 },
-  tags = {},
-}
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = { panels = panels.capability }
-
-local function checkNames(option: string, names: { string }): ()
-  for index, name in ipairs(names) do
-    if type(name) ~= 'string' or name == '' then
-      error(string.format('plugin desktop/monitors: option %s[%d] is a non-empty name', option, index), 0)
-    end
-  end
-end
-
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/monitors', defaults = DEFAULTS, config = config }
-  checkNames('select', settings.select)
-  checkNames('tags', settings.tags)
-  local placement = settings.placement
-  plugin.checkVector('desktop/monitors', 'placement.center', placement.center)
-  if not (placement.width > 0) then
-    error('plugin desktop/monitors: option placement.width is a positive number, not ' .. placement.width, 0)
-  end
-  if not (placement.gap >= 0) then
-    error('plugin desktop/monitors: option placement.gap is zero or more, not ' .. placement.gap, 0)
-  end
-  return settings
-end
 
 -- Places alternate outward from the center, beginning to the right.
 local function offsetOf(place: number): number
@@ -68,26 +29,35 @@ type Shared = {
   tag: ((panels.MonitorPanel) -> ())?,
 }
 
-local function tagging(shared: Shared, names: { string }): plugin.Definition<{}>
-  return plugin.define {
+local function tagging(shared: Shared, names: { read [number]: string }): plugin.Definition<ChildConfig>
+  return plugin.consumer<<ChildConfig, ChildSettings>>({
     name = 'desktop/monitors/tags',
     requires = { tags = tags.capability },
-    init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+    schema = childSchema,
+    init = function(context: plugin.Context, _settings: ChildSettings): ()
       local tagService: tags.Service = context:require(tags.capability)
       local function tag(mirror: panels.MonitorPanel): ()
         if mirror.dead then
           return
         end
-        for _, name in ipairs(names) do
+        for _, name in names do
           local found = tagService:find(name)
           if found then
             found:add(context, mirror)
           end
         end
       end
+      local function selected(name: string): boolean
+        for _, candidate in names do
+          if candidate == name then
+            return true
+          end
+        end
+        return false
+      end
       tagService:onChanged(context, {
         run = function(change: tags.Change): ()
-          if change.kind == 'created' and table.find(names, change.tag.name) then
+          if change.kind == 'created' and selected(change.tag.name) then
             for _, mirror in pairs(shared.mirrors) do
               if not mirror.dead then
                 change.tag:add(context, mirror)
@@ -108,20 +78,20 @@ local function tagging(shared: Shared, names: { string }): plugin.Definition<{}>
         tag(mirror)
       end
     end,
-  }
+  }).definition
 end
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/monitors',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings = resolve(config)
+  schema = config.schema,
+  init = function(context: plugin.Context, settings: Settings): ()
     local panelService: panels.Service = context:require(panels.capability)
     local placement = settings.placement
     local selected: { [string]: boolean }? = nil
     if #settings.select > 0 then
       local names: { [string]: boolean } = {}
-      for _, name in ipairs(settings.select) do
+      for _, name in settings.select do
         names[name] = true
       end
       selected = names
@@ -216,4 +186,4 @@ return plugin.define {
       mirror(monitor)
     end
   end,
-}
+}).definition

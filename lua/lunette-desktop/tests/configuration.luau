@@ -26,9 +26,17 @@ test('every entry rejects an option it does not take, naming itself and the opti
   for _, entry in ipairs(desktop.entries()) do
     local diagnostic = rejection { id = entry.id, config = { bogus = 1 } }
     expect.truthy(
-      diagnostic:find('plugin ' .. entry.id .. ': unknown option bogus', 1, true),
+      diagnostic:find('plugin ' .. entry.id .. ': option bogus is not a declared field', 1, true),
       entry.id .. ': ' .. diagnostic
     )
+  end
+end)
+
+test('pointing rejects hand selection and a shared seat rather than changing its two-hand attachment', function()
+  for key, value in pairs { hand = 'right', seat = {} } do
+    local diagnostic = rejection { id = 'desktop/pointing', config = { laser = { [key] = value } } }
+    local message = 'plugin desktop/pointing: option laser.' .. key .. ' is not a declared field'
+    expect.truthy(diagnostic:find(message, 1, true), diagnostic)
   end
 end)
 
@@ -44,11 +52,11 @@ test('an option of the wrong type is rejected with its path and what it should b
     },
     {
       patch = { id = 'desktop/monitors', config = { placement = { center = vector.pack(0, math.huge, -2) } } },
-      message = 'plugin desktop/monitors: option placement.center.y is a finite number, not inf',
+      message = 'plugin desktop/monitors: option placement.center.y is not a finite number',
     },
     {
       patch = { id = 'desktop/errors', config = { background = { 1, 0, 0, 1, extra = true } } },
-      message = 'plugin desktop/errors: option background is a list of four numbers, and extra is not one of its positions',
+      message = 'plugin desktop/errors: option background.extra is not a positive integer array index',
     },
   } do
     local diagnostic = rejection(case.patch)
@@ -73,7 +81,7 @@ test('geometric desktop options reject lists and non-finite vector components', 
     { id = 'desktop/keyboard', config = { offset = vector.pack(0, math.huge, 0) }, option = 'offset.y' },
   } do
     local diagnostic = rejection { id = case.id, config = case.config }
-    local message = 'plugin ' .. case.id .. ': option ' .. case.option .. ' is a finite number'
+    local message = 'plugin ' .. case.id .. ': option ' .. case.option .. ' is not a finite number'
     expect.truthy(diagnostic:find(message, 1, true), diagnostic)
   end
 end)
@@ -101,9 +109,12 @@ test('a configured desktop serves what its patches configured, over the defaults
   local session = testing.boot(desktop.compose {
     patches = {
       { id = 'panels', config = { height = 1.2, style = { borderThickness = 0.02 } } },
-      { id = 'interaction', config = { tuning = { reach = 0.5 } } },
+      { id = 'interaction', config = { tuning = { reach = 0.5, scrollScale = 7 } } },
       { id = 'laser', config = { style = { length = 2.5 } } },
-      { id = 'desktop/pointing', config = { laser = { style = { color = { 0.9, 0.9, 0.9, 1 } } } } },
+      {
+        id = 'desktop/pointing',
+        config = { laser = { style = { color = { 0.9, 0.9, 0.9, 1 } }, tuning = { reach = 0.75 } } },
+      },
       { id = 'rules', config = { precedence = 150 } },
       { id = 'adoption', config = { precedence = 350 } },
       { id = 'desktop/errors', config = { columns = 10 } },
@@ -134,9 +145,13 @@ test('a configured desktop serves what its patches configured, over the defaults
   expect.equal(pointer.hovered, nil, 'the reach limits picking')
   pointer:destroy()
 
-  local left = assert(services.laser:forHand 'left')
-  expect.equal(left.style.length, 2.5, 'the configured laser length')
-  expect.equal(left.style.color[1], 0.9, 'desktop/pointing attaches with its laser options')
+  for _, hand in ipairs { 'left', 'right' } do
+    local beam = assert(services.laser:forHand(hand))
+    expect.equal(beam.style.length, 2.5, hand .. ' keeps the configured provider laser length')
+    expect.equal(beam.style.color[1], 0.9, hand .. ' takes the pointing colour override')
+    expect.equal(beam.pointer.tuning.reach, 0.75, hand .. ' takes the pointing reach override')
+    expect.equal(beam.pointer.tuning.scrollScale, 7, hand .. ' keeps the configured provider scroll scale')
+  end
 
   services.rules:setRules(owner, { name = 'probe', rules = {} })
   local precedences = {}

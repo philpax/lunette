@@ -3,39 +3,21 @@ local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 
-export type Config = {
-  read text: string?,
-  read position: vector?,
-  read size: number?,
-}
+local config = require '@lunette-plugins/desktop/hint/config'
 
-export type Settings = {
-  read text: string,
-  read position: vector,
-  read size: number,
-}
-
-local DEFAULTS: Settings = { text = 'lunette: no windows yet', position = vector.pack(0, 1.5, -1.5), size = 0.08 }
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = {
   frame = frame.capability,
   panels = panels.capability,
 }
 
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/hint', defaults = DEFAULTS, config = config }
-  plugin.checkVector('desktop/hint', 'position', settings.position)
-  if not (settings.size > 0) then
-    error('plugin desktop/hint: option size is a positive number, not ' .. settings.size, 0)
-  end
-  return settings
-end
-
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/hint',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings = resolve(config)
+  schema = config.schema,
+  init = function(context: plugin.Context, settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)
     local position = settings.position
@@ -49,4 +31,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

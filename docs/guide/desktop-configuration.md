@@ -27,7 +27,7 @@ desktop.run {
 }
 ```
 
-Each section reuses the corresponding plugin module's exported `Config` type. The checker rejects a wrong value such as `wristKeyboard = { hand = 'rigth' }`. Each plugin validates its own options during initialization. A malformed plugin option fails that instance without joining the lifetimes of other entries. Unknown settings sections fail composition before LÖVR callbacks are bound.
+Each section reuses the corresponding plugin module's exported `Config` type. The checker rejects a wrong value such as `wristKeyboard = { hand = 'rigth' }`. `desktop.compose` parses the declared settings and expands them into entry patches before activation, so an invalid settings value aborts composition. When `plugin.start` or the native runtime starts definitions directly, configuration validation occurs as each instance activates; an invalid value fails that instance without aborting other entries. Unknown settings sections fail composition before LÖVR callbacks are bound.
 
 | Settings section | Entry id |
 |---|---|
@@ -47,7 +47,7 @@ Each section reuses the corresponding plugin module's exported `Config` type. Th
 
 The `wristKeyboard` section configures the wrist button and keyboard placement. It does not configure the `keyboard` service provider. A raw patch can replace that provider while settings configure its consumer, as in `examples/keyboard/main.luau`.
 
-Settings merge records recursively with the entry's existing configuration. Lists and other values replace them. Composition copies and freezes the resulting entries and plain configuration tables without changing the caller's tables. A setting and a raw patch cannot name the same entry, even when the patch only disables or replaces it. Composition reports both sources. One combined raw patch supplies the configuration when replacing that entry's definition.
+Settings follow the entry's configuration descriptor. Declared objects merge recursively with the entry's existing configuration. Arrays, maps, unions, and atomic values replace; an empty map clears its previous keys. Composition copies and freezes descriptor-declared object and collection containers. Callback and custom values retain their exact references, and non-plain native values such as vectors retain their values. For a factory entry, composition retains configuration layers until the factory supplies a definition. The definition's descriptor then determines merging and copying; instance activation performs validation. A setting and a raw patch cannot name the same entry, even when the patch only disables or replaces it. Composition reports both sources. One combined raw patch supplies the configuration when replacing that entry's definition.
 
 ## Workspaces
 

@@ -3,10 +3,17 @@ local plugin = require '@lunette-plugin'
 local arrangement = require '@lunette-contracts/arrangement'
 local bindings = require '@lunette-contracts/bindings'
 
-return plugin.define {
+local schema = require '@lunette-plugin/schema'
+
+local descriptor = schema.object {}
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
+
+return plugin.consumer<<Config, Settings>>({
   name = 'save-key',
   requires = { arrangement = arrangement.capability, bindings = bindings.capability },
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+  schema = descriptor,
+  init = function(context: plugin.Context, _settings: Settings)
     local saved: arrangement.Service = context:require(arrangement.capability)
     local keys: bindings.Service = context:require(bindings.capability)
     keys:register(context, {
@@ -26,4 +33,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

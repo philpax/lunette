@@ -12,14 +12,14 @@ export type Owner = owner.Owner
 
 export type Chord = {
   read key: KeyCode,
-  read modifiers: { string }?,
+  read modifiers: { read [number]: string }?,
 }
 
 -- A press as the dispatcher reads it: the key, every modifier held, and
 -- whether it is a repeat.
 export type Press = {
   read key: KeyCode,
-  read modifiers: { string },
+  read modifiers: { read [number]: string },
   read isRepeat: boolean,
 }
 

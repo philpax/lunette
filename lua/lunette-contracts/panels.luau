@@ -29,11 +29,11 @@ export type Visibility = {
 export type Style = {
   read borderThickness: number,
   read borderDepth: number,
-  read borderColor: { number },
-  read borderHighlightColor: { number },
+  read borderColor: { read [number]: number },
+  read borderHighlightColor: { read [number]: number },
   read titleHeight: number,
   read titleMargin: number,
-  read titleColor: { number },
+  read titleColor: { read [number]: number },
 }
 
 type PanelFields = {

@@ -3,10 +3,17 @@ local plugin = require '@lunette-plugin'
 local bindings = require '@lunette-contracts/bindings'
 local panels = require '@lunette-contracts/panels'
 
-return plugin.define {
+local schema = require '@lunette-plugin/schema'
+
+local descriptor = schema.object {}
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
+
+return plugin.consumer<<Config, Settings>>({
   name = 'hide-windows',
   requires = { bindings = bindings.capability, panels = panels.capability },
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
+  schema = descriptor,
+  init = function(context: plugin.Context, _settings: Settings)
     local keys: bindings.Service = context:require(bindings.capability)
     local panelService: panels.Service = context:require(panels.capability)
     local overrides: { plugin.Effect } = {}
@@ -28,4 +35,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

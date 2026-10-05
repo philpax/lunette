@@ -47,7 +47,7 @@ input.CONTROLS = table.freeze {
 
 -- Reads one frame of a hand from the headset, or nothing while the hand is
 -- not tracked. Each mapping whose control is down holds its pointer button.
-function input.fromHeadset(hand: Hand, headset: HeadsetModule, mappings: { Mapping }): Input?
+function input.fromHeadset(hand: Hand, headset: HeadsetModule, mappings: { read [number]: Mapping }): Input?
   local device = devices[hand]
   if not headset.isTracked(device) then
     return nil
@@ -55,7 +55,8 @@ function input.fromHeadset(hand: Hand, headset: HeadsetModule, mappings: { Mappi
 
   local controller = controllers[hand]
   local buttons: { [lunette.PointerButton]: boolean } = {}
-  for _, mapping in ipairs(mappings) do
+  for index = 1, #mappings do
+    local mapping = mappings[index]
     if headset.isDown(controller, mapping.control) then
       buttons[mapping.button] = true
     end

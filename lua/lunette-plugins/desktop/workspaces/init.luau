@@ -5,33 +5,16 @@ local panels = require '@lunette-contracts/panels'
 local placement = require '@lunette-contracts/placement'
 local tags = require '@lunette-contracts/tags'
 
-export type Workspace = {
-  read name: string,
-  read key: KeyCode,
-}
+local config = require '@lunette-plugins/desktop/workspaces/config'
+local schema = require '@lunette-plugin/schema'
 
-export type Config = {
-  read workspaces: { Workspace }?,
-  read modifiers: { string }?,
-  read follow: boolean?,
-}
+local childSchema = schema.object {}
+type ChildConfig = schema.Input<typeof(childSchema)>
+type ChildSettings = schema.Output<typeof(childSchema)>
 
-export type Settings = {
-  read workspaces: { Workspace },
-  read modifiers: { string },
-  read follow: boolean,
-}
-
-local DEFAULTS: Settings = {
-  workspaces = {
-    { name = 'main', key = '1' },
-    { name = 'two', key = '2' },
-    { name = 'three', key = '3' },
-    { name = 'four', key = '4' },
-  },
-  modifiers = { 'logo' },
-  follow = true,
-}
+export type Workspace = config.Workspace
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = {
   panels = panels.capability,
@@ -39,44 +22,15 @@ local required: plugin.Declaration = {
   tags = tags.capability,
 }
 
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/workspaces', defaults = DEFAULTS, config = config }
-  if #settings.workspaces == 0 then
-    error('plugin desktop/workspaces: option workspaces names at least one workspace', 0)
-  end
-  local seen: { [string]: boolean } = {}
-  for index, workspace in ipairs(settings.workspaces) do
-    local where = string.format('plugin desktop/workspaces: option workspaces[%d]', index)
-    if type(workspace) ~= 'table' then
-      error(where .. ' is a table of name and key', 0)
-    end
-    for key, _ in workspace :: { [unknown]: unknown } do
-      if key ~= 'name' and key ~= 'key' then
-        error(where .. ' has an unknown field ' .. tostring(key) .. '; the fields are name and key', 0)
-      end
-    end
-    if type(workspace.name) ~= 'string' or workspace.name == '' then
-      error(where .. '.name is a non-empty tag name', 0)
-    end
-    if seen[workspace.name] then
-      error(where .. '.name names ' .. workspace.name .. ' twice', 0)
-    end
-    seen[workspace.name] = true
-    if type(workspace.key) ~= 'string' or workspace.key == '' then
-      error(where .. '.key is a key name', 0)
-    end
-  end
-  return settings
-end
-
 -- Key bindings run as a child so a bindings outage does not change workspace selection.
-local function chords(settings: Settings, switch: (number) -> ()): plugin.Definition<{}>
-  return plugin.define {
+local function chords(settings: Settings, switch: (number) -> ()): plugin.Definition<ChildConfig>
+  return plugin.consumer<<ChildConfig, ChildSettings>>({
     name = 'desktop/workspaces/chords',
     requires = { bindings = bindings.capability },
-    init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
+    schema = childSchema,
+    init = function(context: plugin.Context, _settings: ChildSettings): ()
       local service: bindings.Service = context:require(bindings.capability)
-      for index, workspace in ipairs(settings.workspaces) do
+      for index, workspace in settings.workspaces do
         service:register(context, {
           chord = { key = workspace.key, modifiers = settings.modifiers },
           run = function(_press: bindings.Press): ()
@@ -85,21 +39,21 @@ local function chords(settings: Settings, switch: (number) -> ()): plugin.Defini
         })
       end
     end,
-  }
+  }).definition
 end
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/workspaces',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings = resolve(config)
+  schema = config.schema,
+  init = function(context: plugin.Context, settings: Settings): ()
     local panelService: panels.Service = context:require(panels.capability)
     local placementService: placement.Service = context:require(placement.capability)
     local tagService: tags.Service = context:require(tags.capability)
 
     local held: { tags.Tag } = {}
     local isWorkspace: { [tags.Tag]: boolean } = {}
-    for index, workspace in ipairs(settings.workspaces) do
+    for index, workspace in settings.workspaces do
       local tag = tagService:hold(context, { name = workspace.name, index = index })
       held[index] = tag
       isWorkspace[tag] = true
@@ -189,4 +143,4 @@ return plugin.define {
     switch(current)
     context:child(chords(settings, switch), {})
   end,
-}
+}).definition

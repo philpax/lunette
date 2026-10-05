@@ -175,12 +175,25 @@ test('a hand the consumer does not know fails its activation by name', function(
   local env = start { hand = 'middle' }
   local diagnostic = tostring(env.session.instances['desktop/keyboard']:diagnostic())
   expect.truthy(
-    diagnostic:find('plugin desktop/keyboard: option hand is left or right, not middle', 1, true),
+    diagnostic:find('plugin desktop/keyboard: option hand matches no alternative', 1, true),
     'the diagnostic: ' .. diagnostic
   )
   local reports = testing.takeReports()
   expect.equal(#reports, 1, 'the failures reported')
   env.session:close()
+end)
+
+test('nested keyboard settings retain defaults and vectors remain native values', function()
+  local descriptor = require('@lunette-plugins/desktop/keyboard/config').schema
+  local offset = vector.pack(0.1, -0.2, 0.3)
+  local settings = descriptor.parse { placement = { distance = 0.8 }, haptic = {}, offset = offset }
+  expect.equal(settings.placement.distance, 0.8, 'the configured distance')
+  expect.equal(settings.placement.drop, 0.35, 'the default drop')
+  expect.equal(settings.haptic.strength, 0.3, 'the default haptic strength')
+  expect.equal(settings.offset, offset, 'the vector offset')
+  local changed = descriptor.resolve({ placement = { tilt = 0 } }, settings)
+  expect.equal(changed.placement.distance, 0.8, 'the resolved distance retained as the base')
+  expect.equal(changed.placement.tilt, 0, 'the configured tilt')
 end)
 
 return test

@@ -2,6 +2,7 @@
 
 local adapter = require '@lunette-plugin/adapter'
 local options = require '@lunette-plugin/options'
+local schemaRuntime = require '@lunette-plugin/schema/runtime'
 
 local compose = {}
 
@@ -28,6 +29,11 @@ export type Patch = {
   read after: string?,
 }
 
+export type ResolvedEntry = {
+  read definition: Definition,
+  read config: Config,
+}
+
 export type Running = {
   read runtime: adapter.Runtime,
   read instances: { read [string]: adapter.Instance<any> },
@@ -51,15 +57,119 @@ local function fail(message: string): never
   error('compose: ' .. message, 0)
 end
 
-local function frozenCopy(value: unknown): unknown
+-- Deferred factories need detached structural values and the original identities of opaque values.
+local originals: { [Raw]: Raw } = setmetatable({}, { __mode = 'k' }) :: any
+local layers: { [Config]: { Config } } = setmetatable({}, { __mode = 'k' }) :: any
+
+local function unwrapped(metadata: schemaRuntime.Node?): schemaRuntime.Node?
+  local node = metadata
+  while node and (node.kind == 'default' or node.kind == 'optional' or node.kind == 'refine') do
+    node = node.child
+  end
+  return node
+end
+
+local frozenCopy: (unknown, schemaRuntime.Node?, { [Raw]: { [unknown]: Raw } }?) -> unknown
+
+local function selected(value: unknown, metadata: schemaRuntime.Node?): schemaRuntime.Node?
+  local node = unwrapped(metadata)
+  if node and node.kind == 'union' then
+    for _, alternative in node.alternatives or {} do
+      local restored = frozenCopy(value, alternative)
+      if pcall(schemaRuntime.parse, alternative, restored, 'compose configuration') then
+        return selected(value, alternative)
+      end
+    end
+  end
+  return node
+end
+
+frozenCopy = function(value: unknown, metadata: schemaRuntime.Node?, seen: { [Raw]: { [unknown]: Raw } }?): unknown
+  local node = selected(value, metadata)
+  if node and (node.kind == 'custom' or node.kind == 'callback') then
+    return if type(value) == 'table' then originals[value :: Raw] or value else value
+  end
   if type(value) ~= 'table' or getmetatable(value :: any) ~= nil then
     return value
   end
+  local raw = value :: Raw
+  local copied = seen or {}
+  local interpretations: { [unknown]: Raw } = copied[raw] or {}
+  local shape: unknown = node or false
+  local known = interpretations[shape]
+  if known then
+    return known
+  end
   local copy: Raw = {}
-  for key, item in value :: Raw do
-    copy[key] = frozenCopy(item)
+  copied[raw] = interpretations
+  interpretations[shape] = copy
+  originals[copy] = originals[raw] or raw
+  for key, item in raw do
+    local child = if node
+        and node.kind == 'object'
+        and node.fields
+        and type(key) == 'string'
+      then node.fields[key]
+      elseif node and (node.kind == 'array' or node.kind == 'map') then node.child
+      else nil
+    copy[key] = frozenCopy(item, child, copied)
   end
   return table.freeze(copy)
+end
+
+local function schemaMerged(base: unknown, over: unknown, metadata: schemaRuntime.Node): unknown
+  local node = unwrapped(metadata)
+  if not node or node.merge ~= 'object' or type(over) ~= 'table' or getmetatable(over :: any) ~= nil then
+    return over
+  end
+  local result: Raw = if type(base) == 'table' and getmetatable(base :: any) == nil
+    then table.clone(base :: Raw)
+    else {}
+  for key, value in over :: Raw do
+    local child = if node.fields and type(key) == 'string' then node.fields[key] else nil
+    result[key] = if child then schemaMerged(result[key], value, child) else value
+  end
+  return result
+end
+
+local function legacyMerged(base: Raw, over: Raw, seen: { [Raw]: { [Raw]: Raw } }?): Raw
+  local copied = seen or {}
+  local previous: { [Raw]: Raw } = copied[base] or {}
+  local known = previous[over]
+  if known then
+    return known
+  end
+  local result = table.clone(base)
+  copied[base] = previous
+  previous[over] = result
+  for key, value in over do
+    local prior = result[key]
+    result[key] = if options.isRecord(prior) and options.isRecord(value)
+      then legacyMerged(prior :: Raw, value :: Raw, copied)
+      else value
+  end
+  return result
+end
+
+local function configuration(value: Config?, metadata: schemaRuntime.Node?): Config?
+  if value == nil then
+    return nil
+  end
+  local pending = layers[value]
+  if pending and metadata then
+    local result: unknown = nil
+    for _, layer in pending do
+      -- A reused composed patch resolves its own layers before merging with this destination.
+      local snapshot = configuration(layer, metadata)
+      result = schemaMerged(result, snapshot, metadata)
+    end
+    return frozenCopy(result, metadata) :: Config
+  end
+  local snapshot = frozenCopy(value, metadata) :: Config
+  if pending then
+    layers[snapshot] = pending
+  end
+  return snapshot
 end
 
 local function checkSource(what: string, definition: unknown, factory: unknown): ()
@@ -96,11 +206,12 @@ local function checkedEntry(value: unknown, position: string): Entry
     fail(what .. ' gives neither a definition nor a factory')
   end
   checkConfig(what, raw.config)
+  local definition = raw.definition :: Definition?
   return table.freeze {
     id = id :: string,
-    definition = raw.definition :: Definition?,
+    definition = definition,
     factory = raw.factory :: (() -> Definition)?,
-    config = frozenCopy(raw.config) :: Config?,
+    config = configuration(raw.config :: Config?, if definition then definition.schema else nil),
   }
 end
 
@@ -184,9 +295,25 @@ local function patched(entry: Entry, patch: Keyed): Entry
   if patch.definition ~= nil or patch.factory ~= nil then
     definition, factory = patch.definition, patch.factory
   end
-  local config = entry.config
+  local metadata = if definition then definition.schema else nil
+  local config = configuration(entry.config, metadata)
   if patch.config ~= nil then
-    config = options.merge { base = entry.config, over = patch.config }
+    local over = configuration(patch.config, metadata) :: Config
+    if metadata then
+      config = frozenCopy(schemaMerged(config, over, metadata), metadata) :: Config
+    else
+      local pending = if config then layers[config] else nil
+      local merged = frozenCopy(legacyMerged((config or {}) :: Raw, over :: Raw)) :: Config
+      if factory then
+        local sequence = if pending then table.clone(pending) else {}
+        if not pending and config then
+          table.insert(sequence, config)
+        end
+        table.insert(sequence, over)
+        layers[merged] = table.freeze(sequence)
+      end
+      config = merged
+    end
   end
   return checkedEntry({ id = entry.id, definition = definition, factory = factory, config = config }, 'entry')
 end
@@ -307,6 +434,24 @@ function compose.configureEntry<C>(id: string, target: adapter.Definition<C> | (
   end
 end
 
+-- Resolves one checked entry's source and deferred configuration once per start, without initializing or validating settings.
+function compose.resolveEntry(entry: Entry): ResolvedEntry
+  local factory = entry.factory
+  local definition = entry.definition or (factory and factory())
+  if type(definition) ~= 'table' then
+    error('compose: the factory of ' .. entry.id .. ' answered a ' .. type(definition) .. ', not a definition', 0)
+  end
+  local snapshot = configuration(entry.config, definition.schema)
+  local config: Config
+  if snapshot then
+    config = snapshot
+  else
+    local empty: Config = {}
+    config = table.freeze(empty)
+  end
+  return table.freeze { definition = definition, config = config }
+end
+
 -- Starts entries in order and drains the runtime. A failure closes the runtime; configuration errors remain instance load failures.
 function compose.start(entries: { Entry }): Running
   local checked = compose.apply(entries)
@@ -314,12 +459,8 @@ function compose.start(entries: { Entry }): Running
   local instances: { [string]: adapter.Instance<any> } = {}
   local ok, failure = pcall(function(): ()
     for _, entry in ipairs(checked) do
-      local factory = entry.factory
-      local definition = entry.definition or (factory and factory())
-      if type(definition) ~= 'table' then
-        error('compose: the factory of ' .. entry.id .. ' answered a ' .. type(definition) .. ', not a definition', 0)
-      end
-      local instance = runtime:use(definition, entry.config or {})
+      local resolved = compose.resolveEntry(entry)
+      local instance = runtime:use(resolved.definition, resolved.config)
       instances[entry.id] = instance
       instance:enable()
     end

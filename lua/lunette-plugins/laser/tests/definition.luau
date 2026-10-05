@@ -50,7 +50,7 @@ test('build rejects what a configuration rejects, and takes the defaults without
   expect.equal(session.instances.builder:state(), 'active', tostring(session.instances.builder:diagnostic()))
   expect.falsy(built.ok, 'build with an unknown option')
   expect.truthy(
-    tostring(built.message):find('plugin laser: unknown option style.colour', 1, true),
+    tostring(built.message):find('plugin laser: option style.colour is not a declared field', 1, true),
     tostring(built.message)
   )
   expect.equal(built.service.STYLE.length, 1.5, 'build without a configuration takes the defaults')
@@ -60,10 +60,10 @@ end)
 test('define rejects an unknown option, a wrong type under the new name, and a name that is not a string', function()
   expect.raises(function()
     laser.define { bogus = 1 }
-  end, 'plugin laser: unknown option bogus', 'an unknown option')
+  end, 'plugin laser: option bogus is not a declared field', 'an unknown option')
   expect.raises(function()
     laser.define { name = 'short-laser', style = { length = 'short' } }
-  end, 'plugin short%-laser: option style.length is a number, not a string', 'a wrong type')
+  end, 'plugin short%-laser: option style.length is a finite number, not a string', 'a wrong type')
   expect.raises(function()
     laser.define { name = 5 }
   end, 'define names a definition with a non%-empty string, not 5', 'a name that is not a string')

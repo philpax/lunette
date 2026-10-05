@@ -4,15 +4,12 @@ local adoption = require '@lunette-contracts/adoption'
 local panels = require '@lunette-contracts/panels'
 local placement = require '@lunette-contracts/placement'
 local rules = require '@lunette-contracts/rules'
-local vocabulary = require '@lunette-contracts/vocabulary'
+local config = require '@lunette-plugins/adoption/config'
 local build = require '@lunette-plugins/adoption/service'
 
-export type Settings = build.Settings
+export type Settings = config.Settings
 export type Service = adoption.Service
-
-export type Config = {
-  read precedence: number?,
-}
+export type Config = config.Config
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'adoption',
@@ -22,6 +19,6 @@ return plugin.provider<<Config, Settings, Service>> {
     placement = placement.capability,
     rules = rules.capability,
   },
-  defaults = { precedence = vocabulary.PRECEDENCE.native },
+  schema = config,
   build = build,
 }

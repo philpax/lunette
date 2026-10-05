@@ -23,17 +23,19 @@ export type RenderedKey = {
 
 export type Placement = {
   read keyUnit: number,
-  read modifierKeys: { [number]: string },
+  read modifierKeys: { read [number]: string },
   read legendFor: (Key) -> string,
 }
 
-function layout.keysOf(rows: { KeyRow }, placement: Placement): { RenderedKey }
+function layout.keysOf(rows: { read [number]: KeyRow }, placement: Placement): { RenderedKey }
   local unit = placement.keyUnit
   local keys: { RenderedKey } = {}
   local y = 0
-  for _, row in ipairs(rows) do
+  for rowIndex = 1, #rows do
+    local row = rows[rowIndex]
     local x = 0
-    for _, entry in ipairs(row) do
+    for column = 1, #row do
+      local entry = row[column]
       x += (entry.x or 0) * unit
       local width = (entry.width or 1) * unit
       if entry.code ~= nil or entry.action ~= nil then
@@ -59,7 +61,8 @@ end
 -- Rows advance by their shortest key height, or one unit when empty.
 function layout.advanceOf(row: KeyRow): number
   local shortest: number? = nil
-  for _, entry in ipairs(row) do
+  for column = 1, #row do
+    local entry = row[column]
     local height = entry.height or 1
     if not shortest or height < shortest then
       shortest = height
@@ -68,11 +71,13 @@ function layout.advanceOf(row: KeyRow): number
   return shortest or 1
 end
 
-function layout.extentOf(rows: { KeyRow }): (number, number)
+function layout.extentOf(rows: { read [number]: KeyRow }): (number, number)
   local widest, lowest, y = 0, 0, 0
-  for _, row in ipairs(rows) do
+  for rowIndex = 1, #rows do
+    local row = rows[rowIndex]
     local x = 0
-    for _, entry in ipairs(row) do
+    for column = 1, #row do
+      local entry = row[column]
       x += (entry.x or 0) + (entry.width or 1)
       lowest = math.max(lowest, y + (entry.height or 1))
     end
@@ -92,7 +97,7 @@ function layout.keyAt(keys: { RenderedKey }, x: number, y: number): RenderedKey?
 end
 
 -- Uses an explicit label first, then the seat keymap, then the action name.
-function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { string }): string
+function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { read [number]: string }): string
   if entry.label then
     return entry.label
   end
@@ -114,12 +119,16 @@ function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { string }
     return ''
   end
 
-  local text = seat:characterFor(code, modifiers)
+  local held: { string } = {}
+  for index, modifier in modifiers do
+    held[index] = modifier
+  end
+  local text = seat:characterFor(code, held)
   if text and text ~= '' then
     return text
   end
 
-  local symbol = seat:symbolFor(code, modifiers)
+  local symbol = seat:symbolFor(code, held)
   if symbol then
     return string.format('0x%x', symbol)
   end

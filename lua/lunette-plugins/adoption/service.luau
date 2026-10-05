@@ -41,9 +41,9 @@ local function windows(state: State): { lunette.Window }
 end
 
 -- The default precedence for the native pose source.
-export type Settings = {
-  read precedence: number,
-}
+local config = require '@lunette-plugins/adoption/config'
+
+export type Settings = config.Settings
 
 local function build(context: plugin.Context, settings: Settings): Service
   local state: State = { active = true, context = context }

@@ -21,7 +21,7 @@ export type MutableLaser = {
   style: contracts.Style,
   input: contracts.Input?,
   dead: boolean,
-  update: (Laser, { contracts.Surface }) -> (),
+  update: (Laser, { read [number]: contracts.Surface }) -> (),
   draw: (Laser, Pass) -> (),
   vibrate: (Laser) -> boolean,
   destroy: (Laser) -> boolean,
@@ -79,7 +79,7 @@ function registry.destroyAll(state: State)
   state.lasers = {}
 end
 
-function registry.update(state: State, surfaces: { contracts.Surface })
+function registry.update(state: State, surfaces: { read [number]: contracts.Surface })
   for _, target in ipairs(registry.live(state)) do
     target:update(surfaces)
   end

@@ -29,7 +29,10 @@ local OPAQUE_FRAGMENT = [[
   }
 ]]
 
-export type Settings = panel.Settings
+local config = require '@lunette-plugins/panels/config'
+local schema = require '@lunette-plugin/schema'
+
+export type Settings = config.Settings
 export type Shape = panel.Shape
 export type Raycast = panel.Raycast
 export type RaycastBase = panel.RaycastBase
@@ -38,26 +41,7 @@ export type DrawBase = panel.DrawBase
 export type ApplyLayer = panel.ApplyLayer
 export type LayerBase = panel.LayerBase
 
-export type Config = {
-  read style: {
-    read borderThickness: number?,
-    read borderDepth: number?,
-    read borderColor: { number }?,
-    read borderHighlightColor: { number }?,
-    read titleHeight: number?,
-    read titleMargin: number?,
-    read titleColor: { number }?,
-  }?,
-  read priority: number?,
-  read height: number?,
-  read aspect: number?,
-  read chrome: boolean?,
-  read shape: {
-    read raycast: Raycast?,
-    read draw: Draw?,
-    read applyLayer: ApplyLayer?,
-  }?,
-}
+export type Config = config.Config
 
 local function livePanels(state: ProviderState): { Panel }
   local live: { Panel } = {}
@@ -235,31 +219,6 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'panels',
   capability = contracts.capability,
-  defaults = {
-    style = {
-      borderThickness = 0.008,
-      borderDepth = 0.001,
-      borderColor = { 0.14, 0.14, 0.17, 0.95 },
-      borderHighlightColor = { 0.35, 0.55, 0.95, 0.95 },
-      titleHeight = 0.04,
-      titleMargin = 0.02,
-      titleColor = { 1, 1, 1, 1 },
-    },
-    priority = 10,
-    height = 0.8,
-    aspect = 16 / 9,
-    chrome = false,
-    shape = {
-      raycast = function(target: Panel, origin: vector, direction: vector, backFace: boolean?, base: RaycastBase)
-        return base(target, origin, direction, backFace)
-      end,
-      draw = function(target: Panel, pass: Pass, base: DrawBase): ()
-        base(target, pass)
-      end,
-      applyLayer = function(target: Panel, held: Layer, base: LayerBase): ()
-        base(target, held)
-      end,
-    },
-  },
+  schema = config :: schema.Schema<Config, Settings>,
   build = build,
 }

@@ -40,7 +40,7 @@ local CONFIGS = {
   monitors = { select = { 'fixture-output' } },
   hint = { text = 'fixture hint' },
   errors = { width = 1.2 },
-  pointing = { laser = { hand = 'right' } },
+  pointing = { laser = { name = 'fixture-pointer', style = { length = 2.5 }, tuning = { reach = 0.5 } } },
   pacing = { pauseMonitors = false },
   workspace = { name = 'work' },
   adoption = { tags = { 'work' } },
@@ -125,8 +125,11 @@ test('unknown sections, malformed lists, and shorthand collisions raise before c
     { options = { settings = { keyboard = {} } }, message = 'the settings: unknown field keyboard' },
     { options = { settings = { demoTerminal = {} } }, message = 'the settings: unknown field demoTerminal' },
     { options = { workspaces = { names = {} } }, message = 'workspaces: unknown field names' },
-    { options = { workspaces = { workspaces = {} } }, message = 'names at least one workspace' },
-    { options = { settings = { wristKeyboard = false } }, message = 'config is a table of options' },
+    { options = { workspaces = { workspaces = {} } }, message = 'option workspaces has fewer than 1 entries' },
+    {
+      options = { settings = { wristKeyboard = false } },
+      message = 'plugin desktop settings: option wristKeyboard is a table, not a boolean',
+    },
     {
       options = { settings = { wristKeyboard = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
       message = 'patch 1 and settings.wristKeyboard both configure desktop/keyboard',

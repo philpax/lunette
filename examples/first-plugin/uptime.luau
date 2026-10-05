@@ -5,13 +5,16 @@ local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local clock = require './clock'
 
-export type Config = { read prefix: string? }
-export type Settings = { read prefix: string }
+local schema = require '@lunette-plugin/schema'
+
+local descriptor = schema.object { prefix = schema.default(schema.string()) 'up' }
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
 
 return plugin.consumer<<Config, Settings>>({
   name = 'uptime',
   requires = { frame = frame.capability, clock = clock.capability },
-  defaults = { prefix = 'up' },
+  schema = descriptor,
   init = function(context: plugin.Context, settings: Settings)
     local frames: frame.Service = context:require(frame.capability)
     local time: clock.Service = context:require(clock.capability)

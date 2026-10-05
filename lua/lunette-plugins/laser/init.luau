@@ -18,32 +18,15 @@ export type Hand = contracts.Hand
 export type Surface = contracts.Surface
 export type Input = contracts.Input
 
-export type ReadBase = (Hand) -> Input?
-export type ReadInput = (Hand, ReadBase) -> Input?
-export type DrawBase = (Laser, Pass) -> ()
-export type Draw = (Laser, Pass, DrawBase) -> ()
+local config = require '@lunette-plugins/laser/config'
+
+export type ReadBase = config.ReadBase
+export type ReadInput = config.ReadInput
+export type DrawBase = config.DrawBase
+export type Draw = config.Draw
 export type Mapping = input.Mapping
-
-export type Settings = {
-  read style: contracts.Style,
-  read buttons: { Mapping },
-  read readInput: ReadInput,
-  read draw: Draw,
-}
-
-export type Config = {
-  read style: {
-    read length: number?,
-    read color: contracts.Color?,
-    read hoverColor: contracts.Color?,
-    read cursorRadius: number?,
-    read hapticStrength: number?,
-    read hapticDuration: number?,
-  }?,
-  read buttons: { Mapping }?,
-  read readInput: ReadInput?,
-  read draw: Draw?,
-}
+export type Settings = config.Settings
+export type Config = config.Config
 
 local HANDS: { Hand } = { 'left', 'right' }
 
@@ -99,11 +82,18 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
       end,
       pointer = pointer,
       style = if given.style
-        then (plugin.merge { base = settings.style :: any, over = given.style :: any } :: any) :: contracts.Style
+        then {
+          length = given.style.length or settings.style.length,
+          color = given.style.color or settings.style.color,
+          hoverColor = given.style.hoverColor or settings.style.hoverColor,
+          cursorRadius = given.style.cursorRadius or settings.style.cursorRadius,
+          hapticStrength = given.style.hapticStrength or settings.style.hapticStrength,
+          hapticDuration = given.style.hapticDuration or settings.style.hapticDuration,
+        }
         else settings.style,
       input = frameInput,
       dead = false,
-      update = function(self: Laser, surfaces: { Surface })
+      update = function(self: Laser, surfaces: { read [number]: Surface })
         if self.dead or not state.active then
           return
         end
@@ -211,7 +201,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     all = function(_self: Service): { Laser }
       return registry.live(state)
     end,
-    update = function(_self: Service, surfaces: { Surface }): ()
+    update = function(_self: Service, surfaces: { read [number]: Surface }): ()
       registry.update(state, surfaces)
     end,
     draw = function(_self: Service, pass: Pass): ()
@@ -219,14 +209,6 @@ local function build(context: plugin.Context, settings: Settings): Service
     end,
   }
   return service
-end
-
-local function readInput(hand: Hand, base: ReadBase): Input?
-  return base(hand)
-end
-
-local function drawLaser(laser: Laser, pass: Pass, base: DrawBase): ()
-  base(laser, pass)
 end
 
 local POINTER_BUTTONS: { [string]: boolean } = {}
@@ -241,7 +223,8 @@ end
 
 -- The mapping list replaces defaults, so validation checks every supplied entry.
 local function validate(settings: Settings, name: string): ()
-  for index, mapping in ipairs(settings.buttons) do
+  for index = 1, #settings.buttons do
+    local mapping = settings.buttons[index]
     local where = string.format('plugin %s: option buttons[%d]', name, index)
     if type(mapping) ~= 'table' then
       error(where .. ' is a table of control and button, not a ' .. type(mapping), 0)
@@ -264,19 +247,7 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'laser',
   capability = contracts.capability,
   requires = { interaction = interaction.capability },
-  defaults = {
-    style = {
-      length = 1.5,
-      color = { 0.55, 0.7, 1, 0.5 },
-      hoverColor = { 0.75, 0.9, 1, 0.9 },
-      cursorRadius = 0.006,
-      hapticStrength = 0.2,
-      hapticDuration = 0.01,
-    },
-    buttons = { { control = 'trigger', button = 'left' } },
-    readInput = readInput,
-    draw = drawLaser,
-  },
+  schema = config,
   validate = validate,
   build = build,
 }

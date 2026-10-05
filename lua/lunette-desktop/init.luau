@@ -37,27 +37,15 @@ local arrange = require '@lunette-plugins/desktop/arrange'
 local adoptionConsumer = require '@lunette-plugins/desktop/adoption'
 local pacing = require '@lunette-plugins/desktop/pacing'
 local scale = require '@lunette-plugins/desktop/scale'
+local settings = require '@lunette-desktop/settings'
+local workspacesConfig = require '@lunette-plugins/desktop/workspaces/config'
 
 local desktop = {}
 
 export type Entry = plugin.Entry
 export type Patch = plugin.Patch
 
-export type Settings = {
-  read bindings: desktopBindings.Config?,
-  read decorations: decorations.Config?,
-  read arrange: arrange.Config?,
-  read persistence: arrangement.Config?,
-  read wristKeyboard: wristKeyboard.Config?,
-  read rules: defaultRules.Config?,
-  read monitors: monitors.Config?,
-  read hint: hint.Config?,
-  read errors: errors.Config?,
-  read pointing: pointing.Config?,
-  read pacing: pacing.Config?,
-  read workspace: workspace.Config?,
-  read adoption: adoptionConsumer.Config?,
-}
+export type Settings = settings.Config
 
 export type Options = {
   read entries: { Entry }?,
@@ -151,6 +139,7 @@ local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [st
   end
   if options.settings ~= nil then
     plugin.rejectUnknownFields('desktop: the settings', options.settings, SETTING_KEYS, SETTING_FIELDS, 0)
+    settings.schema.parse(options.settings, 'desktop settings')
     for name, config in options.settings :: any do
       local id = SETTING_IDS[name]
       claim(id, 'settings.' .. name)
@@ -166,14 +155,8 @@ local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [st
       'workspaces, modifiers, and follow',
       0
     )
-    local initial = 'main'
-    if config.workspaces ~= nil then
-      local list = config.workspaces
-      if type(list) ~= 'table' or type(list[1]) ~= 'table' or type(list[1].name) ~= 'string' or list[1].name == '' then
-        error('desktop: workspaces.workspaces names at least one workspace with a non-empty name', 0)
-      end
-      initial = list[1].name
-    end
+    local resolved = workspacesConfig.schema.parse(config, 'desktop workspaces')
+    local initial = resolved.workspaces[1].name
     for _, id in ipairs { 'desktop/workspaces', 'desktop/workspace', 'desktop/adoption' } do
       claim(id, 'workspaces')
       for _, entry in ipairs(entries) do

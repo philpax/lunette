@@ -6,45 +6,11 @@ local quad = require '@lunette-contracts/quad'
 local surface = require '@lunette-contracts/surface'
 local surfaces = require '@lunette-contracts/surfaces'
 
-export type Hand = 'left' | 'right'
+local config = require '@lunette-plugins/desktop/keyboard/config'
 
-export type Settings = {
-  read hand: Hand,
-  read size: number,
-  read offset: vector,
-  read placement: {
-    read distance: number,
-    read drop: number,
-    read tilt: number,
-  },
-  read haptic: {
-    read strength: number,
-    read duration: number,
-  },
-}
-
-export type Config = {
-  read hand: Hand?,
-  read size: number?,
-  read offset: vector?,
-  read placement: {
-    read distance: number?,
-    read drop: number?,
-    read tilt: number?,
-  }?,
-  read haptic: {
-    read strength: number?,
-    read duration: number?,
-  }?,
-}
-
-local DEFAULTS: Settings = {
-  hand = 'left',
-  size = 0.115,
-  offset = vector.pack(-0.03, -0.01, 0.125),
-  placement = { distance = 0.55, drop = 0.35, tilt = math.pi / 6 },
-  haptic = { strength = 0.3, duration = 0.05 },
-}
+export type Hand = config.Hand
+export type Config = config.Config
+export type Settings = config.Settings
 
 local DEVICES: { [Hand]: Device } = { left = 'hand/left', right = 'hand/right' }
 
@@ -54,24 +20,11 @@ local required: plugin.Declaration = {
   surfaces = surfaces.capability,
 }
 
--- The hand must name a supported device, and the offset must be a finite vector.
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/keyboard', defaults = DEFAULTS, config = config }
-  if DEVICES[settings.hand] == nil then
-    error('plugin desktop/keyboard: option hand is left or right, not ' .. tostring(settings.hand), 0)
-  end
-  plugin.checkVector('desktop/keyboard', 'offset', settings.offset)
-  if settings.size <= 0 then
-    error('plugin desktop/keyboard: option size is a positive number, not ' .. settings.size, 0)
-  end
-  return settings
-end
-
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/keyboard',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings = resolve(config)
+  schema = config.schema,
+  init = function(context: plugin.Context, settings: Settings): ()
     local device = DEVICES[settings.hand]
     local size, offset, placement = settings.size, settings.offset, settings.placement
     local frameService: frame.Service = context:require(frame.capability)
@@ -198,4 +151,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

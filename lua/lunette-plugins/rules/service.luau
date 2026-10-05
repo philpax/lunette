@@ -58,13 +58,13 @@ local function matches(_self: Service, match: contracts.Match?, window: lunette.
   return policy.matches(match, window)
 end
 
-local function checkedRules(service: Service, list: { Rule }): { Rule }
+local function checkedRules(service: Service, list: { read [number]: Rule }): { Rule }
   if type(list) ~= 'table' then
     error('rules: a rules list is a table, not a ' .. type(list), 3)
   end
   -- Reject non-list keys because `ipairs` would skip them.
-  local count = rawlen(list)
-  for key, _ in list :: { [unknown]: unknown } do
+  local count = #list
+  for key, _ in list :: { read [unknown]: unknown } do
     if type(key) ~= 'number' or key ~= math.floor(key) or key < 1 or key > count then
       error('rules: a rules list is a list, and ' .. tostring(key) .. ' is not one of its positions', 3)
     end
@@ -93,12 +93,18 @@ local function checkedRules(service: Service, list: { Rule }): { Rule }
     if rule.properties ~= nil and type(rule.properties) ~= 'table' then
       error('rules: the properties of rule ' .. index .. ' are a table, not a ' .. type(rule.properties), 3)
     end
+    if rule.match ~= nil then
+      policy.checkMatch(rule.match)
+    end
+    if rule.properties ~= nil then
+      policy.checkProperties(rule.properties)
+    end
     checked[index] = rule
   end
   return checked
 end
 
-local function fromList(service: Service, list: { Rule }): (lunette.Window) -> Properties?
+local function fromList(service: Service, list: { read [number]: Rule }): (lunette.Window) -> Properties?
   local checked = checkedRules(service, list)
   return function(window: lunette.Window): Properties?
     local collected: Properties? = nil
@@ -117,9 +123,9 @@ local function report(state: ProviderState, message: string, level: contracts.Lo
   end
 end
 
-export type Settings = {
-  read precedence: number,
-}
+local config = require '@lunette-plugins/rules/config'
+
+export type Settings = config.Settings
 
 local function build(context: plugin.Context, settings: Settings): Service
   local state: ProviderState = {
@@ -196,7 +202,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return described
     end,
-    fromList = function(_self: Service, list: { Rule }): (lunette.Window) -> Properties?
+    fromList = function(_self: Service, list: { read [number]: Rule }): (lunette.Window) -> Properties?
       return fromList(service, list)
     end,
     setRules = function(_self: Service, owner: Owner, set: contracts.RuleSet): plugin.Effect

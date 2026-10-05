@@ -57,6 +57,11 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/schema/positive.luau",
             "luau_check/schema/collections.luau",
             "luau_check/schema/readonly.luau",
+            "luau_check/schema/providers_positive.luau",
+            "luau_check/schema/providers_readonly.luau",
+            "luau_check/schema/pointing_overrides.luau",
+            "luau_check/schema/workspace_input.luau",
+            "luau_check/schema/layout_readonly.luau",
             "luau_check/inspection/positive.luau",
         ]
         .into_iter()
@@ -380,6 +385,57 @@ fn immutable_runtime_snapshot_lists_reject_assignment_removal_and_writable_subst
     }
 }
 
+#[test]
+fn provider_schemas_reject_invalid_fields_vectors_enums_and_callbacks() {
+    assert_schema_lines(
+        "luau_check/schema/providers_negative.luau",
+        &[
+            (9, "number"),
+            (10, "pinch"),
+            (11, "warp"),
+            (12, "boolean"),
+            (13, "number"),
+            (14, "number"),
+            (15, "vector"),
+            (16, "missing"),
+            (17, "missing"),
+            (20, "number"),
+            (25, "number"),
+        ],
+    );
+}
+
+#[test]
+fn desktop_settings_preserve_writable_inputs_and_readonly_outputs() {
+    assert_schema_lines(
+        "luau_check/schema/desktop_settings_checked.luau",
+        &[
+            (83, "read-only"),
+            (84, "read-only"),
+            (87, "read-only"),
+            (90, "read-only"),
+            (93, "read-only"),
+            (96, "read-only"),
+            (100, "read-only"),
+            (102, "read-only"),
+            (103, "boolean"),
+            (104, "not-a-key"),
+        ],
+    );
+}
+
+#[test]
+fn workspace_settings_reject_nested_assignment_and_list_replacement() {
+    assert_schema_lines(
+        "luau_check/schema/workspace_readonly.luau",
+        &[
+            (4, "Property name"),
+            (5, "Property key"),
+            (6, "Property indexer"),
+        ],
+    );
+}
+
 fn assert_schema_lines(path: &str, sites: &[(u32, &str)]) {
     let report = check(vec![fixture(path)]);
     assert_eq!(
@@ -397,6 +453,8 @@ fn assert_schema_lines(path: &str, sites: &[(u32, &str)]) {
                     && diagnostic.module.ends_with(path)
                     && diagnostic.line == *line
                     && diagnostic.message.contains(message)
+                    && (!message.starts_with("Property ")
+                        || diagnostic.message.contains("is read-only"))
                     && !diagnostic.message.contains("too complex")
             })
             .count();

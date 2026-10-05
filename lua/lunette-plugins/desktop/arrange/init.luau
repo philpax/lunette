@@ -9,19 +9,10 @@ local tags = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local logging = require '@lunette-plugins/desktop/logging'
 
-export type Config = {
-  read layout: string?,
-  read options: { read [string]: { read [string]: unknown } }?,
-  read tags: { string }?,
-}
+local config = require '@lunette-plugins/desktop/arrange/config'
 
-export type Settings = {
-  read layout: string,
-  read options: { read [string]: { read [string]: unknown } },
-  read tags: { string },
-}
-
-local DEFAULTS: Settings = { layout = 'arc', options = {}, tags = {} }
+export type Config = config.Config
+export type Settings = config.Settings
 
 -- Continuous layouts update before panels draw in the scene phase.
 local UPDATE_ORDER = -10
@@ -35,30 +26,6 @@ local required: plugin.Declaration = {
   tags = tags.capability,
 }
 
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/arrange', defaults = DEFAULTS, config = config }
-  if settings.layout == '' then
-    error('plugin desktop/arrange: option layout is a non-empty layout name', 0)
-  end
-  for name, options in settings.options do
-    if type(name) ~= 'string' or name == '' then
-      error('plugin desktop/arrange: option options is keyed by layout name, not by ' .. tostring(name), 0)
-    end
-    if type(options) ~= 'table' then
-      error(
-        string.format('plugin desktop/arrange: option options.%s is a table of options, not a %s', name, type(options)),
-        0
-      )
-    end
-  end
-  for index, name in ipairs(settings.tags) do
-    if type(name) ~= 'string' or name == '' then
-      error(string.format('plugin desktop/arrange: option tags[%d] is a non-empty tag name', index), 0)
-    end
-  end
-  return settings
-end
-
 -- A persisted window pose records a user-selected placement.
 local function kept(panel: panels.WindowPanel): boolean
   local source = panel.source
@@ -70,11 +37,11 @@ type Plan = { tag: tags.Tag, layout: string, options: { read [string]: unknown }
 local function define(): plugin.Definition<Config>
   -- Dropped panels stay excluded while they remain live.
   local dropped: { [panels.Panel]: boolean } = setmetatable({} :: { [panels.Panel]: boolean }, { __mode = 'k' })
-  return plugin.define {
+  return plugin.consumer<<Config, Settings>>({
     name = 'desktop/arrange',
     requires = required,
-    init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-      local settings = resolve(config)
+    schema = config.schema,
+    init = function(context: plugin.Context, settings: Settings): ()
       local dropService: drops.Service = context:require(drops.capability)
       local frameService: frame.Service = context:require(frame.capability)
       local layoutService: layouts.Service = context:require(layouts.capability)
@@ -87,7 +54,7 @@ local function define(): plugin.Definition<Config>
           return tagService:all()
         end
         local result: { tags.Tag } = {}
-        for _, name in ipairs(settings.tags) do
+        for _, name in settings.tags do
           local tag = tagService:find(name)
           if tag then
             result[#result + 1] = tag
@@ -200,7 +167,7 @@ local function define(): plugin.Definition<Config>
       })
       arrange()
     end,
-  }
+  }).definition
 end
 
 return define

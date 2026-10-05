@@ -12,15 +12,9 @@ local validation = require '@lunette-plugins/keyboard/validation'
 
 local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
 
-export type Settings = {
-  read rows: { keyboard.KeyRow },
-  read layers: { [string]: { keyboard.KeyRow } },
-  read style: keyboard.Style,
-  read modifierKeys: { [number]: string },
-  read locks: { string },
-  read onKey: board.OnKey,
-  read drawKey: board.DrawKey,
-}
+local config = require '@lunette-plugins/keyboard/config'
+
+export type Settings = config.Settings
 
 type Board = board.Board
 type RenderedKey = board.RenderedKey
@@ -31,20 +25,8 @@ local function settingsFor(settings: Settings, options: keyboard.Options?): Sett
   if not options or (options.rows == nil and options.layers == nil and options.style == nil) then
     return settings
   end
-  local resolved = plugin.options {
-    name = 'keyboard',
-    defaults = { rows = settings.rows, layers = settings.layers, style = settings.style },
-    config = { rows = options.rows, layers = options.layers, style = options.style },
-  }
-  local merged: Settings = {
-    rows = resolved.rows,
-    layers = resolved.layers,
-    style = resolved.style,
-    modifierKeys = settings.modifierKeys,
-    locks = settings.locks,
-    onKey = settings.onKey,
-    drawKey = settings.drawKey,
-  }
+  local merged =
+    config.resolve({ rows = options.rows, layers = options.layers, style = options.style }, settings, 'keyboard')
   validation.settings(merged, 'keyboard')
   return merged
 end
@@ -86,7 +68,8 @@ local function create(
     return focusService:focused()
   end
   local locks: { [string]: boolean } = {}
-  for _, name in ipairs(settings.locks) do
+  for index = 1, #settings.locks do
+    local name = settings.locks[index]
     locks[name] = true
   end
   local latched: { [string]: boolean } = {}
@@ -143,8 +126,12 @@ local function create(
     return seat, sink
   end
 
-  local function stroke(sink: lunette.Sink, seat: lunette.Seat?, code: number, held: { string }): ()
-    sink:modifiers(held, seat)
+  local function stroke(sink: lunette.Sink, seat: lunette.Seat?, code: number, held: { read [number]: string }): ()
+    local modifiers: { string } = {}
+    for index, modifier in held do
+      modifiers[index] = modifier
+    end
+    sink:modifiers(modifiers, seat)
     heldKey = code
     sink:key(code, true, seat)
     sink:key(code, false, seat)
@@ -164,7 +151,7 @@ local function create(
     return nil
   end
 
-  local function rowsOf(layer: string): { keyboard.KeyRow }
+  local function rowsOf(layer: string): { read [number]: keyboard.KeyRow }
     if layer == 'base' then
       return settings.rows
     end
@@ -258,7 +245,7 @@ local function create(
     return true
   end
 
-  local function chord(code: number, held: { string }): ()
+  local function chord(code: number, held: { read [number]: string }): ()
     local seat, sink = useTarget()
     if sink then
       stroke(sink, seat, code, held)
@@ -307,12 +294,19 @@ local function create(
     return false
   end
 
-  local function isHeld(key: RenderedKey, held: { string }): boolean
+  local function isHeld(key: RenderedKey, held: { read [number]: string }): boolean
     local action = key.action
     if action and action.kind == 'layer' then
       return action.layer ~= 'base' and action.layer == state.layer
     end
-    return key.modifier ~= nil and table.find(held, key.modifier) ~= nil
+    if key.modifier ~= nil then
+      for index = 1, #held do
+        if held[index] == key.modifier then
+          return true
+        end
+      end
+    end
+    return false
   end
 
   local release: () -> boolean

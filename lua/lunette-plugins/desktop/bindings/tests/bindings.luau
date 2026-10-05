@@ -32,4 +32,30 @@ test('the configured reload chord replaces F5', function()
   session:close()
 end)
 
+test('a partial reload object retains its default key and replaces modifiers', function()
+  local session = testing.boot {
+    'frame',
+    'bindings',
+    {
+      id = 'desktop/bindings',
+      definition = require '@lunette-plugins/desktop/bindings',
+      config = { reload = { modifiers = { 'alt' } } },
+    },
+  }
+  local bindings = session:observe(bindingsContract.capability).service
+  expect.truthy(holds(bindings:chords(), 'f5', { 'alt' }), 'the default key with configured modifiers')
+  session:close()
+end)
+
+test('the key descriptor accepts declared families and rejects unsupported names', function()
+  local key = require('@lunette-plugins/desktop/bindings/config').key
+  for _, name in ipairs { 'a', '9', 'f1', 'f12', 'kp7', 'kpenter', '\\', 'rctrl' } do
+    expect.equal(key.parse(name), name, 'the supported key ' .. name)
+  end
+  for _, name in ipairs { '', 'f0', 'f13', 'f01', 'kp10', 'unknown' } do
+    local accepted = pcall(key.parse, name)
+    expect.falsy(accepted, 'the unsupported key ' .. name)
+  end
+end)
+
 return test

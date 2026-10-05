@@ -12,34 +12,14 @@ type Service = contracts.Service
 type Pointer = contracts.Pointer
 type Surface = contracts.Surface
 
-export type DriveBase = (Pointer, contracts.Input, { Surface }) -> ()
-export type Drive = (Pointer, contracts.Input, { Surface }, DriveBase) -> ()
-export type ConstrainBase = (Surface, Mat4) -> Mat4
-export type Constrain = (Surface, Mat4, ConstrainBase) -> Mat4
+local config = require '@lunette-plugins/interaction/config'
 
-export type Settings = {
-  read tuning: contracts.Tuning,
-  read focusOnPress: boolean,
-  read drive: Drive,
-  read constrain: Constrain,
-}
-
-export type Config = {
-  read tuning: {
-    read reach: number?,
-    read grabDeadZone: number?,
-    read scrollScale: number?,
-    read scrollDeadZone: number?,
-    read reachScale: number?,
-    read reachMinimum: number?,
-    read reachMaximum: number?,
-    read resizeMinimum: number?,
-    read resizeMaximum: number?,
-  }?,
-  read focusOnPress: boolean?,
-  read drive: Drive?,
-  read constrain: Constrain?,
-}
+export type DriveBase = config.DriveBase
+export type Drive = config.Drive
+export type ConstrainBase = config.ConstrainBase
+export type Constrain = config.Constrain
+export type Settings = config.Settings
+export type Config = config.Config
 
 type State = {
   tuning: contracts.Tuning,
@@ -227,7 +207,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     state.gripped = false
   end
 
-  local function defaultDrive(pointer: Pointer, input: contracts.Input, surfaces: { Surface }): ()
+  local function defaultDrive(pointer: Pointer, input: contracts.Input, surfaces: { read [number]: Surface }): ()
     local state = states[pointer]
     if not state then
       error('interaction: drive was given a pointer this activation did not make', 2)
@@ -293,7 +273,17 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     local state: State = {
       tuning = if options and options.tuning
-        then (plugin.merge { base = TUNING :: any, over = options.tuning :: any } :: any) :: contracts.Tuning
+        then {
+          reach = options.tuning.reach or TUNING.reach,
+          grabDeadZone = options.tuning.grabDeadZone or TUNING.grabDeadZone,
+          scrollScale = options.tuning.scrollScale or TUNING.scrollScale,
+          scrollDeadZone = options.tuning.scrollDeadZone or TUNING.scrollDeadZone,
+          reachScale = options.tuning.reachScale or TUNING.reachScale,
+          reachMinimum = options.tuning.reachMinimum or TUNING.reachMinimum,
+          reachMaximum = options.tuning.reachMaximum or TUNING.reachMaximum,
+          resizeMinimum = options.tuning.resizeMinimum or TUNING.resizeMinimum,
+          resizeMaximum = options.tuning.resizeMaximum or TUNING.resizeMaximum,
+        }
         else TUNING,
       handPosition = nil,
       grabbed = nil,
@@ -411,7 +401,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         end
         return send(haptic) == true
       end,
-      update = function(self: Pointer, input: contracts.Input, surfaces: { Surface })
+      update = function(self: Pointer, input: contracts.Input, surfaces: { read [number]: Surface })
         if live(state) then
           settings.drive(self, input, surfaces, defaultDrive)
         end
@@ -467,33 +457,10 @@ local function build(context: plugin.Context, settings: Settings): Service
   }
 end
 
-local function drive(pointer: Pointer, input: contracts.Input, surfaces: { Surface }, base: DriveBase): ()
-  base(pointer, input, surfaces)
-end
-
-local function constrain(surface: Surface, pose: Mat4, base: ConstrainBase): Mat4
-  return base(surface, pose)
-end
-
 return plugin.provider<<Config, Settings, Service>> {
   name = 'interaction',
   capability = contracts.capability,
   requires = { drops = dropsContract.capability, focus = focusContract.capability },
-  defaults = {
-    tuning = {
-      reach = 8,
-      grabDeadZone = 0.006,
-      scrollScale = 900,
-      scrollDeadZone = 0.2,
-      reachScale = 1.2,
-      reachMinimum = 0.2,
-      reachMaximum = 6,
-      resizeMinimum = 0.15,
-      resizeMaximum = 4,
-    },
-    focusOnPress = true,
-    drive = drive,
-    constrain = constrain,
-  },
+  schema = config,
   build = build,
 }

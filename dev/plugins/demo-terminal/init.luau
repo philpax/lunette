@@ -2,13 +2,20 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 
-export type Config = {
-  read programs: { string }?,
-}
+local schema = require '@lunette-plugin/schema'
 
-export type Settings = {
-  read programs: { string },
+local descriptor = schema.object {
+  programs = schema.default(schema.array(schema.string { minLength = 1 })) {
+    'ghostty',
+    'foot',
+    'weston-terminal',
+    'alacritty',
+    'kitty',
+    'xterm',
+  },
 }
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
 
 type SessionGlobals = {
   lunetteDemonstrationSpawned: boolean?,
@@ -16,20 +23,9 @@ type SessionGlobals = {
 
 local sessionGlobals = _G :: SessionGlobals
 
-local DEFAULTS: Settings = {
-  programs = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' },
-}
-
 return plugin.consumer<<Config, Settings>>({
   name = 'dev/demo-terminal',
-  defaults = DEFAULTS,
-  validate = function(settings: Settings, name: string): ()
-    for index, program in ipairs(settings.programs) do
-      if type(program) ~= 'string' or program == '' then
-        error(string.format('plugin %s: option programs[%d] is a non-empty program name', name, index), 0)
-      end
-    end
-  end,
+  schema = descriptor,
   init = function(context: plugin.Context, settings: Settings): ()
     local attempted: lunette.Process? = nil
     local attempt = 0

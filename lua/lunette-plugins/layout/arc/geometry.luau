@@ -14,7 +14,7 @@ export type Tuning = {
 }
 
 -- Returns panel angles in width order. Zero faces forward, and positive angles turn left.
-function geometry.angles(widths: { number }, tuning: Tuning): { number }
+function geometry.angles(widths: { read [number]: number }, tuning: Tuning): { number }
   local count = #widths
   local placed: { number } = {}
   if count == 0 then
@@ -44,7 +44,7 @@ function geometry.angles(widths: { number }, tuning: Tuning): { number }
   return placed
 end
 
-function geometry.poses(widths: { number }, tuning: Tuning): { Mat4 }
+function geometry.poses(widths: { read [number]: number }, tuning: Tuning): { Mat4 }
   local radius, center = tuning.radius, tuning.center
   local placed: { Mat4 } = {}
   for index, angle in ipairs(geometry.angles(widths, tuning)) do

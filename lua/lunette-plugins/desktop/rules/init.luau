@@ -2,36 +2,19 @@
 local plugin = require '@lunette-plugin'
 local rules = require '@lunette-contracts/rules'
 
-export type Config = {
-  read rules: { rules.Rule }?,
-}
+local config = require '@lunette-plugins/desktop/rules/config'
 
-export type Settings = {
-  read rules: { rules.Rule },
-}
-
-local DEFAULTS: Settings = {
-  rules = {
-    {
-      match = { appId = 'firefox' },
-      properties = {
-        width = 2,
-        pose = function(): Mat4
-          return lovr.math.newMat4():translate(-1.4, 1.5, -1.2):rotate(0.9, 0, 1, 0)
-        end,
-      },
-    },
-  },
-}
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = { rules = rules.capability }
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/rules',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings: Settings = plugin.options { name = 'desktop/rules', defaults = DEFAULTS, config = config }
+  schema = config.schema,
+  init = function(context: plugin.Context, settings: Settings): ()
     local service: rules.Service = context:require(rules.capability)
     service:setRules(context, { rules = settings.rules })
   end,
-}
+}).definition

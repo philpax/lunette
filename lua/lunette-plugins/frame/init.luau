@@ -199,8 +199,10 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
   return service, dispatcher
 end
 
-export type Config = {}
-export type Settings = {}
+local config = require '@lunette-plugins/frame/config'
+
+export type Config = config.Config
+export type Settings = config.Settings
 export type Service = contract.Service
 
 -- Callback binding belongs to the provider effect, including when a plugin wraps its service.
@@ -222,6 +224,7 @@ end
 
 local provider = plugin.provider<<Config, Settings, Service>> {
   name = 'frame',
+  schema = config,
   capability = contract.capability,
   build = build,
 }

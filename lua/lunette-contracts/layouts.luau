@@ -13,7 +13,7 @@ export type Panel = surface.Movable
 -- `apply` receives live panels in caller-supplied order. Each layout validates its own options.
 export type Layout = {
   read name: string,
-  read apply: ({ Panel }, unknown?) -> (),
+  read apply: ({ read [number]: Panel }, unknown?) -> (),
   read continuous: boolean?,
 }
 
@@ -24,7 +24,7 @@ export type Entry = {
 
 export type Application = {
   read name: string,
-  read panels: { Panel },
+  read panels: { read [number]: Panel },
   read options: unknown?,
 }
 

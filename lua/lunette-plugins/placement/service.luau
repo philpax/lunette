@@ -15,12 +15,11 @@ type Owner = contract.Owner
 type Properties = contract.Properties
 type Tag = tagsContract.Tag
 
-export type PanelOptionsBase = (Properties, lunette.Window) -> panelsContract.Options
-export type PanelOptions = (Properties, lunette.Window, PanelOptionsBase) -> panelsContract.Options
+local config = require '@lunette-plugins/placement/config'
 
-export type Settings = {
-  read panelOptions: PanelOptions,
-}
+export type PanelOptionsBase = config.PanelOptionsBase
+export type PanelOptions = config.PanelOptions
+export type Settings = config.Settings
 
 type State = {
   context: plugin.Context,

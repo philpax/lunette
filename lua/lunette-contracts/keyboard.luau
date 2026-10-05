@@ -20,7 +20,7 @@ export type Action =
   { read kind: 'hide' }
   | { read kind: 'layer', read layer: string }
   | { read kind: 'text', read text: string }
-  | { read kind: 'chord', read code: number, read modifiers: { string } }
+  | { read kind: 'chord', read code: number, read modifiers: { read [number]: string } }
   | { read kind: 'custom', read name: string }
 
 -- One key of a row. A key has an evdev `code`, an `action`, or neither, in
@@ -40,7 +40,7 @@ export type Key = {
 -- A row of keys, laid out left to right. A row advances the next one by the
 -- height of its shortest key, so a two-unit key reaches into the row below,
 -- which leaves a spacer where it lands; an empty row advances by one unit.
-export type KeyRow = { Key }
+export type KeyRow = { read [number]: Key }
 
 export type Style = {
   read keyUnit: number,
@@ -48,11 +48,11 @@ export type Style = {
   read plateDepth: number,
   read legendDepth: number,
   read margin: number,
-  read plateColor: { number },
-  read keyColor: { number },
-  read heldColor: { number },
-  read hoverColor: { number },
-  read legendColor: { number },
+  read plateColor: { read [number]: number },
+  read keyColor: { read [number]: number },
+  read heldColor: { read [number]: number },
+  read hoverColor: { read [number]: number },
+  read legendColor: { read [number]: number },
   read legendHeight: number,
 }
 
@@ -63,11 +63,11 @@ export type StyleOptions = {
   read plateDepth: number?,
   read legendDepth: number?,
   read margin: number?,
-  read plateColor: { number }?,
-  read keyColor: { number }?,
-  read heldColor: { number }?,
-  read hoverColor: { number }?,
-  read legendColor: { number }?,
+  read plateColor: { read [number]: number }?,
+  read keyColor: { read [number]: number }?,
+  read heldColor: { read [number]: number }?,
+  read hoverColor: { read [number]: number }?,
+  read legendColor: { read [number]: number }?,
   read legendHeight: number?,
 }
 
@@ -77,8 +77,8 @@ export type Target = () -> (lunette.Seat?, lunette.Sink?)
 -- this keyboard. `target` answers where keys go, by default the focused seat
 -- and sink of lunette/focus.
 export type Options = {
-  read rows: { KeyRow }?,
-  read layers: { [string]: { KeyRow } }?,
+  read rows: { read [number]: KeyRow }?,
+  read layers: { read [string]: { read [number]: KeyRow } }?,
   read style: StyleOptions?,
   read pose: Mat4?,
   read target: Target?,

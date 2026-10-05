@@ -53,7 +53,7 @@ export type Tag = {
   read destroy: (Tag, Owner) -> boolean,
 }
 
-export type Target = Tag | { Tag } | { Panel }
+export type Target = Tag | { read [number]: Tag } | { read [number]: Panel }
 
 export type ChangeKind = 'created' | 'destroyed' | 'selection' | 'layout' | 'membership'
 

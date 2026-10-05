@@ -4,47 +4,12 @@ local errors = require '@lunette-contracts/errors'
 local frame = require '@lunette-contracts/frame'
 local format = require '@lunette-plugins/errors/format'
 
-export type Config = {
-  read position: vector?,
-  read width: number?,
-  read textHeight: number?,
-  read columns: number?,
-  read lines: number?,
-  read background: { number }?,
-}
+local config = require '@lunette-plugins/desktop/errors/config'
 
-export type Settings = {
-  read position: vector,
-  read width: number,
-  read textHeight: number,
-  read columns: number,
-  read lines: number,
-  read background: { number },
-}
-
-local DEFAULTS: Settings = {
-  position = vector.pack(0, 1.4, -1.1),
-  width = 1.1,
-  textHeight = 0.045,
-  columns = 64,
-  lines = 6,
-  background = { 0.15, 0.03, 0.03, 0.85 },
-}
+export type Config = config.Config
+export type Settings = config.Settings
 
 local required: plugin.Declaration = { errors = errors.capability, frame = frame.capability }
-
-local function resolve(config: unknown): Settings
-  local settings: Settings = plugin.options { name = 'desktop/errors', defaults = DEFAULTS, config = config }
-  plugin.checkVector('desktop/errors', 'position', settings.position)
-  plugin.checkNumbers('desktop/errors', 'background', settings.background, 4)
-  for _, option in ipairs { 'columns', 'lines' } do
-    local value = (settings :: any)[option]
-    if value < 1 or value ~= math.floor(value) then
-      error('plugin desktop/errors: option ' .. option .. ' is a whole number of at least 1, not ' .. value, 0)
-    end
-  end
-  return settings
-end
 
 local function draw(pass: Pass, lines: { string }, settings: Settings): boolean
   if #lines == 0 then
@@ -77,11 +42,11 @@ local function draw(pass: Pass, lines: { string }, settings: Settings): boolean
   return true
 end
 
-return plugin.define {
+return plugin.consumer<<Config, Settings>>({
   name = 'desktop/errors',
   requires = required,
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher): ()
-    local settings = resolve(config)
+  schema = config.schema,
+  init = function(context: plugin.Context, settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local stream: errors.Service = context:require(errors.capability)
     local shown: errors.Report? = nil
@@ -110,4 +75,4 @@ return plugin.define {
       end,
     })
   end,
-}
+}).definition

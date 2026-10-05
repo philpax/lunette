@@ -9,33 +9,12 @@ export type Pacer = contract.Pacer
 export type Observation = contract.Observation
 export type Tuning = pacer.Tuning
 
-export type ChooseBase = (Pacer, Observation) -> number?
-export type Choose = (Pacer, Observation, ChooseBase) -> number?
+local config = require '@lunette-plugins/pacing/config'
 
-export type Settings = {
-  read tuning: Tuning,
-  read choose: Choose,
-}
-
-export type Config = {
-  read tuning: {
-    read background: number?,
-    read exempt: number?,
-    read history: number?,
-    read busy: number?,
-    read exemptTypes: {
-      read none: boolean?,
-      read photo: boolean?,
-      read video: boolean?,
-      read game: boolean?,
-    }?,
-  }?,
-  read choose: Choose?,
-}
-
-local function choose(paced: Pacer, observation: Observation, base: ChooseBase): number?
-  return base(paced, observation)
-end
+export type ChooseBase = config.ChooseBase
+export type Choose = config.Choose
+export type Settings = config.Settings
+export type Config = config.Config
 
 local function validate(settings: Settings, name: string): ()
   local tuning = settings.tuning
@@ -69,24 +48,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'pacing',
   capability = contract.capability,
-  defaults = {
-    tuning = {
-      -- The native floor: the cheapest rate at which a client keeps
-      -- answering input.
-      background = 1,
-      -- Low enough that throttling reduces an exempt window's redraws, and
-      -- high enough that a video does not visibly step.
-      exempt = 30,
-      -- About a second at one a frame, so a video between two same-coloured frames is not taken as idle.
-      history = 90,
-      -- A video player redraws on nearly every frame; a terminal with a
-      -- blinking cursor redraws twice a second, well under half.
-      busy = 0.5,
-      -- A paused game, like a paused video, should resume without a stutter.
-      exemptTypes = { none = false, photo = false, video = true, game = true },
-    },
-    choose = choose,
-  },
+  schema = config,
   validate = validate,
   build = build,
 }

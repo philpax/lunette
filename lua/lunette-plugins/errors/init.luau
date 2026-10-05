@@ -9,28 +9,12 @@ local listeners = require '@lunette-plugins/listeners'
 
 export type Service = contract.Service
 
-export type Settings = {
-  read window: number,
-  read maxKeys: number,
-  read history: number,
-  read clock: () -> number,
-}
+local config = require '@lunette-plugins/errors/config'
 
-export type Config = {
-  read window: number?,
-  read maxKeys: number?,
-  read history: number?,
-  read clock: (() -> number)?,
-}
+export type Settings = config.Settings
+export type Config = config.Config
 
 local SUBSCRIBER_KEYS: { [string]: boolean } = { run = true, cleared = true }
-
-local function clock(): number
-  if lovr and lovr.timer and lovr.timer.getTime then
-    return lovr.timer.getTime()
-  end
-  return os.clock()
-end
 
 local function validate(settings: Settings, name: string): ()
   if not (settings.window >= 0) then
@@ -132,12 +116,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'errors',
   capability = contract.capability,
-  defaults = {
-    window = 5,
-    maxKeys = 64,
-    history = 32,
-    clock = clock,
-  },
+  schema = config,
   validate = validate,
   build = build,
 }
