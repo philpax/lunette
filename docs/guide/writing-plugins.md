@@ -130,11 +130,39 @@ return plugin.consumer<<Config, Settings>>({
 
 A plugin changes state outside itself only through its context. `context:on` subscribes to a native event for as long as the plugin is loaded. `context:effect` registers any other resource with the function that releases it. A service method that takes an owner, such as `frames:onDraw(context, ...)` or `keyboard:new(context)`, ties what it creates to that owner, and the provider releases it when the owner unloads. A direct `lunette.onWindowOpened(handler)` call in `init` is not tracked: the subscription outlives the plugin, and a reloaded plugin subscribes a second time.
 
-`plugin.consumer<<Config, Settings>>` takes `name`, `requires`, `defaults`, `validate`, and `init`. `requires`, `defaults`, and `validate` are optional. `Config` describes the caller's optional overrides. `Settings` describes the complete settings passed to `init(context, settings)`. The context remains a `plugin.Context`; each service is read with `context:require(capability)` after its capability is declared in `requires`.
+`plugin.consumer<<Config, Settings>>` takes `name`, `requires`, `schema`, `defaults`, `validate`, and `init`. `requires` and `validate` are optional. A schema and legacy defaults cannot both be supplied. `Config` describes the caller's overrides. `Settings` describes the resolved settings passed to `init(context, settings)`. The context remains a `plugin.Context`; each service is read with `context:require(capability)` after its capability is declared in `requires`.
 
-The helper returns `definition`, `define`, and `requires`. `definition` uses the supplied defaults. `define { name = 'other-uptime', prefix = 'running for' }` creates a definition with different defaults and an optional name. Runtime configuration merges over those defaults. Defaults and overrides are copied and frozen recursively. Constructing the helper or calling `define` does not call `init` or acquire resources. State allocated inside `init` belongs to one activation. An entry's `factory` can enclose state shared by that runtime's activations; `plugin.start` calls each entry's factory once.
+Schema-backed modules derive both types from the descriptor. The constructors are available through `require '@lunette-plugin/schema'` and `plugin.schema`. A schema-backed consumer declares its configuration as follows:
 
-The helper uses the same option resolution as `plugin.provider` and `plugin.options`. It rejects unknown options and values whose types differ from their defaults. `validate(settings, name)` checks constraints the defaults cannot describe, such as a closed set of strings or the elements of a list. It runs for the initial defaults, for `define` overrides, and for runtime configuration. It must not acquire resources or change external state. Runtime validation errors fail that plugin's load and are reported; the rest of the desktop loads. A patch gives the configuration:
+```lua
+local schema = require '@lunette-plugin/schema'
+
+local descriptor = schema.object {
+  prefix = schema.default(schema.string())('up'),
+}
+
+export type Config = schema.Input<typeof(descriptor)>
+export type Settings = schema.Output<typeof(descriptor)>
+
+return plugin.consumer<<Config, Settings>>({
+  name = 'uptime',
+  requires = { frame = frame.capability, clock = clock.capability },
+  schema = descriptor,
+  init = function(context: plugin.Context, settings: Settings)
+    local frames: frame.Service = context:require(frame.capability)
+    local time: clock.Service = context:require(clock.capability)
+    -- The activation registers its effects and formats settings.prefix.
+  end,
+}).definition
+```
+
+The helper parses an empty configuration at construction. Every required field therefore needs a schema default or an optional descriptor. Invalid initial settings raise before construction completes. [Configuration schemas](configuration-schema.md) describes the constructors, merge rules, type derivation, and checker limitations. `plugin.provider<<Config, Settings, Service>>` accepts the same schema and passes resolved settings to `build(context, settings)`.
+
+The helper returns `definition`, `define`, and `requires`. `definition` uses the resolved initial settings. `define { name = 'other-uptime', prefix = 'running for' }` creates a definition with different defaults and an optional name. Runtime configuration resolves over those bound defaults. Schema objects merge declared fields recursively; arrays and maps replace their bound values. Settings and ordinary override tables are copied and frozen recursively. Callbacks, custom values, and native vectors retain their identities. Constructing the helper or calling `define` does not call `init` or acquire resources. State allocated inside `init` belongs to one activation. An entry's `factory` can enclose state shared by that runtime's activations; `plugin.start` calls each entry's factory once.
+
+`plugin.definitionSchema(definition)` and `definition.schema` expose the immutable schema metadata. Its root is a default descriptor whose `child` is the supplied descriptor and whose `value` is that definition's resolved defaults. `definition.resolve(config)` validates an unknown configuration against those bound defaults without constructing a plugin. It also runs `validate(settings, name)` when supplied. Low-level `plugin.define` retains its raw configuration initializer and does not attach schema metadata.
+
+Legacy modules may still supply `defaults`, or omit both `defaults` and `schema` when they take no options. They use the option resolution of `plugin.options`, which rejects unknown options and values whose types differ from their defaults. Legacy definitions have a preflight resolver but no schema metadata. For both authoring forms, `validate(settings, name)` runs for the initial settings, for `define` overrides, for preflight resolution, and for runtime configuration. Schema-backed validation runs after the descriptor's constraints and refinements. Validation must not acquire resources or change external state. Runtime validation errors fail that plugin's load and are reported; the rest of the desktop loads. A patch gives the configuration:
 
 ```lua
 { insert = { id = 'uptime', definition = require './uptime', config = { prefix = 'running for' } } },

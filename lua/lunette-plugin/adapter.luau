@@ -2,6 +2,7 @@
 
 local native = require '@lunette'
 local options = require '@lunette-plugin/options'
+local schema = require '@lunette-plugin/schema'
 
 local adapter = {}
 
@@ -68,6 +69,13 @@ export type Definition<C> = {
   read requires: Declaration,
   read provides: Declaration,
   read init: (never, C, never) -> (),
+  read schema: schema.Metadata?,
+  read resolve: ((unknown) -> unknown)?,
+}
+
+export type Configuration = {
+  read schema: schema.Metadata?,
+  read resolve: (unknown) -> unknown,
 }
 
 type DefinitionRecord<C> = Definition<C> & {
@@ -415,7 +423,7 @@ local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
   }
 end
 
-function adapter.define<C>(spec: Spec<C>): Definition<C>
+function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Definition<C>
   local fields = validateSpec(spec)
   local init = fields.init
   local requiredSnapshot = declarationSnapshot(fields.requires)
@@ -461,6 +469,8 @@ function adapter.define<C>(spec: Spec<C>): Definition<C>
     requires = requiredSnapshot,
     provides = providedSnapshot,
     init = init,
+    schema = if configuration then configuration.schema else nil,
+    resolve = if configuration then configuration.resolve else nil,
     nativeDefinition = nativeDefinition,
   } :: Definition<C>
 end

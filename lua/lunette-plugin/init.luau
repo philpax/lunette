@@ -6,6 +6,7 @@ local compose = require '@lunette-plugin/compose'
 local options = require '@lunette-plugin/options'
 local provider = require '@lunette-plugin/provider'
 local consumer = require '@lunette-plugin/consumer'
+local schema = require '@lunette-plugin/schema'
 
 local plugin = {}
 
@@ -23,9 +24,9 @@ export type Instance<C> = adapter.Instance<C>
 export type Runtime = adapter.Runtime
 export type OptionsSpec<S> = options.Spec<S>
 export type MergeSpec = options.MergeSpec
-export type ProviderSpec<S, T> = provider.Spec<S, T>
+export type ProviderSpec<C, S, T> = provider.Spec<C, S, T>
 export type Provider<C, T> = provider.Provider<C, T>
-export type ConsumerSpec<S> = consumer.Spec<S>
+export type ConsumerSpec<C, S> = consumer.Spec<C, S>
 export type Consumer<C> = consumer.Consumer<C>
 export type Entry = compose.Entry
 export type Patch = compose.Patch
@@ -48,6 +49,13 @@ end
 function plugin.define<C>(spec: Spec<C>): Definition<C>
   return adapter.define(spec)
 end
+
+-- Answers a configured definition's immutable schema tree, including its bound defaults.
+function plugin.definitionSchema<C>(definition: Definition<C>): schema.Metadata?
+  return definition.schema
+end
+
+plugin.schema = schema
 
 function plugin.runtime(): Runtime
   return adapter.runtime()
@@ -82,15 +90,15 @@ function plugin.merge(spec: MergeSpec): { [string]: unknown }
 end
 
 -- Makes a provider module, `{ definition, define, build, requires }`, from a
--- builder and its default options. The configuration type, the resolved
--- options type, and the service type are named by explicit instantiation:
+-- builder and a schema or legacy defaults. The configuration type, the resolved
+-- settings type, and the service type are named by explicit instantiation:
 -- `plugin.provider<<Config, Settings, Service>> { ... }`.
-function plugin.provider<C, S, T>(spec: ProviderSpec<S, T>): Provider<C, T>
+function plugin.provider<C, S, T>(spec: ProviderSpec<C, S, T>): Provider<C, T>
   return provider.create<<C, S, T>>(spec)
 end
 
 -- Makes a consumer module with configured definitions; initialization receives resolved settings.
-function plugin.consumer<C, S>(spec: ConsumerSpec<S>): Consumer<C>
+function plugin.consumer<C, S>(spec: ConsumerSpec<C, S>): Consumer<C>
   return consumer.create<<C, S>>(spec)
 end
 

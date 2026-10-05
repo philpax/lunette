@@ -3,12 +3,14 @@
 local adapter = require '@lunette-plugin/adapter'
 local configured = require '@lunette-plugin/configured'
 local options = require '@lunette-plugin/options'
+local schema = require '@lunette-plugin/schema'
 
 local consumer = {}
 
-export type Spec<S> = {
+export type Spec<C, S> = {
   read name: string,
   read requires: adapter.Declaration?,
+  read schema: schema.Schema<C, S>?,
   read defaults: S?,
   read validate: ((S, string) -> ())?,
   read init: (adapter.Context, S) -> (),
@@ -24,16 +26,23 @@ export type Consumer<C> = {
 local specKeys: { [string]: boolean } = {
   name = true,
   requires = true,
+  schema = true,
   defaults = true,
   validate = true,
   init = true,
 }
 
-function consumer.create<C, S>(spec: Spec<S>): Consumer<C>
+function consumer.create<C, S>(spec: Spec<C, S>): Consumer<C>
   if type(spec) ~= 'table' then
     error('plugin consumer: a consumer is a table of fields, not a ' .. type(spec), 3)
   end
-  options.rejectUnknownFields('plugin consumer', spec, specKeys, 'name, requires, defaults, validate, and init', 3)
+  options.rejectUnknownFields(
+    'plugin consumer',
+    spec,
+    specKeys,
+    'name, requires, schema, defaults, validate, and init',
+    3
+  )
   local name, init, validate = spec.name, spec.init, spec.validate
   if type(name) ~= 'string' or name == '' then
     error('plugin consumer: name is a non-empty string, not ' .. tostring(name), 3)
@@ -47,6 +56,7 @@ function consumer.create<C, S>(spec: Spec<S>): Consumer<C>
   local made = configured.create<<C, S>> {
     name = name,
     requires = spec.requires,
+    schema = spec.schema,
     defaults = spec.defaults,
     validate = validate,
     init = function(context: adapter.Context, settings: S, _publish: adapter.Publisher): ()

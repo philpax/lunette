@@ -54,6 +54,9 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/authoring/extra_keys.luau",
             "luau_check/simple_authoring/positive.luau",
             "luau_check/simple_authoring/runtime_guarantees.luau",
+            "luau_check/schema/positive.luau",
+            "luau_check/schema/collections.luau",
+            "luau_check/schema/readonly.luau",
         ]
         .into_iter()
         .map(fixture)
@@ -300,6 +303,83 @@ fn per_capability_authoring_rejects_misuse_of_real_contracts() {
             (50, 38, 50, 40),
         ],
     );
+}
+
+#[test]
+fn schema_types_preserve_nested_defaults_callbacks_and_configure_inputs() {
+    assert_schema_lines(
+        "luau_check/schema/negative.luau",
+        &[
+            (3, "number?"),
+            (4, "missing field 'label'"),
+            (5, "missing fields"),
+            (6, "string?"),
+            (7, "number?"),
+            (8, "number"),
+            (12, "(string) -> number"),
+            (16, "vector?"),
+            (17, "\"left\" | \"right\""),
+            (18, "number?"),
+            (21, "(string) -> number"),
+            (25, "number"),
+            (26, "number"),
+            (27, "\"left\""),
+            (33, "number"),
+            (36, "\"quiet\""),
+        ],
+    );
+}
+
+#[test]
+fn schema_map_input_output_and_nested_projection_reject_wrong_values() {
+    assert_schema_lines(
+        "luau_check/schema/collections_negative.luau",
+        &[(5, "string"), (6, "string"), (7, "number"), (10, "string")],
+    );
+}
+
+#[test]
+fn schema_outputs_metadata_and_error_paths_reject_mutation() {
+    assert_schema_lines(
+        "luau_check/schema/readonly_negative.luau",
+        &[
+            (3, "read-only"),
+            (4, "read-only"),
+            (5, "read-only"),
+            (6, "read-only"),
+            (9, "read-only"),
+            (12, "read-only"),
+            (14, "read-only"),
+        ],
+    );
+}
+
+fn assert_schema_lines(path: &str, sites: &[(u32, &str)]) {
+    let report = check(vec![fixture(path)]);
+    assert_eq!(
+        report.diagnostics.len(),
+        sites.len(),
+        "{:#?}",
+        report.diagnostics
+    );
+    for (line, message) in sites {
+        let matches = report
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.kind == Kind::TypeError
+                    && diagnostic.module.ends_with(path)
+                    && diagnostic.line == *line
+                    && diagnostic.message.contains(message)
+                    && !diagnostic.message.contains("too complex")
+            })
+            .count();
+        assert_eq!(
+            matches, 1,
+            "missing {message} at line {line}: {:#?}",
+            report.diagnostics
+        );
+    }
 }
 
 /// Checks that the fixture's diagnostics are exactly its `-- reject: ` markers:

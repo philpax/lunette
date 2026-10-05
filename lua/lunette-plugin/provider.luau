@@ -4,16 +4,17 @@
 local adapter = require '@lunette-plugin/adapter'
 local configured = require '@lunette-plugin/configured'
 local options = require '@lunette-plugin/options'
+local schema = require '@lunette-plugin/schema'
 
 local provider = {}
 
--- The fields `plugin.provider` accepts. `build` receives the resolved options, and `validate`, when given,
--- checks what the defaults cannot describe, such as a closed set. A provider that takes no options gives no
--- defaults, and its `build` may take the context alone.
-export type Spec<S, T> = {
+-- `build` receives settings resolved by a schema or legacy defaults. An optional validator checks
+-- additional constraints. A provider without options may take the context alone.
+export type Spec<C, S, T> = {
   read name: string,
   read capability: adapter.Capability<T>,
   read requires: adapter.Declaration?,
+  read schema: schema.Schema<C, S>?,
   read defaults: S?,
   read validate: ((S, string) -> ())?,
   read build: (adapter.Context, S) -> T,
@@ -32,12 +33,13 @@ local specKeys: { [string]: boolean } = {
   name = true,
   capability = true,
   requires = true,
+  schema = true,
   defaults = true,
   validate = true,
   build = true,
 }
 
-function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
+function provider.create<C, S, T>(spec: Spec<C, S, T>): Provider<C, T>
   if type(spec) ~= 'table' then
     error('plugin provider: a provider is a table of fields, not a ' .. type(spec), 3)
   end
@@ -45,7 +47,7 @@ function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
     'plugin provider',
     spec,
     specKeys,
-    'name, capability, requires, defaults, validate, and build',
+    'name, capability, requires, schema, defaults, validate, and build',
     3
   )
   local name, capability, build = spec.name, spec.capability, spec.build
@@ -62,7 +64,8 @@ function provider.create<C, S, T>(spec: Spec<S, T>): Provider<C, T>
   local made = configured.create<<C, S>> {
     name = name,
     requires = spec.requires,
-    provides = { service = (capability :: unknown) :: any },
+    provides = { service = capability },
+    schema = spec.schema,
     defaults = spec.defaults,
     validate = validate,
     init = function(context: adapter.Context, settings: S, publish: adapter.Publisher): ()
