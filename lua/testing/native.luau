@@ -2,26 +2,13 @@
 
 local lunette = require '@lunette'
 local host = require '@testing/host'
+local render = require '@testing/render'
 
 local native = {}
 
 local installNative, installLovr
 
 local SINK_METHODS = { 'key', 'modifiers', 'pointer', 'motion', 'button', 'scroll', 'enter', 'leave' }
-local DRAW_METHODS = {
-  'setColor',
-  'plane',
-  'text',
-  'line',
-  'sphere',
-  'setDepthTest',
-  'setDepthWrite',
-  'setShader',
-  'setMaterial',
-  'setBlendMode',
-  'roundrect',
-  'draw',
-}
 local SUBSCRIPTIONS = { 'onWindowOpened', 'onWindowClosed', 'onProcessExited', 'onMonitorAdded', 'onError' }
 
 function native.new()
@@ -39,6 +26,7 @@ function native.new()
     logs = {},
     timeline = {},
     held = {},
+    controllers = {},
     reported = {},
     reads = 0,
     writes = 0,
@@ -311,32 +299,11 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
 end
 
 installLovr = function(events)
-  local font = {}
-  function font:getHeight()
-    return 1
-  end
-  function font:getLineSpacing()
-    return 1
-  end
-  function font:getWidth(text)
-    return utf8.len(text) * 0.5
-  end
-  function font:getLines(text, wrap)
-    local lines = {}
-    local limit = math.max(1, math.floor(wrap * 2))
-    for line in (text .. '\n'):gmatch '(.-)\n' do
-      local start, count = 1, 0
-      for offset in utf8.codes(line) do
-        if count == limit then
-          lines[#lines + 1] = line:sub(start, offset - 1)
-          start, count = offset, 0
-        end
-        count += 1
-      end
-      lines[#lines + 1] = line:sub(start)
-    end
-    return lines
-  end
+  local recorder = render.new(function()
+    return events.draw
+  end)
+  local font = recorder.font
+  events.render = recorder
   lovr.graphics = {
     getDefaultFont = function()
       return font
@@ -352,27 +319,60 @@ installLovr = function(events)
       return events.held[key] == true
     end,
   }
+  local function controller(device)
+    if device and device:find('left', 1, true) then
+      return events.controllers.left
+    elseif device and device:find('right', 1, true) then
+      return events.controllers.right
+    end
+    return nil
+  end
+  local function position(device)
+    local state = controller(device)
+    if state then
+      return state.origin:unpack()
+    end
+    -- The legacy left hand stays outside the panel area to isolate the right-hand beam.
+    return (if device and device:find('left', 1, true) then -5 else 0) + (events.handX or 0), 1.5, 0
+  end
   lovr.headset = {
-    isTracked = function()
-      return true
+    isTracked = function(device)
+      local state = controller(device)
+      return not state or state.tracked
     end,
-    -- The left hand stays outside the panel area so tests can isolate the right-hand beam.
     getPose = function(device)
-      return (if device:find('left', 1, true) then -5 else 0) + (events.handX or 0), 1.5, 0, 0, 0, 1, 0
+      local state = controller(device)
+      if state then
+        local x, y, z = state.pose:getPosition()
+        local angle, ax, ay, az = state.pose:getOrientation()
+        return x, y, z, angle, ax, ay, az
+      end
+      local x, y, z = position(device)
+      return x, y, z, 0, 0, 1, 0
     end,
-    getPosition = function(device)
-      return (if device and device:find('left', 1, true) then -5 else 0) + (events.handX or 0), 1.5, 0
-    end,
-    getDirection = function()
+    getPosition = position,
+    getDirection = function(device)
+      local state = controller(device)
+      if state then
+        return state.direction:unpack()
+      end
       return 0, 0, -1
     end,
-    isDown = function(_device, button)
+    isDown = function(device, button)
+      local state = controller(device)
+      if state then
+        return state.buttons[button] == true
+      end
       return (button == 'trigger' and events.trigger == true) or (button == 'grip' and events.grip == true)
     end,
     getDeltaTime = function()
-      return 0.016
+      return events.dt or 0.016
     end,
-    getAxis = function()
+    getAxis = function(device)
+      local state = controller(device)
+      if state then
+        return state.axisX, state.axisY
+      end
       return 0, 0
     end,
     vibrate = function(device, strength, duration)
@@ -405,13 +405,7 @@ installLovr = function(events)
   lovr.log = function(message, level, tag)
     events.logs[#events.logs + 1] = { message, level, tag }
   end
-  local pass = {}
-  for _, name in ipairs(DRAW_METHODS) do
-    pass[name] = function(_, ...)
-      events.draw[#events.draw + 1] = { name, ... }
-    end
-  end
-  events.pass = pass
+  events.pass = recorder.pass
 end
 
 return native
