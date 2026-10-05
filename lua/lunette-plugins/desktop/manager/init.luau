@@ -1,5 +1,6 @@
 -- Provides a movable projected surface for inspecting and changing the session composition.
 
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
@@ -8,6 +9,7 @@ local composition = require '@lunette-contracts/composition'
 local quad = require '@lunette-contracts/quad'
 local config = require '@lunette-plugins/desktop/manager/config'
 local controller = require '@lunette-plugins/desktop/manager/controller'
+local view = require '@lunette-plugins/desktop/manager/view'
 local brokers = require '@lunette-plugins/desktop/manager/brokers'
 local draw = require '@lunette-plugins/desktop/manager/draw'
 
@@ -30,6 +32,7 @@ return plugin.consumer<<Config, Settings>>({
     local pixelHeight = pixels * settings.height / settings.width
     local visible = settings.visible
     local dead = false
+    local cancelling = false
     local pose = lovr.math.newMat4():translate(settings.position)
     local state = controller.new(
       compositionService,
@@ -42,10 +45,11 @@ return plugin.consumer<<Config, Settings>>({
     )
     local hovered: surface.Pointer? = nil
     local captured: surface.Pointer? = nil
-    local point = { x = 0, y = 0 }
-    local function cancelInput(): ()
+    local active: { [surface.Pointer]: { [lunette.PointerButton]: boolean } } = {}
+    local scrollRemainder = 0
+    local function clearInput(): ()
       hovered, captured = nil, nil
-      point = { x = 0, y = 0 }
+      scrollRemainder = 0
       controller.cancel(state)
     end
     local offered = {
@@ -67,56 +71,140 @@ return plugin.consumer<<Config, Settings>>({
           pixelHeight = pixelHeight,
         }, origin, direction)
       end,
+      project = function(_self: surface.Surface, origin: vector, direction: vector): (number?, number?, number?)
+        if dead or not visible then
+          return nil, nil, nil
+        end
+        return quad.project({
+          pose = pose,
+          width = settings.width,
+          height = settings.height,
+          pixelWidth = pixels,
+          pixelHeight = pixelHeight,
+        }, origin, direction)
+      end,
       setPose = function(_self: surface.Surface, nextPose: Mat4): ()
         if not dead then
           pose:set(nextPose)
         end
       end,
-      onHover = function(_self: surface.Surface, x: number?, y: number?, pointer: surface.Pointer): ()
-        if x == nil or y == nil or dead or not visible then
+      onPointer = function(_self: surface.Surface, event: surface.PointerEvent): ()
+        if dead or not visible or cancelling then
           return
         end
-        hovered = pointer
-        if captured == pointer then
-          point = { x = x, y = y }
-          controller.move(state, point)
+        local pointer, x, y = event.pointer, event.x, event.y
+        if event.kind == 'press' then
+          local button = event.button
+          if button then
+            local buttons = active[pointer] or {}
+            active[pointer] = buttons
+            buttons[button] = true
+          end
+        elseif event.kind == 'release' then
+          local buttons = active[pointer]
+          if buttons then
+            buttons[event.button] = nil
+            if next(buttons) == nil then
+              active[pointer] = nil
+            end
+          end
+        elseif event.kind == 'cancel' then
+          local buttons = active[pointer]
+          if buttons then
+            buttons[event.button] = nil
+            if next(buttons) == nil then
+              active[pointer] = nil
+            end
+          end
         end
-      end,
-      onLeave = function(_self: surface.Surface, pointer: surface.Pointer): ()
-        if dead or not visible then
-          return
-        end
-        if hovered == pointer then
-          hovered = nil
-        end
-        if captured == pointer then
-          controller.cancel(state)
-        end
-      end,
-      onPress = function(_self: surface.Surface, x: number?, y: number?, pointer: surface.Pointer): ()
-        if x == nil or y == nil or dead or not visible or captured ~= nil then
-          return
-        end
-        hovered, captured = pointer, pointer
-        point = { x = x, y = y }
-        controller.press(state, point)
-      end,
-      onRelease = function(_self: surface.Surface, pointer: surface.Pointer): ()
-        if dead or not visible then
-          return
-        end
-        if captured == pointer then
-          captured = nil
-          controller.release(state, point)
+        if event.kind == 'leave' then
+          if hovered == pointer then
+            hovered = nil
+          end
+        elseif event.kind == 'enter' then
+          hovered = pointer
+        elseif event.kind == 'cancel' then
+          if event.button == 'left' and captured == pointer then
+            clearInput()
+          end
+        elseif event.kind == 'press' then
+          if event.button ~= 'left' or not event.inside or captured ~= nil or x == nil or y == nil then
+            return
+          end
+          hovered, captured = pointer, pointer
+          controller.press(state, { x = x, y = y })
+        elseif event.kind == 'move' then
+          if event.inside then
+            hovered = pointer
+          end
+          if captured == pointer and event.button == 'left' and x ~= nil and y ~= nil then
+            controller.move(state, { x = x, y = y })
+          end
+        elseif event.kind == 'release' then
+          if event.button == 'left' and captured == pointer then
+            captured = nil
+            if x ~= nil and y ~= nil then
+              local released = { x = x, y = y }
+              if event.inside then
+                controller.release(state, released)
+              else
+                controller.move(state, released)
+                controller.cancel(state)
+              end
+            else
+              controller.cancel(state)
+            end
+          end
+        elseif event.kind == 'scroll' then
+          if not event.inside or x == nil or y == nil or event.dy == 0 then
+            return
+          end
+          if captured ~= nil and captured ~= pointer then
+            return
+          end
+          if x < state.view.viewport.x then
+            scrollRemainder = 0
+            view.zoom(state.view, { x = x, y = y }, math.exp(-event.dy / 600))
+          elseif not state.edit then
+            scrollRemainder += event.dy / 36
+            local rows = if scrollRemainder > 0 then math.floor(scrollRemainder) else math.ceil(scrollRemainder)
+            if rows ~= 0 then
+              scrollRemainder -= rows
+              state.scroll = math.max(0, state.scroll + rows)
+              controller.update(state)
+            end
+          end
         end
       end,
     }
+    local function cancelInput(reason: surface.CancelReason): ()
+      if cancelling then
+        return
+      end
+      cancelling = true
+      local pointers = active
+      active = {}
+      clearInput()
+      local failures: { string } = {}
+      for pointer in pointers do
+        local ok, problem = pcall(function(): ()
+          pointer:cancel(offered, reason)
+        end)
+        if not ok then
+          failures[#failures + 1] = tostring(problem)
+        end
+      end
+      cancelling = false
+      if #failures > 0 then
+        error('desktop/manager: pointer cleanup: ' .. table.concat(failures, '; '), 0)
+      end
+    end
     context:effect(function(): () -> ()
       return function(): ()
         dead = true
         offered.dead = true
         visible = false
-        cancelInput()
+        cancelInput 'surface-dead'
       end
     end)
     surfaceService:offer(context, {
@@ -143,7 +231,7 @@ return plugin.consumer<<Config, Settings>>({
         if event.key == settings.toggleKey then
           if not event.isRepeat then
             visible = not visible
-            cancelInput()
+            cancelInput 'hidden'
           end
           return true
         end

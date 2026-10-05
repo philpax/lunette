@@ -100,6 +100,8 @@ export type Keyboard = {
   read height: number,
   read visible: boolean,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
+  read project: ((Surface, vector, vector) -> (number?, number?, number?))?,
+  read onPointer: ((Surface, surface.PointerEvent) -> ())?,
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
   read onHover: (Surface, number?, number?, Pointer) -> (),

@@ -27,6 +27,8 @@ export type TuningOverride = {
 export type Input = vocabulary.Input
 export type Surface = vocabulary.Surface
 export type Pointer = vocabulary.Pointer
+export type PointerEvent = vocabulary.PointerEvent
+export type CancelReason = vocabulary.CancelReason
 
 export type ButtonState = vocabulary.ButtonState
 export type Push = vocabulary.Push
@@ -50,7 +52,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/interaction', schema = 1 }
+local capability = plugin.capability<<Service>> { name = 'lunette/interaction', schema = 2 }
 
 interaction.capability = capability
 

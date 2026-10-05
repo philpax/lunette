@@ -64,6 +64,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
       error(pointer, 0)
     end
     local frameInput: Input? = nil
+    local withdrawn = false
     local target: MutableLaser
     target = {
       owner = owner,
@@ -101,9 +102,13 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         local frame = self.readInput(self.hand)
         target.input = frame
         if not frame then
-          self.pointer:withdraw()
+          if not withdrawn then
+            withdrawn = true
+            self.pointer:withdraw()
+          end
           return
         end
+        withdrawn = false
         local before = self.pointer.hovered
         self.pointer:update(frame, surfaces)
         if self.pointer.hovered ~= before then

@@ -1,8 +1,10 @@
 -- The provider implements the keyboard contract with three keys.
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local keyboard = require '@lunette-contracts/keyboard'
 local focusContract = require '@lunette-contracts/focus'
 local quad = require '@lunette-contracts/quad'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local keys = require '@lunette-contracts/keys'
 local schema = require '@lunette-plugin/schema'
 local inspection = require '@lunette-contracts/inspection'
@@ -30,13 +32,67 @@ local function make(
     height = KEY,
     visible = true,
   }
+  local captures: { [keyboard.Pointer]: { [lunette.PointerButton]: boolean } } = {}
+  local visibilityRevision = 0
+  local board: keyboard.Keyboard
+  local function cancelPointers(reason: vocabulary.CancelReason): { string }
+    local active = captures
+    captures = {}
+    local failures: { string } = {}
+    for pointer in active do
+      local ok, failure = pcall(function(): ()
+        pointer:cancel(board, reason)
+      end)
+      if not ok then
+        failures[#failures + 1] = tostring(failure)
+      end
+    end
+    return failures
+  end
+  local function finish(failures: { string }): ()
+    if #failures > 0 then
+      error(table.concat(failures, '\n'), 0)
+    end
+  end
   local function pressKey(_self: keyboard.Keyboard, code: number): boolean
     return not state.dead and source:key({ code = code, modifiers = {}, isRepeat = false }).kind == 'consumed'
   end
+  local function activate(x: number?, y: number?, pointer: keyboard.Pointer): ()
+    if state.dead or not state.visible or not x or (y ~= nil and (y < 0 or y > state.height)) then
+      return
+    end
+    local code = CODES[math.floor(x / KEY) + 1]
+    if code then
+      pointer:vibrate { strength = 0.2, duration = 0.01 }
+      pressKey(board, code)
+    end
+  end
+  local function onPointer(_self: keyboard.Surface, event: vocabulary.PointerEvent): ()
+    local pointer = event.pointer
+    if event.kind == 'cancel' or event.kind == 'release' then
+      local buttons, button = captures[pointer], event.button
+      if buttons and button then
+        buttons[button] = nil
+        if next(buttons) == nil then
+          captures[pointer] = nil
+        end
+      end
+    elseif event.kind == 'press' and not state.dead and state.visible then
+      if event.captured then
+        local buttons = captures[pointer] or {}
+        captures[pointer] = buttons
+        buttons[event.button] = true
+      end
+      if event.button == 'left' and event.inside then
+        activate(event.x, event.y, pointer)
+      end
+    end
+  end
   local function destroyState(): ()
     state.dead, state.visible = true, false
+    visibilityRevision += 1
+    finish(cancelPointers 'control-removed')
   end
-  local board: keyboard.Keyboard
   local methods = {
     raycast = function(
       _self: keyboard.Surface,
@@ -56,6 +112,19 @@ local function make(
         backFace = backFace,
       }, origin, direction)
     end,
+    project = function(_self: keyboard.Surface, origin: vector, direction: vector): (number?, number?, number?)
+      if state.dead or not state.visible then
+        return nil, nil, nil
+      end
+      return quad.project({
+        pose = state.pose,
+        width = state.width,
+        height = state.height,
+        pixelWidth = state.width,
+        pixelHeight = state.height,
+      }, origin, direction)
+    end,
+    onPointer = onPointer,
     setPose = function(_self: keyboard.Surface, pose: Mat4)
       if not state.dead then
         state.pose:set(pose)
@@ -64,25 +133,32 @@ local function make(
     setSize = function(_self: keyboard.Surface, _width: number?, _height: number?) end,
     onHover = function(_self: keyboard.Surface, _x: number?, _y: number?, _pointer: keyboard.Pointer) end,
     onLeave = function(_self: keyboard.Surface, _pointer: keyboard.Pointer) end,
-    onPress = function(_self: keyboard.Surface, x: number?, _y: number?, pointer: keyboard.Pointer)
-      if state.dead then
-        return
-      end
-      local code = if x then CODES[math.floor(x / KEY) + 1] else nil
-      if code then
-        pointer:vibrate { strength = 0.2, duration = 0.01 }
-        pressKey(board, code)
-      end
+    onPress = function(_self: keyboard.Surface, x: number?, y: number?, pointer: keyboard.Pointer)
+      activate(x, y, pointer)
     end,
     setVisible = function(_self: keyboard.Keyboard, visible: boolean)
       if state.dead or state.visible == visible then
         return
       end
       state.visible = visible
+      visibilityRevision += 1
+      local revision = visibilityRevision
+      local failures: { string } = {}
       if not visible then
-        source:reset()
+        failures = cancelPointers 'hidden'
+        if not state.dead and visibilityRevision == revision then
+          local ok, failure = pcall(function(): ()
+            source:reset()
+          end)
+          if not ok then
+            failures[#failures + 1] = tostring(failure)
+          end
+        end
       end
-      notify { visible = visible, reason = if visible then 'show' else 'hide' }
+      if not state.dead and visibilityRevision == revision then
+        notify { visible = visible, reason = if visible then 'show' else 'hide' }
+      end
+      finish(failures)
     end,
     pressKey = pressKey,
     typeText = function(_self: keyboard.Keyboard, text: string): boolean
@@ -180,15 +256,22 @@ return plugin.provider<<Config, Settings, keyboard.Service>>({
               if created.dead then
                 return
               end
-              destroyState()
               boards[created] = nil
               cleanupEffect = nil
+              local failures: { string } = {}
+              local ended, endFailure = pcall(destroyState)
+              if not ended then
+                failures[#failures + 1] = tostring(endFailure)
+              end
               local cleaned, failure = pcall(function(): ()
                 source:destroy()
               end)
-              notify { visible = false, reason = 'destroy' }
               if not cleaned then
-                error(failure, 0)
+                failures[#failures + 1] = tostring(failure)
+              end
+              notify { visible = false, reason = 'destroy' }
+              if #failures > 0 then
+                error(table.concat(failures, '\n'), 0)
               end
             end
         end)

@@ -38,7 +38,10 @@ export type Methods = {
   push: (Pointer, number, number) -> (),
   dragTo: (Pointer, Mat4?) -> (),
   endGrab: (Pointer) -> boolean,
+  detachGrab: (PointerState, Pointer) -> (() -> ())?,
 }
+
+type GrabIdentity = { announced: boolean }
 
 type Host = {
   read pointers: () -> { PointerState },
@@ -46,6 +49,7 @@ type Host = {
   -- Announces a drop before the pointer clears its grabbed surface.
   read dropped: (Surface, Pointer) -> (),
   read constrain: (Surface, Mat4) -> Mat4,
+  read current: (Pointer) -> () -> boolean,
 }
 
 local function distanceBetween(first: vector?, second: vector?): number?
@@ -81,12 +85,15 @@ local function ordinaryGrab(target: Surface, handPose: Mat4): GrabState?
   }
 end
 
-local function place(host: Host, target: Surface, pose: Mat4): ()
+local function place(host: Host, target: Surface, pose: Mat4, current: () -> boolean): ()
   local setPose = target.setPose
-  if not setPose then
+  if not setPose or target.dead or not current() then
     return
   end
   local constrained = host.constrain(target, pose)
+  if not current() or target.dead then
+    return
+  end
   if constrained == nil then
     error('interaction: constrain answered nothing, not a pose', 0)
   end
@@ -94,13 +101,38 @@ local function place(host: Host, target: Surface, pose: Mat4): ()
 end
 
 function grab.new(host: Host): Methods
+  local identities: { [Pointer]: GrabIdentity } = {}
+
+  local function announce(identity: GrabIdentity, target: Surface, pointer: Pointer): ()
+    if not identity.announced then
+      identity.announced = true
+      host.dropped(target, pointer)
+    end
+  end
+
+  local function detachGrab(state: PointerState, pointer: Pointer): (() -> ())?
+    local target, identity = state.grabbed, identities[pointer]
+    state.grabbed, state.grab, state.scaling = nil, nil, nil
+    identities[pointer] = nil
+    if not target or not identity or identity.announced then
+      return nil
+    end
+    return function()
+      announce(identity, target, pointer)
+    end
+  end
+
   local function beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolean
     local state = host.state(self)
-    if not handPose or not target.setPose then
+    local current = host.current(self)
+    if not current() or target.dead or not handPose or not target.setPose then
       return false
     end
 
     local position = vector.pack(handPose:getPosition())
+    if not current() then
+      return false
+    end
     state.handPosition = position
     state.grabbed = target
 
@@ -108,26 +140,34 @@ function grab.new(host: Host): Methods
     local separation = partner and distanceBetween(position, partner.handPosition)
     if partner and separation and target.width and separation > 0 then
       state.scaling = { partner = partner, separation = separation, width = target.width }
+      identities[self] = { announced = false }
       return true
     end
 
     local ordinary = ordinaryGrab(target, handPose)
     if not ordinary then
       state.grabbed = nil
+      identities[self] = nil
       return false
     end
     state.grab = ordinary
+    identities[self] = { announced = false }
     return true
   end
 
   local function scaleWith(self: Pointer, handPose: Mat4?): ()
     local state = host.state(self)
+    local current = host.current(self)
     local scaling = state.scaling
     local target = state.grabbed
     if not scaling or not target or not handPose then
       return
     end
-    state.handPosition = vector.pack(handPose:getPosition())
+    local position = vector.pack(handPose:getPosition())
+    if not current() or target.dead then
+      return
+    end
+    state.handPosition = position
 
     local partner = scaling.partner
     if partner.grabbed ~= target or partner.dead then
@@ -147,9 +187,12 @@ function grab.new(host: Host): Methods
     if target.setSize then
       target:setSize(width)
     end
+    if not current() or target.dead then
+      return
+    end
     local pose = target.pose
     if pose then
-      place(host, target, lovr.math.newMat4(pose))
+      place(host, target, lovr.math.newMat4(pose), current)
     end
   end
 
@@ -180,12 +223,16 @@ function grab.new(host: Host): Methods
 
   local function dragTo(self: Pointer, handPose: Mat4?): ()
     local state = host.state(self)
+    local valid = host.current(self)
     local current = state.grab
-    if not handPose or not current then
+    if not valid() or not handPose or not current then
       return
     end
 
     local position = vector.pack(handPose:getPosition())
+    if not valid() then
+      return
+    end
     state.handPosition = position
     if not current.moving then
       local displacement = position - current.origin
@@ -199,19 +246,26 @@ function grab.new(host: Host): Methods
     if not target then
       return
     end
-    place(host, target, lovr.math.newMat4():set(handPose):mul(current.offset))
+    place(host, target, lovr.math.newMat4():set(handPose):mul(current.offset), valid)
   end
 
   -- Announces the drop before clearing `grabbed`, so listeners can inspect the carried surface.
   local function endGrab(self: Pointer): boolean
     local state = host.state(self)
-    local target = state.grabbed
+    local target, identity = state.grabbed, identities[self]
     if not target then
       state.grab, state.scaling = nil, nil
+      identities[self] = nil
       return false
     end
-    local ok, failure = pcall(host.dropped, target, self)
-    state.grabbed, state.grab, state.scaling = nil, nil, nil
+    if not identity or identity.announced then
+      return false
+    end
+    local ok, failure = pcall(announce, identity, target, self)
+    if identities[self] == identity then
+      state.grabbed, state.grab, state.scaling = nil, nil, nil
+      identities[self] = nil
+    end
     if not ok then
       error(failure, 0)
     end
@@ -224,6 +278,7 @@ function grab.new(host: Host): Methods
     push = push,
     dragTo = dragTo,
     endGrab = endGrab,
+    detachGrab = detachGrab,
   }
 end
 

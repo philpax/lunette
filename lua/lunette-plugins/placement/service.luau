@@ -164,7 +164,9 @@ local function acquire(
   end
   local panel, acquired = context:resource(owner, function(): (panelsContract.WindowPanel, () -> ())
     local ok, result = pcall(function()
-      local options = state.settings.panelOptions(properties, window, service.panelOptions)
+      -- schema.callback uses PanelOptions; naming it avoids comparing the schema's cloned recursive types.
+      local panelOptions = state.settings.panelOptions :: config.PanelOptions
+      local options = panelOptions(properties, window, service.panelOptions)
       if type(options) ~= 'table' then
         error('placement: panelOptions answered a ' .. type(options) .. ', not panel options')
       end

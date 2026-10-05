@@ -59,11 +59,19 @@ test('the development wrist button shows the rounded example and draws every key
     error 'the shown keyboard is absent'
   end
   local function toggle()
-    wrist():onPress(nil, nil, {
-      vibrate = function()
-        return true
-      end,
-    })
+    wrist():onPointer {
+      kind = 'press',
+      pointer = {
+        vibrate = function()
+          return true
+        end,
+      },
+      button = 'left',
+      x = 0.5,
+      y = 0.5,
+      captured = true,
+      inside = true,
+    }
   end
   local function drawKeyboard()
     session:update()

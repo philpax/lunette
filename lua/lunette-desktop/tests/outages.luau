@@ -72,12 +72,20 @@ test('keyboard and error stream outages remove only what depends on them', funct
     local all = env.surfaces:all()
     expect.equal(#all, 5, context .. ': recovery offers the wrist button')
     local pulses = 0
-    all[5]:onPress(nil, nil, {
-      vibrate = function()
-        pulses += 1
-        return true
-      end,
-    })
+    all[5]:onPointer {
+      kind = 'press',
+      pointer = {
+        vibrate = function()
+          pulses += 1
+          return true
+        end,
+      },
+      button = 'left',
+      x = 0.5,
+      y = 0.5,
+      captured = true,
+      inside = true,
+    }
     expect.equal(pulses, 1, context .. ': the wrist button pulses the pointer that pressed it')
     expect.equal(#env.surfaces:all(), 6, context .. ': the press makes one keyboard')
 

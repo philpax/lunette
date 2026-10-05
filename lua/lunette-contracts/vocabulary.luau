@@ -105,6 +105,38 @@ export type Haptic = {
   read duration: number,
 }
 
+export type CancelReason =
+  'tracking-loss'
+  | 'pointer-destroyed'
+  | 'surface-dead'
+  | 'surface-withdrawn'
+  | 'provider-replaced'
+  | 'hidden'
+  | 'control-removed'
+  | 'disabled'
+  | 'grab'
+
+-- Coordinates are surface-local and may be outside its bounds during capture.
+type PointerEventFields = {
+  read pointer: Pointer,
+  read x: number?,
+  read y: number?,
+  read captured: boolean,
+  read inside: boolean,
+}
+
+export type PointerEvent =
+  PointerEventFields
+  & (
+    { read kind: 'enter' }
+    | { read kind: 'leave' }
+    | { read kind: 'move', read button: lunette.PointerButton? }
+    | { read kind: 'press', read button: lunette.PointerButton }
+    | { read kind: 'release', read button: lunette.PointerButton }
+    | { read kind: 'scroll', read dx: number, read dy: number }
+    | { read kind: 'cancel', read button: lunette.PointerButton, read reason: CancelReason }
+  )
+
 -- Grab and press bookkeeping remain private to the interaction provider.
 export type Pointer = {
   read seat: lunette.Seat?,
@@ -117,6 +149,8 @@ export type Pointer = {
   read dead: boolean,
   read update: (Pointer, Input, { read [number]: Surface }) -> (),
   read withdraw: (Pointer) -> (),
+  -- Cancels only this surface's active gestures. Held buttons require an observed release before another press.
+  read cancel: (Pointer, Surface, CancelReason) -> (),
   read destroy: (Pointer) -> boolean,
   read hover: (Pointer, Surface?) -> (),
   read setButton: (Pointer, ButtonState) -> (),
@@ -138,6 +172,9 @@ type SurfaceFields = {
   read height: number?,
   read sink: ((Surface) -> lunette.Sink?)?,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
+  read project: ((Surface, vector, vector) -> (number?, number?, number?))?,
+  -- A protocol surface receives no legacy hover, leave, press, or release callbacks.
+  read onPointer: ((Surface, PointerEvent) -> ())?,
   read setPose: ((Surface, Mat4) -> ())?,
   read setSize: ((Surface, number?, number?) -> ())?,
   read setHighlighted: ((Surface, boolean) -> ())?,
@@ -156,6 +193,8 @@ type MovableFields = {
   read height: number?,
   read sink: ((Surface) -> lunette.Sink?)?,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
+  read project: ((Surface, vector, vector) -> (number?, number?, number?))?,
+  read onPointer: ((Surface, PointerEvent) -> ())?,
   read setPose: (Surface, Mat4) -> (),
   read setSize: ((Surface, number?, number?) -> ())?,
   read setHighlighted: ((Surface, boolean) -> ())?,

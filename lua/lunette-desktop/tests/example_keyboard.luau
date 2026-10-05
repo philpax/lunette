@@ -2,6 +2,7 @@ local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
 local surfacesContract = require '@lunette-contracts/surfaces'
+local interactionContract = require '@lunette-contracts/interaction'
 
 local test = testing.suite()
 
@@ -32,11 +33,18 @@ test('the keyboard example runs, and its split keyboard is shown with its halves
     end
   end
   assert(wrist, 'the wrist button')
-  wrist:onPress(nil, nil, {
-    vibrate = function()
-      return true
-    end,
-  })
+  local observed = session:observe(interactionContract.capability)
+  local pointer = observed.service:newPointer(observed.context)
+  local frame = {
+    origin = vector.pack(wrist.pose:mul(0, 0, 1, 1)),
+    direction = vector.pack(wrist.pose:mul(0, 0, -1, 0)),
+    buttons = { left = true },
+    grip = false,
+    dt = 0.016,
+  }
+  pointer:update(frame, surfaces:all())
+  frame.buttons = {}
+  pointer:update(frame, surfaces:all())
   local board
   for _, candidate in ipairs(surfaces:all()) do
     if candidate.pressKey then

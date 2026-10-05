@@ -10,7 +10,7 @@ local vrUi = require '@testing/vr-ui'
 local test = testing.suite()
 
 local function panel(fixture, options)
-  local state = { presses = {}, releases = {}, hovers = {}, generation = 0 }
+  local state = { presses = {}, releases = {}, cancels = {}, hovers = {}, generation = 0 }
   state.instance = fixture.session:use(plugin.define {
     name = 'testing/vr-panel',
     requires = { surfaces = surfaces.capability, frame = frame.capability },
@@ -29,17 +29,26 @@ local function panel(fixture, options)
       function target:raycast(origin, direction)
         return quad.hit(self, origin, direction)
       end
-      function target:onHover(x, y, pointer)
-        state.hovers[pointer] = { x, y }
+      function target:project(origin, direction)
+        return quad.project(self, origin, direction)
       end
-      function target:onPress(x, y, pointer)
-        state.presses[#state.presses + 1] = { pointer = pointer, x = x, y = y }
-        if options and options.fail then
-          error 'vr fixture surface callback failure'
+      function target:onPointer(event)
+        fixture:recordPointer(event)
+        local pointer = event.pointer
+        if event.kind == 'move' or event.kind == 'enter' then
+          state.hovers[pointer] = { event.x, event.y }
+        elseif event.kind == 'leave' then
+          state.hovers[pointer] = nil
+        elseif event.kind == 'press' then
+          state.presses[#state.presses + 1] = { pointer = pointer, x = event.x, y = event.y }
+          if options and options.fail then
+            error 'vr fixture surface callback failure'
+          end
+        elseif event.kind == 'release' then
+          state.releases[#state.releases + 1] = pointer
+        elseif event.kind == 'cancel' then
+          state.cancels[#state.cancels + 1] = event
         end
-      end
-      function target:onRelease(pointer)
-        state.releases[#state.releases + 1] = pointer
       end
       context:effect(function()
         return function()
@@ -102,7 +111,10 @@ test('the VR UI fixture drives real pointers and records output', function()
   expect.equal(#state.releases, 1, 'the right hand remains held')
   fixture:tracked('right', false)
   fixture:step()
-  expect.equal(#state.releases, 2, 'tracking loss reaches the actual withdrawal path')
+  expect.equal(#state.releases, 1, 'tracking loss does not activate a release')
+  expect.equal(#state.cancels, 1, 'tracking loss reaches the actual cancellation path')
+  expect.equal(state.cancels[1].reason, 'tracking-loss', 'the real pointer supplies the reason')
+  expect.equal(#fixture:cancellations(), 1, 'the fixture records production cancellation')
   fixture:draw()
   local planes = fixture:drawCalls 'plane'
   expect.truthy(#planes > 0, 'the real frame draw is recorded')
@@ -211,10 +223,12 @@ test('the VR UI fixture rejects a replacement generation during a gesture', func
       }
     end,
   }
-  local press = state.target.onPress
-  state.target.onPress = function(self, x, y, pointer)
-    press(self, x, y, pointer)
-    state.instance:reload {}
+  local onPointer = state.target.onPointer
+  state.target.onPointer = function(self, event)
+    onPointer(self, event)
+    if event.kind == 'press' then
+      state.instance:reload {}
+    end
   end
   expect.raises(function()
     fixture:clickControl(service, 'dynamic-panel', 'replaced')

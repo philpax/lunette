@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local keyboardModule = require '@lunette-plugins/keyboard'
 local keyboardContract = require '@lunette-contracts/keyboard'
 local surfacesContract = require '@lunette-contracts/surfaces'
+local interactionContract = require '@lunette-contracts/interaction'
 
 local test = testing.suite()
 
@@ -19,6 +20,8 @@ local function start(config)
     'frame',
     'surfaces',
     'focus',
+    'drops',
+    'interaction',
     { id = 'keyboard', definition = tracing },
     { id = 'desktop/keyboard', definition = require '@lunette-plugins/desktop/keyboard', config = config },
   }
@@ -28,12 +31,104 @@ end
 
 local function wristOf(env)
   for _, candidate in ipairs(env.surfaces.service:all()) do
-    if candidate.grabbable == false and candidate.onPress then
+    if candidate.grabbable == false and candidate.onPointer then
       return candidate
     end
   end
   return nil
 end
+
+local function press(wrist, pointer)
+  wrist:onPointer {
+    kind = 'press',
+    pointer = pointer,
+    button = 'left',
+    x = 0.5,
+    y = 0.5,
+    captured = true,
+    inside = true,
+  }
+end
+
+local function shownKeyboard(env)
+  for _, candidate in ipairs(env.surfaces.service:all()) do
+    if candidate.setLayer then
+      return candidate
+    end
+  end
+  return nil
+end
+
+local function realPointer(env)
+  local observed = env.session:observe(interactionContract.capability)
+  return observed.service:newPointer(observed.context, {
+    vibrate = function(haptic)
+      return lovr.headset.vibrate('hand/right', haptic.strength, haptic.duration)
+    end,
+  })
+end
+
+local function drive(env, pointer, wrist, buttons)
+  pointer:update({
+    origin = vector.pack(wrist.pose:mul(0, 0, 1, 1)),
+    direction = vector.pack(wrist.pose:mul(0, 0, -1, 0)),
+    pose = lovr.math.newMat4(),
+    buttons = buttons or {},
+    grip = false,
+    dt = 0.016,
+  }, env.surfaces.service:all())
+end
+
+test('a real secondary press does not toggle or pulse the wrist keyboard', function()
+  local env = start { haptic = { strength = 0.4 } }
+  local wrist, pointer = wristOf(env), realPointer(env)
+  drive(env, pointer, wrist, { right = true })
+  drive(env, pointer, wrist)
+  expect.equal(shownKeyboard(env), nil, 'secondary press does not show a keyboard')
+  expect.equal(env.session.native.events.haptics or 0, 0, 'secondary press does not pulse')
+  drive(env, pointer, wrist, { left = true })
+  local shown = shownKeyboard(env)
+  expect.truthy(shown and shown.visible, 'a primary press shows the keyboard')
+  expect.equal(env.session.native.events.haptics, 1, 'one primary event produces one pulse')
+  drive(env, pointer, wrist, { left = true, right = true })
+  drive(env, pointer, wrist, { left = true })
+  drive(env, pointer, wrist)
+  expect.truthy(shown.visible, 'secondary and release events do not toggle again')
+  expect.equal(env.session.native.events.haptics, 1, 'non-primary events do not duplicate the pulse')
+  env.session:close()
+end)
+
+test('wrist tracking omission cancels a held real press without toggling on reacquisition', function()
+  local env = start {}
+  local wrist, pointer = wristOf(env), realPointer(env)
+  local onPointer = wrist.onPointer
+  local cancelled = {}
+  wrist.onPointer = function(self, event)
+    if event.kind == 'cancel' then
+      cancelled[#cancelled + 1] = event
+    end
+    return onPointer(self, event)
+  end
+  drive(env, pointer, wrist, { left = true })
+  local shown = shownKeyboard(env)
+  local tracked = true
+  lovr.headset.isTracked = function()
+    return tracked
+  end
+  tracked = false
+  drive(env, pointer, wrist, { left = true })
+  expect.equal(#cancelled, 1, 'the next drive cancels the withdrawn wrist capture')
+  expect.equal(cancelled[1].reason, 'surface-withdrawn', 'offer omission supplies the cancellation reason')
+  expect.truthy(shown.visible, 'cancellation does not toggle the visible keyboard')
+  tracked = true
+  drive(env, pointer, wrist, { left = true })
+  expect.truthy(shown.visible, 'held reacquisition cannot toggle')
+  drive(env, pointer, wrist)
+  expect.truthy(shown.visible, 'the quarantined release does not toggle')
+  drive(env, pointer, wrist, { left = true })
+  expect.equal(shown.visible, false, 'a fresh primary press toggles after the observed release')
+  env.session:close()
+end)
 
 test('the wrist button takes the configured size', function()
   local env = start { size = 0.2 }
@@ -67,17 +162,11 @@ test('a press shows the wrist keyboard and pulses the pressing pointer with the 
     end,
   }
   local wrist = wristOf(env)
-  wrist:onPress(nil, nil, pointer)
+  press(wrist, pointer)
   expect.equal(#pulses, 1, 'the pulses of the pressing pointer')
   expect.equal(pulses[1].strength, 0.4, 'the configured strength')
   expect.equal(pulses[1].duration, 0.05, 'the default duration')
-
-  local shown
-  for _, candidate in ipairs(env.surfaces.service:all()) do
-    if candidate.setLayer then
-      shown = candidate
-    end
-  end
+  local shown = shownKeyboard(env)
   expect.truthy(shown and shown.visible, 'the wrist keyboard is offered once shown')
   env.session:close()
 end)
@@ -94,20 +183,15 @@ test('a pitched head keeps the keyboard at the configured horizontal distance', 
     lovr.headset.getDirection = function()
       return math.cos(pitch) * 0.6, math.sin(pitch), -math.cos(pitch) * 0.8
     end
-    wrist:onPress(nil, nil, pointer)
-    local shown
-    for _, candidate in ipairs(env.surfaces.service:all()) do
-      if candidate.setLayer then
-        shown = candidate
-      end
-    end
+    press(wrist, pointer)
+    local shown = shownKeyboard(env)
     expect.truthy(shown and shown.visible, 'the keyboard is visible')
     local hx, hy, hz = lovr.headset.getPosition 'head'
     local x, y, z = shown.pose:getPosition()
     expect.near(x, hx + 0.48, 1e-5, 'the horizontal x offset')
     expect.near(y, hy - 0.25, 1e-5, 'the vertical drop')
     expect.near(z, hz - 0.64, 1e-5, 'the horizontal z offset')
-    wrist:onPress(nil, nil, pointer)
+    press(wrist, pointer)
   end
   env.session:close()
 end)
@@ -124,19 +208,14 @@ test('a near-vertical head direction places the keyboard along the forward fallb
         return true
       end,
     }
-    wrist:onPress(nil, nil, pointer)
-    local shown
-    for _, candidate in ipairs(env.surfaces.service:all()) do
-      if candidate.setLayer then
-        shown = candidate
-      end
-    end
+    press(wrist, pointer)
+    local shown = shownKeyboard(env)
     local hx, hy, hz = lovr.headset.getPosition 'head'
     local x, y, z = shown.pose:getPosition()
     expect.near(x, hx, 1e-5, 'the fallback x position')
     expect.near(y, hy - 0.25, 1e-5, 'the vertical drop')
     expect.near(z, hz - 0.8, 1e-5, 'the fallback horizontal distance')
-    wrist:onPress(nil, nil, pointer)
+    press(wrist, pointer)
   end
   env.session:close()
 end)
@@ -153,7 +232,7 @@ test("the consumer draws its own keyboard and not another owner's", function()
   })
   expect.truthy(other.visible, "another owner's keyboard is visible")
   local wrist = wristOf(env)
-  wrist:onPress(nil, nil, {
+  press(wrist, {
     vibrate = function()
       return true
     end,

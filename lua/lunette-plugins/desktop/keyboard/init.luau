@@ -101,8 +101,23 @@ return plugin.consumer<<Config, Settings>>({
           backFace = true,
         }, origin, direction)
       end,
-      onPress = function(_self: surface.Surface, _x: number?, _y: number?, pointer: surface.Pointer): ()
-        toggle(pointer)
+      project = function(_self: surface.Surface, origin: vector, direction: vector): (number?, number?, number?)
+        if not tracked then
+          return nil, nil, nil
+        end
+        return quad.project({
+          pose = pose,
+          width = size,
+          height = size,
+          pixelWidth = 1,
+          pixelHeight = 1,
+          backFace = true,
+        }, origin, direction)
+      end,
+      onPointer = function(_self: surface.Surface, event: surface.PointerEvent): ()
+        if event.kind == 'press' and event.button == 'left' and event.inside and tracked then
+          toggle(event.pointer)
+        end
       end,
     }
     surfaceService:offer(context, {

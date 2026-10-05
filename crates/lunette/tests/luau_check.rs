@@ -48,6 +48,8 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/keyboard/mappings.luau",
             "luau_check/keyboard/visibility_positive.luau",
             "luau_check/frame/positive.luau",
+            "luau_check/surface/positive.luau",
+            "luau_check/surface/placement_positive.luau",
             "luau_check/focus/positive.luau",
             "luau_check/focus/source_positive.luau",
             "luau_check/native/default_seat_positive.luau",
@@ -81,6 +83,22 @@ fn frame_batches_and_events_reject_invalid_handlers_and_mutation() {
     assert_marked_lines(
         "luau_check/frame/negative.luau",
         include_str!("luau_check/frame/negative.luau"),
+    );
+}
+
+#[test]
+fn surfaces_and_pointer_events_reject_invalid_values_and_mutation() {
+    assert_marked_lines(
+        "luau_check/surface/negative.luau",
+        include_str!("luau_check/surface/negative.luau"),
+    );
+}
+
+#[test]
+fn placement_settings_reject_invalid_callback_receivers_and_properties() {
+    assert_marked_lines(
+        "luau_check/surface/placement_negative.luau",
+        include_str!("luau_check/surface/placement_negative.luau"),
     );
 }
 

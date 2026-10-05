@@ -163,4 +163,124 @@ test('the default reader maps the trigger to the left button', function()
   env.session:close()
 end)
 
+for _, reader in ipairs { 'default', 'custom' } do
+  test('the ' .. reader .. ' laser reader cancels on loss and requires all buttons up before reacquisition', function()
+    local env = start()
+    local tracked, held = true, true
+    local events = {}
+    local target = {
+      dead = false,
+      grabbable = false,
+      raycast = function()
+        return 10, 20, 1
+      end,
+      onPointer = function(_self, event)
+        if event.kind == 'press' or event.kind == 'release' or event.kind == 'cancel' then
+          events[#events + 1] = event
+        end
+      end,
+    }
+    local originalTracked = lovr.headset.isTracked
+    lovr.headset.isTracked = function(device)
+      return tracked and originalTracked(device)
+    end
+    env.native.events.trigger = held
+    local options = if reader == 'custom'
+      then {
+        readInput = function()
+          if not tracked then
+            return nil
+          end
+          local input = frame(0, 0, -1)
+          input.buttons.left = held
+          return input
+        end,
+      }
+      else nil
+    local beam = env.service:new(env.owner, 'right', options)
+    beam:update { target }
+    expect.equal(#events, 1, 'the first tracked press')
+    expect.equal(events[1].kind, 'press', 'the trigger starts a gesture')
+    tracked = false
+    beam:update { target }
+    beam:update { target }
+    expect.equal(#events, 2, 'repeated loss cancels only once')
+    expect.equal(events[2].kind, 'cancel', 'tracking loss cannot activate release')
+    expect.equal(events[2].reason, 'tracking-loss', 'the loss reason')
+    tracked = true
+    beam:update { target }
+    expect.equal(#events, 2, 'a held trigger after reacquisition cannot press again')
+    held = false
+    env.native.events.trigger = false
+    beam:update { target }
+    held = true
+    env.native.events.trigger = true
+    beam:update { target }
+    expect.equal(#events, 3, 'a fresh edge starts one new gesture')
+    expect.equal(events[3].kind, 'press', 'delivery resumes after an observed release')
+    held = false
+    env.native.events.trigger = false
+    beam:update { target }
+    expect.equal(events[4].kind, 'release', 'a real release remains distinct from cancel')
+    env.session:close()
+  end)
+end
+
+test('laser tracking loss releases a native button but cannot press it again while the trigger remains held', function()
+  local env = start()
+  local tracked, held = true, true
+  local pressed, released = 0, 0
+  local sink = {
+    dead = false,
+    domain = 'host',
+    monitor = { id = 'laser-native-quarantine' },
+    pointer = function() end,
+    scroll = function() end,
+    leave = function() end,
+    button = function(_self, _button, down)
+      if down then
+        pressed += 1
+      else
+        released += 1
+      end
+      return true
+    end,
+  }
+  local target = {
+    dead = false,
+    grabbable = false,
+    raycast = function()
+      return 10, 20, 1
+    end,
+    sink = function()
+      return sink
+    end,
+  }
+  local beam = env.service:new(env.owner, 'right', {
+    readInput = function()
+      if not tracked then
+        return nil
+      end
+      local input = frame(0, 0, -1)
+      input.buttons.left = held
+      return input
+    end,
+  })
+  beam:update { target }
+  expect.equal(pressed, 1, 'one original native press')
+  tracked = false
+  beam:update { target }
+  expect.equal(released, 1, 'loss attempts the native button-up inverse')
+  tracked = true
+  beam:update { target }
+  expect.equal(pressed, 1, 'held reacquisition cannot duplicate the native press')
+  held = false
+  beam:update { target }
+  held = true
+  beam:update { target }
+  expect.equal(pressed, 2, 'a fresh press resumes native input')
+  env.session:close()
+  expect.equal(released, 2, 'destruction releases the second native gesture')
+end)
+
 return test

@@ -1,9 +1,11 @@
 -- Each owner offers and draws its own keyboards. Focus sources own routed input delivery.
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local keyVocabulary = require '@lunette-contracts/keys'
 local quad = require '@lunette-contracts/quad'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local board = require '@lunette-plugins/keyboard/board'
 local drawing = require '@lunette-plugins/keyboard/draw'
 local layout = require '@lunette-plugins/keyboard/layout'
@@ -72,7 +74,10 @@ local function create(
   local latched: { [string]: boolean } = {}
   local locked: { [string]: boolean } = {}
   local hovered: { [Pointer]: RenderedKey } = {}
+  local captures: { [Pointer]: { [lunette.PointerButton]: boolean } } = {}
+  local created: Board
   local pendingModifiers: { string }? = nil
+  local visibilityRevision = 0
   local state = {
     kind = nil,
     source = nil,
@@ -95,13 +100,39 @@ local function create(
     return held
   end
 
-  local function clearInput(): ()
+  local function clearModifiers(): ()
     table.clear(latched)
     table.clear(locked)
     if pendingModifiers then
       table.clear(pendingModifiers)
     end
+  end
+
+  local function clearInput(): ()
+    clearModifiers()
     source:reset()
+  end
+
+  local function cancelPointers(reason: vocabulary.CancelReason): { string }
+    local active = captures
+    captures = {}
+    table.clear(hovered)
+    local failures: { string } = {}
+    for pointer in active do
+      local ok, failure = pcall(function(): ()
+        pointer:cancel(created, reason)
+      end)
+      if not ok then
+        failures[#failures + 1] = tostring(failure)
+      end
+    end
+    return failures
+  end
+
+  local function finish(failures: { string }): ()
+    if #failures > 0 then
+      error(table.concat(failures, '\n'), 0)
+    end
   end
 
   local function rowsOf(layer: string): { read [number]: keyboard.KeyRow }
@@ -138,6 +169,19 @@ local function create(
       pixelWidth = state.width,
       pixelHeight = state.height,
       backFace = backFace,
+    }, origin, direction)
+  end
+
+  local function project(_self: keyboard.Surface, origin: vector, direction: vector): (number?, number?, number?)
+    if state.dead or not state.visible then
+      return nil, nil, nil
+    end
+    return quad.project({
+      pose = state.pose,
+      width = state.width,
+      height = state.height,
+      pixelWidth = state.width,
+      pixelHeight = state.height,
     }, origin, direction)
   end
 
@@ -185,7 +229,7 @@ local function create(
     end
     if not state.dead and state.layer ~= layer then
       state.layer = layer
-      table.clear(hovered)
+      finish(cancelPointers 'control-removed')
     end
   end
 
@@ -194,11 +238,25 @@ local function create(
       return
     end
     state.visible = visible
+    visibilityRevision += 1
+    local revision = visibilityRevision
+    local failures: { string } = {}
     if not visible then
-      clearInput()
-      table.clear(hovered)
+      clearModifiers()
+      failures = cancelPointers 'hidden'
+      if not state.dead and visibilityRevision == revision then
+        local ok, failure = pcall(function(): ()
+          source:reset()
+        end)
+        if not ok then
+          failures[#failures + 1] = tostring(failure)
+        end
+      end
     end
-    notify { visible = visible, reason = reason }
+    if not state.dead and visibilityRevision == revision then
+      notify { visible = visible, reason = reason }
+    end
+    finish(failures)
   end
 
   local function setVisible(_self: keyboard.Keyboard, visible: boolean): ()
@@ -247,7 +305,48 @@ local function create(
     return false
   end
 
-  local created: Board
+  local function hover(x: number?, y: number?, pointer: Pointer): ()
+    hovered[pointer] = if not state.dead and state.visible and x and y then layout.keyAt(keys(), x, y) else nil
+  end
+
+  local function activate(x: number?, y: number?, pointer: Pointer): ()
+    if state.dead or not state.visible or not x or not y then
+      return
+    end
+    local key = layout.keyAt(keys(), x, y)
+    if key then
+      settings.onKey(created, key, pointer, perform)
+    end
+  end
+
+  local function onPointer(_self: keyboard.Surface, event: vocabulary.PointerEvent): ()
+    local pointer = event.pointer
+    if event.kind == 'cancel' or event.kind == 'release' then
+      local buttons, button = captures[pointer], event.button
+      if buttons and button then
+        buttons[button] = nil
+        if next(buttons) == nil then
+          captures[pointer] = nil
+        end
+      end
+      if event.kind == 'cancel' then
+        hovered[pointer] = nil
+      end
+    elseif event.kind == 'leave' then
+      hovered[pointer] = nil
+    elseif event.kind == 'enter' or event.kind == 'move' then
+      hover(if event.inside then event.x else nil, if event.inside then event.y else nil, pointer)
+    elseif event.kind == 'press' and not state.dead and state.visible then
+      if event.captured then
+        local buttons = captures[pointer] or {}
+        captures[pointer] = buttons
+        buttons[event.button] = true
+      end
+      if event.button == 'left' and event.inside then
+        activate(event.x, event.y, pointer)
+      end
+    end
+  end
 
   local methods = {
     setPose = function(_self: keyboard.Surface, pose: Mat4): ()
@@ -260,26 +359,24 @@ local function create(
       if state.dead or not wanted or wanted <= 0 or state.width <= 0 then
         return
       end
+      if wanted == state.width then
+        return
+      end
       style = scaled(style, wanted / state.width)
       state.width, state.height = unitsWide * style.keyUnit, unitsHigh * style.keyUnit
+      finish(cancelPointers 'control-removed')
     end,
     raycast = raycast,
+    project = project,
+    onPointer = onPointer,
     onHover = function(_self: keyboard.Surface, x: number?, y: number?, pointer: Pointer): ()
-      if not state.dead and x and y then
-        hovered[pointer] = layout.keyAt(keys(), x, y)
-      end
+      hover(x, y, pointer)
     end,
     onLeave = function(_self: keyboard.Surface, pointer: Pointer): ()
       hovered[pointer] = nil
     end,
     onPress = function(_self: keyboard.Surface, x: number?, y: number?, pointer: Pointer): ()
-      if state.dead or not x or not y then
-        return
-      end
-      local key = layout.keyAt(keys(), x, y)
-      if key then
-        settings.onKey(created, key, pointer, perform)
-      end
+      activate(x, y, pointer)
     end,
     setVisible = setVisible,
     modifiers = function(_self: keyboard.Keyboard): { string }
@@ -320,13 +417,10 @@ local function create(
   local function destroyState(): ()
     state.dead = true
     state.visible = false
-    table.clear(latched)
-    table.clear(locked)
-    table.clear(hovered)
-    if pendingModifiers then
-      table.clear(pendingModifiers)
-      pendingModifiers = nil
-    end
+    visibilityRevision += 1
+    clearModifiers()
+    pendingModifiers = nil
+    finish(cancelPointers 'control-removed')
   end
   return created, destroyState, clearInput
 end
@@ -414,12 +508,15 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
             if created.dead then
               return
             end
-            destroyState()
             boards[created] = nil
             cleanupEffect = nil
             local effect = changed
             changed = nil
             local failures: { string } = {}
+            local ended, endFailure = pcall(destroyState)
+            if not ended then
+              failures[#failures + 1] = tostring(endFailure)
+            end
             if effect then
               local cleaned, failure = pcall(function(): ()
                 effect:dispose()

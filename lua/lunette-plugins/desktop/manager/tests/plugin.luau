@@ -1,10 +1,5 @@
 local testing = require '@testing'
 local plugin = require '@lunette-plugin'
-local management = require '@lunette-plugin/management'
-local frame = require '@lunette-plugins/frame'
-local surfaces = require '@lunette-plugins/surfaces'
-local surfaceContract = require '@lunette-contracts/surfaces'
-local manager = require '@lunette-plugins/desktop/manager'
 local controller = require '@lunette-plugins/desktop/manager/controller'
 local managerConfig = require '@lunette-plugins/desktop/manager/config'
 local frameContract = require '@lunette-contracts/frame'
@@ -12,83 +7,29 @@ local interactionContract = require '@lunette-contracts/interaction'
 local interaction = require '@lunette-plugins/interaction'
 local drops = require '@lunette-plugins/drops'
 local focus = require '@lunette-plugins/focus'
+local boot = require './support/boot'
 local expect = testing.expect
 local test = testing.suite()
 
-local function boot(config, additions, protected)
-  local fake = testing.native()
-  local font = {
-    getHeight = function()
-      return 1
-    end,
-    getLineSpacing = function()
-      return 1
-    end,
-    getWidth = function(_, text)
-      return #text * 0.5
-    end,
-    getLines = function(_, text)
-      local result = {}
-      for line in (text .. '\n'):gmatch '(.-)\n' do
-        result[#result + 1] = line
-      end
-      return result
-    end,
+local function fakePointer()
+  return { cancel = function() end }
+end
+
+local function send(offered, kind, pointer, x, y)
+  if kind == 'release' and x == nil then
+    x, y = pointer.x, pointer.y
+  elseif x ~= nil and y ~= nil then
+    pointer.x, pointer.y = x, y
+  end
+  offered:onPointer {
+    kind = kind,
+    pointer = pointer,
+    button = if kind == 'press' or kind == 'release' or kind == 'move' then 'left' else nil,
+    x = x,
+    y = y,
+    captured = kind ~= 'leave',
+    inside = kind ~= 'leave',
   }
-  lovr.graphics.getDefaultFont = function()
-    return font
-  end
-  for _, name in
-    {
-      'push',
-      'pop',
-      'transform',
-      'translate',
-      'scale',
-      'setShader',
-      'setMaterial',
-      'setFont',
-      'setCullMode',
-      'setDepthTest',
-      'setDepthWrite',
-    }
-  do
-    fake.events.pass[name] = function(_, ...)
-      fake.events.draw[#fake.events.draw + 1] = { name, ... }
-    end
-  end
-  local surfaceService
-  local observed = plugin.define {
-    name = 'surface-observer',
-    requires = { surfaces = surfaceContract.capability },
-    init = function(context)
-      surfaceService = context:require(surfaceContract.capability)
-    end,
-  }
-  frame.install { start = function() end, stop = function() end }
-  local entries = {
-    { id = 'frame', definition = frame.definition },
-    { id = 'surfaces', definition = surfaces.definition },
-    { id = 'desktop/manager', definition = manager, config = config or {} },
-    { id = 'observer', definition = observed },
-  }
-  for _, entry in additions or {} do
-    entries[#entries + 1] = entry
-  end
-  local state
-  local new = controller.new
-  controller.new = function(...)
-    state = new(...)
-    return state
-  end
-  local ok, running = pcall(management.start, entries, { protected = protected or { 'desktop/manager' } })
-  controller.new = new
-  if not ok then
-    error(running, 0)
-  end
-  return running, fake, function()
-    return surfaceService:all()
-  end, state
 end
 
 test('projected manager toggles, offers a raycastable movable surface, and releases on shutdown', function()
@@ -100,10 +41,10 @@ test('projected manager toggles, offers a raycastable movable surface, and relea
   local x, y, distance = offered:raycast(vector.pack(0, 1.4, 0), vector.pack(0, 0, -1))
   expect.truthy(x and y and distance, 'projected hit')
   expect.truthy(math.abs(x - 640) < 0.001, 'logical center x')
-  local pointer = {}
-  offered:onHover(x, y, pointer)
-  offered:onPress(x, y, pointer)
-  offered:onRelease(pointer)
+  local pointer = fakePointer()
+  send(offered, 'move', pointer, x, y)
+  send(offered, 'press', pointer, x, y)
+  send(offered, 'release', pointer)
   offered:setPose(lovr.math.mat4():translate(0.5, 1.4, -1.2))
   expect.equal(offered:raycast(vector.pack(-1, 1.4, 0), vector.pack(0, 0, -1)), nil, 'moved away')
   lovr.update(0.016)
@@ -135,24 +76,32 @@ end)
 test('another pointer cannot move cancel or replace a captured graph press', function()
   local running, _, all, state = boot { visible = true }
   local offered = all()[1]
-  local first, second = {}, {}
+  local first, second = fakePointer(), fakePointer()
   local camera = state.view.camera
-  offered:onPress(1, 1, first)
-  offered:onHover(100, 100, second)
-  offered:onPress(100, 100, second)
-  offered:onLeave(second)
-  offered:onRelease(second)
+  send(offered, 'press', first, 1, 1)
+  send(offered, 'move', second, 100, 100)
+  send(offered, 'press', second, 100, 100)
+  send(offered, 'leave', second)
+  send(offered, 'release', second)
+  offered:onPointer {
+    kind = 'cancel',
+    pointer = second,
+    button = 'left',
+    reason = 'disabled',
+    captured = true,
+    inside = false,
+  }
   local afterOther, dragging = state.view.camera, state.view.dragging
-  offered:onHover(21, 31, first)
+  send(offered, 'move', first, 21, 31)
   local moved = state.view.camera
-  offered:onRelease(first)
+  send(offered, 'release', first)
   local ended = state.view.dragging
   local released = state.view.camera
-  offered:onHover(80, 80, second)
+  send(offered, 'move', second, 80, 80)
   local hovered = state.view.camera
-  offered:onPress(1, 1, second)
-  offered:onHover(11, 11, second)
-  offered:onRelease(second)
+  send(offered, 'press', second, 1, 1)
+  send(offered, 'move', second, 11, 11)
+  send(offered, 'release', second)
   local movedSecond = state.view.camera
   running.runtime:close()
   expect.equal(afterOther.x, camera.x, 'another pointer cannot pan')
@@ -167,15 +116,15 @@ end)
 test('hiding clears pointer capture and a later hover cannot resume its drag', function()
   local running, _, all, state = boot { visible = true }
   local offered = all()[1]
-  local pointer = {}
-  offered:onPress(1, 1, pointer)
+  local pointer = fakePointer()
+  send(offered, 'press', pointer, 1, 1)
   lovr.keypressed('f10', 0, false)
   local hiddenDrag = state.view.dragging
   lovr.keypressed('f10', 0, false)
   local camera = state.view.camera
-  offered:onHover(30, 30, pointer)
+  send(offered, 'move', pointer, 30, 30)
   local hovered = state.view.camera
-  offered:onPress(1, 1, {})
+  send(offered, 'press', fakePointer(), 1, 1)
   local nextDrag = state.view.dragging
   running.runtime:close()
   expect.equal(hiddenDrag, nil, 'hiding cancels the drag')
@@ -186,19 +135,19 @@ end)
 test('shutdown invalidates retained surface methods and clears the pending gesture', function()
   local running, _, all, state = boot { visible = true }
   local offered = all()[1]
-  local pointer = {}
-  offered:onHover(1, 1, pointer)
-  offered:onPress(1, 1, pointer)
+  local pointer = fakePointer()
+  send(offered, 'move', pointer, 1, 1)
+  send(offered, 'press', pointer, 1, 1)
   local position = vector.pack(offered.pose:getPosition())
   local camera = state.view.camera
   running.runtime:close()
   expect.equal(offered.dead, true, 'the public surface is dead')
   expect.equal(state.view.dragging, nil, 'capture is cancelled at shutdown')
   offered:setPose(lovr.math.newMat4():translate(8, 9, 10))
-  offered:onHover(20, 30, pointer)
-  offered:onPress(20, 30, pointer)
-  offered:onLeave(pointer)
-  offered:onRelease(pointer)
+  send(offered, 'move', pointer, 20, 30)
+  send(offered, 'press', pointer, 20, 30)
+  send(offered, 'leave', pointer)
+  send(offered, 'release', pointer)
   expect.equal(vector.pack(offered.pose:getPosition()), position, 'retained pose setter is inert')
   expect.equal(state.view.camera.x, camera.x, 'retained input cannot pan')
   expect.equal(state.view.dragging, nil, 'retained input cannot start a gesture')
@@ -226,6 +175,7 @@ test('a real interaction pointer drops a withdrawn manager on its next update', 
     origin = vector.pack(0, 1.4, 0),
     direction = vector.pack(0, 0, -1),
     pose = lovr.math.newMat4(),
+    buttons = {},
     grip = true,
     dt = 0.016,
   }, all())
