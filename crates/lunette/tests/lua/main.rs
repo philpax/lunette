@@ -14,6 +14,7 @@
 extern crate lunette_lovr;
 
 mod discover;
+mod installed;
 mod meta;
 mod run;
 mod state;
@@ -42,6 +43,7 @@ fn main() -> ExitCode {
             Err(Failed::from(error.to_string()))
         })],
     };
+    trials.push(installed::trial(roots.clone()));
     trials.extend(meta::trials(&roots));
     libtest_mimic::run(&arguments, trials).exit_code()
 }

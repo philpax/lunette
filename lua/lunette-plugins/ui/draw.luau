@@ -1,0 +1,402 @@
+-- Draws declared logical geometry beneath the caller's panel-to-world transform.
+-- Hooks are supplied provider → panel → control, with the last hook wrapping the earlier renderers.
+-- Each hook may replace drawing, but must keep its own stack pushes balanced and clip custom geometry to Visual.clip.
+local lunette = require '@lunette'
+local ui = require '@lunette-contracts/ui'
+local geometry = require './geometry'
+local theme = require './theme'
+local textFieldGeometry = require './text-field-geometry'
+local draw = {}
+
+type TextEntry = {
+  read value: string,
+  read scale: number,
+  read width: number,
+  read shown: string?,
+  read overflow: boolean,
+}
+
+type FontCache = {
+  read measure: unknown,
+  read height: number,
+  read density: number?,
+  read entries: { TextEntry },
+}
+
+local CACHE_LIMIT = 32
+local snapshot: (ui.Visual) -> ui.Visual
+local protected: (Pass, () -> ()) -> ()
+local renderDefault: ui.Renderer
+local rectangle: (Pass, ui.Bounds, ui.Bounds) -> ()
+local border: (Pass, ui.Bounds, ui.Bounds, number) -> ()
+local text: (Pass, Font, string, ui.Bounds, ui.Bounds, number) -> boolean
+local fittedText: (Font, string, number, number, number) -> TextEntry
+local cacheFor: (Font, number) -> { TextEntry }
+local renderTextField: (Pass, Font, ui.Visual, ui.Bounds) -> boolean
+local renderItems: (Pass, Font, ui.Visual, ui.Bounds) -> boolean
+local inset: (ui.Bounds, number) -> ui.Bounds
+local sameBounds: (ui.Bounds, ui.Bounds) -> boolean
+local validateGeometry: (ui.Visual, ui.Visual) -> ()
+local setColor: (Pass, ui.Color) -> ()
+local singleLine: (string) -> string
+
+function draw.render(pass: Pass, visual: ui.Visual, hooks: { read [number]: ui.DrawHook }?): ()
+  local declared = snapshot(visual)
+  local renderer: ui.Renderer = function(target: Pass, value: ui.Visual): ()
+    validateGeometry(value, declared)
+    local immutable = snapshot(value)
+    protected(target, function()
+      renderDefault(target, immutable)
+    end)
+  end
+  for _, hook in hooks or {} do
+    local base = renderer
+    renderer = function(target: Pass, value: ui.Visual): ()
+      validateGeometry(value, declared)
+      local immutable = snapshot(value)
+      protected(target, function()
+        hook(target, immutable, base)
+      end)
+    end
+  end
+  renderer(pass, declared)
+end
+
+snapshot = function(value: ui.Visual): ui.Visual
+  local items: { ui.ItemDescription } = {}
+  for _, item in value.items do
+    local route = if item.route then geometry.validatePolyline(item.route) else nil
+    table.insert(
+      items,
+      table.freeze {
+        id = item.id,
+        label = item.label,
+        enabled = item.enabled,
+        selected = item.selected,
+        bounds = if item.bounds then geometry.validateBounds(item.bounds) else nil,
+        route = route,
+      }
+    )
+  end
+  return table.freeze {
+    id = value.id,
+    kind = value.kind,
+    label = value.label,
+    bounds = geometry.validateBounds(value.bounds),
+    clip = geometry.validateBounds(value.clip),
+    theme = theme.validate(value.theme),
+    enabled = value.enabled,
+    hovered = value.hovered,
+    pressed = value.pressed,
+    focused = value.focused,
+    value = value.value,
+    caret = value.caret,
+    anchor = value.anchor,
+    error = value.error,
+    opened = value.opened,
+    overflow = value.overflow,
+    items = table.freeze(items),
+  }
+end
+
+protected = function(pass: Pass, render: () -> ()): ()
+  local pushedState, pushedTransform = false, false
+  local ok, message = pcall(function()
+    pass:push 'state'
+    pushedState = true
+    pass:push 'transform'
+    pushedTransform = true
+    render()
+  end)
+  -- Both restoration attempts run, and the drawing error takes precedence over a restoration error.
+  if pushedTransform then
+    local restored, problem = pcall(pass.pop, pass, 'transform')
+    if ok and not restored then
+      ok, message = false, problem
+    end
+  end
+  if pushedState then
+    local restored, problem = pcall(pass.pop, pass, 'state')
+    if ok and not restored then
+      ok, message = false, problem
+    end
+  end
+  if not ok then
+    error(message, 0)
+  end
+end
+
+renderDefault = function(pass: Pass, visual: ui.Visual): ()
+  local clip = geometry.intersect(visual.bounds, visual.clip)
+  if not clip then
+    return
+  end
+  local font, style = lovr.graphics.getDefaultFont(), visual.theme
+  geometry.positive(font:getHeight(), 'font height')
+  pass:setShader()
+  pass:setMaterial(nil)
+  pass:setFont(font)
+  pass:setCullMode 'none'
+  pass:setDepthTest()
+  pass:setDepthWrite(false)
+  setColor(
+    pass,
+    if visual.kind == 'panel'
+      then style.background
+      elseif not visual.enabled then style.disabled
+      elseif visual.pressed then style.pressed
+      elseif visual.hovered then style.hovered
+      else style.control
+  )
+  rectangle(pass, visual.bounds, clip)
+  local content = inset(visual.bounds, style.padding)
+  local overflow = visual.overflow == true
+  if visual.kind == 'text-field' then
+    overflow = renderTextField(pass, font, visual, clip) or overflow
+  elseif visual.kind == 'choice' then
+    local header: ui.Bounds = {
+      x = visual.bounds.x,
+      y = visual.bounds.y,
+      width = visual.bounds.width,
+      height = math.min(visual.bounds.height, style.rowHeight),
+    }
+    setColor(pass, if visual.enabled then style.foreground else style.border)
+    overflow = text(pass, font, visual.value or visual.label, inset(header, style.padding), clip, style.fontSize)
+      or overflow
+    if visual.opened then
+      overflow = renderItems(pass, font, visual, clip) or overflow
+    end
+  elseif visual.kind == 'list' or visual.kind == 'region' then
+    overflow = renderItems(pass, font, visual, clip) or overflow
+  else
+    setColor(pass, if visual.enabled then style.foreground else style.border)
+    overflow = text(pass, font, visual.label, content, clip, style.fontSize) or overflow
+  end
+  if visual.error and visual.error ~= '' then
+    setColor(pass, style.error)
+    local height = math.min(style.fontSize, content.height)
+    local message = { x = content.x, y = content.y + content.height - height, width = content.width, height = height }
+    text(pass, font, visual.error, message, clip, style.fontSize)
+  end
+  setColor(pass, if visual.error then style.error elseif visual.focused then style.focus else style.border)
+  border(
+    pass,
+    visual.bounds,
+    clip,
+    if visual.focused or visual.error then math.max(2, style.borderWidth) else style.borderWidth
+  )
+  if overflow then
+    setColor(pass, if visual.error then style.error else style.focus)
+    local thickness = math.min(3, visual.bounds.height)
+    rectangle(pass, {
+      x = visual.bounds.x,
+      y = visual.bounds.y + visual.bounds.height - thickness,
+      width = visual.bounds.width,
+      height = thickness,
+    }, clip)
+  end
+end
+
+rectangle = function(pass: Pass, bounds: ui.Bounds, clip: ui.Bounds): ()
+  local visible = geometry.intersect(bounds, clip)
+  if visible then
+    pass:plane(visible.x + visible.width / 2, visible.y + visible.height / 2, 0, visible.width, visible.height)
+  end
+end
+
+border = function(pass: Pass, bounds: ui.Bounds, clip: ui.Bounds, width: number): ()
+  width = math.min(width, bounds.width / 2, bounds.height / 2)
+  if width <= 0 then
+    return
+  end
+  rectangle(pass, { x = bounds.x, y = bounds.y, width = bounds.width, height = width }, clip)
+  rectangle(pass, { x = bounds.x, y = bounds.y + bounds.height - width, width = bounds.width, height = width }, clip)
+  rectangle(pass, { x = bounds.x, y = bounds.y + width, width = width, height = bounds.height - 2 * width }, clip)
+  rectangle(
+    pass,
+    { x = bounds.x + bounds.width - width, y = bounds.y + width, width = width, height = bounds.height - 2 * width },
+    clip
+  )
+end
+
+text = function(pass: Pass, font: Font, value: string, bounds: ui.Bounds, clip: ui.Bounds, size: number): boolean
+  if value == '' then
+    return false
+  end
+  local visible = geometry.intersect(bounds, clip)
+  if not visible then
+    return true
+  end
+  local height = font:getHeight()
+  local scale = math.min(size, visible.height) / height
+  local fitted = fittedText(font, value, scale, visible.width, height)
+  if fitted.shown then
+    -- Glyphs are y-up, while logical panel coordinates are y-down.
+    pass:text(fitted.shown, visible.x, visible.y, 0, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
+  end
+  return fitted.overflow
+end
+
+fittedText = function(font: Font, value: string, scale: number, width: number, height: number): TextEntry
+  local cached = cacheFor(font, height)
+  for index, entry in cached do
+    if entry.value == value and entry.scale == scale and entry.width == width then
+      table.remove(cached, index)
+      table.insert(cached, entry)
+      return entry
+    end
+  end
+  local line = singleLine(value)
+  local shown: string? = line
+  local overflow = line ~= value or font:getWidth(line) * scale > width
+  if overflow then
+    local suffix = '…'
+    if font:getWidth(suffix) * scale > width then
+      shown = nil
+    else
+      local boundaries = lunette.textBoundaries(line)
+      local prefix = ''
+      for index = 2, #boundaries do
+        local candidate = line:sub(1, boundaries[index] - 1)
+        if font:getWidth(candidate .. suffix) * scale <= width then
+          prefix = candidate
+        end
+      end
+      shown = prefix .. suffix
+    end
+  end
+  local result: TextEntry = { value = value, scale = scale, width = width, shown = shown, overflow = overflow }
+  if #cached == CACHE_LIMIT then
+    table.remove(cached, 1)
+  end
+  table.insert(cached, result)
+  return result
+end
+
+local fontCaches: { [Font]: FontCache } = setmetatable({}, { __mode = 'k' })
+
+cacheFor = function(font: Font, height: number): { TextEntry }
+  -- Single-line metrics depend on the font and its pixel density, not its atlas or line spacing.
+  local density = if font.getPixelDensity then font:getPixelDensity() else nil
+  local cached = fontCaches[font]
+  if not cached or cached.measure ~= font.getWidth or cached.height ~= height or cached.density ~= density then
+    cached = { measure = font.getWidth, height = height, density = density, entries = {} }
+    fontCaches[font] = cached
+  end
+  return cached.entries
+end
+
+renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds): boolean
+  local style, value = visual.theme, visual.value or ''
+  local layout = textFieldGeometry.layout(
+    value,
+    visual.caret or 1,
+    visual.anchor or visual.caret or 1,
+    visual.bounds,
+    clip,
+    style,
+    font
+  )
+  if not layout then
+    return value ~= ''
+  end
+  if value == '' then
+    setColor(pass, style.border)
+    text(pass, font, visual.label, layout.visible, layout.visible, style.fontSize)
+  end
+  local selection = layout.selectionBounds
+  if selection then
+    setColor(pass, style.selection)
+    rectangle(pass, selection, layout.visible)
+  end
+  setColor(pass, if visual.enabled then style.foreground else style.border)
+  if layout.text ~= '' then
+    pass:text(layout.text, layout.origin.x, layout.origin.y, 0, layout.scale, math.pi, 1, 0, 0, 0, 'left', 'top')
+  end
+  if visual.focused then
+    setColor(pass, style.focus)
+    rectangle(pass, layout.caretBounds, layout.visible)
+  end
+  return layout.overflow
+end
+
+renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds): boolean
+  local style, overflow = visual.theme, false
+  for _, item in visual.items do
+    if item.bounds then
+      local visible = geometry.intersect(item.bounds, clip)
+      if not visible then
+        overflow = true
+        continue
+      end
+      overflow = not sameBounds(visible, item.bounds) or overflow
+      setColor(
+        pass,
+        if not visual.enabled or not item.enabled
+          then style.disabled
+          elseif item.selected then style.selection
+          else style.control
+      )
+      rectangle(pass, item.bounds, clip)
+      if item.route then
+        setColor(pass, if item.selected then style.focus else style.border)
+        for _, segment in geometry.clipPolyline(item.route, clip) do
+          pass:line(segment.from.x, segment.from.y, 0, segment.to.x, segment.to.y, 0)
+        end
+      end
+      setColor(pass, if item.enabled and visual.enabled then style.foreground else style.border)
+      overflow = text(pass, font, item.label, inset(item.bounds, style.padding), clip, style.fontSize) or overflow
+      if item.selected then
+        setColor(pass, style.focus)
+        border(pass, item.bounds, clip, math.max(2, style.borderWidth))
+      end
+    end
+  end
+  return overflow
+end
+
+inset = function(bounds: ui.Bounds, padding: number): ui.Bounds
+  local x, y = math.min(padding, bounds.width / 2), math.min(padding, bounds.height / 2)
+  return { x = bounds.x + x, y = bounds.y + y, width = bounds.width - 2 * x, height = bounds.height - 2 * y }
+end
+
+sameBounds = function(a: ui.Bounds, b: ui.Bounds): boolean
+  return a.x == b.x and a.y == b.y and a.width == b.width and a.height == b.height
+end
+
+validateGeometry = function(value: ui.Visual, declared: ui.Visual): ()
+  assert(value.id == declared.id and value.kind == declared.kind, 'ui drawing: hook cannot replace visual identity')
+  assert(
+    sameBounds(value.bounds, declared.bounds) and sameBounds(value.clip, declared.clip),
+    'ui drawing: hook cannot change geometry'
+  )
+  assert(#value.items == #declared.items, 'ui drawing: hook cannot change item geometry')
+  for index, item in value.items do
+    local original = declared.items[index]
+    assert(item.id == original.id, 'ui drawing: hook cannot replace item identity')
+    if item.bounds and original.bounds then
+      assert(sameBounds(item.bounds, original.bounds), 'ui drawing: hook cannot change item geometry')
+    else
+      assert(item.bounds == original.bounds, 'ui drawing: hook cannot change item geometry')
+    end
+    if item.route and original.route then
+      assert(#item.route == #original.route, 'ui drawing: hook cannot change route geometry')
+      for pointIndex, point in item.route do
+        local other = original.route[pointIndex]
+        assert(point.x == other.x and point.y == other.y, 'ui drawing: hook cannot change route geometry')
+      end
+    else
+      assert(item.route == original.route, 'ui drawing: hook cannot change route geometry')
+    end
+  end
+end
+
+setColor = function(pass: Pass, color: ui.Color): ()
+  pass:setColor(color[1], color[2], color[3], color[4])
+end
+
+singleLine = function(value: string): string
+  return (value:gsub('[\r\n]', ' '))
+end
+
+return draw

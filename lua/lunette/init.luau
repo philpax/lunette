@@ -672,6 +672,10 @@ export type Lunette = {
   -- Every key lunette names, by name, as the evdev keycode `sink:key` takes.
   -- The table is fresh on each call.
   read keyCodes: () -> { [KeyName]: number },
+  -- Returns a fresh array of one-based byte offsets for extended grapheme
+  -- clusters, including the terminal offset `#text + 1`. Empty text returns `{
+  -- 1 }`. The text must be valid UTF-8; invalid byte strings raise an error.
+  read textBoundaries: (text: string) -> { number },
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },

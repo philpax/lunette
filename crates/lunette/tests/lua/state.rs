@@ -1,10 +1,10 @@
 //! Builds the Lua state used by each test file.
 //!
 //! Module roots resolve working-tree files under session aliases. `@lunette` provides the
-//! native plugin runtime and key and scale vocabularies. `@testing/native` supplies the
-//! remaining native API. `lovr.math` comes from `liblovr.so`, so pose tests use LÖVR's
-//! `Mat4` implementation. `@testing/host` exposes collected plugin failures, shutdown,
-//! production reload, and the native error boundary with its log.
+//! native plugin runtime, key and scale vocabularies, and stateless text segmentation.
+//! `@testing/native` supplies the remaining native API. `lovr.math` comes from `liblovr.so`,
+//! so pose tests use LÖVR's `Mat4` implementation. `@testing/host` exposes collected plugin
+//! failures, shutdown, production reload, and the native error boundary with its log.
 
 use std::{
     ffi::c_int,
@@ -17,7 +17,10 @@ use std::{
 use lunette::{
     aliases::{DEVELOPMENT_ALIASES, Resolution},
     callback_error::{TracedError, report_traced},
-    lua::keys::{KeyCodes, locking_modifier_names, modifier_names},
+    lua::{
+        keys::{KeyCodes, locking_modifier_names, modifier_names},
+        text_boundaries,
+    },
     plugin::{
         attachment::{self, PluginFailure},
         declarations,
@@ -147,6 +150,10 @@ fn native(lua: &Lua) -> mlua::Result<Table> {
     native.set(
         "modifierNames",
         lua.create_function(|_, ()| Ok(modifier_names()))?,
+    )?;
+    native.set(
+        "textBoundaries",
+        lua.create_function(|_, text| text_boundaries(text))?,
     )?;
     native.set(
         "scaleSteps",

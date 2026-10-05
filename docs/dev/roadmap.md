@@ -28,6 +28,22 @@ The point at which the system is usable for daily work. Each step is usable on i
 
 Mirroring lands before the standard library on purpose. Seeing the real desktop in VR carries the project further than a window abstraction alone, and it exercises capture, injection, input domains, and the layer pool against real content.
 
+## Local VR UI
+
+The bounded UI toolkit declares `lunette/ui` at schema 1 and supplies owner-scoped flat panels, buttons, single-line text fields, choices, lists, and regions through `@lunette-plugins/ui`. Input, drawing, and detached descriptions share declared logical geometry. Themes and draw hooks change appearance without changing hit bounds. Frozen provider and creation-owner activation tokens distinguish replacements that reuse panel names and control ids. Control ids span all live panels per actual creation owner, and different owners can reuse an id in one panel. A description identifies a live control through the generation token, owner token, and id without exposing contexts or scripting authority. Native `lunette.textBoundaries`, backed by `unicode-segmentation` 1.13.3, supplies whole-grapheme editing offsets. [UI panels](lua-api.md#ui-panels) states the contract, and the [UI guide](../guide/ui.md) gives a public-contract checker fixture.
+
+The remaining UI work is ordered by integration scope:
+
+1. Define menu composition and its public contract without coupling consumers to the built-in UI implementation.
+2. Move the wrist menu, shared keyboard display, reload, and workspace actions onto their public contracts.
+3. Migrate the runtime manager's graph, search, selection, sidebar, and configuration controls while preserving recovery and protected-entry behavior.
+4. Add a checked and runtime-tested `examples/ui` configuration. The current guide fixture is not that example.
+5. Verify installed-session execution, GPU-backed drawing, pass restoration, and every control workflow in the headset without a physical keyboard or mouse.
+
+Copied-manifest checker and module-load regressions pass in both feature sets through the custom test runner. They do not exercise production LÖVR virtual-filesystem mounting or installed-session boot. The named follow-up `manual_xr_widget_and_manager_acceptance` covers controller-only discovery, both-hand capture, grab and scroll, keyboard readability and placement, text editing and errors, long-list overflow, manager close and reopen, application focus hand-off, and reload on the target headset and runtime. Automated results do not establish those perceptual or GPU properties.
+
+The current toolkit does not implement full text shaping, bidirectional editing, IME or preedit composition, general layout containers, or a complete desktop widget framework. Grapheme segmentation does not establish those capabilities. Type-check and logic-headless fixtures do not establish the hardware acceptance gates.
+
 ## Beyond v1
 
 Roughly WayVR's feature surface, plus the items this architecture makes easier.

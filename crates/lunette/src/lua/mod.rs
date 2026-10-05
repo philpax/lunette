@@ -20,6 +20,7 @@ mod sink;
 mod subscribers;
 #[cfg(test)]
 mod tests;
+mod text;
 pub mod values;
 mod window;
 
@@ -51,6 +52,7 @@ pub use crate::lua::{
     process::Process,
     seat::Seat,
     sink::Sink,
+    text::text_boundaries,
     window::Window,
 };
 use crate::{
@@ -626,6 +628,11 @@ module! {
 
     /// Every key lunette names, by name, as the evdev keycode `sink:key` takes. The table is fresh on each call.
     fn keyCodes(_lua, _session) -> KeyCodes { Ok(KeyCodes) }
+
+    /// Returns a fresh array of one-based byte offsets for extended grapheme clusters, including the terminal offset `#text + 1`. Empty text returns `{ 1 }`. The text must be valid UTF-8; invalid byte strings raise an error.
+    fn textBoundaries(_lua, _session, text: mlua::LuaString) -> Vec<usize> {
+        text_boundaries(text)
+    }
 
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }

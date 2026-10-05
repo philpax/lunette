@@ -238,6 +238,33 @@ test('the VR UI fixture rejects a replacement generation during a gesture', func
   fixture:close()
 end)
 
+test('the VR UI fixture requires owner identity for ambiguous controls', function()
+  local fixture = vrUi.boot()
+  local state = panel(fixture)
+  local firstOwner, secondOwner = table.freeze {}, table.freeze {}
+  state.controls = { control('shared', 20), control('shared', 140) }
+  state.controls[1].owner = firstOwner
+  state.controls[2].owner = secondOwner
+  local service = {
+    panels = function()
+      return { {
+        describe = function()
+          return geometry(state)
+        end,
+      } }
+    end,
+  }
+  expect.raises(function()
+    fixture:discover(service, 'dynamic-panel', 'shared')
+  end, 'ambiguous control', 'id-only discovery refuses ambiguous owner-local ids')
+  local _, described, identity = fixture:discover(service, 'dynamic-panel', 'shared', nil, secondOwner)
+  expect.equal(described.bounds.x, 140, 'owner identity selects the independent control')
+  expect.equal(identity, secondOwner, 'item discovery preserves its control owner identity')
+  fixture:clickControl(service, 'dynamic-panel', 'shared', 'right', nil, secondOwner)
+  expect.near(state.presses[1].x, 150, 0.001, 'the selected description drives the actual pointer')
+  fixture:close()
+end)
+
 test('the VR UI fixture keeps head tracking independent of the controller hands', function()
   local fixture = vrUi.boot()
   fixture:tracked('right', false)

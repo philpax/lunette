@@ -1,0 +1,198 @@
+local plugin = require '@lunette-plugin'
+local ui = require '@lunette-contracts/ui'
+local frame = require '@lunette-contracts/frame'
+local keyboard = require '@lunette-contracts/keyboard'
+local surfaces = require '@lunette-contracts/surfaces'
+local focus = require '@lunette-contracts/focus'
+local vrUi = require '@testing/vr-ui'
+
+local fixture = {}
+local opened = {}
+
+function fixture.closeAll()
+  local pending = opened
+  opened = {}
+  for _, running in ipairs(pending) do
+    running:close()
+  end
+end
+
+function fixture.boot(options)
+  options = options or {}
+  local running = vrUi.boot {
+    'frame',
+    'surfaces',
+    'drops',
+    'focus',
+    'interaction',
+    'laser',
+    'keyboard',
+    'desktop/pointing',
+    options.provider or 'ui',
+  }
+  opened[#opened + 1] = running
+  local state =
+    { fixture = running, activations = {}, changes = {}, submits = {}, cancels = {}, events = {}, loads = 0 }
+  state.instance = running.session:use(plugin.define {
+    name = 'testing/public-ui-form',
+    requires = {
+      ui = ui.capability,
+      frame = frame.capability,
+      keyboard = keyboard.capability,
+      surfaces = surfaces.capability,
+    },
+    init = function(context)
+      state.owner = context
+      state.service = context:require(ui.capability)
+      state.loads += 1
+      local panel = state.service:newPanel(context, {
+        name = 'public-ui-form',
+        pose = lovr.math.newMat4():translate(0, 1.5, -2):rotate(0.2, 0, 1, 0),
+        width = 2,
+        height = 1.5,
+        logicalWidth = 400,
+        logicalHeight = 300,
+        theme = options.theme,
+        draw = options.draw,
+      })
+      state.panel = panel
+      state.button = panel:button(context, {
+        id = 'run',
+        label = 'Run',
+        bounds = { x = 10, y = 10, width = 80, height = 40 },
+        onActivate = function()
+          state.activations[#state.activations + 1] = state.loads
+        end,
+      })
+      state.field = panel:textField(context, {
+        id = 'draft',
+        label = 'Draft',
+        bounds = { x = 110, y = 10, width = 270, height = 40 },
+        value = options.value or '',
+        keymapSeat = options.keymapSeat,
+        validate = options.validate,
+        onChange = function(value)
+          state.changes[#state.changes + 1] = value
+        end,
+        onSubmit = function(value)
+          state.submits[#state.submits + 1] = value
+        end,
+        onCancel = function(value)
+          state.cancels[#state.cancels + 1] = value
+        end,
+      })
+      local items = {}
+      for index = 1, 20 do
+        items[index] = { id = 'item-' .. index, label = 'Item ' .. index, enabled = index ~= 2 }
+      end
+      state.choice = panel:choice(context, {
+        id = 'choice',
+        label = 'Choice',
+        bounds = { x = 10, y = 70, width = 180, height = 180 },
+        items = items,
+        onChange = function(value)
+          state.chosen = value
+        end,
+      })
+      state.list = panel:list(context, {
+        id = 'list',
+        label = 'List',
+        bounds = { x = 210, y = 70, width = 170, height = 180 },
+        items = items,
+        onChange = function(value)
+          state.listed = value
+        end,
+      })
+      state.region = panel:region(context, {
+        id = 'custom',
+        label = 'Custom',
+        bounds = { x = 10, y = 260, width = 370, height = 30 },
+        items = {
+          {
+            id = 'node',
+            label = 'Node',
+            bounds = { x = 20, y = 265, width = 20, height = 20 },
+            route = { { x = 20, y = 265 }, { x = 40, y = 285 } },
+          },
+        },
+        onPointer = function(event)
+          state.events[#state.events + 1] = event
+          running:recordPointer(event)
+        end,
+      })
+      context:require(frame.capability):onDraw(context, {
+        phase = 'scene',
+        run = function(pass)
+          panel:draw(pass)
+        end,
+      })
+      if options.keyboard then
+        local rows = {
+          {
+            { code = 30, label = 'A' },
+            { code = 14, label = 'Backspace' },
+            { code = 28, label = 'Submit' },
+            { code = 1, label = 'Cancel' },
+            { action = { kind = 'text', text = 'é👩🏽‍💻' }, label = 'Cluster' },
+          },
+        }
+        local board = context:require(keyboard.capability):new(context, {
+          rows = rows,
+          layers = {},
+          pose = lovr.math.newMat4():translate(0, 0.5, -1),
+        })
+        state.board = board
+        context:require(surfaces.capability):offer(context, {
+          name = 'public-ui-form-keyboard',
+          list = function()
+            return if board.visible then { board } else {}
+          end,
+        })
+        context:require(frame.capability):onDraw(context, {
+          phase = 'scene',
+          run = function(pass)
+            board:draw(pass)
+          end,
+        })
+      end
+    end,
+  })
+  state.focus = running.session:observe(focus.capability)
+  return state
+end
+
+function fixture.press(state, id, hand, itemId)
+  hand = hand or 'right'
+  local description, control = state.fixture:discover(state.service, 'public-ui-form', id, itemId)
+  local bounds = assert(control.bounds)
+  state.fixture:button(hand, 'trigger', false)
+  state.fixture:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, hand)
+  state.fixture:step()
+  state.fixture:button(hand, 'trigger', true)
+  state.fixture:step()
+end
+
+function fixture.scroll(state, id, y, hand)
+  hand = hand or 'right'
+  local description, control = state.fixture:discover(state.service, 'public-ui-form', id)
+  local bounds = assert(control.bounds)
+  state.fixture:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, hand)
+  state.fixture:axis(hand, 0, y)
+  state.fixture:step(0.1)
+  state.fixture:axis(hand, 0, 0)
+end
+
+function fixture.key(state, index, hand)
+  local board = state.board
+  local description = {
+    visible = board.visible,
+    pose = { board.pose:unpack(true) },
+    width = board.width,
+    height = board.height,
+    logicalWidth = 5,
+    logicalHeight = 1,
+  }
+  state.fixture:click(description, index - 0.5, 0.5, hand)
+end
+
+return fixture

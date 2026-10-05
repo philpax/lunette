@@ -66,7 +66,10 @@ function Fixture:aim(description, x, y, hand)
   assert(description.logicalWidth > 0 and description.logicalHeight > 0, 'vr-ui: logical size is positive')
   local localX = (x / description.logicalWidth - 0.5) * description.width
   local localY = (0.5 - y / description.logicalHeight) * description.height
-  local pose = lovr.math.newMat4(description.pose):translate(localX, localY, 1)
+  local pose = if type(description.pose) == 'table'
+    then lovr.math.newMat4(table.unpack(description.pose))
+    else lovr.math.newMat4(description.pose)
+  pose:translate(localX, localY, 1)
   self:pose(hand or 'right', pose)
   state.tracked = true
 end
@@ -92,49 +95,78 @@ function Fixture:click(description, x, y, hand)
   self:step()
 end
 
-function Fixture:discover(service, name, id, itemId)
+function Fixture:discover(service, name, id, itemId, ownerIdentity)
+  local foundDescription, foundControl, foundItem
   for _, panel in ipairs(service:panels()) do
     local description = panel:describe()
     if description.name == name and description.visible then
       for _, control in ipairs(description.controls) do
-        if control.id == id and control.enabled then
-          if not itemId then
-            return description, control
-          end
-          for _, item in ipairs(control.items or {}) do
-            if item.id == itemId then
-              return description, item
+        if control.id == id and control.enabled and (ownerIdentity == nil or control.owner == ownerIdentity) then
+          assert(
+            foundControl == nil,
+            'vr-ui: ambiguous control ' .. name .. '/' .. id .. '; specify its owner identity'
+          )
+          foundDescription, foundControl = description, control
+          if itemId then
+            for _, item in ipairs(control.items or {}) do
+              if item.id == itemId and item.enabled then
+                foundItem = item
+              end
             end
           end
         end
       end
     end
   end
+  if foundControl and (itemId == nil or foundItem ~= nil) then
+    return foundDescription, foundItem or foundControl, foundControl.owner
+  end
   error('vr-ui: no visible enabled control ' .. name .. '/' .. id .. (if itemId then '/' .. itemId else ''), 2)
 end
 
-function Fixture:clickControl(service, name, id, hand, itemId)
+function Fixture:clickControl(service, name, id, hand, itemId, ownerIdentity)
   hand = hand or 'right'
-  self:discover(service, name, id, itemId)
+  self:discover(service, name, id, itemId, ownerIdentity)
   self:button(hand, 'trigger', false)
   self:step()
   local function aimCurrent()
-    local description, control = self:discover(service, name, id, itemId)
+    local description, control, identity = self:discover(service, name, id, itemId, ownerIdentity)
     local bounds = control.bounds
     assert(bounds and bounds.width > 0 and bounds.height > 0, 'vr-ui: the control has no visible hit bounds')
     self:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, hand)
-    return description
+    return description, control, identity
   end
   aimCurrent()
   self:step()
-  local pressed = aimCurrent()
+  local pressed, pressedControl, pressedOwner = aimCurrent()
   self:button(hand, 'trigger', true)
   self:step()
-  local ok, current = pcall(function()
-    return self:discover(service, name, id, itemId)
+  local ok, current, currentControl, currentOwner = pcall(function()
+    return self:discover(service, name, id, itemId, ownerIdentity)
   end)
+  local sameGeometry = ok
+    and currentOwner == pressedOwner
+    and current.generation == pressed.generation
+    and current.width == pressed.width
+    and current.height == pressed.height
+    and current.logicalWidth == pressed.logicalWidth
+    and current.logicalHeight == pressed.logicalHeight
+  if sameGeometry then
+    local before, after = pressedControl.bounds, currentControl.bounds
+    sameGeometry = before ~= nil
+      and after ~= nil
+      and before.x == after.x
+      and before.y == after.y
+      and before.width == after.width
+      and before.height == after.height
+    local beforePose = if type(pressed.pose) == 'table' then pressed.pose else { pressed.pose:unpack(true) }
+    local afterPose = if type(current.pose) == 'table' then current.pose else { current.pose:unpack(true) }
+    for index, value in ipairs(beforePose) do
+      sameGeometry = sameGeometry and afterPose[index] == value
+    end
+  end
   self:button(hand, 'trigger', false)
-  if not ok or current.generation ~= pressed.generation or current.revision ~= pressed.revision then
+  if not sameGeometry then
     self:tracked(hand, false)
     self:step()
     error('vr-ui: stale gesture for ' .. name .. '/' .. id, 2)

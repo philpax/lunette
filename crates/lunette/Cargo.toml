@@ -43,6 +43,7 @@ tracing.workspace = true
 # `env-filter` is not in the default feature set.
 # Without it, the binary's log level cannot be changed through `RUST_LOG`.
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 # `CapturedFrame::from_parts` exists under the `test-fakes` feature,

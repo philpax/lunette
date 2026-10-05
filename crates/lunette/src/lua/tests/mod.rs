@@ -17,6 +17,7 @@ mod processes;
 mod properties;
 mod scene;
 mod seats;
+mod text;
 mod windows;
 
 use std::{rc::Rc, sync::Arc};
@@ -407,6 +408,7 @@ fn the_module_exposes_only_what_this_phase_implements() {
             "seats".to_owned(),
             "setSceneEnabled".to_owned(),
             "spawn".to_owned(),
+            "textBoundaries".to_owned(),
             "windows".to_owned(),
         ],
         "a name added here is a promise; the rest of the surface arrives with the phase that \

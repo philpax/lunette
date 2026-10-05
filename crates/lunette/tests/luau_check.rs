@@ -16,7 +16,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use lunette::aliases::{install_manifest, installed_luaurc};
 use lunette_lovr::analyze::{self, Kind, Report, Request};
+use tempfile::TempDir;
 
 #[test]
 fn every_shipped_root_checks_without_diagnostics() {
@@ -52,6 +54,13 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/surface/placement_positive.luau",
             "luau_check/focus/positive.luau",
             "luau_check/focus/source_positive.luau",
+            "luau_check/ui/readonly_positive.luau",
+            "luau_check/ui/receivers_positive.luau",
+            "luau_check/ui/widgets_positive.luau",
+            "luau_check/ui/pointer_positive.luau",
+            "luau_check/ui/service_positive.luau",
+            "luau_check/pass/ui-substitute.luau",
+            "luau_check/ui/installed.luau",
             "luau_check/native/default_seat_positive.luau",
             "fixtures/require-relative/lunette/main.luau",
             "luau_check/conf/supported.luau",
@@ -124,6 +133,86 @@ fn keyboard_visibility_rejects_invalid_reasons_callbacks_and_mutation() {
         "luau_check/keyboard/visibility_negative.luau",
         include_str!("luau_check/keyboard/visibility_negative.luau"),
     );
+}
+
+#[test]
+fn ui_readonly_records_reject_mutation_and_writable_substitution() {
+    assert_marked_lines(
+        "luau_check/ui/readonly_negative.luau",
+        include_str!("luau_check/ui/readonly_negative.luau"),
+    );
+}
+
+#[test]
+fn ui_public_methods_reject_wrong_receivers() {
+    assert_marked_lines(
+        "luau_check/ui/receivers_negative.luau",
+        include_str!("luau_check/ui/receivers_negative.luau"),
+    );
+}
+
+#[test]
+fn ui_widgets_reject_invalid_options_and_callbacks() {
+    assert_marked_lines(
+        "luau_check/ui/widgets_negative.luau",
+        include_str!("luau_check/ui/widgets_negative.luau"),
+    );
+}
+
+#[test]
+fn ui_regions_require_pointer_event_discrimination() {
+    assert_marked_lines(
+        "luau_check/ui/pointer_negative.luau",
+        include_str!("luau_check/ui/pointer_negative.luau"),
+    );
+}
+
+#[test]
+fn ui_modules_resolve_from_installed_manifest_roots() {
+    let installation = TempDir::with_prefix("lunette-ui-installed-")
+        .unwrap_or_else(|error| panic!("installed roots: temporary directory: {error}"));
+    for entry in install_manifest().lines() {
+        let (source, destination) = entry
+            .split_once('\t')
+            .unwrap_or_else(|| panic!("installed roots: malformed manifest entry: {entry}"));
+        copy_install_artifact(
+            &repository().join(source),
+            &installation.path().join(destination),
+        );
+    }
+    assert!(!installation.path().join("lua/testing").exists());
+    assert!(
+        installation
+            .path()
+            .join("lua/lunette-contracts/ui.luau")
+            .is_file()
+    );
+    assert!(
+        installation
+            .path()
+            .join("lua/lunette-plugins/ui/init.luau")
+            .is_file()
+    );
+    let configuration = installation.path().join("configuration");
+    fs::create_dir_all(&configuration)
+        .unwrap_or_else(|error| panic!("installed roots: configuration directory: {error}"));
+    fs::write(configuration.join(".luaurc"), installed_luaurc("../lua"))
+        .unwrap_or_else(|error| panic!("installed roots: configuration aliases: {error}"));
+    let source = configuration.join("main.luau");
+    fs::write(&source, include_str!("luau_check/ui/installed.luau"))
+        .unwrap_or_else(|error| panic!("installed roots: configuration source: {error}"));
+    let request = Request::new(
+        Some(installation.path().join("definitions.luau")),
+        vec![source],
+    );
+    let report = analyze::check(&request)
+        .unwrap_or_else(|error| panic!("installed roots: checker: {error}"));
+    assert!(
+        report.skipped(&request).is_empty(),
+        "{:#?}",
+        report.skipped(&request)
+    );
+    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
 }
 
 #[test]
@@ -646,6 +735,34 @@ fn collect_sources(directory: &Path, paths: &mut Vec<PathBuf>) {
             paths.push(path);
         }
     }
+}
+
+fn copy_install_artifact(source: &Path, destination: &Path) {
+    if source.is_dir() {
+        fs::create_dir_all(destination)
+            .unwrap_or_else(|error| panic!("installed roots: {}: {error}", destination.display()));
+        let mut sources = Vec::new();
+        collect_sources(source, &mut sources);
+        for path in sources {
+            let relative = path
+                .strip_prefix(source)
+                .unwrap_or_else(|error| panic!("installed roots: {}: {error}", path.display()));
+            copy_install_artifact(&path, &destination.join(relative));
+        }
+        return;
+    }
+    let parent = destination
+        .parent()
+        .unwrap_or_else(|| panic!("installed roots: {} has no parent", destination.display()));
+    fs::create_dir_all(parent)
+        .unwrap_or_else(|error| panic!("installed roots: {}: {error}", parent.display()));
+    fs::copy(source, destination).unwrap_or_else(|error| {
+        panic!(
+            "installed roots: {} to {}: {error}",
+            source.display(),
+            destination.display()
+        )
+    });
 }
 
 fn fixture(path: &str) -> PathBuf {
