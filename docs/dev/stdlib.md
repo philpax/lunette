@@ -122,6 +122,14 @@ The tests in `lua/lunette-desktop/tests` drive the shipped desktop as a composit
 
 Safe mode is compiled into the binary and requires `lunette` alone. It does not depend on the provider roots or the desktop, because a missing or broken installed module tree must not prevent recovery. [The Lua API](lua-api.md#errors) records its behavior.
 
+## Session composition
+
+`@lunette-plugin/management` owns the running entry definitions and their session configuration. It publishes `lunette/composition`, whose service enables, disables, reloads, configures, adds, removes, restores, and recovers entries. Startup validates every resolvable entry configuration before activating any instance. A failed initializer remains failed and inspectable; recovery explicitly reloads the most recent configuration observed active. Native replacement is not transactional. Cleanup failure retains a quarantined entry and its reservation rather than reporting removal.
+
+The catalog retains each known entry's identity and source order after removal. `restore` reinstalls a known entry from its retained definition and last accepted configuration; it does not resolve a module path. Uninstalled entries remain catalogued even when restoration later fails validation or activation.
+
+The composition service protects its own provider and configured management entries. Protection follows their actual current and failed bindings and recursive parent ownership. The raw runtime remains native mechanism; callers that mutate it directly bypass composition policy.
+
 ## Broker inspection
 
 Inspectable brokers expose `inspect()` through their neutral service contracts. A snapshot contains primitive metadata for logical registrations, actual owners, resource counts, service state, and explicitly unavailable facts. Inspection invokes no user handler, offer, rule resolver, clock, or filter, and performs no dead-member pruning. Logical registrations and native effects have separate counts because one registration may acquire several effects. A tag membership or exclusion's `live` and `dead` fields describe its retained entry and owner status. Its `details.targetLiveness` reports a raw boolean target observation as `live` or `dead`, or `unavailable` when observation would require a getter. Window source identities are numbers, and monitor source identities are strings.
