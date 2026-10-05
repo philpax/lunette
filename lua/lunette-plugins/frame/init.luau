@@ -3,6 +3,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/frame'
 local protected = require '@lunette-plugins/protected'
 local inspection = require '@lunette-contracts/inspection'
+local keyContract = require '@lunette-contracts/keys'
 
 local frame = {}
 
@@ -14,8 +15,8 @@ export type Hooks = {
 type Dispatcher = {
   update: (number) -> (),
   draw: (Pass) -> (),
-  key: (contract.KeyEvent) -> (),
-  text: (contract.TextEvent) -> (),
+  key: (KeyCode, number, boolean, keyContract.PhysicalModifiers?) -> (),
+  text: (string, number) -> (),
   quit: () -> (),
 }
 
@@ -60,6 +61,9 @@ local function validate(
   if type(handler) ~= 'table' then
     error(string.format('frame %s: a handler is a table of fields, not a %s', operation, type(handler)), level)
   end
+  if getmetatable(handler) ~= nil then
+    error(string.format('frame %s: a handler is a plain table', operation), level)
+  end
   local fields = if allowed == QUIT_KEYS then 'run' else 'phase, order, and run'
   plugin.rejectUnknownFields('frame ' .. operation, handler, allowed, fields, level)
   local raw = handler :: { [unknown]: unknown }
@@ -100,13 +104,22 @@ end
 
 local function create(context: plugin.Context): (contract.Service, Dispatcher)
   local sequence = 0
+  local batchId = 0
+  local currentBatch: contract.Batch? = nil
+  local batches: { Entry<(contract.Batch) -> ()> } = {}
   local updates: { Entry<(number) -> ()> } = {}
   local draws: { Entry<(Pass) -> ()> } = {}
   local keys: { Entry<(contract.KeyEvent) -> boolean?> } = {}
   local texts: { Entry<(contract.TextEvent) -> boolean?> } = {}
   local quits: { Entry<() -> ()> } = {}
 
-  local function register<T>(list: { Entry<T> }, owner: contract.Owner, rank: number, order: number, run: T)
+  local function register<T>(
+    list: { Entry<T> },
+    owner: contract.Owner,
+    rank: number,
+    order: number,
+    run: T
+  ): (plugin.Effect, Entry<T>)
     sequence += 1
     local entry: Entry<T> = {
       owner = owner,
@@ -116,7 +129,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       run = run,
       active = true,
     }
-    return context:acquire(owner, function(): () -> ()
+    local effect = context:acquire(owner, function(): () -> ()
       list[#list + 1] = entry
       table.sort(list, before)
       return function(): ()
@@ -127,10 +140,11 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
         end
       end
     end)
+    return effect, entry
   end
 
   -- A handler disposed or unloaded during dispatch is skipped.
-  local function dispatch<T>(label: string, list: { Entry<T> }, call: (T) -> boolean?): ()
+  local function dispatch<T>(label: string, list: { Entry<T> }, call: (T) -> boolean?): number?
     for _, entry in ipairs(table.clone(list)) do
       if entry.active and context:owns(entry.owner) then
         local consumed: boolean? = nil
@@ -138,14 +152,44 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
           consumed = call(entry.run)
         end)
         if ok and consumed == true then
-          return
+          return entry.rank
         end
       end
     end
+    return nil
+  end
+
+  local function notifyBatch(batch: contract.Batch): ()
+    currentBatch = batch
+    dispatch('frame.onBatch', batches, function(run: (contract.Batch) -> ()): boolean?
+      if currentBatch == batch then
+        run(batch)
+      end
+      return nil
+    end)
+  end
+
+  local function blockText(id: number): boolean
+    local batch = currentBatch
+    if not context:active() or batch == nil or batch.id ~= id then
+      return false
+    end
+    if not batch.textBlocked then
+      notifyBatch(table.freeze { id = batch.id, textBlocked = true })
+    end
+    return true
+  end
+
+  local function openBatch(): contract.Batch
+    batchId += 1
+    local batch: contract.Batch = table.freeze { id = batchId, textBlocked = false }
+    notifyBatch(batch)
+    return batch
   end
 
   local dispatcher: Dispatcher = {
     update = function(dt: number): ()
+      openBatch()
       dispatch('lovr.update', updates, function(run: (number) -> ()): boolean?
         run(dt)
         return nil
@@ -157,12 +201,26 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
         return nil
       end)
     end,
-    key = function(event: contract.KeyEvent): ()
-      dispatch('lovr.keypressed', keys, function(run: (contract.KeyEvent) -> boolean?): boolean?
+    key = function(key: KeyCode, scancode: number, isRepeat: boolean, modifiers: keyContract.PhysicalModifiers?): ()
+      local snapshot = if modifiers ~= nil then keyContract.snapshotPhysicalModifiers(modifiers) else nil
+      local batch = currentBatch or openBatch()
+      local event: contract.KeyEvent = table.freeze {
+        batch = batch.id,
+        key = key,
+        scancode = scancode,
+        isRepeat = isRepeat,
+        modifiers = snapshot,
+      }
+      local consumedRank = dispatch('lovr.keypressed', keys, function(run: (contract.KeyEvent) -> boolean?): boolean?
         return run(event)
       end)
+      if consumedRank == INPUT_PHASE_RANKS.binding then
+        blockText(event.batch)
+      end
     end,
-    text = function(event: contract.TextEvent): ()
+    text = function(text: string, code: number): ()
+      local batch = currentBatch or openBatch()
+      local event: contract.TextEvent = table.freeze { batch = batch.id, text = text, code = code }
       dispatch('lovr.textinput', texts, function(run: (contract.TextEvent) -> boolean?): boolean?
         return run(event)
       end)
@@ -179,7 +237,8 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
     result: { inspection.Registration },
     source: string,
     list: { Entry<T> },
-    phases: { read [number]: string }
+    phases: { read [number]: string },
+    unphased: string?
   ): ()
     for _, entry in ipairs(list) do
       result[#result + 1] = inspection.registration(
@@ -188,13 +247,14 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
         entry.owner,
         nil,
         entry.active and context:owns(entry.owner),
-        { phase = phases[entry.rank] or 'quit', order = entry.order, sequence = entry.sequence }
+        { phase = phases[entry.rank] or unphased or 'quit', order = entry.order, sequence = entry.sequence }
       )
     end
   end
   local service: contract.Service = {
     inspect = function(_self: contract.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
+      describe(result, 'frame.onBatch', batches, {}, 'batch')
       describe(result, 'frame.onUpdate', updates, contract.PHASES)
       describe(result, 'frame.onDraw', draws, contract.PHASES)
       describe(result, 'frame.onKey', keys, contract.INPUT_PHASES)
@@ -202,25 +262,39 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       describe(result, 'frame.onQuit', quits, {})
       return inspection.snapshot(result, { active = context:active() })
     end,
+    blockText = function(_self: contract.Service, id: number): boolean
+      return blockText(id)
+    end,
+    onBatch = function(_self: contract.Service, owner: contract.Owner, handler: contract.BatchHandler): plugin.Effect
+      local rank, order = validate('onBatch', handler, QUIT_KEYS, nil, nil, nil)
+      local effect, entry = register(batches, owner, rank, order, handler.run)
+      local batch = currentBatch
+      if batch and entry.active and context:owns(owner) then
+        protected.call('frame.onBatch', function(): ()
+          entry.run(batch)
+        end)
+      end
+      return effect
+    end,
     onUpdate = function(_self: contract.Service, owner: contract.Owner, handler: contract.UpdateHandler): plugin.Effect
       local rank, order = validate('onUpdate', handler, PHASED_KEYS, PHASE_RANKS, nil, PHASE_NAMES)
-      return register(updates, owner, rank, order, handler.run)
+      return (register(updates, owner, rank, order, handler.run))
     end,
     onDraw = function(_self: contract.Service, owner: contract.Owner, handler: contract.DrawHandler): plugin.Effect
       local rank, order = validate('onDraw', handler, PHASED_KEYS, PHASE_RANKS, nil, PHASE_NAMES)
-      return register(draws, owner, rank, order, handler.run)
+      return (register(draws, owner, rank, order, handler.run))
     end,
     onKey = function(_self: contract.Service, owner: contract.Owner, handler: contract.KeyHandler): plugin.Effect
       local rank, order = validate('onKey', handler, PHASED_KEYS, INPUT_PHASE_RANKS, 'binding', INPUT_PHASE_NAMES)
-      return register(keys, owner, rank, order, handler.run)
+      return (register(keys, owner, rank, order, handler.run))
     end,
     onText = function(_self: contract.Service, owner: contract.Owner, handler: contract.TextHandler): plugin.Effect
       local rank, order = validate('onText', handler, PHASED_KEYS, INPUT_PHASE_RANKS, 'binding', INPUT_PHASE_NAMES)
-      return register(texts, owner, rank, order, handler.run)
+      return (register(texts, owner, rank, order, handler.run))
     end,
     onQuit = function(_self: contract.Service, owner: contract.Owner, handler: contract.QuitHandler): plugin.Effect
       local rank, order = validate('onQuit', handler, QUIT_KEYS, nil, nil, nil)
-      return register(quits, owner, rank, order, handler.run)
+      return (register(quits, owner, rank, order, handler.run))
     end,
   }
   return service, dispatcher
@@ -290,17 +364,17 @@ function frame.install(hooks: Hooks): ()
     return false
   end
 
-  function lovr.keypressed(key: KeyCode, scancode: number, isrepeat: boolean)
+  function lovr.keypressed(key: KeyCode, scancode: number, isrepeat: boolean, modifiers: keyContract.PhysicalModifiers?)
     local current = bound
     if current then
-      current.key(table.freeze { key = key, scancode = scancode, isRepeat = isrepeat })
+      current.key(key, scancode, isrepeat, modifiers)
     end
   end
 
   function lovr.textinput(text: string, code: number)
     local current = bound
     if current then
-      current.text(table.freeze { text = text, code = code })
+      current.text(text, code)
     end
   end
 

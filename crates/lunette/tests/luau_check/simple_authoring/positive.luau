@@ -49,11 +49,11 @@ local function build(
       panelRegistry:update()
       local pointer: interaction.Pointer = input:newPointer(ctx)
       pointer:withdraw()
-      local board: keyboard.Keyboard = keys:new(ctx, {
-        target = function()
-          return focused:focused()
-        end,
-      })
+      local current: focus.TargetHandle? = focused:focused()
+      if current then
+        assert(not current.dead)
+      end
+      local board: keyboard.Keyboard = keys:new(ctx)
       board:typeText(config.title)
       board:setSize(nil, config.height)
       dropped:onDropped(ctx, {

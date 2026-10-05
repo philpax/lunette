@@ -62,7 +62,7 @@ local function start()
   })
   env.service, env.owner = service, owner
 
-  local seat = { dead = false }
+  local seat = { id = 1, dead = false }
   function seat:setFocus(target)
     self.focus = target
     return true
@@ -76,7 +76,7 @@ local function start()
   function seat:strokeFor()
     return nil
   end
-  local sink = { dead = false }
+  local sink = { monitor = { id = 1 }, domain = 'host', dead = false }
   function sink:modifiers(held)
     env.sent[#env.sent + 1] = { 'modifiers', table.concat(held, '+') }
     return true
@@ -89,7 +89,7 @@ local function start()
     env.sent[#env.sent + 1] = { 'text', text }
     return true
   end
-  focus:setFocus(owner, { seat = seat, sink = sink })
+  focus:register(owner, { kind = 'native', seat = seat, sink = sink }):focus()
   env.pointer = pointers:newPointer(owner, {
     seat = seat,
     vibrate = function(haptic)

@@ -27,12 +27,16 @@ local function start(definition)
       env.focus = context:require(focusContract.capability)
     end,
   })
-  local seat = { dead = false }
+  local seat = { id = 1, dead = false }
   function seat:setFocus(sink)
     self.focus = sink
+    return true
   end
   env.seat = seat
-  local sink = { dead = false }
+  require('@lunette').defaultSeat = function()
+    return seat
+  end
+  local sink = { domain = 'window', id = 1, dead = false }
   function sink:button(button, isDown, actualSeat)
     expect.equal(actualSeat, seat, 'the seat a button arrives from')
     local list = if isDown then env.pressed else env.released
@@ -139,7 +143,8 @@ test("a press presses its button and gives the seat's keyboard to the sink throu
   pointer:setButton { pressed = true, sink = env.sink, surface = target }
   expect.equal(env.pressed[1], 'left', 'the default button')
   expect.equal(env.seat.focus, env.sink, 'the native focus')
-  expect.equal(env.focus:focused(), env.seat, 'the focused seat')
+  local focused = env.focus:focused()
+  expect.truthy(focused and not focused.dead, 'the focused target')
   pointer:setButton { button = 'right', pressed = true, sink = env.sink, surface = target }
   pointer:setButton { button = 'right', pressed = false }
   expect.equal(env.pressed[2], 'right', 'a second button is its own press')
@@ -311,7 +316,7 @@ test('a failing release raises to a direct destroy, and is reported against an o
     end,
   })
   local failedReleases = 0
-  local brokenSink = { dead = false }
+  local brokenSink = { domain = 'host', monitor = { id = 'release-fixture' }, dead = false }
   function brokenSink:button(_, isDown)
     if not isDown then
       failedReleases += 1

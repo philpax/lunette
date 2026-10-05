@@ -31,6 +31,9 @@ type State = {
   dead: boolean,
   pointer: Pointer?,
   seat: lunette.Seat?,
+  focusTarget: focusContract.TargetHandle?,
+  focusSink: lunette.Sink?,
+  focusSeatId: number?,
   pulse: ((contracts.Haptic) -> boolean)?,
   hovered: Surface?,
   hitX: number?,
@@ -58,8 +61,6 @@ for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
   BUTTONS[button] = true
 end
 
-local NO_SEAT = table.freeze {}
-
 local function unchanged(_surface: Surface, pose: Mat4): Mat4
   return pose
 end
@@ -72,9 +73,6 @@ local function build(context: plugin.Context, settings: Settings): Service
   local owners: { [Pointer]: contracts.Owner } = {}
   local dropService: dropsContract.Service = context:require(dropsContract.capability)
   local focusService: focusContract.Service = context:require(focusContract.capability)
-  -- A pointer ending withdraws its grant when no later pointer owns focus for that seat.
-  local grantors: { [unknown]: State } = {}
-  local grants: { [unknown]: plugin.Effect } = {}
 
   local carrying = grab.new {
     pointers = function(): { grab.PointerState }
@@ -106,23 +104,47 @@ local function build(context: plugin.Context, settings: Settings): Service
     return active and context:active() and not state.dead
   end
 
-  local function giveFocus(state: State, sink: lunette.Sink?): ()
-    local key: unknown = state.seat or NO_SEAT
-    grants[key] = focusService:setFocus(context, { seat = state.seat, sink = sink })
-    grantors[key] = state
+  local function withdrawFocus(state: State): ()
+    local target = state.focusTarget
+    state.focusTarget, state.focusSink, state.focusSeatId = nil, nil, nil
+    if target then
+      target:destroy()
+    end
   end
 
-  local function withdrawFocus(state: State): ()
-    local key: unknown = state.seat or NO_SEAT
-    if grantors[key] ~= state then
+  local function sameSink(first: lunette.Sink, second: lunette.Sink): boolean
+    if first.dead or first.domain ~= second.domain then
+      return false
+    end
+    if first.domain == 'window' then
+      return first.id ~= nil and first.id == second.id
+    end
+    local firstMonitor, secondMonitor = first.monitor, second.monitor
+    return firstMonitor ~= nil and secondMonitor ~= nil and firstMonitor.id == secondMonitor.id
+  end
+
+  local function giveFocus(state: State, sink: lunette.Sink?): ()
+    local target = state.focusTarget
+    if not sink then
+      if target and not target.dead then
+        target:blur()
+      end
       return
     end
-    grantors[key] = nil
-    local effect = grants[key]
-    grants[key] = nil
-    if effect then
-      effect:dispose()
+    local seat = state.seat or (if sink.domain == 'window' then lunette.defaultSeat() else nil)
+    if sink.dead or (seat and seat.dead) then
+      return
     end
+    local seatId = seat and seat.id
+    local previous = state.focusSink
+    if target and not target.dead and state.focusSeatId == seatId and previous and sameSink(previous, sink) then
+      target:focus()
+      return
+    end
+    withdrawFocus(state)
+    local registered = focusService:register(context, { kind = 'native', seat = state.seat, sink = sink })
+    state.focusTarget, state.focusSink, state.focusSeatId = registered, sink, seatId
+    registered:focus()
   end
 
   -- A highlight stays active while another pointer still hovers the surface.
@@ -294,6 +316,9 @@ local function build(context: plugin.Context, settings: Settings): Service
       dead = false,
       pointer = nil,
       seat = options and options.seat,
+      focusTarget = nil,
+      focusSink = nil,
+      focusSeatId = nil,
       pulse = pulse,
       hovered = nil,
       hitX = nil,
@@ -444,8 +469,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       for _, pointer in ipairs(table.clone(pointers)) do
         pointer:destroy()
       end
-      table.clear(grantors)
-      table.clear(grants)
     end
   end)
   -- The published service is revoked with this activation, so its methods need no liveness guard; pointers

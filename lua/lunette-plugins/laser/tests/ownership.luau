@@ -128,7 +128,7 @@ test('a failing laser release quarantines its owner, not the providers', functio
     end,
   })
   local failedReleases = 0
-  local brokenSink = { dead = false }
+  local brokenSink = { dead = false, domain = 'window', id = 404 }
   function brokenSink:button(_, pressed)
     if not pressed then
       failedReleases += 1

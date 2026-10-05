@@ -65,6 +65,169 @@ fn us_session(windows: Vec<WindowSnapshot>) -> TestSession {
 }
 
 #[test]
+fn default_seat_is_selected_by_identity_not_snapshot_order() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+    let mut default = seat(DEFAULT_SEAT.get(), "primary", "us");
+    default.clipboard_bridge = false;
+    let mut other = seat(2, "lunette", "de");
+    other.clipboard_bridge = true;
+
+    for seats in [
+        vec![other.clone(), default.clone()],
+        vec![default.clone(), other],
+        vec![default],
+    ] {
+        session.begin(seated(Vec::new(), seats));
+
+        let (id, name, dead, bridged): (u64, String, bool, bool) = run(
+            &lua,
+            "local s = lunette.defaultSeat()
+             return s.id, s.name, s.dead, s.clipboardBridge",
+        );
+
+        assert_eq!(id, DEFAULT_SEAT.get());
+        assert_eq!(name, "primary");
+        assert!(!dead);
+        assert!(
+            !bridged,
+            "the clipboard bridge does not identify the default seat"
+        );
+        assert!(
+            session.flush().is_empty(),
+            "lookup must not queue a command"
+        );
+    }
+}
+
+#[test]
+fn default_seat_returns_fresh_wrappers_with_the_same_stable_id() {
+    let session = session(Vec::new());
+    session.begin(seated(
+        Vec::new(),
+        vec![
+            seat(2, "left", "us"),
+            seat(DEFAULT_SEAT.get(), "lunette", "us"),
+        ],
+    ));
+    let lua = lua(&session);
+
+    let (id, same_id, same_wrapper, listed_id): (u64, bool, bool, bool) = run(
+        &lua,
+        "local first = lunette.defaultSeat()
+         local second = lunette.defaultSeat()
+         local listed = lunette.seats()[2]
+         return first.id, first.id == second.id, rawequal(first, second), first.id == listed.id",
+    );
+
+    assert_eq!(id, DEFAULT_SEAT.get());
+    assert!(same_id);
+    assert!(!same_wrapper, "a lookup creates a fresh userdata wrapper");
+    assert!(
+        listed_id,
+        "identity agrees with the handle returned by seats()"
+    );
+    assert!(session.flush().is_empty());
+}
+
+#[test]
+fn default_seat_is_nil_when_absent_and_retained_handles_become_dead() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+
+    assert!(run::<bool>(&lua, "return lunette.defaultSeat() == nil"));
+    session.begin(seated(Vec::new(), vec![seat(2, "left", "us")]));
+    assert!(run::<bool>(&lua, "return lunette.defaultSeat() == nil"));
+
+    session.begin(seated(
+        Vec::new(),
+        vec![seat(DEFAULT_SEAT.get(), "primary", "us")],
+    ));
+    run::<()>(&lua, "held = lunette.defaultSeat() assert(not held.dead)");
+    session.begin(seated(Vec::new(), vec![seat(2, "left", "us")]));
+
+    let (absent, id, name, dead, focused, destroyed): (bool, u64, String, bool, bool, bool) = run(
+        &lua,
+        "return lunette.defaultSeat() == nil, held.id, held.name, held.dead,
+                held:setFocus(nil), held:destroy()",
+    );
+
+    assert!(
+        absent,
+        "the previous snapshot must not supply a default seat"
+    );
+    assert_eq!(id, DEFAULT_SEAT.get());
+    assert_eq!(
+        name, "primary",
+        "a retained handle keeps its last-known name"
+    );
+    assert!(dead);
+    assert!(!focused, "a dead seat cannot receive focus commands");
+    assert!(!destroyed);
+    assert!(session.flush().is_empty());
+}
+
+#[test]
+fn default_seat_focus_precedes_nil_seat_key_and_text_then_clears() {
+    let session = session(Vec::new());
+    session.begin(seated(
+        vec![
+            window(1, "other", "foot", PixelSize::new(800, 600)),
+            window(2, "intended", "foot", PixelSize::new(800, 600)),
+        ],
+        vec![
+            seat(2, "left", "us"),
+            seat(DEFAULT_SEAT.get(), "lunette", "us"),
+        ],
+    ));
+    let lua = lua(&session);
+
+    run::<()>(
+        &lua,
+        &format!(
+            "local s = lunette.defaultSeat()
+             local target = lunette.windows()[2].sink
+             assert(s:setFocus(target))
+             assert(target:key({KEY_A}, true, nil))
+             assert(target:typeText('input', nil))
+             assert(s:setFocus(nil))"
+        ),
+    );
+
+    match session.flush().as_slice() {
+        [
+            Command::Focus {
+                seat: focus_seat,
+                sink: Some(target),
+            },
+            Command::Key {
+                seat: key_seat,
+                key,
+                pressed,
+            },
+            Command::TypeText {
+                seat: text_seat,
+                text,
+            },
+            Command::Focus {
+                seat: clear_seat,
+                sink: None,
+            },
+        ] => {
+            assert_eq!(*focus_seat, DEFAULT_SEAT);
+            assert_eq!(*target, sink_id(2));
+            assert_eq!(*key_seat, DEFAULT_SEAT);
+            assert_eq!(key.evdev(), KEY_A);
+            assert!(*pressed);
+            assert_eq!(*text_seat, DEFAULT_SEAT);
+            assert_eq!(text, "input");
+            assert_eq!(*clear_seat, DEFAULT_SEAT);
+        }
+        other => panic!("expected focus, key, text, and focus withdrawal in order, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_seat_reports_its_name_and_the_layouts_its_keymap_carries() {
     let session = session(Vec::new());
     session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));

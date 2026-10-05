@@ -198,7 +198,7 @@ desktop.run {
 
 Each built-in provider module answers `definition`, the definition the desktop uses; `define`, which makes another definition with other defaults; `build`; and `requires`. `define` is typed, so the checker reads its options. `examples/keyboard/split.luau` is the built-in keyboard with other rows, a numpad layer, a click on every key, and a flash on the key that was pressed.
 
-Rows are lists of keys. A key has an evdev `code` or an `action`; a key with neither is a spacer. `width` and `height` are in key units, and `x` is room left before the key. Codes come from `@lunette-contracts/keys`, and legends come from the seat's keymap, so the rows work on any layout.
+Rows are lists of keys. A key has an evdev `code` or an `action`; a key with neither is a spacer. `width` and `height` are in key units, and `x` is room left before the key. Codes come from `@lunette-contracts/keys`. Legends and local virtual translation use the same live keymap seat selected by the focus source. Stateless translation does not implement dead-key composition. Physical committed text remains separate from virtual key activations.
 
 ```lua
 local keyboard = require '@lunette-plugins/keyboard'
@@ -281,21 +281,11 @@ Every plugin that requires the keyboard contract, the wrist button included, the
 
 ## Replacing the keyboard
 
-A plugin that provides `lunette/keyboard` itself can take the keyboard entry's place in the same way. The contract is small: `service:new(owner, options)` answers a keyboard, which is a surface with `pose`, `width`, `height`, `visible`, `setPose`, `setSize`, `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`. `examples/keyboard/tiny.luau` implements it with one row of three keys. Its `new` ties each keyboard to the caller:
+A plugin that provides `lunette/keyboard` at schema 2 can take the keyboard entry's place in the same way. `service:new(owner, options)` answers a keyboard, which is a surface with `pose`, `width`, `height`, `visible`, `setPose`, `setSize`, `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`. `service:inspect()` returns callback-free registration metadata. A replacement uses focus sources for routed input, clears latches and locks on route changes and hide, and implements `Options.onVisibilityChanged` after changing state. Its reasons are `show`, `hide`, `user-hide`, and `destroy`. The native-only `Options.target` callback remains subordinate to a focused local receiver. [Keyboard](../dev/lua-api.md#keyboard) and [Focus](../dev/lua-api.md#focus) specify these rules. `examples/keyboard/tiny.luau` implements the contract with one row of three keys. Its `new` ties each keyboard to the caller.
 
-```lua
-new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
-  local board = context:resource(owner, function()
-    local created = make(focus, options)
-    return created, function()
-      created:destroy()
-    end
-  end)
-  return board
-end,
-```
+The implementation acquires the board through `context:resource(owner, acquire)`. Inside that acquisition, it creates a virtual focus source with the provider's context as the source owner, then returns the board and an inverse that releases the board and source. It releases partial acquisitions if board construction raises. The complete callback and cleanup wiring remains in `examples/keyboard/tiny.luau`.
 
-`context:resource` checks that the owner is a live dependent plugin and registers the release with the owner, so a keyboard ends with the plugin that asked for it. It returns the acquired value and its effect only after registration succeeds. An initializer can use its own context as the owner. Cancellation releases the value and raises without returning it. An acquisition that raises before returning its inverse must clean up its partial resources. Each owner draws and offers its own keyboards, so a provider keeps no list of them. A surface callback that answers a ray hit, `raycast`, is annotated `(number?, number?, number?)` when it is written as a method or a local function. Luau gives a function with no expected type the return type of its first `return`, so an unannotated `raycast` that misses with `return nil, nil, nil` before it returns the hit is rejected at the hit. A `raycast` written inside a table that is annotated as the surface type takes its type from the contract and needs no annotation.
+`context:resource` checks that the owner is a live dependent plugin and registers the release with the owner, so a keyboard ends with the plugin that asked for it. It returns the acquired value and its effect only after registration succeeds. An initializer can use its own context as the owner. Cancellation releases the value and raises without returning it. An acquisition that raises before returning its inverse must clean up its partial resources. Each owner draws and offers its own keyboards. A provider can retain registration metadata for inspection without drawing another owner's keyboard or invoking target callbacks. A surface callback that answers a ray hit, `raycast`, is annotated `(number?, number?, number?)` when it is written as a method or a local function. Luau gives a function with no expected type the return type of its first `return`, so an unannotated `raycast` that misses with `return nil, nil, nil` before it returns the hit is rejected at the hit. A `raycast` written inside a table that is annotated as the surface type takes its type from the contract and needs no annotation.
 
 ## A custom layout
 

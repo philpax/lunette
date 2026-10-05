@@ -1,5 +1,4 @@
--- Delivers keys and text after binding handlers. Keyboard input continues when the bindings provider is unavailable.
-local lunette = require '@lunette'
+-- Delivers physical keys and committed text through the focused route after binding handlers.
 local plugin = require '@lunette-plugin'
 local schema = require '@lunette-plugin/schema'
 local focus = require '@lunette-contracts/focus'
@@ -16,7 +15,14 @@ local required: plugin.Declaration = {
 }
 
 local function heldModifiers(): { string }
-  return keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = false }
+  return keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = true }
+end
+
+local function stopsFallback(result: focus.Result, selected: boolean): boolean
+  if result.kind == 'unhandled' then
+    return selected
+  end
+  return true
 end
 
 return plugin.consumer<<Config, Settings>>({
@@ -25,61 +31,65 @@ return plugin.consumer<<Config, Settings>>({
   schema = descriptor,
   init = function(context: plugin.Context, _settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
+    local blockText = frameService.blockText
     local service: focus.Service = context:require(focus.capability)
-    local function focused(): (lunette.Seat?, lunette.Sink?)
-      local seat, sink = service:focused()
-      if not seat or seat.dead or not sink or sink.dead then
-        return nil, nil
-      end
-      return seat, sink
-    end
-    local function stroke(keycode: number, modifiers: { string }): ()
-      local seat, sink = focused()
-      if not seat or not sink then
-        return
-      end
-      if #modifiers > 0 then
-        sink:modifiers(modifiers, seat)
-      end
-      sink:key(keycode, true, seat)
-      sink:key(keycode, false, seat)
-      if #modifiers > 0 then
-        sink:modifiers({}, seat)
-      end
-    end
+    local source = service:newSource(context, { mode = 'physical' })
+    local currentBatch: number? = nil
+    frameService:onBatch(context, {
+      run = function(batch: frame.Batch): ()
+        currentBatch = batch.id
+        source:beginBatch(batch.id)
+        if batch.textBlocked then
+          source:reset()
+        end
+      end,
+    })
     frameService:onKey(context, {
       phase = 'delivery',
       run = function(event: frame.KeyEvent): boolean?
-        local key = event.key
-        local held = heldModifiers()
-        local named = keys.FROM_LOVR[key]
-        if named then
-          stroke(named, held)
-        elseif #held > 0 and #key == 1 then
-          local seat = focused()
-          local found = seat and seat:strokeFor(key)
-          if found then
-            stroke(found.keycode, held)
-          end
+        local code = keys.FROM_LOVR[event.key]
+        if code == nil then
+          return nil
         end
-        return nil
+        local modifiers = if event.modifiers
+          then keys.physicalModifierNames(event.modifiers, lovr.system.isKeyDown)
+          else heldModifiers()
+        local selected = service:focused() ~= nil
+        local result = source:key {
+          code = code,
+          modifiers = modifiers,
+          physicalModifiers = event.modifiers,
+          isRepeat = event.isRepeat,
+          batch = event.batch,
+        }
+        if keys.commandChord(modifiers) or result.kind ~= 'unhandled' then
+          blockText(frameService, event.batch)
+        end
+        return stopsFallback(result, selected)
       end,
     })
     frameService:onText(context, {
       phase = 'delivery',
       run = function(event: frame.TextEvent): boolean?
-        local seat, sink = focused()
-        if not seat or not sink or #heldModifiers() > 0 then
-          return nil
+        if keys.commandChord(heldModifiers()) then
+          blockText(frameService, event.batch)
+          return true
         end
-        for character in event.text:gmatch '.' do
-          local found = seat:strokeFor(character)
-          if found then
-            stroke(found.keycode, found.modifiers or {})
-          end
+        local selected = service:focused() ~= nil
+        local result = source:text(event.text, event.batch)
+        if result.kind == 'failed' or result.kind == 'refused' then
+          blockText(frameService, event.batch)
         end
-        return nil
+        return stopsFallback(result, selected)
       end,
     })
+    context:effect(function(): () -> ()
+      return function(): ()
+        -- Replacing the physical source cannot renew the pending batch with a different route snapshot.
+        if currentBatch ~= nil then
+          blockText(frameService, currentBatch)
+        end
+      end
+    end)
   end,
 }).definition

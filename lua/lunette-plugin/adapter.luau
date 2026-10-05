@@ -157,6 +157,12 @@ end
 -- Wrapper identity prevents caller-created tables from acting as owners.
 -- The native context validates that the owner is a live dependent.
 local nativeContexts: { [Context]: NativeContext } = setmetatable({}, { __mode = 'k' }) :: any
+local ownerLabels: { [Owner]: string } = setmetatable({}, { __mode = 'k' })
+
+-- Reads registered metadata without invoking the owner's callbacks.
+function adapter.ownerLabel(owner: Owner): string
+  return ownerLabels[owner] or 'unregistered owner'
+end
 
 local function ownerContext(owner: Owner, level: number): NativeContext
   local nativeContext = nativeContexts[(owner :: unknown) :: Context]
@@ -454,6 +460,7 @@ function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Defini
         end
       end)
       local context = wrapContext(nativeContext, requiredSnapshot)
+      ownerLabels[context] = fields.name
       local typedConfig = (config :: unknown) :: C
       local provide = publisher(providedSnapshot, staging)
       local returned = select('#', init(context, typedConfig, provide))

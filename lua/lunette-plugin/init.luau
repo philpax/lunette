@@ -72,6 +72,9 @@ end
 -- function that calls this one, so 2 names that function's caller, and 0 gives no position.
 plugin.rejectUnknownFields = options.rejectUnknownFields
 
+-- Returns registered diagnostic metadata without calling an owner's service or effect methods.
+plugin.ownerLabel = adapter.ownerLabel
+
 -- Raises `plugin <name>: option <option> ...` unless `value` is a list of exactly `count` finite numbers,
 -- for an option such as a colour that its default's type cannot describe.
 function plugin.checkNumbers(name: string, option: string, value: unknown, count: number): ()

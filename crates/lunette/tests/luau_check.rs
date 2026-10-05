@@ -46,6 +46,11 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/laser/recursive_definition.luau",
             "luau_check/keyboard/recursive_definition.luau",
             "luau_check/keyboard/mappings.luau",
+            "luau_check/keyboard/visibility_positive.luau",
+            "luau_check/frame/positive.luau",
+            "luau_check/focus/positive.luau",
+            "luau_check/focus/source_positive.luau",
+            "luau_check/native/default_seat_positive.luau",
             "fixtures/require-relative/lunette/main.luau",
             "luau_check/conf/supported.luau",
             "luau_check/rules/rules_positive.luau",
@@ -69,6 +74,46 @@ fn clean_fixtures_check_without_diagnostics() {
         .collect(),
     );
     assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+}
+
+#[test]
+fn frame_batches_and_events_reject_invalid_handlers_and_mutation() {
+    assert_marked_lines(
+        "luau_check/frame/negative.luau",
+        include_str!("luau_check/frame/negative.luau"),
+    );
+}
+
+#[test]
+fn focus_targets_receivers_and_notifications_reject_invalid_types_and_mutation() {
+    assert_marked_lines(
+        "luau_check/focus/negative.luau",
+        include_str!("luau_check/focus/negative.luau"),
+    );
+}
+
+#[test]
+fn focus_sources_require_valid_activations_and_result_narrowing() {
+    assert_marked_lines(
+        "luau_check/focus/source_negative.luau",
+        include_str!("luau_check/focus/source_negative.luau"),
+    );
+}
+
+#[test]
+fn keyboard_visibility_rejects_invalid_reasons_callbacks_and_mutation() {
+    assert_marked_lines(
+        "luau_check/keyboard/visibility_negative.luau",
+        include_str!("luau_check/keyboard/visibility_negative.luau"),
+    );
+}
+
+#[test]
+fn native_default_seat_requires_optional_narrowing_and_rejects_mutation() {
+    assert_marked_lines(
+        "luau_check/native/default_seat_negative.luau",
+        include_str!("luau_check/native/default_seat_negative.luau"),
+    );
 }
 
 #[test]
@@ -442,6 +487,32 @@ fn workspace_settings_reject_nested_assignment_and_list_replacement() {
             (6, "Property indexer"),
         ],
     );
+}
+
+fn assert_marked_lines(path: &str, source: &str) {
+    let expected = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("-- reject."))
+        .map(|(index, _)| index as u32 + 1)
+        .collect::<Vec<_>>();
+    assert!(
+        !expected.is_empty(),
+        "fixture has no rejection markers: {path}"
+    );
+    let report = check(vec![fixture(path)]);
+    let mut actual = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            assert_eq!(diagnostic.kind, Kind::TypeError, "{diagnostic:#?}");
+            assert!(diagnostic.module.ends_with(path), "{diagnostic:#?}");
+            assert!(!diagnostic.message.contains("too complex"));
+            diagnostic.line
+        })
+        .collect::<Vec<_>>();
+    actual.sort_unstable();
+    assert_eq!(actual, expected, "{:#?}", report.diagnostics);
 }
 
 fn assert_schema_lines(path: &str, sites: &[(u32, &str)]) {

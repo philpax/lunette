@@ -73,15 +73,20 @@ export type StyleOptions = {
 
 export type Target = () -> (lunette.Seat?, lunette.Sink?)
 
--- What `new` takes. `rows`, `layers`, and `style` override the provider's for
--- this keyboard. `target` answers where keys go, by default the focused seat
--- and sink of lunette/focus.
+export type VisibilityChange = {
+  read visible: boolean,
+  read reason: 'show' | 'hide' | 'user-hide' | 'destroy',
+}
+
+-- Rows, layers, and style override the provider's for this keyboard. The native-only
+-- target adapter never supersedes a focused local receiver. Visibility callbacks belong to the owner.
 export type Options = {
   read rows: { read [number]: KeyRow }?,
   read layers: { read [string]: { read [number]: KeyRow } }?,
   read style: StyleOptions?,
   read pose: Mat4?,
   read target: Target?,
+  read onVisibilityChanged: ((VisibilityChange) -> ())?,
 }
 
 -- A keyboard is a surface an owner places, offers, and draws. Its type repeats
@@ -117,7 +122,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/keyboard', schema = 1 }
+local capability = plugin.capability<<Service>> { name = 'lunette/keyboard', schema = 2 }
 
 keyboard.capability = capability
 

@@ -1,5 +1,4 @@
--- Each owner offers and draws its own keyboards. Release failures belong to the keyboard owner.
-local lunette = require '@lunette'
+-- Each owner offers and draws its own keyboards. Focus sources own routed input delivery.
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -10,8 +9,7 @@ local drawing = require '@lunette-plugins/keyboard/draw'
 local layout = require '@lunette-plugins/keyboard/layout'
 local validation = require '@lunette-plugins/keyboard/validation'
 local inspection = require '@lunette-contracts/inspection'
-
-local CHARACTER = '[%z\1-\127\194-\244][\128-\191]*'
+local protected = require '@lunette-plugins/protected'
 
 local config = require '@lunette-plugins/keyboard/config'
 
@@ -60,14 +58,12 @@ end
 local function create(
   settings: Settings,
   options: keyboard.Options?,
-  focusService: focus.Service,
+  source: focus.Source,
+  notify: (keyboard.VisibilityChange) -> (),
   dispose: () -> ()
-): (Board, () -> ())
+): (Board, () -> (), () -> ())
   local unitsWide, unitsHigh = extentOf(settings)
   local style = settings.style
-  local target: keyboard.Target = options and options.target or function()
-    return focusService:focused()
-  end
   local locks: { [string]: boolean } = {}
   for index = 1, #settings.locks do
     local name = settings.locks[index]
@@ -76,6 +72,7 @@ local function create(
   local latched: { [string]: boolean } = {}
   local locked: { [string]: boolean } = {}
   local hovered: { [Pointer]: RenderedKey } = {}
+  local pendingModifiers: { string }? = nil
   local state = {
     kind = nil,
     source = nil,
@@ -87,9 +84,6 @@ local function create(
     visible = true,
     layer = 'base',
   }
-  local heldSink: lunette.Sink? = nil
-  local heldSeat: lunette.Seat? = nil
-  local heldKey: number? = nil
 
   local function modifiers(): { string }
     local held: { string } = {}
@@ -101,55 +95,13 @@ local function create(
     return held
   end
 
-  local function releaseInput(): ()
-    local sink, seat, code = heldSink, heldSeat, heldKey
-    heldSink, heldSeat, heldKey = nil, nil, nil
-    if sink and not sink.dead and (not seat or not seat.dead) then
-      if code then
-        sink:key(code, false, seat)
-      end
-      sink:modifiers({}, seat)
+  local function clearInput(): ()
+    table.clear(latched)
+    table.clear(locked)
+    if pendingModifiers then
+      table.clear(pendingModifiers)
     end
-  end
-
-  local function useTarget(): (lunette.Seat?, lunette.Sink?)
-    if state.dead then
-      return nil, nil
-    end
-    local seat, sink = target()
-    if not sink or sink.dead or (seat and seat.dead) then
-      return nil, nil
-    end
-    if heldSink ~= sink or heldSeat ~= seat then
-      releaseInput()
-    end
-    heldSink, heldSeat = sink, seat
-    return seat, sink
-  end
-
-  local function stroke(sink: lunette.Sink, seat: lunette.Seat?, code: number, held: { read [number]: string }): ()
-    local modifiers: { string } = {}
-    for index, modifier in held do
-      modifiers[index] = modifier
-    end
-    sink:modifiers(modifiers, seat)
-    heldKey = code
-    sink:key(code, true, seat)
-    sink:key(code, false, seat)
-    heldKey = nil
-  end
-
-  local function legendSeat(): lunette.Seat?
-    local seat = target()
-    if seat and not seat.dead then
-      return seat
-    end
-    for _, candidate in ipairs(lunette.seats()) do
-      if not candidate.dead then
-        return candidate
-      end
-    end
-    return nil
+    source:reset()
   end
 
   local function rowsOf(layer: string): { read [number]: keyboard.KeyRow }
@@ -160,7 +112,7 @@ local function create(
   end
 
   local function keys(): { RenderedKey }
-    local seat, held = legendSeat(), modifiers()
+    local seat, held = source:keymapSeat(), modifiers()
     return layout.keysOf(rowsOf(state.layer), {
       keyUnit = style.keyUnit,
       modifierKeys = settings.modifierKeys,
@@ -189,15 +141,6 @@ local function create(
     }, origin, direction)
   end
 
-  local function sendLatched(seat: lunette.Seat?, sink: lunette.Sink?): ()
-    if next(latched) then
-      table.clear(latched)
-      if sink and not sink.dead and (not seat or not seat.dead) then
-        sink:modifiers(modifiers(), seat)
-      end
-    end
-  end
-
   local function pressKey(_self: keyboard.Keyboard, code: number): boolean
     if state.dead then
       return false
@@ -208,49 +151,31 @@ local function create(
       set[modifier] = not set[modifier] or nil
       return true
     end
-    local seat, sink = useTarget()
-    if not sink then
-      return false
+    local held = modifiers()
+    table.clear(latched)
+    pendingModifiers = held
+    local ok, result = pcall(function(): focus.Result
+      return source:key { code = code, modifiers = held, isRepeat = false }
+    end)
+    pendingModifiers = nil
+    if not ok then
+      error(result, 0)
     end
-    stroke(sink, seat, code, modifiers())
-    sendLatched(seat, sink)
-    return true
+    return result.kind == 'consumed'
   end
 
   local function typeText(_self: keyboard.Keyboard, text: string): boolean
-    local seat, sink = useTarget()
-    if not sink then
+    if state.dead then
       return false
     end
-    if not seat then
-      return sink:typeText(text)
-    end
-    local pending: { string } = {}
-    local function flush(): ()
-      if #pending > 0 then
-        sink:typeText(table.concat(pending), seat)
-        table.clear(pending)
-      end
-    end
-    for character in text:gmatch(CHARACTER) do
-      local binding = seat:strokeFor(character)
-      if binding then
-        flush()
-        stroke(sink, seat, binding.keycode, binding.modifiers)
-      else
-        pending[#pending + 1] = character
-      end
-    end
-    flush()
-    sink:modifiers(modifiers(), seat)
-    return true
+    table.clear(latched)
+    return source:text(text).kind == 'consumed'
   end
 
   local function chord(code: number, held: { read [number]: string }): ()
-    local seat, sink = useTarget()
-    if sink then
-      stroke(sink, seat, code, held)
-      sink:modifiers(modifiers(), seat)
+    if not state.dead then
+      table.clear(latched)
+      source:key { code = code, modifiers = held, isRepeat = false }
     end
   end
 
@@ -264,8 +189,20 @@ local function create(
     end
   end
 
-  local function setVisible(_self: keyboard.Keyboard, visible: boolean): ()
+  local function visibility(visible: boolean, reason: 'show' | 'hide' | 'user-hide'): ()
+    if state.dead or state.visible == visible then
+      return
+    end
     state.visible = visible
+    if not visible then
+      clearInput()
+      table.clear(hovered)
+    end
+    notify { visible = visible, reason = reason }
+  end
+
+  local function setVisible(_self: keyboard.Keyboard, visible: boolean): ()
+    visibility(visible, if visible then 'show' else 'hide')
   end
 
   -- What a key does when nothing overrides it: the base of `onKey`.
@@ -276,7 +213,7 @@ local function create(
     elseif not action then
       return
     elseif action.kind == 'hide' then
-      setVisible(self, false)
+      visibility(false, 'user-hide')
     elseif action.kind == 'layer' then
       setLayer(self, action.layer)
     elseif action.kind == 'text' then
@@ -310,7 +247,6 @@ local function create(
     return false
   end
 
-  local release: () -> boolean
   local created: Board
 
   local methods = {
@@ -376,30 +312,23 @@ local function create(
       if state.dead then
         return false
       end
-      return release()
+      dispose()
+      return true
     end,
   }
   created = setmetatable(state, { __index = methods })
-  local function releaseRaw(): ()
-    if state.dead then
-      return
-    end
+  local function destroyState(): ()
     state.dead = true
+    state.visible = false
     table.clear(latched)
     table.clear(locked)
     table.clear(hovered)
-    releaseInput()
-  end
-  -- Direct destruction reports release failures to its caller.
-  function release(): boolean
-    local ok, failure = pcall(releaseRaw)
-    dispose()
-    if not ok then
-      error(failure, 0)
+    if pendingModifiers then
+      table.clear(pendingModifiers)
+      pendingModifiers = nil
     end
-    return true
   end
-  return created, releaseRaw
+  return created, destroyState, clearInput
 end
 
 local function build(context: plugin.Context, settings: Settings): keyboard.Service
@@ -422,21 +351,93 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
     end,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       local own = settingsFor(settings, options)
+      local callback = options and options.onVisibilityChanged
+      if callback ~= nil and type(callback) ~= 'function' then
+        error('keyboard: onVisibilityChanged is a function', 2)
+      end
+      local label = 'keyboard visibility (' .. plugin.ownerLabel(owner) .. ')'
+      local function notify(change: keyboard.VisibilityChange): ()
+        local run = callback
+        if change.reason == 'destroy' then
+          callback = nil
+        end
+        if run then
+          protected.call(label, function(): ()
+            run(change)
+          end)
+        end
+      end
       local cleanupEffect: plugin.Effect? = nil
       local result, acquired = context:resource(owner, function(): (Board, () -> ())
-        local created, releaseRaw = create(own, options, focusService, function(): ()
-          local effect = cleanupEffect
-          cleanupEffect = nil
-          if effect then
-            effect:dispose()
-          end
+        local source = focusService:newSource(context, { mode = 'virtual', nativeTarget = options and options.target })
+        local changed: plugin.Effect? = nil
+        local made: Board? = nil
+        local destroyBoard: (() -> ())? = nil
+        local ok, failure = pcall(function(): ()
+          local created, destroyState, clearInput = create(own, options, source, notify, function(): ()
+            local effect = cleanupEffect
+            cleanupEffect = nil
+            if effect then
+              effect:dispose()
+            end
+          end)
+          made, destroyBoard = created, destroyState
+          changed = focusService:onChanged(context, {
+            run = function(_change: focus.Change): ()
+              if not created.dead then
+                clearInput()
+              end
+            end,
+          })
+          boards[created] = owner
         end)
-        boards[created] = owner
+        if not ok then
+          callback = nil
+          if destroyBoard then
+            destroyBoard()
+          end
+          local effect = changed
+          changed = nil
+          if effect then
+            protected.call(label .. ': partial route listener cleanup', function(): ()
+              effect:dispose()
+            end)
+          end
+          protected.call(label .. ': partial source cleanup', function(): ()
+            source:destroy()
+          end)
+          error(failure, 0)
+        end
+        local created, destroyState = made :: Board, destroyBoard :: () -> ()
         return created,
           function(): ()
+            if created.dead then
+              return
+            end
+            destroyState()
             boards[created] = nil
             cleanupEffect = nil
-            releaseRaw()
+            local effect = changed
+            changed = nil
+            local failures: { string } = {}
+            if effect then
+              local cleaned, failure = pcall(function(): ()
+                effect:dispose()
+              end)
+              if not cleaned then
+                failures[#failures + 1] = tostring(failure)
+              end
+            end
+            local cleaned, failure = pcall(function(): ()
+              source:destroy()
+            end)
+            if not cleaned then
+              failures[#failures + 1] = tostring(failure)
+            end
+            notify { visible = false, reason = 'destroy' }
+            if #failures > 0 then
+              error(table.concat(failures, '\n'), 0)
+            end
           end
       end)
       if not result.dead then

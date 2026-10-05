@@ -13,6 +13,7 @@ use lunette_compositor::{
         Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, Keysym, ModifierState,
         RepeatDelay, RepeatPolicy, RepeatRate, SeatId, SeatSnapshot,
     },
+    state::DEFAULT_SEAT,
 };
 use mlua::{Lua, Table, UserDataRef, Value};
 
@@ -246,9 +247,19 @@ pub(crate) fn seats<T: LuaTexture>(
         .collect())
 }
 
+/// Returns the default seat from this frame's snapshot, or `None` when it is absent.
+pub(crate) fn default_seat<T: LuaTexture>(session: &Rc<Session<T>>) -> Option<Seat<T>> {
+    session
+        .snapshot()
+        .seats
+        .iter()
+        .find(|seat| seat.seat == DEFAULT_SEAT)
+        .map(|seat| Seat::new(Rc::clone(session), seat))
+}
+
 /// Withdraws a non-default seat's `wl_seat` global.
 fn destroy<T>(seat: &Seat<T>) -> bool {
-    if seat.id == lunette_compositor::state::DEFAULT_SEAT {
+    if seat.id == DEFAULT_SEAT {
         return false;
     }
     if !seat.refresh() {

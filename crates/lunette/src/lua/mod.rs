@@ -67,7 +67,7 @@ use crate::{
         keys::{KeyCodes, locking_modifier_names, modifier_names},
         monitor::monitors,
         output::{NewOutput, new_output, outputs},
-        seat::{NewSeat, new_seat, seats},
+        seat::{NewSeat, default_seat, new_seat, seats},
         subscribers::{Subscribers, SubscriptionId},
         values::{Cancel, ErrorListener},
     },
@@ -578,6 +578,9 @@ module! {
 
     /// Every seat, including the one each session starts with.
     fn seats(lua, session) -> Vec<Seat<T>> { seats(lua, session) }
+
+    /// The seat used when an input call omits its seat argument. Returns nil when this frame's snapshot has no default seat. Each call returns a fresh handle; compare seat ids for identity.
+    fn defaultSeat(_lua, session) -> Option<Seat<T>> { Ok(default_seat(session)) }
 
     /// An output for clients to lay out against.
     fn newOutput(_lua, session, options: Options<NewOutput>) -> Output<T> {

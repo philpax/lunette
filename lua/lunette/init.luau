@@ -641,6 +641,10 @@ export type Lunette = {
   read newSeat: (name: string, options: SeatOptions?) -> Seat,
   -- Every seat, including the one each session starts with.
   read seats: () -> { Seat },
+  -- The seat used when an input call omits its seat argument. Returns nil when
+  -- this frame's snapshot has no default seat. Each call returns a fresh
+  -- handle; compare seat ids for identity.
+  read defaultSeat: () -> Seat?,
   -- An output for clients to lay out against.
   read newOutput: (options: OutputOptions) -> Output,
   -- Every output, including the default one.

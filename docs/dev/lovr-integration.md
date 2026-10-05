@@ -120,6 +120,12 @@ A Luau build of LÖVR prefers `conf.luau` to `conf.lua`, and its require path se
 
 lunette keeps `main.lua` working because the patch does: a user configuration written before the rename still boots, and `lunette check` still reads `.lua` files. It is not yet proposed upstream.
 
+#### Physical key modifier snapshots
+
+`lovr.keypressed` appends an optional fourth argument with the physical event's Shift, Control, Alt, Super, CapsLock, and NumLock state. `lovr.keyreleased` appends it after the scancode. The existing arguments keep their order and meaning. The GLFW backend enables `GLFW_LOCK_KEY_MODS`, copies the callback flags into the native key event, and exposes a detached readonly table through the Lua event binding. A backend without a reliable snapshot reports nil rather than false lock state.
+
+The snapshot distinguishes ordinary PC keypad navigation from numeric input without using platform scancodes or correlating a later text event. Lunette's virtual seat state cannot answer the host keyboard's lock state. The snapshot is not a host keysym or layout API; arbitrary keypad remappings remain outside this mechanism. The matching lovr-docs callback metadata generates the declarations. Hardware event acquisition remains part of the manual host-desktop acceptance check.
+
 ### Rejected: a static library target
 
 LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Adding one would not produce a single binary. glfw, msdfgen, phonon, and joltc are each built shared, through `BUILD_SHARED_LIBS`, `GLFW_LIBRARY_TYPE`, or `JPH_BUILD_SHARED` depending on the dependency, so a statically linked `lunette` would still ship those libraries beside itself and would still need the rpath handling a static link is meant to remove. The single-binary property costs more than one build option, which is why v1 links LÖVR dynamically ([Build and development](build-and-development.md#building)). Revisit when packaging demands it.

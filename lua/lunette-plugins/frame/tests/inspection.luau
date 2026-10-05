@@ -16,11 +16,14 @@ test('inspection describes every frame registration without dispatch', function(
     service:onKey(owner, { run = never }),
     service:onText(owner, { phase = 'delivery', run = never }),
     service:onQuit(owner, { run = never }),
+    service:onBatch(owner, { run = never }),
   }
   local snapshot = service:inspect()
-  expect.equal(snapshot.logicalRegistrationCount, 5, 'all handler kinds')
-  expect.equal(snapshot.registrations[1].details.phase, 'scene', 'the update phase')
-  expect.equal(snapshot.registrations[1].details.order, 12, 'the update order')
+  expect.equal(snapshot.logicalRegistrationCount, 6, 'all handler kinds')
+  expect.equal(snapshot.registrations[1].source, 'frame.onBatch', 'the batch observer source')
+  expect.equal(snapshot.registrations[1].details.phase, 'batch', 'the batch observer phase')
+  expect.equal(snapshot.registrations[2].details.phase, 'scene', 'the update phase')
+  expect.equal(snapshot.registrations[2].details.order, 12, 'the update order')
   for _, entry in ipairs(snapshot.registrations) do
     expect.equal(entry.owner, owner, 'the handler owner')
   end

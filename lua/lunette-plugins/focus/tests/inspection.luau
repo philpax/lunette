@@ -13,7 +13,7 @@ local function count(snapshot, kind)
   return total
 end
 
-test('inspection retains one grant per owner and seat without changing native focus', function()
+test('inspection lists route registrations and sources without native getters or callbacks', function()
   testing.native()
   local session = testing.start { 'focus' }
   local observed = session:observe(contract.capability)
@@ -24,27 +24,36 @@ test('inspection retains one grant per owner and seat without changing native fo
     dead = false,
     setFocus = function()
       setFocusCalls += 1
+      return true
     end,
   }
-  local sink = { dead = false }
-  local grant = service:setFocus(owner, { seat = seat, sink = sink })
-  expect.equal(service:setFocus(owner, { seat = seat, sink = sink }), grant, 'the reused grant')
+  local sink = { dead = false, domain = 'window', id = 1 }
+  local target = service:register(owner, { kind = 'native', seat = seat, sink = sink })
+  target:focus()
   local changed = service:onChanged(owner, {
     run = function()
       error 'inspection delivered focus'
     end,
   })
-  local callsBeforeInspect = setFocusCalls
+  local input = service:newSource(owner, {
+    nativeTarget = function()
+      error 'inspection queried a target'
+    end,
+  })
+  local before = setFocusCalls
   local snapshot = service:inspect()
-  expect.equal(setFocusCalls, callsBeforeInspect, 'inspection makes no native focus calls')
-  expect.equal(snapshot.logicalRegistrationCount, 2, 'one grant and one listener')
-  expect.equal(count(snapshot, 'focus'), 1, 'one logical focus grant')
+  expect.equal(setFocusCalls, before, 'inspection makes no native focus calls')
+  expect.equal(snapshot.logicalRegistrationCount, 3, 'one target, listener, and source')
+  expect.equal(count(snapshot, 'focus'), 1, 'one logical route registration')
+  expect.equal(snapshot.state.sourceCount, 1, 'one source')
   for _, entry in ipairs(snapshot.registrations) do
-    expect.equal(entry.owner, owner, 'the actual owner')
+    expect.equal(entry.owner, owner, 'the registration owner')
+    expect.falsy(entry.details.receiver, 'receiver closures are private')
   end
   changed:dispose()
-  grant:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the released grants')
+  input:destroy()
+  target:destroy()
+  expect.equal(service:inspect().logicalRegistrationCount, 0, 'all released registrations disappear')
   session:close()
 end)
 
