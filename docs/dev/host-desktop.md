@@ -8,7 +8,7 @@ wlx-capture remains an external git-pinned dependency rather than a vendored cop
 
 `wlx-capture` ships four backends: `pipewire` (via xdg-desktop-portal over D-Bus), `wlr_dmabuf`, `wlr_screencopy`, and `xshm` for X11.
 
-PipeWire via the portal is the default backend. It works on niri, GNOME, KDE, and other Wayland compositors, and is expected to remain supported over time. WayVR uses the same approach (`inspiration/wayvr/wayvr/src/overlays/screen/pw.rs`). It uses a Wayland client only to enumerate outputs (`overlays/screen/mod.rs:76`) and falls back to xshm on X11.
+PipeWire via the portal is the default backend. It works on niri, GNOME, KDE, and other Wayland compositors, and is expected to remain supported over time. WayVR uses the same approach (WayVR upstream: `src/overlays/screen/pw.rs`). It uses a Wayland client only to enumerate outputs (WayVR upstream: `src/overlays/screen/mod.rs`) and falls back to xshm on X11.
 
 This backend requires a portal permission dialog on first use. A restore token is persisted so the user does not re-approve on every launch.
 
@@ -52,7 +52,7 @@ WayVR does not make this distinction. Dismissal there maps to visibility alone (
 
 ## Input injection
 
-Input injection into the host desktop goes through the `HidProvider` trait, whose shape follows WayVR's (`inspiration/wayvr/wayvr/src/subsystem/hid/provider/mod.rs:8`). There are three providers:
+Input injection into the host desktop goes through the `HidProvider` trait, whose shape follows WayVR's (WayVR upstream: `src/subsystem/hid/provider/mod.rs`). There are three providers:
 
 - uinput: the preferred provider. It creates kernel-level virtual devices, so it works on any compositor and on X11, and can position the cursor absolutely given the monitor layout. It requires `/dev/uinput` access, granted by a udev rule or `input` group membership. Note that the `input` group also grants read access to every input device on the machine.
 - wl_virtual: using `zwlr_virtual_pointer_v1` plus `zwp_virtual_keyboard_v1`. It requires no special permissions, but requires the host compositor to implement these protocols, which only the wlroots family does. KWin and mutter do not.

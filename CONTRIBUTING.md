@@ -32,7 +32,6 @@ vendor/lovr/                          submodule, LÖVR with lunette's patch bran
 vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
 docs/dev/                             the design specification
-inspiration/                          reference checkouts, gitignored
 ```
 
 `lunette-compositor` must not depend on `lunette-lovr`. Logic-headless testing depends on that separation. It does depend on `lunette-luau`, which carries no Lua binding of its own: mlua is a feature there, off by default and turned on only by `lunette`.

@@ -76,7 +76,7 @@ LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` in its `VkApplicationInfo
 
 #### Foreign image import
 
-`TextureInfo` already carries a `handle` field (`inspiration/lovr/src/modules/graphics/graphics.h:237`), and `gpu_texture_info` likewise, so LÖVR can already wrap an existing `VkImage`. What is missing is everything around it. The image is created by the native layer from imported memory, arrives in a foreign queue family (`VK_QUEUE_FAMILY_FOREIGN_EXT`), and has an undefined layout. LÖVR must not assume it owns the image's lifecycle.
+`TextureInfo` already carries a `handle` field (`vendor/lovr/src/modules/graphics/graphics.h`), and `gpu_texture_info` likewise, so LÖVR can already wrap an existing `VkImage`. What is missing is everything around it. The image is created by the native layer from imported memory, arrives in a foreign queue family (`VK_QUEUE_FAMILY_FOREIGN_EXT`), and has an undefined layout. LÖVR must not assume it owns the image's lifecycle.
 
 The patch adds `gpu_import_acquire` and `gpu_import_release` to `src/core/gpu_vk.c`, modelled on `gpu_xr_acquire`. They take an explicit old layout and source queue family, and pass `VK_QUEUE_FAMILY_IGNORED` where the existing path assumes family 0.
 
@@ -110,7 +110,7 @@ The boolean cannot answer the question anything holding session-owned objects ha
 
 An overlay session shares the runtime with whatever holds the primary one, and `XR_EXTX_overlay` reports the primary session's visibility through `XR_TYPE_EVENT_DATA_MAIN_SESSION_VISIBILITY_CHANGED_EXTX`. LÖVR's event loop handled every other event the module reacts to and dropped that one, so an overlay could not tell whether anything was behind it. The patch handles the event, keeps the flag beside `mounted` in the headset module's state, and answers it as `lovrHeadsetIsMainSessionVisible` and `lovr.headset.isMainSessionVisible`.
 
-An overlay that draws a background of its own is what needs it. Drawn while another application is presenting, an opaque background covers that application's frame; drawn when nothing else is, it is the only thing in the headset. WayVR decides its skybox the same way, on `!main_session_visible` and an opaque blend mode (`inspiration/wayvr/wayvr/src/backend/openxr/mod.rs`).
+An overlay that draws a background of its own is what needs it. Drawn while another application is presenting, an opaque background covers that application's frame; drawn when nothing else is, it is the only thing in the headset. WayVR decides its skybox the same way, on `!main_session_visible` and an opaque blend mode (WayVR upstream: `src/backend/openxr/mod.rs`).
 
 The flag starts false and stays false for a session that never requested the extension, so a runtime that never sends the event reads as nothing behind. That is the direction worth being wrong in: an overlay alone in a headset draws its background, and one sharing the headset does not cover another application by accident. The metadata for the Lua binding is a matching patch to the lovr-docs fork, which is what puts it in the generated definitions.
 
@@ -127,7 +127,7 @@ LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Addi
 
 The following require no change to LÖVR.
 
-- Vulkan handle access. `gpu_vk_get_instance`, `gpu_vk_get_physical_device`, `gpu_vk_get_device`, and `gpu_vk_get_queue` already exist (`inspiration/lovr/src/core/gpu_vk.c:3895-3909`) and are forward-declared for the headset module (`src/modules/headset/headset.c:45-48`). Building with `LOVR_BUILD_WITH_SYMBOLS=ON` sets the target's C visibility to default, so `liblovr.so` exports them and Rust can call them directly. Only `lovr.graphics.getDevice()` is limited to names and IDs; the C layer is not.
+- Vulkan handle access. `gpu_vk_get_instance`, `gpu_vk_get_physical_device`, `gpu_vk_get_device`, and `gpu_vk_get_queue` already exist (`vendor/lovr/src/core/gpu_vk.c`) and are forward-declared for the headset module (`vendor/lovr/src/modules/headset/headset.c:45-48`). Building with `LOVR_BUILD_WITH_SYMBOLS=ON` sets the target's C visibility to default, so `liblovr.so` exports them and Rust can call them directly. Only `lovr.graphics.getDevice()` is limited to names and IDs; the C layer is not.
 - Embedding without `main()`. `LOVR_BUILD_SHARED=ON` turns `LOVR_BUILD_EXE` off (`vendor/lovr/CMakeLists.txt:98-100`), which excludes `src/main.c` from the build and defines `LOVR_OMIT_MAIN`. lunette replicates in Rust, against the exported symbols, what `main.c` does: create the `lua_State`, open the libraries, call `luax_preload`, set `arg`, run `boot.lua`, and step the closure it returns. LÖVR needs no embedding entry point of its own.
 - Overlay sessions. `XR_EXTX_overlay` is requested when `t.headset.overlay` is set (`headset.c:509`), and LÖVR switches the layer to alpha-blended when overlay or passthrough is active (`headset.c:3067`).
 - Composition layers. `lovr.headset.newLayer` takes position, orientation, dimensions, `curve`, viewport, and `getTexture`. Quad and cylinder layers are the same mechanism WayVR uses for legible screens.

@@ -6,7 +6,7 @@ The implementation is a hard vendor of WayVR's `backend/wayvr/` (approximately 4
 
 ## Protocols
 
-The protocol set starts from WayVR's (`inspiration/wayvr/wayvr/src/backend/wayvr/comp.rs`): compositor, xdg-shell, xdg-decoration, kde-decoration, output, seat, shm, dmabuf, viewporter, single-pixel-buffer, relative-pointer, data-device, primary-selection, data-control, ext-data-control.
+The protocol set starts from WayVR's (WayVR upstream: `src/backend/wayvr/comp.rs`): compositor, xdg-shell, xdg-decoration, kde-decoration, output, seat, shm, dmabuf, viewporter, single-pixel-buffer, relative-pointer, data-device, primary-selection, data-control, ext-data-control.
 
 Additions:
 

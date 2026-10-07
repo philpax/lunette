@@ -95,7 +95,7 @@ lunette does not create its own OpenXR action sets. Doing so would require patch
 
 With `XR_EXTX_overlay`, controller input reaches the application underneath the overlay as well as the overlay itself. Clicking a panel also triggers actions in the underlying application, such as firing a weapon in a game. OpenXR provides no standard mechanism to prevent this.
 
-WayVR addresses this with libmonado (`inspiration/wayvr/wayvr/src/backend/openxr/blocker.rs`), using `BlockFlags` on Monado API version 1.6 and later, blocking inputs and poses separately, gated by a config switch. lunette takes the same approach.
+WayVR addresses this with libmonado (WayVR upstream: `src/backend/openxr/blocker.rs`), using `BlockFlags` on Monado API version 1.6 and later, blocking inputs and poses separately, gated by a config switch. lunette takes the same approach.
 
 - `lunette.setGameInputBlocked(inputs, poses)` is the mechanism.
 - libmonado is an optional, runtime-detected dependency. On a non-Monado runtime, the call returns `false` and Lua handles the degraded case. lunette does not hard-depend on Monado.

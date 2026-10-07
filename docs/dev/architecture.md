@@ -18,7 +18,7 @@ The cost of this arrangement is that LÖVR access becomes lunette's responsibili
 
 ## Compositor thread placement
 
-WayVR ticks its compositor on the main thread once per frame (`inspiration/wayvr/wayvr/src/backend/wayvr/mod.rs:641`). That arrangement is simpler, is proven in use, and gives Lua a synchronous view of compositor state.
+WayVR ticks its compositor on the main thread once per frame (WayVR upstream: `src/backend/wayvr/mod.rs`). That arrangement is simpler, is proven in use, and gives Lua a synchronous view of compositor state.
 
 lunette does not use it. An overlay must not disturb the application beneath it. Any slow operation in compositor dispatch, such as a client sending a burst of requests, a D-Bus round trip, a process spawn, or a stalled `wl_display` write, would otherwise consume part of a 90 Hz frame budget. Moving compositor dispatch off the frame thread removes that class of stall.
 
