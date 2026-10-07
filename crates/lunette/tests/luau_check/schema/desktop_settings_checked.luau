@@ -3,11 +3,11 @@ local schema = require '@lunette-plugin/schema'
 local desktopSettings = require '@lunette-desktop/settings'
 
 local config: desktopSettings.Config = {
-  bindings = { reload = { key = 'f5', modifiers = { 'control' } } },
+  menu = { hand = 'right', expanded = { rowHeight = 40 } },
   decorations = { style = { barColor = { 0, 0, 0, 1 } } },
   arrange = { layout = 'grid' },
   persistence = { file = 'desktop.state' },
-  wristKeyboard = { hand = 'right', placement = { distance = 0.45 } },
+  wristKeyboard = { placement = { distance = 0.45 } },
   rules = { rules = {} },
   monitors = { select = { 'DP-1' }, placement = { gap = 0.1 } },
   hint = { text = 'Waiting for windows' },
@@ -19,10 +19,11 @@ local config: desktopSettings.Config = {
 }
 local exportedConfig: desktopSettings.Config = config
 exportedConfig.workspace = { name = 'main' }
-if config.bindings and config.bindings.reload then
-  config.bindings.reload.key = 'f6'
-  if config.bindings.reload.modifiers then
-    config.bindings.reload.modifiers[1] = 'shift'
+if config.menu then
+  config.menu.hand = 'left'
+  config.menu.size = 0.12
+  if config.menu.expanded then
+    config.menu.expanded.rowHeight = 42
   end
 end
 if config.decorations and config.decorations.style and config.decorations.style.barColor then
@@ -34,11 +35,8 @@ end
 if config.persistence then
   config.persistence.file = 'edited.state'
 end
-if config.wristKeyboard then
-  config.wristKeyboard.hand = 'left'
-  if config.wristKeyboard.placement then
-    config.wristKeyboard.placement.distance = 0.55
-  end
+if config.wristKeyboard and config.wristKeyboard.placement then
+  config.wristKeyboard.placement.distance = 0.55
 end
 if config.rules and config.rules.rules then
   config.rules.rules[1] = { match = { appId = 'sample' }, properties = { width = 2 } }
@@ -78,10 +76,9 @@ end
 local settings: desktopSettings.Settings = desktopSettings.schema.parse(config)
 local projected: desktopSettings.Settings = settings
 local metadata: schema.Metadata = desktopSettings.schema.inspect()
-if settings.bindings then
-  local key: KeyCode = settings.bindings.reload.key
-  settings.bindings.reload.key = key -- reject.
-  settings.bindings.reload.modifiers[1] = 'shift' -- reject.
+if settings.menu then
+  settings.menu.hand = 'left' -- reject.
+  settings.menu.expanded.rowHeight = 40 -- reject.
 end
 if settings.decorations then
   settings.decorations.style.barColor[1] = 0.2 -- reject.
@@ -101,6 +98,6 @@ if settings.pacing then
 end
 settings.pacing = nil -- reject.
 config.pacing = { pauseMonitors = 'yes' } -- reject.
-config.bindings = { reload = { key = 'not-a-key' } } -- reject.
+config.bindings = { reload = { key = 'f5' } } -- reject.
 
 return { config = config, settings = projected, metadata = metadata }

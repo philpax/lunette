@@ -160,6 +160,10 @@ function view.focus(state: State): ()
   end
 end
 
+function view.search(state: State): ()
+  state.searchActive = true
+end
+
 function view.text(state: State, text: string): boolean
   if not state.searchActive then
     return false
@@ -181,7 +185,7 @@ function view.key(state: State, key: KeyCode): boolean
     return true
   end
   if key == '/' then
-    state.searchActive = true
+    view.search(state)
   elseif key == 'escape' then
     state.selection = nil
     state.mode = 'all'

@@ -6,6 +6,7 @@ local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
 local surface = require '@lunette-contracts/surface'
 local composition = require '@lunette-contracts/composition'
+local menu = require '@lunette-contracts/menu'
 local quad = require '@lunette-contracts/quad'
 local config = require '@lunette-plugins/desktop/manager/config'
 local controller = require '@lunette-plugins/desktop/manager/controller'
@@ -23,17 +24,20 @@ return plugin.consumer<<Config, Settings>>({
     composition = composition.capability,
     frame = frame.capability,
     surfaces = surfaces.capability,
+    menu = menu.capability,
   },
   init = function(context: plugin.Context, settings: Settings): ()
     local compositionService = context:require(composition.capability)
     local frameService = context:require(frame.capability)
     local surfaceService = context:require(surfaces.capability)
+    local menuService = context:require(menu.capability)
     local pixels = settings.pixels
     local pixelHeight = pixels * settings.height / settings.width
     local visible = settings.visible
     local dead = false
     local cancelling = false
     local pose = lovr.math.newMat4():translate(settings.position)
+    local cancelInput: (surface.CancelReason) -> ()
     local state = controller.new(
       compositionService,
       brokers.watch(context),
@@ -41,6 +45,12 @@ return plugin.consumer<<Config, Settings>>({
       pixelHeight,
       function(records, sidebar): { string }
         return draw.wrapDetails(lovr.graphics.getDefaultFont(), records, sidebar)
+      end,
+      function(): ()
+        if not dead then
+          visible = false
+          cancelInput 'hidden'
+        end
       end
     )
     local hovered: surface.Pointer? = nil
@@ -177,7 +187,7 @@ return plugin.consumer<<Config, Settings>>({
         end
       end,
     }
-    local function cancelInput(reason: surface.CancelReason): ()
+    cancelInput = function(reason: surface.CancelReason): ()
       if cancelling then
         return
       end
@@ -207,6 +217,17 @@ return plugin.consumer<<Config, Settings>>({
         cancelInput 'surface-dead'
       end
     end)
+    menuService:register(context, {
+      id = 'desktop/manager/open',
+      label = 'Plugins',
+      group = 'Session',
+      order = 20,
+      run = function(): ()
+        if not dead and context:active() then
+          visible = true
+        end
+      end,
+    })
     surfaceService:offer(context, {
       name = 'desktop/manager',
       list = function(): { surface.Surface }

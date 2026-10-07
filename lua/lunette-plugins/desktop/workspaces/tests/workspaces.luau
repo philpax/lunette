@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local tagsContract = require '@lunette-contracts/tags'
 local placementContract = require '@lunette-contracts/placement'
 local panelsContract = require '@lunette-contracts/panels'
+local menuContract = require '@lunette-contracts/menu'
 
 local test = testing.suite()
 
@@ -13,7 +14,7 @@ local function start(config)
   local env = {}
   env.session = testing.boot {
     'frame',
-    'bindings',
+    'menu',
     'panels',
     'tags',
     'rules',
@@ -21,10 +22,7 @@ local function start(config)
     {
       id = 'desktop/workspaces',
       definition = WORKSPACES,
-      config = config or {
-        workspaces = { { name = 'main', key = '1' }, { name = 'web', key = '2' } },
-        modifiers = { 'alt' },
-      },
+      config = config or { workspaces = { { name = 'main' }, { name = 'web' } } },
     },
   }
   env.native = env.session.native
@@ -41,33 +39,50 @@ local function start(config)
       env.placement = context:require(placementContract.capability)
     end,
   })
+  env.actions = env.session:observe(menuContract.capability)
   env.main, env.web = env.tags:find 'main', env.tags:find 'web'
   return env
 end
 
 local function open(env, id)
-  local panel = env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
-  return panel
+  return env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
 end
 
-local function chord(env, key)
-  env.native.events.held.lalt = true
-  lovr.keypressed(key, 0, false)
-  env.native.events.held = {}
+local function choose(env, name)
+  expect.equal(env.actions.service:invoke('desktop/workspace/' .. name).kind, 'invoked', 'the workspace action')
 end
 
-test('a chord switches the workspace, hiding the panels of the one left and showing those chosen', function()
+local function row(env, name)
+  for _, action in env.actions.service:list() do
+    if action.id == 'desktop/workspace/' .. name then
+      return action
+    end
+  end
+  error('missing workspace action ' .. name)
+end
+
+test('a menu action switches the workspace, hiding the panels of the one left and showing those chosen', function()
   local env = start()
   expect.truthy(env.main.selected and not env.web.selected, 'the first workspace is in view at activation')
+  local actions = env.actions.service:list()
+  expect.equal(#actions, 2, 'one action per workspace')
+  expect.equal(actions[1].id, 'desktop/workspace/main', 'the first action id')
+  expect.equal(actions[1].label, 'main', 'the configured workspace name')
+  expect.equal(actions[1].group, 'Workspaces', 'the workspace group')
+  expect.equal(actions[1].order, 1, 'the configured order')
+  expect.equal(actions[1].selected, true, 'the first action is selected')
+  expect.equal(actions[2].order, 2, 'the second action order')
+  expect.equal(actions[2].selected, false, 'the second action is explicitly unselected')
   local first = open(env, 1)
   expect.falsy(first.hidden, 'a window of the workspace in view')
-  chord(env, '2')
-  expect.truthy(env.web.selected and not env.main.selected, 'the chord selects its workspace')
+  choose(env, 'web')
+  expect.truthy(env.web.selected and not env.main.selected, 'the action selects its workspace')
   expect.truthy(first.hidden, 'a window of a workspace out of view')
+  expect.truthy(row(env, 'web').selected and not row(env, 'main').selected, 'selected action metadata')
   local second = open(env, 2)
   expect.truthy(env.web:has(second) and not env.main:has(second), 'a new window joins the workspace in view')
   expect.falsy(second.hidden, 'the new window is shown')
-  chord(env, '1')
+  choose(env, 'main')
   expect.truthy(not first.hidden and second.hidden, 'switching back shows and hides again')
   env.session:close()
 end)
@@ -76,8 +91,8 @@ test('a panel another plugin hid stays hidden when its workspace comes into view
   local env = start()
   local first = open(env, 1)
   local hiding = first:setHidden(env.owner, { hidden = true })
-  chord(env, '2')
-  chord(env, '1')
+  choose(env, 'web')
+  choose(env, 'main')
   expect.truthy(first.hidden, 'a panel another plugin hid')
   hiding:dispose()
   expect.falsy(first.hidden, 'the panel once the other plugin lets it go')
@@ -90,32 +105,72 @@ test('a window moved to a workspace out of view is hidden until that workspace i
   env.main:exclude(env.owner, { panel = first })
   env.web:add(env.owner, first)
   expect.truthy(first.hidden, 'a window moved out of view')
-  chord(env, '2')
+  choose(env, 'web')
   expect.falsy(first.hidden, 'the window once its workspace is chosen')
   env.session:close()
 end)
 
-test('a bindings outage leaves the workspaces as they were, and the chords return with it', function()
+test(
+  'a menu outage preserves selection, visibility, and follow, and recovery uses current selected metadata',
+  function()
+    local env = start()
+    local first = open(env, 1)
+    choose(env, 'web')
+    local oldService, oldInvoke = env.actions.service, env.actions.service.invoke
+    local oldRow = row(env, 'main')
+    env.session.instances.menu:disable()
+    expect.equal(env.session.instances['desktop/workspaces']:state(), 'active', 'the consumer during the outage')
+    expect.truthy(env.web.selected and first.hidden, 'the workspaces during the outage')
+    expect.equal(oldInvoke(oldService, oldRow.id, oldRow.registration).kind, 'unavailable', 'an old action is inert')
+    local second = open(env, 2)
+    expect.truthy(env.web:has(second) and not env.main:has(second), 'follow remains active without the broker')
+    env.tags:only(env.owner, env.main)
+    expect.truthy(not first.hidden and second.hidden, 'external selection updates visibility without the broker')
+    env.session.instances.menu:enable()
+    expect.truthy(row(env, 'main').selected and not row(env, 'web').selected, 'recovery reads actual tag selection')
+    expect.equal(
+      env.actions.service:invoke(oldRow.id, oldRow.registration).kind,
+      'unavailable',
+      'a stale registration cannot select after recovery'
+    )
+    choose(env, 'web')
+    expect.truthy(env.web.selected and first.hidden and not second.hidden, 'the recovered action')
+    env.session:close()
+  end
+)
+
+test('external tag selection updates action metadata and the workspace followed by newly placed panels', function()
   local env = start()
-  local first = open(env, 1)
-  chord(env, '2')
-  env.session.instances.bindings:disable()
-  expect.equal(env.session.instances['desktop/workspaces']:state(), 'active', 'the consumer during the outage')
-  expect.truthy(env.web.selected and first.hidden, 'the workspaces during the outage')
-  env.session.instances.bindings:enable()
-  chord(env, '1')
-  expect.truthy(env.main.selected and not first.hidden, 'a chord after the outage')
+  env.tags:only(env.owner, env.web)
+  expect.truthy(row(env, 'web').selected and not row(env, 'main').selected, 'external selection metadata')
+  local panel = open(env, 1)
+  expect.truthy(env.web:has(panel) and not env.main:has(panel), 'follow uses the externally chosen workspace')
+  expect.falsy(panel.hidden, 'the followed panel is visible')
   env.session:close()
 end)
 
-test('unloading the consumer shows every panel it hid', function()
+test('follow can be disabled while workspace actions still update visibility', function()
+  local env = start { workspaces = { { name = 'main' }, { name = 'web' } }, follow = false }
+  choose(env, 'web')
+  local panel = open(env, 1)
+  expect.truthy(env.main:has(panel) and not env.web:has(panel), 'placement retains its configured workspace')
+  expect.truthy(panel.hidden, 'the unselected workspace is hidden')
+  choose(env, 'main')
+  expect.falsy(panel.hidden, 'choosing the configured workspace shows it')
+  env.session:close()
+end)
+
+test('unloading the consumer shows every panel it hid and removes its actions', function()
   local env = start()
   local first = open(env, 1)
-  chord(env, '2')
+  choose(env, 'web')
   local second = open(env, 2)
-  chord(env, '1')
+  choose(env, 'main')
+  local oldRow = row(env, 'web')
   env.session.instances['desktop/workspaces']:disable()
   expect.truthy(not first.hidden and not second.hidden, 'the panels after unloading')
+  expect.equal(#env.actions.service:list(), 0, 'the registrations after unloading')
+  expect.equal(env.actions.service:invoke(oldRow.id, oldRow.registration).kind, 'unavailable', 'the ended action')
   env.session:close()
 end)
 
@@ -123,8 +178,16 @@ test('a malformed workspace list fails the consumer and names the option', funct
   for _, case in ipairs {
     { config = { workspaces = {} }, message = 'option workspaces has fewer than 1 entries' },
     {
-      config = { workspaces = { { name = 'a', key = '1' }, { name = 'a', key = '2' } } },
+      config = { workspaces = { { name = 'a' }, { name = 'a' } } },
       message = 'workspace name a occurs twice',
+    },
+    {
+      config = { workspaces = { { name = 'main', key = '1' } } },
+      message = 'workspaces key is removed; choose workspaces from the session menu',
+    },
+    {
+      config = { modifiers = { 'alt' } },
+      message = 'workspaces modifiers are removed; choose workspaces from the session menu',
     },
   } do
     local env = start(case.config)

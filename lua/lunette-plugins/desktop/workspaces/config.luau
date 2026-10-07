@@ -1,20 +1,12 @@
 local schema = require '@lunette-plugin/schema'
-local bindings = require '@lunette-plugins/desktop/bindings/config'
 
-local workspaceShape: { read name: schema.Schema<string, string>, read key: schema.Schema<KeyCode, KeyCode> } = {
-  name = schema.string { minLength = 1 },
-  key = bindings.key,
-}
-local workspace = schema.object<<typeof(workspaceShape)>>(workspaceShape)
+local workspace = schema.object { name = schema.string { minLength = 1 } }
 export type WorkspaceInput = schema.Input<typeof(workspace)>
 export type Workspace = schema.Output<typeof(workspace)>
--- Typed constructor aliases retain KeyCode without repeatedly expanding its union.
-local workspaceList = (
-  schema.array<<typeof(workspace)>>(workspace, { minLength = 1 }) :: unknown
-) :: schema.Schema<{ WorkspaceInput }, { read [number]: Workspace }>
+local workspaceList = schema.array<<typeof(workspace)>>(workspace, { minLength = 1 })
 local refineList = (schema.refine :: unknown) :: (
-  schema.Schema<{ WorkspaceInput }, { read [number]: Workspace }>
-) -> (({ read [number]: Workspace }) -> (), string?) -> schema.Schema<{ WorkspaceInput }, { read [number]: Workspace }>
+  typeof(workspaceList)
+) -> (({ read [number]: Workspace }) -> (), string?) -> typeof(workspaceList)
 local workspaces = refineList(workspaceList)(function(value: { read [number]: Workspace }): ()
   local seen: { [string]: boolean } = {}
   for _, entry in value do
@@ -23,27 +15,47 @@ local workspaces = refineList(workspaceList)(function(value: { read [number]: Wo
   end
 end, 'Workspace names are unique.')
 local defaultList = (schema.default :: unknown) :: (
-  schema.Schema<{ WorkspaceInput }, { read [number]: Workspace }>
+  typeof(workspaceList)
 ) -> ({ read [number]: Workspace }) -> schema.Schema<{ WorkspaceInput }?, { read [number]: Workspace }>
-local shape: {
-  read workspaces: schema.Schema<{ WorkspaceInput }?, { read [number]: Workspace }>,
-  read modifiers: schema.Schema<{ string }?, { read [number]: string }>,
-  read follow: schema.Schema<boolean?, boolean>,
-} =
-  {
-    workspaces = defaultList(workspaces) {
-      { name = 'main', key = '1' },
-      { name = 'two', key = '2' },
-      { name = 'three', key = '3' },
-      { name = 'four', key = '4' },
-    },
-    modifiers = schema.default(schema.array(schema.string())) { 'logo' },
-    follow = schema.default(schema.boolean())(true),
-  }
-
+local shape = {
+  workspaces = defaultList(workspaces) { { name = 'main' }, { name = 'two' }, { name = 'three' }, { name = 'four' } },
+  follow = schema.default(schema.boolean())(true),
+}
 local descriptor = schema.object<<typeof(shape)>>(shape)
 
 export type Config = schema.Input<typeof(descriptor)>
 export type Settings = schema.Output<typeof(descriptor)>
 
-return { schema = (descriptor :: unknown) :: schema.Schema<Config, Settings> }
+local function checkRemovedFields(value: unknown, name: string?): ()
+  if type(value) ~= 'table' then
+    return
+  end
+  local fields = value :: { [string]: unknown }
+  local prefix = if name then 'plugin ' .. name .. ': ' else ''
+  if rawget(fields, 'modifiers') ~= nil then
+    error(prefix .. 'workspaces modifiers are removed; choose workspaces from the session menu', 0)
+  end
+  local entries = rawget(fields, 'workspaces')
+  if type(entries) ~= 'table' then
+    return
+  end
+  for _, entry in entries :: { [unknown]: unknown } do
+    if type(entry) == 'table' and rawget(entry :: { [string]: unknown }, 'key') ~= nil then
+      error(prefix .. 'workspaces key is removed; choose workspaces from the session menu', 0)
+    end
+  end
+end
+
+-- Keep the descriptor token and witnesses without exposing removed settings as editable fields.
+local checked = table.clone((descriptor :: unknown) :: { [string]: unknown })
+checked.parse = function(value: unknown, name: string?): Settings
+  checkRemovedFields(value, name)
+  return descriptor.parse(value, name)
+end
+checked.resolve = function(value: unknown, base: Settings, name: string?): Settings
+  checkRemovedFields(value, name)
+  checkRemovedFields(base, name)
+  return descriptor.resolve(value, base, name)
+end
+
+return { schema = (table.freeze(checked) :: unknown) :: typeof(descriptor) }

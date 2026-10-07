@@ -289,7 +289,7 @@ The implementation acquires the board through `context:resource(owner, acquire)`
 
 ## Local VR controls
 
-The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its small strict fixture uses only public contracts. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. A checked `examples/ui` configuration, menu composition, and migration of the shipped desktop controls and runtime manager remain pending.
+The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its small strict fixture uses only public contracts. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The shipped wrist menu and its session actions are implemented. A checked `examples/ui` configuration remains pending. The runtime manager migration, including its search and configuration workflows, also remains pending.
 
 ## A custom layout
 
@@ -412,7 +412,7 @@ A plugin that moves surfaces for a pointer, as a replacement interaction would, 
 
 ## Key bindings
 
-A key binding is a chord registered with `lunette/bindings`. The bindings provider takes every key press before `desktop/input` sends keys to a window, so a bound key never reaches one, and while the bindings provider is out, keys still reach windows. `examples/desktop/hide-windows.luau` binds control, alt, and H to hide every window and show them again:
+A key binding is an optional chord registered with `lunette/bindings`. The bindings provider takes every key press before `desktop/input` sends keys to a window, so a bound key never reaches one; while the provider is unavailable, keys still reach windows. The shipped desktop uses menu actions for session controls. The following plugin shows a custom key binding that hides windows:
 
 ```lua
 return plugin.define {
@@ -447,11 +447,7 @@ The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches onl
 
 `panel:setHidden(context, { hidden = true })` hides a panel for as long as the plugin holds the returned effect. A hidden panel is not drawn and cannot be pointed at; it keeps its place. Several plugins can hide or show one panel, and the most recent one still holding an override decides, so disposing this plugin's overrides shows only what it hid.
 
-The reload key is the `desktop/bindings` entry's binding, so it moves with a patch:
-
-```lua
-desktop.configure(require '@lunette-plugins/desktop/bindings') { reload = { key = 'f5', modifiers = { 'control' } } },
-```
+The shipped desktop registers configuration reload as the `desktop/reload` menu action in `desktop/actions`. The wrist menu displays it. A configuration can register additional actions through `lunette/menu`, as [Menu actions](../dev/lua-api.md#menu-actions) specifies.
 
 ## Decorations
 
@@ -484,7 +480,7 @@ web:add(context, panel)
 web:setLayout(context, { layout = 'grid' })
 ```
 
-The shipped `desktop/workspaces` consumer shows one workspace's windows at a time and hides the rest. It is not in the default desktop; `examples/desktop/main.luau` inserts it with two workspaces on control, alt, and a number:
+The shipped `desktop/workspaces` consumer shows one workspace's windows at a time and hides the rest. It is not in the default desktop; `examples/desktop/main.luau` inserts it with two workspaces. The consumer registers a menu action for each workspace; workspace selection does not require a key chord:
 
 ```lua
 {
@@ -492,8 +488,7 @@ The shipped `desktop/workspaces` consumer shows one workspace's windows at a tim
     id = 'desktop/workspaces',
     definition = require '@lunette-plugins/desktop/workspaces',
     config = {
-      workspaces = { { name = 'main', key = '1' }, { name = 'side', key = '2' } },
-      modifiers = { 'control', 'alt' },
+      workspaces = { { name = 'main' }, { name = 'side' } },
     },
   },
 },
@@ -548,20 +543,7 @@ The desktop saves where the windows are whenever one is dropped, and at quit. `d
 desktop.configure(require('@lunette-plugins/arrangement').factory) { file = 'example.state' },
 ```
 
-It also provides `lunette/arrangement`, so a key can save or put the windows back. `examples/desktop/save-key.luau` binds control, alt, and S to save and control, alt, and R to restore:
-
-```lua
-keys:register(context, {
-  chord = { key = 's', modifiers = { 'control', 'alt' } },
-  run = function(_press: bindings.Press)
-    local written, message = saved:save()
-    local log = lovr.log
-    if not written and log then
-      log('the arrangement was not saved: ' .. tostring(message), 'warn', 'save-key')
-    end
-  end,
-})
-```
+It also provides `lunette/arrangement`, so a plugin can save or restore windows. `examples/desktop/save-menu.luau` registers Save arrangement and Restore arrangement actions. `examples/desktop/hide-windows.luau` registers an action that toggles owner-scoped visibility overrides for windows. `examples/desktop/main.luau` inserts both examples. [Menu actions](../dev/lua-api.md#menu-actions) specifies the action broker.
 
 A custom format is a `{ read, render }` pair; [Default configuration](../dev/stdlib.md#default-configuration) states what `read` answers so that a file written by a newer version is left alone rather than overwritten.
 

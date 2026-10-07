@@ -1,7 +1,7 @@
 -- Desktop shorthand settings reuse each plugin's configuration descriptor.
 
 local schema = require '@lunette-plugin/schema'
-local bindings = require '@lunette-plugins/desktop/bindings/config'
+local menu = require '@lunette-plugins/desktop/menu/config'
 local decorations = require '@lunette-plugins/desktop/decorations/config'
 local arrange = require '@lunette-plugins/desktop/arrange/config'
 local persistence = require '@lunette-plugins/arrangement/config'
@@ -19,7 +19,7 @@ local manager = require '@lunette-plugins/desktop/manager/config'
 -- Typed constructor witnesses avoid expanding nested key unions and recursive rule contracts at each wrapper.
 local optional = (schema.optional :: unknown) :: <I, O>(schema.Schema<I, O>) -> schema.Schema<I?, O?>
 local shape: {
-  read bindings: schema.Schema<bindings.Config?, bindings.Settings?>,
+  read menu: schema.Schema<menu.Config?, menu.Settings?>,
   read decorations: schema.Schema<decorations.Config?, decorations.Settings?>,
   read arrange: schema.Schema<arrange.Config?, arrange.Settings?>,
   read persistence: schema.Schema<persistence.Config?, persistence.Settings?>,
@@ -35,7 +35,7 @@ local shape: {
   read manager: schema.Schema<manager.Config?, manager.Settings?>,
 } =
   {
-    bindings = optional<<bindings.Config, bindings.Settings>>(bindings.schema),
+    menu = optional<<menu.Config, menu.Settings>>(menu.schema),
     decorations = optional<<decorations.Config, decorations.Settings>>(decorations.schema),
     arrange = optional<<arrange.Config, arrange.Settings>>(arrange.schema),
     persistence = optional<<persistence.Config, persistence.Settings>>(persistence),

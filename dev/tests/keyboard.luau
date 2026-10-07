@@ -1,123 +1,146 @@
--- The development configuration loads the example provider, whose keyboards use the desktop wrist button.
+-- The development wrist menu controls the rounded example through real controller input.
 local testing = require '@testing'
 local expect = testing.expect
-local desktop = require '@lunette-desktop'
-local surfacesContract = require '@lunette-contracts/surfaces'
+local vrUi = require '@testing/vr-ui'
+local observer = require './support/development-observer'
 
 local test = testing.suite()
 
-test('the development wrist button shows the rounded example and draws every key face', function()
-  local native = testing.native()
-  local events = native.events
-  testing.host.useConfiguration 'dev'
-  local configuration
-  local run = desktop.run
-  desktop.run = function(options)
-    configuration = options
-    run(options)
+local function services()
+  return assert(_G.devTestServices, 'the development configuration observer is active')
+end
+
+local function keyboardCount()
+  local count = 0
+  for _, candidate in ipairs(services().surfaces:all()) do
+    if candidate.pressKey then
+      count += 1
+    end
   end
-  require 'main'
-  desktop.run = run
+  return count
+end
+
+local function board()
+  for _, candidate in ipairs(services().surfaces:all()) do
+    if candidate.pressKey then
+      return candidate
+    end
+  end
+  error 'the shown keyboard is absent'
+end
+
+local function keyboardConfig()
+  for _, entry in ipairs(services().composition:entries()) do
+    if entry.id == 'keyboard' then
+      expect.equal(entry.name, 'rounded-keyboard', 'the actual development provider is active')
+      local metadata = entry.schema
+      while metadata.kind == 'default' or metadata.kind == 'optional' or metadata.kind == 'refine' do
+        metadata = metadata.child
+      end
+      return (entry.config and entry.config.rows) or metadata.fields.rows.value
+    end
+  end
+  error 'the configured keyboard provider is absent'
+end
+
+local function drawKeyboard(fixture)
+  local current = services()
+  local seat = fixture.native.events.seats[#fixture.native.events.seats]
+  local focused = current.focus:register(current.owner, {
+    kind = 'local',
+    keymapSeat = seat,
+    wantsKeyboard = false,
+    receiver = {
+      key = function()
+        return false
+      end,
+      text = function()
+        return false
+      end,
+    },
+  })
+  expect.truthy(focused:focus(), 'the public focus target supplies the keyboard keymap')
+  fixture:step()
+  fixture.native.events.draw = {}
+  expect.equal(fixture:draw(), false, 'draw does not veto')
+  local faces, legends = 0, {}
+  for _, call in ipairs(fixture.native.events.draw) do
+    if call[1] == 'roundrect' then
+      faces += 1
+    elseif call[1] == 'text' then
+      legends[call[2]] = true
+    end
+  end
+  local target, rows = board(), keyboardConfig()
+  expect.truthy(target.visible, 'the menu shows the keyboard')
+  local keyCount = 0
+  for _, row in ipairs(rows) do
+    for _, key in ipairs(row) do
+      if key.code or key.action then
+        keyCount += 1
+        local legend = key.label
+        if not legend and key.code then
+          legend = seat:characterFor(key.code, {}) or string.format('0x%x', seat:symbolFor(key.code))
+        end
+        expect.truthy(legend and legends[legend], 'the default legend is preserved: ' .. tostring(legend))
+      end
+    end
+  end
+  expect.truthy(keyCount > 0, 'the keyboard has keys')
+  expect.equal(faces, keyCount, 'the example draws one rounded face per key')
+  expect.truthy(focused:destroy(), 'the test releases its local focus target')
+  return target
+end
+
+test('the development wrist menu toggles the rounded keyboard and survives source reload', function()
+  local native = testing.native()
+  testing.host.useConfiguration 'dev'
+  observer.load()
   expect.truthy(package.loaded['examples/keyboard/rounded'], 'the development configuration loads the example')
   lovr.load()
-  lovr.update(0.016)
-  expect.equal(lovr.draw(events.pass), false, 'development draw does not veto')
-  expect.equal(lovr.quit(), false, 'development quit does not veto')
-
-  local rounded = require '../examples/keyboard/rounded'
-  local entries = desktop.compose(configuration)
-  for _, entry in ipairs(entries) do
-    if entry.id == 'keyboard' then
-      expect.equal(entry.definition, rounded, 'the configuration replaces the keyboard provider')
-    end
-  end
-  local session = testing.boot(entries, { native = native })
-  local surfaces = session:observe(surfacesContract.capability)
-  local function wrist()
-    for _, candidate in ipairs(surfaces.service:all()) do
-      if candidate.grabbable == false and candidate.width == 0.115 then
-        return candidate
-      end
-    end
-    error 'the desktop wrist button is absent'
-  end
-  local function keyboardCount()
-    local count = 0
-    for _, candidate in ipairs(surfaces.service:all()) do
-      if candidate.pressKey then
-        count += 1
-      end
-    end
-    return count
-  end
-  local function board()
-    for _, candidate in ipairs(surfaces.service:all()) do
-      if candidate.pressKey then
-        return candidate
-      end
-    end
-    error 'the shown keyboard is absent'
-  end
-  local function toggle()
-    wrist():onPointer {
-      kind = 'press',
-      pointer = {
-        vibrate = function()
-          return true
-        end,
-      },
-      button = 'left',
-      x = 0.5,
-      y = 0.5,
-      captured = true,
-      inside = true,
-    }
-  end
-  local function drawKeyboard()
-    session:update()
-    events.draw = {}
-    expect.equal(session:draw(), false, 'draw does not veto')
-    local faces = 0
-    local legends = {}
-    for _, call in ipairs(events.draw) do
-      if call[1] == 'roundrect' then
-        faces += 1
-      elseif call[1] == 'text' then
-        legends[call[2]] = true
-      end
-    end
-    local target = board()
-    expect.truthy(target.visible, 'the wrist button shows the keyboard')
-    expect.truthy(#target:keys() > 0, 'the keyboard has keys')
-    expect.equal(faces, #target:keys(), 'the example draws one rounded face per key')
-    for _, key in ipairs(target:keys()) do
-      expect.truthy(legends[key.legend], 'the default legend is preserved: ' .. key.legend)
-    end
-    return target
-  end
-
+  local fixture = vrUi.attach(native)
+  fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
+  fixture:tracked('left', true)
+  fixture:step()
   expect.equal(keyboardCount(), 0, 'no keyboard surface is offered before showing it')
+
+  local function toggle()
+    fixture:step()
+    local ui = services().ui
+    fixture:clickControl(ui, 'desktop/menu', 'open')
+    fixture:clickControl(ui, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
+    fixture:clickControl(ui, 'desktop/menu', 'close')
+  end
+
   toggle()
-  local first = drawKeyboard()
+  local first = drawKeyboard(fixture)
   expect.equal(keyboardCount(), 1, 'one keyboard surface is offered while visible')
+  expect.equal(services().keyboard:inspect().logicalRegistrationCount, 1, 'one keyboard is created')
   toggle()
   expect.equal(keyboardCount(), 0, 'hiding removes the keyboard from the surface service')
-  events.draw = {}
-  session:draw()
-  for _, call in ipairs(events.draw) do
+  expect.equal(services().keyboard:inspect().logicalRegistrationCount, 1, 'hiding retains the keyboard')
+  native.events.draw = {}
+  fixture:draw()
+  for _, call in ipairs(native.events.draw) do
     expect.truthy(call[1] ~= 'roundrect', 'hidden keyboards draw no rounded faces')
   end
   toggle()
   expect.equal(board(), first, 'showing again reuses the same keyboard')
-  session.instances.keyboard:reload()
-  expect.truthy(first.dead, 'provider reload destroys the old keyboard')
-  expect.equal(keyboardCount(), 0, 'provider reload removes the old keyboard surface')
+  testing.host.useConfiguration 'dev/tests/support/vr-reload'
+  local previousUi = services().ui
+  fixture:clickControl(previousUi, 'desktop/menu', 'open')
+  fixture:clickControl(previousUi, 'desktop/menu', 'actions', 'right', 'desktop/reload')
+  expect.truthy(first.dead, 'source reload destroys the old keyboard')
+  expect.equal(keyboardCount(), 0, 'source reload removes the old keyboard surface')
+  expect.equal(services().keyboard:inspect().logicalRegistrationCount, 0, 'source reload starts with no keyboard')
   toggle()
-  local replacement = drawKeyboard()
-  expect.truthy(replacement ~= first, 'provider reload creates a replacement keyboard')
+  local replacement = drawKeyboard(fixture)
+  expect.truthy(replacement ~= first, 'source reload creates a replacement keyboard')
   expect.equal(keyboardCount(), 1, 'only the replacement keyboard surface is offered')
-  session:close()
+  expect.equal(lovr.quit(), false, 'development quit does not veto')
+  expect.equal(#testing.host.shutdown(), 0, 'the shutdown failures')
   expect.truthy(replacement.dead, 'closing the session destroys the replacement keyboard')
+  native.assertResourcesReleased()
 end)
 
 return test

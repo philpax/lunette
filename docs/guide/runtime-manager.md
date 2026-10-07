@@ -1,6 +1,6 @@
 # Runtime manager
 
-The shipped desktop includes `desktop/manager`. F10 toggles its projected flat surface. The surface can be moved with the normal pointer grab controls. Its width, height, position, logical pixel width, initial visibility, and toggle key come from `lua/lunette-plugins/desktop/manager/config.luau`.
+The shipped desktop includes `desktop/manager`. The Plugins action in the wrist menu opens its projected flat surface, and Close hides it. The surface can be moved with the normal pointer grab controls. Its width, height, position, logical pixel width, and initial visibility come from `lua/lunette-plugins/desktop/manager/config.luau`. The intermediate manager still accepts `toggleKey` and physical text input; the shared-widget migration removes those paths.
 
 ```luau
 require('@lunette-desktop').run {
@@ -15,7 +15,7 @@ require('@lunette-desktop').run {
 
 ## Graph controls
 
-A click selects an instance or relationship. Dragging the graph pans it. `+` and `-` zoom around the canvas centre. `/` starts a search; text changes the query, Backspace removes its last character, and Return ends text entry. `F` centres the selected instance. `R` clears the filters and fits the graph within the supported zoom range. Large graphs remain pannable when the minimum zoom cannot fit every node.
+A click selects an instance or relationship. Dragging the graph pans it. Zoom in and Zoom out change the scale around the canvas centre. Focus centres the selected instance, and Fit fits the graph within the supported zoom range. Search enters search mode. The intermediate text editor still uses physical text events, Backspace, and Return; pointer Search entry alone does not provide the completed controller-only text workflow. Large graphs remain pannable when the minimum zoom cannot fit every node.
 
 `P` shows providers required by the selected instance. `C` shows its consumers. `T` switches direct and transitive traversal. `I` includes dependent instances and owned descendants affected by a change. `A` restores the complete graph. Escape clears the selection and filter. Toolbar buttons expose these operations without typing.
 
@@ -39,7 +39,7 @@ An initializer failure after replacement leaves the entry failed. Recover explic
 
 A rejected replacement leaves the configuration unchanged. An accepted request can still raise if lifecycle draining reaches its action budget. In that case the current configuration and recovery history retain the accepted request, and the inspector reports the pending or failed state. An action error does not imply that no state changed.
 
-The manager's provider, frame dispatch, surface broker, and pointing dependencies are protected from mutations that would remove the normal recovery controls. Protected entries remain inspectable. Direct calls to the native runtime bypass this composition-service policy.
+The shipped composition protects `desktop/manager`, `desktop/menu`, `desktop/keyboard`, `desktop/pointing`, and `desktop/actions`, when present, and the providers and parent owners reached through their actual current or failed bindings. This retains the wrist menu, shared keyboard, pointing, and reload recovery path. Optional broker inspection consumers do not protect every inspected provider. Protected entries remain inspectable. Direct calls to the native runtime bypass this composition-service policy.
 
 ## Custom compositions
 

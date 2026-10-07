@@ -103,7 +103,9 @@ The `lunette/keyboard-display` schema 1 contract exposes one desktop keyboard th
 
 Manual show retains the board after editing ends. Automatic visibility ends with its requesting target unless the board is manually shown. Explicit hide, toggle-to-hidden, and the keyboard's user-hide action clear visibility intent before blurring the matching local target. Identity and focus-revision checks prevent cancellation or observer reentrancy from blurring a newer target. Blur retains the field draft, and a later field click resumes editing. Provider replacement clears retained display state; the replacement activation reacts only to a new live focus notification rather than replaying a retained target.
 
-The existing wrist keyboard trigger remains a temporary compatibility control. Menu rendering and migration of reload and workspace actions remain separate work. This checkpoint does not establish a complete controller-only desktop session workflow.
+The wrist Menu control uses `lunette/ui` buttons and a scrollable list backed by `lunette/menu`. Keyboard toggles this shared display, and its selected state follows visibility. Reload configuration and configured workspace choices also use menu actions. `desktop/keyboard` no longer renders a wrist trigger; `settings.wristKeyboard` retains only placement, while `settings.menu` owns wrist hand, size, vector offset, haptics, and expanded geometry. The descriptors in `lua/lunette-plugins/desktop/menu/config.luau` and `lua/lunette-plugins/desktop/keyboard/config.luau` own those options and defaults.
+
+Plugins opens the existing manager surface. Its pointer toolbar supports zoom, fit, focus on the selected node, Close, and entry into search mode. The manager does not yet use a UI text field for search or UI widgets for its full configuration workflow. Its `toggleKey` and physical key and text subscriptions remain until that migration. The menu and shared display do not establish a complete controller-only manager workflow or hardware acceptance.
 
 ### Virtual activations and committed text
 
@@ -202,5 +204,7 @@ Multi-seat is less-travelled ground. Toolkit bugs around popup grabs and drag-an
 Virtual activations have no stateful dead-key or compose engine. The local receiver contract accepts committed UTF-8 only; it provides no IME or preedit protocol. Native window routing refuses text the selected keymap cannot represent, and host text retains the native sink's refusal. Neither is an implicit use of the temporary-keymap escape hatch.
 
 Physical keypad routing supports ordinary PC NumLock/Shift behavior from a reliable event snapshot. Arbitrary host keypad remappings and keypad input on backends without a snapshot remain unsupported.
+
+The runtime manager's full VR field and widget migration remains pending. Pointer search entry does not yet request the shared keyboard through a UI text field, and the manager retains its physical key and text subscriptions.
 
 Physical input batches are update-bounded, not a per-key correlation supplied by LÖVR. A route transition, a consumed binding key, or a consumed or failed local key can discard later unrelated text until the next update. XR and host-desktop acceptance of the routing and virtual-keyboard behavior remain unverified.

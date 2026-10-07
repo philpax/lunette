@@ -75,7 +75,7 @@ test('geometric desktop options reject lists and non-finite vector components', 
   for _, case in ipairs {
     { id = 'desktop/hint', config = { position = { 0, 1.5, -1.5 } }, option = 'position' },
     { id = 'desktop/errors', config = { position = { 0, 1.4, -1.1 } }, option = 'position' },
-    { id = 'desktop/keyboard', config = { offset = { 0, 0, 0 } }, option = 'offset' },
+    { id = 'desktop/menu', config = { offset = { 0, 0, 0 } }, option = 'offset' },
     { id = 'desktop/monitors', config = { placement = { center = { 0, 1.5, -2 } } }, option = 'placement.center' },
   } do
     local diagnostic = rejection { id = case.id, config = case.config }
@@ -85,7 +85,7 @@ test('geometric desktop options reject lists and non-finite vector components', 
   for _, case in ipairs {
     { id = 'desktop/hint', config = { position = vector.pack(math.huge, 0, 0) }, option = 'position.x' },
     { id = 'desktop/errors', config = { position = vector.pack(0, 0, -math.huge) }, option = 'position.z' },
-    { id = 'desktop/keyboard', config = { offset = vector.pack(0, math.huge, 0) }, option = 'offset.y' },
+    { id = 'desktop/menu', config = { offset = vector.pack(0, math.huge, 0) }, option = 'offset.y' },
   } do
     local diagnostic = rejection { id = case.id, config = case.config }
     local message = 'plugin ' .. case.id .. ': option ' .. case.option .. ' is not a finite number'

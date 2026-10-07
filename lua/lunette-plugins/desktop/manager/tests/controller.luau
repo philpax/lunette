@@ -12,7 +12,9 @@ local function click(state, label)
   for _, button in state.buttons do
     if button.label == label then
       expect.truthy(button.enabled, label .. ' enabled')
-      controller.press(state, { x = button.x + 1, y = button.y + 1 })
+      local point = { x = button.x + 1, y = button.y + 1 }
+      controller.press(state, point)
+      controller.release(state, point)
       return
     end
   end
@@ -232,7 +234,9 @@ test('a collection with nonliteral union children cannot seed or report a succes
     end
   end
   expect.equal(add.enabled, false, 'an unseedable child disables Add')
-  controller.press(state, { x = add.x + 1, y = add.y + 1 })
+  local point = { x = add.x + 1, y = add.y + 1 }
+  controller.press(state, point)
+  controller.release(state, point)
   expect.equal(state.message, before, 'a rejected Add cannot report success')
   click(state, 'Apply')
   expect.equal(#value().items, 0, 'the collection remains empty')

@@ -2,7 +2,7 @@ local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
 local surfacesContract = require '@lunette-contracts/surfaces'
-local interactionContract = require '@lunette-contracts/interaction'
+local displayContract = require '@lunette-contracts/keyboard-display'
 
 local test = testing.suite()
 
@@ -18,40 +18,26 @@ test('the keyboard example runs, and its split keyboard is shown with its halves
 
   local session = testing.boot(
     desktop.compose {
+      settings = {
+        menu = { hand = 'right' },
+        wristKeyboard = { placement = { distance = 0.45 } },
+      },
       patches = {
         { id = 'keyboard', definition = require 'split' },
-        { id = 'desktop/keyboard', config = { hand = 'right' } },
       },
     },
     { native = native }
   )
   local surfaces = session:observe(surfacesContract.capability).service
-  local wrist
-  for _, candidate in ipairs(surfaces:all()) do
-    if candidate.grabbable == false and candidate.width == 0.115 then
-      wrist = candidate
-    end
-  end
-  assert(wrist, 'the wrist button')
-  local observed = session:observe(interactionContract.capability)
-  local pointer = observed.service:newPointer(observed.context)
-  local frame = {
-    origin = vector.pack(wrist.pose:mul(0, 0, 1, 1)),
-    direction = vector.pack(wrist.pose:mul(0, 0, -1, 0)),
-    buttons = { left = true },
-    grip = false,
-    dt = 0.016,
-  }
-  pointer:update(frame, surfaces:all())
-  frame.buttons = {}
-  pointer:update(frame, surfaces:all())
+  local display = session:observe(displayContract.capability).service
+  expect.truthy(display:show(), 'the public display opens the keyboard')
   local board
   for _, candidate in ipairs(surfaces:all()) do
     if candidate.pressKey then
       board = candidate
     end
   end
-  expect.truthy(board and board.visible, 'the wrist button shows the keyboard')
+  expect.truthy(board and board.visible, 'the display offers the split keyboard')
   local unit = 0.03
   -- The split adds half a key unit between the five and six keys.
   expect.near(board.width, 13 * unit, 1e-9, 'the keyboard width')

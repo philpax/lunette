@@ -10,6 +10,8 @@ local bindings = require '@lunette-plugins/bindings'
 local interaction = require '@lunette-plugins/interaction'
 local laser = require '@lunette-plugins/laser'
 local keyboard = require '@lunette-plugins/keyboard'
+local ui = require '@lunette-plugins/ui'
+local menu = require '@lunette-plugins/menu'
 local tags = require '@lunette-plugins/tags'
 local rules = require '@lunette-plugins/rules'
 local placement = require '@lunette-plugins/placement'
@@ -25,8 +27,9 @@ local hint = require '@lunette-plugins/desktop/hint'
 local decorations = require '@lunette-plugins/desktop/decorations'
 local pointing = require '@lunette-plugins/desktop/pointing'
 local input = require '@lunette-plugins/desktop/input'
-local desktopBindings = require '@lunette-plugins/desktop/bindings'
-local wristKeyboard = require '@lunette-plugins/desktop/keyboard'
+local keyboardDisplay = require '@lunette-plugins/desktop/keyboard'
+local wristMenu = require '@lunette-plugins/desktop/menu'
+local actions = require '@lunette-plugins/desktop/actions'
 local errors = require '@lunette-plugins/desktop/errors'
 local workspace = require '@lunette-plugins/desktop/workspace'
 local workspaces = require '@lunette-plugins/desktop/workspaces'
@@ -58,7 +61,7 @@ export type Options = {
 
 local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true, settings = true, workspaces = true }
 local SETTING_IDS: { [string]: string } = {
-  bindings = 'desktop/bindings',
+  menu = 'desktop/menu',
   decorations = 'desktop/decorations',
   arrange = 'desktop/arrange',
   persistence = 'desktop/persistence',
@@ -78,7 +81,7 @@ for name, _ in SETTING_IDS do
   SETTING_KEYS[name] = true
 end
 local SETTING_FIELDS =
-  'bindings, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, workspace, adoption, and manager'
+  'menu, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, workspace, adoption, and manager'
 
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
@@ -91,6 +94,8 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'interaction', definition = interaction.definition },
   { id = 'laser', definition = laser.definition },
   { id = 'keyboard', definition = keyboard.definition },
+  { id = 'ui', definition = ui.definition },
+  { id = 'menu', definition = menu.definition },
   { id = 'tags', definition = tags.definition },
   { id = 'rules', definition = rules.definition },
   { id = 'placement', definition = placement.definition },
@@ -105,8 +110,9 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/decorations', definition = decorations },
   { id = 'desktop/pointing', definition = pointing },
   { id = 'desktop/input', definition = input },
-  { id = 'desktop/bindings', definition = desktopBindings },
-  { id = 'desktop/keyboard', definition = wristKeyboard },
+  { id = 'desktop/keyboard', definition = keyboardDisplay },
+  { id = 'desktop/menu', definition = wristMenu },
+  { id = 'desktop/actions', definition = actions },
   { id = 'desktop/errors', definition = errors },
   { id = 'desktop/workspace', definition = workspace },
   { id = 'desktop/monitors', definition = monitors },
@@ -142,6 +148,20 @@ local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [st
     sources[id] = source
   end
   if options.settings ~= nil then
+    local raw = (options.settings :: unknown) :: Raw
+    if type(raw) == 'table' then
+      if raw.bindings ~= nil then
+        error('desktop: settings.bindings is removed; session actions use the wrist menu', 0)
+      end
+      if type(raw.wristKeyboard) == 'table' then
+        local keyboardConfig = raw.wristKeyboard :: Raw
+        for _, field in { 'hand', 'size', 'offset', 'haptic' } do
+          if rawget(keyboardConfig, field) ~= nil then
+            error('desktop: wristKeyboard.' .. field .. ' is removed; configure settings.menu instead', 0)
+          end
+        end
+      end
+    end
     plugin.rejectUnknownFields('desktop: the settings', options.settings, SETTING_KEYS, SETTING_FIELDS, 0)
     settings.schema.parse(options.settings, 'desktop settings')
     for name, config in options.settings :: any do
@@ -152,11 +172,15 @@ local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [st
   end
   if options.workspaces ~= nil then
     local config = options.workspaces
+    local raw = (config :: unknown) :: Raw
+    if type(raw) == 'table' and raw.modifiers ~= nil then
+      error('desktop: workspaces.modifiers is removed; workspaces use menu actions', 0)
+    end
     plugin.rejectUnknownFields(
       'desktop: workspaces',
       config,
-      { workspaces = true, modifiers = true, follow = true },
-      'workspaces, modifiers, and follow',
+      { workspaces = true, follow = true },
+      'workspaces and follow',
       0
     )
     local resolved = workspacesConfig.schema.parse(config, 'desktop workspaces')
@@ -228,7 +252,13 @@ function desktop.run(options: Options?): ()
   local entries = desktop.compose(options)
   local protected: { string } = {}
   for _, entry in entries do
-    if entry.id == 'desktop/manager' or entry.id == 'desktop/pointing' then
+    if
+      entry.id == 'desktop/manager'
+      or entry.id == 'desktop/menu'
+      or entry.id == 'desktop/keyboard'
+      or entry.id == 'desktop/pointing'
+      or entry.id == 'desktop/actions'
+    then
       protected[#protected + 1] = entry.id
     end
   end

@@ -13,8 +13,8 @@ local function controller(fixture, hand)
   return fixture.native.events.controllers[hand]
 end
 
-function vrUi.boot(entries, options)
-  local fake = options and options.native or native.new()
+-- Attaches controller input to a configuration already driven through LÖVR callbacks.
+function vrUi.attach(fake)
   for _, hand in ipairs { 'left', 'right' } do
     fake.events.controllers[hand] = {
       tracked = false,
@@ -26,6 +26,12 @@ function vrUi.boot(entries, options)
       axisY = 0,
     }
   end
+  return setmetatable({ native = fake, pointerEvents = {} }, Fixture)
+end
+
+function vrUi.boot(entries, options)
+  local fake = options and options.native or native.new()
+  local fixture = vrUi.attach(fake)
   local running = session.boot(entries or {
     'frame',
     'surfaces',
@@ -36,7 +42,8 @@ function vrUi.boot(entries, options)
     'keyboard',
     'desktop/pointing',
   }, { native = fake })
-  return setmetatable({ session = running, native = fake, pointerEvents = {} }, Fixture)
+  fixture.session = running
+  return fixture
 end
 
 function Fixture:tracked(hand, value)
@@ -77,11 +84,11 @@ end
 function Fixture:step(dt)
   self.native.events.dt = dt or 0.016
   self.native.events.time += self.native.events.dt
-  self.session:update(self.native.events.dt)
+  lovr.update(self.native.events.dt)
 end
 
 function Fixture:draw()
-  return self.session:draw()
+  return lovr.draw(self.native.events.pass)
 end
 
 function Fixture:click(description, x, y, hand)

@@ -32,13 +32,15 @@ Mirroring lands before the standard library on purpose. Seeing the real desktop 
 
 The bounded UI toolkit declares `lunette/ui` at schema 1 and supplies owner-scoped flat panels, buttons, single-line text fields, choices, lists, and regions through `@lunette-plugins/ui`. Input, drawing, and detached descriptions share declared logical geometry. Themes and draw hooks change appearance without changing hit bounds. Frozen provider and creation-owner activation tokens distinguish replacements that reuse panel names and control ids. Control ids span all live panels per actual creation owner, and different owners can reuse an id in one panel. A description identifies a live control through the generation token, owner token, and id without exposing contexts or scripting authority. Native `lunette.textBoundaries`, backed by `unicode-segmentation` 1.13.3, supplies whole-grapheme editing offsets. [UI panels](lua-api.md#ui-panels) states the contract, and the [UI guide](../guide/ui.md) gives a public-contract checker fixture.
 
+The neutral `lunette/menu` action broker and `lunette/keyboard-display` shared display are implemented. `desktop/menu` renders the tracked wrist Menu button and scrollable action list through `lunette/ui`. `desktop/actions` registers Keyboard and Reload configuration, and the optional workspace consumer registers name-only workspace choices. Keyboard toggles the shared display. Plugins opens the existing manager, whose pointer toolbar supports zoom, fit, focus on a selected node, Close, and entry into search mode. These controls do not complete the manager's VR field and widget migration.
+
+`settings.menu` owns wrist geometry and haptics; `settings.wristKeyboard` retains placement only. The shipped `desktop/bindings` entry and `settings.bindings` are removed, while the neutral bindings provider remains available for custom inputs. Workspace keys and modifiers are removed. The desktop example uses `save-menu` and `hide-windows` menu actions. The configuration descriptors and default entry list remain the sources of truth for those options.
+
 The remaining UI work is ordered by integration scope:
 
-1. Define menu composition and its public contract without coupling consumers to the built-in UI implementation.
-2. Move the wrist menu, shared keyboard display, reload, and workspace actions onto their public contracts.
-3. Migrate the runtime manager's graph, search, selection, sidebar, and configuration controls while preserving recovery and protected-entry behavior.
-4. Add a checked and runtime-tested `examples/ui` configuration. The current guide fixture is not that example.
-5. Verify installed-session execution, GPU-backed drawing, pass restoration, and every control workflow in the headset without a physical keyboard or mouse.
+1. Migrate the runtime manager's graph, search field, selection, sidebar, and configuration widgets to `lunette/ui` while preserving recovery and protected-entry behavior. Remove `toggleKey` and the manager's physical key and text subscriptions. Pointer entry into search mode is not yet shared-keyboard text entry.
+2. Add a checked and runtime-tested `examples/ui` configuration. The current guide fixture is not that example.
+3. Verify installed-session execution, GPU-backed drawing, pass restoration, and every control workflow in the headset without a physical keyboard or mouse.
 
 Copied-manifest checker and module-load regressions pass in both feature sets through the custom test runner. They do not exercise production LÖVR virtual-filesystem mounting or installed-session boot. The named follow-up `manual_xr_widget_and_manager_acceptance` covers controller-only discovery, both-hand capture, grab and scroll, keyboard readability and placement, text editing and errors, long-list overflow, manager close and reopen, application focus hand-off, and reload on the target headset and runtime. Automated results do not establish those perceptual or GPU properties.
 
@@ -48,7 +50,7 @@ The current toolkit does not implement full text shaping, bidirectional editing,
 
 Roughly WayVR's feature surface, plus the items this architecture makes easier.
 
-- Dashboard, launcher, notifications, watch or wrist menu, settings, taskbar, as example config rather than library code.
+- Dashboard, launcher, notifications, additional watch or wrist controls, settings, and taskbar, as example configurations rather than library code. The shipped wrist menu already exposes session and workspace actions.
 - [Per-application spatial audio](audio.md).
 - Explicit sync (`linux-drm-syncobj-v1`) and the LÖVR external-semaphore patch.
 - `ext-image-copy-capture-v1` in `wlx-capture`, contributed upstream.

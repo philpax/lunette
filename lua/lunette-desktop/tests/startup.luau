@@ -1,9 +1,7 @@
--- Covers the shipped configuration as a session runs it: requiring it starts nothing, its load starts the
--- desktop, and ten production reloads, each asked for by F5 from inside `lovr.keypressed`, leave one
--- generation of every resource and subscription. The native reload fails on any subscription the plugin
--- runtime's shutdown left live. The case shuts the host down, so it is alone in its file.
+-- The shipped configuration reloads from controller menu input and releases each previous resource generation.
 local testing = require '@testing'
 local expect = testing.expect
+local vrUi = require '@testing/vr-ui'
 
 local test = testing.suite()
 
@@ -51,7 +49,7 @@ test('the shipped configuration starts on load and survives ten production reloa
   expect.equal(events.textures, 2, 'each window texture is fetched for the frame')
   local wrist, beams, firstBeam = 0, 0, 0
   for index, call in ipairs(events.draw) do
-    if call[1] == 'text' and call[2] == 'kbd' then
+    if call[1] == 'text' and call[2] == 'Menu' then
       wrist = index
     elseif call[1] == 'line' then
       beams += 1
@@ -81,11 +79,35 @@ test('the shipped configuration starts on load and survives ten production reloa
   lovr.draw(events.pass)
 
   local startupProcesses = #events.spawned
+  testing.host.useConfiguration 'lua/lunette-desktop/tests/support/vr-reload'
+  local loaded, failure = require('@lunette').reload()
+  expect.truthy(loaded, tostring(failure))
+  local initialEnumerations = events.enumerations
+  local fixture = vrUi.attach(native)
+  fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
+  fixture:tracked('left', true)
   for reload = 1, 10 do
+    local controls = assert(_G.vrReloadControls, 'the composition observer is active')
+    local currentUi, currentDisplay = controls.ui, controls.display
+    fixture:step()
+    local retainedPanel = currentUi:panels()[1]
+    local retainedDisplay = currentDisplay
+    local retainedShow, retainedVisible = currentDisplay.show, currentDisplay.isVisible
+    fixture:clickControl(currentUi, 'desktop/menu', 'open')
+    fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
+    expect.truthy(currentDisplay:isVisible(), 'the menu shows the shared keyboard before reload')
+    fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
+    expect.falsy(currentDisplay:isVisible(), 'the menu hides the shared keyboard')
     events.logs = {}
-    lovr.keypressed('f5', 0, false)
+    fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/reload')
+    expect.truthy(retainedPanel.dead, 'reload withdraws the previous UI generation')
+    expect.raises(function()
+      return retainedDisplay.dead
+    end, 'provider activation has ended', 'reload revokes the previous display service')
+    expect.falsy(retainedShow(retainedDisplay), 'a cached method cannot reopen a keyboard')
+    expect.falsy(retainedVisible(retainedDisplay), 'a cached visibility method is inert')
     expect.equal(#events.logs, 0, 'reload ' .. reload .. ' failed: ' .. tostring(events.logs[1] and events.logs[1][1]))
-    expect.equal(events.enumerations, reload + 1, 'reload ' .. reload .. ' enumerates once')
+    expect.equal(events.enumerations, initialEnumerations + reload, 'reload ' .. reload .. ' enumerates once')
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
     expect.equal(native.subscriptionCount 'onProcessExited', 0, 'reload ' .. reload .. ' installs no process listener')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')

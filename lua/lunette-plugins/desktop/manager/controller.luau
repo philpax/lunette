@@ -44,6 +44,8 @@ export type State = {
   lines: { string },
   wrappedDetails: boolean,
   wrapDetails: (({ string }, number) -> { string })?,
+  close: (() -> ())?,
+  pressedButton: string?,
 }
 
 local refresh: (State) -> ()
@@ -60,7 +62,8 @@ function controller.new(
   readers: { brokers.Reader },
   width: number,
   height: number,
-  wrapDetails: (({ string }, number) -> { string })?
+  wrapDetails: (({ string }, number) -> { string })?,
+  close: (() -> ())?
 ): State
   assert(width >= config.minimumWidth and width < math.huge, 'manager controller: invalid logical width')
   assert(height >= config.minimumHeight and height < math.huge, 'manager controller: invalid logical height')
@@ -93,6 +96,8 @@ function controller.new(
     lines = {},
     wrappedDetails = false,
     wrapDetails = wrapDetails,
+    close = close,
+    pressedButton = nil,
   }
   refresh(state)
   return state
@@ -112,16 +117,29 @@ function controller.options(state: State): draw.Options
     wrappedDetails = state.wrappedDetails,
     buttons = state.buttons,
     rows = state.rows,
-    footer = if state.edit then 'Editing: ' .. state.text else state.message,
+    footer = if state.edit
+      then 'Editing: ' .. state.text
+      else if state.view.searchActive then 'Search: ' .. state.view.query else state.message,
   }
 end
 
 function controller.press(state: State, point: graph.Point): ()
+  state.pressedButton = nil
   local index = draw.hit(state.buttons, point)
   if index then
-    cancelEdit(state)
-    attempt(state, state.actions[index])
+    state.pressedButton = state.buttons[index].label
+    view.cancel(state.view)
     return
+  end
+  for _, button in state.buttons do
+    if
+      point.x >= button.x
+      and point.x < button.x + button.width
+      and point.y >= button.y
+      and point.y < button.y + button.height
+    then
+      return
+    end
   end
   for rowIndex, row in state.rows do
     if point.x >= row.x and point.x <= row.x + row.width and point.y >= row.y and point.y <= row.y + row.height then
@@ -148,6 +166,16 @@ function controller.move(state: State, point: graph.Point): ()
 end
 
 function controller.release(state: State, point: graph.Point): ()
+  local pressed = state.pressedButton
+  state.pressedButton = nil
+  if pressed then
+    local index = draw.hit(state.buttons, point)
+    if index and state.buttons[index].label == pressed then
+      cancelEdit(state)
+      attempt(state, state.actions[index])
+    end
+    return
+  end
   local previous = state.view.selection
   view.release(state.view, point)
   if previous ~= state.view.selection then
@@ -161,7 +189,9 @@ function controller.release(state: State, point: graph.Point): ()
 end
 
 function controller.cancel(state: State): ()
+  state.pressedButton = nil
   view.cancel(state.view)
+  state.view.searchActive = false
   cancelEdit(state)
 end
 
@@ -398,6 +428,40 @@ controls = function(state: State): ()
     end
   end)
   state.bodyTop = 18 + math.ceil(#state.buttons / 3) * 30
+  local navigationIndex = 0
+  local function navigation(label: string, enabled: boolean, run: () -> ()): ()
+    local index = #state.buttons + 1
+    local width = (state.view.viewport.x - 24) / 5
+    state.buttons[index] = {
+      x = 8 + navigationIndex * (width + 2),
+      y = 8,
+      width = width,
+      height = 26,
+      label = label,
+      enabled = enabled,
+    }
+    state.actions[index] = { run = run, editor = true }
+    navigationIndex += 1
+  end
+  navigation('Zoom in', true, function()
+    view.zoom(state.view, { x = state.view.viewport.x / 2, y = state.view.viewport.y / 2 }, 1.2)
+  end)
+  navigation('Zoom out', true, function()
+    view.zoom(state.view, { x = state.view.viewport.x / 2, y = state.view.viewport.y / 2 }, 1 / 1.2)
+  end)
+  local selection = state.view.selection
+  navigation('Focus', selection ~= nil and selection.kind == 'node', function()
+    view.focus(state.view)
+  end)
+  navigation('Search', true, function()
+    view.search(state.view)
+  end)
+  navigation('Close', state.close ~= nil, function()
+    local close = state.close
+    if close then
+      close()
+    end
+  end)
 end
 
 refresh = function(state: State): ()

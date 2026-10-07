@@ -1,4 +1,4 @@
--- Hooks, bindings, and configuration change the shipped desktop's behaviour.
+-- Hooks, menu actions, and configuration change the shipped desktop's behaviour.
 --
 -- Copy the desktop configuration and adjacent Lua files into the directory
 -- `lunette --dump-config` wrote, which also holds conf.luau and the .luaurc that
@@ -11,8 +11,6 @@ local laser = require '@lunette-plugins/laser'
 -- Settings reuse each consumer's exported configuration type.
 desktop.run {
   settings = {
-    -- The reload key needs control as well, so F5 alone reaches the client.
-    bindings = { reload = { key = 'f5', modifiers = { 'control' } } },
     decorations = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
     -- A predicate can match any window property.
     rules = {
@@ -29,11 +27,8 @@ desktop.run {
     },
     persistence = { file = 'example.state' },
   },
-  -- Two workspaces, switched with control, alt, and a number.
-  workspaces = {
-    workspaces = { { name = 'main', key = '1' }, { name = 'side', key = '2' } },
-    modifiers = { 'control', 'alt' },
-  },
+  -- Two workspaces, chosen from the session menu.
+  workspaces = { workspaces = { { name = 'main' }, { name = 'side' } } },
   patches = {
     -- Carried panels stay level, whatever the hand does.
     desktop.configureEntry('interaction', interaction.definition) { constrain = require './upright' },
@@ -45,7 +40,7 @@ desktop.run {
       },
     },
     { insert = { id = 'hide-windows', definition = require './hide-windows' } },
-    { insert = { id = 'save-key', definition = require './save-key' } },
+    { insert = { id = 'save-menu', definition = require './save-menu' } },
     -- Errors are also sent as desktop notifications.
     { insert = { id = 'notify-errors', definition = require './notify-errors' } },
   },

@@ -3,7 +3,7 @@
 local schema = require '@lunette-plugin/schema'
 
 local minimumWidth = 800
--- Eight toolbar rows, the body header, one body row, and the footer must fit on the canvas.
+-- Eight sidebar control rows, the body header, one body row, and the footer must fit on the canvas.
 local minimumHeight = 18 + 8 * 30 + 68 + 36 + 64
 
 local fields = schema.object {

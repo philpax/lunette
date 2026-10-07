@@ -63,6 +63,7 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/ui/installed.luau",
             "luau_check/menu/positive.luau",
             "luau_check/keyboard-display/positive.luau",
+            "luau_check/desktop-menu/positive.luau",
             "luau_check/native/default_seat_positive.luau",
             "fixtures/require-relative/lunette/main.luau",
             "luau_check/conf/supported.luau",
@@ -142,6 +143,14 @@ fn menu_actions_updates_and_results_reject_invalid_types_and_mutation() {
     assert_marked_lines(
         "luau_check/menu/negative.luau",
         include_str!("luau_check/menu/negative.luau"),
+    );
+}
+
+#[test]
+fn desktop_menu_settings_reject_invalid_geometry_and_mutation() {
+    assert_marked_lines(
+        "luau_check/desktop-menu/negative.luau",
+        include_str!("luau_check/desktop-menu/negative.luau"),
     );
 }
 
@@ -349,7 +358,7 @@ fn a_configure_patch_is_checked_against_its_definitions_options() {
     lines.dedup();
     assert_eq!(
         lines,
-        [24, 25, 26, 27, 28, 29, 30],
+        [38, 39, 40, 41, 42, 43, 44, 45],
         "{:#?}",
         report.diagnostics
     );
@@ -577,20 +586,9 @@ fn provider_schemas_reject_invalid_fields_vectors_enums_and_callbacks() {
 
 #[test]
 fn desktop_settings_preserve_writable_inputs_and_readonly_outputs() {
-    assert_schema_lines(
+    assert_marked_lines(
         "luau_check/schema/desktop_settings_checked.luau",
-        &[
-            (83, "read-only"),
-            (84, "read-only"),
-            (87, "read-only"),
-            (90, "read-only"),
-            (93, "read-only"),
-            (96, "read-only"),
-            (100, "read-only"),
-            (102, "read-only"),
-            (103, "boolean"),
-            (104, "not-a-key"),
-        ],
+        include_str!("luau_check/schema/desktop_settings_checked.luau"),
     );
 }
 
@@ -606,11 +604,7 @@ fn manager_settings_preserve_writable_inputs_and_readonly_outputs() {
 fn workspace_settings_reject_nested_assignment_and_list_replacement() {
     assert_schema_lines(
         "luau_check/schema/workspace_readonly.luau",
-        &[
-            (4, "Property name"),
-            (5, "Property key"),
-            (6, "Property indexer"),
-        ],
+        &[(4, "Property name"), (5, "Property indexer")],
     );
 }
 

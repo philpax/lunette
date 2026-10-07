@@ -1,4 +1,4 @@
--- Provides session keyboard visibility while retaining the compatibility wrist button.
+-- Provides session keyboard visibility and placement; the desktop menu owns its controls.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local focus = require '@lunette-contracts/focus'
@@ -7,9 +7,7 @@ local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 local config = require '@lunette-plugins/desktop/keyboard/config'
 local create = require '@lunette-plugins/desktop/keyboard/display'
-local wrist = require '@lunette-plugins/desktop/keyboard/wrist'
 
-export type Hand = config.Hand
 export type Config = config.Config
 export type Settings = config.Settings
 export type Service = display.Service
@@ -25,8 +23,6 @@ return plugin.provider<<Config, Settings, Service>>({
   },
   schema = config.schema,
   build = function(context: plugin.Context, settings: Settings): Service
-    local service = create(context, settings)
-    wrist(context, settings, service)
-    return service
+    return create(context, settings)
   end,
 }).definition

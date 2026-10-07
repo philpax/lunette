@@ -6,8 +6,18 @@ local desktop = require '@lunette-desktop'
 local workspaces = require '@lunette-plugins/desktop/workspaces'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
+local menuContract = require '@lunette-contracts/menu'
 
 local test = testing.suite()
+
+local function entry(entries, id)
+  for _, candidate in entries do
+    if candidate.id == id then
+      return candidate
+    end
+  end
+  error('missing entry ' .. id)
+end
 
 local function sameValue(actual, expected, where)
   if type(expected) ~= 'table' then
@@ -31,11 +41,11 @@ local function sameEntries(actual, expected)
 end
 
 local CONFIGS = {
-  bindings = { reload = { key = 'f5', modifiers = { 'control' } } },
+  menu = { hand = 'right', size = 0.14 },
   decorations = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
   arrange = { layout = 'grid', options = { grid = { columns = 3 } } },
   persistence = { file = 'desktop.state' },
-  wristKeyboard = { hand = 'right', placement = { distance = 0.45 } },
+  wristKeyboard = { placement = { distance = 0.45 } },
   rules = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'mail' } } } } },
   monitors = { select = { 'fixture-output' } },
   hint = { text = 'fixture hint' },
@@ -47,7 +57,7 @@ local CONFIGS = {
 }
 
 local RAW_PATCHES = {
-  { id = 'desktop/bindings', config = CONFIGS.bindings },
+  { id = 'desktop/menu', config = CONFIGS.menu },
   { id = 'desktop/decorations', config = CONFIGS.decorations },
   { id = 'desktop/arrange', config = CONFIGS.arrange },
   { id = 'desktop/persistence', config = CONFIGS.persistence },
@@ -63,8 +73,7 @@ local RAW_PATCHES = {
 }
 
 local WORKSPACES = {
-  workspaces = { { name = 'main', key = '1' }, { name = 'side', key = '2' } },
-  modifiers = { 'alt' },
+  workspaces = { { name = 'main' }, { name = 'side' } },
 }
 
 local function workspacePatches(config, initial)
@@ -85,7 +94,7 @@ test('typed settings are equivalent to raw patches, without changing defaults or
     expect.equal(entry.config, nil, 'the default config is unchanged')
   end
   expect.falsy(table.isfrozen(CONFIGS.decorations.style), 'the caller still owns its config')
-  expect.truthy(table.isfrozen(actual[21].config.style), 'composed config is frozen')
+  expect.truthy(table.isfrozen(entry(actual, 'desktop/decorations').config.style), 'composed config is frozen')
 end)
 
 test('settings merge with entry config and coexist with independent provider patches', function()
@@ -100,10 +109,14 @@ test('settings merge with entry config and coexist with independent provider pat
     patches[1],
   })
   sameEntries(actual, expected)
-  expect.equal(actual[21].config.style.barHeight, 0.05, 'the configured entry retains the unpatched style')
+  expect.equal(
+    entry(actual, 'desktop/decorations').config.style.barHeight,
+    0.05,
+    'the configured entry retains the unpatched style'
+  )
   sameEntries(desktop.compose { entries = {}, settings = {} }, {})
   expect.raises(function()
-    desktop.compose { entries = {}, settings = { bindings = {} } }
+    desktop.compose { entries = {}, settings = { menu = {} } }
   end, 'which is not an entry')
 end)
 
@@ -200,10 +213,9 @@ local function open(env, window)
   return assert(env.panels:forSource(window))
 end
 
-local function chord(env, key)
-  env.native.events.held.lalt = true
-  lovr.keypressed(key, 0, false)
-  env.native.events.held = {}
+local function selectWorkspace(env, name)
+  local menu = env.session:observe(menuContract.capability).service
+  expect.equal(menu:invoke('desktop/workspace/' .. name).kind, 'invoked', 'workspace action runs')
 end
 
 test('a renamed first workspace coordinates boot and later adoption without renaming explicit or saved tags', function()
@@ -214,7 +226,7 @@ test('a renamed first workspace coordinates boot and later adoption without rena
     .. 'pose = "1 0 0 0 0 1 0 0 0 0 1 0 0 1 -2 1", tags = { "main" } } } }'
   local monitor = fake.newMonitor 'fixture-output'
   fake.events.monitors[monitor.id] = monitor
-  local config = { workspaces = { { name = 'work', key = '1' }, { name = 'web', key = '2' } }, modifiers = { 'alt' } }
+  local config = { workspaces = { { name = 'work' }, { name = 'web' } } }
   local env = environment(config, fake, {
     {
       id = 'desktop/rules',
@@ -229,7 +241,7 @@ test('a renamed first workspace coordinates boot and later adoption without rena
   local explicit = open(env, fake.newWindow(311, 'mail'))
   expect.truthy(assert(env.tags:find 'mail'):has(explicit), 'an explicit rule tag is not renamed')
   expect.falsy(work:has(explicit), 'an explicit rule replaces the default')
-  chord(env, '2')
+  selectWorkspace(env, 'web')
   local later = open(env, fake.newWindow(312))
   expect.truthy(web:has(later) and not work:has(later), 'a later window follows the selected workspace')
   expect.falsy(explicit.hidden or saved.hidden, 'unlisted tags remain outside workspace visibility policy')
@@ -240,7 +252,7 @@ test('workspace following observes adoption already present at boot', function()
   local fake = testing.native()
   local window = fake.newWindow(320, 'web-client')
   fake.events.windows = { window }
-  local config = { workspaces = { { name = 'work', key = '1' }, { name = 'web', key = '2' } }, modifiers = { 'alt' } }
+  local config = { workspaces = { { name = 'work' }, { name = 'web' } } }
   local env = environment(config, fake, {
     {
       id = 'desktop/rules',
@@ -261,8 +273,7 @@ test('workspace following applies to saved boot windows and can preserve their m
     fake.events.saved = 'return { version = 1, entries = { { kind = "window", key = "saved-window", slot = 1, '
       .. 'pose = "1 0 0 0 0 1 0 0 0 0 1 0 0 1 -2 1", tags = { "web" } } } }'
     local env = environment({
-      workspaces = { { name = 'work', key = '1' }, { name = 'web', key = '2' } },
-      modifiers = { 'alt' },
+      workspaces = { { name = 'work' }, { name = 'web' } },
       follow = follow,
     }, fake)
     local panel = assert(env.panels:forSource(window))
@@ -274,7 +285,7 @@ test('workspace following applies to saved boot windows and can preserve their m
     )
     expect.equal(panel.hidden, not follow, 'the saved window is visible only in the selected workspace')
     if not follow then
-      chord(env, '2')
+      selectWorkspace(env, 'web')
       expect.falsy(panel.hidden, 'selecting the saved workspace shows its window')
     end
     env.session:close()
@@ -284,9 +295,7 @@ end)
 test('two starts of one expanded composition keep workspace selection independent', function()
   local entries = desktop.compose { workspaces = WORKSPACES }
   local first = testing.boot(entries)
-  first.native.events.held.lalt = true
-  lovr.keypressed('2', 0, false)
-  first.native.events.held = {}
+  selectWorkspace({ session = first }, 'side')
   expect.truthy(first:observe(tagsContract.capability).service:find('side').selected, 'the first runtime switches')
   first:close()
   local second = testing.boot(entries)
@@ -301,8 +310,7 @@ test('disabling follow preserves an explicit boot workspace membership', functio
   fake.events.windows = { window }
   local env = environment(
     {
-      workspaces = { { name = 'work', key = '1' }, { name = 'web', key = '2' } },
-      modifiers = { 'alt' },
+      workspaces = { { name = 'work' }, { name = 'web' } },
       follow = false,
     },
     fake,
@@ -317,7 +325,7 @@ test('disabling follow preserves an explicit boot workspace membership', functio
   expect.truthy(assert(env.tags:find 'web'):has(panel), 'the explicit tag remains')
   expect.falsy(assert(env.tags:find 'work'):has(panel), 'the default does not replace an explicit rule')
   expect.truthy(panel.hidden, 'the unselected configured workspace is hidden')
-  chord(env, '2')
+  selectWorkspace(env, 'web')
   expect.falsy(panel.hidden, 'the explicit workspace can be selected')
   env.session:close()
 end)

@@ -3,7 +3,9 @@ local plugin = require '@lunette-plugin'
 local management = require '@lunette-plugin/management'
 local frame = require '@lunette-plugins/frame'
 local surfaces = require '@lunette-plugins/surfaces'
+local menu = require '@lunette-plugins/menu'
 local surfaceContract = require '@lunette-contracts/surfaces'
+local menuContract = require '@lunette-contracts/menu'
 local manager = require '@lunette-plugins/desktop/manager'
 local controller = require '@lunette-plugins/desktop/manager/controller'
 
@@ -49,18 +51,20 @@ return function(config, additions, protected)
       fake.events.draw[#fake.events.draw + 1] = { name, ... }
     end
   end
-  local surfaceService
+  local surfaceService, menuService
   local observed = plugin.define {
     name = 'surface-observer',
-    requires = { surfaces = surfaceContract.capability },
+    requires = { surfaces = surfaceContract.capability, menu = menuContract.capability },
     init = function(context)
       surfaceService = context:require(surfaceContract.capability)
+      menuService = context:require(menuContract.capability)
     end,
   }
   frame.install { start = function() end, stop = function() end }
   local entries = {
     { id = 'frame', definition = frame.definition },
     { id = 'surfaces', definition = surfaces.definition },
+    { id = 'menu', definition = menu.definition },
     { id = 'desktop/manager', definition = manager, config = config or {} },
     { id = 'observer', definition = observed },
   }
@@ -80,5 +84,5 @@ return function(config, additions, protected)
   end
   return running, fake, function()
     return surfaceService:all()
-  end, state
+  end, state, menuService
 end

@@ -67,6 +67,7 @@ test('management surface keeps its direct dependencies protected but not inspect
   end
   expect.equal(protected.frame, true, 'frame protected')
   expect.equal(protected.surfaces, true, 'surface broker protected')
+  expect.equal(protected.menu, true, 'the menu action dependency is protected')
   expect.equal(protected.observer, false, 'unrelated consumer mutable')
   running.service:disable 'observer'
   expect.equal(running.runtime:snapshot().instances[1] ~= nil, true, 'runtime remains available')
@@ -211,7 +212,9 @@ test('manager dimensions reject a short canvas and accept usable minimum and max
       for _, button in state.buttons do
         expect.truthy(button.y + button.height <= state.height, 'every toolbar button is reachable')
         if button.label == label then
-          controller.press(state, { x = button.x + 1, y = button.y + 1 })
+          local point = { x = button.x + 1, y = button.y + 1 }
+          controller.press(state, point)
+          controller.release(state, point)
         end
       end
       expect.truthy(#state.rows > 0, label .. ' has a body row')

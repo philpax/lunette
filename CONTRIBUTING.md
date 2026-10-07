@@ -155,6 +155,7 @@ That last one is why a configuration is copied with the command rather than by h
 
 ### User experience as a primary driver
 
+- Every session UI renders in VR space, and every action is accessible through VR controls. This includes opening and closing panels, navigation, search, configuration, and text entry. Projected flat panels are valid VR UI. No session workflow may require a flatscreen interface, physical keyboard, or mouse; the VR path must remain complete without keyboard or mouse bindings. Developer command-line tools and logic-headless test runners are outside this session-UI requirement.
 - Provide structured, helpful error messages that can be rendered with an appropriate library at a later stage.
 - Make progress reporting responsive and informative.
 - Maintain consistency across platforms even when underlying OS capabilities differ. Use OS-native logic rather than trying to emulate Unix on Windows (or vice versa).

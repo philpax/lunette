@@ -1,6 +1,6 @@
 -- Hides panels in unselected workspace tags with an override, preserving higher-priority visibility decisions. The follow option moves newly placed panels into the selected workspace.
 local plugin = require '@lunette-plugin'
-local bindings = require '@lunette-contracts/bindings'
+local menu = require '@lunette-contracts/menu'
 local panels = require '@lunette-contracts/panels'
 local placement = require '@lunette-contracts/placement'
 local tags = require '@lunette-contracts/tags'
@@ -22,22 +22,39 @@ local required: plugin.Declaration = {
   tags = tags.capability,
 }
 
--- Key bindings run as a child so a bindings outage does not change workspace selection.
-local function chords(settings: Settings, switch: (number) -> ()): plugin.Definition<ChildConfig>
+-- Actions run as a child so a menu outage does not change workspace selection or follow.
+local function actions(settings: Settings, held: { tags.Tag }, switch: (number) -> ()): plugin.Definition<ChildConfig>
   return plugin.consumer<<ChildConfig, ChildSettings>>({
-    name = 'desktop/workspaces/chords',
-    requires = { bindings = bindings.capability },
+    name = 'desktop/workspaces/actions',
+    requires = { menu = menu.capability, tags = tags.capability },
     schema = childSchema,
     init = function(context: plugin.Context, _settings: ChildSettings): ()
-      local service: bindings.Service = context:require(bindings.capability)
+      local service: menu.Service = context:require(menu.capability)
+      local tagService: tags.Service = context:require(tags.capability)
+      local registrations: { [tags.Tag]: plugin.Effect } = {}
       for index, workspace in settings.workspaces do
-        service:register(context, {
-          chord = { key = workspace.key, modifiers = settings.modifiers },
-          run = function(_press: bindings.Press): ()
-            switch(index)
+        local tag = held[index]
+        registrations[tag] = service:register(context, {
+          id = 'desktop/workspace/' .. workspace.name,
+          label = workspace.name,
+          group = 'Workspaces',
+          order = index,
+          selected = tag.selected,
+          run = function(): ()
+            if context:active() then
+              switch(index)
+            end
           end,
         })
       end
+      tagService:onChanged(context, {
+        run = function(change: tags.Change): ()
+          local effect = registrations[change.tag]
+          if context:active() and effect and change.kind == 'selection' then
+            service:update(context, effect, { selected = change.tag.selected })
+          end
+        end,
+      })
     end,
   }).definition
 end
@@ -95,6 +112,9 @@ return plugin.consumer<<Config, Settings>>({
       end
     end
     local function switch(index: number): ()
+      if not context:active() then
+        return
+      end
       current = index
       for position, tag in ipairs(held) do
         tag:setSelected(context, { selected = position == index })
@@ -105,6 +125,18 @@ return plugin.consumer<<Config, Settings>>({
     tagService:onChanged(context, {
       run = function(change: tags.Change): ()
         if isWorkspace[change.tag] and (change.kind == 'membership' or change.kind == 'selection') then
+          if change.kind == 'selection' then
+            if change.tag.selected then
+              current = table.find(held, change.tag) or current
+            elseif not held[current].selected then
+              for index, tag in held do
+                if tag.selected then
+                  current = index
+                  break
+                end
+              end
+            end
+          end
           refresh()
         end
       end,
@@ -141,6 +173,6 @@ return plugin.consumer<<Config, Settings>>({
       })
     end
     switch(current)
-    context:child(chords(settings, switch), {})
+    context:child(actions(settings, held, switch), {})
   end,
 }).definition
