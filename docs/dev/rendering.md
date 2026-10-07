@@ -168,7 +168,7 @@ The layer limit is not the signal either. The OpenXR backend reads `lovrHeadsetG
 
 Named, not solved.
 
-OpenVR presentation is implemented through native panels and two per-eye projection overlays. It submits no `IVRCompositor::Submit` scene frames and provides no occlusion against a game's depth. Internal scene depth and MSAA do not imply game-depth integration. Runtime rendering, stereo alignment, alpha, motion, and visual acceptance remain hardware-unverified. Deterministic metadata and handoff tests do not prove visual equivalence.
+OpenVR presentation is implemented through native panels and two per-eye projection overlays. It submits no `IVRCompositor::Submit` scene frames and provides no occlusion against a game's depth. Internal scene depth and MSAA do not imply game-depth integration. Hardware observation confirms native terminal overlays appear at their intended positions. Scene-rendered panel chrome moves with head motion, and the wrist UI is not visible in that observation. These scene-path defects remain under hardware validation. Stereo alignment, alpha, motion, and full visual acceptance remain unverified. Deterministic metadata and handoff tests do not prove visual equivalence.
 
 A captured frame is imported only as a dmabuf. PipeWire can negotiate shared memory instead, as a memfd or a mapped pointer, and lunette refuses both by name rather than showing a black mirror. The mapped-pointer case is the awkward one: the pointer is valid only inside PipeWire's callback, so supporting it means copying every frame on the capture thread, which is the one thing the raw-forwarding arrangement exists to avoid. The refusal is counted and logged once per stream rather than per frame.
 
