@@ -60,11 +60,19 @@ A layer records its creator and its process-monotonic session generation. Its me
 
 Session textures, their descendant views, and session passes become CPU tombstones when their backing is retired. Metadata remains readable. GPU operations and new views fail, including in unchecked builds. Retirement establishes GPU quiescence before invalidating backing, drains deferred destruction before releasing runtime images, and disconnects the runtime before destroying the Vulkan device. Callers serialize retirement with graphics use. A device-loss result permits destruction; another wait error preserves resources for a later retry. The device teardown callback tolerates partial initialization and does not recursively destroy the device.
 
-#### The optional OpenVR connection foundation
+External texture handoff retains the owned root texture through restoration submission and releases the temporary reference after unlocking graphics. Its callback runs under the graphics queue lock. The callback may submit work on the supplied queue and release texture or material references. Final texture and material destruction is deferred until restoration finishes and the graphics lock is released; it must not call graphics APIs, record commands, or initiate graphics or session teardown. Graphics entry points that acquire the graphics lock reject callback reentry. Queue-lock callbacks also refuse reentry rather than recursively acquiring the plain mutex.
+
+Selective session retirement uses `lovrGraphicsQuiesceSessionResources` before invalidating only the affected resources and `lovrGraphicsDrainSessionResources` afterward. Both acquire the graphics lock, but neither invalidates unrelated resources. The caller holds lifecycle exclusivity throughout quiescence, invalidation, deferred destruction, and runtime image destruction. The drain requires successful quiescence and no intervening queue work. Device teardown preparation uses the same queue lock, while deferred destruction runs under lifecycle exclusivity.
+
+#### The optional OpenVR backend foundation
 
 `LOVR_ENABLE_OPENVR` defaults to off and builds Valve's pinned SDK loader as a position-independent static library on Linux Vulkan builds. The SDK source remains unmodified, and all output goes into the CMake build directory. The private connection adapter uses the SDK's C function tables, initializes only an overlay application, reports the SDK version, and releases failed connections.
 
-This foundation is not a selectable rendering backend. lunette does not enable it in ordinary builds. OpenVR presentation, input, backend selection, and GPU lifetime integration remain unimplemented. Native connection tests use injected loader operations; a separate missing-runtime case calls the real loader with an isolated absent runtime path. Neither establishes headset rendering support.
+This foundation is not a selectable rendering backend. lunette does not enable it in ordinary builds. The private panel backend owns session-registered render textures and passes, packs stereo output into a single two-dimensional image, and submits through the guarded Vulkan handoff. Runtime panel destruction precedes backing invalidation. A failed destruction preserves the backing and connection for retry. Main-scene projection, tracking, pacing, and backend selection remain unimplemented.
+
+Private input helpers resolve action handles and produce coherent hand snapshots. Their installed action bundle resides beside the owning native artifact. Relative shared-library paths fail explicitly rather than resolving against a changed working directory. Assets require trusted ownership and permissions throughout their ancestry. Returned paths are not pinned against later replacement. The controller bindings remain provisional, and Touch grip poses remain unbound pending transform verification. The panel backend does not yet initialize these helpers.
+
+Native tests use injected runtime and GPU operations and exercise actual managed graphics ownership. Staged shared-library and executable fixtures exercise real asset resolution. A separate missing-runtime case calls the real loader with an isolated absent runtime path. These checks do not establish SteamVR binding acceptance, runtime rendering, or visual correctness.
 
 ### Upstream defects
 
