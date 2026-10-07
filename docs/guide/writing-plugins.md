@@ -289,7 +289,7 @@ The implementation acquires the board through `context:resource(owner, acquire)`
 
 ## Local VR controls
 
-The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its small strict fixture uses only public contracts. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The shipped wrist menu and its session actions are implemented. A checked `examples/ui` configuration remains pending. The runtime manager migration, including its search and configuration workflows, also remains pending.
+The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its small strict fixture uses only public contracts. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The shipped wrist menu and its session actions are implemented. A checked `examples/ui` configuration remains pending. The runtime manager uses the same UI contract for its controller-accessible search and configuration workflows and reuses the shared desktop keyboard.
 
 ## A custom layout
 

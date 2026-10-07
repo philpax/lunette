@@ -153,6 +153,9 @@ local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [st
       if raw.bindings ~= nil then
         error('desktop: settings.bindings is removed; session actions use the wrist menu', 0)
       end
+      if type(raw.manager) == 'table' and rawget(raw.manager :: Raw, 'toggleKey') ~= nil then
+        error('desktop: manager.toggleKey is removed; open Plugins from the session menu', 0)
+      end
       if type(raw.wristKeyboard) == 'table' then
         local keyboardConfig = raw.wristKeyboard :: Raw
         for _, field in { 'hand', 'size', 'offset', 'haptic' } do

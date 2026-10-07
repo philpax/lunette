@@ -164,51 +164,12 @@ function view.search(state: State): ()
   state.searchActive = true
 end
 
-function view.text(state: State, text: string): boolean
-  if not state.searchActive then
-    return false
-  end
-  state.query ..= text
-  return true
+function view.setSearch(state: State, value: string): ()
+  state.query = value
 end
 
-function view.key(state: State, key: KeyCode): boolean
-  if state.searchActive then
-    if key == 'escape' or key == 'return' then
-      state.searchActive = false
-    elseif key == 'backspace' then
-      local start = utf8.offset(state.query, -1)
-      if start then
-        state.query = state.query:sub(1, start - 1)
-      end
-    end
-    return true
-  end
-  if key == '/' then
-    view.search(state)
-  elseif key == 'escape' then
-    state.selection = nil
-    state.mode = 'all'
-  elseif key == 'r' then
-    view.reset(state)
-  elseif key == 'f' then
-    view.focus(state)
-  elseif key == 't' then
-    state.transitive = not state.transitive
-  elseif key == 'p' then
-    state.mode = 'providers'
-  elseif key == 'c' then
-    state.mode = 'consumers'
-  elseif key == 'i' then
-    state.mode = 'impact'
-  elseif key == 'a' then
-    state.mode = 'all'
-  elseif key == '=' or key == '-' then
-    view.zoom(state, { x = state.viewport.x / 2, y = state.viewport.y / 2 }, if key == '=' then 1.2 else 1 / 1.2)
-  else
-    return false
-  end
-  return true
+function view.endSearch(state: State): ()
+  state.searchActive = false
 end
 
 return view

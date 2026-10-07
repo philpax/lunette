@@ -22,6 +22,7 @@ export type Row = {
   read control: Control,
   read value: unknown,
   read text: string,
+  read escaped: boolean,
   read choices: { read [number]: unknown }?,
   read optional: boolean,
   read readOnly: boolean,
@@ -41,6 +42,8 @@ local opaque: (schema.Metadata, unknown?, { [Raw]: boolean }?) -> boolean
 local plain: (unknown) -> boolean
 local unwrap: (schema.Metadata) -> (schema.Metadata, boolean)
 local shape: (schema.Metadata, unknown) -> (MutablePath?, string?)
+local stringText: (string) -> (string, boolean)
+local decodeText: (string) -> (string?, string?)
 
 function editor.new(metadata: schema.Metadata, config: unknown, resolved: unknown?): Model
   local defaults = hydrate(metadata, nil, resolved, {})
@@ -157,6 +160,40 @@ function editor.set(model: Model, path: Path, input: unknown): (Model?, Problem?
     return problem(path, 'input', message)
   end
   return commit(model, path, value)
+end
+
+function editor.textProblem(input: string): string?
+  if utf8.len(input) == nil then
+    return 'enter valid Unicode UTF-8 or use an escaped string value'
+  end
+  for _, codepoint in utf8.codes(input) do
+    if (codepoint >= 0xd800 and codepoint <= 0xdfff) or codepoint > 0x10ffff then
+      return 'enter valid Unicode UTF-8 or use an escaped string value'
+    end
+    if codepoint < 0x20 or (codepoint >= 0x7f and codepoint <= 0x9f) or codepoint == 0x2028 or codepoint == 0x2029 then
+      return 'enter single-line text; control characters and line separators need escapes'
+    end
+  end
+  return nil
+end
+
+function editor.setText(model: Model, path: Path, input: string): (Model?, Problem?)
+  local row, failure = find(model, path, 'edit')
+  if not row then
+    return nil, failure
+  end
+  local message = editor.textProblem(input)
+  if message then
+    return problem(path, 'input', message)
+  end
+  if row.escaped then
+    local decoded, decodeFailure = decodeText(input)
+    if not decoded then
+      return problem(path, 'input', decodeFailure or 'enter a valid escaped string')
+    end
+    return editor.set(model, path, decoded)
+  end
+  return editor.set(model, path, input)
 end
 
 function editor.toggle(model: Model, path: Path): (Model?, Problem?)
@@ -475,6 +512,51 @@ shape = function(node: schema.Metadata, value: unknown): (MutablePath?, string?)
   return entries, nil
 end
 
+stringText = function(value: string): (string, boolean)
+  if editor.textProblem(value) == nil then
+    return value, false
+  end
+  -- Escaping bytes, not codepoints, also preserves schema-valid strings with malformed UTF-8.
+  local parts: { string } = {}
+  local escapes: { [number]: string } = { [92] = '\\\\', [10] = '\\n', [13] = '\\r', [9] = '\\t' }
+  for index = 1, #value do
+    local byte = string.byte(value, index)
+    parts[index] = escapes[byte]
+      or (if byte >= 0x20 and byte <= 0x7e then string.char(byte) else string.format('\\x%02X', byte))
+  end
+  return table.concat(parts), true
+end
+
+decodeText = function(input: string): (string?, string?)
+  local parts: { string } = {}
+  local index = 1
+  local escapes: { [string]: string } = { ['\\'] = '\\', n = '\n', r = '\r', t = '\t' }
+  while index <= #input do
+    local char = string.sub(input, index, index)
+    if char ~= '\\' then
+      table.insert(parts, char)
+      index += 1
+      continue
+    end
+    local escape = string.sub(input, index + 1, index + 1)
+    local decoded = escapes[escape]
+    if decoded then
+      table.insert(parts, decoded)
+      index += 2
+    elseif escape == 'x' then
+      local digits = string.sub(input, index + 2, index + 3)
+      if #digits ~= 2 or not string.match(digits, '^%x%x$') then
+        return nil, 'a byte escape needs exactly two hex digits: \\xHH'
+      end
+      table.insert(parts, string.char(tonumber(digits, 16) :: number))
+      index += 4
+    else
+      return nil, 'use only \\\\, \\n, \\r, \\t, or \\xHH escapes'
+    end
+  end
+  return table.concat(parts), nil
+end
+
 local function pathText(path: Path): string
   local parts: { string } = {}
   for _, key in path do
@@ -562,6 +644,14 @@ flatten = function(
     end
   end
   local arrayEntry = collectionEntry and parent ~= nil and parent.control == 'array'
+  local text = if value == nil
+    then '<unset>'
+    elseif container or readOnly then '<' .. node.kind .. '>'
+    else tostring(value)
+  local escaped = false
+  if control == 'string' and type(value) == 'string' then
+    text, escaped = stringText(value)
+  end
   local row: Row = table.freeze {
     path = table.freeze(table.clone(path)),
     label = metadata.label or pathText(path),
@@ -569,7 +659,8 @@ flatten = function(
     metadata = metadata,
     control = control,
     value = value,
-    text = if value == nil then '<unset>' elseif container or readOnly then '<' .. node.kind .. '>' else tostring(value),
+    text = text,
+    escaped = escaped,
     choices = options,
     optional = optional,
     readOnly = readOnly,

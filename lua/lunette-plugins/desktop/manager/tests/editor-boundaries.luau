@@ -216,4 +216,93 @@ test('vector component edits reject finite doubles that pack to nonfinite floats
   expect.equal(editor.draft(change(editor.set, model, { 'count' }, '1e100')).count, 1e100)
 end)
 
+test('single-line string representations preserve supported text and every unsupported byte', function()
+  local metadata = schema.object({ text = schema.string() }).inspect()
+  local cases = {
+    { '\n', '\\n' },
+    { 'first\r\nsecond\t', 'first\\r\\nsecond\\t' },
+    { string.char(0, 1, 31, 127), '\\x00\\x01\\x1F\\x7F' },
+    { utf8.char(0x80, 0x85, 0x9f), '\\xC2\\x80\\xC2\\x85\\xC2\\x9F' },
+    { utf8.char(0x2028, 0x2029), '\\xE2\\x80\\xA8\\xE2\\x80\\xA9' },
+    { string.char(255, 0xc0, 0xaf), '\\xFF\\xC0\\xAF' },
+    { string.char(0xed, 0xa0, 0x80, 0xf4, 0x90, 0x80, 0x80), '\\xED\\xA0\\x80\\xF4\\x90\\x80\\x80' },
+    { 'é\\\n', '\\xC3\\xA9\\\\\\n' },
+  }
+  for _, sample in cases do
+    expect.equal(schema.string().parse(sample[1]), sample[1], 'the original string is schema-valid')
+    local model = editor.new(metadata, { text = sample[1] })
+    local item = row(model, { 'text' })
+    expect.equal(item.control, 'string')
+    expect.falsy(item.readOnly)
+    expect.truthy(item.escaped, 'unsupported strings use explicit escaped mode')
+    expect.equal(item.text, sample[2], 'the representation is exact and single-line')
+    expect.equal(editor.draft(model).text, sample[1], 'representation does not change the draft')
+    expect.equal(
+      change(editor.setText, model, { 'text' }, item.text),
+      model,
+      'unchanged confirmation preserves identity'
+    )
+    local edited = change(editor.setText, model, { 'text' }, item.text .. '\\n')
+    expect.equal(editor.draft(edited).text, sample[1] .. '\n', 'confirmation decodes before committing')
+    expect.equal(edited.applied, model.applied)
+  end
+  local bytes = {}
+  for byte = 0, 255 do
+    bytes[#bytes + 1] = string.char(byte)
+  end
+  for codepoint = 0, 0x9f do
+    if codepoint < 0x20 or codepoint >= 0x7f then
+      bytes[#bytes + 1] = utf8.char(codepoint)
+    end
+  end
+  local original = table.concat(bytes)
+  local model = editor.new(metadata, { text = original })
+  local item = row(model, { 'text' })
+  for index = 1, #item.text do
+    local byte = string.byte(item.text, index)
+    expect.truthy(byte >= 0x20 and byte <= 0x7e, 'escaped strings contain only printable ASCII')
+  end
+  expect.equal(change(editor.setText, model, { 'text' }, item.text), model, 'every byte survives the field boundary')
+  for _, literal in { '', 'ordinary text', 'é界', 'e' .. utf8.char(0x301), '\\n \\xFF \\', '👩‍💻' } do
+    local raw = editor.new(metadata, { text = literal })
+    local rawRow = row(raw, { 'text' })
+    expect.falsy(rawRow.escaped, 'supported text stays literal')
+    expect.equal(rawRow.text, literal, 'literal backslashes and Unicode remain unchanged')
+    expect.equal(change(editor.setText, raw, { 'text' }, literal), raw)
+    expect.equal(editor.draft(change(editor.setText, raw, { 'text' }, '\\n')).text, '\\n', 'raw mode does not decode')
+  end
+end)
+
+test('malformed string escapes and unsupported raw field input reject without changing values', function()
+  local metadata = schema.object({ text = schema.string() }).inspect()
+  local model = editor.new(metadata, { text = 'retained\n' })
+  for _, input in { '\\', '\\q', '\\x', '\\x0', '\\xGG', '\\x1Z', '\\u{2028}', '\n', string.char(255) } do
+    reject(model, editor.setText, 'input', { 'text' }, input)
+  end
+  for _, sample in
+    {
+      { '\\x00', '\0' },
+      { '\\x7f', string.char(127) },
+      { '\\xFF', string.char(255) },
+      { '\\\\', '\\' },
+      { '\\n\\r\\t', '\n\r\t' },
+      { 'é\\n', 'é\n' },
+      { '', '' },
+    }
+  do
+    local decoded = change(editor.setText, model, { 'text' }, sample[1])
+    expect.equal(editor.draft(decoded).text, sample[2], 'escape decoding preserves the exact value')
+    expect.equal(decoded.applied, model.applied, 'decoding changes only the draft')
+  end
+  local literal = editor.new(metadata, { text = 'literal' })
+  for _, input in { '\n', '\t', utf8.char(0x85), utf8.char(0x2028), string.char(255) } do
+    reject(literal, editor.setText, 'input', { 'text' }, input)
+  end
+  expect.equal(
+    editor.draft(change(editor.set, literal, { 'text' }, '\n')).text,
+    '\n',
+    'raw value setters remain literal'
+  )
+end)
+
 return test

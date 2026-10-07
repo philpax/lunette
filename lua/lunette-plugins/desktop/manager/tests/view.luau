@@ -180,36 +180,38 @@ for _, kind in { 'node', 'edge' } do
   end
 end
 
-test('search consumes text and removes one complete UTF-8 code point', function()
+test('search uses complete caller values and ends entry without clearing its filter', function()
   local state = fixture()
-  expect.falsy(view.text(state, 'source'), 'unfocused search does not consume text')
-  expect.truthy(view.key(state, '/'), 'the search shortcut is handled')
-  expect.truthy(view.text(state, 'source\u{1f50d}'), 'focused search consumes text')
-  view.key(state, 'backspace')
-  expect.equal(state.query, 'source', 'backspace removes the complete final code point')
+  expect.falsy(state.searchActive, 'search initially has no input focus')
+  view.search(state)
+  expect.truthy(state.searchActive, 'the domain action begins search entry')
+  view.setSearch(state, 'source\u{1f50d}')
+  expect.equal(state.query, 'source\u{1f50d}', 'the caller Unicode value is intact')
+  view.setSearch(state, 'source')
+  expect.equal(state.query, 'source', 'the caller replaces the whole value')
   expect.equal(count(view.visible(state)), 1, 'search filters the visible nodes')
-  view.key(state, 'return')
-  expect.falsy(state.searchActive, 'return closes search entry')
-  expect.falsy(view.text(state, 'ignored'), 'unfocused text remains available to other handlers')
+  view.endSearch(state)
+  expect.falsy(state.searchActive, 'completion closes search entry')
+  expect.equal(state.query, 'source', 'completion leaves the current filter')
 end)
 
 test('dependency filters distinguish directions and direct versus transitive nodes', function()
   local state = fixture()
   view.select(state, { kind = 'node', id = 'a' })
-  view.key(state, 'c')
+  state.mode = 'consumers'
   local direct = view.visible(state)
   expect.truthy(direct.a and direct.b, 'the origin and direct consumer are visible')
   expect.falsy(direct.c, 'the transitive consumer is hidden')
-  view.key(state, 't')
+  state.transitive = true
   expect.equal(count(view.visible(state)), 3, 'transitive consumers are visible')
   view.select(state, { kind = 'node', id = 'c' })
-  view.key(state, 'p')
+  state.mode = 'providers'
   expect.equal(count(view.visible(state)), 3, 'transitive providers are visible')
-  view.key(state, 't')
+  state.transitive = false
   local providers = view.visible(state)
   expect.truthy(providers.b and providers.c, 'the selected node and direct provider are visible')
   expect.falsy(providers.a, 'the transitive provider is hidden')
-  view.key(state, 'i')
+  state.mode = 'impact'
   expect.equal(count(view.visible(state)), 1, 'a leaf affects only itself')
 end)
 
@@ -240,6 +242,19 @@ test('filtered-out nodes cannot be selected and reset restores the whole graph',
   expect.equal(state.mode, 'all', 'reset clears the dependency filter')
   expect.equal(state.query, '', 'reset clears search')
   expect.equal(count(view.visible(state)), 3, 'reset shows every node')
+end)
+
+test('search replacement and completion preserve caller-owned Unicode text', function()
+  local state = fixture()
+  view.search(state)
+  view.setSearch(state, 'source\u{301}\u{1f50d}')
+  expect.equal(state.query, 'source\u{301}\u{1f50d}', 'the complete caller value is retained')
+  view.setSearch(state, 'consumer')
+  expect.equal(state.query, 'consumer', 'the value replaces rather than appends')
+  expect.equal(count(view.visible(state)), 1, 'replacement updates the filter')
+  view.endSearch(state)
+  expect.falsy(state.searchActive, 'completion ends search entry')
+  expect.equal(state.query, 'consumer', 'completion retains the filter')
 end)
 
 return test

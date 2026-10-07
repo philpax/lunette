@@ -1,6 +1,6 @@
 # Runtime manager
 
-The shipped desktop includes `desktop/manager`. The Plugins action in the wrist menu opens its projected flat surface, and Close hides it. The surface can be moved with the normal pointer grab controls. Its width, height, position, logical pixel width, and initial visibility come from `lua/lunette-plugins/desktop/manager/config.luau`. The intermediate manager still accepts `toggleKey` and physical text input; the shared-widget migration removes those paths.
+The shipped desktop includes `desktop/manager`. The Plugins action in the wrist menu opens its projected flat surface, and Close hides it. The surface can be moved with the normal pointer grab controls. Its width, height, position, logical pixel width, and initial visibility come from `lua/lunette-plugins/desktop/manager/config.luau`. The manager uses the public `lunette/ui` service from `@lunette-contracts/ui`; the built-in provider is `@lunette-plugins/ui`. The graph and scrollable sidebar content use custom regions. Buttons, text fields, and choices use shared controls with stable ids. The UI provider can be replaced by another implementation of the same contract. The manager configuration schema rejects legacy `toggleKey` with `toggleKey is removed; open Plugins from the session menu`.
 
 ```luau
 require('@lunette-desktop').run {
@@ -15,9 +15,9 @@ require('@lunette-desktop').run {
 
 ## Graph controls
 
-A click selects an instance or relationship. Dragging the graph pans it. Zoom in and Zoom out change the scale around the canvas centre. Focus centres the selected instance, and Fit fits the graph within the supported zoom range. Search enters search mode. The intermediate text editor still uses physical text events, Backspace, and Return; pointer Search entry alone does not provide the completed controller-only text workflow. Large graphs remain pannable when the minimum zoom cannot fit every node.
+The graph custom region supports selection and dragging. Dragging pans the graph, and scrolling over it zooms around the pointer. Zoom in and Zoom out change the scale around the canvas centre. Focus centres the selected instance, and Fit fits the graph within the supported zoom range. Search opens a shared text field and the shared keyboard. Clear filter and Clear selection end those states. These controls remain reachable through controller input. Large graphs remain pannable when the minimum zoom cannot fit every node.
 
-`P` shows providers required by the selected instance. `C` shows its consumers. `T` switches direct and transitive traversal. `I` includes dependent instances and owned descendants affected by a change. `A` restores the complete graph. Escape clears the selection and filter. Toolbar buttons expose these operations without typing.
+The toolbar switches between required providers, consumers, all graph relationships, and affected instances. A separate control switches between direct and transitive traversal. Clear filter and Clear selection reset the search and selection state. Previous and Next scroll the sidebar, configuration rows, and catalog. Catalog loading, entry lifecycle actions, and explicit recovery use the same controller-accessible controls. These actions do not use physical key bindings.
 
 Dependency relationships identify actual allocated providers and their published generations. They do not guess a provider from a declared service name. Ownership relationships identify child instances. Parallel bindings and self-loops have separate selectable routes. Search includes names, identities, declarations, blockers, and diagnostic text.
 
@@ -27,11 +27,13 @@ The sidebar describes the selected instance's enabled intent, phase, retirement,
 
 Broker inspection lists owner-scoped offers, handlers, listeners, panels, focus targets and input sources, tag holds and memberships, overrides, rule sources, placements, layouts, adoption resources, keyboards, lasers, and pointers. Logical registrations and native effects have separate counts. Broker snapshots label facts that cannot be observed without invoking user callbacks. Inspection never invokes an offer, rule resolver, filter, handler, or clock, and does not prune dead tag members. Independent inspection consumers suspend during their broker's outage and reconnect when a provider returns. Tag membership and exclusion status describes the retained registration and owner. Separate `targetLiveness` metadata reports raw target death or marks the observation unavailable rather than invoking a getter.
 
-Previous and Next scroll the sidebar. Page Up, Page Down, and the arrow keys also scroll it. Omitted visual lines have an overflow indicator; scrolling keeps the remaining records reachable.
+Previous and Next scroll the sidebar. Omitted visual lines have an overflow indicator; scrolling keeps the remaining records reachable.
 
 ## Configuration and recovery
 
-Configure opens schema-derived controls for the selected entry. A boolean toggles on click. A numeric or string row starts text entry; Return stores the draft value and Escape cancels text entry. Literal choices cycle on click. Vector components have separate numeric controls. Arrays and maps expose their elements; Add appends an array element or requests a map key, and Remove value removes an element. Reset restores the descriptor's bound default. Optional values can be set or unset when doing so preserves opaque data.
+Configure opens schema-derived controls for the selected entry. Boolean rows use a button, and literal choices use a choice control. Numeric and string values, and map keys requested by Add, use a shared text field and the shared keyboard. Confirm accepts the field edit, Cancel discards that edit, and Clear empties its text. Apply is separate: it validates and submits the complete configuration draft. Add appends an array element or starts map-key entry, and Remove value removes an element. Reset restores the descriptor's bound default. Optional values can be set or unset when doing so preserves opaque data. Text-field drafts remain available when focus leaves the field. Rejected edits keep the draft and report the error.
+
+Strings that already fit the single-line UTF-8 field remain literal. Other schema strings use a reversible printable-ASCII representation in the edit field: `\\` for a backslash, `\n`, `\r`, and `\t` for common control characters, and `\xHH` for other bytes. Confirm decodes only edits opened in that escaped representation. Ordinary literal strings do not interpret backslashes. Invalid escape sequences retain the pending text and diagnostic. The original string bytes remain unchanged until a successful Confirm changes the draft, followed by Apply.
 
 Callbacks, custom values, and undeclared opaque data remain read-only. A draft retains their exact references. The manager does not reconstruct the configuration from only visible controls. Apply validates the complete draft before requesting replacement. A parser or refinement error leaves the active configuration in place and appears in the sidebar.
 
@@ -45,7 +47,7 @@ The shipped composition protects `desktop/manager`, `desktop/menu`, `desktop/key
 
 `@lunette-plugin/management.start(entries, options)` returns one frozen record, `{ runtime, service }`, containing the runtime and the published composition service. It validates entry shapes, runs factories, and resolves managed configuration for every entry before activating any instance; a preflight error aborts startup. A factory runs once for its managed definition; provider outages and reloads retain that definition. `options.protected` names entry ids whose required providers and parent owners also need protection. The service's `add(entry)` accepts an already loaded definition or factory. No module download or arbitrary source-path resolver is added.
 
-A custom frame installation can call `management.start` in its start callback and close the returned runtime in its stop callback. `frame.run` and `plugin.start` remain available for compositions without management. A custom composition that uses the projected manager includes the frame and surfaces providers and protects the manager and its input path.
+A custom frame installation can call `management.start` in its start callback and close the returned runtime in its stop callback. `frame.run` and `plugin.start` remain available for compositions without management. A custom composition that uses the projected manager includes its frame, UI, menu, and composition providers, the UI provider's focus and surface dependencies, and the pointing and keyboard path. It protects the manager and its input path.
 
 ## Known gaps
 
@@ -55,4 +57,6 @@ Native disarmed-effect metadata retains the complete activation history. A long-
 
 Opaque custom references can remain mutable outside the manager. Preserving their identity does not make a detached copy of their contents. Runtime validation cannot prove that a custom validator is pure or that its claimed static type is correct.
 
-Logic-headless tests cover the graph, controls, drafts, lifecycle service, and projected draw calls. Actual headset readability, GPU rendering, controller ergonomics, and installed-session acceptance require a running XR session.
+During a captured graph pan, the manager retains the published graph geometry and drawing until release or cancellation. This avoids cancelling the gesture when the custom region's items change. The graph moves on release rather than continuously during the drag. Toolbar navigation and graph scrolling cancel a pending graph gesture before changing its view. A pending click resolves against the graph displayed at press, and a removed instance is not replaced by a newer instance with the same entry id.
+
+The graph, controls, drafts, lifecycle service, and projected drawing remain subject to manual headset acceptance. Headset readability, GPU rendering, controller ergonomics, and installed-session behavior are not established by this guide.

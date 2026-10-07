@@ -147,7 +147,7 @@ for _, multiline in { false, true } do
     expect.equal(hasText(fake.events, marker), false, 'the tail starts outside the visible body')
     local seen = false
     for _ = 1, 600 do
-      controller.key(state, 'down')
+      controller.scrollBy(state, 1)
       table.clear(fake.events.draw)
       draw.render(pass, state.view, controller.options(state))
       if hasText(fake.events, marker) then
@@ -161,14 +161,14 @@ for _, multiline in { false, true } do
     local last = state.lines[#state.lines]
     local lastIndex = #state.lines - 1
     for _ = 1, lastIndex + 10 do
-      controller.key(state, 'down')
+      controller.scrollBy(state, 1)
     end
     expect.equal(state.scroll, lastIndex, 'arrow scrolling reaches the final record')
     table.clear(fake.events.draw)
     draw.render(pass, state.view, controller.options(state))
     expect.equal(hasText(fake.events, last), true, 'the final record is rendered')
-    controller.key(state, 'up')
-    expect.equal(state.scroll, math.max(0, lastIndex - 1), 'arrows also scroll back from the end')
+    controller.scrollBy(state, -1)
+    expect.equal(state.scroll, math.max(0, lastIndex - 1), 'scrolling also returns from the end')
     running.runtime:close()
   end)
 end

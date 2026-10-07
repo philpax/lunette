@@ -3,9 +3,16 @@ local plugin = require '@lunette-plugin'
 local management = require '@lunette-plugin/management'
 local frame = require '@lunette-plugins/frame'
 local surfaces = require '@lunette-plugins/surfaces'
+local focus = require '@lunette-plugins/focus'
+local ui = require '@lunette-plugins/ui'
 local menu = require '@lunette-plugins/menu'
+local drops = require '@lunette-plugins/drops'
+local interaction = require '@lunette-plugins/interaction'
 local surfaceContract = require '@lunette-contracts/surfaces'
 local menuContract = require '@lunette-contracts/menu'
+local uiContract = require '@lunette-contracts/ui'
+local focusContract = require '@lunette-contracts/focus'
+local interactionContract = require '@lunette-contracts/interaction'
 local manager = require '@lunette-plugins/desktop/manager'
 local controller = require '@lunette-plugins/desktop/manager/controller'
 
@@ -51,25 +58,48 @@ return function(config, additions, protected)
       fake.events.draw[#fake.events.draw + 1] = { name, ... }
     end
   end
-  local surfaceService, menuService
+  local surfaceService, menuService, uiService, focusService, pointerService, owner
   local observed = plugin.define {
     name = 'surface-observer',
-    requires = { surfaces = surfaceContract.capability, menu = menuContract.capability },
+    requires = {
+      surfaces = surfaceContract.capability,
+      menu = menuContract.capability,
+      ui = uiContract.capability,
+      focus = focusContract.capability,
+      interaction = interactionContract.capability,
+    },
     init = function(context)
+      owner = context
       surfaceService = context:require(surfaceContract.capability)
       menuService = context:require(menuContract.capability)
+      uiService = context:require(uiContract.capability)
+      focusService = context:require(focusContract.capability)
+      pointerService = context:require(interactionContract.capability)
     end,
   }
   frame.install { start = function() end, stop = function() end }
   local entries = {
     { id = 'frame', definition = frame.definition },
     { id = 'surfaces', definition = surfaces.definition },
+    { id = 'focus', definition = focus.definition },
+    { id = 'ui', definition = ui.definition },
     { id = 'menu', definition = menu.definition },
+    { id = 'drops', definition = drops.definition },
+    { id = 'interaction', definition = interaction.definition },
     { id = 'desktop/manager', definition = manager, config = config or {} },
     { id = 'observer', definition = observed },
   }
   for _, entry in additions or {} do
-    entries[#entries + 1] = entry
+    local replaced = false
+    for index, present in entries do
+      if present.id == entry.id then
+        entries[index], replaced = entry, true
+        break
+      end
+    end
+    if not replaced then
+      entries[#entries + 1] = entry
+    end
   end
   local state
   local new = controller.new
@@ -82,7 +112,77 @@ return function(config, additions, protected)
   if not ok then
     error(running, 0)
   end
+  local public = { ui = uiService, focus = focusService }
+  function public:panel()
+    for _, panel in self.ui:panels() do
+      if panel:describe().name == 'desktop/manager' then
+        return panel
+      end
+    end
+    error('the manager has no public UI panel', 0)
+  end
+  function public:control(id)
+    for _, control in self:panel():describe().controls do
+      if control.id == id or control.label == id then
+        return control
+      end
+    end
+    error('the manager has no public control ' .. id, 0)
+  end
+  function public:point(id, itemId)
+    local control = self:control(id)
+    local bounds = control.bounds
+    if itemId then
+      bounds = nil
+      for _, item in control.items do
+        if item.id == itemId or item.label == itemId then
+          bounds = item.bounds
+          break
+        end
+      end
+    end
+    assert(bounds, 'the public control or item has no visible geometry')
+    return bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+  end
+  function public:pointer()
+    return pointerService:newPointer(owner, { tuning = { scrollScale = 36 } })
+  end
+  function public:source()
+    return focusService:newSource(owner)
+  end
+  function public:update(pointer, x, y, fields)
+    fields = fields or {}
+    local offered = surfaceService:all()[1]
+    local description = self:panel():describe()
+    assert(offered, 'the manager is not visible')
+    pointer:update({
+      origin = vector.pack(
+        offered.pose:mul(
+          (x / description.logicalWidth - 0.5) * offered.width,
+          (0.5 - y / description.logicalHeight) * offered.height,
+          1,
+          1
+        )
+      ),
+      direction = fields.direction or vector.pack(offered.pose:mul(0, 0, -1, 0)),
+      pose = fields.pose or lovr.math.newMat4(),
+      buttons = fields.buttons or {},
+      grip = fields.grip or false,
+      scrollX = fields.scrollX,
+      scrollY = fields.scrollY,
+      dt = fields.dt or 1,
+    }, surfaceService:all())
+  end
+  function public:click(pointer, id, itemId)
+    local x, y = self:point(id, itemId)
+    self:update(pointer, x, y, { buttons = { left = true } })
+    self:update(pointer, x, y)
+  end
+  function public:open()
+    assert(menuService:invoke('desktop/manager/open').kind == 'invoked', 'the public menu action is unavailable')
+    return self:panel()
+  end
   return running, fake, function()
     return surfaceService:all()
-  end, state, menuService
+  end, state, menuService, public
 end

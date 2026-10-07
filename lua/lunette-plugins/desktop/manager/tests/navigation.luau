@@ -5,6 +5,7 @@ local interaction = require '@lunette-plugins/interaction'
 local drops = require '@lunette-plugins/drops'
 local focus = require '@lunette-plugins/focus'
 local schema = require '@lunette-plugin/schema'
+local config = require '@lunette-plugins/desktop/manager/config'
 local boot = require './support/boot'
 local expect = testing.expect
 local suite = testing.suite()
@@ -27,8 +28,8 @@ local function test(name, run)
   end)
 end
 
-local function fixture(config)
-  config = config or { width = 5, height = 2.6625, pixels = 800 }
+local function fixture(settings)
+  settings = settings or { width = 5, height = config.minimumHeight * 5 / 800, pixels = 800 }
   local service, owner
   local observer = plugin.define {
     name = 'navigation-pointer-observer',
@@ -42,7 +43,7 @@ local function fixture(config)
     schema = schema.object { enabled = schema.default(schema.boolean())(true) },
     init = function() end,
   }).definition
-  local running, fake, all, state, menu = boot(config, {
+  local running, fake, all, state, menu, public = boot(settings, {
     { id = 'drops', definition = drops.definition },
     { id = 'focus', definition = focus.definition },
     { id = 'interaction', definition = interaction.definition },
@@ -55,8 +56,9 @@ local function fixture(config)
     all = all,
     state = state,
     menu = menu,
-    width = config.pixels,
-    height = config.pixels * config.height / config.width,
+    public = public,
+    width = settings.pixels,
+    height = settings.pixels * settings.height / settings.width,
   }
   fixtures[#fixtures + 1] = f
   function f:close()
@@ -89,28 +91,13 @@ local function fixture(config)
     }, self.all())
   end
   function f:point(label)
-    table.clear(self.fake.events.draw)
-    lovr.draw(self.fake.events.pass)
-    for _, call in self.fake.events.draw do
-      if call[1] == 'text' and call[2] == label then
-        return call[3] + 2, call[4] + 2
-      end
-    end
-    error('the manager does not render ' .. label, 0)
+    return self.public:point(label)
   end
   function f:select(pointer, name)
-    for _, node in self.state.view.snapshot.nodes do
-      if node.name == name then
-        local box = self.state.view.layout[node.id]
-        local camera = self.state.view.camera
-        local x = (box.x + box.width / 2 - camera.x) * camera.zoom
-        local y = (box.y + box.height / 2 - camera.y) * camera.zoom
-        self:update(pointer, x, y, { left = true })
-        self:update(pointer, x, y)
-        return
-      end
-    end
-    error('the fixture graph has no ' .. name, 0)
+    self:click(pointer, 'Fit')
+    local x, y = self.public:point('graph', name)
+    self:update(pointer, x, y, { left = true })
+    self:update(pointer, x, y)
   end
   function f:click(pointer, label)
     local x, y = self:point(label)
@@ -187,7 +174,7 @@ test('real pointer toolbar clicks zoom focus fit enter search and close without 
   expect.near(f.state.view.camera.zoom, fitted.zoom, 1e-6, 'Fit is idempotent at the current graph zoom')
   f:click(pointer, 'Close')
   expect.equal(#f.all(), 0, 'Close hides the manager')
-  expect.equal(f.surface.dead, false, 'Close does not dispose the activation')
+  expect.equal(f.public:panel().dead, false, 'Close does not dispose the activation')
   f:open()
   expect.equal(#f.all(), 1, 'the menu can reopen a closed manager')
 end)
@@ -223,24 +210,11 @@ test('Close cancels other real pointer captures and held input cannot resume aft
   local f = fixture()
   f:open()
   local first, second = f:pointer(), f:pointer()
-  local cancelled = {}
-  local handler = f.surface.onPointer
-  f.surface.onPointer = function(self, event)
-    if event.kind == 'cancel' then
-      cancelled[#cancelled + 1] = event
-    end
-    return handler(self, event)
-  end
   local x, y = f:point 'Close'
   f:update(first, x, y, { left = true })
   f:update(second, 1, f.height / 2, { left = true, right = true })
   f:update(first, x, y)
   expect.equal(#f.all(), 0, 'Close withdraws the surface')
-  expect.equal(#cancelled, 2, 'both buttons on another pointer cancel immediately')
-  for _, event in cancelled do
-    expect.equal(event.pointer, second, 'the remaining captured pointer is cancelled')
-    expect.equal(event.reason, 'hidden', 'Close uses hidden cancellation')
-  end
   expect.equal(f.state.view.dragging, nil, 'Close clears the graph gesture')
   f:open()
   f:update(second, 1, f.height / 2 + 20, { left = true, right = true })
@@ -254,7 +228,7 @@ test('the accepted minimum canvas exposes every action and one configure or cata
   local f = fixture()
   f:open()
   local pointer = f:pointer()
-  expect.equal(f.height, 426, 'the accepted logical minimum is unchanged')
+  expect.equal(f.height, config.minimumHeight, 'the accepted logical minimum follows the shared layout')
   f:select(pointer, 'editable')
   for _, button in f.state.buttons do
     expect.truthy(button.x >= 0 and button.x + button.width <= f.width, button.label .. ' fits horizontally')

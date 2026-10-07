@@ -28,6 +28,9 @@ test('removed session binding settings report migration', function()
   expect.raises(function()
     desktop.compose { workspaces = { modifiers = { 'logo' } } }
   end, 'workspaces.*modifiers.*removed.*menu')
+  expect.raises(function()
+    desktop.compose { settings = { manager = { toggleKey = 'f10' } } }
+  end, 'manager.*toggleKey.*removed.*Plugins')
 end)
 
 test('desktop defaults include the menu recovery path without a physical session binding entry', function()

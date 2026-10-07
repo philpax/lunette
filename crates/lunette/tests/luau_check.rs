@@ -64,6 +64,7 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/menu/positive.luau",
             "luau_check/keyboard-display/positive.luau",
             "luau_check/desktop-menu/positive.luau",
+            "luau_check/desktop-manager/positive.luau",
             "luau_check/native/default_seat_positive.luau",
             "fixtures/require-relative/lunette/main.luau",
             "luau_check/conf/supported.luau",
@@ -151,6 +152,14 @@ fn desktop_menu_settings_reject_invalid_geometry_and_mutation() {
     assert_marked_lines(
         "luau_check/desktop-menu/negative.luau",
         include_str!("luau_check/desktop-menu/negative.luau"),
+    );
+}
+
+#[test]
+fn desktop_manager_settings_reject_physical_shortcuts_and_mutation() {
+    assert_marked_lines(
+        "luau_check/desktop-manager/negative.luau",
+        include_str!("luau_check/desktop-manager/negative.luau"),
     );
 }
 

@@ -60,7 +60,7 @@ Settings follow the entry's configuration descriptor. Declared objects merge rec
 
 `desktop/actions` registers Keyboard and Reload configuration with the neutral `lunette/menu` broker. Keyboard toggles the shared keyboard display, and its selected state follows the display's visibility. An owner-scoped child registers Keyboard, so a display outage removes only that action. Reload configuration remains available to reload the configuration and its source modules. The shipped desktop registers no physical reload chord.
 
-`desktop/manager` registers Plugins, which opens the existing runtime manager surface. Its pointer toolbar supports zoom, fit, focus on the selected node, Close, and entry into search mode. Search entry is not yet a UI text field. The manager still retains `toggleKey` and its physical key and text subscriptions. Its full field and widget migration to `lunette/ui`, including removal of those subscriptions, remains pending. The [runtime manager guide](runtime-manager.md) describes the existing manager controls and session-only limits.
+`desktop/manager` registers Plugins, which opens the shared-UI manager panel named `desktop/manager`. The graph and scrollable sidebar rows use custom regions; buttons, text fields, and choices use shared `lunette/ui` controls. Controller input reaches search, configuration editing, graph navigation, inspection, lifecycle actions, recovery, catalog loading, and Close. Search and configuration text fields use the same desktop keyboard instance as application input. Close hides the panel and ends its active field focus. The manager no longer registers physical key or text handlers. Its schema rejects the removed `toggleKey` option and reports that Plugins opens the manager from the session menu. The [runtime manager guide](runtime-manager.md) describes the controls and session-only limits.
 
 The [desktop example](../../examples/desktop/main.luau) inserts `hide-windows` and `save-menu`. They register Hide windows, Save arrangement, and Restore arrangement in the menu's Examples group. They are optional example consumers, not default session actions.
 
@@ -112,7 +112,7 @@ The existing `plugin.configure(target)(config)` and `desktop.configure(target)(c
 
 ## Known gaps
 
-The manager's full VR field and widget migration remains pending. Pointer entry into search mode does not establish controller-only search text entry or configuration editing. Logic-headless tests do not establish XR or GPU-backed behavior, host-desktop acceptance, or installed-session execution.
+The manager exposes search and configuration fields through the shared UI controls and shared keyboard. `toggleKey` is removed; the manager configuration schema reports a migration diagnostic for configurations that still set it. Logic-headless behavior does not establish XR or GPU-backed behavior, host-desktop acceptance, or installed-session execution. Manual headset acceptance remains open for readability, controller ergonomics, shaping, bidirectional editing, and IME behavior.
 
 ## Decisions
 
