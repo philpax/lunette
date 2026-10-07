@@ -56,6 +56,10 @@ ariadne indexes a `Source` by character and Luau reports by byte. An offset read
 
 The public `lovrHeadset*` and `lovrLayer*` functions forward through a fixed private operations table. `headset_openxr.c` holds the existing OpenXR and simulator implementation. The table covers every existing entry point, including layers and Vulkan callbacks. WebXR retains its separate implementation. No backend selector is exposed by this extraction, and runtime selection behavior is unchanged.
 
+A layer records its creator and its process-monotonic session generation. Its methods dispatch through that creator, including destruction after a session ends. Submission validates the complete replacement list before retaining its entries or releasing the previous list. A layer from an inactive generation cannot be submitted.
+
+Session textures, their descendant views, and session passes become CPU tombstones when their backing is retired. Metadata remains readable. GPU operations and new views fail, including in unchecked builds. Retirement establishes GPU quiescence before invalidating backing, drains deferred destruction before releasing runtime images, and disconnects the runtime before destroying the Vulkan device. Callers serialize retirement with graphics use. A device-loss result permits destruction; another wait error preserves resources for a later retry. The device teardown callback tolerates partial initialization and does not recursively destroy the device.
+
 #### The optional OpenVR connection foundation
 
 `LOVR_ENABLE_OPENVR` defaults to off and builds Valve's pinned SDK loader as a position-independent static library on Linux Vulkan builds. The SDK source remains unmodified, and all output goes into the CMake build directory. The private connection adapter uses the SDK's C function tables, initializes only an overlay application, reports the SDK version, and releases failed connections.

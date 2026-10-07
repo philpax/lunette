@@ -459,10 +459,8 @@ fn a_claim_of_a_different_key_allocates_rather_than_taking_the_free_layer() {
 
 #[test]
 fn at_most_one_layer_is_created_a_frame() {
-    // `lovrLayerCreate` ends in `xrWaitSwapchainImage` with
-    // `XR_INFINITE_DURATION` inside a retry loop that never exits, so more
-    // than one of these in a frame is more than one chance to stall the frame
-    // forever.
+    // `lovrLayerCreate` waits for a swapchain image with an infinite timeout,
+    // so the pool limits each frame to one potentially blocking creation.
     let mut harness = Harness::new(GENEROUS);
     for size in [512, 1024, 2048] {
         harness.pool.claim(key(size, size), priority(1.0));
@@ -776,8 +774,7 @@ fn a_session_replaced_between_two_boundaries_is_given_up_like_a_lost_one() {
     assert_eq!(
         harness.abandoned(),
         vec![stale],
-        "the layer belongs to the session that was destroyed, and destroying it would call \
-         xrDestroySwapchain on an invalidated handle"
+        "the pool relinquishes the retired layer through the session-loss path"
     );
     assert_eq!(harness.destroyed(), 0);
     assert!(harness.pool.layer(claim).is_none());
