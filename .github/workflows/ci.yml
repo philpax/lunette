@@ -175,6 +175,9 @@ jobs:
           # iterating on a red CI recompiles everything each time.
           cache-on-failure: true
 
+      - run: make check-headset
+        if: matrix.half == 'test'
+
       - run: make check-${{ matrix.half }}
 
       # The definitions and the module declarations are generated and checked

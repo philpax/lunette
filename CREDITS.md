@@ -28,6 +28,12 @@ lunette dynamically links a fork of LÖVR, carried as the `vendor/lovr` submodul
 
 Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relicensing them would make them unmergeable by the project they are written for. Each patch is narrow, additive, and shaped as an upstream pull request; the set is listed in [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md#the-patch-set).
 
+## OpenVR SDK
+
+Valve's OpenVR SDK 2.15.6 is pinned at `0924064316de3effbcd1acf1e309182a2deb1c05` in `vendor/lovr/deps/openvr`. The optional Linux Vulkan connection foundation compiles its loader from source as a static library. It does not yet provide a rendering backend.
+
+The SDK uses Valve's three-clause BSD licence. Its copyright, redistribution conditions, and disclaimer are in `vendor/lovr/deps/openvr/LICENSE`. Binary distributions that enable the optional loader must reproduce those terms. SteamVR is a separate runtime and is not redistributed.
+
 ## awesome
 
 <https://github.com/awesomeWM/awesome>, GPL-2.0.

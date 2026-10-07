@@ -118,10 +118,8 @@ fn build() -> Result<(), BuildError> {
 /// `LOVR_SRC` in `CMakeLists.txt` lists every source explicitly, and adding
 /// one edits a watched file.
 ///
-/// `deps/` is not watched. It is a tree of submodules, and a recursive walk of
-/// it emits a rerun line for every file. A submodule bump appears as a change
-/// to `CMakeLists.txt` or to the gitlink, not as a change to a file under
-/// `src/`.
+/// The optional OpenVR SDK inputs are watched individually. Its CMake
+/// integration writes no generated output under the dependency source tree.
 fn watch_lovr_sources(lovr_dir: &Path) -> Result<(), BuildError> {
     println!(
         "cargo::rerun-if-changed={}",
@@ -132,7 +130,13 @@ fn watch_lovr_sources(lovr_dir: &Path) -> Result<(), BuildError> {
         if !is_generated_header(path) {
             println!("cargo::rerun-if-changed={}", path.display());
         }
-    })
+    })?;
+    for directory in ["deps/openvr/src", "deps/openvr/headers"] {
+        walk_files(&lovr_dir.join(directory), &mut |path| {
+            println!("cargo::rerun-if-changed={}", path.display());
+        })?;
+    }
+    Ok(())
 }
 
 /// Whether a path matches the `*.*.h` pattern cmake generates headers under.

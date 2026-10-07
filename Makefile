@@ -46,7 +46,7 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build run install install-binary install-lua install-config check check-format check-rust check-clippy check-test check-definitions check-luau clean
+.PHONY: all build run install install-binary install-lua install-config check check-format check-headset check-rust check-clippy check-test check-definitions check-luau clean
 
 all: build
 
@@ -59,7 +59,12 @@ run:
 # `check` runs the standing checks CONTRIBUTING.md lists, in the order
 # .github/workflows/ci.yml runs them. Each check is its own target; a failure
 # can be repeated on its own.
-check: check-format check-rust check-definitions check-luau
+check: check-format check-headset check-rust check-definitions check-luau
+
+check-headset:
+	cmake -S vendor/lovr -B $(CARGO_TARGET_DIR)/headset-tests -DLOVR_BUILD_HEADSET_TESTS=ON -DLOVR_ENABLE_OPENVR=ON -DLOVR_BUILD_EXE=OFF -DLOVR_BUILD_SHARED=OFF -DLOVR_ENABLE_AUDIO=OFF -DLOVR_ENABLE_DATA=OFF -DLOVR_ENABLE_PHYSICS=OFF -DLOVR_USE_GLFW=OFF -DLOVR_USE_LUAJIT=OFF -DLOVR_USE_GLSLANG=OFF -DLOVR_USE_STEAM_AUDIO=OFF
+	cmake --build $(CARGO_TARGET_DIR)/headset-tests --target headset_native_tests
+	ctest --test-dir $(CARGO_TARGET_DIR)/headset-tests --output-on-failure -L headset
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check

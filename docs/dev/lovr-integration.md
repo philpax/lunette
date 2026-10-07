@@ -4,7 +4,7 @@
 
 LÖVR lives at `vendor/lovr` as a git submodule pointing at `philpax/lovr`, a fork of `bjornbytes/lovr`, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a series that can be read and proposed one commit at a time.
 
-Its `deps/` are themselves submodules (glfw, lua, luajit, luau, openxr, glslang, joltc, msdfgen, phonon, tracy, vulkan-headers), as are `plugins/lua-enet` and `plugins/lovr-http`, so cloning is recursive.
+Its `deps/` are themselves submodules (glfw, lua, luajit, luau, openxr, openvr, glslang, joltc, msdfgen, phonon, tracy, vulkan-headers), as are `plugins/lua-enet` and `plugins/lovr-http`, so cloning is recursive.
 
 The patches live on a branch rather than as a rebased series against each upstream commit. Every file that needs a change would otherwise require constant rebasing, since LÖVR moves weekly. A branch resolves each conflict once.
 
@@ -51,6 +51,16 @@ The flags decide which language is checked. `luau-analyze` calls `setLuauFlagsDe
 ariadne indexes a `Source` by character and Luau reports by byte. An offset reads too far by however many multi-byte characters precede it, which in this tree is LÖVR's `ö`.
 
 `.luaurc` carries neither the definitions nor the platform. `platform` is rejected and reported as a diagnostic, and `definitions` is ignored in silence; both are luau-lsp client settings rather than configuration file keys. An editor also needs `"languageMode": "strict"` in `.luaurc`, without which luau-lsp reports nothing for errors `lunette check` reports, which fails in the worse direction.
+
+#### The private headset operations boundary
+
+The public `lovrHeadset*` and `lovrLayer*` functions forward through a fixed private operations table. `headset_openxr.c` holds the existing OpenXR and simulator implementation. The table covers every existing entry point, including layers and Vulkan callbacks. WebXR retains its separate implementation. No backend selector is exposed by this extraction, and runtime selection behavior is unchanged.
+
+#### The optional OpenVR connection foundation
+
+`LOVR_ENABLE_OPENVR` defaults to off and builds Valve's pinned SDK loader as a position-independent static library on Linux Vulkan builds. The SDK source remains unmodified, and all output goes into the CMake build directory. The private connection adapter uses the SDK's C function tables, initializes only an overlay application, reports the SDK version, and releases failed connections.
+
+This foundation is not a selectable rendering backend. lunette does not enable it in ordinary builds. OpenVR presentation, input, backend selection, and GPU lifetime integration remain unimplemented. Native connection tests use injected loader operations; a separate missing-runtime case calls the real loader with an isolated absent runtime path. Neither establishes headset rendering support.
 
 ### Upstream defects
 
