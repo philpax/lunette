@@ -40,7 +40,9 @@ Two rpath arrangements make them resolve at runtime. `liblovr.so` is built with 
 
 LÖVR's vendored dependencies are used as upstream intends: glslang, Luau, glfw, and the rest, from `deps/`. They form a known-good set that upstream CI tests, and substituting Nix versions would add a debugging surface with no offsetting benefit. The cost is a large first clone and a slow first build.
 
-JoltPhysics is the exception. `deps/joltc` reaches it through cmake's `FetchContent`, which wants the network at configure time. The devshell prefetches the revision `deps/joltc` declares and points `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS` at the result, so the cmake step needs no network. This is what the nixpkgs `lovr` derivation does, and the source is still the tree upstream selected. The revision moves when the `joltc` submodule is bumped.
+JoltPhysics is the exception. `deps/joltc` reaches it through cmake's `FetchContent`, which wants the network at configure time. The devshell prefetches the revision `deps/joltc` declares and points `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS` at the result, so the cmake step needs no network; this is what the nixpkgs `lovr` derivation does, and the source is still the tree upstream selected. Outside the devshell the variable is optional: `build.rs` warns and lets `FetchContent` fetch the same revision itself. The revision moves when the `joltc` submodule is bumped.
+
+`BINDGEN_EXTRA_CLANG_ARGS` supplies the devshell's clang search paths. `build.rs` disables bindgen's probe when they are set and enables it for plain host builds.
 
 ## Nix
 

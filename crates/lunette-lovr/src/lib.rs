@@ -1,8 +1,8 @@
 //! Linux x86_64: the FFI surface for the lunette fork of LÖVR.
 //!
-//! The architecture half of that restriction is in [`LogCallback`]: the type
-//! names bindgen's System V x86_64 `va_list`. The platform half is the
-//! `liblovr.so` the build script produces.
+//! [`LogCallback`] takes `va_list` as an opaque pointer, independent of the
+//! libclang rendering. The platform half is the `liblovr.so` the build script
+//! produces.
 //!
 //! This crate is the boundary between Rust and LÖVR. Its build script runs
 //! LÖVR's cmake build, generates bindings with bindgen, and emits the link
@@ -23,16 +23,37 @@ use std::{
 pub mod analyze;
 
 pub mod raw {
-    //! The bindgen output, verbatim.
+    //! The bindgen output, with four items declared by hand instead.
     //!
     //! Every item here is a C symbol reached through an unsafe call, and every
     //! name is LÖVR's own. The lint suppressions below cover the C naming
-    //! conventions in the generated output. Nothing in this module is
-    //! hand-written.
+    //! conventions in the generated output.
+    //!
+    //! Bindgen renders `va_list` differently across libclang versions. These
+    //! declarations use an opaque pointer, which matches the C ABI, and
+    //! `build.rs` blocklists the generated versions.
 
     #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+    pub type fn_log = Option<crate::LogCallback>;
+
+    unsafe extern "C" {
+        pub fn luax_vthrow(
+            L: *mut ::std::os::raw::c_void,
+            format: *const ::std::os::raw::c_char,
+            args: *mut ::std::os::raw::c_void,
+        );
+        pub fn luax_vlog(
+            context: *mut ::std::os::raw::c_void,
+            level: ::std::os::raw::c_int,
+            tag: *const ::std::os::raw::c_char,
+            format: *const ::std::os::raw::c_char,
+            args: *mut ::std::os::raw::c_void,
+        );
+        pub fn lovrSetLogCallback(callback: fn_log, userdata: *mut ::std::os::raw::c_void);
+    }
 }
 
 /// LÖVR's `boot.lua`, the script that runs before any user code.
@@ -49,16 +70,13 @@ pub const BOOT_LUA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/boot.lua")
 /// `luax_vlog` has this shape. The boot sequence installs it as the log
 /// callback.
 ///
-/// On x86_64: `raw::__va_list_tag` is the name bindgen uses for the System V
-/// x86_64 `va_list`. Other architectures spell it differently. On aarch64
-/// clang spells it `struct __va_list`. The alias changes with the
-/// architecture, so `flake.nix` declares `x86_64-linux` alone.
+/// The `va_list` argument is passed by address and forwarded opaquely.
 pub type LogCallback = unsafe extern "C" fn(
     context: *mut c_void,
     level: c_int,
     tag: *const c_char,
     format: *const c_char,
-    args: *mut raw::__va_list_tag,
+    args: *mut c_void,
 );
 
 /// A live LÖVR platform layer: windowing, timing, and event delivery.
