@@ -59,9 +59,16 @@ local HANDS = {
 }
 
 -- The candidates tried, in order, until one starts. A spawn that never started
--- arrives as `lovr.lunprocessexited` with an outcome of 'spawnFailed', and that
+-- arrives through `lunette.onProcessExited` with an outcome of 'spawnFailed', and that
 -- is the only report a missing program produces.
-local TERMINALS = { 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
+local TERMINALS = {
+  { 'foot' },
+  { 'weston-terminal' },
+  { 'alacritty' },
+  { 'kitty' },
+  { 'konsole', '--separate' },
+  { 'xterm' },
+}
 
 -- The fragment stage for a buffer whose fourth component is padding rather than
 -- alpha. Sampling it draws the window fully invisible, and `window.opaque` is
@@ -133,9 +140,7 @@ local function hit(window, originX, originY, originZ, directionX, directionY, di
     return nil
   end
 
-  return (x + width / 2) / width * pixelWidth,
-    (height / 2 - y) / height * pixelHeight,
-    distance
+  return (x + width / 2) / width * pixelWidth, (height / 2 - y) / height * pixelHeight, distance
 end
 
 -- The load error broken into lines short enough to read, or nothing.
@@ -153,7 +158,7 @@ local function errorLines(text)
   end
 
   local lines = {}
-  for paragraph in (tostring(text) .. '\n'):gmatch('([^\n]*)\n') do
+  for paragraph in (tostring(text) .. '\n'):gmatch '([^\n]*)\n' do
     local remaining = paragraph
     repeat
       if #lines >= ERROR_LINES then
@@ -171,14 +176,14 @@ local errorText = errorLines(loadError)
 
 local function spawnNextTerminal()
   attempt = attempt + 1
-  local program = TERMINALS[attempt]
-  if not program then
+  local argv = TERMINALS[attempt]
+  if not argv then
     attempted = nil
-    print('lunette: safe mode found no terminal emulator to spawn')
+    print 'lunette: safe mode found no terminal emulator to spawn'
     return
   end
 
-  attempted = lunette.spawn { argv = { program } }
+  attempted = lunette.spawn { argv = argv }
 end
 
 -- One hand's frame: where it points, what it hit, and what its trigger did.
@@ -242,7 +247,7 @@ function lovr.load()
   spawnNextTerminal()
 end
 
-function lovr.lunprocessexited(event)
+lunette.onProcessExited(function(event)
   if not attempted or event.process.id ~= attempted.id then
     return
   end
@@ -252,7 +257,7 @@ function lovr.lunprocessexited(event)
   else
     attempted = nil
   end
-end
+end)
 
 function lovr.keypressed(key)
   if key ~= RELOAD_KEY then
@@ -294,9 +299,7 @@ function lovr.draw(pass)
 
   local top = PANEL_Y + PANEL_HEIGHT / 2 + NOTE_HEIGHT * (#errorText + 1)
   pass:text(
-    'lunette: safe mode. The configuration did not load. Press '
-      .. RELOAD_KEY
-      .. ' to try again.',
+    'lunette: safe mode. The configuration did not load. Press ' .. RELOAD_KEY .. ' to try again.',
     PANEL_X,
     top,
     PANEL_Z,

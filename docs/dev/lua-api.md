@@ -371,6 +371,8 @@ The trigger is a wrapper around `lovr.boot`, installed after `boot.lua`'s chunk 
 
 Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never `mullion`, since a broken standard library is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](#decisions) below records why the duplication is deliberate.
 
+Safe mode tries `foot`, `weston-terminal`, `alacritty`, `kitty`, `konsole`, and `xterm`, in that order. `crates/lunette/src/safe_mode.lua` owns the candidate list and arguments. A `spawnFailed` outcome delivered through `lunette.onProcessExited` advances to the next candidate only when its process identifier matches the current attempt. An exit or signal from a process that started stops the search; closing a terminal does not open another. Exhausting the list reports that no terminal emulator could be spawned and leaves safe mode available for reload. Konsole receives `--separate` so an existing host instance cannot take the request over its existing display connection.
+
 ## lunctl
 
 `lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, mode 0600 inside a directory lunette creates at 0700. The chunk is evaluated on the Lua thread between frames within a wall-clock budget, and the result is serialised back.

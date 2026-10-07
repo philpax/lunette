@@ -191,6 +191,10 @@ mod tests {
           windows = function()
             return recorded.showWindow and { recorded.window } or {}
           end,
+          onProcessExited = function(handler)
+            recorded.processExited = handler
+            return function() recorded.processExited = nil end
+          end,
           spawn = function(options)
             recorded.spawns[#recorded.spawns + 1] = options.argv[1]
             return { id = #recorded.spawns }
@@ -374,7 +378,7 @@ mod tests {
         let lua = started();
         let lovr = lovr(&lua);
 
-        for name in ["load", "update", "draw", "keypressed", "lunprocessexited"] {
+        for name in ["load", "update", "draw", "keypressed"] {
             let defined: Option<mlua::Function> =
                 lovr.get(name).expect("the callback should be readable");
             assert!(defined.is_some(), "safe mode should define lovr.{name}");
@@ -414,7 +418,11 @@ mod tests {
             .load("return { process = { id = 1 }, outcome = 'spawnFailed' }")
             .eval::<Table>()
             .expect("the event should build");
-        call(&lua, "lunprocessexited", event);
+        recorder(&lua)
+            .get::<Function>("processExited")
+            .expect("safe mode subscribes to process exits")
+            .call::<()>(event)
+            .expect("the process exit handler runs");
 
         let second = spawns(&lua);
         assert_eq!(
