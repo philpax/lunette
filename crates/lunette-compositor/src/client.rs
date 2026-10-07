@@ -17,7 +17,7 @@
 use std::{
     error::Error,
     ffi::{OsStr, OsString},
-    fmt,
+    fmt, io,
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     sync::Arc,
@@ -210,8 +210,8 @@ pub fn bundled_executable(name: &str, appdir: Option<&OsStr>) -> PathBuf {
 
 /// Owns the optional xwayland-satellite process.
 ///
-/// Startup is best-effort, as in WayVR's satellite setup. A spawn failure logs a
-/// warning and leaves Wayland clients available without X11 support.
+/// Startup is best-effort. A missing executable is normal optional absence;
+/// other spawn failures warn. Wayland clients remain available in either case.
 #[derive(Default)]
 pub(crate) struct Satellite {
     /// The child handle terminates and reaps the process group on drop, including
@@ -254,10 +254,17 @@ impl Satellite {
                 info!(x11 = %name.x11().to_string_lossy(), "started xwayland-satellite");
                 Self { child: Some(child) }
             }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                debug!(
+                    executable = %satellite.executable.display(),
+                    "optional xwayland-satellite is unavailable; serving wayland clients only"
+                );
+                Self::default()
+            }
             Err(error) => {
                 warn!(
                     %error,
-                    "could not start xwayland-satellite; x11 applications will not work"
+                    "could not start xwayland-satellite; check its installation and permissions; serving wayland clients only"
                 );
                 Self::default()
             }
@@ -289,10 +296,78 @@ impl Satellite {
 
 #[cfg(test)]
 mod tests {
+    use std::{io, sync::Mutex};
+
     use pretty_assertions::assert_eq;
+    use tracing::{
+        Event, Level, Metadata, Subscriber,
+        span::{Attributes, Id, Record},
+    };
 
     use super::*;
-    use crate::testing::FakeSpawner;
+    use crate::{process::SpawnError, testing::FakeSpawner};
+
+    #[derive(Clone, Default)]
+    struct Events(Arc<Mutex<Vec<Level>>>);
+
+    impl Subscriber for Events {
+        fn enabled(&self, _: &Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &Attributes<'_>) -> Id {
+            Id::from_u64(1)
+        }
+        fn record(&self, _: &Id, _: &Record<'_>) {}
+        fn record_follows_from(&self, _: &Id, _: &Id) {}
+        fn event(&self, event: &Event<'_>) {
+            self.0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(*event.metadata().level());
+        }
+        fn enter(&self, _: &Id) {}
+        fn exit(&self, _: &Id) {}
+    }
+
+    struct RefusingSpawner(io::ErrorKind);
+
+    impl ProcessSpawner for RefusingSpawner {
+        fn spawn(&mut self, plan: &SpawnPlan) -> Result<Box<dyn ChildProcess>, SpawnError> {
+            Err(SpawnError::for_test(
+                plan.argv.program().to_owned(),
+                io::Error::new(self.0, "spawn refused"),
+            ))
+        }
+    }
+
+    #[test]
+    fn a_missing_optional_bridge_is_not_a_warning() {
+        assert_bridge_failure_level(io::ErrorKind::NotFound, Level::DEBUG);
+    }
+
+    #[test]
+    fn genuine_bridge_failures_still_warn() {
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::Other,
+        ] {
+            assert_bridge_failure_level(kind, Level::WARN);
+        }
+    }
+
+    fn assert_bridge_failure_level(kind: io::ErrorKind, level: Level) {
+        let events = Events::default();
+        let satellite = XwaylandSatellite::resolve(None);
+        let bridge = tracing::subscriber::with_default(events.clone(), || {
+            Satellite::start(&mut RefusingSpawner(kind), Some(&satellite), display())
+        });
+        assert!(!bridge.is_running());
+        assert_eq!(
+            *events.0.lock().unwrap_or_else(|error| error.into_inner()),
+            vec![level]
+        );
+    }
 
     fn display() -> DisplayName {
         DisplayName { number: 20 }
@@ -371,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn a_bridge_that_will_not_start_is_a_warning_rather_than_a_failure() {
+    fn an_unavailable_bridge_does_not_prevent_wayland_startup() {
         let mut spawner = FakeSpawner::default();
         spawner.log.refuse("no such file or directory");
         let satellite = XwaylandSatellite {

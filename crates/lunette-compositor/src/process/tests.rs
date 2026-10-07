@@ -19,6 +19,22 @@ use crate::{
     testing::{FakeInspector, FakeSpawner},
 };
 
+#[test]
+fn spawn_errors_preserve_the_io_kind_for_optional_executables() {
+    for kind in [
+        std::io::ErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::InvalidInput,
+        std::io::ErrorKind::Other,
+    ] {
+        let error = SpawnError::for_test(
+            OsString::from("xwayland-satellite"),
+            std::io::Error::new(kind, "spawn refused"),
+        );
+        assert_eq!(error.kind(), kind);
+    }
+}
+
 fn display() -> DisplayEnvironment {
     DisplayEnvironment {
         wayland_display: OsString::from("wayland-20"),

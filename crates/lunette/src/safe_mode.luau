@@ -26,7 +26,14 @@ local HANDS = {
 }
 
 -- A missing terminal reports `spawnFailed` as its process-exit outcome.
-local TERMINALS = { 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
+local TERMINALS = {
+  { 'foot' },
+  { 'weston-terminal' },
+  { 'alacritty' },
+  { 'kitty' },
+  { 'konsole', '--separate' },
+  { 'xterm' },
+}
 
 -- Opaque buffers use their fourth component as padding, so the fragment shader supplies full alpha.
 local OPAQUE_FRAGMENT = [[
@@ -85,9 +92,7 @@ local function hit(window, originX, originY, originZ, directionX, directionY, di
     return nil
   end
 
-  return (x + width / 2) / width * pixelWidth,
-    (height / 2 - y) / height * pixelHeight,
-    distance
+  return (x + width / 2) / width * pixelWidth, (height / 2 - y) / height * pixelHeight, distance
 end
 
 -- Error text wraps at fixed widths because paths and tracebacks lack useful word boundaries.
@@ -97,7 +102,7 @@ local function errorLines(text)
   end
 
   local lines = {}
-  for paragraph in (tostring(text) .. '\n'):gmatch('([^\n]*)\n') do
+  for paragraph in (tostring(text) .. '\n'):gmatch '([^\n]*)\n' do
     local remaining = paragraph
     repeat
       if #lines >= ERROR_LINES then
@@ -115,14 +120,14 @@ local errorText = errorLines(loadError)
 
 local function spawnNextTerminal()
   attempt = attempt + 1
-  local program = TERMINALS[attempt]
-  if not program then
+  local argv = TERMINALS[attempt]
+  if not argv then
     attempted = nil
-    print('lunette: safe mode found no terminal emulator to spawn')
+    print 'lunette: safe mode found no terminal emulator to spawn'
     return
   end
 
-  attempted = lunette.spawn { argv = { program } }
+  attempted = lunette.spawn { argv = argv }
 end
 
 local function updateHand(index, hand, window)
@@ -183,7 +188,7 @@ function lovr.load()
   spawnNextTerminal()
 end
 
-function lovr.lunprocessexited(event)
+lunette.onProcessExited(function(event)
   if not attempted or event.process.id ~= attempted.id then
     return
   end
@@ -193,7 +198,7 @@ function lovr.lunprocessexited(event)
   else
     attempted = nil
   end
-end
+end)
 
 function lovr.keypressed(key)
   if key ~= RELOAD_KEY then
@@ -228,9 +233,7 @@ function lovr.draw(pass)
 
   local top = PANEL_Y + PANEL_HEIGHT / 2 + NOTE_HEIGHT * (#errorText + 1)
   pass:text(
-    'lunette: safe mode. The configuration did not load. Press '
-      .. RELOAD_KEY
-      .. ' to try again.',
+    'lunette: safe mode. The configuration did not load. Press ' .. RELOAD_KEY .. ' to try again.',
     PANEL_X,
     top,
     PANEL_Z,

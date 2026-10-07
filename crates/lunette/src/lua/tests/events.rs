@@ -1,6 +1,10 @@
 //! Tests event payloads, ordering, and handler failure behavior.
 
-use lunette_compositor::protocol::{PixelSize, ProcessId, ProcessOutcome, SignalNumber, Stream};
+use std::ffi::OsStr;
+
+use lunette_compositor::protocol::{
+    Command, Event as CompositorEvent, PixelSize, ProcessId, ProcessOutcome, SignalNumber, Stream,
+};
 use mlua::{Table, Value};
 use pretty_assertions::assert_eq;
 
@@ -145,6 +149,96 @@ fn a_spawn_that_never_started_is_reported_as_an_exit_and_opens_no_window() {
         opened, 0,
         "a program that never ran cannot have connected a client"
     );
+}
+
+#[test]
+fn safe_mode_terminal_fallback_runs_through_the_native_event_dispatcher() {
+    let (session, sink) = recording_session(Vec::new());
+    let lua = lua(&session);
+    crate::safe_mode::load(&lua)
+        .expect("safe mode compiles")
+        .call::<()>(())
+        .expect("safe mode loads");
+    run::<()>(&lua, "lovr.load()");
+
+    let candidates: &[(&str, &[&str])] = &[
+        ("foot", &[]),
+        ("weston-terminal", &[]),
+        ("alacritty", &[]),
+        ("kitty", &[]),
+        ("konsole", &["--separate"]),
+        ("xterm", &[]),
+    ];
+    for (program, arguments) in candidates {
+        let commands = session.flush();
+        assert_eq!(commands.len(), 1, "exactly one candidate should be queued");
+        let Command::Spawn(request) = &commands[0] else {
+            panic!("expected a spawn command: {commands:?}");
+        };
+        assert_eq!(request.argv.program(), OsStr::new(program));
+        assert_eq!(
+            request.argv.arguments(),
+            arguments.iter().map(OsStr::new).collect::<Vec<_>>()
+        );
+
+        session.push_event(LuaEvent::ProcessExited {
+            process: ProcessId::new(u64::MAX).expect("non-zero"),
+            outcome: ProcessOutcome::SpawnFailed {
+                message: "unrelated".into(),
+            },
+        });
+        poll(&lua, &sink);
+        assert!(session.flush().is_empty());
+
+        let event = CompositorEvent::ProcessExited {
+            process: request.process,
+            outcome: ProcessOutcome::SpawnFailed {
+                message: "program not found".into(),
+            },
+        };
+        session.push_event(LuaEvent::from_compositor(&event).expect("exit converts"));
+        poll(&lua, &sink);
+
+        session.push_event(LuaEvent::from_compositor(&event).expect("exit converts"));
+        poll(&lua, &sink);
+    }
+    assert!(session.flush().is_empty(), "exhaustion must stop spawning");
+}
+
+#[test]
+fn safe_mode_does_not_replace_a_terminal_that_started_and_then_exited() {
+    for outcome in [
+        ProcessOutcome::Exited { code: 0 },
+        ProcessOutcome::Exited { code: 1 },
+        ProcessOutcome::Signalled {
+            signal: SignalNumber::new(15),
+        },
+    ] {
+        let (session, sink) = recording_session(Vec::new());
+        let lua = lua(&session);
+        crate::safe_mode::load(&lua)
+            .expect("compiles")
+            .call::<()>(())
+            .expect("loads");
+        run::<()>(&lua, "lovr.load()");
+        let commands = session.flush();
+        let Command::Spawn(request) = &commands[0] else {
+            panic!("expected spawn")
+        };
+        session.push_event(LuaEvent::ProcessExited {
+            process: request.process,
+            outcome,
+        });
+        poll(&lua, &sink);
+        session.push_event(LuaEvent::ProcessExited {
+            process: request.process,
+            outcome: ProcessOutcome::SpawnFailed {
+                message: "stale".into(),
+            },
+        });
+        poll(&lua, &sink);
+        assert!(session.flush().is_empty());
+    }
 }
 
 #[test]

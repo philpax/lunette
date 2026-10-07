@@ -14,7 +14,7 @@ The standard library defaults flat panels to composition layers and falls back t
 
 Client buffers arrive as dmabufs. The native layer imports them as `VkImage`s on LÖVR's device and wraps them as LÖVR `Texture`s via `TextureInfo.handle`.
 
-Import is zero-copy and per-buffer. Wayland clients cycle among 2 to 4 buffers, so a surface's pixels live in a different `VkImage` each frame. An import cache keyed on the dmabuf, WayVR's approach at `inspiration/wayvr/wayvr/src/backend/wayvr/image_importer.rs:102`, means a surface rotates among a small stable set of textures rather than allocating anything after warm-up.
+Import is zero-copy and per-buffer. Wayland clients cycle among 2 to 4 buffers, so a surface's pixels live in a different `VkImage` each frame. An import cache keyed on the dmabuf, WayVR's approach in upstream `src/backend/wayvr/image_importer.rs`, means a surface rotates among a small stable set of textures rather than allocating anything after warm-up.
 
 `window:getTexture()` is therefore valid for one frame only; a script must not hold it across frames. This is consistent with the snapshot model, and matches the practice of other compositors: wlroots, KWin, Mutter, and Hyprland all sample client buffers directly and never make a stabilising copy.
 

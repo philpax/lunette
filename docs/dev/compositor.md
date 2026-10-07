@@ -6,7 +6,7 @@ The implementation is a hard vendor of WayVR's `backend/wayvr/` (approximately 4
 
 ## Protocols
 
-The protocol set starts from WayVR's (`inspiration/wayvr/wayvr/src/backend/wayvr/comp.rs`): compositor, xdg-shell, xdg-decoration, kde-decoration, output, seat, shm, dmabuf, viewporter, single-pixel-buffer, relative-pointer, data-device, primary-selection, data-control, ext-data-control.
+The protocol set starts from WayVR's (WayVR upstream: `src/backend/wayvr/comp.rs`): compositor, xdg-shell, xdg-decoration, kde-decoration, output, seat, shm, dmabuf, viewporter, single-pixel-buffer, relative-pointer, data-device, primary-selection, data-control, ext-data-control.
 
 Additions:
 
@@ -64,7 +64,9 @@ Windows and mirrored monitors reach Lua through the same interface: a texture, a
 
 ## XWayland
 
-X11 applications are supported via `xwayland-satellite`, spawned as a child process as WayVR does (`client.rs:101`), opt-in per application.
+X11 applications are supported via the optional `xwayland-satellite` executable, spawned as a child process when available, opt-in per application. The application supplies the executable configuration. A non-empty `APPDIR` selects `usr/bin/xwayland-satellite` inside the bundle; otherwise process creation looks up `xwayland-satellite` on `PATH`. The compositor uses its process-spawning seam rather than inspecting the filesystem or the environment.
+
+A missing executable is normal optional absence. It produces a debug diagnostic, not a startup warning, and lunette continues serving Wayland clients without X11 support. Other spawn failures, such as denied execution permission, produce a warning naming the executable and the underlying error, with installation and permission checks as the next step. A bridge that starts and then exits also produces a warning. Availability is determined at spawn time, so there is no filesystem check followed by a race to execute the checked path.
 
 Satellite is a rootless X server that translates X11 clients into Wayland clients of the compositor. From the compositor's side, an X11 application is just another client, and there is no X11 code in the lunette tree. X11-specific window management semantics are lost as a result: override-redirect, `_NET_WM` hints, and transient-for are mapped onto xdg-shell by satellite as best it can.
 

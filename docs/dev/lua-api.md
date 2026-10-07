@@ -822,6 +822,8 @@ The trigger is a wrapper around `lovr.boot`, installed after `boot.lua`'s chunk 
 
 Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.luau` is what it runs. It requires `lunette` and nothing else — never a mounted module root, since a broken installation is one of the reasons `main.luau` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](#decisions) below records why the duplication is deliberate.
 
+Safe mode tries `foot`, `weston-terminal`, `alacritty`, `kitty`, `konsole`, and `xterm`, in that order. `crates/lunette/src/safe_mode.luau` owns the candidate list and arguments. A `spawnFailed` outcome delivered through `lunette.onProcessExited` advances to the next candidate only when its process identifier matches the current attempt. An exit or signal from a process that started stops the search; closing a terminal does not open another. Exhausting the list reports that no terminal emulator could be spawned and leaves safe mode available for reload. Konsole receives `--separate` so an existing host instance cannot take the request over its existing display connection.
+
 ## lunctl
 
 `lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, mode 0600 inside a directory lunette creates at 0700. The chunk is evaluated on the Lua thread between frames within a wall-clock budget, and the result is serialised back.
@@ -847,7 +849,7 @@ The exit status says what happened, so a script can branch on it: `0` the chunk 
 
 A top-level string prints without quotes and a string inside a table prints with them. The top level is what a shell captures, so `$(lunctl 'return win.title')` is the title rather than the title in quotes. A handle prints as `<window 3>`: its kind and the identity the session keys it on, and nothing a client could dereference.
 
-Three things learned from awesome's version (`inspiration/awesome/lib/awful/remote.lua`):
+Three things learned from awesome's version (awesome upstream: `lib/awful/remote.lua`):
 
 - awesome's remote control is exposed on the session D-Bus, reachable by every process in the session, including Flatpak applications granted `--socket=session-bus`. This makes it possible for a sandboxed application to ask the window manager to run arbitrary Lua. A 0600 socket in `$XDG_RUNTIME_DIR` provides the same capability with a smaller attack surface.
 - awesome enables remote control unintentionally. The manpage implies it is opt-in, but `lib/awful/init.lua:28` requires `awful.remote` unconditionally, so every configuration that calls `require("awful")` has arbitrary code execution enabled. lunctl is enabled deliberately, documented as equivalent to root access on the user's session, with a switch to disable it.

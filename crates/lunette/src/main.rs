@@ -220,6 +220,7 @@ fn main() -> ExitCode {
     let startup = Startup {
         socket,
         display: name,
+        // A missing bridge serves Wayland clients only without a warning.
         satellite: Some(XwaylandSatellite::resolve(
             env::var_os(APPDIR)
                 .as_deref()

@@ -78,16 +78,24 @@ fn build() -> Result<(), BuildError> {
     // the same way.
     let manifest_dir = PathBuf::from(required_var("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(required_var("OUT_DIR")?);
-    let jolt_source = required_var(JOLT_SOURCE_VAR)?;
+    let jolt_source = env::var_os(JOLT_SOURCE_VAR);
+    if jolt_source.is_none() {
+        println!(
+            "cargo::warning={JOLT_SOURCE_VAR} is unset, so cmake fetches JoltPhysics over the \
+             network at configure time. Set it to a checkout of the revision \
+             `vendor/lovr/deps/joltc/CMakeLists.txt` declares to build offline."
+        );
+    }
     let lovr_dir = canonicalize(&manifest_dir.join("../../vendor/lovr"))?;
 
     println!("cargo::rerun-if-env-changed={JOLT_SOURCE_VAR}");
     watch_lovr_sources(&lovr_dir)?;
 
-    let cmake_out = build_lovr(&lovr_dir, &jolt_source);
+    let cmake_out = build_lovr(&lovr_dir, jolt_source.as_ref());
     let lovr_build = find_lovr_build(&cmake_out)?;
-    emit_link_directives(&lovr_build);
+    // The shim's Luau references require its link directives before `liblovr.so`.
     build_analyze_shim(&lovr_dir);
+    emit_link_directives(&lovr_build);
     stage_boot_lua(&lovr_dir, &out_dir)?;
     generate_bindings(&manifest_dir, &lovr_dir, &out_dir)
 }
@@ -145,7 +153,7 @@ fn is_generated_header(path: &Path) -> bool {
 /// rules that do not hold in this configuration: phonon's expects a split
 /// `.dbg` file that a shared build does not produce. The nixpkgs derivation
 /// sets `dontUseCmakeInstall` for the same reason.
-fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
+fn build_lovr(lovr_dir: &Path, jolt_source: Option<&OsString>) -> PathBuf {
     let configure = || {
         let mut config = cmake::Config::new(lovr_dir);
         // mlua links the Lua C API from `liblovr.so`, and `lunette check`
@@ -157,8 +165,11 @@ fn build_lovr(lovr_dir: &Path, jolt_source: &OsString) -> PathBuf {
             .define("LOVR_LUAU_ANALYSIS", "ON");
         config
             .define("LOVR_BUILD_SHARED", "ON")
-            .define("LOVR_BUILD_WITH_SYMBOLS", "ON")
-            .define("FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS", jolt_source)
+            .define("LOVR_BUILD_WITH_SYMBOLS", "ON");
+        if let Some(source) = jolt_source {
+            config.define("FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS", source);
+        }
+        config
             // `vendor/lovr/CMakeLists.txt` sets `liblovr.so`'s rpath to
             // `$ORIGIN`, which resolves to the directory holding `liblovr.so`.
             // In the packaged layout every library is in that directory. In
@@ -285,14 +296,8 @@ fn generate_bindings(
         // (`vendor/lovr/CMakeLists.txt`); bindgen parses the same dialect,
         // not whatever clang defaults to for a bare `.h`.
         .clang_args(["-x", "c", "-std=c11"])
-        // The devshell provides bindgen with a complete clang search path
-        // through BINDGEN_EXTRA_CLANG_ARGS. Letting bindgen probe the `clang`
-        // on PATH lists clang's builtin include directory a second time
-        // under a different path. `#include_next <stdatomic.h>` inside
-        // clang's own `<stdatomic.h>` then re-enters that header, whose
-        // include guard is already set, so it expands to nothing and
-        // `atomic_uint` in `vendor/lovr/src/util.h` becomes an unknown type.
-        .detect_include_paths(false)
+        // Explicit clang arguments already provide headers; probing adds duplicate paths.
+        .detect_include_paths(env::var_os("BINDGEN_EXTRA_CLANG_ARGS").is_none())
         .clang_args(includes)
         .clang_args(LOVR_DEFINES)
         .allowlist_function("luax_.*")
@@ -386,6 +391,10 @@ fn generate_bindings(
         // anonymous and named enums respectively in `graphics.h`.
         .allowlist_type("TextureType")
         .allowlist_item("TEXTURE_.*")
+        .blocklist_function("luax_vthrow")
+        .blocklist_function("luax_vlog")
+        .blocklist_function("lovrSetLogCallback")
+        .blocklist_type("fn_log")
         .generate()
         .map_err(BuildError::GenerateBindings)?;
 
@@ -524,12 +533,6 @@ impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "lovr build: ")?;
         match self {
-            Self::MissingVariable(name) if *name == JOLT_SOURCE_VAR => write!(
-                f,
-                "{name} is unset. It names a prefetched JoltPhysics source tree, and the Nix \
-                 devshell is what provides it — build from inside `nix develop`, or set it to a \
-                 checkout of the revision `vendor/lovr/deps/joltc/CMakeLists.txt` declares"
-            ),
             Self::MissingVariable(name) => {
                 write!(f, "{name} is unset, and Cargo is what provides it")
             }

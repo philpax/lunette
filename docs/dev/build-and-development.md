@@ -27,9 +27,8 @@ lunette/
   vendor/lovr/                    submodule → LÖVR with lunette's patch branch (recursive)
   vendor/lovr-docs/               submodule → the API metadata and its Luau generator, on lunette's branch
   vendor/mlua/                    submodule → mlua with lunette's Luau ABI patches
-  docs/dev/                       this
+  docs/dev/                       the design specification
   docs/guide/                     user-facing guides; not normative
-  inspiration/                    reference checkouts, gitignored
 ```
 
 `lunette-compositor` must not depend on `lunette-lovr`. This is what keeps logic-headless testing reachable. It does depend on `lunette-luau`, which carries no Lua binding of its own: mlua is a feature there, off by default and turned on only by `lunette`, so naming a Luau type costs the headless tier nothing.
@@ -46,7 +45,9 @@ Two rpath arrangements make them resolve at runtime. `liblovr.so` is built with 
 
 LÖVR's vendored dependencies are used as upstream intends: glslang, Luau, glfw, and the rest, from `deps/`. They form a known-good set that upstream CI tests, and substituting Nix versions would add a debugging surface with no offsetting benefit. The cost is a large first clone and a slow first build.
 
-JoltPhysics is the exception. `deps/joltc` reaches it through cmake's `FetchContent`, which wants the network at configure time. The devshell prefetches the revision `deps/joltc` declares and points `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS` at the result, so the cmake step needs no network. This is what the nixpkgs `lovr` derivation does, and the source is still the tree upstream selected. The revision moves when the `joltc` submodule is bumped.
+JoltPhysics is the exception. `deps/joltc` reaches it through cmake's `FetchContent`, which wants the network at configure time. The devshell prefetches the revision `deps/joltc` declares and points `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS` at the result, so the cmake step needs no network; this is what the nixpkgs `lovr` derivation does, and the source is still the tree upstream selected. Outside the devshell the variable is optional: `build.rs` warns and lets `FetchContent` fetch the same revision itself. The revision moves when the `joltc` submodule is bumped.
+
+`BINDGEN_EXTRA_CLANG_ARGS` supplies the devshell's clang search paths. `build.rs` disables bindgen's probe when they are set and enables it for plain host builds.
 
 ## Nix
 
@@ -92,9 +93,9 @@ Embedding via `rust-embed` exists as an optional build feature, off by default. 
 
 ## The development loop
 
-`cargo run` starts the working copy against itself. The workspace's `default-members` is `crates/lunette` and that crate's `default-run` is `lunette`, so neither the package nor the binary has to be named from the repository root; `cargo run --bin lunctl` reaches the control client. A bare `cargo build` or `cargo test` covers that crate alone for the same reason, which is why the standing checks name `--workspace`. The devshell exports `LUNETTE_STDLIB_PATH` and `LUNETTE_CONFIG_PATH`, pointing at `lua/` and `etc/xdg/lunette` in the repository, so no flag is needed and the working directory does not matter: both are anchored at the repository root rather than at `$PWD`. `--config-path` outranks the variable. The Rust alias descriptors and generated install manifest remain the source of truth for module roots and installation.
+`make run` starts the working copy against itself. The target in `Makefile` sets `LUNETTE_STDLIB_PATH` and `LUNETTE_CONFIG_PATH` to absolute paths under the repository root for that invocation, independently of Nix. `make run ARGS="--config-path /path/to/config"` loads another configuration; the flag outranks the variable. Plain `cargo run` uses the installed runtime defaults unless the variables are supplied explicitly. The workspace's `default-members` is `crates/lunette` and that crate's `default-run` is `lunette`, so neither the package nor the binary has to be named from the repository root; `cargo run --bin lunctl` reaches the control client. A bare `cargo build` or `cargo test` covers that crate alone for the same reason, which is why the standing checks name `--workspace`. The Rust alias descriptors and generated install manifest remain the source of truth for module roots and installation.
 
-The shipped desktop starts no applications. The repository-only `dev/` configuration inserts `dev/plugins/demo-terminal`, which tries its configured terminal programs when no window is open and retains its attempt guard across source reload. From the repository root in the dev shell, `cargo run -- --config-path dev` selects it. Outside the dev shell, `LUNETTE_STDLIB_PATH=lua cargo run -- --config-path dev` also selects the source modules. The development config loads its plugins by relative `require`; it adds no runtime alias, and neither the config nor its plugins are installed. `dev/examples` is a symlink to `../examples`, so the configuration replaces the keyboard provider with `examples/keyboard/rounded.luau` without copying its drawing code. Pressing the wrist's `kbd` button shows that keyboard. `dev/conf.luau` retains the shipped overlay and source precedence settings and uses the separate `lunette-dev` save identity.
+The shipped desktop starts no applications. The repository-only `dev/` configuration inserts `dev/plugins/demo-terminal`, which tries its configured terminal programs when no window is open and retains its attempt guard across source reload. From the repository root, `make run ARGS="--config-path dev"` selects it. `LUNETTE_STDLIB_PATH=lua cargo run -- --config-path dev` also selects the source modules. The development config loads its plugins by relative `require`; it adds no runtime alias, and neither the config nor its plugins are installed. `dev/examples` is a symlink to `../examples`, so the configuration replaces the keyboard provider with `examples/keyboard/rounded.luau` without copying its drawing code. The wrist menu's Keyboard action shows that keyboard. `dev/conf.luau` retains the shipped overlay and source precedence settings and uses the separate `lunette-dev` save identity.
 
 `.envrc` carries `use flake`, so `direnv allow` puts that environment in the running shell. Using direnv rather than `nix develop` matters for what a session spawns. `nix develop` starts its own bash and sets `SHELL` to it, lunette hands its environment to every client it starts, and a terminal opened from such a session runs a shell from the store with none of the user's setup. direnv exports into the shell that is already running and leaves `SHELL` alone.
 
@@ -135,6 +136,8 @@ The standing checks are listed in [CONTRIBUTING.md](../../CONTRIBUTING.md) and r
 ## Decisions
 
 Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+The development launch belongs to `make run`, not the Nix shell. The shell supplies build and runtime dependencies without changing which configuration an ordinary invocation loads. Exporting checkout paths from the shell made development behavior depend on entering Nix and obscured the installed defaults. The launch target supplies those paths explicitly and works in either environment.
 
 Compositor tests connect over a socketpair, not a bound socket. `Connection::from_socket` and `DisplayHandle::insert_client` both take a `UnixStream` directly, so a test gives one end of a `UnixStream::pair()` to each side and the filesystem is never involved. Only the listener's own tests — bind, listen, accept, and socket-path selection — bind a real socket, in a per-test temporary directory, because that is the code under test. The real socket in [Build and development](build-and-development.md#testing) means a real Wayland connection, not a real path on disk.
 
