@@ -61,6 +61,8 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/ui/service_positive.luau",
             "luau_check/pass/ui-substitute.luau",
             "luau_check/ui/installed.luau",
+            "luau_check/menu/positive.luau",
+            "luau_check/keyboard-display/positive.luau",
             "luau_check/native/default_seat_positive.luau",
             "fixtures/require-relative/lunette/main.luau",
             "luau_check/conf/supported.luau",
@@ -132,6 +134,22 @@ fn keyboard_visibility_rejects_invalid_reasons_callbacks_and_mutation() {
     assert_marked_lines(
         "luau_check/keyboard/visibility_negative.luau",
         include_str!("luau_check/keyboard/visibility_negative.luau"),
+    );
+}
+
+#[test]
+fn menu_actions_updates_and_results_reject_invalid_types_and_mutation() {
+    assert_marked_lines(
+        "luau_check/menu/negative.luau",
+        include_str!("luau_check/menu/negative.luau"),
+    );
+}
+
+#[test]
+fn keyboard_display_changes_and_receivers_reject_invalid_types_and_mutation() {
+    assert_marked_lines(
+        "luau_check/keyboard-display/negative.luau",
+        include_str!("luau_check/keyboard-display/negative.luau"),
     );
 }
 

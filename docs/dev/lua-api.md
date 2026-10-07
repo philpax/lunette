@@ -237,7 +237,13 @@ return keyboard.define {
 
 A pointer pulses the device that drives it with `pointer:vibrate { strength, duration }`, which answers whether a pulse was sent. The device is whatever the pointer's creator gave `interaction:newPointer` as `vibrate`; the laser gives each pointer its hand's controller, and a pointer made without one answers false. Protocol surfaces receive the pointer as `event.pointer` in `onPointer`; legacy surfaces receive it in `onPress`, `onHover`, and `onLeave`. A surface can therefore pulse the hand that pressed it.
 
-`desktop/keyboard`, the shipped wrist button, takes `hand`, `left` or `right`; `size`, the button's edge in metres; `offset`, a native vector placing it in the hand's space; `placement`, the keyboard's `distance` ahead of the head, `drop` below it, and `tilt` back; and `haptic`, the pulse a press gives through the pressing pointer. It offers and draws only the keyboard it made.
+`desktop/keyboard` provides the shared keyboard display and retains a compatibility wrist button. Its configuration takes `hand`, `left` or `right`; `size`, the button's edge in metres; `offset`, a native vector placing it in the hand's space; `placement`, the keyboard's `distance` ahead of the head, `drop` below it, and `tilt` back; and `haptic`, the pulse a press gives through the pressing pointer. It offers and draws only its single lazily created keyboard. The wrist button and its geometry settings remain until the wrist-menu migration.
+
+### Keyboard display
+
+`@lunette-contracts/keyboard-display` declares `lunette/keyboard-display` at schema 1. `desktop/keyboard` implements it and requires keyboard, focus, frame, and surfaces. The service exposes `dead`, `show()`, `hide()`, `toggle()`, `isVisible()`, and `onChanged(owner, { run })`. Its public methods name `Service` as the receiver, and listener registration returns an owner-scoped effect. Frozen change records carry `visible`, a reason of `show`, `hide`, `user-hide`, or `destroy`, the current local focus `target` when applicable, and the display's `revision`. The contract module is the source of truth for these types.
+
+Manual show records manual visibility. A local focus change requesting a keyboard shows the existing board automatically and records the target identity and focus revision. Field-to-field focus retains its pose; a hidden-to-visible transition applies configured placement. Ending editing hides automatic visibility but preserves manual visibility for application input. Explicit hide, toggle-to-hidden, and the board's user-hide action clear visibility intent and blur only the matching current local target. State changes precede observer callbacks, and reentrant focus changes cannot cause a stale hide to blur a replacement field. Field drafts survive blur. Display teardown invalidates retained callbacks and state. A replacement activation does not replay an old focus target; a new live focus notification can show its board.
 
 ### Pointers and interaction
 
@@ -346,6 +352,14 @@ bindings:register(owner, {
   run = function(press) end,
 })
 ```
+
+### Menu actions
+
+`@lunette-contracts/menu` declares `lunette/menu` at schema 1. The built-in `@lunette-plugins/menu` provider takes no options and holds action registrations without rendering a menu. `register(owner, action)` returns an owner-scoped effect. An action contains `id`, `label`, `run`, and optional `group`, `order`, `enabled`, and `selected` values. Containers must be plain, fields must be declared, and order must be finite. The defaults are group `''`, order `0`, enabled `true`, and selected `false`. Duplicate ids raise rather than replace a registration.
+
+`list()` returns detached frozen descriptors sorted by group, order, and id. Each descriptor contains the resolved display values and a frozen `Registration` token, with no callback or getter. `update(owner, effect, state)` changes optional enabled and selected values only for that owner's exact live registration effect. Omitted values remain unchanged. A stale effect cannot update a replacement with the same id.
+
+`invoke(id, expectedRegistration?)` returns `invoked`, `unavailable`, or `failed` with a diagnostic message. Missing, disabled, or stale registrations are unavailable. Passing the descriptor's token rejects a replacement with the same id; callers that retain displayed rows pass that token. Invocation snapshots the registration and calls its callback once under the registering owner's protected diagnostic context. Callback errors do not invoke another action or escape as unhandled input. Registration disposal and provider shutdown invalidate retained callbacks. `inspect()` returns callback-free owner-labelled registration metadata through the inspection vocabulary. An inspection consumer can run as a suspendable child rather than making the broker a required dependency of its parent.
 
 ### Layouts
 
@@ -1125,7 +1139,7 @@ A monitor panel cannot hold a composition layer, because `lunette.claimLayer` ta
 
 The focus source contract takes activations and committed UTF-8, not held-key state or IME preedit. Virtual local translation has no dead-key or compose state. Native window text can deliver a prefix before encountering an unrepresentable scalar. Physical text invalidation is batch-wide because LÖVR supplies no per-key text correlation. [Input](input.md#known-gaps) records those limitations and the outstanding hardware acceptance.
 
-The UI toolkit does not yet define a menu contract or migrate the shipped desktop controls or runtime manager. A checked `examples/ui` configuration, full text shaping, bidirectional editing, IME composition, and GPU-backed and in-headset acceptance remain outstanding. Draw hooks cannot make arbitrary pass stack misuse safe.
+The menu action broker and shared keyboard display are implemented. Wrist-menu composition and migration of the shipped desktop controls and runtime manager remain pending. A checked `examples/ui` configuration, full text shaping, bidirectional editing, IME composition, and GPU-backed and in-headset acceptance remain outstanding. Draw hooks cannot make arbitrary pass stack misuse safe.
 
 ## Deliberately left open
 

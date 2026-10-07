@@ -97,6 +97,14 @@ A delivery result is `consumed`, `unhandled`, `refused` with a message, or `fail
 
 Every native stroke attempts its registered key release and modifier clear on the original sink and seat, in reverse order. The source records each inverse before the corresponding mutation, so a refusal or exception still attempts cleanup. A refused or raising inverse blocks subsequent delivery from that source because native state can no longer be assumed released. Reset, route loss, and source disposal attempt retained inverses; they never redirect them to the current target. Owner cleanup failure follows the plugin runtime's inverse and quarantine rules.
 
+### Shared keyboard visibility
+
+The `lunette/keyboard-display` schema 1 contract exposes one desktop keyboard through show, hide, toggle, visibility inspection, and owner-scoped change notifications. `desktop/keyboard` creates the board lazily and reuses it for application input and local fields. A local focus notification with `wantsKeyboard=true` requests automatic visibility without a dependency from UI controls to the desktop. Field-to-field focus keeps the board's pose. Placement runs only on a hidden-to-visible transition.
+
+Manual show retains the board after editing ends. Automatic visibility ends with its requesting target unless the board is manually shown. Explicit hide, toggle-to-hidden, and the keyboard's user-hide action clear visibility intent before blurring the matching local target. Identity and focus-revision checks prevent cancellation or observer reentrancy from blurring a newer target. Blur retains the field draft, and a later field click resumes editing. Provider replacement clears retained display state; the replacement activation reacts only to a new live focus notification rather than replaying a retained target.
+
+The existing wrist keyboard trigger remains a temporary compatibility control. Menu rendering and migration of reload and workspace actions remain separate work. This checkpoint does not establish a complete controller-only desktop session workflow.
+
 ### Virtual activations and committed text
 
 A virtual source delivers evdev activations with explicit modifiers, not a held-key stream. A local receiver gets the key first. If it declines the key and the route is unchanged, the source may translate it into one printable Unicode scalar for the same receiver. Control, Alt, and Logo command chords never receive this implicit text fallback. C0 and C1 control characters are not printable fallback. Right Alt is AltGr, represented by `mod5`, and remains distinct from command Alt. Explicit `source:text` is committed UTF-8 and is a separate operation.

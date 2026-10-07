@@ -70,6 +70,12 @@ Text fields accept valid single-line Unicode UTF-8. Control characters and line 
 
 `onChange`, `onSubmit`, and `onCancel` receive the current string. Escape blurs before `onCancel` runs. Widget callback failures produce one owner-labelled report without undoing a committed draft or blur; the valid key or text operation remains consumed. Raw region receiver failures produce a failed focus-source result and never reach an application. `validate` returns an error string or nil. `setError` can present an external validation error. Focus sources deliver physical committed text and virtual key activations through the focus contract; the UI service does not bypass that routing with direct native sink delivery.
 
+## Shared keyboard display and menu actions
+
+A text field requests the shared desktop keyboard through its local focus target. It does not require `lunette/keyboard-display` directly. In a composition containing `desktop/keyboard`, focusing the field shows the single reused board. Switching fields keeps its pose. Hiding the board ends the matching field focus and preserves its draft; a fresh field click resumes editing. A manually shown board remains visible after editing ends. The display service's `show`, `hide`, `toggle`, `isVisible`, and owner-scoped `onChanged` operations are defined by `@lunette-contracts/keyboard-display`.
+
+`@lunette-contracts/menu` defines the owner-scoped action broker. An action registration supplies a stable id, a label, a callback, and optional group, order, enabled, and selected values. Registration returns an effect, and owner unload removes the action. State updates use the original owner and effect. Action descriptors are immutable and contain no callbacks. A rendering consumer passes the descriptor's registration token to `invoke` so a retained row cannot invoke a replacement with the same id. The built-in broker does not render a wrist menu; the shipped wrist-menu and desktop action migration remain separate work. [Menu actions](../dev/lua-api.md#menu-actions) defines validation, ordering, and invocation results.
+
 ## Themes and drawing hooks
 
 The built-in provider accepts `theme` overrides and a `draw` hook. Panels and controls accept narrower overrides of the same types. Resolution applies provider, panel, and control overrides in that order. A colour list replaces the complete colour value. `setTheme(nil)` removes an object's override and restores its inherited theme.

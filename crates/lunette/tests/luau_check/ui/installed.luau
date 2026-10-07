@@ -1,6 +1,10 @@
 local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local provider = require '@lunette-plugins/ui'
+local menu = require '@lunette-contracts/menu'
+local menuProvider = require '@lunette-plugins/menu'
+local display = require '@lunette-contracts/keyboard-display'
+local displayProvider = require '@lunette-plugins/desktop/keyboard'
 
 local definition = provider.definition
 local requires = provider.requires
@@ -12,4 +16,9 @@ local function inspect(service: ui.Service): { read [number]: ui.Panel }
   return service:panels()
 end
 
-return { definition, requires, variant, inspect }
+local function sessionControls(actions: menu.Service, board: display.Service): boolean
+  local rows: { read [number]: menu.Descriptor } = actions:list()
+  return #rows == 0 and not board:isVisible()
+end
+
+return { definition, requires, variant, inspect, menuProvider.definition, displayProvider, sessionControls }

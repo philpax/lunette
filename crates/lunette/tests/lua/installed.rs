@@ -1,4 +1,4 @@
-//! Loads the public UI contract and provider from files copied by the installation manifest.
+//! Loads public UI, menu, and keyboard-display modules from files copied by the installation manifest.
 
 use std::{fs, path::Path};
 
@@ -34,6 +34,12 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
          assert(ui.capability ~= nil and implementation.definition ~= nil)
          local generation: ui.Generation = table.freeze { kind = 'ui-generation' }
          assert(generation.kind == 'ui-generation')
+         local menu = require '@lunette-contracts/menu'
+         local menuProvider = require '@lunette-plugins/menu'
+         assert(menu.capability ~= nil and menuProvider.definition ~= nil)
+         local display = require '@lunette-contracts/keyboard-display'
+         local displayProvider = require '@lunette-plugins/desktop/keyboard'
+         assert(display.capability ~= nil and displayProvider ~= nil)
          assert(require('@lunette').textBoundaries('é')[2] == 4)",
     )
     .set_name("@installed-ui-main.luau")
