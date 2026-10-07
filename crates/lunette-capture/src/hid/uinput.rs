@@ -546,6 +546,8 @@ mod tests {
 
     use super::*;
 
+    // The cast is needed when `c_char` is signed.
+    #[allow(clippy::unnecessary_cast)]
     fn rendered(field: &[libc::c_char]) -> String {
         field
             .iter()

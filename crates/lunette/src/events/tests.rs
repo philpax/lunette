@@ -78,6 +78,8 @@ fn every_event_this_build_delivers_has_a_distinct_name() {
     );
 }
 
+// The cast is needed when `c_char` is signed.
+#[allow(clippy::unnecessary_cast)]
 #[test]
 fn a_name_at_the_limit_survives_the_trip_through_the_c_array() {
     assert_eq!(LONGEST.len(), CUSTOM_EVENT_NAME_CAPACITY - 1);
