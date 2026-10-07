@@ -1139,7 +1139,7 @@ A monitor panel cannot hold a composition layer, because `lunette.claimLayer` ta
 
 The focus source contract takes activations and committed UTF-8, not held-key state or IME preedit. Virtual local translation has no dead-key or compose state. Native window text can deliver a prefix before encountering an unrepresentable scalar. Physical text invalidation is batch-wide because LÖVR supplies no per-key text correlation. [Input](input.md#known-gaps) records those limitations and the outstanding hardware acceptance.
 
-The menu action broker, shared keyboard display, wrist menu, shipped session actions, and runtime manager use the public UI contract. Manager search and configuration fields receive routed input through the shared keyboard. A checked `examples/ui` configuration, full text shaping, bidirectional editing, IME composition, and GPU-backed and in-headset acceptance remain outstanding. Draw hooks cannot make arbitrary pass stack misuse safe.
+The menu action broker, shared keyboard display, wrist menu, shipped session actions, and runtime manager use the public UI contract. Manager search and configuration fields receive routed input through the shared keyboard. The checked `examples/ui` form uses neutral UI, menu, and frame contracts and the shared keyboard. Full text shaping, bidirectional editing, IME composition, and GPU-backed and in-headset acceptance remain outstanding. Draw hooks cannot make arbitrary pass stack misuse safe.
 
 ## Deliberately left open
 

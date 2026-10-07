@@ -2,57 +2,39 @@
 
 `@lunette-contracts/ui` declares `lunette/ui` at schema 1. The service creates owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and custom regions. `lua/lunette-contracts/ui.luau` is the source of truth for the public types. `@lunette-plugins/ui` implements the contract and requires focus and surfaces. Consumers import the contract rather than the provider's internal modules.
 
-## A public-contract fixture
+## A public-contract example
 
-A consumer creates a panel with its context as the owner and draws that panel through an owner-scoped frame handler. The provider offers the panel as a surface, but does not register a frame drawing order. A configuration must include a UI provider and the frame, focus, and surfaces providers that the composition requires.
+`examples/ui/main.luau` adds a movable form to the shipped desktop. The Open example form action in the wrist menu opens it. The form includes a button, a Name text field, a Mode choice, a scrollable destination list, a custom preview region, and Close. The Name field uses the existing shared keyboard. Grip moves the panel, and the thumbstick scrolls the destination list. The source imports only neutral service contracts and retains its resources inside the plugin activation.
+
+The configuration inserts the form by entry id:
 
 ```luau
-local plugin = require '@lunette-plugin'
-local frame = require '@lunette-contracts/frame'
-local ui = require '@lunette-contracts/ui'
+local desktop = require '@lunette-desktop'
 
-return plugin.define {
-  name = 'ui-fixture',
-  requires = { ui = ui.capability, frame = frame.capability },
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
-    local service: ui.Service = context:require(ui.capability)
-    local frames: frame.Service = context:require(frame.capability)
-    local panel = service:newPanel(context, {
-      name = 'ui-fixture',
-      width = 0.6,
-      height = 0.2,
-      logicalWidth = 600,
-      logicalHeight = 200,
-    })
-    local query = panel:textField(context, {
-      id = 'query',
-      label = 'Query',
-      bounds = { x = 12, y = 12, width = 400, height = 40 },
-      value = '',
-    })
-    panel:button(context, {
-      id = 'clear',
-      label = 'Clear',
-      bounds = { x = 424, y = 12, width = 160, height = 40 },
-      onActivate = function(): ()
-        if not query.dead then
-          query:setValue('')
-        end
-      end,
-    })
-    frames:onDraw(context, {
-      phase = 'overlay',
-      run = function(pass: Pass): ()
-        if not panel.dead then
-          panel:draw(pass)
-        end
-      end,
-    })
-  end,
+desktop.run {
+  patches = {
+    { insert = { id = 'example/ui/form', definition = require './form' } },
+  },
 }
 ```
 
-The strict fixture in `crates/lunette/tests/luau_check/ui/widgets_positive.luau` exercises this public-contract pattern. It is a type-check fixture, not an XR acceptance example. A checked configuration under `examples/ui` remains pending. The shipped wrist menu and runtime manager use the UI service; [Runtime manager](runtime-manager.md) describes their controller-accessible controls.
+`examples/ui/form.luau` creates the panel with its context as the owner. The provider offers the panel as a surface, but the consumer supplies the frame drawing order. The text-field fragment keeps the value in activation-local state:
+
+```luau
+panel:textField(context, {
+  id = 'name',
+  label = 'Name',
+  bounds = { x = 24, y = 96, width = 552, height = 48 },
+  value = text,
+  onChange = function(value: string)
+    text = value
+  end,
+})
+```
+
+The same source registers an owner-scoped menu action and frame callback. Each checks the current activation and panel before using it. Close hides the panel; the UI provider cancels captures and blurs field focus. Owner disposal removes the panel, controls, menu action, and frame callback. The custom preview delegates base drawing, then measures and draws its text within `visual.clip` using the public default font.
+
+The strict checker checks this configuration. `lua/lunette-desktop/tests/example_ui.luau` runs its form workflow, movement, close, removal, and application hand-off with the built-in and independent substitute UI providers. `tests/vr-migration.luau` beside it combines the form with manager Search, provider outages, and production source reloads. These logic-headless tests do not establish GPU or headset presentation. The [runtime manager](runtime-manager.md) uses the same UI service and shared keyboard.
 
 ## Geometry and input
 
@@ -98,4 +80,4 @@ The generation token, owner token, and control id together disambiguate a live c
 
 The copied-install checker and module-load regressions cover both feature sets through the custom test runner and installed manifest roots. They do not exercise LÖVR's production virtual-filesystem mounting or an installed session boot. GPU-backed drawing and in-headset workflows remain separate acceptance gates.
 
-The UI service is a bounded toolkit for local VR controls. The wrist menu and runtime manager consume it, and their focused fields reuse the shared desktop keyboard. A checked `examples/ui` configuration remains follow-up work. Full text shaping, bidirectional editing, IME composition, general layout containers, and a complete desktop widget framework are outside the current contract. The built-in renderer caches 32 recent text layouts and 32 label truncation results per font without retaining the font. Unchanged cached results avoid repeated substring measurement, but cold misses and cache churn still perform exhaustive searches with worst-case quadratic measured-text work. Long changing drafts have no verified frame-time bound. GPU-backed drawing and in-headset acceptance remain unverified by the type-check fixtures.
+The UI service is a bounded toolkit for local VR controls. The wrist menu and runtime manager consume it, and their focused fields reuse the shared desktop keyboard. The checked `examples/ui` configuration and its real-runtime scenarios cover the public form workflow with built-in and independent substitute providers. Full text shaping, bidirectional editing, IME composition, general layout containers, and a complete desktop widget framework are outside the current contract. The built-in renderer caches 32 recent text layouts and 32 label truncation results per font without retaining the font. Unchanged cached results avoid repeated substring measurement, but cold misses and cache churn still perform exhaustive searches with worst-case quadratic measured-text work. Long changing drafts have no verified frame-time bound. GPU-backed drawing and in-headset acceptance remain unverified by the type-check fixtures.

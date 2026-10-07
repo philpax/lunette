@@ -36,10 +36,9 @@ The neutral `lunette/menu` action broker and `lunette/keyboard-display` shared d
 
 `settings.menu` owns wrist geometry and haptics; `settings.wristKeyboard` retains placement only. The shipped `desktop/bindings` entry and `settings.bindings` are removed, while the neutral bindings provider remains available for custom inputs. Workspace keys and modifiers are removed. The desktop example uses `save-menu` and `hide-windows` menu actions. The configuration descriptors and default entry list remain the sources of truth for those options.
 
-The remaining UI work is ordered by integration scope:
+The checked `examples/ui` configuration provides a movable public-contract form with button, field, choice, list, and custom drawing. Logic-headless scenarios run the form, manager Search, and application hand-off against both UI implementations, including twelve provider-outage rows and ten production source reloads per implementation. Those scenarios preserve one shared keyboard and invalidate ended controls, captures, focus targets, and menu registrations.
 
-1. Add a checked and runtime-tested `examples/ui` configuration. The current guide fixture is not that example.
-2. Verify installed-session execution, GPU-backed drawing, pass restoration, and every control workflow in the headset without a physical keyboard or mouse.
+The remaining UI work is installed-session execution, GPU-backed drawing and pass restoration, and every control workflow in the headset without a physical keyboard or mouse.
 
 Installed-session execution, production LÖVR virtual-filesystem mounting, and GPU-backed drawing remain unverified here. The named follow-up `manual_xr_widget_and_manager_acceptance` remains open. It covers controller-only discovery, both-hand capture, grab and scroll, keyboard readability and placement, text editing and errors, long-list overflow, manager close and reopen, application focus hand-off, and reload on the target headset and runtime. No test or documentation review establishes those perceptual or GPU properties.
 

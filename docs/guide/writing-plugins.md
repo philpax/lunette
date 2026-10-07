@@ -277,7 +277,7 @@ The definition replaces the desktop's keyboard by id:
 { id = 'keyboard', definition = require './split' },
 ```
 
-Every plugin that requires the keyboard contract, the wrist button included, then gets the split keyboard. `examples/keyboard/main.luau` does this and moves the wrist button to the right hand.
+Every plugin that requires the keyboard contract, including `desktop/keyboard`, then receives the split keyboard. The wrist-menu Keyboard action toggles that shared display. `examples/keyboard/main.luau` replaces the keyboard and places the wrist menu on the right hand.
 
 ## Replacing the keyboard
 
@@ -289,7 +289,7 @@ The implementation acquires the board through `context:resource(owner, acquire)`
 
 ## Local VR controls
 
-The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its small strict fixture uses only public contracts. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The shipped wrist menu and its session actions are implemented. A checked `examples/ui` configuration remains pending. The runtime manager uses the same UI contract for its controller-accessible search and configuration workflows and reuses the shared desktop keyboard.
+The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its excerpts come from the checked `examples/ui` form, which registers a wrist-menu action and uses the shared desktop keyboard. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The form, wrist menu, and runtime manager run unchanged against the built-in and independent substitute UI providers in logic-headless scenarios. The runtime manager uses the same UI contract for its controller-accessible search and configuration workflows.
 
 ## A custom layout
 
@@ -412,38 +412,9 @@ A plugin that moves surfaces for a pointer, as a replacement interaction would, 
 
 ## Key bindings
 
-A key binding is an optional chord registered with `lunette/bindings`. The bindings provider takes every key press before `desktop/input` sends keys to a window, so a bound key never reaches one; while the provider is unavailable, keys still reach windows. The shipped desktop uses menu actions for session controls. The following plugin shows a custom key binding that hides windows:
+A key binding is an optional chord registered with `lunette/bindings`. The bindings provider takes every key press before `desktop/input` sends keys to a window, so a bound key never reaches one; while the provider is unavailable, keys still reach windows. The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches only with exactly those held. A chord is bound once: binding one that is bound raises, so two plugins cannot both take a key. The binding ends when the plugin unloads.
 
-```lua
-return plugin.define {
-  name = 'hide-windows',
-  requires = { bindings = bindings.capability, panels = panels.capability },
-  init = function(context: plugin.Context, _config: {}, _publish: plugin.Publisher)
-    local keys: bindings.Service = context:require(bindings.capability)
-    local panelService: panels.Service = context:require(panels.capability)
-    local overrides: { plugin.Effect } = {}
-    keys:register(context, {
-      chord = { key = 'h', modifiers = { 'control', 'alt' } },
-      run = function(_press: bindings.Press)
-        if #overrides > 0 then
-          for _, override in ipairs(overrides) do
-            override:dispose()
-          end
-          table.clear(overrides)
-          return
-        end
-        for _, panel in ipairs(panelService:all()) do
-          if panel.kind == 'window' then
-            overrides[#overrides + 1] = panel:setHidden(context, { hidden = true })
-          end
-        end
-      end,
-    })
-  end,
-}
-```
-
-The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches only with exactly those held. A chord is bound once: binding one that is bound raises, so two plugins cannot both take a key. The binding ends when the plugin unloads.
+Bindings remain available for custom application input. Session controls require a complete controller-only path and use menu actions in the shipped desktop. `examples/desktop/hide-windows.luau` registers Hide windows through `lunette/menu`, toggles owner-scoped panel visibility effects, and updates the action's selected state. `examples/desktop/save-menu.luau` registers Save arrangement in the same way. Neither example requires a physical chord.
 
 `panel:setHidden(context, { hidden = true })` hides a panel for as long as the plugin holds the returned effect. A hidden panel is not drawn and cannot be pointed at; it keeps its place. Several plugins can hide or show one panel, and the most recent one still holding an override decides, so disposing this plugin's overrides shows only what it hid.
 
