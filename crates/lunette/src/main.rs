@@ -273,8 +273,8 @@ fn main() -> ExitCode {
     let startup = Startup {
         socket,
         display: name,
-        // Best-effort: an installation without the bridge logs a warning and
-        // serves Wayland clients only.
+        // Optional: spawning through the process seam resolves availability.
+        // A missing bridge serves Wayland clients only without a warning.
         satellite: Some(XwaylandSatellite::resolve(
             env::var_os(APPDIR)
                 .as_deref()

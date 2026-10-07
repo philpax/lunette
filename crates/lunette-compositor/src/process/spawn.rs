@@ -309,6 +309,11 @@ pub struct SpawnError {
 }
 
 impl SpawnError {
+    #[must_use]
+    pub fn kind(&self) -> io::ErrorKind {
+        self.cause.kind()
+    }
+
     /// Returns the message used by `ProcessOutcome::SpawnFailed`.
     #[must_use]
     pub fn message(&self) -> String {
