@@ -11,9 +11,32 @@ local movingPanel
 local stereoPanel
 local eyeShader
 local lastPhase
+local registrationPose = { 0, 1.9, -2, 0, 0, 1, 0 }
+local registrationMarkers = {
+  { label = 'TL', x = 40, y = 40 },
+  { label = 'TR', x = 600, y = 40 },
+  { label = 'CENTER', x = 320, y = 160 },
+  { label = 'BL', x = 40, y = 280 },
+  { label = 'BR', x = 600, y = 280 },
+}
 
 local function log(message)
   lovr.log('openvr diagnostic: ' .. message, 'info')
+end
+
+local function logTracking(phase)
+  log(
+    string.format(
+      '%s: frame=%d focused=%s left-grip=%s left-point=%s right-grip=%s right-point=%s',
+      phase,
+      frameCount,
+      tostring(lovr.headset.isFocused()),
+      tostring(lovr.headset.isTracked 'hand/left/grip'),
+      tostring(lovr.headset.isTracked 'hand/left/point'),
+      tostring(lovr.headset.isTracked 'hand/right/grip'),
+      tostring(lovr.headset.isTracked 'hand/right/point')
+    )
+  )
 end
 
 local function cleanup()
@@ -47,7 +70,7 @@ function lovr.load()
   movingPanel:setDimensions(1.2, 0.6)
   stereoPanel = lovr.headset.newLayer(640, 320, { stereo = true, static = false, transparent = true })
   stereoPanel:setDimensions(1.2, 0.6)
-  stereoPanel:setPosition(0, 1.9, -2)
+  stereoPanel:setPose(unpack(registrationPose))
   eyeShader = lovr.graphics.newShader(
     [[
       vec4 lovrmain() {
@@ -67,6 +90,7 @@ function lovr.load()
   lunette.setSceneEnabled(true)
   log 'manual observation only; 600 frames, 60-second timeout; Escape exits'
   log 'submission counts track API completion, not runtime presentation; scene PID is unavailable through the public API'
+  log 'registration oracle: native red LEFT / cyan RIGHT squares and yellow scene crosses share pose (0, 1.9, -2), identity rotation, 1.2 x 0.6m; TL/TR/BL/BR/CENTER identify image orientation; observe alignment, no inversion applied'
 end
 
 function lovr.keypressed(key)
@@ -112,23 +136,45 @@ local function drawStereoPanel(phase)
   pass:setClear(0, 0, 0, 0)
   pass:setShader(eyeShader)
   pass:send('eyeFilter', -1)
-  pass:setColor(0.5, 0.5, 0.5, 1)
-  pass:plane(320, 160, 0, 620, 300)
   pass:setColor(1, 1, 1, 1)
   pass:send('eyeFilter', 0)
   pass:text('LEFT EYE / RED', 320, 65, 0.1, 32)
   pass:send('eyeFilter', 1)
   pass:text('RIGHT EYE / CYAN', 320, 65, 0.1, 32)
   pass:send('eyeFilter', -1)
-  pass:text(phase, 320, 145, 0.1, 22)
+  pass:text(phase, 320, 110, 0.1, 22)
   pass:text(string.format('%.1fs | frame %d', elapsed, frameCount), 320, 195, 0.1, 22)
-  pass:plane(320 + 270 * math.sin(elapsed * 2), 260, 0.1, 30, 25)
+  pass:plane(320 + 270 * math.sin(elapsed * 2), 230, 0.1, 30, 25)
+  for _, marker in registrationMarkers do
+    pass:send('eyeFilter', -1)
+    pass:plane(marker.x, marker.y, 0, 8, 8)
+    pass:send('eyeFilter', 0)
+    pass:text('L / ' .. marker.label, marker.x, marker.y + 16, 0, 14)
+    pass:send('eyeFilter', 1)
+    pass:text('R / ' .. marker.label, marker.x, marker.y + 16, 0, 14)
+  end
   pass:setShader()
   return pass
 end
 
 local function drawScene(pass)
   pass:setClear(0, 0, 0, 0)
+  pass:push()
+  pass:translate(registrationPose[1], registrationPose[2], registrationPose[3])
+  pass:setColor(1, 1, 0, 1)
+  for _, marker in registrationMarkers do
+    local x = (marker.x / 640 - 0.5) * 1.2
+    local y = (0.5 - marker.y / 320) * 0.6
+    pass:plane(x, y, 0, 0.06, 0.003)
+    pass:plane(x, y, 0, 0.003, 0.06)
+    pass:setShader(eyeShader)
+    pass:send('eyeFilter', 0)
+    pass:text('SCENE L / ' .. marker.label, x, y + 0.04, 0, 0.022)
+    pass:send('eyeFilter', 1)
+    pass:text('SCENE R / ' .. marker.label, x, y + 0.04, 0, 0.022)
+    pass:setShader()
+  end
+  pass:pop()
   pass:setColor(0.2, 1, 0.3, 1)
   pass:box(-0.8, 1.3, -2.5, 0.3, 0.3, 0.3, elapsed, 0, 1, 0)
   pass:setColor(0.8, 0.3, 1, 1)
@@ -184,7 +230,7 @@ function lovr.run()
       or not sceneEnabled and 'SCENE OFF / PANELS LIVE'
       or 'SCENE ON / PANELS LIVE'
     if phase ~= lastPhase then
-      log(phase)
+      logTracking(phase)
       lastPhase = phase
     end
 
@@ -220,6 +266,7 @@ function lovr.run()
     headsetSubmissionsReturned += 1
     lovr.graphics.present()
     if frameCount % 100 == 0 then
+      logTracking(phase)
       log(
         string.format(
           'progress: frames=%d/%d graphics=%d headset-returns=%d elapsed=%.3fs',
