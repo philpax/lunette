@@ -30,6 +30,7 @@ PROFILE ?= release
 CARGO_TARGET_DIR ?= target
 
 INSTALL ?= install
+PATCHELF ?= patchelf
 INSTALL_PROGRAM ?= $(INSTALL) -m 755
 INSTALL_DATA ?= $(INSTALL) -m 644
 
@@ -46,7 +47,7 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build run install install-binary install-lua install-config check check-format check-headset check-rust check-clippy check-test check-definitions check-luau clean
+.PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-rust check-clippy check-test check-definitions check-luau clean
 
 all: build
 
@@ -59,7 +60,10 @@ run:
 # `check` runs the standing checks CONTRIBUTING.md lists, in the order
 # .github/workflows/ci.yml runs them. Each check is its own target; a failure
 # can be repeated on its own.
-check: check-format check-headset check-rust check-definitions check-luau
+check: check-format check-install check-headset check-rust check-definitions check-luau
+
+check-install:
+	python3 crates/lunette/tests/fixtures/install.py
 
 check-headset:
 	cmake -S vendor/lovr -B $(CARGO_TARGET_DIR)/headset-tests -DLOVR_BUILD_HEADSET_TESTS=ON -DLOVR_ENABLE_OPENVR=ON -DLOVR_BUILD_EXE=OFF -DLOVR_BUILD_SHARED=OFF -DLOVR_ENABLE_AUDIO=OFF -DLOVR_ENABLE_DATA=OFF -DLOVR_ENABLE_PHYSICS=OFF -DLOVR_USE_GLFW=OFF -DLOVR_USE_LUAJIT=OFF -DLOVR_USE_GLSLANG=OFF -DLOVR_USE_STEAM_AUDIO=OFF
@@ -98,27 +102,49 @@ check-luau:
 
 install: install-binary install-lua install-config
 
-# The LOVR libraries are found, not named, because cmake stages them under a
-# directory whose name carries a Cargo metadata hash. `liblovr.so` is the one
-# stable name in that tree; the search returns the directory that contains it.
-#
-# They are installed flat. `liblovr.so` has an rpath of `$$ORIGIN/bin:$$ORIGIN`,
-# and the binary has one that reaches this directory. The flat layout then
-# resolves for both and needs no nested `bin` inside a `lib` directory.
-#
-# The newest is taken, not the first. A tree built under two sets of
-# build-script inputs holds one staged directory per fingerprint, and the
-# newest directory holds the current build's output.
-lovr_build := $(shell find $(build_dir)/build -maxdepth 4 -name liblovr.so -printf '%T@ %h\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
-
 install-binary: build
-	@test -n "$(lovr_build)" || \
-		{ echo "make: liblovr.so was not found under $(build_dir)/build; run make build first" >&2; exit 1; }
-	$(INSTALL) -d $(bindir) $(libdir)
-	$(INSTALL_PROGRAM) $(build_dir)/lunette $(bindir)/lunette
-	$(INSTALL_PROGRAM) $(build_dir)/lunctl $(bindir)/lunctl
-	$(INSTALL_PROGRAM) $(lovr_build)/liblovr.so $(libdir)/liblovr.so
-	$(INSTALL_PROGRAM) $(lovr_build)/bin/* $(libdir)/
+	@set -eu; \
+	rpath=$$($(PATCHELF) --print-rpath "$(build_dir)/lunette"); \
+	lovr_build=; \
+	old_ifs=$$IFS; IFS=:; \
+	for directory in $$rpath; do \
+		case "$$directory" in /*) \
+			if test -f "$$directory/liblovr.so"; then lovr_build=$$directory; break; fi ;; \
+		esac; \
+	done; IFS=$$old_ifs; \
+	test -n "$$lovr_build" || \
+		{ echo "make: the linked liblovr.so was not found in $(build_dir)/lunette's rpath" >&2; exit 1; }; \
+	cache_dir=$$lovr_build; \
+	while ! test -f "$$cache_dir/CMakeCache.txt" && test "$$cache_dir" != /; do \
+		cache_dir=$$(dirname "$$cache_dir"); \
+	done; \
+	cache="$$cache_dir/CMakeCache.txt"; \
+	if grep -q '^LOVR_ENABLE_OPENVR:BOOL=ON$$' "$$cache"; then \
+		openvr=enabled; \
+	elif grep -q '^LOVR_ENABLE_OPENVR:BOOL=OFF$$' "$$cache"; then \
+		openvr=disabled; \
+	else \
+		echo "make: cannot determine OpenVR build state from $$cache" >&2; exit 1; \
+	fi; \
+	assets='actions.json bindings_vive_controller.json bindings_knuckles.json bindings_oculus_touch.json'; \
+	if test "$$openvr" = enabled || test -e "$$lovr_build/lovr-openvr"; then \
+		for asset in $$assets; do \
+			test -f "$$lovr_build/lovr-openvr/$$asset" || \
+				{ echo "make: $$openvr OpenVR build has an incomplete action bundle: $$lovr_build/lovr-openvr/$$asset is missing" >&2; exit 1; }; \
+		done; \
+	fi; \
+	$(INSTALL) -d -m 755 "$(bindir)" "$(libdir)"; \
+	$(INSTALL_PROGRAM) "$(build_dir)/lunette" "$(bindir)/lunette"; \
+	$(INSTALL_PROGRAM) "$(build_dir)/lunctl" "$(bindir)/lunctl"; \
+	$(INSTALL_PROGRAM) "$$lovr_build/liblovr.so" "$(libdir)/liblovr.so"; \
+	$(INSTALL_PROGRAM) "$$lovr_build"/bin/* "$(libdir)/"; \
+	$(PATCHELF) --set-rpath '$$ORIGIN:$$ORIGIN/../lib/lunette' "$(bindir)/lunette" "$(bindir)/lunctl"; \
+	if test -d "$$lovr_build/lovr-openvr"; then \
+		$(INSTALL) -d -m 755 "$(libdir)/lovr-openvr"; \
+		for asset in $$assets; do \
+			$(INSTALL_DATA) "$$lovr_build/lovr-openvr/$$asset" "$(libdir)/lovr-openvr/$$asset"; \
+		done; \
+	fi
 
 # `lua/spec/` is not installed: the tests cover the standard library and are
 # not part of it.
@@ -136,8 +162,8 @@ install-lua:
 	done
 
 install-config:
-	$(INSTALL) -d $(confdir)
-	$(INSTALL_DATA) etc/xdg/lunette/main.lua etc/xdg/lunette/conf.lua $(confdir)/
+	$(INSTALL) -d "$(confdir)"
+	$(INSTALL_DATA) etc/xdg/lunette/main.lua etc/xdg/lunette/conf.lua "$(confdir)/"
 
 clean:
 	$(CARGO) clean
