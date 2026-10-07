@@ -6,7 +6,7 @@ lunette is a single Rust binary that dynamically links LÖVR, which ships beside
 
 | Thread | Owns | Communicates with |
 |---|---|---|
-| Main | The LÖVR Lua state, the OpenXR session, GPU submission, rendering | Compositor thread by channel; control thread by channel |
+| Main | The LÖVR Lua state, the selected headset backend and session, GPU submission, rendering | Compositor thread by channel; control thread by channel |
 | Compositor | The Wayland display, smithay state, clients, surfaces, seats, child processes | Main thread by channel; creates images on LÖVR's `VkDevice` |
 | Control | The `lunctl` Unix socket | Main thread; submitted chunks run on the Lua thread between frames |
 
@@ -93,7 +93,7 @@ Seats, pointers, and outputs are owned by Rust too, so they would survive both p
 
 Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
 
-OpenXR only; OpenVR never. SteamVR does not implement `XR_EXTX_overlay`. Supporting it would require a second full backend, which would require routing XR outside LÖVR, which would make `lovr.headset` inaccurate. The architecture depends on LÖVR owning the session.
+LÖVR owns every headset session through an internal backend. OpenVR support reverses the OpenXR-only exclusion because the private operations boundary keeps `lovr.headset` authoritative. Routing XR through a separate Rust runtime remains rejected: it would split session ownership and make the engine's input and rendering API inaccurate. The larger backend patch is a deliberate exception to the narrow additive patch preference, not permission to change unrelated OpenXR behavior. Backend selection freezes before GPU creation; no live backend switching is supported. See [LÖVR integration](lovr-integration.md#backend-selection).
 
 Compositor off the frame thread, at the cost of Lua seeing snapshots rather than live state. WayVR ticks on the main thread and this works for WayVR; lunette does not follow that arrangement because an overlay's value depends on not disturbing the application underneath.
 

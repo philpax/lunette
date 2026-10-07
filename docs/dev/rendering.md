@@ -6,7 +6,7 @@ Both mechanisms are available. Neither is privileged.
 
 In-scene geometry. The surface texture is sampled by a shader in `lovr.draw`: a textured quad, a cylinder, a mesh, or any other geometry drawn by a script. It costs zero copies and supports arbitrary geometry, custom shaders, depth-correct occlusion against the 3D scene, and post-processing. It renders at the projection layer's resolution and through its MSAA path, so a 1080p terminal at arm's length is noticeably softer than the alternative.
 
-OpenXR composition layer. The runtime composites a quad or cylinder itself at native panel resolution, with its own reprojection. Native-resolution compositing is what makes desktop text legible in VR, and existing overlays use this mechanism for that reason. It costs a blit per frame from the imported client buffer into the runtime-owned swapchain image, and geometry is limited to what the runtime supports, which for LÖVR means quad and cylinder with `curve`, plus viewport sub-rects.
+Composition layer. The selected runtime composites a native panel at its backing resolution, with its own reprojection. Native-resolution compositing makes desktop text legible in VR. The imported client buffer is copied into backend-owned layer backing when damaged. OpenXR uses runtime swapchain images and supports quad and cylinder layers with `curve`, plus viewport sub-rects. OpenVR uses owned output images and native overlay handles. Backend capability limits remain explicit; unsupported operations must not silently change geometry.
 
 The standard library defaults flat panels to composition layers and falls back to in-scene rendering when the layer budget is exhausted or when geometry, shaders, or depth interaction are required. That policy lives in Lua ([Standard library](stdlib.md)). The native layer supplies only the two mechanisms.
 
@@ -38,7 +38,7 @@ The native layer records the distinction rather than resolving it: `window.opaqu
 
 Both facts are properties of the buffer, not of the window: a client that renegotiates its format changes `window.opaque` between one frame and the next, so it is read each frame alongside the texture rather than cached.
 
-A composition layer resolves both differently, because it has no shader and no Lua consumer to resolve them in. The copy into a layer is a Vulkan image copy or blit, which reads the image and cannot force a component, and an image-view swizzle does not apply to either. So layers are created without `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`: the runtime ignores the layer's alpha channel, the padding byte is unreachable whatever the source format, and premultiplication stops mattering. A window that wants its translucency composited renders as an in-scene quad rather than claiming a layer. [Decisions](#decisions) below records the alternatives.
+A composition layer resolves both differently, because it has no shader and no Lua consumer to resolve them in. The copy into a layer is a Vulkan image copy or blit, which reads the image and cannot force a component, and an image-view swizzle does not apply to either. Panel layers are therefore opaque. OpenXR omits `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`; OpenVR uses its opaque panel alpha convention. The runtime ignores source alpha on this path, so the padding byte is unreachable whatever the source format, and premultiplication stops mattering. A window that wants its translucency composited renders as an in-scene quad rather than claiming a layer. [Decisions](#decisions) below records the alternatives.
 
 ### Forced conversion
 
@@ -58,15 +58,15 @@ The private OpenVR backend uses owned two-dimensional output images. LÖVR submi
 
 `lovr.headset.setLayers` sets a global, last-call-wins list, capped by `MAX_LAYERS` and by whatever the runtime allows. The list persists across frames. `lovrHeadsetSetLayers` retains it in `state.layers` and `lovrHeadsetGetLayers` reads it back, so it does not need setting again every frame.
 
-That persistence is what makes damage skipping safe. Every per-layer GPU cost is gated behind `getTexture` or `getPass` being called, so a panel that is not redrawn this frame costs one struct in the submitted array and nothing else, and the runtime re-composites it from the most recently released swapchain image.
+That persistence is what makes damage skipping safe. Every per-layer GPU cost is gated behind `getTexture` or `getPass` being called, so a panel that is not redrawn this frame costs one struct in the submitted array and nothing else, and the runtime re-composites the retained backing. OpenXR uses the most recently released swapchain image; OpenVR keeps the unchanged visible overlay texture.
 
-Layers are expensive to create. `newLayer` allocates an OpenXR swapchain with images, memory, and runtime state, synchronously, ending in a wait with `XR_INFINITE_DURATION` inside a retry loop that has no escape. A panel manager that promotes and demotes panels as the user looks around would allocate one every few frames if Lua created them directly.
+Layers are expensive to create. OpenXR `newLayer` allocates a swapchain with images, memory, and runtime state, synchronously, ending in a wait with `XR_INFINITE_DURATION` inside a retry loop that has no escape. OpenVR allocates owned render backing and runtime overlay handles. A panel manager that promotes and demotes panels as the user looks around would allocate one every few frames if Lua created them directly.
 
 Rust owns the pool instead, and recycles whole `Layer` objects, keyed on the properties `LayerInfo` fixes at creation: width, height, stereo, immutable, transparent, and filter. A demoted 1920x1080 panel's layer goes straight to the next 1920x1080 claimant with no allocation.
 
-The unit is the whole `Layer` rather than its swapchain because LÖVR offers no way to separate the two: `struct Layer` embeds its `Swapchain` by value, `lovrLayerDestroy` calls `xrDestroySwapchain` inline, and nothing exposes the swapchain a layer's `subImage` points at. Nor is a way needed. Everything a panel varies — pose, metre dimensions, curve, colour, viewport, and origin — has a setter and lives outside `LayerInfo`, so keeping the layer alive keeps its swapchain alive and available to any claimant of the same key.
+The unit is the whole `Layer` rather than backend backing. For OpenXR, LÖVR offers no way to separate the layer from its swapchain: `struct Layer` embeds its `Swapchain` by value, `lovrLayerDestroy` calls `xrDestroySwapchain` inline, and nothing exposes the swapchain a layer's `subImage` points at. Nor is a way needed. Everything a panel varies — pose, metre dimensions, curve, colour, viewport, and origin — has a setter and lives outside `LayerInfo`, so keeping the layer alive keeps its swapchain alive and available to any claimant of the same key.
 
-Format is absent from the key because there is exactly one. `lovrSwapchainInit` hard-codes `VK_FORMAT_R8G8B8A8_SRGB`, and session start aborts if the runtime refuses it, so there is nothing to negotiate and nothing to key on.
+Format is absent from the key because panel backing uses one fixed format. On OpenXR, `lovrSwapchainInit` hard-codes `VK_FORMAT_R8G8B8A8_SRGB`, and session start aborts if the runtime refuses it, so there is nothing to negotiate and nothing to key on.
 
 Requested sizes are quantised to a ladder of discrete steps before becoming a key, so that a panel resized continuously by a drag settles on a rung the free list already holds rather than allocating on every frame of the drag. The same ladder supplies the discrete scale steps reported through `wp_fractional_scale_v1`.
 
@@ -76,6 +76,8 @@ The design keeps this from becoming policy implemented in Rust, through the foll
 - Grants and revocations arrive as events (`lunette.onLayerGranted`, `lunette.onLayerRevoked`) carrying the claim handle. The standard library degrades to an in-scene quad on revoke and upgrades back on grant. Upgrades are automatic: when a layer frees, the highest-priority ungranted claim takes it on the next frame.
 - A granted claim yields a real LÖVR `Layer` userdata, not a wrapper. It exposes the full `setPose`/`setCurve`/`setViewport`/`getTexture` API and becomes invalid on revoke.
 - Rust makes the single `setLayers` call per frame from granted claims. `lovr.headset.setLayers` remains reachable for scripts that opt out of the scheme entirely.
+
+The OpenXR budget stays below `XrSystemGraphicsProperties::maxLayerCount`, because `XR_EXTX_overlay` shares runtime capacity with a primary application whose layer count is unknown. OpenVR separately caps created panels at 62 and reserves two local slots for projection eyes. Omitted panels and pending cleanup still count. This cap is conservative local accounting, not an SDK guarantee of global capacity.
 
 Two details matter if ignored.
 
@@ -104,13 +106,13 @@ lunette's own XR frame rate is not negotiable: an overlay submits every cycle wh
 
 ### Skipping the scene
 
-`setLayers{ main = false }` is the smaller half of it. All the flag does is leave the `XrCompositionLayerProjection` out of `XrFrameEndInfo::layers`, by which point the pass has been rendered and resolved. The saving is in not asking for the pass at all: the colour swapchain is acquired lazily, inside `lovr.headset.getPass` and `lovr.headset.getTexture`, so a frame that calls neither skips the acquire, the swapchain wait, the render pass, and the resolve outright.
+`setLayers{ main = false }` is the smaller half of it. On OpenXR, the flag leaves the `XrCompositionLayerProjection` out of `XrFrameEndInfo::layers`, by which point the pass has been rendered and resolved. On OpenVR, it hides the two projection overlays. The saving is in not asking for the pass at all. OpenXR acquires the colour swapchain lazily, inside `lovr.headset.getPass` and `lovr.headset.getTexture`, so a frame that calls neither skips the acquire, the swapchain wait, the render pass, and the resolve outright.
 
 `etc/boot.lua` calls `getPass` unconditionally, and `lovr.mirror` calls `getTexture` for the desktop window. lunette keeps LÖVR's `lovr.run` ([LÖVR integration](lovr-integration.md#boot)) and gates those two functions instead: while the scene is skipped each answers nothing, so `boot.lua` finds no pass and does not call `lovr.draw`. Every other function on the module, `lovr.headset.submit` above all, is untouched.
 
 `lunette.setSceneEnabled(false)` is the switch, and the decision is the configuration's ([Lua API](lua-api.md#scene-rendering)).
 
-What an idle frame still costs, with the scene skipped and every panel unchanged: the three OpenXR frame calls, pose prediction and update, and one `XrCompositionLayerQuad` per panel in the submitted array. The layer copies are damage-gated, so an idle panel costs no copy — and on a frame with no window open and no pass, lunette submits LÖVR's command stream itself, because `boot.lua` submits it only alongside a pass and the layers' swapchain images are released regardless.
+An idle frame still paces the runtime and updates predicted tracking. On OpenXR, it makes the three frame calls and submits one `XrCompositionLayerQuad` per flat panel. On OpenVR, it performs the bounded overlay wait and snapshot update, keeps unchanged panel textures visible, and hides omitted overlays. The layer copies are damage-gated, so an idle panel costs no copy — and on a frame with no window open and no pass, lunette submits LÖVR's command stream itself, because `boot.lua` submits it only alongside a pass and backend presentation still requires completed command work.
 
 ## Decisions
 
@@ -140,7 +142,7 @@ Decided 2026-08-07, building Phase 7 Task 3.
 
 A restart destroys the `VkDevice` every imported image was created against, so the images have to be dealt with before `luax_close` runs. They are forgotten rather than destroyed.
 
-Destroying them there would be invalid. LÖVR retires an imported texture's image *view* through its own morgue, and that morgue is emptied only by `gpu_destroy`; `vkDestroyImage` on an image that still has a view is not allowed. The deferral that makes this work in an ordinary frame counts in frames, and a restart has no further frames of that device to count. This is the same reasoning Phase 2 recorded for shutdown, and the answer is the same.
+Destroying them there would be invalid. LÖVR retires an imported texture's image view through its own morgue, and that morgue is emptied only by `gpu_destroy`; `vkDestroyImage` on an image that still has a view is not allowed. The deferral that makes this work in an ordinary frame counts in frames, and a restart has no further frames of that device to count. This is the same reasoning Phase 2 recorded for shutdown, and the answer is the same.
 
 What forgetting buys is the thing that would otherwise be a defect rather than an untidiness — no handle from the old device survives into the new one's lifetime, where destroying it would be a use-after-free against a device that never created it.
 
@@ -152,7 +154,7 @@ The narrower alternative — destroying the images and accepting a `VkImageView`
 
 ### A lost session is observed by the pool, and by identity
 
-Two teardowns invalidate the layer pool's swapchains, and they are not the same event. A restart is one lunette performs: `FrameDriver::quiesce` runs `LayerPool::shutdown` while the XR session still exists, and `forget_claims` follows because the Lua state that named the claims is going too. A session lost underneath a live Lua state is one lunette observes. The native backend retires every registered layer, including never-submitted layers, before destroying the session. A retained layer then owns a CPU wrapper rather than a live swapchain. The Rust backend releases that wrapper normally. Combined native lifetime regressions exercise retained layers, textures, views, and passes through stop and restart, and enforce GPU retirement before runtime image destruction.
+Two teardowns invalidate the layer pool's backend resources, and they are not the same event. A restart is one lunette performs: `FrameDriver::quiesce` runs `LayerPool::shutdown` while the XR session still exists, and `forget_claims` follows because the Lua state that named the claims is going too. A session lost underneath a live Lua state is one lunette observes. The native backend retires every registered layer, including never-submitted layers, before destroying the session. A retained layer then owns a CPU wrapper rather than a live swapchain. The Rust backend releases that wrapper normally. Combined native lifetime regressions exercise retained layers, textures, views, and passes through stop and restart, and enforce GPU retirement before runtime image destruction.
 
 Nothing reports the second event to the pool. The OpenXR backend in `vendor/lovr/src/modules/headset/headset_openxr.c` turns `XR_SESSION_STATE_LOSS_PENDING` into `EVENT_QUIT`, which ends the session rather than rebuilding it, so a runtime-initiated loss is not a case the pool can come back from. The case that is reachable is a configuration calling `lovr.headset.stop()`: it retires the layers, destroys the session, and returns to Lua with the state still running and `lovr.headset.start()` available. A teardown failure retains runtime resources for retry and rejects presentation operations while teardown remains pending.
 
@@ -165,6 +167,8 @@ The layer limit is not the signal either. The OpenXR backend reads `lovrHeadsetG
 ## Known gaps
 
 Named, not solved.
+
+OpenVR presentation is implemented through native panels and two per-eye projection overlays. It submits no `IVRCompositor::Submit` scene frames and provides no occlusion against a game's depth. Internal scene depth and MSAA do not imply game-depth integration. Runtime rendering, stereo alignment, alpha, motion, and visual acceptance remain hardware-unverified. Deterministic metadata and handoff tests do not prove visual equivalence.
 
 A captured frame is imported only as a dmabuf. PipeWire can negotiate shared memory instead, as a memfd or a mapped pointer, and lunette refuses both by name rather than showing a black mirror. The mapped-pointer case is the awkward one: the pointer is valid only inside PipeWire's callback, so supporting it means copying every frame on the capture thread, which is the one thing the raw-forwarding arrangement exists to avoid. The refusal is counted and logged once per stream rather than per frame.
 

@@ -370,6 +370,7 @@ unsafe fn run_steps(
                         // Before the state closes, because closing it destroys
                         // the graphics module and the device the compositor
                         // borrowed.
+                        unsafe { raw::lovrHeadsetWillExit() };
                         driver.shutdown();
                         clear_log_callback();
                         lua_handle.exec_raw_lua(|raw| raw.mark_closed());
@@ -432,6 +433,7 @@ unsafe fn run_steps(
             Step::Exit { status } => {
                 // Before the state closes, because closing it destroys the
                 // graphics module and the device the compositor borrowed.
+                unsafe { raw::lovrHeadsetWillExit() };
                 driver.shutdown();
                 clear_log_callback();
                 // The state is about to close; mark it so mlua ValueRefs

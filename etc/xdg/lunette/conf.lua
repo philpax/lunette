@@ -20,21 +20,7 @@ function lovr.conf(t)
   -- no longer shadows a same-named file.
   t.saveprecedence = false
 
-  -- lunette runs as an OpenXR overlay. Setting this requests XR_EXTX_overlay
-  -- (vendor/lovr/src/modules/headset/headset.c) and chains
-  -- XrSessionCreateInfoOverlayEXTX into session creation. lunette then shares a
-  -- session with the application holding the primary session. Without the
-  -- extension, the runtime does not create a second session.
-  --
-  -- The value is read once (src/api/l_headset.c): any truthy value enables the
-  -- extension, and a number also becomes sessionLayersPlacement, which orders
-  -- lunette against other overlays. There is no separate overlayOrder key.
-  -- `true` leaves the placement at 0.
-  --
-  -- The extension also makes the frame transparent. headset.c sets
-  -- XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT on the projection
-  -- layer whenever the extension is enabled, so areas that Lua does not draw
-  -- composite through to the application underneath.
+  t.headset.backend = 'auto'
   t.headset.overlay = true
 
   -- boot.lua provides a populated window table of its own

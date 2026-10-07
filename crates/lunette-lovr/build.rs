@@ -126,11 +126,17 @@ fn watch_lovr_sources(lovr_dir: &Path) -> Result<(), BuildError> {
         lovr_dir.join("CMakeLists.txt").display()
     );
 
-    walk_files(&lovr_dir.join("src"), &mut |path| {
-        if !is_generated_header(path) {
-            println!("cargo::rerun-if-changed={}", path.display());
-        }
-    })?;
+    println!(
+        "cargo::rerun-if-changed={}",
+        lovr_dir.join("etc/boot.lua").display()
+    );
+    for directory in ["src", "etc/openvr", "etc/shaders"] {
+        walk_files(&lovr_dir.join(directory), &mut |path| {
+            if !is_generated_header(path) {
+                println!("cargo::rerun-if-changed={}", path.display());
+            }
+        })?;
+    }
     for directory in ["deps/openvr/src", "deps/openvr/headers"] {
         let directory = lovr_dir.join(directory);
         if !directory
@@ -181,6 +187,9 @@ fn build_lovr(lovr_dir: &Path, jolt_source: Option<&OsString>) -> PathBuf {
         config
             .define("LOVR_BUILD_SHARED", "ON")
             .define("LOVR_BUILD_WITH_SYMBOLS", "ON");
+        if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+            config.define("LOVR_ENABLE_OPENVR", "ON");
+        }
         if let Some(source) = jolt_source {
             config.define("FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS", source);
         }
@@ -383,6 +392,7 @@ fn generate_bindings(
         // inside one Lua callback both return active, and the stop destroys
         // the swapchains.
         .allowlist_function("lovrHeadsetGetSessionGeneration")
+        .allowlist_function("lovrHeadsetWillExit")
         // Creation and destruction of a pooled layer. `lovrLayerDestroy` is
         // allowlisted for use as the destructor `lovrRelease` calls. Calling
         // it directly bypasses the reference count; `lovrRelease` decrements

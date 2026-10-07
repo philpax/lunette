@@ -87,11 +87,11 @@ It is needed for clipboard-less paste, voice dictation, and remote control, for 
 
 lunette uses LÖVR's input API. `lovr.headset` provides poses, buttons, axes, and haptics; tracking extensions and controller models depend on the selected backend's capabilities.
 
-The private OpenVR backend initializes its installed action manifest before event polling or action updates. It samples head tracking and hand actions once per frame, using the same origin and relative prediction. Grip and aim remain distinct. Touch grip poses are unavailable until their binding transform is verified; aim is not substituted for grip. Hand tracking, skeletons, and controller models remain unsupported in this backend. It is not selectable in ordinary lunette builds.
+The private OpenVR backend initializes its installed action manifest before event polling or action updates. It samples head tracking and hand actions once per frame, using the same origin and relative prediction. Grip and aim remain distinct. Touch grip poses are unavailable until their binding transform is verified; aim is not substituted for grip. Hand tracking, skeletons, and controller models remain unsupported in this backend. Native selection and lunette integration are implemented; the selection contract appears in [LÖVR integration](lovr-integration.md#backend-selection). Hardware binding acceptance remains unverified.
 
 Gesture recognition, such as double-tap to show or hide, laser modes, and grab-to-move, is Lua timing logic layered over LÖVR's state. This is also where such tuning is expected to occur.
 
-lunette does not create its own OpenXR action sets. Doing so would require patching LÖVR to expose the `XrInstance` and `XrSession`, and injecting into its once-per-session attach call, for the marginal gain of custom binding names in the runtime's UI. If LÖVR does not provide an input that lunette needs, the preferred fix is to add it to LÖVR.
+lunette does not create action sets outside LÖVR. For OpenXR, it does not create its own action sets. Doing so would require patching LÖVR to expose the `XrInstance` and `XrSession`, and injecting into its once-per-session attach call, for the marginal gain of custom binding names in the runtime's UI. If LÖVR does not provide an input that lunette needs, the preferred fix is to add it to LÖVR.
 
 ## Blocking input to the underlying application
 
@@ -127,7 +127,7 @@ Only a selection lunette owns is ever withdrawn or cleared. `set_selection(null)
 
 Named, not solved.
 
-The private OpenVR controller bindings and haptic frequency mapping require SteamVR validation. Touch grip poses, hand skeletons, and controller models remain unavailable. HMD activity is an in-use inference, not verified wear detection.
+The private OpenVR controller bindings and haptic frequency mapping require SteamVR hardware validation. Deterministic action tests do not establish runtime binding acceptance. Touch grip poses, hand skeletons, and controller models remain unavailable. HMD activity is an in-use inference, not verified wear detection.
 
 Host-to-lunette drag-and-drop. No protocol exists for a drag crossing a compositor boundary. In-compositor drag-and-drop works.
 

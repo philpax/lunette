@@ -2136,7 +2136,7 @@ export type VectorModule = {
 declare lovr: {
   getVersion: () -> (number, number, number, string, string),
 
-  conf: ((t: {}) -> ())?,
+  conf: ((t: { version: string, identity: string, saveprecedence: boolean, modules: { audio: boolean, data: boolean, event: boolean, graphics: boolean, headset: boolean, math: boolean, physics: boolean, system: boolean, task: boolean, thread: boolean, timer: boolean }, audio: { debug: boolean, samplerate: number?, start: boolean, reverb: { type: ReverbType, rays: number, bounces: number, duration: number, rate: number } }, graphics: { debug: boolean, vsync: boolean, stencil: boolean, antialias: boolean, lowpower: boolean, hdr: boolean, shadercache: boolean }, headset: { backend: "auto" | "openxr" | "openvr", connect: boolean, start: boolean, debug: boolean, dynamicresolution: boolean, controllerskeleton: "none" | "controller" | "natural", extensions: {string}?, supersample: number | boolean, seated: boolean, mask: boolean, antialias: boolean, stencil: boolean, submitdepth: boolean, overlay: boolean | number }, math: { globals: boolean }, thread: { workers: number }, read window: { width: number, height: number, centered: boolean, fullscreen: boolean, resizable: boolean, title: string, icon: string? }, write window: { width: number, height: number, centered: boolean, fullscreen: boolean, resizable: boolean, title: string, icon: string? } | nil }) -> ())?,
   draw: ((pass: Pass) -> boolean?)?,
   errhand: ((message: string) -> () -> any?)?,
   filechanged: ((path: string, action: FileAction, oldpath: string?) -> ())?,

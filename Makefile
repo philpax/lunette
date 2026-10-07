@@ -47,7 +47,7 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-rust check-clippy check-test check-definitions check-luau clean
+.PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-headset-runtime check-rust check-clippy check-test check-definitions check-luau clean
 
 all: build
 
@@ -69,6 +69,12 @@ check-headset:
 	cmake -S vendor/lovr -B $(CARGO_TARGET_DIR)/headset-tests -DLOVR_BUILD_HEADSET_TESTS=ON -DLOVR_ENABLE_OPENVR=ON -DLOVR_BUILD_EXE=OFF -DLOVR_BUILD_SHARED=OFF -DLOVR_ENABLE_AUDIO=OFF -DLOVR_ENABLE_DATA=OFF -DLOVR_ENABLE_PHYSICS=OFF -DLOVR_USE_GLFW=OFF -DLOVR_USE_LUAJIT=OFF -DLOVR_USE_GLSLANG=OFF -DLOVR_USE_STEAM_AUDIO=OFF
 	cmake --build $(CARGO_TARGET_DIR)/headset-tests --target headset_native_tests
 	ctest --test-dir $(CARGO_TARGET_DIR)/headset-tests --output-on-failure -L headset
+
+check-headset-runtime:
+	@test -n "$(OPENVR_SCENE_PID)" || { printf '%s\n' 'make: OPENVR_SCENE_PID must name an already-running scene application' >&2; exit 1; }
+	cmake -S vendor/lovr -B $(CARGO_TARGET_DIR)/openvr-coexistence -DLOVR_BUILD_SHARED=ON -DLOVR_BUILD_EXE=OFF -DLOVR_BUILD_WITH_SYMBOLS=ON -DLOVR_ENABLE_OPENVR=ON -DLOVR_BUILD_OPENVR_COEXISTENCE=ON -DLOVR_ENABLE_AUDIO=OFF -DLOVR_ENABLE_PHYSICS=OFF -DLOVR_USE_GLFW=OFF -DLOVR_USE_LUAJIT=OFF -DLOVR_USE_GLSLANG=OFF -DLOVR_USE_STEAM_AUDIO=OFF
+	cmake --build $(CARGO_TARGET_DIR)/openvr-coexistence --target lovr_openvr_coexistence
+	timeout --signal=TERM --kill-after=5s 90s $(CARGO_TARGET_DIR)/openvr-coexistence/runtime-tests/lovr_openvr_coexistence --expected-scene-pid "$(OPENVR_SCENE_PID)"
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
