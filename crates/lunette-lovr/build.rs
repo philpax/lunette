@@ -132,7 +132,18 @@ fn watch_lovr_sources(lovr_dir: &Path) -> Result<(), BuildError> {
         }
     })?;
     for directory in ["deps/openvr/src", "deps/openvr/headers"] {
-        walk_files(&lovr_dir.join(directory), &mut |path| {
+        let directory = lovr_dir.join(directory);
+        if !directory
+            .try_exists()
+            .map_err(|cause| BuildError::ReadDirectory {
+                path: directory.clone(),
+                cause,
+            })?
+        {
+            println!("cargo::rerun-if-changed={}", directory.display());
+            continue;
+        }
+        walk_files(&directory, &mut |path| {
             println!("cargo::rerun-if-changed={}", path.display());
         })?;
     }
