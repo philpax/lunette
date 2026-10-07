@@ -64,7 +64,7 @@ The lunette API is available only in the main Lua state. `lovr.thread` and `lovr
 
 LÖVR creates the `VkInstance`, `VkPhysicalDevice`, `VkDevice`, and queues. The compositor thread uses that device for one purpose: creating images from imported dmabufs. It does not submit work to any queue.
 
-That restriction is required by the rest of the design. Copies into composition-layer swapchains are issued inside LÖVR's command stream on the main thread, so ordering against LÖVR's rendering is handled internally by LÖVR, and no other thread submits to its queue. See [Rendering](rendering.md).
+That restriction is required by the rest of the design. Copies into composition-layer backing are issued inside LÖVR's command stream on the main thread. The private OpenVR backend hands owned output images to the runtime under LÖVR's queue guard, between submitted transfer-source and restoration barriers. The compositor thread never performs runtime handoff or queue submission. See [Rendering](rendering.md).
 
 ## Crate layering
 

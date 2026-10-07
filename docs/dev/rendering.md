@@ -50,7 +50,9 @@ Client-to-compositor synchronisation is implicit, as in WayVR: there is no `linu
 
 Explicit sync is a later addition. It needs external semaphore import in LÖVR ([LÖVR integration](lovr-integration.md#possibly-later)) so client fences can be waited on before sampling.
 
-Internal synchronisation is sidestepped by construction. The compositor thread never submits GPU work; its only Vulkan activity is image creation. Every copy, including layer blits, stabilise updates, and format conversions, is issued inside LÖVR's own command stream on the main thread, so ordering against LÖVR's rendering is handled internally by LÖVR.
+The compositor thread never submits GPU work; its only Vulkan activity is image creation. Every copy, including layer blits, stabilise updates, and format conversions, is issued inside LÖVR's own command stream on the main thread.
+
+The private OpenVR backend uses owned two-dimensional output images. LÖVR submits rendering and a transfer-source barrier before calling the runtime under the shared graphics queue guard, then submits a restoration barrier and completion marker. Normal frames perform no global device wait. Overlay retirement establishes quiescence, destroys runtime handles, invalidates their backing, and drains deferred graphics destruction. A failed runtime destruction preserves the backing for retry.
 
 ## The layer pool
 

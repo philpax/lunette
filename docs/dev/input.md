@@ -85,7 +85,9 @@ It is needed for clipboard-less paste, voice dictation, and remote control, for 
 
 ## XR input
 
-lunette uses LÖVR's input verbatim. `lovr.headset` provides poses, buttons, axes, hand tracking, and haptics, covering everything WayVR's custom action sets provide.
+lunette uses LÖVR's input API. `lovr.headset` provides poses, buttons, axes, and haptics; tracking extensions and controller models depend on the selected backend's capabilities.
+
+The private OpenVR backend initializes its installed action manifest before event polling or action updates. It samples head tracking and hand actions once per frame, using the same origin and relative prediction. Grip and aim remain distinct. Touch grip poses are unavailable until their binding transform is verified; aim is not substituted for grip. Hand tracking, skeletons, and controller models remain unsupported in this backend. It is not selectable in ordinary lunette builds.
 
 Gesture recognition, such as double-tap to show or hide, laser modes, and grab-to-move, is Lua timing logic layered over LÖVR's state. This is also where such tuning is expected to occur.
 
@@ -101,7 +103,7 @@ WayVR addresses this with libmonado (WayVR upstream: `src/backend/openxr/blocker
 - libmonado is an optional, runtime-detected dependency. On a non-Monado runtime, the call returns `false` and Lua handles the degraded case. lunette does not hard-depend on Monado.
 - Blocking policy is decided in Lua. The standard library's default rule matches WayVR's: block while a laser is hovering a panel. Because this is policy, it is implemented in Lua rather than in the native layer.
 
-Haptics use `lovr.headset.vibrate`. No new API is added for this.
+Haptics use `lovr.headset.vibrate`. No new API is added for this. The private OpenVR backend schedules immediate pulses of at most 20 milliseconds. Cancellation stops future pulses but cannot revoke one already accepted by the runtime. Frequency zero selects a nominal 120 Hz, not an SDK-defined default.
 
 ## Decisions
 
@@ -124,6 +126,8 @@ Only a selection lunette owns is ever withdrawn or cleared. `set_selection(null)
 ## Known gaps
 
 Named, not solved.
+
+The private OpenVR controller bindings and haptic frequency mapping require SteamVR validation. Touch grip poses, hand skeletons, and controller models remain unavailable. HMD activity is an in-use inference, not verified wear detection.
 
 Host-to-lunette drag-and-drop. No protocol exists for a drag crossing a compositor boundary. In-compositor drag-and-drop works.
 
