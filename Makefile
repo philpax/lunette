@@ -46,12 +46,15 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build install install-binary install-lua install-config check check-format check-rust check-clippy check-test check-definitions check-luau clean
+.PHONY: all build run install install-binary install-lua install-config check check-format check-rust check-clippy check-test check-definitions check-luau clean
 
 all: build
 
 build:
 	$(CARGO) build --profile $(PROFILE) --workspace
+
+run:
+	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/etc/xdg/lunette" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
 # `check` runs the standing checks CONTRIBUTING.md lists, in the order
 # .github/workflows/ci.yml runs them. Each check is its own target; a failure

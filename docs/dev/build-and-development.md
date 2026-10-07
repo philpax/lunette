@@ -71,7 +71,7 @@ Embedding via `rust-embed` exists as an optional build feature, off by default, 
 
 ## The development loop
 
-`cargo run` starts the working copy against itself. The workspace's `default-members` is `crates/lunette` and that crate's `default-run` is `lunette`, so neither the package nor the binary has to be named from the repository root; `cargo run --bin lunctl` reaches the control client. A bare `cargo build` or `cargo test` covers that crate alone for the same reason, which is why the standing checks name `--workspace`. The devshell exports `LUNETTE_STDLIB_PATH` and `LUNETTE_CONFIG_PATH`, pointing at `lua/` and `etc/xdg/lunette` in the repository, so no flag is needed and the working directory does not matter: both are anchored at the repository root rather than at `$PWD`. `--config-path` outranks the variable, and the decisions below record why neither location has a default that would find a working copy without them.
+`make run` starts the working copy against itself. The target in `Makefile` sets `LUNETTE_STDLIB_PATH` and `LUNETTE_CONFIG_PATH` to absolute paths under the repository root for that invocation, independently of Nix. `make run ARGS="--config-path /path/to/config"` loads another configuration; the flag outranks the variable. Plain `cargo run` uses the installed runtime defaults unless the variables are supplied explicitly. The workspace's `default-members` is `crates/lunette` and that crate's `default-run` is `lunette`, so neither the package nor the binary has to be named from the repository root; `cargo run --bin lunctl` reaches the control client. A bare `cargo build` or `cargo test` covers that crate alone for the same reason, which is why the standing checks name `--workspace`.
 
 `.envrc` carries `use flake`, so `direnv allow` puts that environment in the running shell. Using direnv rather than `nix develop` matters for what a session spawns. `nix develop` starts its own bash and sets `SHELL` to it, lunette hands its environment to every client it starts, and a terminal opened from such a session runs a shell from the store with none of the user's setup. direnv exports into the shell that is already running and leaves `SHELL` alone.
 
@@ -106,6 +106,8 @@ The standing checks are listed in [CONTRIBUTING.md](../../CONTRIBUTING.md) and r
 ## Decisions
 
 Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+
+The development launch belongs to `make run`, not the Nix shell. The shell supplies build and runtime dependencies without changing which configuration an ordinary invocation loads. Exporting checkout paths from the shell made development behavior depend on entering Nix and obscured the installed defaults. The launch target supplies those paths explicitly and works in either environment.
 
 Compositor tests connect over a socketpair, not a bound socket. `Connection::from_socket` and `DisplayHandle::insert_client` both take a `UnixStream` directly, so a test gives one end of a `UnixStream::pair()` to each side and the filesystem is never involved. Only the listener's own tests — bind, listen, accept, and socket-path selection — bind a real socket, in a per-test temporary directory, because that is the code under test. The real socket in [Build and development](build-and-development.md#testing) means a real Wayland connection, not a real path on disk.
 
