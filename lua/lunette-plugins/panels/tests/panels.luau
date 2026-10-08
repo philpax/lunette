@@ -70,6 +70,41 @@ test('a panel takes its size from its source, and is found by its source', funct
   env.session:close()
 end)
 
+test('monitor panel sizing follows oriented geometry and preserves the selected size axis', function()
+  local env = start()
+  local source = monitor 'portrait'
+  source.logicalWidth, source.logicalHeight = 1080, 1920
+  local widthPanel = env.panels:fromMonitor(env.owner, source, { width = 1 })
+  expect.near(widthPanel.height, 1920 / 1080, 1e-9, 'portrait aspect does not use the landscape mode')
+  source.logicalWidth, source.logicalHeight = 1920, 1080
+  env.panels:update()
+  expect.equal(widthPanel.width, 1)
+  expect.near(widthPanel.height, 1080 / 1920, 1e-9, 'rotation refreshes the panel aspect')
+  widthPanel:setSize(nil, 0.5)
+  source.logicalWidth, source.logicalHeight = 1080, 1920
+  env.panels:update()
+  expect.equal(widthPanel.height, 0.5)
+  expect.near(widthPanel.width, 0.5 * 1080 / 1920, 1e-9, 'height remains the selected size axis')
+  widthPanel:setSize(1, 0.7)
+  source.logicalWidth, source.logicalHeight = 1920, 1080
+  env.panels:update()
+  expect.equal(widthPanel.width, 1)
+  expect.equal(widthPanel.height, 0.7, 'explicit dimensions do not change with the source')
+  env.session:close()
+end)
+
+test('a panel with unavailable source dimensions acquires the source aspect on update', function()
+  local env = start()
+  local source = monitor 'pending-mode'
+  source.width, source.height = 0, 0
+  local panel = env.panels:fromMonitor(env.owner, source, { width = 1 })
+  source.width, source.height = 1080, 1920
+  env.panels:update()
+  expect.equal(panel.width, 1)
+  expect.near(panel.height, 1920 / 1080, 1e-9)
+  env.session:close()
+end)
+
 test('an opaque window draws through a shader made once per activation and released with it', function()
   local env = start()
   local source = env.native.newWindow(17)

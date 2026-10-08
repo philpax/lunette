@@ -113,7 +113,11 @@ function arrangement.apply(
   end
   target:setPose(placed)
   if entry.width or entry.height then
-    target:setSize(entry.width, entry.height)
+    if target.kind == 'monitor' and entry.width then
+      target:setSize(entry.width, nil)
+    else
+      target:setSize(entry.width, entry.height)
+    end
   end
   for _, name in ipairs(entry.tags) do
     local found = tags:hold(context, { name = name })

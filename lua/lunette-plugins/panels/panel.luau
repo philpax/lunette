@@ -51,6 +51,8 @@ type MutablePanel = {
   pose: Mat4,
   width: number,
   height: number,
+  sizeAxis: 'width' | 'height' | 'fixed',
+  sourceAspect: number,
   priority: number,
   title: string?,
   chrome: boolean,
@@ -192,6 +194,8 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       pose = pose,
       width = 0,
       height = 0,
+      sizeAxis = 'fixed',
+      sourceAspect = host.settings.aspect,
       priority = priority,
       title = settings.title,
       chrome = chrome,
@@ -219,6 +223,8 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       pose = pose,
       width = 0,
       height = 0,
+      sizeAxis = 'fixed',
+      sourceAspect = host.settings.aspect,
       priority = priority,
       title = settings.title,
       chrome = chrome,
@@ -358,12 +364,22 @@ function panel.sourceSize(target: State): (number?, number?)
   return source.width, source.height
 end
 
-function panel.resize(target: State, width: number?, height: number?)
-  local pixelWidth, pixelHeight = panel.sourceSize(target)
-  local aspect = target.host.settings.aspect
-  if pixelWidth and pixelHeight and pixelWidth > 0 and pixelHeight > 0 then
-    aspect = pixelWidth / pixelHeight
+local function sourceAspect(target: State): number
+  if target.kind == 'monitor' then
+    local width, height = target.source.logicalWidth, target.source.logicalHeight
+    if width and height and width > 0 and height > 0 then
+      return width / height
+    end
   end
+  local width, height = panel.sourceSize(target)
+  if width and height and width > 0 and height > 0 then
+    return width / height
+  end
+  return target.host.settings.aspect
+end
+
+function panel.resize(target: State, width: number?, height: number?)
+  local aspect = sourceAspect(target)
 
   if not width and not height then
     error 'panels: a size needs a width, a height, or both'
@@ -374,6 +390,8 @@ function panel.resize(target: State, width: number?, height: number?)
     error('panels: a panel is at least as large as nothing, and ' .. w .. 'x' .. h .. ' is not', 3)
   end
   target.width, target.height = w, h
+  target.sizeAxis = if width and height then 'fixed' else if width then 'width' else 'height'
+  target.sourceAspect = aspect
 end
 
 -- The default raycast: the flat quad, or the arc a positive curve gives.
@@ -447,6 +465,15 @@ function panel.update(target: State)
   if target.source.dead then
     panel.retire(target)
     return
+  end
+  local aspect = sourceAspect(target)
+  if aspect ~= target.sourceAspect then
+    target.sourceAspect = aspect
+    if target.sizeAxis == 'width' then
+      target.height = target.width / aspect
+    elseif target.sizeAxis == 'height' then
+      target.width = target.height * aspect
+    end
   end
   if target.hidden then
     if target.claim then
