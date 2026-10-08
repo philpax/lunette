@@ -7,6 +7,7 @@ local surface = require '@lunette-contracts/surface'
 local layer = require '@lunette-plugins/panels/layer'
 local shape = require '@lunette-plugins/panels/shape'
 local drawing = require '@lunette-plugins/panels/draw'
+local passState = require '@lunette-plugins/pass-state'
 
 local panel = {}
 
@@ -33,8 +34,8 @@ export type Host = {
   -- Checks the owner and registers a resource with its lifetime.
   read acquire: (Owner, () -> () -> ()) -> plugin.Effect,
   read settings: Settings,
-  -- The activation's opaque shader, or nil when none can be made.
-  read opaqueShader: () -> Shader?,
+  -- The activation's colour conversion shader for opaque or premultiplied captured content.
+  read contentShader: (boolean) -> Shader?,
   -- Called once a panel is dead and its claim released.
   read removed: (State) -> (),
 }
@@ -103,7 +104,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     return panel.raycast(created, origin, direction, backFace)
   end
   local function drawBase(_self: Panel, pass: Pass)
-    drawing.content(created, pass, host.opaqueShader)
+    drawing.content(created, pass, host.contentShader)
   end
   local exposed = {
     setHighlighted = function(_self: surface.Surface, value: boolean)
@@ -144,13 +145,17 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       if created.dead or created.hidden or created.source.dead then
         return
       end
-      if created.chrome then
-        drawing.chrome(created, pass, host.settings.style)
-      end
-      if created.granted then
-        return
-      end
-      host.settings.shape.draw(created, pass, drawBase)
+      passState.withRestore(pass, function()
+        pass:setShader()
+        pass:setMaterial(nil)
+        pass:setColor(1, 1, 1, 1)
+        if created.chrome then
+          drawing.chrome(created, pass, host.settings.style)
+        end
+        if not created.granted then
+          host.settings.shape.draw(created, pass, drawBase)
+        end
+      end)
     end,
     setHidden = function(_self: Panel, caller: Owner, visibility: contracts.Visibility): plugin.Effect
       if type(visibility) ~= 'table' or type(visibility.hidden) ~= 'boolean' then
@@ -412,7 +417,7 @@ end
 -- Acquires or replaces a window panel's layer claim when its source needs one.
 -- A hidden panel holds none.
 function panel.claim(target: State)
-  if target.dead or target.hidden or target.source.dead then
+  if target.dead or target.hidden or target.source.dead or target.host.settings.rendering ~= 'layer' then
     return
   end
   local pixelWidth, pixelHeight = panel.sourceSize(target)
@@ -458,7 +463,7 @@ function panel.update(target: State)
     return
   end
   panel.claim(target)
-  if target.kind == 'window' then
+  if target.kind == 'window' and target.host.settings.rendering == 'layer' then
     local base = applyLayerBase(target)
     layer.drive(target, pixelWidth, pixelHeight, function(held: Layer): ()
       target.host.settings.shape.applyLayer(target, held, base)

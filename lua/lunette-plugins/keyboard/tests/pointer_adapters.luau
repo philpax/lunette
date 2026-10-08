@@ -11,8 +11,8 @@ local keys = require '@lunette-contracts/keys'
 local test = testing.suite()
 
 local function fixture(kind, options)
-  testing.native()
-  local f = { keys = {}, activations = {}, drawn = {}, events = {}, legacy = 0 }
+  local native = testing.native()
+  local f = { native = native, keys = {}, activations = {}, drawn = {}, events = {}, legacy = 0 }
   local definition
   if kind == 'tiny' then
     testing.host.useConfiguration 'examples/keyboard'
@@ -108,7 +108,7 @@ local function fixture(kind, options)
   end
   function f:draw()
     table.clear(self.drawn)
-    self.board:draw { setColor = function() end, plane = function() end }
+    self.board:draw(self.native.events.pass)
     return self.drawn
   end
   function f:close()

@@ -1,6 +1,7 @@
 -- Draws keyboard plates, faces, and legends.
 local keyboard = require '@lunette-contracts/keyboard'
 local board = require '@lunette-plugins/keyboard/board'
+local passState = require '@lunette-plugins/pass-state'
 
 local draw = {}
 
@@ -39,13 +40,15 @@ end
 function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()
   local style = state.style
   local color = style.legendColor
-  pass:setColor(color[1], color[2], color[3], color[4])
-  local text = lovr.math.newMat4()
-  text:set(state.pose)
-  text:translate(0, 0, style.legendDepth)
-  text:scale(vector.pack(style.legendHeight))
-  pass:text(key.legend, text, 0, 'center', 'middle')
-  pass:setColor(1, 1, 1, 1)
+  passState.withRestore(pass, function()
+    pass:setDepthWrite(false)
+    pass:setColor(color[1], color[2], color[3], color[4])
+    local text = lovr.math.newMat4()
+    text:set(state.pose)
+    text:translate(0, 0, style.legendDepth)
+    text:scale(vector.pack(style.legendHeight))
+    pass:text(key.legend, text, 0, 'center', 'middle')
+  end)
 end
 
 function draw.key(pass: Pass, key: board.RenderedKey, state: board.KeyState): ()

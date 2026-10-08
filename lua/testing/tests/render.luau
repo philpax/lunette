@@ -459,9 +459,11 @@ test('measures existing flat panel content and chrome without a GPU or a new UI 
     curve = 0,
     highlighted = false,
   }
+  local caller = recorder:checkpoint()
   panelDraw.content(target, recorder.pass, function()
     return nil
   end)
+  recorder:assertRestored(caller)
   panelDraw.chrome(target, recorder.pass, {
     borderColor = { 0.2, 0.3, 0.4, 1 },
     borderThickness = 0.02,
@@ -471,7 +473,7 @@ test('measures existing flat panel content and chrome without a GPU or a new UI 
     titleHeight = 0.08,
   })
   recorder:assertBounds({ x = -1.02, y = -0.52, width = 2.04, height = 1.14 }, nil, nil, pose)
-  expect.equal(recorder.calls[1][1], 'setBlendMode')
+  expect.equal(recorder.calls[1][1], 'push')
   local face
   for _, call in recorder.calls do
     if call[1] == 'plane' then

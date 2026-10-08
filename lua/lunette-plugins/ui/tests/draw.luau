@@ -112,6 +112,34 @@ test('provider, panel, and control hooks receive frozen snapshots and paint in p
   recorder:assertRestored()
 end)
 
+test('replacement hooks inherit the same untextured depth-free state as built-in widgets', function()
+  local recorder = recorderForDrawing()
+  local pass = recorder.pass
+  pass:setShader 'scene shader'
+  pass:setMaterial 'scene texture'
+  pass:setDepthTest 'lequal'
+  pass:setDepthWrite(true)
+  local caller = recorder:checkpoint()
+  local invoked = false
+  draw.render(pass, visual 'region', {
+    function(target)
+      invoked = true
+      target:plane(10, 10, 0, 2, 2)
+    end,
+  })
+  expect.truthy(invoked)
+  for _, call in recorder.calls do
+    if call.draw then
+      expect.equal(call.state.setShader[1], nil)
+      expect.equal(call.state.setMaterial[1], nil)
+      expect.equal(call.state.setDepthTest[1], nil)
+      expect.equal(call.state.setDepthWrite[1], false)
+      expect.equal(call.state.setCullMode[1], 'none')
+    end
+  end
+  recorder:assertRestored(caller)
+end)
+
 test('hooks cannot replace declared geometry through their base renderer', function()
   local recorder = recorderForDrawing()
   local value = visual 'button'

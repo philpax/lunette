@@ -24,7 +24,9 @@ end
 
 test('panel inspection separates logical ownership from layer resources and reused visibility effects', function()
   local native = testing.native()
-  local session = testing.start { 'panels' }
+  local session = testing.start {
+    { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = { rendering = 'layer' } },
+  }
   local first, second = session:observe(contract.capability), session:observe(contract.capability)
   local service, owner = first.service, first.context
   local source = native.newWindow(21)

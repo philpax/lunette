@@ -72,6 +72,20 @@ local function drawKeyboard(fixture)
     end
   end
   local target, rows = board(), keyboardConfig()
+  local localFromWorld = lovr.math.newMat4(target.pose):invert()
+  local faceDepth
+  for _, call in ipairs(fixture.native.events.draw) do
+    if call[1] == 'roundrect' then
+      local x, y, z = call[2]:mul(0, 0, 0.5, 1)
+      faceDepth = select(3, localFromWorld:mul(x, y, z))
+      expect.near(faceDepth, 0, 1e-5, 'the rounded key front lies on the interaction plane')
+    elseif call[1] == 'text' and faceDepth then
+      local x, y, z = call[3]:getPosition()
+      local depth = select(3, localFromWorld:mul(x, y, z))
+      expect.truthy(depth > faceDepth + 1e-5, 'the legend is separated from the rounded key front')
+      faceDepth = nil
+    end
+  end
   expect.truthy(target.visible, 'the menu shows the keyboard')
   local keyCount = 0
   for _, row in ipairs(rows) do

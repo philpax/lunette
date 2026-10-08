@@ -42,7 +42,11 @@ test('use enables a definition of the test in the session runtime', function()
 end)
 
 test('boot binds the frame callbacks, and closing releases the claims of the session', function()
-  local session = testing.boot { 'frame', 'surfaces', 'panels' }
+  local session = testing.boot {
+    'frame',
+    'surfaces',
+    { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = { rendering = 'layer' } },
+  }
   local native = session.native
   expect.equal(type(lovr.update), 'function', 'the bound update')
   local panels = session:observe(panelsContract.capability)

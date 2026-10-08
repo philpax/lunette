@@ -3,6 +3,7 @@
 local lunette = require '@lunette'
 local contracts = require '@lunette-contracts/panels'
 local shape = require '@lunette-plugins/panels/shape'
+local passState = require '@lunette-plugins/pass-state'
 
 local draw = {}
 
@@ -41,16 +42,14 @@ local function arcMesh(target: Drawable): Mesh?
   return made
 end
 
-function draw.content(target: Drawable, pass: Pass, opaqueShader: () -> Shader?)
+function draw.content(target: Drawable, pass: Pass, contentShader: (boolean) -> Shader?)
   local texture: Texture | false
-  local shader: Shader?
+  local opaque = true
   local described: Source = target
   if described.kind == 'window' then
     local window = described.source
     texture = window:getTexture()
-    if window.opaque then
-      shader = opaqueShader()
-    end
+    opaque = window.opaque
   else
     texture = described.source:getTexture()
   end
@@ -58,24 +57,24 @@ function draw.content(target: Drawable, pass: Pass, opaqueShader: () -> Shader?)
     return
   end
 
-  pass:setBlendMode('alpha', 'premultiplied')
-  if shader then
-    pass:setShader(shader)
-  end
-
-  pass:setMaterial(texture)
-  local mesh = if target.curve > 0 then arcMesh(target) else nil
-  if mesh then
-    pass:draw(mesh, target.pose)
-  else
-    local transform = lovr.math.newMat4():set(target.pose):scale(target.width, target.height, 1)
-    pass:plane(transform, 'fill', 1, 1)
-  end
-  pass:setMaterial(nil)
-  if shader then
-    pass:setShader()
-  end
-  pass:setBlendMode('alpha', 'alphamultiply')
+  local sampled: Texture = texture
+  local shader = contentShader(opaque)
+  passState.withRestore(pass, function()
+    pass:setBlendMode('alpha', 'premultiplied')
+    if shader then
+      pass:setShader(shader)
+    else
+      pass:setShader()
+    end
+    pass:setMaterial(sampled)
+    local mesh = if target.curve > 0 then arcMesh(target) else nil
+    if mesh then
+      pass:draw(mesh, target.pose)
+    else
+      local transform = lovr.math.newMat4():set(target.pose):scale(target.width, target.height, 1)
+      pass:plane(transform, 'fill', 1, 1)
+    end
+  end)
 end
 
 -- Chrome draws the border and title. Other decorations belong to consumers.

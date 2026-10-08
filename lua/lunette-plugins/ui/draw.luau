@@ -6,6 +6,7 @@ local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local theme = require './theme'
 local textFieldGeometry = require './text-field-geometry'
+local passState = require '@lunette-plugins/pass-state'
 local draw = {}
 
 type TextEntry = {
@@ -100,30 +101,15 @@ snapshot = function(value: ui.Visual): ui.Visual
 end
 
 protected = function(pass: Pass, render: () -> ()): ()
-  local pushedState, pushedTransform = false, false
-  local ok, message = pcall(function()
-    pass:push 'state'
-    pushedState = true
-    pass:push 'transform'
-    pushedTransform = true
+  passState.withRestore(pass, function()
+    pass:setShader()
+    pass:setMaterial(nil)
+    pass:setFont(lovr.graphics.getDefaultFont())
+    pass:setCullMode 'none'
+    pass:setDepthTest()
+    pass:setDepthWrite(false)
     render()
   end)
-  -- Both restoration attempts run, and the drawing error takes precedence over a restoration error.
-  if pushedTransform then
-    local restored, problem = pcall(pass.pop, pass, 'transform')
-    if ok and not restored then
-      ok, message = false, problem
-    end
-  end
-  if pushedState then
-    local restored, problem = pcall(pass.pop, pass, 'state')
-    if ok and not restored then
-      ok, message = false, problem
-    end
-  end
-  if not ok then
-    error(message, 0)
-  end
 end
 
 renderDefault = function(pass: Pass, visual: ui.Visual): ()

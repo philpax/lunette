@@ -8,6 +8,7 @@ local interaction = require '@lunette-contracts/interaction'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local input = require '@lunette-plugins/laser/input'
 local draw = require '@lunette-plugins/laser/draw'
+local passState = require '@lunette-plugins/pass-state'
 local registry = require '@lunette-plugins/laser/registry'
 local inspection = require '@lunette-contracts/inspection'
 
@@ -119,7 +120,9 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         if self.dead or not state.active then
           return
         end
-        settings.draw(self, pass, draw.laser)
+        passState.withRestore(pass, function()
+          settings.draw(self, pass, draw.laser)
+        end)
       end,
       vibrate = function(self: Laser): boolean
         if self.dead then

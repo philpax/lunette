@@ -8,6 +8,7 @@ local quad = require '@lunette-contracts/quad'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local board = require '@lunette-plugins/keyboard/board'
 local drawing = require '@lunette-plugins/keyboard/draw'
+local passState = require '@lunette-plugins/pass-state'
 local layout = require '@lunette-plugins/keyboard/layout'
 local validation = require '@lunette-plugins/keyboard/validation'
 local inspection = require '@lunette-contracts/inspection'
@@ -392,18 +393,26 @@ local function create(
       if state.dead or not state.visible then
         return
       end
-      local width, height = state.width, state.height
-      drawing.plate(pass, state.pose, width, height, style)
-      local held = modifiers()
-      for _, key in ipairs(keys()) do
-        settings.drawKey(pass, key, {
-          keyboard = created,
-          pose = drawing.keyPose(state.pose, key, width, height),
-          style = style,
-          held = isHeld(key, held),
-          hovered = isHovered(key),
-        }, drawing.key)
-      end
+      passState.withRestore(pass, function()
+        pass:setShader()
+        pass:setMaterial(nil)
+        pass:setFont(lovr.graphics.getDefaultFont())
+        pass:setCullMode 'none'
+        local width, height = state.width, state.height
+        drawing.plate(pass, state.pose, width, height, style)
+        local held = modifiers()
+        for _, key in ipairs(keys()) do
+          passState.withRestore(pass, function()
+            settings.drawKey(pass, key, {
+              keyboard = created,
+              pose = drawing.keyPose(state.pose, key, width, height),
+              style = style,
+              held = isHeld(key, held),
+              hovered = isHovered(key),
+            }, drawing.key)
+          end)
+        end
+      end)
     end,
     destroy = function(_self: keyboard.Keyboard): boolean
       if state.dead then

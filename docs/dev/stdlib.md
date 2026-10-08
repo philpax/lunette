@@ -176,7 +176,7 @@ Each module's Lua tests are in a `tests` directory beside it, run by `crates/lun
 | Contract identity, exact provider bindings, lifecycle, and resource cleanup | Native plugin runtime | These rules span service providers and must remain consistent within a runtime graph. |
 | Service methods and configuration types | Luau contracts and definitions | The checker can validate local source shapes without inferring the complete runtime graph. |
 
-The panels provider adapts native window and monitor pixels to Lua-defined geometry and interaction. A monitor panel remains an in-scene quad because the native layer claim API accepts windows, not monitors. Interaction keeps pointer hover and keyboard focus separate; pointer motion does not implicitly take focus. These boundaries let a configuration change geometry and input policy without changing Wayland protocol behavior.
+The panels provider adapts native window and monitor pixels to Lua-defined geometry and interaction. Its `rendering` setting defaults to `'plane'` so window content participates in scene depth and stays behind session controls. `'layer'` opts windows into sharper post-composite OpenXR layers with scene fallback. A monitor panel remains in-scene because the native layer claim API accepts windows, not monitors. Interaction keeps pointer hover and keyboard focus separate; pointer motion does not implicitly take focus. These boundaries let a configuration change geometry and input policy without changing Wayland protocol behavior.
 
 ## Decisions
 

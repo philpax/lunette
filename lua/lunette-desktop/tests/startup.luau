@@ -45,7 +45,7 @@ test('the shipped configuration starts on load and survives ten production reloa
   lovr.update(0.016)
   expect.equal(lovr.draw(events.pass), false, 'draw does not submit or veto the pass')
   expect.equal(#events.seats, 2, 'each hand owns its own seat')
-  expect.equal(#events.claims, 2, 'one panel claim per live window')
+  expect.equal(#events.claims, 0, 'default windows stay in the scene')
   expect.equal(events.textures, 2, 'each window texture is fetched for the frame')
   local wrist, beams, firstBeam = 0, 0, 0
   for index, call in ipairs(events.draw) do
@@ -115,7 +115,7 @@ test('the shipped configuration starts on load and survives ten production reloa
       expect.equal(native.subscriptionCount(name), 1, 'reload ' .. reload .. ' leaves one ' .. name)
     end
     expect.equal(live(events.seats), 2, 'reload ' .. reload .. ' releases the previous seats')
-    expect.equal(live(events.claims), 2, 'reload ' .. reload .. ' releases the previous claims')
+    expect.equal(live(events.claims), 0, 'reload ' .. reload .. ' keeps windows in the scene')
     lovr.update(0.016)
     expect.equal(lovr.draw(events.pass), false, 'reload ' .. reload .. ' draws')
   end

@@ -8,7 +8,7 @@ In-scene geometry. The surface texture is sampled by a shader in `lovr.draw`: a 
 
 OpenXR composition layer. The runtime composites a quad or cylinder itself at native panel resolution, with its own reprojection. Native-resolution compositing is what makes desktop text legible in VR, and existing overlays use this mechanism for that reason. It costs a blit per frame from the imported client buffer into the runtime-owned swapchain image, and geometry is limited to what the runtime supports, which for LÖVR means quad and cylinder with `curve`, plus viewport sub-rects.
 
-The standard library defaults flat panels to composition layers and falls back to in-scene rendering when the layer budget is exhausted or when geometry, shaders, or depth interaction are required. That policy lives in Lua ([Standard library](stdlib.md)). The native layer supplies only the two mechanisms.
+The panels provider defaults to in-scene rendering so windows participate in scene depth and remain behind session controls. Its `rendering = 'layer'` setting opts window panels into OpenXR composition layers, with scene rendering as the fallback when a claim is not granted. Monitor panels always render in the scene. That policy lives in Lua ([Standard library](stdlib.md)). The native layer supplies only the two mechanisms.
 
 ## Texture import
 
@@ -34,11 +34,17 @@ An imported buffer holds premultiplied alpha. A client rendering at 80 per cent 
 
 Some buffers have no alpha channel at all. `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` name three components and a padding byte, and Vulkan has no format for that, so each is imported as the alpha-carrying format with the same component order. Whatever the client left in the padding byte then arrives as alpha, and most renderers leave it at zero. Sampling it draws the window fully invisible.
 
-The native layer records the distinction rather than resolving it: `window.opaque` is true for such a buffer, and a consumer forces alpha to one instead of sampling it. The panels provider does this with a one-line fragment shader over the default `unlit` vertex stage, built on first use because the graphics module does not exist while a configuration is loading; `OPAQUE_FRAGMENT` and `opaqueShader` in `lua/lunette-plugins/panels/init.luau` are the worked example, and a configuration drawing a source itself builds the same shader; the panels provider keeps its own private. The shared-memory path resolves it on the way in instead — `wl_shm` buffers are repacked, so the padding byte is set to one during the copy — which is why `window.opaque` is only ever true for a dmabuf.
+The native layer records the distinction rather than resolving it: `window.opaque` is true for such a buffer, and a consumer forces alpha to one instead of sampling it. The panels provider uses an opaque fragment shader over the default `unlit` vertex stage. It creates the shader on first use because the graphics module does not exist while a configuration loads. `OPAQUE_FRAGMENT` and `contentShader` in `lua/lunette-plugins/panels/init.luau` implement this path. The shared-memory path sets the padding byte to one during repacking, so `window.opaque` is only true for a dmabuf.
 
 Both facts are properties of the buffer, not of the window: a client that renegotiates its format changes `window.opaque` between one frame and the next, so it is read each frame alongside the texture rather than cached.
 
 A composition layer resolves both differently, because it has no shader and no Lua consumer to resolve them in. The copy into a layer is a Vulkan image copy or blit, which reads the image and cannot force a component, and an image-view swizzle does not apply to either. So layers are created without `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`: the runtime ignores the layer's alpha channel, the padding byte is unreachable whatever the source format, and premultiplication stops mattering. A window that wants its translucency composited renders as an in-scene quad rather than claiming a layer. [Decisions](#decisions) below records the alternatives.
+
+### Colour transfer
+
+Imported desktop textures preserve encoded SDR sRGB values and use non-sRGB sampler views. Raw composition-layer copies keep those values intact. Scene rendering decodes them with LÖVR's `gammaToLinear` before linear blending and the projection target's output encoding. Treating an encoded pixel as linear would encode it again and brighten midtones.
+
+Opaque windows and monitor captures ignore padding alpha. Translucent window pixels are unpremultiplied before decoding and premultiplied again in linear space. Zero-alpha pixels produce zero colour. The panels provider owns both lazily created shaders and restores shader, material, blending, colour, and transforms after drawing. Custom source renderers have the same colour-conversion obligation. HDR colour metadata and actual headset colour fidelity remain unverified.
 
 ### Forced conversion
 
@@ -164,7 +170,7 @@ The layer limit is not the signal either, which is the part worth stating. `lovr
 
 Named, not solved.
 
-A captured frame is imported only as a dmabuf. PipeWire can negotiate shared memory instead, as a memfd or a mapped pointer, and lunette refuses both by name rather than showing a black mirror. The mapped-pointer case is the awkward one: the pointer is valid only inside PipeWire's callback, so supporting it means copying every frame on the capture thread, which is the one thing the raw-forwarding arrangement exists to avoid. The refusal is counted and logged once per stream rather than per frame.
+Captured DMA buffers use the existing importer. Descriptor-backed shared-memory frames in the supported 32-bit RGB layouts are copied, normalized, and uploaded or refilled on the frame thread. Arbitrary mapped-pointer frames remain unsupported because the pinned callback does not supply an owned descriptor and a validated storage extent. The built-in monitor panels apply the frame's rotation and flip to UVs and use logical geometry for proportions; GPU-backed portrait capture still needs manual acceptance testing.
 
 Multi-planar YUV costs a conversion. LÖVR has no `VkSamplerYcbcrConversion`. This affects hardware-decoded video and some capture formats.
 

@@ -20,13 +20,24 @@ type ProviderState = {
   context: plugin.Context,
   panels: { panel.State },
   opaqueShader: Shader?,
+  alphaShader: Shader?,
   events: events.Registry,
   host: panel.Host,
 }
 
 local OPAQUE_FRAGMENT = [[
   vec4 lovrmain() {
-    return vec4((Color * getPixel(ColorTexture, UV)).rgb, Color.a);
+    vec3 linear = gammaToLinear(getPixel(ColorTexture, UV).rgb);
+    return vec4(linear * Color.rgb * Color.a, Color.a);
+  }
+]]
+local ALPHA_FRAGMENT = [[
+  vec4 lovrmain() {
+    vec4 pixel = getPixel(ColorTexture, UV);
+    if (pixel.a <= 0.) return vec4(0.);
+    vec3 linear = gammaToLinear(clamp(pixel.rgb / pixel.a, 0., 1.));
+    float alpha = pixel.a * Color.a;
+    return vec4(linear * Color.rgb * alpha, alpha);
   }
 ]]
 
@@ -54,25 +65,34 @@ local function livePanels(state: ProviderState): { Panel }
   return live
 end
 
-local function opaqueShader(state: ProviderState): Shader?
+local function contentShader(state: ProviderState, opaque: boolean): Shader?
   if not state.active or not state.context:active() then
     return nil
   end
-  if state.opaqueShader then
-    return state.opaqueShader
+  local cached = if opaque then state.opaqueShader else state.alphaShader
+  if cached then
+    return cached
   end
   if not (lovr and lovr.graphics and lovr.graphics.newShader) then
     return nil
   end
   state.context:effect(function()
-    local shader = lovr.graphics.newShader('unlit', OPAQUE_FRAGMENT)
-    state.opaqueShader = shader
+    local shader = lovr.graphics.newShader('unlit', if opaque then OPAQUE_FRAGMENT else ALPHA_FRAGMENT)
+    if opaque then
+      state.opaqueShader = shader
+    else
+      state.alphaShader = shader
+    end
     return function()
       shader:release()
-      state.opaqueShader = nil
+      if opaque then
+        state.opaqueShader = nil
+      else
+        state.alphaShader = nil
+      end
     end
   end)
-  return state.opaqueShader
+  return if opaque then state.opaqueShader else state.alphaShader
 end
 
 -- A failed initial claim leaves the panel unregistered.
@@ -132,8 +152,8 @@ local function build(context: plugin.Context, settings: Settings): Service
       return context:acquire(owner, acquire)
     end,
     settings = settings,
-    opaqueShader = function(): Shader?
-      return opaqueShader(state)
+    contentShader = function(opaque: boolean): Shader?
+      return contentShader(state, opaque)
     end,
     removed = function(target: panel.State)
       local index = table.find(state.panels, target)
@@ -148,6 +168,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     context = context,
     panels = {},
     opaqueShader = nil,
+    alphaShader = nil,
     events = events.new(context),
     host = host,
   }

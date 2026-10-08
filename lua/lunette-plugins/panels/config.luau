@@ -50,6 +50,7 @@ local function configuration<R, D, A>(raycastHook: R, drawHook: D, layerHook: A)
     height = schema.default(schema.number())(0.8),
     aspect = schema.default(schema.number())(16 / 9),
     chrome = schema.default(schema.boolean())(false),
+    rendering = schema.default(schema.union(schema.literal<<'plane'>> 'plane', schema.literal<<'layer'>> 'layer')) 'plane',
     shape = schema.default(shape)(shape.parse {}),
   }
 end

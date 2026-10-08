@@ -78,15 +78,14 @@ test("each laser reads its own input, and a hover pulses that hand's controller 
   expect.equal(haptic.duration, style.hapticDuration, 'the pulse duration')
 
   table.clear(env.native.events.draw)
+  local caller = env.native.events.render:checkpoint()
   env.service:draw(env.native.events.pass)
+  env.native.events.render:assertRestored(caller)
   expect.equal(#calls(env, 'line'), 2, 'a beam per hand')
   expect.equal(#calls(env, 'sphere'), 1, 'a cursor for the hovering hand')
   local colors = calls(env, 'setColor')
   for index, value in ipairs(style.hoverColor) do
     expect.equal(colors[1][index + 1], value, 'the hovering beam colour ' .. index)
-  end
-  for index = 2, 5 do
-    expect.equal(colors[#colors][index], 1, 'the colour is reset to white ' .. (index - 1))
   end
 
   inputs.left = nil

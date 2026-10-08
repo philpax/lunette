@@ -1,4 +1,5 @@
 local contracts = require '@lunette-contracts/laser'
+local passState = require '@lunette-plugins/pass-state'
 
 local draw = {}
 
@@ -31,16 +32,17 @@ function draw.laser(target: Laser, pass: Pass): ()
   local endZ = originZ + directionZ / length * distance
   local color: Color = if hovered then style.hoverColor else style.color
 
-  pass:setColor(color[1], color[2], color[3], color[4])
-  pass:setDepthTest()
-  pass:setDepthWrite(false)
-  pass:line(originX, originY, originZ, endX, endY, endZ)
-  if hovered then
-    pass:sphere(endX, endY, endZ, style.cursorRadius)
-  end
-  pass:setDepthTest 'lequal'
-  pass:setDepthWrite(true)
-  pass:setColor(1, 1, 1, 1)
+  passState.withRestore(pass, function()
+    pass:setShader()
+    pass:setMaterial(nil)
+    pass:setColor(color[1], color[2], color[3], color[4])
+    pass:setDepthTest()
+    pass:setDepthWrite(false)
+    pass:line(originX, originY, originZ, endX, endY, endZ)
+    if hovered then
+      pass:sphere(endX, endY, endZ, style.cursorRadius)
+    end
+  end)
 end
 
 return draw

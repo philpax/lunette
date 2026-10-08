@@ -9,7 +9,11 @@ return keyboard.define {
     local style = state.style
     local color = drawing.faceColor(state)
     pass:setColor(color[1], color[2], color[3], color[4])
-    local face = lovr.math.mat4(state.pose):scale(key.width - style.gap, key.height - style.gap, style.plateDepth)
+    -- The front face stays on the interaction plane, behind the legend.
+    local face = lovr.math
+      .mat4(state.pose)
+      :translate(0, 0, -style.plateDepth / 2)
+      :scale(key.width - style.gap, key.height - style.gap, style.plateDepth)
     pass:roundrect(face, style.gap)
     drawing.legend(pass, key, state)
   end,

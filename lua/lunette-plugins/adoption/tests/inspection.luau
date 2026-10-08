@@ -49,7 +49,13 @@ test('inspection separates adoption from provider-owned placements without enume
   local native = testing.native()
   local window = native.newWindow(25)
   native.events.windows = { window }
-  local session = testing.start { 'panels', 'tags', 'rules', 'placement', 'adoption' }
+  local session = testing.start {
+    { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = { rendering = 'layer' } },
+    'tags',
+    'rules',
+    'placement',
+    'adoption',
+  }
   local observed = session:observe(contract.capability)
   local service, owner = observed.service, observed.context
   local installed = service:install(owner)

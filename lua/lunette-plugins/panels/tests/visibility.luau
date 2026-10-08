@@ -78,6 +78,7 @@ test('the shape hooks pick a panel and place its layer', function()
   local raycasts, layered = {}, {}
   local env = start(panelsModule.define {
     name = 'shaped-panels',
+    rendering = 'layer',
     shape = {
       raycast = function(target)
         raycasts[#raycasts + 1] = target
@@ -117,7 +118,7 @@ test('the shape hooks pick a panel and place its layer', function()
 end)
 
 test('an override hides a panel, and the most recent live override decides', function()
-  local env = start()
+  local env = start(nil, { rendering = 'layer' })
   local panel = env.panels:fromWindow(env.owner, window(env, 1), { height = 1 })
   env.panels:update()
   local claim = panel.claim

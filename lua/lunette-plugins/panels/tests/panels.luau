@@ -167,7 +167,7 @@ test('a destroyed panel, or one whose source died, retains nothing', function()
 end)
 
 test('a claim that fails as a panel is created registers nothing, and a retry succeeds', function()
-  local env = start()
+  local env = start { rendering = 'layer' }
   local native = require '@lunette'
   local existing = env.native.newWindow(301)
   local kept = env.panels:fromWindow(env.owner, existing)
