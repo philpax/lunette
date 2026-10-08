@@ -6,6 +6,7 @@ local keyboard = require '@lunette-contracts/keyboard'
 local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
 local surface = require '@lunette-contracts/surface'
+local ui = require '@lunette-contracts/ui'
 local protected = require '@lunette-plugins/protected'
 local place = require '@lunette-plugins/desktop/keyboard/placement'
 local config = require '@lunette-plugins/desktop/keyboard/config'
@@ -18,7 +19,10 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   local routes: focus.Service = context:require(focus.capability)
   local offers: surfaces.Service = context:require(surfaces.capability)
   local clock: frame.Service = context:require(frame.capability)
+  local widgets = context:require(ui.capability)
   local board: keyboard.Keyboard? = nil
+  local bar: ui.Titlebar? = nil
+  local close: () -> boolean
   local stopped, visible, manualVisible = false, false, false
   local initializing, requestedVisible = false, false
   local publicHide: Hide? = nil
@@ -98,6 +102,9 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       return
     end
     visible = change.visible
+    if bar then
+      bar:sync()
+    end
     if change.reason == 'user-hide' then
       local target, focusRevision = localTarget(), currentRevision
       local ownIntent = clearIntent()
@@ -112,6 +119,11 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       end
     elseif change.reason == 'destroy' then
       board = nil
+      if bar then
+        local old = bar
+        bar = nil
+        old:destroy()
+      end
       clearIntent()
       notify 'destroy'
     else
@@ -138,6 +150,15 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       if created then
         board = created
         created:setVisible(false)
+        local target = created
+        bar = widgets:newTitlebar(context, 'desktop/keyboard/titlebar', target, {
+          title = 'Keyboard',
+          onClose = function(): ()
+            close()
+          end,
+        }, function(): boolean
+          return live() and visible and not target.dead
+        end)
       end
     end)
     initializing = false
@@ -228,6 +249,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     return hidden and live() and not visible
   end
 
+  close = hide
   context:effect(function(): () -> ()
     return function(): ()
       if stopped then
@@ -290,6 +312,9 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     run = function(pass: Pass): ()
       local target = board
       if live() and visible and target and not target.dead then
+        if bar then
+          bar:draw(pass)
+        end
         target:draw(pass)
       end
     end,

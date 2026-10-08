@@ -25,7 +25,11 @@ function fixture.boot(options)
     'drops',
     'focus',
     'interaction',
-    'laser',
+    {
+      id = 'laser',
+      definition = require('@lunette-plugins/laser').definition,
+      config = { aim = { enabled = false }, triggerLock = { enabled = false } },
+    },
     'keyboard',
     'desktop/pointing',
     options.provider or 'ui',

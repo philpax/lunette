@@ -22,6 +22,7 @@ local function start(config)
     'frame',
     'surfaces',
     'focus',
+    'ui',
     { id = 'keyboard', definition = tracing },
     { id = 'desktop/keyboard', definition = definition, config = config },
   }
@@ -83,12 +84,13 @@ test('the keyboard provider offers no wrist trigger while hidden or visible', fu
   local hiddenCount = #env.surfaces:all()
   local opened = env.display:show()
   local offered = env.surfaces:all()
+  local board = shownKeyboard(env)
   local haptics = env.session.native.events.haptics or 0
   env.session:close()
   expect.equal(hiddenCount, 0, 'the hidden display offers no trigger')
   expect.truthy(opened, 'the public display opens')
-  expect.equal(#offered, 1, 'only the keyboard surface is offered')
-  expect.truthy(offered[1].setLayer, 'the offered surface is a keyboard')
+  expect.equal(#offered, 3, 'the keyboard and shared titlebar surfaces are offered')
+  expect.truthy(board, 'the offered surfaces include the keyboard')
   expect.equal(haptics, 0, 'showing does not pulse a controller')
 end)
 
@@ -161,7 +163,7 @@ test('public visibility operations reuse one board and place it only when shown'
   expect.equal(board.visible, false, 'toggle leaves the board hidden')
   expect.equal(board.dead, false, 'hiding retains the board')
   expect.truthy(env.display:show(), 'the final show succeeds')
-  expect.equal(#env.surfaces:all(), 1, 'the display offers a single board')
+  expect.equal(#env.surfaces:all(), 3, 'the display offers one board and its shared titlebar')
   env.session:close()
   expect.equal(board.dead, true, 'closing destroys the owned board')
   local ok, problem = pcall(function()

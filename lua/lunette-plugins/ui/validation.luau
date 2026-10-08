@@ -5,6 +5,7 @@ local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local theme = require './theme'
+local titlebar = require './titlebar'
 
 local validation = {}
 local copyControl: <T>(T, { [string]: boolean }, string) -> T
@@ -35,6 +36,7 @@ local PANEL = {
   visible = true,
   grabbable = true,
   grabTarget = true,
+  titlebar = true,
   theme = true,
   draw = true,
 }
@@ -98,6 +100,7 @@ function validation.panel(options: ui.PanelOptions): ui.PanelOptions
     visible = options.visible,
     grabbable = options.grabbable,
     grabTarget = grabTarget,
+    titlebar = if options.titlebar then titlebar.options(options.titlebar) else nil,
     theme = overrides,
     draw = options.draw,
   }

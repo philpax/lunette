@@ -107,7 +107,7 @@ local function fixture(settings)
   return f
 end
 
-test('the Plugins action belongs to the manager activation and only opens its surface', function()
+test('the Plugins action belongs to the manager activation and toggles its surface', function()
   local f = fixture()
   expect.equal(#f.all(), 0, 'the manager starts hidden')
   local action = f.menu:list()[1]
@@ -122,9 +122,9 @@ test('the Plugins action belongs to the manager activation and only opens its su
     'the manager owns its action'
   )
   f:open()
-  f:open()
-  expect.equal(#f.all(), 1, 'repeated invocation does not toggle closed')
   local previousSurface = f.surface
+  expect.equal(f.menu:invoke('desktop/manager/open').kind, 'invoked')
+  expect.equal(#f.all(), 0, 'repeated invocation toggles closed')
   f.running.service:reload 'desktop/manager'
   expect.equal(previousSurface.dead, true, 'reload retires the old surface')
   expect.equal(#f.all(), 0, 'the replacement starts hidden')
@@ -176,7 +176,7 @@ test('real pointer toolbar clicks zoom focus fit enter search and close without 
   expect.equal(#f.all(), 0, 'Close hides the manager')
   expect.equal(f.public:panel().dead, false, 'Close does not dispose the activation')
   f:open()
-  expect.equal(#f.all(), 1, 'the menu can reopen a closed manager')
+  expect.equal(#f.all(), 3, 'the menu can reopen a closed manager and titlebar')
 end)
 
 test('new pointer controls require matching eligible release and reject tracking loss', function()
@@ -190,14 +190,14 @@ test('new pointer controls require matching eligible release and reject tracking
     f:update(pointer, f.width + 10, y)
     expect.equal(f.state.view.camera, before, label .. ' cannot activate outside')
     expect.equal(f.state.view.searchActive, false, label .. ' cannot enter search outside')
-    expect.equal(#f.all(), 1, label .. ' cannot close outside')
+    expect.equal(#f.all(), 3, label .. ' cannot close outside')
     f:update(pointer, x, y, { left = true })
     pointer:withdraw()
     f:update(pointer, x, y, { left = true })
     f:update(pointer, x, y)
     expect.equal(f.state.view.camera, before, label .. ' cannot activate after tracking loss')
     expect.equal(f.state.view.searchActive, false, label .. ' cannot enter search after tracking loss')
-    expect.equal(#f.all(), 1, label .. ' cannot close after tracking loss')
+    expect.equal(#f.all(), 3, label .. ' cannot close after tracking loss')
   end
   local x, y = f:point 'Search'
   f:update(pointer, x, y, { left = true })

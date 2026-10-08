@@ -44,6 +44,7 @@ function panels.new(provider, owner, options)
     pixelHeight = options.logicalHeight,
   }
   local handle = { dead = false }
+  local chrome: ui.Titlebar? = nil
   function panel.live()
     return not panel.dead and provider.context:owns(owner)
   end
@@ -272,6 +273,9 @@ function panels.new(provider, owner, options)
         gesture.revision = panel.revision
       end
     end
+    if chrome then
+      chrome:sync()
+    end
   end
   function handle.setSize(_: ui.Panel, width: number, height: number, logicalWidth: number?, logicalHeight: number?)
     if not panel.live() then
@@ -287,6 +291,9 @@ function panels.new(provider, owner, options)
     panel.surface.pixelWidth, panel.surface.pixelHeight =
       logicalWidth or panel.surface.pixelWidth, logicalHeight or panel.surface.pixelHeight
     panel.revision += 1
+    if chrome then
+      chrome:sync()
+    end
   end
   function panel.surface.setPose(_, pose)
     handle:setPose(pose)
@@ -301,6 +308,9 @@ function panels.new(provider, owner, options)
     end
     panel.visible = value
     panel.revision += 1
+    if chrome then
+      chrome:sync()
+    end
     if not value then
       panel.cancel(nil, 'hidden')
       local ordered = table.clone(panel.controls)
@@ -356,9 +366,30 @@ function panels.new(provider, owner, options)
       controls = table.freeze(described),
     }
   end
+  function handle.setTitlebar(_: ui.Panel, given: ui.TitlebarOptions?)
+    if not panel.live() then
+      return
+    end
+    if given then
+      if chrome then
+        chrome:update(given)
+      else
+        chrome = provider.decorate(owner, panel.name .. '/titlebar', panel.surface, given, function()
+          return panel.live() and panel.visible
+        end)
+      end
+    elseif chrome then
+      local old = chrome
+      chrome = nil
+      old:destroy()
+    end
+  end
   function handle.draw(_: ui.Panel, pass: Pass)
     if not panel.live() or not panel.visible then
       return
+    end
+    if chrome then
+      chrome:draw(pass)
     end
     local function render()
       pass:transform(panel.surface.pose)
@@ -426,8 +457,18 @@ function panels.new(provider, owner, options)
       return
     end
     panel.dead, handle.dead, panel.surface.dead = true, true, true
+    local oldChrome = chrome
+    chrome = nil
     local failures = {}
     local ok, message = pcall(function()
+      if oldChrome then
+        oldChrome:destroy()
+      end
+    end)
+    if not ok then
+      failures[#failures + 1] = tostring(message)
+    end
+    ok, message = pcall(function()
       panel.cancel(nil, 'surface-dead')
     end)
     if not ok then
@@ -499,6 +540,15 @@ function panels.new(provider, owner, options)
     return handle, dispose
   end)
   effect = acquired
+  if options.titlebar then
+    local ok, failure = pcall(function()
+      handle:setTitlebar(options.titlebar)
+    end)
+    if not ok then
+      handle:destroy()
+      error(failure, 0)
+    end
+  end
   return handle
 end
 

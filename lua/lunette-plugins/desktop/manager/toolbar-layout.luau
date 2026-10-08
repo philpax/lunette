@@ -66,7 +66,7 @@ function toolbarLayout.compute(
     detailsTop = group({ 'load' }, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 2
   end
   detailsTop = group({ 'previous', 'next' }, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 4
-  local graphTop = group({ 'entries-view', 'graph-view', 'close' }, 'graph', 8, 8, left - 16, 3) + 8
+  local graphTop = group({ 'entries-view', 'graph-view' }, 'graph', 8, 8, left - 16, 2) + 8
   graphTop = group({ 'search', 'clear-filter', 'clear-selection' }, 'graph', 8, graphTop, left - 16, 3) + 8
   if presentation == nil or presentation == 'graph' then
     graphTop = group({ 'zoom-in', 'zoom-out', 'focus', 'fit' }, 'graph', 8, graphTop, left - 16, 4) + 8

@@ -100,11 +100,17 @@ function fixture.boot(provider, additions, config)
   function result:open()
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'open')
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'actions', 'right', 'desktop/manager/open')
-    self.controls:clickControl(self.services.ui, 'desktop/menu', 'close')
+    self.controls:clickControl(self.services.ui, 'desktop/menu/titlebar', 'close')
     self:click 'graph-view'
   end
   function result:click(id, itemId, hand)
-    self.controls:clickControl(self.services.ui, 'desktop/manager', id, hand or 'right', itemId)
+    self.controls:clickControl(
+      self.services.ui,
+      if id == 'close' then 'desktop/manager/titlebar' else 'desktop/manager',
+      id,
+      hand or 'right',
+      itemId
+    )
   end
   function result:choice(itemId)
     self:click 'choice-field'

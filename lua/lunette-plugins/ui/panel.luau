@@ -50,6 +50,7 @@ function panel.new(
   providerTheme: ui.Theme,
   providerDraw: ui.DrawHook?,
   generation: ui.Generation,
+  decorate: (string, surface.Surface, ui.TitlebarOptions) -> ui.Titlebar,
   disposed: () -> ()
 ): ui.Panel
   context:checkOwner(owner)
@@ -97,6 +98,7 @@ function panel.new(
   }
   local release: plugin.Effect? = nil
   local offered: plugin.Effect? = nil
+  local chrome: ui.Titlebar? = nil
   local function live(): boolean
     return not state.dead and context:active() and context:owns(owner)
   end
@@ -115,10 +117,15 @@ function panel.new(
     end
     state.dead, state.visible = true, false
     state.revision += 1
-    local controls, oldOffer = state.controls, offered
-    state.controls, offered = {}, nil
+    local controls, oldOffer, oldChrome = state.controls, offered, chrome
+    state.controls, offered, chrome = {}, nil, nil
     local operations: { () -> () } = {
       disposed,
+      function(): ()
+        if oldChrome then
+          oldChrome:destroy()
+        end
+      end,
       function(): ()
         cancel 'surface-dead'
       end,
@@ -144,6 +151,9 @@ function panel.new(
       geometry.validatePose(given)
       state.pose:set(given)
       state.revision += 1
+      if chrome then
+        chrome:sync()
+      end
     end
   end
   local function setSize(width: number, height: number, logicalWidth: number?, logicalHeight: number?): ()
@@ -158,6 +168,9 @@ function panel.new(
     state.logicalWidth, state.logicalHeight = logicalWidth or state.logicalWidth, logicalHeight or state.logicalHeight
     state.revision += 1
     cancel 'control-removed'
+    if chrome then
+      chrome:sync()
+    end
   end
   local surfaceBase: surface.Surface = {
     kind = nil,
@@ -271,6 +284,9 @@ function panel.new(
       end
       state.visible = visible
       state.revision += 1
+      if chrome then
+        chrome:sync()
+      end
       if not visible then
         local focused: focus.TargetHandle? = nil
         cleanup {
@@ -336,7 +352,26 @@ function panel.new(
         controls = table.freeze(controls),
       }
     end,
+    setTitlebar = function(_self: ui.Panel, given: ui.TitlebarOptions?): ()
+      if not live() then
+        return
+      end
+      if given then
+        if chrome then
+          chrome:update(given)
+        else
+          chrome = decorate(options.name .. '/titlebar', offeredSurface, given)
+        end
+      elseif chrome then
+        local old = chrome
+        chrome = nil
+        old:destroy()
+      end
+    end,
     draw = function(_self: ui.Panel, pass: Pass): ()
+      if chrome then
+        chrome:draw(pass)
+      end
       panelDraw.render(state, pass)
     end,
     destroy = function(_self: ui.Panel): boolean
@@ -398,6 +433,7 @@ function panel.new(
     setSize = base.setSize,
     setVisible = base.setVisible,
     setTheme = base.setTheme,
+    setTitlebar = base.setTitlebar,
     describe = base.describe,
     draw = base.draw,
     destroy = base.destroy,
@@ -423,6 +459,9 @@ function panel.new(
         return if live() and state.visible then { offeredSurface } else {}
       end,
     })
+    if options.titlebar then
+      chrome = decorate(options.name .. '/titlebar', offeredSurface, options.titlebar)
+    end
     release = context:acquire(owner, function(): () -> ()
       return function(): ()
         release = nil

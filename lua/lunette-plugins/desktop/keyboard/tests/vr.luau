@@ -43,7 +43,11 @@ for _, provider in { 'built-in', 'substitute' } do
       'drops',
       'focus',
       'interaction',
-      'laser',
+      {
+        id = 'laser',
+        definition = require('@lunette-plugins/laser').definition,
+        config = { aim = { enabled = false }, triggerLock = { enabled = false } },
+      },
       {
         id = 'keyboard',
         definition = keyboard.define {

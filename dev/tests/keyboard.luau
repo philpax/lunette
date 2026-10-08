@@ -123,7 +123,7 @@ test('the development wrist menu toggles the rounded keyboard and survives sourc
     local ui = services().ui
     fixture:clickControl(ui, 'desktop/menu', 'open')
     fixture:clickControl(ui, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
-    fixture:clickControl(ui, 'desktop/menu', 'close')
+    fixture:clickControl(ui, 'desktop/menu/titlebar', 'close')
   end
 
   toggle()

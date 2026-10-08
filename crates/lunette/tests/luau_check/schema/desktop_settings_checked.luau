@@ -80,7 +80,7 @@ if settings.menu then
   settings.menu.hand = 'left' -- reject.
   settings.menu.expanded.rowHeight = 40 -- reject.
 end
-if settings.decorations then
+if settings.decorations and settings.decorations.style and settings.decorations.style.barColor then
   settings.decorations.style.barColor[1] = 0.2 -- reject.
 end
 if settings.rules then

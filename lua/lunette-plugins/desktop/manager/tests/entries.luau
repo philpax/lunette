@@ -33,7 +33,7 @@ test('manager opens on an entry list with status and controller lifecycle action
     end
     expect.equal(ids['zoom-in'], nil, 'graph navigation does not crowd entry management')
     expect.equal(ids['remove-value'], nil, 'configuration editing appears only in its tab')
-    expect.truthy(ids.close, 'Close is always visible')
+    expect.equal(public:control('close').label, 'X', 'the shared titlebar close is visible')
     local pointer = public:pointer()
     public:click(pointer, 'entries', 'entry/fixture-entry')
     public:click(pointer, 'disable')

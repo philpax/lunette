@@ -50,7 +50,6 @@ for _, editing in { false, true } do
           'search',
           'clear-filter',
           'clear-selection',
-          'close',
         }
       do
         expect.truthy(layout.buttons[id], id .. ' has a reachable placement')

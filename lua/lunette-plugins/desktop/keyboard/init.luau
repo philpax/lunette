@@ -5,6 +5,7 @@ local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
+local ui = require '@lunette-contracts/ui'
 local config = require '@lunette-plugins/desktop/keyboard/config'
 local create = require '@lunette-plugins/desktop/keyboard/display'
 
@@ -20,6 +21,7 @@ return plugin.provider<<Config, Settings, Service>>({
     focus = focus.capability,
     keyboard = keyboard.capability,
     surfaces = surfaces.capability,
+    ui = ui.capability,
   },
   schema = config.schema,
   build = function(context: plugin.Context, settings: Settings): Service

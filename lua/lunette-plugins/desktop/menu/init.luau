@@ -63,16 +63,29 @@ return plugin.consumer<<Config, Settings>>({
       snapshot = {}
       local layout = geometry.layout(settings, opened)
       panel:setSize(layout.width, layout.height, layout.logicalWidth, layout.logicalHeight)
-      button = panel:button(context, {
-        id = if opened then 'close' else 'open',
-        label = if opened then 'Close' else 'Menu',
-        bounds = layout.button,
-        onActivate = function(): ()
-          if live() and tracked then
-            rebuild(not opened)
-          end
-        end,
-      })
+      panel:setTitlebar(if opened
+        then {
+          title = 'Menu',
+          draggable = false,
+          onClose = function(): ()
+            if live() and tracked then
+              rebuild(false)
+            end
+          end,
+        }
+        else nil)
+      if not opened then
+        button = panel:button(context, {
+          id = 'open',
+          label = 'Menu',
+          bounds = layout.button,
+          onActivate = function(): ()
+            if live() and tracked then
+              rebuild(true)
+            end
+          end,
+        })
+      end
       if opened and layout.actions then
         snapshot = menuService:list()
         list = panel:list(context, {

@@ -51,7 +51,7 @@ test('projected manager opens from the menu, moves, draws, closes, and releases 
   lovr.draw(fake.events.pass)
   expect.truthy(#fake.events.draw > 0, 'projected graph draws')
   lovr.keypressed('f10', 0, false)
-  expect.equal(#all(), 1, 'manager installs no legacy toggle binding')
+  expect.equal(#all(), 3, 'manager installs no legacy toggle binding')
   public:click(public:pointer(), 'close')
   expect.equal(#all(), 0, 'Close hides the surface')
   running.runtime:close()
@@ -170,7 +170,7 @@ test('manager dimensions reject short canvases and accept minimum and maximum us
         end
       end
     end
-    expect.equal(#all(), 1, 'valid dimensions activate')
+    expect.equal(#all(), 3, 'valid dimensions activate the manager and titlebar')
     running.runtime:close()
   end
 end)
@@ -231,7 +231,7 @@ test('manager uses one stable public UI panel and does not revise unchanged geom
   expect.equal(description.name, 'desktop/manager', 'the production panel name')
   expect.equal(description.visible, true, 'the menu opens the panel')
   expect.equal(public:control('graph').kind, 'region', 'graph is a public region')
-  expect.equal(#all(), 1, 'the shared adapter offers one surface')
+  expect.equal(#all(), 3, 'the shared adapter offers the body, titlebar actions, and drag surface')
   lovr.update(0.016)
   lovr.update(0.016)
   expect.equal(panel:describe().revision, description.revision, 'unchanged frames preserve revisions')

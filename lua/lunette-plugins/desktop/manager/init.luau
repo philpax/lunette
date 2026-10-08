@@ -33,6 +33,32 @@ return plugin.consumer<<Config, Settings>>({
     local untilRefresh = settings.refreshInterval
     local panel: ui.Panel
     local shell: widgets.Shell?
+    local registration: plugin.Effect? = nil
+    local function setVisible(show: boolean): ()
+      if dead or not context:active() or panel.dead then
+        return
+      end
+      visible = show
+      panel:setVisible(show)
+      local current = shell
+      if current then
+        if show then
+          current.update()
+        else
+          current.cancel()
+        end
+      end
+      if show then
+        untilRefresh = settings.refreshInterval
+      end
+      local handle = registration
+      if handle then
+        menuService:update(context, handle, { selected = show })
+      end
+    end
+    local function close(): ()
+      setVisible(false)
+    end
     local state = controller.new(
       compositionService,
       brokers.watch(context),
@@ -41,17 +67,7 @@ return plugin.consumer<<Config, Settings>>({
       function(records, sidebar): { string }
         return draw.wrapDetails(lovr.graphics.getDefaultFont(), records, sidebar)
       end,
-      function(): ()
-        if dead then
-          return
-        end
-        visible = false
-        panel:setVisible(false)
-        local current = shell
-        if current then
-          current.cancel()
-        end
-      end
+      close
     )
     panel = uiService:newPanel(context, {
       name = 'desktop/manager',
@@ -62,6 +78,7 @@ return plugin.consumer<<Config, Settings>>({
       logicalHeight = pixelHeight,
       visible = settings.visible,
       grabbable = true,
+      titlebar = { title = 'Plugins', onClose = close },
     })
     state.presentation = settings.view
     shell = widgets.new(panel, context, state)
@@ -76,21 +93,14 @@ return plugin.consumer<<Config, Settings>>({
         end
       end
     end)
-    menuService:register(context, {
+    registration = menuService:register(context, {
       id = 'desktop/manager/open',
       label = 'Plugins',
       group = 'Session',
       order = 20,
+      selected = visible,
       run = function(): ()
-        if not dead and context:active() and not panel.dead then
-          local current = shell
-          if current then
-            current.update()
-          end
-          visible = true
-          untilRefresh = settings.refreshInterval
-          panel:setVisible(true)
-        end
+        setVisible(not visible)
       end,
     })
     frameService:onUpdate(context, {

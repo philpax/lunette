@@ -44,6 +44,16 @@ The same declared bounds determine pointer input, drawing, and `panel:describe()
 
 Each pointer button captures its original control until release or cancellation. Leaving a control does not transfer a held gesture to another control. Hiding a panel, disabling or destroying a control, changing a panel's size, or replacing control bounds or items cancels the affected gesture without activating it. `Panel:setPose` preserves captures during rigid motion and updates projected coordinates. Beginning a grip-driven grab cancels pointer gestures before motion. An exclusive control excludes another pointer while captured. Hover does not change keyboard focus. Text fields use local focus targets, and a region requests keyboard routing explicitly through its receiver and `wantsKeyboard` options.
 
+## Shared titlebars
+
+A panel opts into the shared titlebar with `titlebar = { title = 'Plugins', onClose = close }` in its creation options. `Panel:setTitlebar(options)` adds or updates it, and `Panel:setTitlebar(nil)` removes it. The callback owns close policy; the titlebar does not hide or destroy its target automatically. The shared X button calls `onClose` when present.
+
+`actions` supplies extra titlebar buttons with stable `id`, `label`, and `run` fields, plus optional `enabled` and `width` values. Width is a multiple of the bar height, bounded by a share of the available panel width. `closeId` overrides the X button's id. `draggable = false` disables titlebar grabbing for tracked panels such as the wrist menu.
+
+The bar sits above the panel body and follows its current pose, size, and visibility without changing the body's logical dimensions. The built-in provider's `titlebarStyle` supplies one shared style. A titlebar's optional `style` overrides individual fields over that provider style, and colour values replace complete lists. Native decorations, the manager, the keyboard display, and the expanded wrist menu use the same implementation. The compact wrist button and unheaded notices remain undecorated. The background supports trigger dragging, and grip remains available on movable panels. Hidden or destroyed targets cancel held titlebar controls.
+
+Other owning surfaces attach the same implementation through `Service:newTitlebar(owner, name, target, options, visible?)`. The target supplies current pose, width, height, liveness, and movement. An optional visibility callback excludes a hidden target. The returned handle supplies `update`, `sync`, `draw`, and `destroy`; the consumer draws it in its own frame phase. Opted-in UI panels synchronize and draw their bars automatically. Titlebar action controls are described on a separate UI panel named `<panel name>/titlebar`.
+
 ## Text fields
 
 Text fields accept valid single-line Unicode UTF-8. Control characters and line separators are rejected. `setSelection(caret, anchor?)` uses one-based UTF-8 byte offsets at extended grapheme boundaries. Omitting the anchor collapses the selection. The empty string has boundary `{ 1 }`, and every non-empty boundary list includes the terminal offset `#value + 1`. A selected range excludes its terminal boundary. Movement, deletion, selection, truncation, and insertion preserve whole grapheme clusters, including combining marks and emoji sequences.

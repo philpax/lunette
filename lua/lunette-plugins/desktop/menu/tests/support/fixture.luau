@@ -65,7 +65,13 @@ function fixture.boot(provider, config)
     }
   end
   function state:click(id, itemId)
-    self.running:clickControl(self.ui, 'desktop/menu', id, self.pointerHand, itemId)
+    self.running:clickControl(
+      self.ui,
+      if id == 'close' then 'desktop/menu/titlebar' else 'desktop/menu',
+      id,
+      self.pointerHand,
+      itemId
+    )
   end
   function state:open()
     self:click 'open'
@@ -74,7 +80,8 @@ function fixture.boot(provider, config)
     return self.ui:panels()[1]:describe()
   end
   function state:press(id, itemId)
-    local description, control = self.running:discover(self.ui, 'desktop/menu', id, itemId)
+    local description, control =
+      self.running:discover(self.ui, if id == 'close' then 'desktop/menu/titlebar' else 'desktop/menu', id, itemId)
     local bounds = assert(control.bounds)
     self.running:button(self.pointerHand, 'trigger', false)
     self.running:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, self.pointerHand)

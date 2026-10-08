@@ -32,9 +32,9 @@ function geometry.layout(settings: config.Settings, opened: boolean): Layout
     button = table.freeze { x = 8, y = 8, width = expanded.logicalWidth - 16, height = 40 },
     actions = table.freeze {
       x = 8,
-      y = 56,
+      y = 8,
       width = expanded.logicalWidth - 16,
-      height = expanded.logicalHeight - 64,
+      height = expanded.logicalHeight - 16,
     },
   }
 end

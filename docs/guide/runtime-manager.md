@@ -1,6 +1,6 @@
 # Runtime manager
 
-The shipped desktop includes `desktop/manager`. The Plugins action in the wrist menu opens its projected flat surface, and Close hides it. The surface can be moved with the normal pointer grab controls. Its width, height, position, logical pixel width, and initial visibility come from `lua/lunette-plugins/desktop/manager/config.luau`. The manager uses the public `lunette/ui` service from `@lunette-contracts/ui`; the built-in provider is `@lunette-plugins/ui`. The graph and scrollable sidebar content use custom regions. Buttons, text fields, and choices use shared controls with stable ids. The UI provider can be replaced by another implementation of the same contract. The manager configuration schema rejects legacy `toggleKey` with `toggleKey is removed; open Plugins from the session menu`.
+The shipped desktop includes `desktop/manager`. The Plugins action in the wrist menu toggles its projected flat panel, and its selected state follows panel visibility. The shared titlebar labels the panel Plugins and supplies an X button that hides it. The X button and wrist toggle use the same cancellation and focus cleanup. The surface can be moved with the normal pointer grab controls. Its width, height, position, logical pixel width, and initial visibility come from `lua/lunette-plugins/desktop/manager/config.luau`. The manager uses the public `lunette/ui` service from `@lunette-contracts/ui`; the built-in provider is `@lunette-plugins/ui`. The graph and scrollable sidebar content use custom regions. Buttons, text fields, and choices use shared controls with stable ids. The UI provider can be replaced by another implementation of the same contract. The manager configuration schema rejects legacy `toggleKey` with `toggleKey is removed; open Plugins from the session menu`.
 
 ```luau
 require('@lunette-desktop').run {
@@ -13,7 +13,7 @@ require('@lunette-desktop').run {
 }
 ```
 
-Grip moves and rotates the panel with the controller. While holding grip, the vertical thumbstick adjusts distance. A second grip scales the panel by hand separation. The [panel movement settings](desktop-configuration.md#panel-movement) define reach and resize bounds.
+Trigger on the shared titlebar background moves the panel. Grip moves and rotates the panel with the controller. While holding grip, the vertical thumbstick adjusts distance. A second grip scales the panel by hand separation. The [panel movement settings](desktop-configuration.md#panel-movement) define reach and resize bounds.
 
 External runtime changes refresh while the manager is visible at `refreshInterval`, which defaults to 0.25 seconds. Opening the panel and control actions refresh immediately. The hidden panel does not poll snapshots. Drawing uses the retained controls between refreshes; snapshot and graph reconstruction do not run on every display frame. This bounds refresh work but does not establish headset frame-time performance.
 

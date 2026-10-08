@@ -76,7 +76,7 @@ test('the development configuration starts on load and survives ten controller m
     fixture:clickControl(currentUi, 'desktop/menu', 'open')
     fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
     expect.truthy(currentDisplay:isVisible(), 'reload ' .. reload .. ' can show the rounded keyboard')
-    fixture:clickControl(currentUi, 'desktop/menu', 'close')
+    fixture:clickControl(currentUi, 'desktop/menu/titlebar', 'close')
     local retainedBoard
     for _, candidate in ipairs(services.surfaces:all()) do
       if candidate.pressKey then

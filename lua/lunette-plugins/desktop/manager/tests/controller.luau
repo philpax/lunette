@@ -379,8 +379,8 @@ test('unsupported string edits decode losslessly while rejected escapes retain t
   state.close = function()
     closed += 1
   end
-  invoke(state, 'close')
-  expect.equal(closed, 1, 'Close remains reachable after rejection')
+  state.close()
+  expect.equal(closed, 1, 'the supplied close action remains reachable after rejection')
   expect.equal(state.edit, edit, 'Close retains the rejected operation')
   expect.truthy(confirm(state, encoded), 'the unchanged representation decodes')
   expect.equal(state.draft, model, 'unchanged confirmation preserves the model')
@@ -415,7 +415,7 @@ test('domain text changes preserve a draft until an explicit successful confirma
   controller.graphCancel(state)
   expect.equal(state.edit, edit, 'updates and gesture cancellation retain the edit')
   state.close = function() end
-  invoke(state, 'close')
+  state.close()
   expect.equal(state.edit, edit, 'closing retains pending text')
   controller.setText(state, '6')
   expect.truthy(controller.confirmText(state), 'valid text confirms')

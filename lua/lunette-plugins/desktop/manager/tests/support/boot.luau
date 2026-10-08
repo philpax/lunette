@@ -126,15 +126,23 @@ return function(config, additions, protected)
     error('the manager has no public UI panel', 0)
   end
   function public:control(id)
-    for _, control in self:panel():describe().controls do
-      if control.id == id or control.label == id then
-        return control
+    if id == 'Close' then
+      id = 'close'
+    end
+    for _, panel in self.ui:panels() do
+      local description = panel:describe()
+      if description.name == 'desktop/manager' or description.name == 'desktop/manager/titlebar' then
+        for _, control in description.controls do
+          if control.id == id or control.label == id then
+            return control, description
+          end
+        end
       end
     end
     error('the manager has no public control ' .. id, 0)
   end
   function public:point(id, itemId)
-    local control = self:control(id)
+    local control, description = self:control(id)
     local bounds = control.bounds
     if itemId then
       bounds = nil
@@ -146,7 +154,20 @@ return function(config, additions, protected)
       end
     end
     assert(bounds, 'the public control or item has no visible geometry')
-    return bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+    local x, y = bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+    if description.name ~= 'desktop/manager' then
+      local world = lovr.math.newMat4(table.unpack(description.pose))
+      local body = self:panel():describe()
+      local px, py, pz = world:mul(
+        (x / description.logicalWidth - 0.5) * description.width,
+        (0.5 - y / description.logicalHeight) * description.height,
+        0,
+        1
+      )
+      local lx, ly = lovr.math.newMat4(table.unpack(body.pose)):invert():mul(px, py, pz, 1)
+      x, y = (lx / body.width + 0.5) * body.logicalWidth, (0.5 - ly / body.height) * body.logicalHeight
+    end
+    return x, y
   end
   function public:pointer()
     return pointerService:newPointer(owner, { tuning = { scrollScale = 36 } })

@@ -25,6 +25,8 @@ for _, provider in { 'built-in', 'substitute' } do
     for _, control in initial.controls do
       controls[control.id] = control
     end
+    local _, close = env.controls:discover(env.services.ui, 'desktop/manager/titlebar', 'close')
+    controls.close = close
     for _, id in
       {
         'graph',

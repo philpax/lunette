@@ -2,6 +2,7 @@
 -- Structural substitution is checked without importing the unchecked test-scaffolding root.
 
 local ui = require '@lunette-contracts/ui'
+local surface = require '@lunette-contracts/surface'
 
 local ownerIdentity: ui.OwnerIdentity = { kind = 'ui-owner' }
 table.freeze(ownerIdentity)
@@ -124,6 +125,7 @@ local function panel(options: ui.PanelOptions): ui.Panel
     setSize = function(_: ui.Panel, _: number, _: number, _: number?, _: number?) end,
     setVisible = function(_: ui.Panel, _: boolean) end,
     setTheme = function(_: ui.Panel, _: ui.ThemeOverrides?) end,
+    setTitlebar = function(_: ui.Panel, _: ui.TitlebarOptions?) end,
     draw = function(_: ui.Panel, _: Pass) end,
     describe = function(_: ui.Panel): ui.Description
       return description
@@ -152,6 +154,24 @@ end
 local independentlyTypedService = {
   newPanel = function(_: ui.Service, _: ui.Owner, options: ui.PanelOptions): ui.Panel
     return panel(options)
+  end,
+  newTitlebar = function(
+    _: ui.Service,
+    _: ui.Owner,
+    _: string,
+    _: surface.Surface,
+    _: ui.TitlebarOptions,
+    _: (() -> boolean)?
+  ): ui.Titlebar
+    return {
+      dead = false,
+      update = function(_: ui.Titlebar, _: ui.TitlebarOptions) end,
+      sync = function(_: ui.Titlebar) end,
+      draw = function(_: ui.Titlebar, _: Pass) end,
+      destroy = function(_: ui.Titlebar): boolean
+        return true
+      end,
+    }
   end,
   panels = function(_: ui.Service): { ui.Panel }
     return {}

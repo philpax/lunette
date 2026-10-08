@@ -6,6 +6,8 @@ local focus = require '@lunette-contracts/focus'
 local surfaces = require '@lunette-contracts/surfaces'
 local panels = require './ui-substitute/panels'
 local ownerRegistry = require './ui-substitute/owner-registry'
+local titlebar = require '@lunette-plugins/ui/titlebar'
+local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
 
 local substitute = {}
 substitute.requires = { focus = focus.capability, surfaces = surfaces.capability }
@@ -18,7 +20,14 @@ function substitute.build(context: plugin.Context): ui.Service
     owners = ownerRegistry.new(context),
     generation = table.freeze { kind = 'ui-generation' },
   }
+  local offers = context:require(surfaces.capability)
   local service = {}
+  function state.decorate(owner, name, target, options, visible)
+    return service:newTitlebar(owner, name, target, options, visible)
+  end
+  function service.newTitlebar(_, owner, name, target, options, visible)
+    return titlebar.new(context, owner, name, target, options, visible, service, offers, titlebarStyle.DEFAULT)
+  end
   function service.newPanel(_: ui.Service, owner: ui.Owner, options: ui.PanelOptions): ui.Panel
     context:checkOwner(owner)
     return panels.new(state, owner, options)

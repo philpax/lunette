@@ -87,7 +87,8 @@ test('close cancels a row held by a second independent real pointer', function()
     local held = observed.service:newPointer(observed.context)
     local closer = observed.service:newPointer(observed.context)
     local function drive(pointer, id, item, buttons)
-      local description, control = env.running:discover(env.ui, 'desktop/menu', id, item)
+      local description, control =
+        env.running:discover(env.ui, if id == 'close' then 'desktop/menu/titlebar' else 'desktop/menu', id, item)
       local bounds = control.bounds
       local pose = lovr.math.newMat4(table.unpack(description.pose))
       pose:translate(

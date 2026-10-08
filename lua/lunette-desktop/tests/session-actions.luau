@@ -94,8 +94,8 @@ test('wrist menu actions are VR accessible and session actions do not register p
   expect.equal(reloads, 1, 'a pointer invokes public reload once')
   local beforeManager = #services.surfaces:all()
   invoke 'desktop/manager/open'
-  expect.equal(#services.surfaces:all(), beforeManager + 1, 'Plugins opens the manager surface')
-  fixture:clickControl(services.ui, 'desktop/menu', 'close')
+  expect.equal(#services.surfaces:all(), beforeManager + 3, 'Plugins opens the manager and titlebar surfaces')
+  fixture:clickControl(services.ui, 'desktop/menu/titlebar', 'close')
   fixture:discover(services.ui, 'desktop/menu', 'open')
   expect.equal(#testing.host.shutdown(), 0, 'the session releases its resources')
   native.assertResourcesReleased()

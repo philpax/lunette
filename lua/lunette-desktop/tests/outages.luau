@@ -80,7 +80,11 @@ test('keyboard and error stream outages remove only what depends on them', funct
     local context = 'round ' .. round
     display.service:show()
     frame(env)
-    expect.equal(#env.surfaces:all(), withoutKeyboard + 1, context .. ': showing acquires one keyboard surface')
+    expect.equal(
+      #env.surfaces:all(),
+      withoutKeyboard + 3,
+      context .. ': showing acquires the keyboard and titlebar surfaces'
+    )
     env.instances.keyboard:disable()
     expect.equal(env.panels:forSource(events.windows[1]), initial, context .. ': the panel stays')
     expect.equal(
@@ -101,7 +105,11 @@ test('keyboard and error stream outages remove only what depends on them', funct
     expect.equal(assert(action 'desktop/reload').registration, reload.registration, context .. ': Reload is unchanged')
     display.service:show()
     frame(env)
-    expect.equal(#env.surfaces:all(), withoutKeyboard + 1, context .. ': showing creates one replacement keyboard')
+    expect.equal(
+      #env.surfaces:all(),
+      withoutKeyboard + 3,
+      context .. ': showing creates one replacement keyboard and titlebar'
+    )
 
     env.instances.errors:disable()
     expect.equal(native.subscriptionCount 'onError', 0, context .. ': the stream ends its subscription')

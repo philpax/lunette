@@ -101,13 +101,13 @@ function scenario.open(env, id)
   scenario.resetHands(env)
   env.controls:clickControl(env.services.ui, 'desktop/menu', 'open')
   env.controls:clickControl(env.services.ui, 'desktop/menu', 'actions', 'right', id)
-  env.controls:clickControl(env.services.ui, 'desktop/menu', 'close')
+  env.controls:clickControl(env.services.ui, 'desktop/menu/titlebar', 'close')
 end
 
 local function closeVisible(env, name)
   local current = scenario.description(env, name)
   if current.visible then
-    env.controls:clickControl(env.services.ui, name, 'close')
+    env.controls:clickControl(env.services.ui, if name == 'desktop/manager' then name .. '/titlebar' else name, 'close')
   end
 end
 

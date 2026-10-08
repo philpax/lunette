@@ -17,6 +17,7 @@ local function start()
     'panels',
     'drops',
     'focus',
+    'ui',
     'interaction',
     'desktop/render',
     'desktop/decorations',

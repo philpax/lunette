@@ -3,10 +3,12 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
 local surfaces = require '@lunette-contracts/surfaces'
+local surface = require '@lunette-contracts/surface'
 local panel = require '@lunette-plugins/ui/panel'
 local config = require '@lunette-plugins/ui/config'
 local owners = require '@lunette-plugins/ui/control-owners'
 local validation = require '@lunette-plugins/ui/validation'
+local titlebar = require '@lunette-plugins/ui/titlebar'
 
 export type Config = config.Config
 export type Settings = config.Settings
@@ -22,7 +24,8 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
   local names: { [string]: boolean } = {}
   local generation: ui.Generation = { kind = 'ui-generation' }
   table.freeze(generation)
-  return {
+  local service: ui.Service
+  service = {
     newPanel = function(_self: ui.Service, owner: ui.Owner, options: ui.PanelOptions): ui.Panel
       context:checkOwner(owner)
       options = validation.panel(options)
@@ -31,13 +34,25 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       local created: ui.Panel
       names[name] = true
       local ok, result = pcall(function(): ui.Panel
-        return panel.new(context, owner, options, services, settings.theme, settings.draw, generation, function(): ()
-          names[name] = nil
-          local index = table.find(panels, created)
-          if index then
-            table.remove(panels, index)
+        return panel.new(
+          context,
+          owner,
+          options,
+          services,
+          settings.theme,
+          settings.draw,
+          generation,
+          function(name, target, given)
+            return service:newTitlebar(owner, name, target, given)
+          end,
+          function(): ()
+            names[name] = nil
+            local index = table.find(panels, created)
+            if index then
+              table.remove(panels, index)
+            end
           end
-        end)
+        )
       end)
       if not ok then
         names[name] = nil
@@ -46,6 +61,26 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       created = result
       panels[#panels + 1] = created
       return created
+    end,
+    newTitlebar = function(
+      _self: ui.Service,
+      owner: ui.Owner,
+      name: string,
+      target: surface.Surface,
+      options: ui.TitlebarOptions,
+      visible: (() -> boolean)?
+    ): ui.Titlebar
+      return titlebar.new(
+        context,
+        owner,
+        name,
+        target,
+        options,
+        visible,
+        service,
+        services.surfaces,
+        settings.titlebarStyle
+      )
     end,
     panels = function(_self: ui.Service): { read [number]: ui.Panel }
       local result: { ui.Panel } = {}
@@ -57,6 +92,7 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       return table.freeze(result)
     end,
   }
+  return service
 end
 
 return plugin.provider<<Config, Settings, ui.Service>> {

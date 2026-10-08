@@ -178,6 +178,53 @@ export type List = Control & {
   read scroll: (List, number) -> (),
 }
 export type Region = Control & { read setItems: (Region, { read [number]: RegionItem }) -> () }
+export type TitlebarStyle = {
+  read barHeight: number,
+  read margin: number,
+  read barColor: Color,
+  read barHighlightColor: Color,
+  read borderThickness: number,
+  read borderDepth: number,
+  read borderColor: Color,
+  read borderHighlightColor: Color,
+  read titleHeight: number,
+  read titleColor: Color,
+}
+export type TitlebarStyleOverrides = {
+  read barHeight: number?,
+  read margin: number?,
+  read barColor: Color?,
+  read barHighlightColor: Color?,
+  read borderThickness: number?,
+  read borderDepth: number?,
+  read borderColor: Color?,
+  read borderHighlightColor: Color?,
+  read titleHeight: number?,
+  read titleColor: Color?,
+}
+export type TitlebarAction = {
+  read id: string,
+  read label: string,
+  -- Width in multiples of the bar height, limited to a share of the remaining panel width.
+  read width: number?,
+  read enabled: boolean?,
+  read run: () -> (),
+}
+export type TitlebarOptions = {
+  read title: string,
+  read onClose: (() -> ())?,
+  read closeId: string?,
+  read actions: { read [number]: TitlebarAction }?,
+  read style: TitlebarStyleOverrides?,
+  read draggable: boolean?,
+}
+export type Titlebar = {
+  read dead: boolean,
+  read update: (Titlebar, TitlebarOptions) -> (),
+  read sync: (Titlebar) -> (),
+  read draw: (Titlebar, Pass) -> (),
+  read destroy: (Titlebar) -> boolean,
+}
 export type PanelOptions = {
   read name: string,
   read pose: Mat4?,
@@ -191,6 +238,7 @@ export type PanelOptions = {
   read grabTarget: surface.Surface?,
   read theme: ThemeOverrides?,
   read draw: DrawHook?,
+  read titlebar: TitlebarOptions?,
 }
 export type Panel = {
   read dead: boolean,
@@ -198,6 +246,7 @@ export type Panel = {
   read setSize: (Panel, number, number, number?, number?) -> (),
   read setVisible: (Panel, boolean) -> (),
   read setTheme: (Panel, ThemeOverrides?) -> (),
+  read setTitlebar: (Panel, TitlebarOptions?) -> (),
   read draw: (Panel, Pass) -> (),
   read describe: (Panel) -> Description,
   read destroy: (Panel) -> boolean,
@@ -209,6 +258,7 @@ export type Panel = {
 }
 export type Service = {
   read newPanel: (Service, Owner, PanelOptions) -> Panel,
+  read newTitlebar: (Service, Owner, string, surface.Surface, TitlebarOptions, (() -> boolean)?) -> Titlebar,
   read panels: (Service) -> { read [number]: Panel },
 }
 export type Capability = plugin.Capability<Service>

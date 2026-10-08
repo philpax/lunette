@@ -94,7 +94,7 @@ end
 local function open(env)
   env.fixture:clickControl(env.ui, 'desktop/menu', 'open')
   env.fixture:clickControl(env.ui, 'desktop/menu', 'actions', 'right', actionId)
-  env.fixture:clickControl(env.ui, 'desktop/menu', 'close')
+  env.fixture:clickControl(env.ui, 'desktop/menu/titlebar', 'close')
 end
 
 local function key(env, code)
@@ -311,7 +311,7 @@ for _, provider in { 'built-in', 'substitute' } do
       expect.truthy(env.focus:focused() ~= edited, 'the application supersedes the local field route')
       env.fixture:clickControl(env.ui, 'desktop/menu', 'open')
       env.fixture:clickControl(env.ui, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
-      env.fixture:clickControl(env.ui, 'desktop/menu', 'close')
+      env.fixture:clickControl(env.ui, 'desktop/menu/titlebar', 'close')
       expect.truthy(env.display:isVisible(), 'the wrist menu reopens the application keyboard')
       env.native.events.input = {}
       key(env, 16)
