@@ -132,7 +132,7 @@ install-binary: build
 	else \
 		echo "make: cannot determine OpenVR build state from $$cache" >&2; exit 1; \
 	fi; \
-	assets='actions.json bindings_vive_controller.json bindings_knuckles.json bindings_oculus_touch.json'; \
+	assets='actions.json bindings_vive_controller.json bindings_knuckles.json bindings_oculus_touch.json bindings_frame_controller.json'; \
 	if test "$$openvr" = enabled || test -e "$$lovr_build/lovr-openvr"; then \
 		for asset in $$assets; do \
 			test -f "$$lovr_build/lovr-openvr/$$asset" || \

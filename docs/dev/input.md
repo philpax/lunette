@@ -127,7 +127,7 @@ Only a selection lunette owns is ever withdrawn or cleared. `set_selection(null)
 
 Named, not solved.
 
-The private OpenVR controller bindings and haptic frequency mapping require SteamVR hardware validation. Deterministic action tests do not establish runtime binding acceptance. Touch grip poses, hand skeletons, and controller models remain unavailable. HMD activity is an in-use inference, not verified wear detection.
+The private OpenVR controller bindings and haptic frequency mapping require SteamVR hardware validation. Deterministic action tests do not establish runtime binding acceptance. Touch grip poses, hand skeletons, and controller models remain unavailable. Steam Frame controller poses and buttons are bound, and hardware observation confirms panel interaction with both controllers. HMD activity is an in-use inference, not verified wear detection.
 
 Host-to-lunette drag-and-drop. No protocol exists for a drag crossing a compositor boundary. In-compositor drag-and-drop works.
 
