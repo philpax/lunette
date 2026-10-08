@@ -61,7 +61,7 @@ build:
 	$(CARGO) build --profile $(PROFILE) --workspace
 
 run:
-	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/etc/xdg/lunette" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
+	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/dev" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
 # `check` runs the standing checks CONTRIBUTING.md lists, in the order
 # .github/workflows/ci.yml runs them. Each check is its own target; a failure
