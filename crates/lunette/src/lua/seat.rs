@@ -5,7 +5,7 @@
 //! because the library is not thread-safe. Focus changes are explicit and do not follow pointer
 //! motion.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use lunette_compositor::{
     keymap::Keymap,
@@ -126,7 +126,7 @@ handle! {
             .collect())
     }
 
-    /// Withdraws this seat's `wl_seat` global. The default seat cannot be removed.
+    /// Withdraws this seat's `wl_seat` global or cancels its pending creation. The default seat cannot be removed.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 
     /// Sets the held modifiers and notifies clients.
@@ -196,12 +196,7 @@ pub(crate) fn new_seat<T: LuaTexture>(
             "lunette: a seat needs a name; clients tell two seats apart by it and nothing else",
         ));
     }
-    if session
-        .snapshot()
-        .seats
-        .iter()
-        .any(|seat| seat.name == name)
-    {
+    if session.seat_names.borrow().in_use(name) {
         return Err(mlua::Error::runtime(format!(
             "lunette: a seat named '{name}' already exists, and a client cannot tell two seats \
              with one name apart"
@@ -262,12 +257,83 @@ fn destroy<T>(seat: &Seat<T>) -> bool {
     if seat.id == DEFAULT_SEAT {
         return false;
     }
-    if !seat.refresh() {
+    if !seat.session.seat_names.borrow().can_destroy(seat.id) {
         return false;
     }
 
     seat.session.queue(Command::DestroySeat { seat: seat.id });
     true
+}
+
+/// Tracks requested names across command flushes and delayed compositor snapshots.
+#[derive(Debug, Default)]
+pub(super) struct SeatNames {
+    seats: HashMap<SeatId, SeatName>,
+}
+
+#[derive(Debug)]
+enum SeatName {
+    Creating(String),
+    Published(String),
+    CancelledCreation,
+    Destroying,
+}
+
+impl SeatNames {
+    pub(super) fn in_use(&self, name: &str) -> bool {
+        self.seats.values().any(|state| match state {
+            SeatName::Creating(existing) | SeatName::Published(existing) => existing == name,
+            SeatName::CancelledCreation | SeatName::Destroying => false,
+        })
+    }
+
+    fn can_destroy(&self, seat: SeatId) -> bool {
+        matches!(
+            self.seats.get(&seat),
+            Some(SeatName::Creating(_) | SeatName::Published(_))
+        )
+    }
+
+    pub(super) fn apply(&mut self, command: &Command) {
+        match command {
+            Command::CreateSeat { seat, name, .. } => {
+                self.seats.insert(*seat, SeatName::Creating(name.clone()));
+            }
+            Command::DestroySeat { seat } => {
+                let state = match self.seats.get(seat) {
+                    Some(SeatName::Creating(_) | SeatName::CancelledCreation) => {
+                        SeatName::CancelledCreation
+                    }
+                    _ => SeatName::Destroying,
+                };
+                self.seats.insert(*seat, state);
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) fn reconcile(&mut self, seats: &[SeatSnapshot]) {
+        // Absence cannot acknowledge a creation: failed requests publish no result.
+        // Destruction suppresses stale snapshots until the old seat disappears.
+        self.seats.retain(|id, state| match state {
+            SeatName::Creating(_) | SeatName::CancelledCreation => true,
+            SeatName::Published(_) | SeatName::Destroying => {
+                seats.iter().any(|seat| seat.seat == *id)
+            }
+        });
+        for seat in seats {
+            let state = self
+                .seats
+                .entry(seat.seat)
+                .or_insert_with(|| SeatName::Published(seat.name.clone()));
+            *state = match state {
+                SeatName::Creating(_) | SeatName::Published(_) => {
+                    SeatName::Published(seat.name.clone())
+                }
+                SeatName::CancelledCreation | SeatName::Destroying => SeatName::Destroying,
+            };
+        }
+    }
 }
 
 /// Assigns this seat's keyboard focus to a window sink, or clears it.

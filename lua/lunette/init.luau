@@ -211,7 +211,8 @@ export type Seat = {
   read modifiers: { string },
   -- Human-readable layout names from this seat's keymap.
   read layouts: { string },
-  -- Withdraws this seat's `wl_seat` global. The default seat cannot be removed.
+  -- Withdraws this seat's `wl_seat` global or cancels its pending creation. The
+  -- default seat cannot be removed.
   read destroy: (self: Seat) -> boolean,
   -- Sets the held modifiers and notifies clients.
   read setModifiers: (self: Seat, names: { string }?) -> boolean,

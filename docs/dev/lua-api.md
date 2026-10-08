@@ -695,7 +695,7 @@ end
 
 `lunette.defaultSeat()` returns the seat used when a native input call omits its trailing seat argument. It returns nil when that seat is absent from the current frame snapshot; it does not substitute the first seat in `lunette.seats()`. Each call returns a fresh handle, so identity comparisons use `seat.id`, not Lua wrapper equality. The generated declaration is `read defaultSeat: () -> Seat?`; `crates/lunette/src/lua/mod.rs` owns the registration and declaration metadata.
 
-`lunette.newSeat(name, options)` returns a handle before the compositor has made the seat, so `seat.dead` is true in the frame that created it — the same rule `lunette.spawn` follows. The name is what clients tell two seats apart by, and it is the only thing on the wire that does, so a name another seat already has raises.
+`lunette.newSeat(name, options)` returns a handle before the compositor creates the seat. `seat.dead` is true until a snapshot contains it. The name identifies the seat to clients, so an existing or pending seat with that name raises. The reservation survives command flushes and source reloads. Queuing `seat:destroy()` releases the name immediately, allowing a replacement to queue after the destruction in the same frame. `crates/lunette/src/lua/seat.rs` owns this bookkeeping; snapshot reads remain unchanged.
 
 The options are the five names libxkbcommon compiles a layout from — `rules`, `model`, `layout`, `variant`, and `options` — plus `repeatDelay` in milliseconds and `repeatRate` in repeats per second. An absent layout name takes the desktop's own default, read from the `XKB_DEFAULT_*` variables, which is what a user who configured a layout for their session expects lunette to inherit. Key repeat defaults to a 200ms delay and 50Hz, and a rate of zero disables it; the timing is policy, so it lives here rather than in the native layer. A layout that does not compile is reported in the log and the seat never appears.
 
@@ -713,7 +713,7 @@ An inherited default naming several layouts is treated differently, because a de
 
 A selection the newly bridged seat already held is not pushed to the host retroactively; the next copy on that seat crosses. Both calls return `false` on a dead seat, like every other seat method.
 
-`seat:destroy()` withdraws the seat. The seat every session starts with refuses: a session with no seat can deliver no input.
+`seat:destroy()` queues withdrawal of a published seat or cancellation of a pending creation. It returns `false` for the default seat, an already requested destruction, or a previously published seat that has disappeared. Cancellation is allowed while `seat.dead` is true before publication. A creation that fails asynchronously has no failure acknowledgement, so its name remains reserved until the retained handle is destroyed. Destroying the handle releases that name without requiring the seat to appear.
 
 ## Layer claims
 

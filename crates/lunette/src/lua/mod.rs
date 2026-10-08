@@ -175,6 +175,7 @@ pub struct Session<T> {
     /// Each seat's published layout, compiled on this thread. See
     /// [`crate::keymaps`] for why the compositor cannot provide one.
     keymaps: RefCell<KeymapCache>,
+    seat_names: RefCell<seat::SeatNames>,
     /// Per-window properties that survive Lua state reloads.
     properties: RefCell<WindowProperties>,
     /// Requested scene-rendering state. The frame latches it so layer submission and the headset
@@ -214,6 +215,7 @@ impl<T> Session<T> {
             mirrors,
             host,
             keymaps: RefCell::new(KeymapCache::default()),
+            seat_names: RefCell::new(seat::SeatNames::default()),
             properties: RefCell::new(WindowProperties::new()),
             scene: Cell::new(SceneRendering::default()),
             unflushed_copies: Cell::new(false),
@@ -278,6 +280,7 @@ impl<T> Session<T> {
 
         let live: Vec<SeatId> = snapshot.seats.iter().map(|seat| seat.seat).collect();
         self.keymaps.borrow_mut().retain(&live);
+        self.seat_names.borrow_mut().reconcile(&snapshot.seats);
 
         let mut frame = self.frame.borrow_mut();
         frame.previous = mem::replace(&mut frame.snapshot, snapshot);
@@ -438,6 +441,7 @@ impl<T> Session<T> {
 
     /// Queues a mutation for the frame's flush.
     pub(crate) fn queue(&self, command: Command) {
+        self.seat_names.borrow_mut().apply(&command);
         self.frame.borrow_mut().commands.push(command);
     }
 
