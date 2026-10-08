@@ -69,7 +69,7 @@ function fixture.boot(provider, additions, config)
     },
   }
   local patches = {
-    { id = 'laser', config = { aim = { enabled = false } } },
+    { id = 'laser', config = { aim = { enabled = false }, triggerLock = { enabled = false } } },
     { id = 'desktop/manager', config = config or {} },
     { id = 'keyboard', definition = keyboardProvider.define { rows = rows, layers = {} } },
     { insert = { id = 'manager-vr-observer', definition = observer } },

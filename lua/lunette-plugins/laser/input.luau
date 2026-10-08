@@ -67,6 +67,7 @@ function input.fromHeadset(hand: Hand, headset: HeadsetModule, mappings: { read 
     pose = lovr.math.newMat4(poseX, poseY, poseZ, angle, axisX, axisY, axisZ),
     origin = vector.pack(headset.getPosition(device)),
     direction = vector.pack(headset.getDirection(device)),
+    trigger = headset.getAxis(controller, 'trigger'),
     buttons = buttons,
     grip = headset.isDown(controller, 'grip') or false,
     scrollX = scrollX or 0,

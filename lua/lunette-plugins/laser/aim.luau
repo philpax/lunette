@@ -87,6 +87,7 @@ function aim.update(previous: State?, frame: contracts.Input, settings: contract
     origin = state.origin,
     direction = state.direction,
     pose = frame.pose,
+    trigger = frame.trigger,
     buttons = frame.buttons,
     grip = frame.grip,
     scrollX = frame.scrollX,

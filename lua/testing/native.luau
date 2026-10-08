@@ -384,8 +384,14 @@ installLovr = function(events)
     getDeltaTime = function()
       return events.dt or 0.016
     end,
-    getAxis = function(device)
+    getAxis = function(device, axis)
       local state = controller(device)
+      if axis == 'trigger' then
+        if state then
+          return state.trigger or (if state.buttons.trigger then 1 else 0)
+        end
+        return if events.trigger then 1 else 0
+      end
       if state then
         return state.axisX, state.axisY
       end

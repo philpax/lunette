@@ -130,6 +130,20 @@ require('@lunette-desktop').run {
 
 The same `aim` object accepts `minCutoff`, `angularBeta`, `positionBeta`, `derivativeCutoff`, and `resetAfter`. A patch for the `laser` provider configures its defaults; `laser:new` and `laser:attach` accept per-laser overrides. Pointer feedback draws in the final `feedback` phase, after scene geometry and overlay UI, including Plugins. OpenXR composition layers have separate runtime ordering; [Window rendering](#window-rendering) states that limit.
 
+Trigger pressure above 10% holds the previously displayed ray while hovering a panel. A turn above 3 degrees or translation above 3 centimetres unlocks it for the remainder of the pull, allowing dragging. Releasing the trigger retains the held position for that frame, so a release does not move the click to a neighbouring control. Grip and spatial grabs bypass the lock. Tracking loss, a frame gap above `aim.resetAfter`, or removal of the target clears it. `lua/lunette-plugins/laser/trigger-lock.luau` owns these defaults. The independent `triggerLock` settings accept `enabled`, `threshold` as pressure from 0 to 1, `unlockAngle` in radians, and `unlockDistance` in metres:
+
+```luau
+require('@lunette-desktop').run {
+  settings = {
+    pointing = {
+      laser = { triggerLock = { threshold = 0.1, unlockAngle = math.pi / 60, unlockDistance = 0.03 } },
+    },
+  },
+}
+```
+
+Setting `triggerLock.enabled = false` disables the lock without disabling smoothing. Custom input readers can supply `Input.trigger`; omitting it bypasses the lock. Source reload applies changes to these Lua modules and settings without restarting the process. A plugin instance reload alone does not clear cached source modules.
+
 ## Panel movement
 
 A grip press while pointing at a movable panel starts a grab and cancels an active trigger gesture. The panel follows controller-relative translation and rotation. While holding grip, the vertical thumbstick axis adjusts distance, and a second grip on the same panel scales it by hand separation. Releasing grip ends the grab and records placement for application panels.
@@ -148,6 +162,7 @@ Native capture and seat changes require a new process; source reload alone does 
 - A plane-rendered application window has the expected scene depth ordering. No default window receives an OpenXR composition layer.
 - Every configured monitor starts capture automatically. Direct capture opens no portal selection when the host supports it. Restart mirror in the monitor titlebar restarts that capture. Select monitors in the titlebar opens a fresh portal selection when required, both granted monitors update, cancellation retains existing capture, and an explicit retry remains possible. X removes the mirror panel without unplugging the monitor; a window's X permits an application confirmation dialog. The host cursor appears with embedded-cursor capture. A portrait monitor has the correct panel aspect, image orientation, and pointer coordinates.
 - Keyboard legends remain complete while moving the head and controllers. Laser rendering does not change panel visibility. The landing indicator remains visible over Plugins, the menu, the keyboard, and application panels.
+- A stationary controller produces a steadier cursor with aim smoothing enabled than disabled. Slow aiming reaches small controls without sticking, and fast sweeps remain responsive. Trigger pressure above 10% holds the displayed target through press and release. Deliberate movement unlocks it without repeatedly relocking during the same pull. Text selection, graph panning, and application dragging remain usable. Tracking reacquisition does not sweep the cursor through the previous position. These checks cover both hands and the available headset refresh rates.
 - Plugins opens a readable entry list with runtime states. Entry selection, Disable, Enable, Graph, Configure, Catalog, and Close work with controller input. Manager-open frame time is compared with manager-closed frame time.
 - Grip on panel content or a titlebar button moves and rotates the panel with the controller. Trigger on the non-button titlebar moves it without application clicks; trigger on a button invokes only that action. The vertical axis adjusts distance, and two-hand resizing remains usable.
 - Reload configuration can run repeatedly without duplicate `laser.left` or `laser.right` seat errors, stale menu controls, or additional keyboard instances.
@@ -161,6 +176,8 @@ The manager exposes search and configuration fields through the shared UI contro
 ## Decisions
 
 Aim smoothing runs before picking so surface selection and rendered feedback use one ray. The adaptive low-pass follows the [1 Euro filter](https://gery.casiez.net/1euro/) approach with separate vector-speed gains for position and direction. It keeps the raw grab pose and button edges because filtering those would delay manipulation and clicks. Per-widget cursor smoothing would require each consumer to keep its rendering and dispatched coordinates synchronized. The shared provider avoids that duplication. The default gains require headset tuning; logic checks do not establish comfort.
+
+The trigger lock uses analog pressure before the digital click edge because controller movement during a pull can move the cursor off a small control. It holds the shared ray rather than individual widget coordinates so native windows and UI panels behave alike. Coarse movement disables the lock until release to preserve dragging and avoid repeated locks. The thresholds require headset tuning.
 
 The wrist menu uses UI controls and menu actions so the shipped keyboard, reload, and workspace controls do not require physical key chords. The neutral bindings provider remains available for custom inputs. Keyboard placement stays in `wristKeyboard` for configurations that change the shared display without changing wrist geometry.
 

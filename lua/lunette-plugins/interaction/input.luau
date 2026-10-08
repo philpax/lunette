@@ -91,6 +91,10 @@ function input.validate(frame: contracts.Input): ()
     finite(value.y, 'input ' .. name .. '.y')
     finite(value.z, 'input ' .. name .. '.z')
   end
+  finite(frame.trigger, 'input trigger')
+  if frame.trigger ~= nil and (frame.trigger < 0 or frame.trigger > 1) then
+    error('interaction: input trigger ranges from 0 to 1', 0)
+  end
   finite(frame.scrollX, 'input scrollX')
   finite(frame.scrollY, 'input scrollY')
   finite(frame.dt, 'input dt')

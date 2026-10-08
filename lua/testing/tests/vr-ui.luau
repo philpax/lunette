@@ -20,7 +20,7 @@ local function boot()
     {
       id = 'laser',
       definition = require('@lunette-plugins/laser').definition,
-      config = { aim = { enabled = false } },
+      config = { aim = { enabled = false }, triggerLock = { enabled = false } },
     },
     'keyboard',
     'desktop/pointing',

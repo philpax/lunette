@@ -41,7 +41,7 @@ test('wrist menu actions are VR accessible and session actions do not register p
   desktop.run {
     workspaces = { workspaces = { { name = 'main' }, { name = 'side' } } },
     patches = {
-      { id = 'laser', config = { aim = { enabled = false } } },
+      { id = 'laser', config = { aim = { enabled = false }, triggerLock = { enabled = false } } },
       { insert = { id = 'session-action-observer', definition = observer } },
     },
   }

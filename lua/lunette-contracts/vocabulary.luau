@@ -79,6 +79,8 @@ export type Input = {
   read pose: Mat4?,
   read origin: vector,
   read direction: vector,
+  -- Analog trigger pressure ranges from 0 to 1; nil means the reader has no analog sample.
+  read trigger: number?,
   read buttons: { read [lunette.PointerButton]: boolean },
   read grip: boolean,
   read scrollX: number?,

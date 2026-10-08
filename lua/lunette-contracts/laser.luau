@@ -53,8 +53,23 @@ export type AimOverride = {
   read resetAfter: number?,
 }
 
+-- Trigger pressure is a fraction; unlockAngle is in radians, and unlockDistance is in metres.
+export type TriggerLock = {
+  read enabled: boolean,
+  read threshold: number,
+  read unlockAngle: number,
+  read unlockDistance: number,
+}
+export type TriggerLockOverride = {
+  read enabled: boolean?,
+  read threshold: number?,
+  read unlockAngle: number?,
+  read unlockDistance: number?,
+}
+
 export type Options = {
   read aim: AimOverride?,
+  read triggerLock: TriggerLockOverride?,
   read seat: lunette.Seat?,
   read name: string?,
   read readInput: ((Hand) -> Input?)?,

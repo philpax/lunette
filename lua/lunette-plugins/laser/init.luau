@@ -9,6 +9,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local input = require '@lunette-plugins/laser/input'
 local draw = require '@lunette-plugins/laser/draw'
 local aim = require '@lunette-plugins/laser/aim'
+local triggerLock = require '@lunette-plugins/laser/trigger-lock'
 local passState = require '@lunette-plugins/pass-state'
 local registry = require '@lunette-plugins/laser/registry'
 local inspection = require '@lunette-contracts/inspection'
@@ -39,6 +40,7 @@ type MutableLaser = registry.MutableLaser
 local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
   local given: Options = options or {}
   local aimSettings = aim.resolve(given.aim, settings.aim)
+  local lockSettings = triggerLock.resolve(given.triggerLock, settings.triggerLock)
   local device = input.devices[hand]
   if not device then
     error("laser: '" .. tostring(hand) .. "' is not a hand a laser is made for", 2)
@@ -68,6 +70,8 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
     end
     local frameInput: Input? = nil
     local aimState: aim.State? = nil
+    local previousRaw: triggerLock.RawAim? = nil
+    local lockState: triggerLock.State = triggerLock.ready()
     local withdrawn = false
     local target: MutableLaser
     target = {
@@ -106,6 +110,8 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         local sampled = self.readInput(self.hand)
         if not sampled then
           aimState = nil
+          previousRaw = nil
+          lockState = triggerLock.ready()
           target.input = nil
           if not withdrawn then
             withdrawn = true
@@ -113,8 +119,20 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
           end
           return
         end
-        local frame, nextAim = aim.update(aimState, sampled, aimSettings)
+        local filtered, nextAim = aim.update(aimState, sampled, aimSettings)
         aimState = nextAim
+        local frame, nextLock = triggerLock.update(lockState, {
+          raw = sampled,
+          filtered = filtered,
+          previous = target.input,
+          previousRaw = previousRaw,
+          hovered = self.pointer.hovered,
+          grabbed = self.pointer.grabbed,
+          surfaces = surfaces,
+          resetAfter = aimSettings.resetAfter,
+        }, lockSettings)
+        lockState = nextLock
+        previousRaw = { origin = sampled.origin, direction = sampled.direction }
         target.input = frame
         withdrawn = false
         local before = self.pointer.hovered
