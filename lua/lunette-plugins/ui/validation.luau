@@ -34,6 +34,7 @@ local PANEL = {
   logicalHeight = true,
   visible = true,
   grabbable = true,
+  grabTarget = true,
   theme = true,
   draw = true,
 }
@@ -77,6 +78,13 @@ function validation.panel(options: ui.PanelOptions): ui.PanelOptions
   end
   optional(booleanValue, options.visible, 'ui panel visible')
   optional(booleanValue, options.grabbable, 'ui panel grabbable')
+  local grabTarget = options.grabTarget
+  if grabTarget ~= nil then
+    assert(type(grabTarget) == 'table', 'ui panel grabTarget: expected a surface')
+    assert(type(grabTarget.dead) == 'boolean', 'ui panel grabTarget: expected a surface dead flag')
+    assert(type(grabTarget.raycast) == 'function', 'ui panel grabTarget: expected a surface raycast')
+    assert(type(grabTarget.setPose) == 'function', 'ui panel grabTarget: expected a movable surface')
+  end
   callback(options.draw, 'ui panel draw')
   local overrides = theme.copyOverrides(options.theme)
   local pose = if options.pose ~= nil then lovr.math.newMat4(geometry.validatePose(options.pose)) else nil
@@ -89,6 +97,7 @@ function validation.panel(options: ui.PanelOptions): ui.PanelOptions
     logicalHeight = options.logicalHeight,
     visible = options.visible,
     grabbable = options.grabbable,
+    grabTarget = grabTarget,
     theme = overrides,
     draw = options.draw,
   }

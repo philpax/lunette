@@ -50,6 +50,8 @@ The `menu` section configures the wrist Menu control in `desktop/menu`. Its desc
 
 The `wristKeyboard` section configures only keyboard placement in `desktop/keyboard`. Its descriptor is in `lua/lunette-plugins/desktop/keyboard/config.luau`; `placement.distance`, `placement.drop`, and `placement.tilt` default to 0.55 metres, 0.35 metres, and `math.pi / 6` radians. It does not configure the `keyboard` service provider. A raw patch can replace that provider while settings configure the display provider, as in `examples/keyboard/main.luau`. `desktop/keyboard` publishes `lunette/keyboard-display` and lazily reuses one board. Focusing a local text field shows that board; switching fields keeps its pose. A manual show keeps it visible after editing ends. Explicit hide or the board's Hide action ends the matching field focus without discarding its draft.
 
+`desktop/monitors` starts capture for every host monitor unless `settings.monitors.select` restricts the set. Capture uses the pinned WayVR `wlr-screencopy` implementation when available, with PipeWire and the host portal as the fallback. Direct capture does not require monitor selection. Each decorated monitor panel has Restart mirror and X controls in its titlebar. Select monitors appears only when that monitor does not use direct capture. Restart mirror dismisses and restarts that monitor's capture. Select monitors opens a fresh portal selection for hosts that require permission. Existing mirrors continue while the dialog is pending or cancelled. Cancellation does not reopen the dialog; another selection requires an explicit action. Source reload retains capture streams reused by the replacement configuration. Saved monitor placement restores the width and derives the height from the current monitor aspect ratio. The selection control disables while permission is pending and permits an explicit retry after failure. X stops mirroring and removes the panel without unplugging the host monitor. A window's X sends an application close request and leaves the panel present until the client unmaps it. Grip on panel content or any titlebar control moves the panel. Trigger on the non-button titlebar also moves it; trigger on a button activates that button. The controls follow the panel's pose and visibility. A UI-provider outage removes the controls without stopping capture. The host portal owns the permission dialog. Cursor pixels appear when the backend supports embedded cursor capture. Metadata-only cursor presentation remains unimplemented.
+
 `settings.bindings` and the shipped `desktop/bindings` entry are removed. Reload uses the wrist menu. The neutral `bindings` provider remains available for custom input bindings. The `hand`, `size`, `offset`, and `haptic` fields of `settings.wristKeyboard` are removed; configurations place them in `settings.menu` instead. Composition reports these removed settings rather than ignoring them.
 
 Settings follow the entry's configuration descriptor. Declared objects merge recursively with the entry's existing configuration. Arrays, maps, unions, and atomic values replace; an empty map clears its previous keys. Composition copies and freezes descriptor-declared object and collection containers. Callback and custom values retain their exact references, and non-plain native values such as vectors retain their values. For a factory entry, composition retains configuration layers until the factory supplies a definition. The definition's descriptor then determines merging and copying; managed preflight or instance activation performs validation. A setting and a raw patch cannot name the same entry, even when the patch only disables or replaces it. Composition reports both sources. One combined raw patch supplies the configuration when replacing that entry's definition.
@@ -109,6 +111,30 @@ The supplied id may differ from the definition's name. The patch only carries th
 The existing `plugin.configure(target)(config)` and `desktop.configure(target)(config)` remain compatible. They use the definition's name as the id and invoke a factory to discover that name. `configureEntry` is the appropriate helper when an id differs from a name or configuration must not construct a definition.
 
 [Writing plugins](writing-plugins.md) describes provider substitution and plugin authoring. The [desktop example](../../examples/desktop/main.luau) combines settings, typed entry patches, workspaces, and inserted plugins.
+
+## Panel movement
+
+A grip press while pointing at a movable panel starts a grab and cancels an active trigger gesture. The panel follows controller-relative translation and rotation. While holding grip, the vertical thumbstick axis adjusts distance, and a second grip on the same panel scales it by hand separation. Releasing grip ends the grab and records placement for application panels.
+
+`lua/lunette-plugins/interaction/config.luau` defines the reach and resize bounds. The `constrain` pose hook can supply a custom placement constraint.
+
+## Window rendering
+
+The built-in panels provider draws windows and monitor mirrors in the scene by default. This allows scene depth and session controls to cover window content. A typed patch `desktop.configureEntry('panels', require('@lunette-plugins/panels').definition) { rendering = 'layer' }` opts windows into OpenXR composition layers. Those layers can produce sharper text, but the runtime composites them after the scene, without its depth ordering. A window falls back to scene rendering while its layer claim is not granted. Monitor mirrors remain in the scene in either mode.
+
+## Headset verification
+
+Native capture and seat changes require a new process; source reload alone does not replace the running binary. `make run` builds and starts the repository development configuration. The manual acceptance checklist covers the following results:
+
+- A gray ramp and familiar desktop content have matching brightness in the host display and mirror, including translucent window edges.
+- A plane-rendered application window has the expected scene depth ordering. No default window receives an OpenXR composition layer.
+- Every configured monitor starts capture automatically. Direct capture opens no portal selection when the host supports it. Restart mirror in the monitor titlebar restarts that capture. Select monitors in the titlebar opens a fresh portal selection when required, both granted monitors update, cancellation retains existing capture, and an explicit retry remains possible. X removes the mirror panel without unplugging the monitor; a window's X permits an application confirmation dialog. The host cursor appears with embedded-cursor capture. A portrait monitor has the correct panel aspect, image orientation, and pointer coordinates.
+- Keyboard legends remain complete while moving the head and controllers. Laser rendering does not change later panel visibility.
+- Plugins opens a readable entry list with runtime states. Entry selection, Disable, Enable, Graph, Configure, Catalog, and Close work with controller input. Manager-open frame time is compared with manager-closed frame time.
+- Grip on panel content or a titlebar button moves and rotates the panel with the controller. Trigger on the non-button titlebar moves it without application clicks; trigger on a button invokes only that action. The vertical axis adjusts distance, and two-hand resizing remains usable.
+- Reload configuration can run repeatedly without duplicate `laser.left` or `laser.right` seat errors, stale menu controls, or additional keyboard instances.
+
+Logic-headless tests do not establish these visual, timing, or comfort results.
 
 ## Known gaps
 

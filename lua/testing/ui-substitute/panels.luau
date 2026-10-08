@@ -32,6 +32,11 @@ function panels.new(provider, owner, options)
     dead = false,
     kind = nil,
     grabbable = options.grabbable ~= false,
+    grabTarget = if options.grabTarget
+      then function()
+        return options.grabTarget
+      end
+      else nil,
     pose = if options.pose then lovr.math.newMat4(options.pose) else lovr.math.newMat4(),
     width = options.width,
     height = options.height,
@@ -287,7 +292,8 @@ function panels.new(provider, owner, options)
     handle:setPose(pose)
   end
   function panel.surface.setSize(_, width, height)
-    handle:setSize(width or panel.surface.width, height or panel.surface.height)
+    local nextWidth = width or panel.surface.width
+    handle:setSize(nextWidth, height or panel.surface.height * nextWidth / panel.surface.width)
   end
   function handle.setVisible(_: ui.Panel, value: boolean)
     if not panel.live() or panel.visible == value then

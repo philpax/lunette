@@ -69,4 +69,25 @@ test('collection gestures released beyond reach do not activate from projected c
   end
 end)
 
+test('grab surface width changes preserve world aspect and logical hit geometry', function()
+  local state = fixture.boot()
+  local ok, failure = pcall(function()
+    local observed = state.fixture.session:observe(surfaces.capability)
+    local offered = observed.service:all()[1]
+    local before = state.panel:describe()
+    offered:setSize(before.width * 1.5)
+    local after = state.panel:describe()
+    expect.near(after.width, before.width * 1.5, 1e-5)
+    expect.near(after.height, before.height * 1.5, 1e-5, 'the grab adapter scales both world dimensions')
+    expect.equal(after.logicalWidth, before.logicalWidth, 'logical controls are not relaid out')
+    expect.equal(after.logicalHeight, before.logicalHeight)
+    state.fixture:clickControl(state.service, 'public-ui-form', 'run')
+    expect.equal(#state.activations, 1, 'resized geometry remains controller accessible')
+  end)
+  state.fixture:close()
+  if not ok then
+    error(failure, 0)
+  end
+end)
+
 return test

@@ -7,6 +7,8 @@ local surface = require '@lunette-contracts/surface'
 local surfaces = require '@lunette-contracts/surfaces'
 
 local config = require '@lunette-plugins/desktop/decorations/config'
+local controls = require '@lunette-plugins/desktop/decorations/controls'
+local passState = require '@lunette-plugins/pass-state'
 
 export type Color = config.Color
 export type Style = config.Style
@@ -71,7 +73,7 @@ return plugin.consumer<<Config, Settings>>({
           return nil, nil, nil
         end
         placeBar(decoration)
-        return quad.hit({
+        local x, y, distance = quad.hit({
           pose = decoration.pose,
           width = panel.width,
           height = style.barHeight,
@@ -79,6 +81,10 @@ return plugin.consumer<<Config, Settings>>({
           pixelHeight = 1,
           backFace = backFace,
         }, origin, direction)
+        if x and x >= 1 - controls.layout(panel, style).width / panel.width then
+          return nil, nil, nil
+        end
+        return x, y, distance
       end
       local function setPose(_self: surface.Surface, pose: Mat4): ()
         if panel.dead then
@@ -98,6 +104,7 @@ return plugin.consumer<<Config, Settings>>({
           source = panel.source,
           dead = false,
           grabbable = true,
+          triggerGrabbable = true,
           pose = pose,
           height = style.barHeight,
           raycast = raycast,
@@ -111,6 +118,7 @@ return plugin.consumer<<Config, Settings>>({
           source = panel.source,
           dead = false,
           grabbable = true,
+          triggerGrabbable = true,
           pose = pose,
           height = style.barHeight,
           raycast = raycast,
@@ -158,6 +166,7 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
 
+    context:child(controls.definition(style), {})
     frameService:onDraw(context, {
       phase = 'scene',
       run = function(pass: Pass)
@@ -182,14 +191,26 @@ return plugin.consumer<<Config, Settings>>({
               then panel.title or panel.source.title
               else panel.title or panel.source.name
             if title then
-              setColor(pass, style.titleColor)
-              pass:text(
-                title,
-                lovr.math.mat4(decoration.pose):translate(0, 0, 0.001):scale(vector.pack(style.titleHeight)),
-                0,
-                'center',
-                'middle'
-              )
+              local reserved = controls.layout(panel, style).width
+              local available = panel.width - reserved
+              passState.withRestore(pass, function()
+                pass:setShader()
+                pass:setMaterial(nil)
+                pass:setFont(lovr.graphics.getDefaultFont())
+                pass:setDepthTest()
+                pass:setDepthWrite(false)
+                setColor(pass, style.titleColor)
+                pass:text(
+                  title,
+                  lovr.math
+                    .mat4(decoration.pose)
+                    :translate(-reserved / 2, 0, 0.001)
+                    :scale(vector.pack(style.titleHeight)),
+                  available / style.titleHeight,
+                  'center',
+                  'middle'
+                )
+              end)
             end
           end
         end

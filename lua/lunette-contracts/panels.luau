@@ -58,6 +58,8 @@ type PanelFields = {
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, Visibility) -> plugin.Effect,
+  -- Requests window closure or dismisses and removes a monitor panel; the caller must be live.
+  read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
 }
 
@@ -91,7 +93,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/panels', schema = 1 }
+local capability = plugin.capability<<Service>> { name = 'lunette/panels', schema = 2 }
 
 panels.capability = capability
 

@@ -74,14 +74,20 @@ test('keyboard and error stream outages remove only what depends on them', funct
     return nil
   end
   local reload = assert(action 'desktop/reload')
+  frame(env)
+  local withoutKeyboard = #env.surfaces:all()
   for round = 1, 3 do
     local context = 'round ' .. round
     display.service:show()
     frame(env)
-    expect.equal(#env.surfaces:all(), 6, context .. ': showing acquires one keyboard surface')
+    expect.equal(#env.surfaces:all(), withoutKeyboard + 1, context .. ': showing acquires one keyboard surface')
     env.instances.keyboard:disable()
     expect.equal(env.panels:forSource(events.windows[1]), initial, context .. ': the panel stays')
-    expect.equal(#env.surfaces:all(), 5, context .. ': the outage removes the keyboard, not the wrist menu')
+    expect.equal(
+      #env.surfaces:all(),
+      withoutKeyboard,
+      context .. ': the outage removes the keyboard, not the wrist menu'
+    )
     expect.equal(env.instances['desktop/menu']:state(), 'active', context .. ': menu rendering survives')
     expect.equal(env.instances['desktop/actions']:state(), 'active', context .. ': reload consumer survives')
     expect.equal(action 'desktop/keyboard/toggle', nil, context .. ': only Keyboard disappears')
@@ -89,13 +95,13 @@ test('keyboard and error stream outages remove only what depends on them', funct
     frame(env)
     expectSources(env, context .. ', keyboard outage')
     env.instances.keyboard:enable()
-    expect.equal(#env.surfaces:all(), 5, context .. ': recovery keeps the keyboard lazy')
+    expect.equal(#env.surfaces:all(), withoutKeyboard, context .. ': recovery keeps the keyboard lazy')
     expect.equal(env.instances['desktop/actions']:state(), 'active', context .. ': reload consumer stays active')
     expect.truthy(action 'desktop/keyboard/toggle', context .. ': Keyboard reconnects')
     expect.equal(assert(action 'desktop/reload').registration, reload.registration, context .. ': Reload is unchanged')
     display.service:show()
     frame(env)
-    expect.equal(#env.surfaces:all(), 6, context .. ': showing creates one replacement keyboard')
+    expect.equal(#env.surfaces:all(), withoutKeyboard + 1, context .. ': showing creates one replacement keyboard')
 
     env.instances.errors:disable()
     expect.equal(native.subscriptionCount 'onError', 0, context .. ': the stream ends its subscription')
@@ -156,7 +162,7 @@ test('a surfaces outage stops pointing and decorations and leaves the panels dra
   expect.equal(events.textures, 1, 'the panel draws during the outage')
   env.instances.surfaces:enable()
   frame(env)
-  expect.equal(#env.surfaces:all(), 3, 'recovery offers the panel, its bar, and the wrist menu again')
+  expect.equal(#env.surfaces:all(), 4, 'recovery offers the panel, its bar, its buttons, and the wrist menu again')
   env.session:close()
 end)
 

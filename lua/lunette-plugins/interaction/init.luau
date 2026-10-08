@@ -42,6 +42,7 @@ type State = {
   pendingCaptures: { [input.Capture]: { reason: contracts.CancelReason? } },
   pressedSink: { [lunette.PointerButton]: input.NativePress },
   gripped: boolean,
+  grabInput: 'grip' | 'trigger',
   pulse: ((contracts.Haptic) -> boolean)?,
 }
 
@@ -181,6 +182,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     if not live(state) or state.generation ~= generation or target.dead then
       return false
     end
+    state.grabInput = 'grip'
     return carrying.beginGrab(pointer, target, pose)
   end
 
@@ -222,7 +224,8 @@ local function build(context: plugin.Context, settings: Settings): Service
     local gripped, grabbed = frame.grip, state.grabbed
     if grabbed then
       state.gripped = gripped
-      if grabbed.dead or not gripped or not offeredSet[grabbed] then
+      local held = if state.grabInput == 'trigger' then sample.held.left == true else gripped
+      if grabbed.dead or not held or not offeredSet[grabbed] then
         local releases = input.releases(state, pointer, sample)
         local inverses = {
           function()
@@ -281,7 +284,24 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     local startingGrab = hit and gripped and not state.gripped and hit.grabbable ~= false
     state.gripped = gripped
-    if startingGrab and hit and beginGrab(state, pointer, hit, frame.pose) then
+    local triggerGrab = hit and hit.triggerGrabbable == true and sample.down.left == true
+    local grabTarget: Surface? = hit
+    if (startingGrab or triggerGrab) and hit and hit.grabTarget then
+      grabTarget = hit:grabTarget()
+      if not current() then
+        return
+      end
+    end
+    if
+      (startingGrab or triggerGrab)
+      and grabTarget
+      and offeredSet[grabTarget]
+      and beginGrab(state, pointer, grabTarget, frame.pose)
+    then
+      state.grabInput = if startingGrab then 'grip' else 'trigger'
+      if triggerGrab then
+        state.blocked.left = true
+      end
       return
     end
     if not current() then
@@ -342,6 +362,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       hitY = nil,
       distance = nil,
       gripped = false,
+      grabInput = 'grip',
       held = {},
       pressed = {},
       blocked = {},

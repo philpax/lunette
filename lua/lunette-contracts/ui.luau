@@ -187,6 +187,8 @@ export type PanelOptions = {
   read logicalHeight: number,
   read visible: boolean?,
   read grabbable: boolean?,
+  -- Grip moves this offered owning surface instead of the UI panel itself.
+  read grabTarget: surface.Surface?,
   read theme: ThemeOverrides?,
   read draw: DrawHook?,
 }

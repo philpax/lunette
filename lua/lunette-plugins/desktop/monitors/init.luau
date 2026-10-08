@@ -131,7 +131,7 @@ return plugin.consumer<<Config, Settings>>({
       local mirrored = context:effect(function(): () -> ()
         monitor:mirror()
         return function(): ()
-          if not monitor.dead then
+          if not monitor.dead and (monitor.mirrored or monitor.pending) then
             monitor:dismiss()
           end
         end

@@ -167,6 +167,10 @@ export type Pointer = {
 type SurfaceFields = {
   read dead: boolean,
   read grabbable: boolean?,
+  -- A primary-button edge begins a spatial grab instead of a click on this surface.
+  read triggerGrabbable: boolean?,
+  -- A composite surface can direct its grab to an owning surface offered alongside it.
+  read grabTarget: ((Surface) -> Surface?)?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
@@ -188,6 +192,8 @@ type SurfaceFields = {
 type MovableFields = {
   read dead: boolean,
   read grabbable: boolean?,
+  read triggerGrabbable: boolean?,
+  read grabTarget: ((Surface) -> Surface?)?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,

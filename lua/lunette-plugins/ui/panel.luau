@@ -163,6 +163,11 @@ function panel.new(
     kind = nil,
     dead = false,
     grabbable = state.grabbable,
+    grabTarget = if options.grabTarget
+      then function(_self: surface.Surface): surface.Surface?
+        return options.grabTarget
+      end
+      else nil,
     pose = state.pose,
     width = state.width,
     height = state.height,
@@ -199,12 +204,15 @@ function panel.new(
       setPose(given)
     end,
     setSize = function(_self: surface.Surface, width: number?, height: number?): ()
-      setSize(width or state.width, height or state.height, nil, nil)
+      local nextWidth = width or state.width
+      local nextHeight = height or (state.height * nextWidth / state.width)
+      setSize(nextWidth, nextHeight, nil, nil)
     end,
   }
   local surfaceMethods: { read [string]: unknown } = {
     kind = surfaceBase.kind,
     grabbable = surfaceBase.grabbable,
+    grabTarget = surfaceBase.grabTarget,
     raycast = surfaceBase.raycast,
     project = surfaceBase.project,
     onPointer = surfaceBase.onPointer,

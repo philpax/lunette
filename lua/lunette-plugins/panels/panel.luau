@@ -79,6 +79,7 @@ type MutablePanel = {
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, contracts.Visibility) -> plugin.Effect,
+  read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
 }
 export type Source =
@@ -165,6 +166,17 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       end
       plugin.rejectUnknownFields('panels setHidden', visibility, VISIBILITY_KEYS, 'hidden', 2)
       return panel.setHidden(created, caller, visibility.hidden)
+    end,
+    close = function(_self: Panel, caller: Owner): boolean
+      if created.dead or created.source.dead then
+        return false
+      end
+      host.checkOwner(caller)
+      if created.kind == 'window' then
+        return created.source:close()
+      end
+      created.source:dismiss()
+      return panel.retire(created)
     end,
     destroy = function(_self: Panel, caller: Owner): boolean
       if created.dead then
